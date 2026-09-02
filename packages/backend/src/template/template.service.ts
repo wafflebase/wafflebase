@@ -20,13 +20,24 @@ import { FolderService } from '../folder/folder.service';
 import {
   BrowseTemplatesDto,
   PublishTemplateDto,
+  ReviewTemplateDto,
+  SubmitTemplateDto,
   UpdateTemplateDto,
   UseTemplateDto,
 } from './template.dto';
 import { normalizeTags } from './template-taxonomy';
 import { findExternalDataTabs } from './template-content-guard';
+import { assertDecisionAllowed, assertPublicTierOpen } from './template-review';
 import { YorkieService } from '../yorkie/yorkie.service';
 import { ImageService } from '../image/image.service';
+import { NotificationService } from '../notification/notification.service';
+
+/**
+ * How many pending submissions the queue page shows at once. A ceiling rather
+ * than paging: the allowlist keeps the reviewer pool small by construction, so
+ * a queue deeper than this is an operational signal, not a page to turn.
+ */
+const REVIEW_QUEUE_LIMIT = 100;
 
 /**
  * What a caller is told about a listing. Deliberately not the raw row:
@@ -55,6 +66,23 @@ export interface TemplateListingView {
   previewToken: string | null;
   /** Whether the caller may edit or unpublish this listing. */
   canManage: boolean;
+  /**
+   * The review decision, and only for a manager.
+   *
+   * A rejected or removed listing is one its publisher can no longer edit,
+   * republish or unpublish, so "why" has to be reachable somewhere they can
+   * see it. The notification carries the same note, but it is best-effort and
+   * is suppressed entirely when the reviewer *is* the publisher — the listing
+   * itself is the durable copy.
+   *
+   * Withheld from everyone else: a reviewer's note is written for the
+   * publisher, not for the gallery.
+   */
+  review: {
+    submittedAt: string | null;
+    reviewedAt: string | null;
+    note: string | null;
+  } | null;
 }
 
 /**
@@ -102,6 +130,7 @@ export class TemplateService {
     private readonly folderService: FolderService,
     private readonly yorkieService: YorkieService,
     private readonly imageService: ImageService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -194,7 +223,17 @@ export class TemplateService {
     // `visibility` defaulting to `unlisted` would silently widen a
     // workspace-scoped listing to anyone holding its id.
     const visibility = dto.visibility ?? existing?.visibility ?? 'unlisted';
-    assertPublishable(visibility);
+    assertPublishable(visibility, existing?.visibility);
+
+    // A taken-down listing is not re-publishable. Everything below would
+    // otherwise undo the takedown: `status` would return to `listed` and the
+    // revoked preview link would be re-minted, handing the publisher a
+    // one-call reversal of a moderation decision.
+    if (existing?.status === 'removed') {
+      throw new BadRequestException(
+        'This template was removed by a reviewer and cannot be republished',
+      );
+    }
 
     // Minted through `ShareLinkService` rather than Prisma directly so link
     // creation keeps a single source of truth. A republish reuses the live
@@ -211,7 +250,12 @@ export class TemplateService {
       tags: dto.tags ? normalizeTags(dto.tags) : (existing?.tags ?? []),
       thumbnailId: dto.thumbnailId ?? existing?.thumbnailId ?? null,
       visibility,
-      status: 'listed',
+      // Preserved, never reset. `publish` is an upsert on a re-publishable
+      // route, and a listing under review or already decided has a review
+      // state that is not the publisher's to clear: writing `'listed'` here
+      // unconditionally let one republish reverse a reviewer's decision. Only
+      // a first publish gets the default, which the `create` branch supplies.
+      ...(existing ? { status: existing.status } : { status: 'listed' }),
       licensedAt: dto.acceptLicense
         ? new Date()
         : (existing?.licensedAt ?? null),
@@ -245,7 +289,12 @@ export class TemplateService {
     await this.assertManager(listing.documentId, userId);
 
     const visibility = dto.visibility ?? listing.visibility;
-    assertPublishable(visibility);
+    assertPublishable(visibility, listing.visibility);
+    if (listing.status === 'removed') {
+      throw new BadRequestException(
+        'This template was removed by a reviewer and cannot be edited',
+      );
+    }
 
     const updated = await this.prisma.templateListing.update({
       where: { id },
@@ -274,6 +323,174 @@ export class TemplateService {
   }
 
   /**
+   * Ask for the public tier.
+   *
+   * The one thing this does **not** do is change what anyone can see. It moves
+   * `status` to `pending` and leaves `visibility` exactly where it was, so an
+   * unlisted link already handed out keeps resolving and a workspace listing
+   * stays workspace-scoped while a reviewer looks at it. Approval is the only
+   * writer of `visibility: 'public'`.
+   *
+   * Manager-gated like publishing, and for the same reason: it offers the
+   * document to an audience membership no longer bounds.
+   */
+  async submit(
+    id: string,
+    userId: number,
+    dto: SubmitTemplateDto,
+  ): Promise<TemplateListingView> {
+    assertPublicTierOpen();
+
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+    });
+    if (!listing) throw new NotFoundException('Template not found');
+    await this.assertManager(listing.documentId, userId);
+
+    if (!dto.acceptLicense) {
+      throw new BadRequestException(
+        'Submitting to the public gallery requires granting others permission to copy and modify this template',
+      );
+    }
+    if (listing.status === 'pending') {
+      throw new BadRequestException('This template is already under review');
+    }
+    if (listing.status === 'removed') {
+      throw new BadRequestException(
+        'This template was removed by a reviewer and cannot be resubmitted',
+      );
+    }
+    // Re-review of a listing that is *already* public is refused here rather
+    // than allowed, because moving `status` to `pending` would drop it out of
+    // `browse({scope:'public'})` and out of `isVisibleTo` — taking a live
+    // listing offline for the duration of a review, which is the one thing
+    // this verb promises never to do. Re-review needs the listing to keep
+    // serving its approved frozen copy while a revision is judged, and that
+    // copy does not exist until 3b.
+    if (listing.visibility === 'public') {
+      throw new BadRequestException(
+        'This template is already public. Re-reviewing a published template is not supported yet',
+      );
+    }
+
+    const updated = await this.prisma.templateListing.update({
+      where: { id },
+      data: {
+        status: 'pending',
+        submittedAt: new Date(),
+        licensedAt: listing.licensedAt ?? new Date(),
+        // The previous decision is cleared, not kept: a resubmission is a new
+        // question, and leaving a stale rejection note attached would show the
+        // publisher a reason that no longer refers to anything.
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewNote: null,
+      },
+      include: LISTING_INCLUDE,
+    });
+    return toView(updated, true);
+  }
+
+  /**
+   * Decide a submission, or take a listing down.
+   *
+   * Authorization is the reviewer allowlist, checked by `TemplateReviewerGuard`
+   * on the route — this method is reached only by someone on it, and takes the
+   * reviewer's id so the decision is attributable.
+   *
+   * `approve` re-checks {@link assertPublicTierOpen} rather than trusting that
+   * `submit` did: the two are separate requests, and a listing could have been
+   * submitted while the tier was open and decided after it closed.
+   */
+  async review(
+    id: string,
+    reviewerId: number,
+    dto: ReviewTemplateDto,
+  ): Promise<TemplateListingView> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+      include: LISTING_INCLUDE,
+    });
+    if (!listing) throw new NotFoundException('Template not found');
+    assertDecisionAllowed(listing.status, dto.decision);
+    if (dto.decision === 'approve') assertPublicTierOpen();
+
+    const decidedAt = new Date();
+    const decided = {
+      reviewedAt: decidedAt,
+      reviewedBy: reviewerId,
+      reviewNote: dto.note ?? null,
+    };
+
+    if (dto.decision === 'takedown') {
+      // The link goes first and its failure is allowed to throw, for the same
+      // reason `unpublish` revokes before deleting: the preview link is a live
+      // non-expiring capability on the document, so a row marked `removed`
+      // while the link survived would read as "taken down" in every UI while
+      // the content stayed anonymously readable.
+      if (listing.shareLinkId) {
+        await this.prisma.shareLink.delete({
+          where: { id: listing.shareLinkId },
+        });
+      }
+    }
+
+    const updated = await this.prisma.templateListing.update({
+      where: { id },
+      data:
+        dto.decision === 'approve'
+          ? { ...decided, status: 'listed', visibility: 'public' }
+          : dto.decision === 'reject'
+            ? // `visibility` untouched: a rejection is a verdict on the
+              // gallery submission, not on the publisher's own sharing, so
+              // the listing keeps working at the tier it already had.
+              { ...decided, status: 'rejected' }
+            : { ...decided, status: 'removed', visibility: 'unlisted' },
+      include: LISTING_INCLUDE,
+    });
+
+    // Best-effort, like `useCount`: the decision is recorded and the publisher
+    // can see it on their own listing, so a notification failure must not undo
+    // a takedown or strand a reviewer mid-queue.
+    await this.notificationService
+      .createTemplateReviewed({
+        listing: updated,
+        reviewerId,
+        decision: dto.decision,
+        note: dto.note,
+        decidedAt,
+      })
+      .catch((err) => {
+        this.logger.warn(`failed to notify review of ${id}: ${err}`);
+      });
+
+    return toView(updated, false, true);
+  }
+
+  /**
+   * The reviewer queue: submissions awaiting a decision, **oldest first** —
+   * it is a queue, so the longest wait is the next decision.
+   *
+   * Unlike every other collection here this **does** carry `previewToken`, and
+   * that is deliberate rather than an oversight of the rule that keeps it out
+   * of `browse()`. A reviewer is neither a member of the publisher's workspace
+   * nor a manager of the document, so `findForViewer` would answer `404` for
+   * exactly the listings they are meant to look at — and reviewing content
+   * means being able to see it. The capability is bounded to submissions,
+   * which their publisher volunteered for review, and to the allowlist the
+   * route's guard enforces.
+   */
+  async listForReview(): Promise<TemplateListingView[]> {
+    const rows = await this.prisma.templateListing.findMany({
+      where: { status: 'pending' },
+      orderBy: [{ submittedAt: 'asc' }, { id: 'asc' }],
+      take: REVIEW_QUEUE_LIMIT,
+      include: LISTING_INCLUDE,
+    });
+    return rows.map((listing) => toView(listing, false, true));
+  }
+
+  /**
    * Unpublish: the listing goes, the document stays. The preview share link is
    * revoked with it — leaving it behind would keep the document anonymously
    * readable after the publisher believed they had withdrawn it.
@@ -293,6 +510,20 @@ export class TemplateService {
     });
     if (!listing) throw new NotFoundException('Template not found');
     await this.assertManager(listing.documentId, userId);
+
+    // A taken-down listing is not the publisher's to delete, and the reason is
+    // not tidiness. `publish` refuses to republish a `removed` row — but it
+    // reads that status off the *existing* row, so deleting it first makes the
+    // next publish a `create`, which mints a fresh non-expiring anonymous
+    // preview link to the very content a reviewer removed. Unpublish → publish
+    // would otherwise reverse a takedown with two buttons that already ship.
+    // The row stays as the tombstone the state machine needs; it is already
+    // invisible to everyone but its manager, so keeping it costs nothing.
+    if (listing.status === 'removed') {
+      throw new BadRequestException(
+        'This template was removed by a reviewer and cannot be unpublished',
+      );
+    }
 
     if (listing.shareLinkId) {
       await this.prisma.shareLink.delete({
@@ -363,6 +594,14 @@ export class TemplateService {
       include: LISTING_INCLUDE,
     });
     if (!listing) throw new NotFoundException('Template not found');
+    // A takedown refuses everyone, including the publisher — unlike a *read*,
+    // which a manager keeps so they can see the decision and its reason. The
+    // listing is what was removed, and using it is the one action that spreads
+    // the content further. The publisher's own document is untouched and still
+    // copyable through `POST /documents/:id/copy`.
+    if (listing.status === 'removed') {
+      throw new NotFoundException('Template not found');
+    }
     if (
       !(await this.isVisibleTo(listing, userId)) &&
       !(await this.isManagerOf(listing, userId))
@@ -435,7 +674,7 @@ export class TemplateService {
     userId?: number,
   ): Promise<TemplateBrowsePage> {
     const limit = dto.limit ?? 24;
-    const where: Prisma.TemplateListingWhereInput = { status: 'listed' };
+    const where: Prisma.TemplateListingWhereInput = {};
     // Filters that constrain the *document* share one relation clause; Prisma
     // would otherwise let a later assignment overwrite an earlier one.
     const documentWhere: Prisma.DocumentWhereInput = {};
@@ -454,12 +693,24 @@ export class TemplateService {
       );
       membershipRole = member.role;
       where.visibility = 'workspace';
+      // Everything except a takedown. The status column is a *review* state,
+      // and review only ever decides the public tier — so filtering a
+      // workspace gallery on `status: 'listed'` would make a listing vanish
+      // from its own workspace's tab the moment its owner submitted it for
+      // public review, and stay gone after a rejection. Submitting is
+      // deliberately observable to nobody; this is where that property is
+      // kept for the workspace tier.
+      where.status = { not: 'removed' };
       // The *document's* current workspace, not the listing's denormalized
       // copy — the same rule `isVisibleTo` follows, so a moved document leaves
       // its old workspace's gallery.
       documentWhere.workspaceId = member.workspaceId;
     } else {
       where.visibility = 'public';
+      // The public gallery is the one place `listed` is the whole story: a
+      // pending or rejected listing is not public, and a removed one is not
+      // anything.
+      where.status = 'listed';
     }
 
     if (dto.type) documentWhere.type = dto.type;
@@ -547,6 +798,11 @@ export class TemplateService {
       userId,
     );
     if (!membership && !canManage) return null;
+    // A takedown refuses every non-manager read, and this is a read. Membership
+    // is the gate here rather than visibility, so without this a plain member
+    // of the workspace would still get the removed listing's metadata back
+    // through the Share dialog's own lookup.
+    if (listing.status === 'removed' && !canManage) return null;
     return toView(listing, canManage);
   }
 
@@ -554,6 +810,11 @@ export class TemplateService {
     listing: TemplateListing & { document: DocumentModel },
     userId?: number,
   ): Promise<boolean> {
+    // Before the visibility switch, not inside it. A takedown writes
+    // `status: 'removed'` *and* `visibility: 'unlisted'`, and the unlisted arm
+    // below returns true unconditionally — so a check placed per-tier would
+    // never run for the one tier a taken-down listing is guaranteed to be in.
+    if (listing.status === 'removed') return false;
     if (listing.visibility === 'public') return listing.status === 'listed';
     // The listing id is a v4 UUID, so it carries the same 122 bits an unlisted
     // share token does: holding it *is* the capability.
@@ -600,26 +861,40 @@ const LISTING_INCLUDE = {
 } as const;
 
 /**
- * The `public` tier needs a review pipeline and an explicit license grant
- * before anything may enter it (docs/design/template-gallery.md, Phase 3).
- * Neither exists yet, so publishing there is refused rather than silently
- * downgraded — a publisher who asked for "public" and got "unlisted" would
- * believe their template was in the gallery.
+ * Refuse a *transition into* the `public` tier from the publish/update routes.
  *
- * `acceptLicense` is already accepted and recorded (`licensedAt`) so a
- * publisher who granted it before Phase 3 lands does not have to re-grant it;
- * it is not yet sufficient on its own.
+ * The distinction from "refuse the presence of `public`" is load-bearing, and
+ * getting it wrong is not theoretical: both `publish()` and `update()` fall
+ * back to the stored visibility when the body omits one, so a check on the
+ * value alone would make an approved listing permanently unpublishable *and*
+ * unrenamable — while this feature's whole design says a publisher keeps
+ * editing their document and republishing re-enters review.
+ *
+ * `visibility: 'public'` has exactly one writer: the approve arm of
+ * `review()`. A publisher asks for it through `submit()`, which moves `status`
+ * and leaves the tier alone.
+ *
+ * `acceptLicense` is accepted and recorded (`licensedAt`) on these routes so a
+ * publisher who granted it does not have to re-grant it at submission; it is
+ * not sufficient on its own.
  */
-function assertPublishable(visibility: string): void {
+function assertPublishable(visibility: string, current?: string): void {
   if (visibility !== 'public') return;
+  if (current === 'public') return;
   throw new BadRequestException(
-    'The public template gallery is not available yet',
+    'A template becomes public through review, not by publishing it as public',
   );
 }
 
 function toView(
   listing: ListingWithRelations,
   canManage: boolean,
+  /**
+   * Whether to include the review block. Defaults to `canManage` — the
+   * publisher — and is passed explicitly by the reviewer queue, which needs
+   * `submittedAt` to work a queue and is emphatically *not* a manager.
+   */
+  includeReview: boolean = canManage,
 ): TemplateListingView {
   return {
     id: listing.id,
@@ -637,6 +912,13 @@ function toView(
     author: listing.creator,
     previewToken: listing.shareLink?.token ?? null,
     canManage,
+    review: includeReview
+      ? {
+          submittedAt: listing.submittedAt?.toISOString() ?? null,
+          reviewedAt: listing.reviewedAt?.toISOString() ?? null,
+          note: listing.reviewNote,
+        }
+      : null,
   };
 }
 

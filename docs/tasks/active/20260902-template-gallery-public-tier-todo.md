@@ -33,57 +33,71 @@ Brand Templates tiers Phases 1–2 already built.
 
 ## PR 3a — Review pipeline
 
-- [ ] Prisma: `TemplateListing.status` gains `removed`; add `submittedAt`,
+- [x] Prisma: `TemplateListing.status` gains `removed`; add `submittedAt`,
       `reviewedAt`, `reviewedBy`, `reviewNote`. Migration. Update the `status`
       column comment in `schema.prisma`, which still records "only the `public`
       tier ever leaves `listed`" — the assumption `browse()` was written on.
       (The `[visibility, status, publishedAt]` index already shipped in Phase 2;
       do not re-add it.)
-- [ ] `assertPublicTierOpen()` — one guard consulted by **both** `submit` and
+- [x] `assertPublicTierOpen()` — one guard consulted by **both** `submit` and
       `approve`, throwing until 3d. Without it 3a is a complete path to
       `visibility: 'public'`, and `GET /templates?scope=public` already ships
       unauthenticated.
-- [ ] `POST /templates/:id/submit { license: true }` — manager-gated, sets
+- [x] `POST /templates/:id/submit { license: true }` — manager-gated, sets
       `status: 'pending'` + `submittedAt` + `licensedAt`. Refuses without the
       license grant (`400`). Refuses a listing already `pending` or `removed`.
-- [ ] `TemplateReviewerGuard` reading `WAFFLEBASE_TEMPLATE_REVIEWER_IDS`
+- [x] `TemplateReviewerGuard` reading `WAFFLEBASE_TEMPLATE_REVIEWER_IDS`
       (comma-separated user ids). Empty allowlist → every review route `403`.
-- [ ] `POST /templates/:id/review { decision, note? }` —
+- [x] `POST /templates/:id/review { decision, note? }` —
       `approve` | `reject` | `takedown`.
-- [ ] `takedown` sets `status: 'removed'`, `visibility: 'unlisted'`, and revokes
+- [x] `takedown` sets `status: 'removed'`, `visibility: 'unlisted'`, and revokes
       the preview share link.
-- [ ] `reject` leaves `visibility` untouched — the listing keeps working at the
+- [x] `reject` leaves `visibility` untouched — the listing keeps working at the
       tier it already had.
 
 **Fix the shipped readers the new states break** (see the design's *How the new
 states compose with the shipped service*; each is a real contradiction with
 `template.service.ts` as it stands, not a hypothetical):
 
-- [ ] `assertPublishable` refuses the **transition into** `public`, not its
+- [x] `assertPublishable` refuses the **transition into** `public`, not its
       presence — otherwise an approved listing can never be re-published or have
       its title edited (`visibility` falls back to the stored `'public'`).
-- [ ] `publish()`/`update()` **preserve `status`** instead of writing
+- [x] `publish()`/`update()` **preserve `status`** instead of writing
       `status: 'listed'`; a `removed` listing refuses republish. As shipped, one
       re-publish reverses a takedown and re-mints the revoked preview link.
-- [ ] `browse()`'s status filter becomes scope-dependent: `'listed'` for
+- [x] `browse()`'s status filter becomes scope-dependent: `'listed'` for
       `scope=public`, `{ not: 'removed' }` for `scope=workspace`. Otherwise a
       submitted workspace listing vanishes from its own tab.
-- [ ] `removed` is checked **before** the visibility switch in `isVisibleTo`
+- [x] `removed` is checked **before** the visibility switch in `isVisibleTo`
       (a takedown writes `visibility: 'unlisted'`, which returns `true`
       unconditionally), and `use()` gains the same check — it never reads
       `status` today.
 
-- [ ] `GET /admin/templates/review` — pending submissions + open reports,
-      reviewer-gated, **returning each submission's `previewToken`**
-      (`findForViewer` gives a reviewer nothing for a `workspace`-tier listing).
-- [ ] Frontend `/admin/templates` queue page: embedded preview (reuse
+- [x] `GET /admin/templates/review` — pending submissions, reviewer-gated,
+      **returning each submission's `previewToken`** (`findForViewer` gives a
+      reviewer nothing for a `workspace`-tier listing). Reports join it in 3d,
+      when `TemplateReport` exists.
+- [x] Frontend `/admin/templates` queue page: embedded preview (reuse
       `SharedDocumentByToken`), approve / reject / takedown with a note field.
-- [ ] Notification type `template_reviewed`; note becomes the `preview`.
-      Extend the notification type union, dedupe key, and dropdown rendering.
-- [ ] Tests: state machine transitions (each decision from each start state),
+- [x] Notification types — **three, not one**: `template_approved` /
+      `template_rejected` / `template_removed`. The decision is the type for the
+      same reason `comment_mention` and `comment_reply` are separate; a single
+      `template_reviewed` would make the reader open it to learn the one thing
+      they want to know. Note becomes the `preview`; dedupe keys on the decision
+      instant so a second decision on a revised listing is not absorbed.
+- [x] Tests: state machine transitions (each decision from each start state),
       allowlist empty → closed, submit without license → 400, a pending
       workspace listing still appears in `scope=workspace` browse, republish
       cannot clear `removed`, `use()` refuses a `removed` listing.
+
+**Landed.** One consequence worth stating rather than discovering: because
+`assertPublicTierOpen()` gates `submit` as well as `approve`, nothing can enter
+the queue until 3d, so `/admin/templates` is empty by construction until then.
+That is the intended state — the alternative, gating only `approve`, would let a
+publisher submit and then wait indefinitely, which is the silent-disappearance
+failure this pipeline exists to avoid. The state machine behind the gate is
+tested by opening it in the spec (`openPublicTier`), so 3d is a one-line change
+to a path already exercised.
 
 ## PR 3b — Cross-workspace images + frozen-copy promotion
 

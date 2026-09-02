@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { TemplateService } from './template.service';
+import * as reviewPolicy from './template-review';
 
 const DOC = {
   id: 'doc-1',
@@ -150,6 +151,9 @@ function makeService(
   };
 
   const imageService = { delete: jest.fn(() => Promise.resolve(undefined)) };
+  const notificationService = {
+    createTemplateReviewed: jest.fn(() => Promise.resolve({ created: 1 })),
+  };
 
   const service = new TemplateService(
     prisma as never,
@@ -159,6 +163,7 @@ function makeService(
     folderService as never,
     yorkieService as never,
     imageService as never,
+    notificationService as never,
   );
   return {
     service,
@@ -169,6 +174,7 @@ function makeService(
     folderService,
     yorkieService,
     imageService,
+    notificationService,
   };
 }
 
@@ -355,7 +361,29 @@ describe('TemplateService.browse', () => {
     });
     await service.browse({ scope: 'workspace', workspaceId: 'ws-1' }, 9);
     const where = prisma.templateListing.findMany.mock.calls[0][0].where;
-    expect(where).toMatchObject({ visibility: 'workspace', status: 'listed' });
+    expect(where).toMatchObject({ visibility: 'workspace' });
+  });
+
+  it('shows a workspace listing that is under review or was rejected', async () => {
+    // The property the visibility/status split exists to provide: submitting
+    // for public review is observable to nobody. A `status: 'listed'` filter
+    // here would make a listing vanish from its own workspace's tab the
+    // moment its owner submitted it, and stay gone after a rejection.
+    const { service, prisma } = makeService({
+      members: { 'ws-1:9': 'member' },
+    });
+    await service.browse({ scope: 'workspace', workspaceId: 'ws-1' }, 9);
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ status: { not: 'removed' } });
+  });
+
+  it('shows only listed rows in the public gallery', async () => {
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ visibility: 'public', status: 'listed' });
   });
 
   it('scopes a workspace browse to the document’s current workspace', async () => {
@@ -887,5 +915,360 @@ describe('TemplateService.unpublish', () => {
     await expect(service.unpublish('tpl-1', 7)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+/**
+ * Open the public tier for one test.
+ *
+ * `PUBLIC_TIER_OPEN` is a constant, not configuration — a deployment must not
+ * be able to open the gallery before the review pipeline is finished, so there
+ * is deliberately no env var to set. That leaves the state machine behind it
+ * untestable end to end until 3d flips the constant, which is exactly the code
+ * most worth testing *now*: 3d should be a one-line change to a path already
+ * known to behave.
+ */
+function openPublicTier(): void {
+  jest.spyOn(reviewPolicy, 'assertPublicTierOpen').mockImplementation(() => {});
+}
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+describe('TemplateService.submit', () => {
+  it('is refused while the public tier is closed', async () => {
+    // The real gate, unmocked. One function decides when the gallery opens, so
+    // merge order cannot open it by accident.
+    const { service } = makeService();
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('moves status and does not touch visibility', async () => {
+    // The property the whole split exists for: submitting is observable to
+    // nobody. If this wrote `visibility`, an unlisted link already handed out
+    // would change meaning while a reviewer looked at it.
+    openPublicTier();
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'workspace' },
+    });
+    await service.submit('tpl-1', 7, { acceptLicense: true });
+    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    expect(data.status).toBe('pending');
+    expect(data).not.toHaveProperty('visibility');
+  });
+
+  it('requires the license grant', async () => {
+    openPublicTier();
+    const { service } = makeService();
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: false }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses a plain member', async () => {
+    openPublicTier();
+    const { service } = makeService({ members: { 'ws-1:9': 'member' } });
+    await expect(
+      service.submit('tpl-1', 9, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('clears the previous decision so a stale reason is not shown', async () => {
+    openPublicTier();
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, status: 'rejected', reviewNote: 'too thin' },
+    });
+    await service.submit('tpl-1', 7, { acceptLicense: true });
+    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    expect(data).toMatchObject({
+      reviewNote: null,
+      reviewedAt: null,
+      reviewedBy: null,
+    });
+  });
+
+  it('refuses a second submission while one is pending', async () => {
+    openPublicTier();
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('TemplateService.review', () => {
+  it('refuses to approve while the public tier is closed', async () => {
+    // Re-checked here and not only in `submit`: the two are separate requests,
+    // so a listing could be submitted while the tier was open and decided
+    // after it closed.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await expect(
+      service.review('tpl-1', 99, { decision: 'approve' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.templateListing.update).not.toHaveBeenCalled();
+  });
+
+  it('approve is the only writer of visibility: public', async () => {
+    openPublicTier();
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'workspace', status: 'pending' },
+    });
+    await service.review('tpl-1', 99, { decision: 'approve' });
+    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    expect(data).toMatchObject({ status: 'listed', visibility: 'public' });
+  });
+
+  it('reject leaves visibility alone', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'workspace', status: 'pending' },
+    });
+    await service.review('tpl-1', 99, { decision: 'reject', note: 'thin' });
+    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    expect(data.status).toBe('rejected');
+    expect(data).not.toHaveProperty('visibility');
+    expect(data.reviewNote).toBe('thin');
+    expect(data.reviewedBy).toBe(99);
+  });
+
+  it('takedown revokes the preview link before marking the row', async () => {
+    // Ordering, not decoration: a row marked `removed` while its non-expiring
+    // link survived would read as "taken down" in every UI while the content
+    // stayed anonymously readable.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+    });
+    const order: string[] = [];
+    prisma.shareLink.delete.mockImplementation(() => {
+      order.push('revoke');
+      return Promise.resolve({ id: 'link-1' });
+    });
+    prisma.templateListing.update.mockImplementation(() => {
+      order.push('update');
+      return Promise.resolve({ ...LISTING, status: 'removed' });
+    });
+    await service.review('tpl-1', 99, { decision: 'takedown', note: 'dmca' });
+    expect(order).toEqual(['revoke', 'update']);
+  });
+
+  it('takedown drops the tier back to unlisted', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+    });
+    await service.review('tpl-1', 99, { decision: 'takedown' });
+    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    expect(data).toMatchObject({ status: 'removed', visibility: 'unlisted' });
+  });
+
+  it('refuses to decide a submission nobody made', async () => {
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'listed' },
+    });
+    await expect(
+      service.review('tpl-1', 99, { decision: 'reject' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('notifies the publisher, and a failure does not undo the decision', async () => {
+    const { service, notificationService, prisma } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    notificationService.createTemplateReviewed.mockRejectedValueOnce(
+      new Error('inbox down'),
+    );
+    await expect(
+      service.review('tpl-1', 99, { decision: 'reject', note: 'why' }),
+    ).resolves.toBeDefined();
+    expect(prisma.templateListing.update).toHaveBeenCalled();
+  });
+
+  it('never returns canManage to a reviewer', async () => {
+    // A reviewer is not a manager of someone else's listing, and the queue
+    // must not tell the UI otherwise.
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    const view = await service.review('tpl-1', 99, { decision: 'reject' });
+    expect(view.canManage).toBe(false);
+  });
+});
+
+describe('a removed listing', () => {
+  it('is invisible to a viewer holding its link', async () => {
+    // A takedown writes `visibility: 'unlisted'`, whose arm returns true
+    // unconditionally — so the status check has to run BEFORE the visibility
+    // switch, not inside it.
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'unlisted', status: 'removed' },
+      members: {},
+    });
+    await expect(service.findForViewer('tpl-1', 9)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('is still readable by its manager, who has to see the decision', async () => {
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'unlisted', status: 'removed' },
+    });
+    await expect(service.findForViewer('tpl-1', 7)).resolves.toMatchObject({
+      status: 'removed',
+    });
+  });
+
+  it('cannot be used, not even by its manager', async () => {
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'unlisted', status: 'removed' },
+    });
+    await expect(
+      service.use('tpl-1', 7, { workspaceId: 'ws-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('cannot be republished back into existence', async () => {
+    // Without this, one republish resets `status` to `listed` and re-mints the
+    // revoked preview link — a publisher reversing a moderation decision.
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'removed' },
+    });
+    await expect(service.publish('doc-1', 7, {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('cannot be edited', async () => {
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'removed' },
+    });
+    await expect(
+      service.update('tpl-1', 7, { title: 'Nicer name' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('publish preserves the review state', () => {
+  it('does not reset a pending listing to listed', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await service.publish('doc-1', 7, { title: 'Renamed' });
+    const { update } = prisma.templateListing.upsert.mock.calls[0][0];
+    expect(update.status).toBe('pending');
+  });
+
+  it('defaults a first publish to listed', async () => {
+    const { service, prisma } = makeService({ listing: null });
+    await service.publish('doc-1', 7, {});
+    const { create } = prisma.templateListing.upsert.mock.calls[0][0];
+    expect(create.status).toBe('listed');
+  });
+
+  it('lets an approved listing be republished and renamed', async () => {
+    // `assertPublishable` refuses the *transition into* public, not its
+    // presence. Checking the value alone made an approved listing permanently
+    // unpublishable and unrenamable, because `visibility` falls back to the
+    // stored one when the body omits it.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+    });
+    await service.publish('doc-1', 7, { title: 'Renamed' });
+    const { update } = prisma.templateListing.upsert.mock.calls[0][0];
+    expect(update.title).toBe('Renamed');
+    expect(update.visibility).toBe('public');
+  });
+
+  it('still refuses a publisher asking for public directly', async () => {
+    const { service } = makeService();
+    await expect(
+      service.publish('doc-1', 7, { visibility: 'public' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('still refuses an update asking for public directly', async () => {
+    const { service } = makeService();
+    await expect(
+      service.update('tpl-1', 7, { visibility: 'public' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('a removed listing (continued)', () => {
+  it('cannot be unpublished, which would let the next publish undo it', () => {
+    // The bypass this guard closes: unpublish deletes the row, so the next
+    // publish takes the `create` branch — status back to `listed`, and a
+    // FRESH non-expiring anonymous preview link to the content a reviewer
+    // removed. Two buttons that already ship.
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'removed' },
+    });
+    return expect(service.unpublish('tpl-1', 7)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('is not returned to a plain workspace member by document', async () => {
+    // `findByDocument` gates on membership rather than visibility, so without
+    // its own status check a member reads a taken-down listing's metadata
+    // straight out of the Share dialog's lookup.
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'removed' },
+      members: { 'ws-1:9': 'member' },
+    });
+    await expect(service.findByDocument('doc-1', 9)).resolves.toBeNull();
+  });
+
+  it('is still returned to its manager, with the reason', async () => {
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'removed', reviewNote: 'dmca' },
+    });
+    await expect(service.findByDocument('doc-1', 7)).resolves.toMatchObject({
+      status: 'removed',
+      review: { note: 'dmca' },
+    });
+  });
+});
+
+describe('the review block on a listing view', () => {
+  it('is withheld from a non-manager', async () => {
+    // A reviewer's note is written for the publisher, not for the gallery.
+    const { service } = makeService({
+      listing: { ...LISTING, reviewNote: 'internal note' },
+      members: { 'ws-1:9': 'member' },
+    });
+    const view = await service.findForViewer('tpl-1', 9);
+    expect(view.canManage).toBe(false);
+    expect(view.review).toBeNull();
+  });
+
+  it('reaches the reviewer queue, which needs the wait time', async () => {
+    // The queue is explicitly not a manager, so it asks for the block by hand.
+    const { service } = makeService({
+      rows: [{ ...LISTING, status: 'pending', submittedAt: new Date() }],
+    });
+    const [item] = await service.listForReview();
+    expect(item.canManage).toBe(false);
+    expect(item.review).not.toBeNull();
+  });
+});
+
+describe('TemplateService.submit (continued)', () => {
+  it('refuses to take an already-public listing offline for a re-review', async () => {
+    // Moving `status` to `pending` drops a public listing out of the gallery
+    // and out of `isVisibleTo` — the one observable change this verb promises
+    // never to make. Re-review needs the frozen copy to keep serving, and
+    // that does not exist until 3b.
+    openPublicTier();
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+    });
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

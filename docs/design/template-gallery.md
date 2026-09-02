@@ -400,6 +400,20 @@ at all — so it blocks every non-manager read and revokes the preview share lin
 A single `rejected` state cannot express the second, which is the one a copyright
 report needs.
 
+`removed` is therefore **terminal in a way `rejected` is not**: it refuses
+resubmission, republishing, editing, *and* unpublishing. The last one is what
+makes the rest true rather than decorative — see the `unpublish()` row below.
+A rejected listing, by contrast, is revised and resubmitted; that is the normal
+path.
+
+The publisher has to be able to see the decision, so a listing carries
+`submittedAt` / `reviewedAt` / `reviewNote` back to its **manager only** (and to
+the reviewer queue, which needs the wait time). The notification carries the
+same note, but it is best-effort and is suppressed entirely when the reviewer
+happens to be the publisher — the listing is the durable copy. Withholding it
+from everyone else is deliberate: a reviewer's note is written for the
+publisher, not for the gallery.
+
 #### How the new states compose with the shipped service
 
 A state machine is only as good as the readers it passes through, and
@@ -415,7 +429,8 @@ rather than discovered during implementation.
 | `findForViewer()` / `use()` | authorize through `isVisibleTo`, which returns `true` unconditionally for `unlisted` (`:560`) | `removed` is checked **before** the visibility switch, not inside it — a takedown writes `visibility: 'unlisted'`, so a check placed in the switch would never run. `use()` needs it too: it consults `isVisibleTo`/`isManagerOf` and never looks at `status` (`:392`). |
 | `findByDocument()` | `findUnique({ where: { documentId } })` | Becomes a `findFirst` matching `documentId` **or** `originId`; `originId` is not unique, so the signature genuinely changes. Without it the publisher's own Share dialog loses the listing the moment it is approved. |
 | `assertManager()` / `isManagerOf()` / `toCard().canManage` | resolve membership against `listing.document.workspaceId` | Left alone — because promotion authors the frozen copy to the **publisher** (see [Frozen-copy promotion](#frozen-copy-promotion)), `isDocumentManager` keeps answering yes for them through `doc.authorID` even though the document now lives in the system workspace. Authoring it to the reviewer instead would hand every public card's manage rights to the reviewer and take `unpublish` away from the publisher. |
-| `unpublish()` | deletes the listing, revokes the link, discards the thumbnail | Additionally deletes the frozen copy. |
+| `unpublish()` | deletes the listing, revokes the link, discards the thumbnail | Must **refuse** a `removed` listing, and this is the least obvious of the seven. `publish` reads the `removed` status off the *existing* row — so deleting that row first makes the next publish a `create`, which mints a fresh non-expiring anonymous preview link to the content a reviewer took down. Unpublish → publish would otherwise reverse a takedown with two buttons that already ship. The row stays as a tombstone. (It additionally deletes the frozen copy, from 3b.) |
+| `findByDocument()` (again) | gates on workspace membership, never on `status` | Returns `null` for a `removed` listing to anyone but its manager. Membership rather than visibility is the gate here, so the takedown's "refuses every non-manager read" needs stating twice. |
 
 Backward compatibility is free: every new column is nullable, `removed` is an
 additive status value, and existing rows are `status: 'listed'` at a
@@ -453,10 +468,15 @@ consulted by both `submit` and `approve`, and throws until 3d lands. Without it
 3a would be world-enumerable immediately. Each PR merges with the gallery shut
 because this one function says so, not because the pieces happen not to connect.
 
-Both outcomes notify the publisher through the existing notification system (a
-new `template_reviewed` type; the reviewer's note is the notification's
-`preview`), because a submission that disappears silently is the failure mode
-CapCut's own help pages are mostly about.
+Every outcome notifies the publisher through the existing notification system,
+because a submission that disappears silently is the failure mode CapCut's own
+help pages are mostly about. The **decision is the type** —
+`template_approved` / `template_rejected` / `template_removed`, not one
+`template_reviewed` carrying a field — for the same reason `comment_mention`
+and `comment_reply` are separate types: the client renders one sentence per
+type, and "your template was reviewed" makes the reader open it to learn the
+one thing they wanted to know. The reviewer's note is the notification's
+`preview`, and for a rejection it is the only place the reason appears.
 
 #### Cross-workspace image re-hosting
 

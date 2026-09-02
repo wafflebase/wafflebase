@@ -2,11 +2,25 @@ import type { DocumentType } from "@/types/documents";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
 
-export type NotificationType =
+/**
+ * The comment events a *client* may report. Its own union, not a subtraction
+ * from `NotificationType`: the report endpoint accepts exactly these, and
+ * deriving it with `Exclude` meant every server-created type added later
+ * silently widened what a client was allowed to claim happened.
+ */
+export type CommentNotificationType =
   | "comment_mention"
   | "comment_reply"
-  | "thread_resolved"
-  | "workspace_member_joined";
+  | "thread_resolved";
+
+export type NotificationType =
+  | CommentNotificationType
+  | "workspace_member_joined"
+  // Created server-side when a reviewer decides a template submission. The
+  // decision is the type, so the dropdown can render one sentence per outcome.
+  | "template_approved"
+  | "template_rejected"
+  | "template_removed";
 
 export interface Notification {
   id: string;
@@ -24,7 +38,7 @@ export interface Notification {
 
 /** What the client reports after writing a comment to the CRDT. */
 export interface CommentNotificationInput {
-  type: Exclude<NotificationType, "workspace_member_joined">;
+  type: CommentNotificationType;
   documentId: string;
   threadId: string;
   commentId?: string;

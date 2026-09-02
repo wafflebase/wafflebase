@@ -311,8 +311,32 @@ model TemplateListing {
 
   /// unlisted (link only) | workspace | public
   visibility  String    @default("unlisted")
-  /// listed | pending | rejected. Only the `public` tier ever leaves `listed`.
+  /// listed | pending | rejected | removed.
+  ///
+  /// The review state, kept deliberately separate from `visibility`, which
+  /// stays the *effective* tier throughout. Submitting for public review moves
+  /// only this column, so an already-handed-out unlisted link neither breaks
+  /// nor silently widens while a reviewer looks at it; `visibility` becomes
+  /// `public` only on approval.
+  ///
+  /// `rejected` and `removed` are not the same verdict. A rejection says the
+  /// submission missed the gallery's bar and leaves the listing working at the
+  /// tier it already had — the publisher may revise and resubmit. A takedown
+  /// (`removed`) says the content may not be served at all: every non-manager
+  /// read is refused, the preview link is revoked, and the row is **terminal**
+  /// — it cannot be resubmitted, republished, edited or even unpublished,
+  /// because deleting it would let the next publish mint a fresh anonymous
+  /// link to the content that was removed. One state cannot carry both.
   status      String    @default("listed")
+  /// When the publisher submitted for public review. Null until they do.
+  submittedAt DateTime?
+  /// When a reviewer decided, who decided, and what they said. `reviewNote`
+  /// becomes the rejection reason the publisher is notified with — a
+  /// submission that disappears silently is the failure mode this pipeline
+  /// exists to avoid.
+  reviewedAt  DateTime?
+  reviewedBy  Int?
+  reviewNote  String?
   /// Incremented on each successful use. A counter, not a ledger: an
   /// occasional lost increment is acceptable, and it is what a future creator
   /// program would rank and pay on.

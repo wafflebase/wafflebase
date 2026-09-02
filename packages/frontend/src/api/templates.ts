@@ -30,6 +30,18 @@ export type TemplateListing = {
    */
   previewToken: string | null;
   canManage: boolean;
+  /**
+   * The review decision, present only for the listing's manager (and for a
+   * reviewer reading their own queue). A rejected or removed listing is one
+   * its publisher can no longer act on, so the reason has to be reachable
+   * somewhere they can see it — the notification carrying the same note is
+   * best-effort, and is suppressed when the reviewer is the publisher.
+   */
+  review: {
+    submittedAt: string | null;
+    reviewedAt: string | null;
+    note: string | null;
+  } | null;
 };
 
 /**
@@ -162,6 +174,58 @@ export async function getTemplate(id: string): Promise<TemplateListing> {
     `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}`
   );
   await assertOk(response, "Template not found");
+  return response.json();
+}
+
+export type ReviewDecision = "approve" | "reject" | "takedown";
+
+/**
+ * Ask for the public tier. A separate call from `updateTemplate` because
+ * `visibility` is the *effective* tier and no request body may write `public`
+ * to it — only an approval does.
+ */
+export async function submitTemplateForReview(
+  id: string
+): Promise<TemplateListing> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}/submit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acceptLicense: true }),
+    }
+  );
+  await assertOk(response, "Failed to submit this template for review");
+  return response.json();
+}
+
+/**
+ * The review queue. Unlike every other collection here this **does** carry
+ * `previewToken`: a reviewer belongs to neither the publisher's workspace nor
+ * the document, so nothing else would let them see what they are deciding.
+ */
+export async function listTemplatesForReview(): Promise<TemplateListing[]> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/review`
+  );
+  await assertOk(response, "Failed to load the review queue");
+  return response.json();
+}
+
+export async function reviewTemplate(
+  id: string,
+  decision: ReviewDecision,
+  note?: string
+): Promise<TemplateListing> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}/review`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, ...(note ? { note } : {}) }),
+    }
+  );
+  await assertOk(response, "Failed to record this decision");
   return response.json();
 }
 

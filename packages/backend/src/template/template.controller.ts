@@ -23,9 +23,12 @@ import {
 import {
   BrowseTemplatesDto,
   PublishTemplateDto,
+  ReviewTemplateDto,
+  SubmitTemplateDto,
   UpdateTemplateDto,
   UseTemplateDto,
 } from './template.dto';
+import { TemplateReviewerGuard } from './template-reviewer.guard';
 
 /**
  * The template gallery (docs/design/template-gallery.md).
@@ -118,6 +121,46 @@ export class TemplateController {
   ): Promise<TemplateListingView> {
     const userId = req.user ? Number(req.user.id) : undefined;
     return this.templateService.findForViewer(id, userId);
+  }
+
+  /**
+   * Ask for the public tier. Manager-gated, and deliberately a separate verb
+   * from `PATCH /templates/:id`: `visibility` is the effective tier and no
+   * request body may write `public` to it.
+   */
+  @Post('templates/:id/submit')
+  @UseGuards(JwtAuthGuard)
+  async submit(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: SubmitTemplateDto,
+  ): Promise<TemplateListingView> {
+    return this.templateService.submit(id, Number(req.user.id), body);
+  }
+
+  /**
+   * The review queue — pending submissions, with their preview tokens.
+   *
+   * Gated by both guards in order: `JwtAuthGuard` establishes who the caller
+   * is, `TemplateReviewerGuard` whether they may review. Unlike `GET
+   * /templates`, this one needs no ordering care — it sits under a different
+   * first path segment, so `GET /templates/:id` cannot swallow it.
+   */
+  @Get('admin/templates/review')
+  @UseGuards(JwtAuthGuard, TemplateReviewerGuard)
+  async listForReview(): Promise<TemplateListingView[]> {
+    return this.templateService.listForReview();
+  }
+
+  /** Approve, reject, or take down. Reviewer-allowlist gated. */
+  @Post('templates/:id/review')
+  @UseGuards(JwtAuthGuard, TemplateReviewerGuard)
+  async review(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: ReviewTemplateDto,
+  ): Promise<TemplateListingView> {
+    return this.templateService.review(id, Number(req.user.id), body);
   }
 
   /** Start a new document from this template, in a workspace the caller owns. */

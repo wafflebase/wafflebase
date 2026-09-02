@@ -112,6 +112,16 @@ YORKIE_AUTH_WEBHOOK_ENFORCE=false       # Optional. false (default) = shadow
                                         # mode: log the access decision but
                                         # never deny. true = enforce per-doc
                                         # access at the Yorkie auth webhook.
+WAFFLEBASE_TEMPLATE_REVIEWER_IDS=       # Optional, comma-separated user ids
+                                        # allowed to decide public template
+                                        # submissions. Unset or empty means
+                                        # nobody, which keeps the public
+                                        # template gallery shut — the same
+                                        # direction every other gate in that
+                                        # feature fails in. Anything that is
+                                        # not a positive integer is dropped,
+                                        # so a typo cannot grant review
+                                        # authority to user 0.
 WAFFLEBASE_KAFKA_ADDRESSES=             # Optional, comma-separated Kafka
                                         # broker addresses for the view-event
                                         # analytics producer. Unset disables
@@ -312,6 +322,9 @@ Publishing a document as a template and starting a new document from one
 | `DELETE` | `/templates/:id` | JWT (manager) | Unpublish; revokes the preview link |
 | `GET` | `/templates/:id` | Optional JWT | Listing metadata + preview token |
 | `POST` | `/templates/:id/use` | JWT (member of the destination) | Start a new document from the template |
+| `POST` | `/templates/:id/submit` | JWT (manager) | Ask for the public tier (`{ acceptLicense: true }`) |
+| `POST` | `/templates/:id/review` | JWT + reviewer allowlist | `approve` / `reject` / `takedown` |
+| `GET` | `/admin/templates/review` | JWT + reviewer allowlist | Pending submissions, with preview tokens |
 
 A template is **not** a `Document.type` — that column routes which editor opens
 a document, so the listing is a sidecar row and publishing is an upsert on its
@@ -334,8 +347,46 @@ after it (`uniqueTitle`, not `copyTitle` — a document started from a "Weekly
 Report" template is a weekly report, not a copy of one).
 
 A tier the caller may not see answers `404`, not `403`: whether a workspace has
-published a template is itself workspace information. The `public` tier is
-refused with a `400` until the Phase 3 review pipeline exists.
+published a template is itself workspace information.
+
+#### Review (the public tier)
+
+`visibility: 'public'` has exactly **one** writer: the approve arm of
+`POST /templates/:id/review`. Publish and update refuse a *transition into* it
+permanently — not "until Phase 3", but as the design — so a publisher asks
+through `POST /templates/:id/submit`, which moves `status` to `pending` and
+leaves `visibility` alone. That separation is what makes submitting observable
+to nobody: an unlisted link already handed out keeps resolving, and a workspace
+listing does not silently widen while a reviewer looks at it.
+
+`status` is therefore a review state, not an audience: `listed` / `pending` /
+`rejected` / `removed`. A **rejection** says the submission missed the
+gallery's bar and leaves the listing working at the tier it already had; a
+**takedown** (`removed`) says the content may not be served at all, so it
+refuses every non-manager read and revokes the preview share link. `removed` is
+terminal: it refuses resubmission, republishing, editing **and unpublishing** —
+the last because deleting the row would make the next publish a `create`, which
+mints a fresh anonymous preview link to the content that was removed, so
+unpublish → publish would otherwise reverse a takedown. Reading stays open to
+the listing's manager, who has to be able to see the decision: a listing carries
+`submittedAt` / `reviewedAt` / `reviewNote` back to its manager (and to the
+reviewer queue) and to nobody else.
+
+Both review routes are gated by `TemplateReviewerGuard`, stacked after
+`JwtAuthGuard`, reading a comma-separated allowlist from
+`WAFFLEBASE_TEMPLATE_REVIEWER_IDS`. **An unset or empty value means nobody**, so
+a deployment that configures nothing has no review pipeline and the gallery
+stays shut. `GET /admin/templates/review` is the one collection here that
+returns `previewToken`s: a reviewer belongs to neither the publisher's
+workspace nor the document, so nothing else would let them see what they are
+deciding.
+
+The tier itself is still closed. `assertPublicTierOpen()`
+(`src/template/template-review.ts`) is consulted by both `submit` and the
+approve arm, and throws until the last Phase 3 PR flips its constant — a
+constant rather than an environment variable, so no deployment can open a
+gallery whose review pipeline is unfinished. Until then the queue is empty by
+construction, which is the intended state, not a defect.
 
 ### Miro import (`/workspaces/:workspaceId/miro/import`)
 
@@ -634,7 +685,7 @@ blob with none (see
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
-| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` |
+| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` / `template_approved` / `template_rejected` / `template_removed` |
 | `recipientId` | Int | FK to User (`Cascade`) |
 | `actorId` | Int? | FK to User (`SetNull`) — the notification outlives a deleted actor |
 | `workspaceId` | String | FK to Workspace (`Cascade`) |
@@ -656,8 +707,9 @@ blob with none (see
 | `shareLinkId` | String? | Unique FK to ShareLink (`SetNull`) — the non-expiring `viewer` link backing the preview |
 | `title` / `description` / `category` / `tags` | | Gallery metadata; `title` seeds from the document title but is independently editable |
 | `thumbnailId` | String? | Key in the image bucket, served by the unauthenticated `GET /images/:id` |
-| `visibility` | String | `unlisted` / `workspace` / `public` |
-| `status` | String | `listed` / `pending` / `rejected`. Only `public` ever leaves `listed` |
+| `visibility` | String | `unlisted` / `workspace` / `public`. The *effective* tier; only an approval writes `public` |
+| `status` | String | `listed` / `pending` / `rejected` / `removed`. The review state, moved on its own so submitting changes nothing a viewer can observe |
+| `submittedAt` / `reviewedAt` / `reviewedBy` / `reviewNote` | | When it was submitted, and who decided what. `reviewNote` is the reason the publisher is notified with |
 | `useCount` | Int | Incremented per successful use. A counter, not a ledger — a failed increment never fails the request |
 | `licensedAt` | DateTime? | The publisher's grant that others may copy and modify. Required before `public` |
 | `originId` | String? | The publisher's original, once `documentId` points at the frozen copy a public listing is promoted to |

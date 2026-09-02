@@ -245,7 +245,12 @@ export function TemplateShareSection({
                 >
                   <IconCopy className="h-3.5 w-3.5" />
                 </Button>
-                {listing.canManage && (
+                {/* A removed listing cannot be unpublished: deleting the row
+                    would let the next publish mint a fresh anonymous link to
+                    the content a reviewer took down. The button is hidden
+                    rather than left to 400, since there is nothing the
+                    publisher can do about it. */}
+                {listing.canManage && listing.status !== "removed" && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -259,10 +264,32 @@ export function TemplateShareSection({
                 )}
               </div>
             </div>
+            {/* The decision, where the publisher will look for it. The
+                notification carries the same note but is best-effort, and is
+                suppressed outright when the reviewer *is* the publisher — so
+                this listing is the only durable copy of "why". */}
+            {listing.review && listing.status !== "listed" && (
+              <div className="bg-muted/50 rounded-md border px-3 py-2 text-xs">
+                <p className="font-medium">
+                  {listing.status === "pending"
+                    ? "Submitted to the public gallery — awaiting review"
+                    : listing.status === "rejected"
+                      ? "Not accepted into the public gallery"
+                      : "Removed from the gallery by a reviewer"}
+                </p>
+                {listing.review.note && (
+                  <p className="text-muted-foreground mt-1">
+                    {listing.review.note}
+                  </p>
+                )}
+              </div>
+            )}
             {/* Same gate as the unpublish button above. Editing a listing is
                 manager-only server-side, so showing the controls to a plain
-                member offers an action whose Save can only ever 403. */}
-            {listing.canManage && (
+                member offers an action whose Save can only ever 403. A removed
+                listing refuses edits too, for the same reason it refuses an
+                unpublish. */}
+            {listing.canManage && listing.status !== "removed" && (
               <TemplateMetaEditor
                 listing={listing}
                 documentId={documentId}

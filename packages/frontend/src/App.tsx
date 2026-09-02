@@ -17,6 +17,9 @@ const DocumentDetail = lazy(() => import("@/app/documents/document-detail"));
 const DataSourcesPage = lazy(() => import("@/app/datasources/page"));
 const SharedDocument = lazy(() => import("@/app/shared/shared-document"));
 const TemplateLanding = lazy(() => import("@/app/templates/template-landing"));
+const TemplateReviewQueue = lazy(
+  () => import("@/app/templates/template-review-queue"),
+);
 const Settings = lazy(() => import("@/app/settings/page"));
 const VisualHarnessPage = lazy(() => import("@/app/harness/visual/page"));
 const InteractionHarnessPage = lazy(
@@ -133,6 +136,14 @@ function App() {
                     />
                     <Route path="/documents" element={<Documents />} />
                     <Route path="/datasources" element={<DataSourcesPage />} />
+                    {/* The reviewer allowlist lives in the backend, so this
+                        route is behind PrivateRoute and nothing more: a
+                        non-reviewer who reaches it gets a 403 from the queue
+                        request. Hiding it client-side would be decoration. */}
+                    <Route
+                      path="/admin/templates"
+                      element={<TemplateReviewQueue />}
+                    />
                     <Route path="/settings" element={<Settings />} />
                     {/* Nested under the workspace so Layout resolves the
                         current workspace for the sidebar, and inside Layout so

@@ -25,6 +25,14 @@ export function notificationSentence(n: Notification): string {
       return `${actor} resolved your comment in ${document}`;
     case "workspace_member_joined":
       return `${actor} joined the workspace`;
+    // The decision is the type, not a field — "your template was reviewed"
+    // would make the reader open it to learn the one thing they want to know.
+    case "template_approved":
+      return `Your template ${document} is now in the public gallery`;
+    case "template_rejected":
+      return `Your template ${document} was not accepted into the gallery`;
+    case "template_removed":
+      return `Your template ${document} was removed from the gallery`;
     default:
       return `${actor} sent you a notification`;
   }

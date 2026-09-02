@@ -72,6 +72,81 @@ describe('NotificationService', () => {
     return arg.data;
   }
 
+  describe('createTemplateReviewed', () => {
+    const LISTING = {
+      id: 'tpl-1',
+      createdBy: 5,
+      workspaceId: WORKSPACE,
+      documentId: DOCUMENT,
+    };
+
+    it('makes the decision the type', async () => {
+      // "Your template was reviewed" would make the reader open it to learn
+      // the one thing they wanted to know, which is why there are three types
+      // rather than one carrying a field.
+      for (const [decision, type] of [
+        ['approve', 'template_approved'],
+        ['reject', 'template_rejected'],
+        ['takedown', 'template_removed'],
+      ] as const) {
+        prisma.notification.createMany.mockClear();
+        await service.createTemplateReviewed({
+          listing: LISTING,
+          reviewerId: 9,
+          decision,
+          decidedAt: new Date('2026-09-02T00:00:00Z'),
+        });
+        expect(insertedRows()[0].type).toBe(type);
+      }
+    });
+
+    it('addresses the publisher and carries the reason', async () => {
+      await service.createTemplateReviewed({
+        listing: LISTING,
+        reviewerId: 9,
+        decision: 'reject',
+        note: 'too thin',
+        decidedAt: new Date('2026-09-02T00:00:00Z'),
+      });
+      expect(insertedRows()[0]).toMatchObject({
+        recipientId: 5,
+        actorId: 9,
+        preview: 'too thin',
+      });
+    });
+
+    it('keys dedupe on the decision instant, so a second decision notifies', async () => {
+      // A listing rejected, revised and rejected again is exactly the sequence
+      // a publisher most needs to hear about — and the one the unique index
+      // would absorb if the key were the listing id alone.
+      await service.createTemplateReviewed({
+        listing: LISTING,
+        reviewerId: 9,
+        decision: 'reject',
+        decidedAt: new Date('2026-09-02T00:00:00Z'),
+      });
+      const first = insertedRows()[0].dedupeKey;
+      prisma.notification.createMany.mockClear();
+      await service.createTemplateReviewed({
+        listing: LISTING,
+        reviewerId: 9,
+        decision: 'reject',
+        decidedAt: new Date('2026-09-03T00:00:00Z'),
+      });
+      expect(insertedRows()[0].dedupeKey).not.toBe(first);
+    });
+
+    it('does not notify a reviewer who decided their own listing', async () => {
+      await service.createTemplateReviewed({
+        listing: LISTING,
+        reviewerId: 5,
+        decision: 'approve',
+        decidedAt: new Date('2026-09-02T00:00:00Z'),
+      });
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('createFromComment', () => {
     it('throws NotFound when the document does not exist', async () => {
       prisma.document.findUnique.mockResolvedValue(null);

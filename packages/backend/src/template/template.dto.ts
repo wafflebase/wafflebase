@@ -12,6 +12,7 @@ import {
   Matches,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { VALID_IMAGE_ID_PATTERN } from '../image/image.constants';
 import {
@@ -19,13 +20,17 @@ import {
   MAX_TEMPLATE_TAG_LENGTH,
   TEMPLATE_CATEGORIES,
 } from './template-taxonomy';
+import { REVIEW_DECISIONS, ReviewDecision } from './template-review';
 
 /**
  * A listing's audience — see docs/design/template-gallery.md.
  *
- * `public` is accepted by the model but refused by the service until the
- * Phase 3 review pipeline exists: listing content that nothing reviews is the
- * one failure mode a template gallery cannot walk back.
+ * `public` is accepted by the model but is never reachable from this DTO: the
+ * publish and update routes refuse a *transition into* it, and the only writer
+ * is the approval arm of `POST /templates/:id/review`. Sending it here is a
+ * `400`, which is what keeps "listing content that nothing reviews" — the one
+ * failure mode a template gallery cannot walk back — off the request path
+ * entirely rather than defended per handler.
  */
 export const TEMPLATE_VISIBILITIES = [
   'unlisted',
@@ -37,6 +42,8 @@ export type TemplateVisibility = (typeof TEMPLATE_VISIBILITIES)[number];
 /** Matches the rename DTO's limit, so a listing title is always editable. */
 const MAX_TITLE = 200;
 const MAX_DESCRIPTION = 2000;
+/** Fits the notification `preview` column's 200-char budget with room to spare. */
+const MAX_REVIEW_NOTE = 500;
 
 export class PublishTemplateDto {
   /** Defaults to the document's own title. */
@@ -178,6 +185,41 @@ export class BrowseTemplatesDto {
   @Min(1)
   @Max(MAX_LIMIT)
   limit?: number = DEFAULT_LIMIT;
+}
+
+/**
+ * Ask for the public tier. Deliberately its own verb rather than
+ * `PATCH /templates/:id { visibility: 'public' }`: `visibility` is the
+ * *effective* tier and is written to `public` only by an approval, so there is
+ * no request body a publisher can send that reaches it.
+ */
+export class SubmitTemplateDto {
+  /**
+   * The grant that others may copy and modify the content. Required, and
+   * required to be `true` — a submission without it would have us
+   * redistributing someone's document on an assumption.
+   */
+  @IsBoolean()
+  acceptLicense: boolean;
+}
+
+export class ReviewTemplateDto {
+  @IsIn(REVIEW_DECISIONS)
+  decision: ReviewDecision;
+
+  /**
+   * The reviewer's reason, which becomes the body of the publisher's
+   * notification and is stored on the listing.
+   *
+   * **Required for `reject` and `takedown`**, optional on an approval where
+   * there is nothing to explain. A refusal with no reason is the failure mode
+   * this whole pipeline exists to avoid — the publisher is left with a listing
+   * they can no longer edit or republish and nothing telling them why.
+   */
+  @ValidateIf((dto: ReviewTemplateDto) => dto.decision !== 'approve')
+  @IsString()
+  @Length(1, MAX_REVIEW_NOTE)
+  note?: string;
 }
 
 export class UseTemplateDto {

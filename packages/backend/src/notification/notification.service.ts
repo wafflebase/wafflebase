@@ -35,6 +35,17 @@ const LIST_SELECT = {
 } as const;
 
 /**
+ * Which notification a review decision becomes. Kept beside the creator rather
+ * than in the template module: this is the notification vocabulary, and the
+ * only thing that reads it is the sentence table on the client.
+ */
+const TEMPLATE_REVIEW_TYPES = {
+  approve: 'template_approved',
+  reject: 'template_rejected',
+  takedown: 'template_removed',
+} as const;
+
+/**
  * Collapse a comment body excerpt into one safe dropdown line: control
  * characters (including the newlines a multi-line comment carries) become
  * spaces, runs of whitespace collapse, and the result is capped.
@@ -163,6 +174,61 @@ export class NotificationService {
         preview: null,
       })),
     );
+  }
+
+  /**
+   * A reviewer decided a template submission. Created server-side, like
+   * `createMemberJoined` and unlike the comment events — review happens in
+   * this backend, so no client reports it.
+   *
+   * The **decision is the type**, not a field: `comment_mention` and
+   * `comment_reply` are separate types for the same reason, because the reader
+   * renders one sentence per type and "your template was reviewed" says
+   * nothing. A client that has not learned these yet falls back to its generic
+   * sentence rather than rendering a raw value.
+   *
+   * Addressed to the listing's publisher (`createdBy`), which is who submitted
+   * it. A submission that disappears silently is the failure mode this pipeline
+   * exists to avoid, so the reviewer's note rides along as the preview: for a
+   * rejection or a takedown it is the reason, and it is the only place the
+   * publisher is told one.
+   *
+   * `dedupeKey` carries the decision instant rather than the listing id alone.
+   * The unique index would otherwise absorb the second decision on a listing
+   * that was rejected, revised and rejected again — which is precisely the
+   * sequence a publisher most needs to hear about.
+   */
+  async createTemplateReviewed(input: {
+    listing: {
+      id: string;
+      createdBy: number;
+      workspaceId: string;
+      documentId: string;
+    };
+    reviewerId: number;
+    decision: 'approve' | 'reject' | 'takedown';
+    note?: string;
+    /** The decision instant, so the row and its dedupe key agree. */
+    decidedAt: Date;
+  }): Promise<{ created: number }> {
+    // A reviewer who decides their own listing is not notified, for the same
+    // reason an actor never notifies themselves anywhere else here.
+    if (input.listing.createdBy === input.reviewerId) return { created: 0 };
+
+    const type = TEMPLATE_REVIEW_TYPES[input.decision];
+    return this.insert([
+      {
+        type,
+        recipientId: input.listing.createdBy,
+        actorId: input.reviewerId,
+        workspaceId: input.listing.workspaceId,
+        documentId: input.listing.documentId,
+        threadId: null,
+        commentId: null,
+        dedupeKey: `${input.listing.id}:${input.decidedAt.toISOString()}`,
+        preview: sanitizePreview(input.note),
+      },
+    ]);
   }
 
   /**
