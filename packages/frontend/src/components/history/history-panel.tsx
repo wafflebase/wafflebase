@@ -21,7 +21,16 @@ import type { TimelineEntry } from "./group-revisions";
 type Props = {
   userId: number;
   onClose: () => void;
-  onPreview: (revisionId: string) => void;
+  /**
+   * Omitted when this document type has no preview surface — today only
+   * docs, whose snapshots `YSON.parse` cannot read past three `Tree(...)`
+   * brace levels (every docs document nests `doc > block > inline > text`,
+   * depth 4). Rather than a dead click (`setPreviewRevisionId` writing to
+   * state nothing reads), each row renders its Preview button disabled
+   * with a reason so a user can tell preview isn't available here without
+   * clicking to find out.
+   */
+  onPreview?: (revisionId: string) => void;
   /**
    * Called after a successful restore. Forwarded to `useRevisionHistory`
    * verbatim — a restore replaces the whole document root, so the editor
@@ -198,10 +207,11 @@ function HistoryEntryRow({
 }: {
   entry: TimelineEntry;
   userId: number;
-  onPreview: (revisionId: string) => void;
+  onPreview?: (revisionId: string) => void;
   onRestoreRequested: () => void;
 }) {
   const isAutomatic = entry.meta.kind === "automatic";
+  const previewUnavailableReason = "not available for this document type yet";
 
   return (
     <li className="flex flex-col gap-1 border-b px-4 py-3 last:border-0">
@@ -222,7 +232,10 @@ function HistoryEntryRow({
           variant="outline"
           size="sm"
           className="h-7 text-xs"
-          onClick={() => onPreview(entry.id)}
+          disabled={!onPreview}
+          title={onPreview ? undefined : previewUnavailableReason}
+          aria-label={onPreview ? undefined : `Preview: ${previewUnavailableReason}`}
+          onClick={onPreview ? () => onPreview(entry.id) : undefined}
         >
           Preview
         </Button>

@@ -224,6 +224,14 @@ export function RevisionPreviewOverlay({
  * A revision preview shows only the first tab. `RevisionPreview` has no
  * tab-selection prop (the panel that opens it is document-level, not
  * tab-scoped), so a multi-tab workbook's other tabs aren't previewable yet.
+ *
+ * Untestable past the mount attempt itself in this repo's test environment:
+ * jsdom has no working Canvas 2D context (`HTMLCanvasElement.getContext`
+ * returns `null`), so `Worksheet`'s render pipeline throws once it actually
+ * paints — no test anywhere in `@wafflebase/sheets`/`@wafflebase/slides`/
+ * `@wafflebase/notes` mounts its own canvas engine for the same reason. This
+ * mount was verified by source reading against `sheet-view.tsx`'s
+ * established `initialize()` usage instead.
  */
 function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
   const { resolvedTheme } = useTheme();
@@ -392,6 +400,14 @@ function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: bo
 
     return () => {
       resizeObserver?.disconnect();
+      // `SlidesEditorImpl`'s constructor unconditionally attaches a global
+      // `document.fonts` `loadingdone` listener (even for a readOnly
+      // mount), removed only inside `detach()`. Without this call, every
+      // slides/board preview opened in a session leaks that listener plus
+      // the editor, canvas and store it closes over — and the listener
+      // keeps firing `render()` against a canvas already removed from the
+      // DOM by `slideWrap.remove()` below.
+      editor?.detach();
       slideWrap.remove();
     };
   }, [doc, board]);

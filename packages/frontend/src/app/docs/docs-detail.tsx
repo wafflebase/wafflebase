@@ -45,8 +45,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
   const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
 
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Held for Task 11's preview surface; nothing reads it yet.
-  const [, setPreviewRevisionId] = useState<string | null>(null);
+  // No `previewRevisionId` state here, unlike the other four editors:
+  // docs snapshots can't be parsed (`YSON.parse` can't read past three
+  // `Tree(...)` brace levels; every docs document nests `doc > block >
+  // inline > text`, depth 4 — see `snapshot-adapters.ts`), so `HistoryPanel`
+  // is mounted with no `onPreview` and renders its Preview button disabled
+  // with a reason instead of a dead click.
   // Bumped on restore to remount DocsView, dropping its local selection and
   // caret state. `doc.clearHistory()` (below) separately drops the Yorkie
   // undo stack — a restore replaces the whole root, so neither piece of
@@ -251,7 +255,6 @@ function DocsLayout({ documentId }: { documentId: string }) {
               <HistoryPanel
                 userId={currentUser.id}
                 onClose={() => setHistoryOpen(false)}
-                onPreview={setPreviewRevisionId}
                 onRestored={handleHistoryRestored}
               />
             )}

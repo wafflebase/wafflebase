@@ -207,6 +207,47 @@ function manualChunks(id: string): string | undefined {
     return "sheet-core";
   }
 
+  // The revision-history preview surface (`revision-preview.tsx`) mounts
+  // whichever engine a previewed revision needs, so it is a new
+  // separately-lazy-loaded importer of two previously more-narrowly-
+  // reached engine bundles. An actual before/after build diff (git
+  // 76187ca32, before this feature, vs. the commit that added
+  // `revision-preview.tsx`; see harness.config.json's
+  // `maxChunkCountRevisionPreviewReason` for the numbers) confirms both
+  // chunks below appear only after that change — Rollup's exact hoist
+  // heuristic is not asserted here beyond that measured fact, since
+  // `slides-view.tsx`/`board-view.tsx` and `notes-view.tsx` were already
+  // each reachable from more than one lazy route (including
+  // `shared-document.tsx`'s share-link mounts) without triggering it:
+  //
+  // - The slides canvas editor (`@wafflebase/slides` `view/editor/editor.ts`,
+  //   which itself pulls in the `@wafflebase/docs` layout engine for
+  //   in-slide text rendering) previously shipped duplicated inline inside
+  //   the `slides-detail-`/`board-view-` route chunks (both already
+  //   1500 kB-overridden). It now hoists into an anonymous shared chunk
+  //   named only `editor-<hash>.js` — indistinguishable, by that generated
+  //   name, from the notes editor bundle below (which collides on the same
+  //   `editor.ts` basename and hoists for the same reason) or a small
+  //   same-named `editor.ts` elsewhere in the app. Naming it explicitly
+  //   gives the chunk-size budget in harness.config.json a stable, narrow
+  //   pattern to target. Matched on the full path, not a directory prefix:
+  //   `view/editor/` also holds `hit-test-elements.ts`,
+  //   `snap-candidates.ts`, `text-box-editor.ts` and more, all
+  //   barrel-exported alongside it.
+  if (normalizedId.endsWith("/packages/slides/src/view/editor/editor.ts")) {
+    return "slides-editor-engine";
+  }
+
+  // - The notes editor (`@wafflebase/notes` `view/editor.ts`: CodeMirror +
+  //   the markdown-it preview engine + the optional Vim keymap) previously
+  //   shipped fully inlined inside the `notes-view-` route chunk (already
+  //   1400 kB-overridden). It now hoists into its own shared chunk the
+  //   same way — `notes-view-*.js` itself shrank from ~1.3 MB to ~8 kB as
+  //   a result. Named for the same reason as the slides editor above.
+  if (normalizedId.endsWith("/packages/notes/src/view/editor.ts")) {
+    return "notes-editor-engine";
+  }
+
   return undefined;
 }
 

@@ -5,11 +5,47 @@ import { RevisionPreview } from '../revision-preview';
 const getRevision = vi.fn();
 vi.mock('@yorkie-js/react', () => ({ useRevisions: () => ({ getRevision }) }));
 
+// A real `SpreadsheetDocument` (`{tabs, tabOrder, sheets}` — the brief's own
+// `{"worksheets":{}}` sketch was a different, nonexistent shape, so that
+// version of this fixture never reached `SheetPreview`'s mount effect at
+// all: `doc.tabOrder` was `undefined`, so the `if (!container || !worksheet)
+// return` guard fired before `MemStore.load`/`initializeSheet` ever ran).
+// Cells are keyed by `rowId|colId` axis-ID pairs, not by A1 notation — that
+// is how every worksheet (Mem- and Yorkie-backed alike) actually stores
+// cells (`createWorksheetCellKey`, `packages/sheets/src/model/workbook/
+// worksheet-record.ts`), and `MemStore.load`'s `getWorksheetEntries` call
+// resolves exactly that format via `rowOrder`/`colOrder`.
+const SHEET_SNAPSHOT = JSON.stringify({
+  tabs: { 'tab-1': { id: 'tab-1', name: 'Sheet1', type: 'sheet' } },
+  tabOrder: ['tab-1'],
+  sheets: {
+    'tab-1': {
+      cells: { 'r1|c1': { v: '1' }, 'r1|c2': { v: '2' } },
+      rowOrder: ['r1'],
+      colOrder: ['c1', 'c2'],
+      nextRowId: 2,
+      nextColId: 3,
+      rowHeights: {},
+      colWidths: {},
+      colStyles: {},
+      rowStyles: {},
+      conditionalFormats: [],
+      dataValidations: [],
+      merges: {},
+      charts: {},
+      images: {},
+      comments: {},
+      frozenRows: 0,
+      frozenCols: 0,
+    },
+  },
+});
+
 describe('RevisionPreview', () => {
   it('announces that this is a past version, with its time', async () => {
     getRevision.mockResolvedValue({
       id: 'r1', label: 'v1', description: '', createdAt: new Date('2026-09-02T10:00:00Z'),
-      snapshot: '{"worksheets":{}}',
+      snapshot: SHEET_SNAPSHOT,
     });
     render(
       <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,

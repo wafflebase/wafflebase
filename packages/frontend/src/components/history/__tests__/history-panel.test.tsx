@@ -79,4 +79,18 @@ describe('HistoryPanel', () => {
     renderPanel();
     expect(screen.getByText(/no versions yet/i)).toBeInTheDocument();
   });
+
+  // Docs mounts the panel with no `onPreview` at all (its snapshots can't
+  // be parsed — see snapshot-adapters.ts). A user must be able to tell
+  // preview isn't available here without clicking to find out, so the
+  // button stays visible but disabled with a reason, not a dead click.
+  it('disables Preview with a reason when the document type has no preview surface', () => {
+    hookState = { ...baseState };
+    render(<HistoryPanel userId={42} onClose={vi.fn()} />);
+    const previewButtons = screen.getAllByRole('button', { name: /preview/i });
+    for (const button of previewButtons) {
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleName(/preview.*not available/i);
+    }
+  });
 });
