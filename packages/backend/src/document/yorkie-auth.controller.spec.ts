@@ -290,7 +290,7 @@ describe('YorkieAuthController.decide (revision methods)', () => {
       method,
       attributes: [{ key, verb: verb as 'r' | 'rw' }],
     });
-    expect(decision.allowed).toBe(true);
+    expect(decision).toMatchObject({ status: 200, allowed: true });
   });
 
   // The regression this whole feature exists behind: a viewer share link
@@ -313,7 +313,11 @@ describe('YorkieAuthController.decide (revision methods)', () => {
       method: 'ListRevisions',
       attributes: [{ key: 'not-a-doc-key', verb: 'r' }],
     });
-    expect(decision.allowed).toBe(false);
+    expect(decision).toMatchObject({
+      status: 403,
+      allowed: false,
+      reason: 'unknown document key',
+    });
   });
 
   it('denies a revision method carrying no document attributes', async () => {
