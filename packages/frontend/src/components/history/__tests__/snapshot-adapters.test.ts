@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  parseBoardSnapshot,
   parseNoteSnapshot,
   parseSheetSnapshot,
   parseSlidesSnapshot,
@@ -13,7 +14,7 @@ const fixture = (name: string) =>
 describe('parseSheetSnapshot', () => {
   // SpreadsheetDocument is { tabs, tabOrder, sheets } — see
   // packages/sheets/src/model/workbook/worksheet-document.ts.
-  it('reads tabs and their worksheets out of a captured snapshot', () => {
+  it('reads tabs and their worksheets from a snapshot fixture', () => {
     const doc = parseSheetSnapshot(fixture('sheet'));
     expect(doc.tabOrder.length).toBeGreaterThan(0);
     expect(
@@ -23,8 +24,22 @@ describe('parseSheetSnapshot', () => {
 });
 
 describe('parseSlidesSnapshot', () => {
-  it('reads slides out of a captured snapshot', () => {
+  it('reads slides from a snapshot fixture', () => {
     expect(parseSlidesSnapshot(fixture('slides')).slides.length).toBeGreaterThan(0);
+  });
+});
+
+describe('parseBoardSnapshot', () => {
+  // A board is one synthetic slide, so it is stored as (and reads back as)
+  // a plain SlidesDocument — see docs/design/board/board.md. The pan/zoom
+  // Viewport is view-local and never persisted, so there is no board-only
+  // wire shape to fixture separately.
+  it('is the slides parser — a board is one synthetic-slide SlidesDocument', () => {
+    expect(parseBoardSnapshot).toBe(parseSlidesSnapshot);
+  });
+
+  it('reads a board snapshot the same way it reads a slides snapshot', () => {
+    expect(parseBoardSnapshot(fixture('slides')).slides.length).toBeGreaterThan(0);
   });
 });
 
@@ -47,6 +62,10 @@ describe('YSON parse limits', () => {
     const docsSnapshot =
       '{"content":Tree({"type":"doc","children":[{"type":"block","children":' +
       '[{"type":"inline","children":[{"type":"text","value":"a"}]}]}]})}';
-    expect(() => parseSheetSnapshot(docsSnapshot)).toThrow();
+    // Pin the failure to the YSON parse step itself (not, say, a broken
+    // import) so this only stays green for the reason we mean.
+    expect(() => parseSheetSnapshot(docsSnapshot)).toThrow(
+      /Failed to parse YSON:.*Unexpected token/,
+    );
   });
 });
