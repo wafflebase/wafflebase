@@ -306,6 +306,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
                 onClose={() => setHistoryOpen(false)}
                 onPreview={setPreviewRevisionId}
                 onRestored={handleHistoryRestored}
+                refreshKey={historyResetToken}
               />
             )}
           </div>

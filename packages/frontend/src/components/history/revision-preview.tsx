@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRevisions, type RevisionSummary } from '@yorkie-js/react';
 import {
   initialize as initializeSheet,
@@ -28,6 +28,7 @@ import {
   parseSheetSnapshot,
   parseSlidesSnapshot,
 } from './snapshot-adapters';
+import { firstWorksheetTabId } from './first-worksheet-tab';
 import { readRevisionMeta } from './revision-meta';
 import { useRevisionHistory } from './use-revision-history';
 
@@ -38,14 +39,20 @@ type Props = {
   type: RevisionPreviewType;
   onRestore: () => void;
   onBack: () => void;
+  /** Rendered in the banner when a restore started from here failed. */
+  restoreError?: string | null;
+  /** Disables the Restore button while one is already in flight. */
+  isRestoring?: boolean;
 };
 
 /**
  * The parsed content, tagged by which adapter produced it. `slides` and
- * `board` share a shape (a board is one synthetic slide — see
- * `snapshot-adapters.ts`) but are kept as distinct tags so the mount effect
- * below can pass `suppressSlideChrome`/a full-plane `viewport` for board
- * without the sheet/note branches needing to know that distinction exists.
+ * `board` end up in the same shape — the board adapter builds one via
+ * `boardToSlidesDocument`, from a wire format that is *not* a
+ * `SlidesDocument` (see `snapshot-adapters.ts`) — but are kept as distinct
+ * tags so the mount effect below can pass `suppressSlideChrome`/a full-plane
+ * `viewport` for board without the sheet/note branches needing to know that
+ * distinction exists.
  */
 type ParsedContent =
   | { kind: 'sheet'; doc: SpreadsheetDocument }
@@ -85,11 +92,55 @@ function formatRevisionTime(date: Date): string {
  * `type` here — see `snapshot-adapters.ts` for why (`YSON.parse` cannot
  * read a docs snapshot's nested `Tree`).
  */
-export function RevisionPreview({ revisionId, type, onRestore, onBack }: Props) {
+export function RevisionPreview({
+  revisionId,
+  type,
+  onRestore,
+  onBack,
+  restoreError,
+  isRestoring = false,
+}: Props) {
   const { getRevision } = useRevisions();
   const [meta, setMeta] = useState<{ createdAt: Date; title: string } | null>(null);
   const [content, setContent] = useState<ParsedContent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // The overlay is a sibling of the live editor, which stays mounted and
+  // fully wired, and both engines bind their primary keyboard handler on
+  // `document` — `worksheet.ts`'s `addEventListener(document, 'keydown', …)`
+  // (whose `isExternalInput` guard passes `document.body` and a focused
+  // `<button>` straight through) and `editor.ts`'s `on(document, 'keydown',
+  // …)` (whose undo/redo rules have no editable-target guard at all). With a
+  // preview open and nothing suppressing them, `Cmd+Z` undoes a real change
+  // in the live document and syncs it to peers, and `Delete` deletes the
+  // still-selected live element.
+  //
+  // The listener therefore sits on `window` in the **capture** phase, which
+  // is the one position that runs before every `document` listener no matter
+  // what order they were registered in (the live view mounts first, so
+  // registration order is not ours to win). Stopping propagation there never
+  // reaches the engines — and does not suppress default actions, so the
+  // overlay's own buttons still activate on Enter/Space and Tab still moves
+  // focus.
+  //
+  // `Escape` is the deliberate exception: it is non-destructive in both
+  // engines (it cancels an in-cell edit / clears a selection) and it is how
+  // the panel beside this overlay dismisses its own dialogs.
+  useEffect(() => {
+    rootRef.current?.focus({ preventScroll: true });
+
+    const suppress = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return;
+      e.stopPropagation();
+    };
+    window.addEventListener('keydown', suppress, true);
+    window.addEventListener('keyup', suppress, true);
+    return () => {
+      window.removeEventListener('keydown', suppress, true);
+      window.removeEventListener('keyup', suppress, true);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +180,14 @@ export function RevisionPreview({ revisionId, type, onRestore, onBack }: Props) 
   }, [getRevision, revisionId, type]);
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-background">
+    <div
+      ref={rootRef}
+      // Focused on mount so the first keystroke after opening a preview
+      // lands here rather than on whatever the live editor left focused.
+      tabIndex={-1}
+      aria-label="Version preview"
+      className="absolute inset-0 z-20 flex flex-col bg-background outline-none"
+    >
       {meta && (
         <div
           role="status"
@@ -142,11 +200,24 @@ export function RevisionPreview({ revisionId, type, onRestore, onBack }: Props) 
             <Button type="button" variant="outline" size="sm" onClick={onBack}>
               Back to current version
             </Button>
-            <Button type="button" size="sm" onClick={onRestore}>
-              Restore this version
+            <Button
+              type="button"
+              size="sm"
+              onClick={onRestore}
+              disabled={isRestoring}
+            >
+              {isRestoring ? 'Restoring…' : 'Restore this version'}
             </Button>
           </div>
         </div>
+      )}
+      {restoreError && (
+        <p
+          role="alert"
+          className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive"
+        >
+          Couldn't restore this version: {restoreError}
+        </p>
       )}
       {content?.kind === 'sheet' && (
         <p className="border-b bg-muted/50 px-4 py-1 text-xs text-muted-foreground">
@@ -185,6 +256,11 @@ export function RevisionPreview({ revisionId, type, onRestore, onBack }: Props) 
  * *is* the confirmation, so restoring from it performs the restore
  * directly rather than opening a second confirm dialog like the panel's
  * list-row Restore does.
+ *
+ * The preview closes only once the restore has actually succeeded. Closing
+ * first and firing the restore into the void (what this did originally) left
+ * a failed restore with nowhere to report itself — on a feature whose whole
+ * job is getting data back, that is the one failure that must not be silent.
  */
 export function RevisionPreviewOverlay({
   revisionId,
@@ -201,6 +277,24 @@ export function RevisionPreviewOverlay({
   onRestored?: () => void;
 }) {
   const { restore } = useRevisionHistory({ enabled: false, userId, onRestored });
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+
+  const handleRestore = async () => {
+    if (isRestoring) return;
+    setIsRestoring(true);
+    setRestoreError(null);
+    try {
+      await restore(revisionId);
+      onClose();
+    } catch (err) {
+      setRestoreError(
+        err instanceof Error ? err.message : 'The restore did not complete.',
+      );
+    } finally {
+      setIsRestoring(false);
+    }
+  };
 
   return (
     <RevisionPreview
@@ -208,9 +302,10 @@ export function RevisionPreviewOverlay({
       type={type}
       onBack={onClose}
       onRestore={() => {
-        onClose();
-        void restore(revisionId);
+        void handleRestore();
       }}
+      restoreError={restoreError}
+      isRestoring={isRestoring}
     />
   );
 }
@@ -236,10 +331,10 @@ export function RevisionPreviewOverlay({
 function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
   const { resolvedTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const tabId = useMemo(() => firstWorksheetTabId(doc), [doc]);
 
   useEffect(() => {
     const container = containerRef.current;
-    const tabId = doc.tabOrder?.[0];
     const worksheet = tabId ? doc.sheets?.[tabId] : undefined;
     if (!container || !worksheet) return;
 
@@ -272,7 +367,22 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
       cancelled = true;
       sheet?.cleanup();
     };
-  }, [doc, resolvedTheme]);
+  }, [doc, tabId, resolvedTheme]);
+
+  if (!tabId) {
+    // Same rule as the unreadable-snapshot branch above: say what happened
+    // rather than render nothing, which a user would read as a blank version.
+    return (
+      <p
+        role="alert"
+        className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground"
+      >
+        This version has no sheet to show — its tabs are all external
+        (datasource or lakehouse) tabs, whose rows are not stored in the
+        document.
+      </p>
+    );
+  }
 
   return <div ref={containerRef} className="h-full w-full" />;
 }

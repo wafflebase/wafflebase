@@ -1,9 +1,21 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { RevisionPreview } from '../revision-preview';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { RevisionPreview, RevisionPreviewOverlay } from '../revision-preview';
+import { firstWorksheetTabId } from '../first-worksheet-tab';
 
 const getRevision = vi.fn();
-vi.mock('@yorkie-js/react', () => ({ useRevisions: () => ({ getRevision }) }));
+const listRevisions = vi.fn().mockResolvedValue([]);
+const createRevision = vi.fn().mockResolvedValue({ id: 'safety' });
+const restoreRevision = vi.fn().mockResolvedValue(undefined);
+vi.mock('@yorkie-js/react', () => ({
+  useRevisions: () => ({
+    getRevision,
+    listRevisions,
+    createRevision,
+    restoreRevision,
+  }),
+}));
 
 // A real `SpreadsheetDocument` (`{tabs, tabOrder, sheets}` — the brief's own
 // `{"worksheets":{}}` sketch was a different, nonexistent shape, so that
@@ -15,38 +27,71 @@ vi.mock('@yorkie-js/react', () => ({ useRevisions: () => ({ getRevision }) }));
 // cells (`createWorksheetCellKey`, `packages/sheets/src/model/workbook/
 // worksheet-record.ts`), and `MemStore.load`'s `getWorksheetEntries` call
 // resolves exactly that format via `rowOrder`/`colOrder`.
+const worksheet = {
+  cells: { 'r1|c1': { v: '1' }, 'r1|c2': { v: '2' } },
+  rowOrder: ['r1'],
+  colOrder: ['c1', 'c2'],
+  nextRowId: 2,
+  nextColId: 3,
+  rowHeights: {},
+  colWidths: {},
+  colStyles: {},
+  rowStyles: {},
+  conditionalFormats: [],
+  dataValidations: [],
+  merges: {},
+  charts: {},
+  images: {},
+  comments: {},
+  frozenRows: 0,
+  frozenCols: 0,
+};
+
 const SHEET_SNAPSHOT = JSON.stringify({
   tabs: { 'tab-1': { id: 'tab-1', name: 'Sheet1', type: 'sheet' } },
   tabOrder: ['tab-1'],
-  sheets: {
-    'tab-1': {
-      cells: { 'r1|c1': { v: '1' }, 'r1|c2': { v: '2' } },
-      rowOrder: ['r1'],
-      colOrder: ['c1', 'c2'],
-      nextRowId: 2,
-      nextColId: 3,
-      rowHeights: {},
-      colWidths: {},
-      colStyles: {},
-      rowStyles: {},
-      conditionalFormats: [],
-      dataValidations: [],
-      merges: {},
-      charts: {},
-      images: {},
-      comments: {},
-      frozenRows: 0,
-      frozenCols: 0,
-    },
+  sheets: { 'tab-1': worksheet },
+});
+
+/**
+ * Every tab is external, so no tab has a `sheets` entry to render.
+ *
+ * Doubles as the snapshot for every test below that is about the preview
+ * *shell* (keyboard containment, restore reporting) rather than its content:
+ * it exercises the whole load-and-parse path but stops short of mounting a
+ * Canvas engine, which jsdom cannot paint — `HTMLCanvasElement.getContext`
+ * returns null, and the sheets renderer's next animation frame then rejects
+ * after the test that started it has already finished.
+ */
+const EXTERNAL_ONLY_SNAPSHOT = JSON.stringify({
+  tabs: {
+    'tab-1': { id: 'tab-1', name: 'Postgres', type: 'datasource' },
+    'tab-2': { id: 'tab-2', name: 'Iceberg', type: 'lakehouse' },
   },
+  tabOrder: ['tab-1', 'tab-2'],
+  sheets: {},
+});
+
+function resolveWith(snapshot: string) {
+  getRevision.mockResolvedValue({
+    id: 'r1',
+    label: 'v1',
+    description: '',
+    createdAt: new Date('2026-09-02T10:00:00Z'),
+    snapshot,
+  });
+}
+
+afterEach(() => {
+  vi.clearAllMocks();
+  listRevisions.mockResolvedValue([]);
+  createRevision.mockResolvedValue({ id: 'safety' });
+  restoreRevision.mockResolvedValue(undefined);
 });
 
 describe('RevisionPreview', () => {
   it('announces that this is a past version, with its time', async () => {
-    getRevision.mockResolvedValue({
-      id: 'r1', label: 'v1', description: '', createdAt: new Date('2026-09-02T10:00:00Z'),
-      snapshot: SHEET_SNAPSHOT,
-    });
+    resolveWith(SHEET_SNAPSHOT);
     render(
       <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
@@ -66,5 +111,174 @@ describe('RevisionPreview', () => {
       <RevisionPreview revisionId="r2" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+  });
+
+  // Same rule, one step further in: the snapshot parsed fine, but nothing in
+  // it can be rendered. Silence would still read as "this version was blank".
+  it('says so when no tab in the version has a worksheet to render', async () => {
+    resolveWith(EXTERNAL_ONLY_SNAPSHOT);
+    render(
+      <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/no sheet to show/i),
+    );
+  });
+});
+
+// The overlay is a *sibling* of the live editor, which stays mounted and
+// keeps its `document`-level keydown listener (worksheet.ts:2649,
+// editor.ts:2803). Without suppression, Cmd+Z with a preview open undoes a
+// real change in the live document and Delete deletes the live selection.
+describe('RevisionPreview keyboard containment', () => {
+  it('keeps keystrokes away from document-level listeners in both phases', async () => {
+    const bubble = vi.fn();
+    // Registered *before* the preview mounts, exactly as the live editor's
+    // is — a listener we cannot outrun by registration order. `window` in
+    // the capture phase is upstream of `document` in either phase, which is
+    // what makes both of these unreachable.
+    const capture = vi.fn();
+    document.addEventListener('keydown', bubble);
+    document.addEventListener('keydown', capture, true);
+
+    try {
+      resolveWith(EXTERNAL_ONLY_SNAPSHOT);
+      render(
+        <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+      );
+      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+
+      // Nothing focused inside the overlay...
+      fireEvent.keyDown(document.body, { key: 'z', metaKey: true });
+      // ...and a focused control inside it (the sheets engine's
+      // `isExternalInput` guard lets a focused <button> through).
+      fireEvent.keyDown(screen.getByRole('button', { name: /back/i }), {
+        key: 'Delete',
+      });
+
+      expect(bubble).not.toHaveBeenCalled();
+      expect(capture).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', bubble);
+      document.removeEventListener('keydown', capture, true);
+    }
+  });
+
+  it('moves focus into the overlay so the next keystroke lands there', async () => {
+    resolveWith(EXTERNAL_ONLY_SNAPSHOT);
+    const { container } = render(
+      <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(document.activeElement).toBe(container.firstChild);
+  });
+
+  // Escape is the one deliberate exception: non-destructive in both engines,
+  // and it is how the panel beside this overlay dismisses its dialogs.
+  it('still lets Escape through', async () => {
+    const bubble = vi.fn();
+    document.addEventListener('keydown', bubble);
+    try {
+      resolveWith(EXTERNAL_ONLY_SNAPSHOT);
+      render(
+        <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+      );
+      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(bubble).toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', bubble);
+    }
+  });
+
+  it('stops suppressing once the preview closes', async () => {
+    const bubble = vi.fn();
+    document.addEventListener('keydown', bubble);
+    try {
+      resolveWith(EXTERNAL_ONLY_SNAPSHOT);
+      const { unmount } = render(
+        <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+      );
+      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      unmount();
+      fireEvent.keyDown(document.body, { key: 'z', metaKey: true });
+      expect(bubble).toHaveBeenCalledTimes(1);
+    } finally {
+      document.removeEventListener('keydown', bubble);
+    }
+  });
+});
+
+describe('RevisionPreviewOverlay', () => {
+  it('reports a failed restore instead of closing on it', async () => {
+    resolveWith(EXTERNAL_ONLY_SNAPSHOT);
+    restoreRevision.mockRejectedValue(new Error('permission denied'));
+    const onClose = vi.fn();
+    render(
+      <RevisionPreviewOverlay
+        revisionId="r1"
+        type="sheet"
+        userId={42}
+        onClose={onClose}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /restore this version/i }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/couldn't restore this version: permission denied/i),
+      ).toBeInTheDocument(),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes once the restore succeeds', async () => {
+    resolveWith(EXTERNAL_ONLY_SNAPSHOT);
+    const onClose = vi.fn();
+    render(
+      <RevisionPreviewOverlay
+        revisionId="r1"
+        type="sheet"
+        userId={42}
+        onClose={onClose}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await userEvent.click(
+      screen.getByRole('button', { name: /restore this version/i }),
+    );
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(restoreRevision).toHaveBeenCalled();
+  });
+});
+
+describe('firstWorksheetTabId', () => {
+  // Datasource and lakehouse tabs occupy a `tabOrder` slot without a
+  // `sheets` entry, so `tabOrder[0]` is not necessarily renderable.
+  it('skips leading tabs that have no worksheet', () => {
+    expect(
+      firstWorksheetTabId({
+        tabs: {
+          ds: { id: 'ds', name: 'Postgres', type: 'datasource' },
+          s1: { id: 's1', name: 'Sheet1', type: 'sheet' },
+        },
+        tabOrder: ['ds', 's1'],
+        sheets: { s1: worksheet },
+      } as never),
+    ).toBe('s1');
+  });
+
+  it('returns undefined when no tab has one', () => {
+    expect(
+      firstWorksheetTabId({
+        tabs: { ds: { id: 'ds', name: 'Postgres', type: 'datasource' } },
+        tabOrder: ['ds'],
+        sheets: {},
+      } as never),
+    ).toBeUndefined();
   });
 });

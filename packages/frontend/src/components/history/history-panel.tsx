@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,15 @@ type Props = {
    * without this prop the callback could never be supplied.
    */
   onRestored?: () => void;
+  /**
+   * Bump to make the panel re-read its list. The preview overlay owns its
+   * own `useRevisionHistory` instance, so a restore started from the preview
+   * refreshes *that* list and leaves this one stale — missing the "Before
+   * restore" entry the restore just promised. Editors pass the same
+   * `historyResetToken` they already bump in `onRestored`, which closes that
+   * gap without a second hook instance or a shared store.
+   */
+  refreshKey?: number;
 };
 
 /** Formats a `TimelineDay.dayKey` ("YYYY-MM-DD") as a section heading. */
@@ -66,13 +75,29 @@ function formatTime(date: Date): string {
  * Mirrors the container markup of `CommentSidePanel`, which occupies the
  * same slot in the other panels the document header opens.
  */
-export function HistoryPanel({ userId, onClose, onPreview, onRestored }: Props) {
-  const { days, isLoading, error, nameCurrentVersion, restore } =
+export function HistoryPanel({
+  userId,
+  onClose,
+  onPreview,
+  onRestored,
+  refreshKey,
+}: Props) {
+  const { days, isLoading, error, refresh, nameCurrentVersion, restore } =
     useRevisionHistory({ enabled: true, userId, onRestored });
 
   const [label, setLabel] = useState("");
   const [isNaming, setIsNaming] = useState(false);
   const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  // Skip the initial value: the hook already fetches on mount, and a second
+  // request for the same list would just be waste.
+  const seenRefreshKey = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshKey === seenRefreshKey.current) return;
+    seenRefreshKey.current = refreshKey;
+    void refresh();
+  }, [refreshKey, refresh]);
 
   const handleNameSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -91,7 +116,17 @@ export function HistoryPanel({ userId, onClose, onPreview, onRestored }: Props) 
     if (!pendingRestoreId) return;
     const id = pendingRestoreId;
     setPendingRestoreId(null);
-    await restore(id);
+    setRestoreError(null);
+    try {
+      await restore(id);
+    } catch (err) {
+      // A restore that failed and said nothing is the worst outcome this
+      // feature can produce: the user believes their document was rolled
+      // back. Report it the same way the list reports a failed load.
+      setRestoreError(
+        err instanceof Error ? err.message : "The restore did not complete.",
+      );
+    }
   };
 
   return (
@@ -130,6 +165,15 @@ export function HistoryPanel({ userId, onClose, onPreview, onRestored }: Props) 
           Save
         </Button>
       </form>
+
+      {restoreError && (
+        <p
+          role="alert"
+          className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive"
+        >
+          Couldn't restore this version: {restoreError}
+        </p>
+      )}
 
       <ScrollArea className="flex-1">
         {error && (

@@ -1,10 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistoryPanel } from '../history-panel';
 
 const restore = vi.fn();
 const nameCurrentVersion = vi.fn();
+const refresh = vi.fn();
 let hookState: Record<string, unknown>;
 
 vi.mock('../use-revision-history', () => ({
@@ -14,7 +15,7 @@ vi.mock('../use-revision-history', () => ({
 const baseState = {
   isLoading: false,
   error: null,
-  refresh: vi.fn(),
+  refresh,
   nameCurrentVersion,
   restore,
   days: [
@@ -38,8 +39,20 @@ const baseState = {
   ],
 };
 
-const renderPanel = () =>
-  render(<HistoryPanel userId={42} onClose={vi.fn()} onPreview={vi.fn()} />);
+const renderPanel = (refreshKey?: number) =>
+  render(
+    <HistoryPanel
+      userId={42}
+      onClose={vi.fn()}
+      onPreview={vi.fn()}
+      refreshKey={refreshKey}
+    />,
+  );
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  restore.mockResolvedValue(undefined);
+});
 
 describe('HistoryPanel', () => {
   it('shows a named version by its name', () => {
@@ -78,6 +91,42 @@ describe('HistoryPanel', () => {
     hookState = { ...baseState, days: [], error: null };
     renderPanel();
     expect(screen.getByText(/no versions yet/i)).toBeInTheDocument();
+  });
+
+  // A restore that failed and said nothing is the worst thing a
+  // restore-the-document feature can do: the user believes it worked.
+  it('reports a failed restore instead of failing silently', async () => {
+    hookState = { ...baseState };
+    restore.mockRejectedValue(new Error('permission denied'));
+    renderPanel();
+    await userEvent.click(screen.getAllByRole('button', { name: /restore/i })[0]);
+    await userEvent.click(
+      screen.getByRole('button', { name: /^restore this version$/i }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText(/couldn't restore this version: permission denied/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  // The preview overlay owns a second `useRevisionHistory` instance, so a
+  // restore started from the preview refreshes that one and leaves this list
+  // stale — without the "Before restore" entry the restore just created.
+  it('re-reads its list when the editor bumps refreshKey', async () => {
+    hookState = { ...baseState };
+    const { rerender } = renderPanel(0);
+    expect(refresh).not.toHaveBeenCalled(); // the hook already fetched on mount
+
+    rerender(
+      <HistoryPanel
+        userId={42}
+        onClose={vi.fn()}
+        onPreview={vi.fn()}
+        refreshKey={1}
+      />,
+    );
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });
 
   // Docs mounts the panel with no `onPreview` at all (its snapshots can't

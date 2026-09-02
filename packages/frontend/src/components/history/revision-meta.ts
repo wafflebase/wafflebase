@@ -5,9 +5,9 @@
  * `{id, label, description, snapshot, createdAt}` — so this is where
  * wafflebase records what a revision is and who made it. Revisions Yorkie
  * creates on its own (one per server snapshot) carry an empty description
- * and a `snapshot-<serverSeq>` label.
+ * and a `snapshot-<serverSeq>` label, which is why an absent or unreadable
+ * description classifies as automatic.
  */
-export const AUTOMATIC_LABEL_PREFIX = 'snapshot-';
 
 /** Payload schema version. Bump only on a breaking shape change. */
 const META_VERSION = 1;
@@ -25,9 +25,12 @@ export function writeRevisionMeta(kind: 'named' | 'safety', by: number): string 
 }
 
 /**
- * Classify a revision. The description is authoritative — a user is free to
- * name a version `snapshot-503`, and the label prefix is only a fallback for
- * revisions wafflebase did not write.
+ * Classify a revision from its `description` alone. The label is never
+ * consulted, deliberately: a user is free to name a version `snapshot-503`,
+ * so matching on the label prefix Yorkie happens to use would misclassify
+ * that named version as automatic. Anything without a well-formed
+ * description of ours — including every revision Yorkie wrote itself — is
+ * automatic.
  */
 export function readRevisionMeta(revision: {
   label: string;

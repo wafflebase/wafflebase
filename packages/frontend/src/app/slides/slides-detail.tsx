@@ -531,6 +531,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                 onClose={() => setRightPanel(null)}
                 onPreview={setPreviewRevisionId}
                 onRestored={handleHistoryRestored}
+                refreshKey={historyResetToken}
               />
             )}
           </div>

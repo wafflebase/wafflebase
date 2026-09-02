@@ -3,8 +3,18 @@ import { useRevisions } from '@yorkie-js/react';
 import { groupRevisions, type TimelineDay } from './group-revisions';
 import { writeRevisionMeta } from './revision-meta';
 
-/** How many revisions the panel lists. Revision storage is unbounded upstream. */
-const PAGE_SIZE = 50;
+/**
+ * The hard cap on what the panel can show. There is no paging: no offset is
+ * tracked, no `loadMore` is exposed, and `listRevisions` reports no
+ * "more exist" signal, so a document with more than this many revisions
+ * silently shows only its most recent 50 and the older ones are not
+ * reachable from the UI at all. Storage is unbounded upstream (one snapshot
+ * per 500 changes, forever, with no delete RPC), so this cap is doing real
+ * work and the truncation it causes is a known gap, tracked in
+ * `docs/design/revision-history.md` §8 — not a placeholder for paging that
+ * exists somewhere else.
+ */
+const REVISION_LIST_LIMIT = 50;
 
 const SAFETY_LABEL = 'Before restore';
 
@@ -30,7 +40,7 @@ export function useRevisionHistory({
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
-      const revisions = await listRevisions({ pageSize: PAGE_SIZE });
+      const revisions = await listRevisions({ pageSize: REVISION_LIST_LIMIT });
       setDays(groupRevisions(revisions));
       setError(null);
     } catch (err) {
