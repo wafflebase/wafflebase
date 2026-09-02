@@ -67,6 +67,40 @@ function uniqueDocKey(prefix: string): string {
   return `sheet-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+type Observed<T> =
+  | { resolved: true; value: T }
+  | { resolved: false; error: unknown };
+
+/** Captures whether a promise resolved or rejected, and with what. */
+function observe<T>(promise: Promise<T>): Promise<Observed<T>> {
+  return promise.then(
+    (value) => ({ resolved: true as const, value }),
+    (error: unknown) => ({ resolved: false as const, error }),
+  );
+}
+
+/**
+ * Duck-types an RPC rejection as the auth webhook's permission denial,
+ * rather than accepting any rejection as proof of refusal — a network
+ * blip, a detached document, or an expired token would all also reject.
+ * Confirmed shape from a real denial: `ConnectError { code: 7, message:
+ * '[permission_denied] not allowed' }` (gRPC code 7 is `PERMISSION_DENIED`;
+ * `@yorkie-js/sdk` doesn't re-export `@connectrpc/connect`'s `Code` enum,
+ * so this checks the numeric value and the message text directly instead
+ * of importing it).
+ */
+function isPermissionDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  const message = (error as { message?: unknown }).message;
+  return (
+    code === 7 ||
+    (typeof message === 'string' && message.includes('permission_denied'))
+  );
+}
+
 describeAttached('revision history round-trip', () => {
   let client: Client;
 
@@ -171,12 +205,20 @@ describeAttached('revision history read-only refusal', () => {
   //   - `ListRevisions` → verb `r`
   //   - `GetRevision`   → verb `r`
   //   - `RestoreRevision` → verb `rw`
-  // (confirmed by logging the raw webhook request body). Because those
-  // attributes are real, `YorkieAuthController.decide()` — completely
-  // unmodified, no code change anywhere in `src/` — already authorizes them
-  // correctly: this test's viewer-role client genuinely gets refused on
-  // `restoreRevision` below. In other words, the specific vulnerability
-  // this test checks (a viewer-role client restoring a document) is closed
+  // This is now asserted directly (`webhookCalls`, recorded by a middleware
+  // ahead of the controller — see below), not just observed once by hand
+  // and written up in prose (an earlier round of this file did exactly
+  // that and got called out for it correctly: a viewer being refused is,
+  // on its own, equally consistent with correct per-role enforcement *or*
+  // `RestoreRevision` sharing `CreateRevision`'s `attributes: null` bug and
+  // denying everyone — the two are indistinguishable without a positive
+  // control). The owner-side `restoreRevision` control probe below is that
+  // control: it genuinely succeeds, which is only possible under the first
+  // explanation. Together, real attributes + `YorkieAuthController.decide()`
+  // — completely unmodified, no code change anywhere in `src/` — already
+  // authorizing them correctly + the owner's own restore succeeding is what
+  // makes this test's conclusion solid: the specific vulnerability this
+  // test checks (a viewer-role client restoring a document) is closed
   // **today**, simply by wafflebase adding these methods to the
   // registration walkthrough in `packages/backend/README.md` — it does not
   // need to wait on an upstream fix. `docs/design/revision-history.md`'s
@@ -278,6 +320,30 @@ describeAttached('revision history read-only refusal', () => {
           }
         },
       }),
+    );
+    // Records every auth-webhook call's method + attributes, so the
+    // `{key, verb}` vs `null` split this test's conclusions rest on is
+    // asserted directly rather than only observed once by hand and written
+    // up in prose. Must run after the `bodyParser.json` above (needs
+    // `req.body` parsed) and before the controller.
+    const webhookCalls: Array<{ method?: string; attributes?: unknown }> = [];
+    app.use(
+      (
+        req: { url?: string; body?: { method?: string; attributes?: unknown } },
+        _res: unknown,
+        next: () => void,
+      ) => {
+        if (
+          req.url?.split('?', 1)[0]?.startsWith('/internal/yorkie/auth') &&
+          req.body
+        ) {
+          webhookCalls.push({
+            method: req.body.method,
+            attributes: req.body.attributes,
+          });
+        }
+        next();
+      },
     );
     app.use(cookieParser());
     applyGlobalBootstrap(app);
@@ -400,20 +466,31 @@ describeAttached('revision history read-only refusal', () => {
       // this specific RPC regardless of caller, so `decide()`'s fail-closed
       // branch denies it unconditionally. This is why the owner's baseline
       // `createRevision` call above had to happen before this registration.
-      const ownerCreateAfterRegistration = await ownerClient
-        .createRevision(ownerDoc, 'post-registration-probe', '')
-        .then(
-          () => ({ resolved: true as const }),
-          (error: unknown) => ({ resolved: false as const, error }),
-        );
+      const ownerCreateAfterRegistration = await observe(
+        ownerClient.createRevision(ownerDoc, 'post-registration-probe', ''),
+      );
       // eslint-disable-next-line no-console
       console.log(
         "owner's own createRevision after registering it as a webhook method:",
         JSON.stringify(ownerCreateAfterRegistration.resolved),
         ownerCreateAfterRegistration.resolved
           ? ''
-          : `(${String((ownerCreateAfterRegistration as { error: unknown }).error)})`,
+          : `(${String(ownerCreateAfterRegistration.error)})`,
       );
+
+      // Control probe: the owner's own `restoreRevision` must succeed now
+      // that `RestoreRevision` is registered. This is what actually
+      // separates two explanations for the viewer being refused below —
+      // (a) real `{key, verb}` attributes and correct per-role enforcement,
+      // vs (b) `RestoreRevision` sharing `CreateRevision`'s `attributes:
+      // null` bug and denying *everyone*, owner included. If this
+      // assertion fails, that is the (b) outcome: `RestoreRevision` is not
+      // actually closable by registration and must stay unregistered like
+      // `CreateRevision`, and the "closable today" conclusion below does
+      // not hold.
+      await ownerClient.restoreRevision(ownerDoc, rev.id);
+      await ownerClient.sync(ownerDoc);
+      expect(ownerDoc.getRoot().marker).toBe('owner-baseline');
 
       // The read-only client: an anonymous viewer-role share-link visitor.
       viewerClient = new yorkie.Client({
@@ -430,26 +507,31 @@ describeAttached('revision history read-only refusal', () => {
       // Sanity check: the webhook really is enforcing role-based access for
       // an RPC it *does* gate, so the interesting failure below isn't just a
       // broken test harness. A real edit attempt (verb 'rw') from a viewer
-      // must be denied.
+      // must be denied — and specifically *denied*, not merely "rejected
+      // for any reason" (a network blip, a detached document, or an
+      // expired token would also reject `sync()`).
       viewerDoc.update((root) => {
         root.marker = 'viewer-should-not-write';
       });
-      await expect(viewerClient.sync(viewerDoc)).rejects.toThrow();
+      const writeAttempt = await observe(viewerClient.sync(viewerDoc));
+      expect(writeAttempt.resolved).toBe(false);
+      expect(
+        !writeAttempt.resolved && isPermissionDenied(writeAttempt.error),
+      ).toBe(true);
 
       // The actual claim under test: once `RestoreRevision` is registered as
       // an auth-webhook method, a viewer-role client's restore is refused —
       // wafflebase's existing role logic, given real attributes, already
-      // gets this right. Capture what actually happens (a single call,
-      // observed rather than asserted directly) so this is concrete
-      // evidence either way — did the RPC resolve, and did the document
-      // really change — not just "no exception was thrown".
+      // gets this right (confirmed, not merely inferred: the owner-side
+      // control probe above proves `RestoreRevision` genuinely succeeds
+      // once registered, so this refusal is role-based, not a blanket
+      // `attributes: null` failure). Assert both that the RPC was refused
+      // *and* that the document really didn't change — "no exception was
+      // thrown" alone would also pass on an unrelated error.
       const someRevisionId = rev.id;
-      const observed = await viewerClient
-        .restoreRevision(viewerDoc, someRevisionId)
-        .then(
-          () => ({ resolved: true as const }),
-          (error: unknown) => ({ resolved: false as const, error }),
-        );
+      const observed = await observe(
+        viewerClient.restoreRevision(viewerDoc, someRevisionId),
+      );
       await ownerClient.sync(ownerDoc);
       // eslint-disable-next-line no-console
       console.log(
@@ -459,10 +541,34 @@ describeAttached('revision history read-only refusal', () => {
         ownerDoc.getRoot().marker,
       );
 
-      // Genuinely passes today, given the registration above: the server
-      // sends real `{key, verb: 'rw'}` attributes for `RestoreRevision`,
-      // and wafflebase's unmodified `decide()` correctly refuses a viewer.
       expect(observed.resolved).toBe(false);
+      expect(!observed.resolved && isPermissionDenied(observed.error)).toBe(
+        true,
+      );
+      // Unchanged since the owner's own control-probe restore above.
+      expect(ownerDoc.getRoot().marker).toBe('owner-baseline');
+
+      // Turn the one-time manual "I logged the raw webhook body by hand"
+      // observation into a standing regression guard: every
+      // `RestoreRevision` call (the owner's control probe and the viewer's)
+      // carried the real document key + verb, and the one `CreateRevision`
+      // call (the owner's post-registration probe; the pre-registration one
+      // never hit the webhook at all) carried none. If a future yorkie
+      // build changes either shape, this fails here instead of only via a
+      // permission-decision side effect above.
+      const restoreCalls = webhookCalls.filter(
+        (c) => c.method === 'RestoreRevision',
+      );
+      expect(restoreCalls.length).toBeGreaterThanOrEqual(2);
+      for (const call of restoreCalls) {
+        expect(call.attributes).toEqual([{ key, verb: 'rw' }]);
+      }
+      const createCalls = webhookCalls.filter(
+        (c) => c.method === 'CreateRevision',
+      );
+      expect(createCalls).toEqual([
+        { method: 'CreateRevision', attributes: null },
+      ]);
     } finally {
       await ownerClient?.deactivate().catch(() => {});
       await viewerClient?.deactivate().catch(() => {});
