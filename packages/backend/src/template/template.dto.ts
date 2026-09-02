@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   IsUUID,
@@ -220,6 +221,18 @@ export class ReviewTemplateDto {
   @IsString()
   @Length(1, MAX_REVIEW_NOTE)
   note?: string;
+
+  /**
+   * The content watermark the reviewer's queue row carried, echoed back.
+   *
+   * Load-bearing for `approve`: the service compares it to the listing's
+   * current `contentChangedAt` and answers `409` on any difference — including
+   * the difference between "never edited" (null) and "edited once". Omitted for
+   * a listing that has never been edited, which is the common case.
+   */
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  contentAt?: string;
 }
 
 export class UseTemplateDto {

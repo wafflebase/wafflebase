@@ -616,7 +616,10 @@ describe('the image report', () => {
       onImages: (r) => reports.push(r),
     });
     expect(reports[0].skipped).toEqual([
-      { url: `/api/v1/workspaces/ws-9/images/${IMG}`, reason: 'belongs to another workspace' },
+      {
+        url: `/api/v1/workspaces/ws-9/images/${IMG}`,
+        reason: 'belongs to another workspace',
+      },
     ]);
   });
 
@@ -635,14 +638,19 @@ describe('the image report', () => {
   });
 
   it('stops at the byte budget instead of copying without limit', async () => {
-    const reports: Array<{ rehosted: number; skipped: Array<{ reason: string }> }> = [];
+    const reports: Array<{
+      rehosted: number;
+      skipped: Array<{ reason: string }>;
+    }> = [];
     const { service, imageService } = makeService({
       sourceRoot: {
         sheets: {
           t1: {
             images: {
               a: { src: `/api/v1/workspaces/ws-1/images/${IMG}` },
-              b: { src: '/api/v1/workspaces/ws-1/images/22222222-3333-4444-5555-666666666666.png' },
+              b: {
+                src: '/api/v1/workspaces/ws-1/images/22222222-3333-4444-5555-666666666666.png',
+              },
             },
           },
         },

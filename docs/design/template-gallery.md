@@ -588,6 +588,81 @@ Two related repairs land with it:
   Publishing checks a document once; a `datasource` tab added afterwards would
   otherwise reach the gallery.
 
+#### Keeping an approved listing honest
+
+A public listing tracks a **live** document, which is what makes bait-and-switch
+possible: a budget sheet is approved, then edited into something else, under the
+same listing, the same author and the same accumulated use count. Content edits
+flow client → Yorkie and never reach this backend, so nothing in the review
+pipeline would notice.
+
+Except that they do leave one trace. Yorkie's `DocumentRootChanged` event
+webhook already fires on every real root edit, to keep `Document.updatedAt`
+moving for the documents list — and that signal is enough. **An edit to an
+approved public listing's document returns it to `pending`**, which drops it out
+of the gallery and back into the queue until someone looks again. The publisher
+is told, because a template that quietly stops being public is the same silent
+disappearance the rest of this pipeline exists to prevent; the notification is
+deduped per day, since editing a document is not one event.
+
+The write is guarded on `visibility: 'public', status: 'listed'` rather than
+read-then-written, so it runs alongside reviewer decisions without walking a
+takedown back to `pending`, and it ignores an event older than the decision it
+would undo — the handler always answers 200, which suppresses only the retries
+it can see. And it must stay cheap: it fires for *every* document's every edit,
+so the case that matters is "this document has no public listing", which
+`documentId`'s unique index answers in one lookup that touches nothing.
+
+**A status is only as good as the write that set it**, though, and this one is
+set by a webhook a deployment registers per Yorkie project. So the listing also
+carries two watermarks — `contentChangedAt`, written on every edit whatever the
+listing's state, and `reviewedContentAt`, the value a reviewer attested to — and
+`isVisibleTo` refuses a public listing whose content has moved past its
+approval. That is the half that needs nothing to have run: an unregistered
+webhook, a failed write, or a delivery that never arrives leaves the gallery
+correct on the two paths where content actually reaches somebody. The collection
+query keeps using `status`, because Prisma cannot express a column-to-column
+comparison there; the single-row paths are the ones that matter.
+
+Three things this defence has to cover that "the document changed" alone does
+not:
+
+- **Edits during review.** The transition only fires from `listed`, so an edit
+  while a listing is `pending` matches nothing — and that is the cheaper attack:
+  submit clean content, let a reviewer read it, edit, and the approval that
+  lands afterwards publishes what nobody looked at. So approving is an
+  **attestation**: the queue hands the reviewer the current `contentAt`, the
+  approval echoes it, and a mismatch — including the difference between "never
+  edited" and "edited once" — is a `409`.
+- **The card, not just the document.** A gallery card *is* its title,
+  description, category and thumbnail. Editing those needs no Yorkie write at
+  all, so the webhook would never see it; `update()` therefore re-enters review
+  when one of them changes on an approved public listing. `tags` and
+  `visibility` do not, because they steer discovery rather than represent the
+  template.
+- **Who can trigger it.** A public listing hands `previewToken` to every
+  visitor, and with `YORKIE_AUTH_WEBHOOK_ENFORCE` unset the auth webhook only
+  *shadows* — it logs the decision it would have made and allows the write. That
+  would make an anonymous visitor able to edit any public template, and since an
+  edit returns a listing to review, one cheap request per card would empty the
+  gallery into a queue only a human on the allowlist can drain. The public tier
+  therefore **refuses to operate unless enforcement is on**, checked at both
+  `submit` and `approve` rather than documented and hoped for.
+
+This is the cheaper half of a trade worth naming. [Frozen-copy
+promotion](#frozen-copy-promotion) below would let an approved listing keep
+serving while its publisher edits, because the gallery would point at an
+immutable copy rather than at their document — but it needs a system workspace,
+a promotion transaction, and image re-hosting on that path. Re-review-on-change
+needs none of them and fails in the safe direction: the listing leaves the
+gallery rather than silently misrepresenting itself. The cost is that a
+publisher fixing a typo drops out of the gallery until a reviewer looks again,
+which is noise for reviewers and latency for publishers — and that a
+collaborator's edit, or a comment, does the same. Promotion remains the
+hardening step, and when it lands the signal has to move with it: the listing
+will point at a frozen copy nobody edits, so the edits that matter will be on
+`originId`.
+
 #### Frozen-copy promotion
 
 Approval runs the copy service into a system-owned workspace

@@ -232,6 +232,46 @@ export class NotificationService {
   }
 
   /**
+   * An approved public listing's document was edited, so the listing left the
+   * gallery and is waiting to be reviewed again.
+   *
+   * The publisher caused it, but they did not necessarily know it would happen
+   * — the edit was to their document, not to the listing — so a template that
+   * quietly stops being public is exactly the silent disappearance this
+   * pipeline exists to avoid.
+   *
+   * Deduped **per day**: editing a document is not one event, and a key on the
+   * listing alone would notify once ever while a per-edit key would notify on
+   * every keystroke burst. One "your template is being reviewed again" a day is
+   * the useful granularity.
+   */
+  async createTemplateNeedsReview(input: {
+    listing: {
+      id: string;
+      createdBy: number;
+      workspaceId: string;
+      documentId: string;
+    };
+    at: Date;
+  }): Promise<{ created: number }> {
+    const day = input.at.toISOString().slice(0, 10);
+    return this.insert([
+      {
+        type: 'template_needs_review',
+        recipientId: input.listing.createdBy,
+        // Nobody acted on the publisher's behalf; the edit was their own.
+        actorId: null,
+        workspaceId: input.listing.workspaceId,
+        documentId: input.listing.documentId,
+        threadId: null,
+        commentId: null,
+        dedupeKey: `${input.listing.id}:rereview:${day}`,
+        preview: null,
+      },
+    ]);
+  }
+
+  /**
    * One page, newest first. The cursor is the `(createdAt, id)` pair of the
    * last row of the previous page: a timestamp alone would skip every row
    * sharing the boundary instant, and one report inserts its whole batch at a

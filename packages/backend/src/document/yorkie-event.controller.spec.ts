@@ -1,15 +1,47 @@
 import { YorkieEventController } from './yorkie-event.controller';
 import { DocumentService } from './document.service';
+import { TemplateReviewSyncService } from '../template/template-review-sync.service';
 
 describe('YorkieEventController', () => {
   let touchUpdatedAt: jest.Mock;
+  let onDocumentChanged: jest.Mock;
   let controller: YorkieEventController;
 
   beforeEach(() => {
     touchUpdatedAt = jest.fn().mockResolvedValue(1);
-    controller = new YorkieEventController({
-      touchUpdatedAt,
-    } as unknown as DocumentService);
+    onDocumentChanged = jest.fn().mockResolvedValue(undefined);
+    controller = new YorkieEventController(
+      { touchUpdatedAt } as unknown as DocumentService,
+      { onDocumentChanged } as unknown as TemplateReviewSyncService,
+    );
+  });
+
+  it('tells the template sync about the edit, with the same instant', async () => {
+    await controller.handleEvent({
+      type: 'DocumentRootChanged',
+      attributes: { key: 'sheet-abc', issuedAt: '2020-01-01T00:00:00.000Z' },
+    });
+    expect(onDocumentChanged).toHaveBeenCalledWith(
+      'abc',
+      new Date('2020-01-01T00:00:00.000Z'),
+    );
+  });
+
+  it('still answers ok when the template sync throws', async () => {
+    // Yorkie retries a non-200, and a retry storm over template bookkeeping
+    // would cost far more than a delayed re-review.
+    onDocumentChanged.mockRejectedValue(new Error('db down'));
+    await expect(
+      controller.handleEvent({
+        type: 'DocumentRootChanged',
+        attributes: { key: 'sheet-abc' },
+      }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it('does not touch templates for an event it ignores', async () => {
+    await controller.handleEvent({ type: 'SomethingElse' });
+    expect(onDocumentChanged).not.toHaveBeenCalled();
   });
 
   it('advances updatedAt to the event issue time on DocumentRootChanged', async () => {
@@ -66,8 +98,8 @@ describe('YorkieEventController', () => {
   });
 
   it('always answers ok so Yorkie does not retry', async () => {
-    expect(await controller.handleEvent({ type: 'DocumentRootChanged' })).toEqual(
-      { ok: true },
-    );
+    expect(
+      await controller.handleEvent({ type: 'DocumentRootChanged' }),
+    ).toEqual({ ok: true });
   });
 });

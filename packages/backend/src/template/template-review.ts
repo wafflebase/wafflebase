@@ -42,6 +42,30 @@ export function assertPublicTierOpen(): void {
 }
 
 /**
+ * The public tier additionally requires the Yorkie auth webhook to be
+ * **enforcing**, not merely configured.
+ *
+ * Publishing publicly hands `previewToken` to every visitor, and in the
+ * webhook's default shadow mode that token is enough to *write* to the
+ * document — Yorkie logs the decision it would have made and allows the push
+ * anyway. Two consequences, and the second is the one that decides this:
+ * anonymous visitors could edit the content of every public template, and
+ * because an edit returns a listing to review, one cheap request per card would
+ * empty the gallery into a queue only a human on the allowlist can drain.
+ *
+ * So the gallery's safety rests on a setting that lives outside this feature,
+ * and the honest thing is to refuse rather than to document the dependency and
+ * hope. Checked at `submit` and `approve` alongside {@link assertPublicTierOpen}.
+ */
+export function assertYorkieAuthEnforced(enforce: string | undefined): void {
+  if (enforce === 'true') return;
+  throw new BadRequestException(
+    'The public template gallery requires YORKIE_AUTH_WEBHOOK_ENFORCE=true: ' +
+      'without it a preview token also grants write access to the document',
+  );
+}
+
+/**
  * Who may decide a submission, read from `WAFFLEBASE_TEMPLATE_REVIEWER_IDS`
  * (comma-separated user ids).
  *

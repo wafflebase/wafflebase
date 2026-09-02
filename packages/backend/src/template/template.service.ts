@@ -12,6 +12,7 @@ import {
   Prisma,
   TemplateListing,
 } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/database/prisma.service';
 import { isDocumentManager } from '../document/document-access';
 import { DocumentCopyService } from '../document/document-copy.service';
@@ -28,7 +29,11 @@ import {
 } from './template.dto';
 import { normalizeTags } from './template-taxonomy';
 import { findExternalDataTabs } from './template-content-guard';
-import { assertDecisionAllowed, assertPublicTierOpen } from './template-review';
+import {
+  assertDecisionAllowed,
+  assertPublicTierOpen,
+  assertYorkieAuthEnforced,
+} from './template-review';
 import { YorkieService } from '../yorkie/yorkie.service';
 import { ImageService } from '../image/image.service';
 import { NotificationService } from '../notification/notification.service';
@@ -39,6 +44,24 @@ import { NotificationService } from '../notification/notification.service';
  * a queue deeper than this is an operational signal, not a page to turn.
  */
 const REVIEW_QUEUE_LIMIT = 100;
+
+/**
+ * The listing fields a gallery visitor actually sees on a card. Changing one
+ * of these on an approved public listing is a change to what was approved, so
+ * it re-enters review; `tags` and `visibility` are excluded because they steer
+ * discovery rather than represent the template.
+ */
+const CARD_FIELDS = [
+  'title',
+  'description',
+  'category',
+  'thumbnailId',
+] as const;
+
+/** Treats `null` and `undefined` as the same absence, which Prisma does not. */
+function isSame(a: unknown, b: unknown): boolean {
+  return (a ?? null) === (b ?? null);
+}
 
 /**
  * What a caller is told about a listing. Deliberately not the raw row:
@@ -83,6 +106,12 @@ export interface TemplateListingView {
     submittedAt: string | null;
     reviewedAt: string | null;
     note: string | null;
+    /**
+     * The content watermark as of this response. A reviewer echoes it back
+     * with an approval, which is what makes the approval about the version
+     * they actually read rather than about whatever the row holds by then.
+     */
+    contentAt: string | null;
   } | null;
 }
 
@@ -132,6 +161,7 @@ export class TemplateService {
     private readonly yorkieService: YorkieService,
     private readonly imageService: ImageService,
     private readonly notificationService: NotificationService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -297,9 +327,31 @@ export class TemplateService {
       );
     }
 
+    // The gallery card *is* the title, description and thumbnail, so editing
+    // them on an approved public listing is the same bait-and-switch as editing
+    // the document — and it needs no Yorkie edit at all, so the webhook path
+    // would never see it. A metadata change therefore re-enters review too.
+    const reenters =
+      listing.visibility === 'public' &&
+      listing.status === 'listed' &&
+      CARD_FIELDS.some(
+        (field) =>
+          dto[field] !== undefined && !isSame(dto[field], listing[field]),
+      );
+
     const updated = await this.prisma.templateListing.update({
       where: { id },
       data: {
+        ...(reenters
+          ? {
+              status: 'pending',
+              submittedAt: new Date(),
+              reviewedAt: null,
+              reviewedBy: null,
+              reviewNote: null,
+              reviewedContentAt: null,
+            }
+          : {}),
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.description !== undefined
           ? { description: dto.description }
@@ -324,6 +376,17 @@ export class TemplateService {
   }
 
   /**
+   * Deployment-level preconditions for anything public, checked at both ends
+   * of the review pipeline rather than once at submission — they are settings,
+   * and a setting can change between a submission and its decision.
+   */
+  private assertPublicTierPreconditions(): void {
+    assertYorkieAuthEnforced(
+      this.config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE'),
+    );
+  }
+
+  /**
    * Ask for the public tier.
    *
    * The one thing this does **not** do is change what anyone can see. It moves
@@ -341,6 +404,7 @@ export class TemplateService {
     dto: SubmitTemplateDto,
   ): Promise<TemplateListingView> {
     assertPublicTierOpen();
+    this.assertPublicTierPreconditions();
 
     const listing = await this.prisma.templateListing.findUnique({
       where: { id },
@@ -361,13 +425,13 @@ export class TemplateService {
         'This template was removed by a reviewer and cannot be resubmitted',
       );
     }
-    // Re-review of a listing that is *already* public is refused here rather
-    // than allowed, because moving `status` to `pending` would drop it out of
-    // `browse({scope:'public'})` and out of `isVisibleTo` — taking a live
-    // listing offline for the duration of a review, which is the one thing
-    // this verb promises never to do. Re-review needs the listing to keep
-    // serving its approved frozen copy while a revision is judged, and that
-    // copy does not exist until 3b.
+    // Re-review of a listing that is *already* public is refused here, and the
+    // reason is no longer "it would take the listing offline" — an edit does
+    // exactly that automatically now (see `TemplateReviewSyncService`). It is
+    // that a *manual* re-request is meaningless while the automatic signal
+    // exists: nothing has changed, so there is nothing new to judge. A
+    // publisher who wants their revision reviewed makes the revision, which
+    // returns the listing to the queue on its own.
     if (listing.visibility === 'public') {
       throw new BadRequestException(
         'This template is already public. Re-reviewing a published template is not supported yet',
@@ -428,7 +492,28 @@ export class TemplateService {
     });
     if (!listing) throw new NotFoundException('Template not found');
     assertDecisionAllowed(listing.status, dto.decision);
-    if (dto.decision === 'approve') assertPublicTierOpen();
+    if (dto.decision === 'approve') {
+      assertPublicTierOpen();
+      this.assertPublicTierPreconditions();
+      // The reviewer echoes the content watermark their queue row carried, and
+      // it must still be current. Without it the review *window* is the whole
+      // attack: submit clean content, let a reviewer read it, edit the document
+      // into something else, and the approve that lands afterwards publishes
+      // what nobody looked at. Returning to `pending` on edit does not cover
+      // this — the listing is already `pending`, so there is no transition to
+      // make.
+      //
+      // An ETag, not a timestamp comparison: the reviewer is attesting to a
+      // specific version, so "unchanged since I looked" is the only question
+      // worth asking, and a `null` watermark is as much a version as a date.
+      const seen = dto.contentAt ? new Date(dto.contentAt).getTime() : null;
+      const actual = listing.contentChangedAt?.getTime() ?? null;
+      if (seen !== actual) {
+        throw new ConflictException(
+          'This template changed while you were reviewing it. Reload the queue and look again',
+        );
+      }
+    }
 
     const decidedAt = new Date();
     const decided = {
@@ -439,7 +524,15 @@ export class TemplateService {
 
     const data =
       dto.decision === 'approve'
-        ? { ...decided, status: 'listed', visibility: 'public' }
+        ? {
+            ...decided,
+            status: 'listed',
+            visibility: 'public',
+            // What the reviewer attested to. `isVisibleTo` compares the live
+            // watermark against this, so an edit after approval hides the
+            // listing even if the webhook never fires.
+            reviewedContentAt: listing.contentChangedAt,
+          }
         : dto.decision === 'reject'
           ? // `visibility` untouched: a rejection is a verdict on the gallery
             // submission, not on the publisher's own sharing, so the listing
@@ -848,7 +941,9 @@ export class TemplateService {
     // below returns true unconditionally — so a check placed per-tier would
     // never run for the one tier a taken-down listing is guaranteed to be in.
     if (listing.status === 'removed') return false;
-    if (listing.visibility === 'public') return listing.status === 'listed';
+    if (listing.visibility === 'public') {
+      return listing.status === 'listed' && contentMatchesApproval(listing);
+    }
     // The listing id is a v4 UUID, so it carries the same 122 bits an unlisted
     // share token does: holding it *is* the capability.
     if (listing.visibility === 'unlisted') return true;
@@ -919,6 +1014,28 @@ function assertPublishable(visibility: string, current?: string): void {
   );
 }
 
+/**
+ * Has this listing's content stayed where its reviewer left it?
+ *
+ * The second half of the bait-and-switch defence, and the half that does not
+ * depend on a webhook having fired. `TemplateReviewSyncService` moves an edited
+ * public listing to `pending`, which is what removes it from the *collection*
+ * query — but a status is only as good as the write that set it, and the event
+ * webhook is per-project configuration that a deployment can simply not have
+ * registered. This is a read-time re-check on the two paths where content
+ * actually reaches somebody, so those fail closed rather than trusting a status
+ * nobody may have written.
+ *
+ * A listing approved before these columns existed has neither, and is treated
+ * as matching: the alternative is retroactively hiding every existing approval
+ * on a deployment that upgrades.
+ */
+function contentMatchesApproval(listing: TemplateListing): boolean {
+  if (!listing.contentChangedAt) return true;
+  if (!listing.reviewedContentAt) return false;
+  return listing.contentChangedAt <= listing.reviewedContentAt;
+}
+
 function toView(
   listing: ListingWithRelations,
   canManage: boolean,
@@ -950,6 +1067,7 @@ function toView(
           submittedAt: listing.submittedAt?.toISOString() ?? null,
           reviewedAt: listing.reviewedAt?.toISOString() ?? null,
           note: listing.reviewNote,
+          contentAt: listing.contentChangedAt?.toISOString() ?? null,
         }
       : null,
   };

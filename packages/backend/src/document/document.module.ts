@@ -14,6 +14,7 @@ import { FileModule } from '../file/file.module';
 import { ShareLinkModule } from '../share-link/share-link.module';
 import { FolderModule } from '../folder/folder.module';
 import { ImageModule } from '../image/image.module';
+import { TemplateSyncModule } from '../template/template-sync.module';
 
 @Module({
   imports: [
@@ -25,6 +26,9 @@ import { ImageModule } from '../image/image.module';
     // A copy that crosses a workspace boundary re-hosts the source's
     // workspace-scoped images (docs/design/template-gallery.md).
     ImageModule,
+    // The Yorkie edit webhook returns an approved public listing to review.
+    // A dedicated module rather than `TemplateModule`, which imports this one.
+    TemplateSyncModule,
   ],
   controllers: [
     DocumentController,

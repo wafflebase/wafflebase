@@ -104,7 +104,25 @@ failure this pipeline exists to avoid. The state machine behind the gate is
 tested by opening it in the spec (`openPublicTier`), so 3d is a one-line change
 to a path already exercised.
 
-## PR 3b — Cross-workspace images + frozen-copy promotion
+## PR 3b — Cross-workspace images + bait-and-switch defense
+
+**Re-review on change (shipped)** — the cheaper half of the frozen-copy trade,
+and what makes the tier safe to open without promotion:
+
+- [x] `TemplateReviewSyncService.onDocumentChanged` returns a
+      `visibility: 'public', status: 'listed'` listing to `pending` when its
+      document is edited, driven by the `DocumentRootChanged` webhook that
+      already ships. Guarded on the state being left, so it cannot walk back a
+      takedown; one indexed lookup when the document has no listing, which is
+      almost always.
+- [x] `TemplateSyncModule` — a dedicated module because `TemplateModule`
+      imports `DocumentModule`, so `DocumentModule` cannot import it back.
+- [x] `template_needs_review` notification, deduped per day (editing is not one
+      event) and with no actor, since the publisher edited their own document.
+- [x] The webhook swallows a sync failure: Yorkie retries a non-200, and a retry
+      storm over template bookkeeping costs more than a delayed re-review.
+
+### Cross-workspace image re-hosting
 
 - [x] Image re-hosting walker in `DocumentCopyService`, run whenever
       `dest.workspaceId !== source.workspaceId`. Rewrites only URLs pointing at

@@ -33,6 +33,11 @@ export function notificationSentence(n: Notification): string {
       return `Your template ${document} was not accepted into the gallery`;
     case "template_removed":
       return `Your template ${document} was removed from the gallery`;
+    // No actor, and no "you": a collaborator or an editor-share-link holder
+    // can change the document too, so naming the publisher as the editor would
+    // often be wrong.
+    case "template_needs_review":
+      return `${document} left the public gallery for review after it changed`;
     default:
       return `${actor} sent you a notification`;
   }

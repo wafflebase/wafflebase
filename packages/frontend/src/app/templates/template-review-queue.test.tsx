@@ -42,7 +42,7 @@ const SUBMISSION = {
   author: { id: 7, username: "author", photo: null },
   previewToken: "tok-1",
   canManage: false,
-  review: { submittedAt: null, reviewedAt: null, note: null },
+  review: { submittedAt: null, reviewedAt: null, note: null, contentAt: null },
 };
 
 function renderQueue() {
@@ -97,7 +97,12 @@ describe("TemplateReviewQueue", () => {
     await userEvent.click(screen.getByRole("button", { name: /^reject$/i }));
 
     await waitFor(() =>
-      expect(reviewTemplate).toHaveBeenCalledWith("tpl-1", "reject", "too thin"),
+      expect(reviewTemplate).toHaveBeenCalledWith(
+        "tpl-1",
+        "reject",
+        "too thin",
+        undefined,
+      ),
     );
   });
 

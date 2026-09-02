@@ -57,11 +57,13 @@ export function TemplateReviewQueue() {
       id,
       decision,
       note,
+      contentAt,
     }: {
       id: string;
       decision: ReviewDecision;
       note?: string;
-    }) => reviewTemplate(id, decision, note),
+      contentAt?: string | null;
+    }) => reviewTemplate(id, decision, note, contentAt),
     onSuccess: (_result, variables) => {
       toast.success(DECISION_DONE[variables.decision]);
       void queryClient.invalidateQueries({
@@ -199,6 +201,10 @@ export function TemplateReviewQueue() {
                         id: t.id,
                         decision: "approve",
                         note: notes[t.id],
+                        // What this row was fetched with. If the document has
+                        // moved since, the backend refuses the approval rather
+                        // than publishing content nobody read.
+                        contentAt: t.review?.contentAt,
                       })
                     }
                   >

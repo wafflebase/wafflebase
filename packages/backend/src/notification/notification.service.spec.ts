@@ -72,6 +72,53 @@ describe('NotificationService', () => {
     return arg.data;
   }
 
+  describe('createTemplateNeedsReview', () => {
+    const LISTING = {
+      id: 'tpl-1',
+      createdBy: 5,
+      workspaceId: WORKSPACE,
+      documentId: DOCUMENT,
+    };
+
+    it('addresses the publisher with no actor', async () => {
+      // Nobody acted on their behalf — the document changed. Every other type
+      // here has an actor, so this is the first row that renders without one.
+      await service.createTemplateNeedsReview({
+        listing: LISTING,
+        at: new Date('2026-09-02T10:00:00Z'),
+      });
+      expect(insertedRows()[0]).toMatchObject({
+        type: 'template_needs_review',
+        recipientId: 5,
+        actorId: null,
+        preview: null,
+      });
+    });
+
+    it('dedupes per day, since editing is not one event', async () => {
+      // A key on the listing alone would notify once ever; a per-edit key
+      // would notify on every keystroke burst.
+      await service.createTemplateNeedsReview({
+        listing: LISTING,
+        at: new Date('2026-09-02T10:00:00Z'),
+      });
+      const morning = insertedRows()[0].dedupeKey;
+      prisma.notification.createMany.mockClear();
+      await service.createTemplateNeedsReview({
+        listing: LISTING,
+        at: new Date('2026-09-02T23:59:00Z'),
+      });
+      expect(insertedRows()[0].dedupeKey).toBe(morning);
+
+      prisma.notification.createMany.mockClear();
+      await service.createTemplateNeedsReview({
+        listing: LISTING,
+        at: new Date('2026-09-03T00:01:00Z'),
+      });
+      expect(insertedRows()[0].dedupeKey).not.toBe(morning);
+    });
+  });
+
   describe('createTemplateReviewed', () => {
     const LISTING = {
       id: 'tpl-1',

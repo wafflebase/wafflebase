@@ -41,6 +41,12 @@ export type TemplateListing = {
     submittedAt: string | null;
     reviewedAt: string | null;
     note: string | null;
+    /**
+     * The content watermark as of this response. A reviewer echoes it back
+     * when approving, which is what makes the approval about the version they
+     * read rather than about whatever the row holds by then.
+     */
+    contentAt: string | null;
   } | null;
 };
 
@@ -215,14 +221,24 @@ export async function listTemplatesForReview(): Promise<TemplateListing[]> {
 export async function reviewTemplate(
   id: string,
   decision: ReviewDecision,
-  note?: string
+  note?: string,
+  /**
+   * The `review.contentAt` the queue row carried. Approving without it, or
+   * with a stale one, is refused with a 409 — the reviewer is attesting to the
+   * version they actually read.
+   */
+  contentAt?: string | null
 ): Promise<TemplateListing> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}/review`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, ...(note ? { note } : {}) }),
+      body: JSON.stringify({
+        decision,
+        ...(note ? { note } : {}),
+        ...(contentAt ? { contentAt } : {}),
+      }),
     }
   );
   await assertOk(response, "Failed to record this decision");

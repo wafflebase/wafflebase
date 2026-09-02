@@ -160,7 +160,9 @@ export function collectImageRefs(
     }
     const ref = parseImageRef(node, trustedOrigin);
     if (ref) {
-      const bucket = isRehostable(ref, sourceWorkspaceId) ? rehostable : foreign;
+      const bucket = isRehostable(ref, sourceWorkspaceId)
+        ? rehostable
+        : foreign;
       if (!bucket.has(ref.url)) bucket.set(ref.url, ref);
       return;
     }

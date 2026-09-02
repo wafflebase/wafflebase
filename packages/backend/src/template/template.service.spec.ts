@@ -75,6 +75,8 @@ function makeService(
      * looks like from the loser's side.
      */
     staleWrite?: boolean;
+    /** `YORKIE_AUTH_WEBHOOK_ENFORCE`, which the public tier requires. */
+    yorkieEnforce?: string;
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
@@ -187,6 +189,18 @@ function makeService(
   const notificationService = {
     createTemplateReviewed: jest.fn(() => Promise.resolve({ created: 1 })),
   };
+  // Enforcement on by default, so a test that is not about the precondition
+  // does not have to know it exists.
+  const config = {
+    get: (key: string) =>
+      key === 'YORKIE_AUTH_WEBHOOK_ENFORCE'
+        ? // `in`, not `??`: a test says "unset" by passing `undefined`, which
+          // is exactly what `??` would replace with the default.
+          'yorkieEnforce' in opts
+          ? opts.yorkieEnforce
+          : 'true'
+        : undefined,
+  };
 
   const service = new TemplateService(
     prisma as never,
@@ -197,6 +211,7 @@ function makeService(
     yorkieService as never,
     imageService as never,
     notificationService as never,
+    config as never,
   );
   return {
     service,
@@ -1337,5 +1352,164 @@ describe('TemplateService.submit concurrency', () => {
     await expect(
       service.submit('tpl-1', 7, { acceptLicense: true }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('public-tier preconditions and the review window', () => {
+  it('refuses the public tier while the Yorkie auth webhook only shadows', async () => {
+    // In shadow mode a preview token also grants *write* access, so every
+    // visitor to a public card could edit the document behind it — and since
+    // an edit returns a listing to review, one request per card would empty
+    // the gallery into a queue only a human can drain.
+    openPublicTier();
+    const { service } = makeService({ yorkieEnforce: undefined });
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('checks it again at approve, since a setting can change in between', async () => {
+    openPublicTier();
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+      yorkieEnforce: 'false',
+    });
+    await expect(
+      service.review('tpl-1', 99, { decision: 'approve' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses an approval of content that moved while it was being reviewed', async () => {
+    // The review *window* is the whole attack without this: submit clean
+    // content, let a reviewer read it, edit the document, and the approve that
+    // lands afterwards publishes what nobody looked at. Returning to `pending`
+    // on edit does not cover it — the listing is already `pending`.
+    openPublicTier();
+    const { service } = makeService({
+      listing: {
+        ...LISTING,
+        status: 'pending',
+        contentChangedAt: new Date('2026-09-02T12:00:00Z'),
+      },
+    });
+    await expect(
+      service.review('tpl-1', 99, {
+        decision: 'approve',
+        contentAt: '2026-09-02T10:00:00.000Z',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('treats "never edited" as a version too', async () => {
+    // A reviewer who saw no watermark and approves after one edit must be
+    // refused, so the null case cannot be the loophole.
+    openPublicTier();
+    const { service } = makeService({
+      listing: {
+        ...LISTING,
+        status: 'pending',
+        contentChangedAt: new Date('2026-09-02T12:00:00Z'),
+      },
+    });
+    await expect(
+      service.review('tpl-1', 99, { decision: 'approve' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('records what the reviewer attested to, so the read path can re-check', async () => {
+    openPublicTier();
+    const contentAt = new Date('2026-09-02T12:00:00Z');
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, status: 'pending', contentChangedAt: contentAt },
+    });
+    await service.review('tpl-1', 99, {
+      decision: 'approve',
+      contentAt: contentAt.toISOString(),
+    });
+    expect(
+      prisma.templateListing.updateMany.mock.calls[0][0].data,
+    ).toMatchObject({ reviewedContentAt: contentAt });
+  });
+
+  it('hides a public listing whose content moved past its approval', async () => {
+    // The webhook-independent half. A status is only as good as the write that
+    // set it, and the event webhook is per-project configuration a deployment
+    // can simply not have registered.
+    const { service } = makeService({
+      listing: {
+        ...LISTING,
+        visibility: 'public',
+        status: 'listed',
+        contentChangedAt: new Date('2026-09-02T12:00:00Z'),
+        reviewedContentAt: new Date('2026-09-02T10:00:00Z'),
+      },
+      members: {},
+    });
+    await expect(service.findForViewer('tpl-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('shows one whose content has not moved since', async () => {
+    const at = new Date('2026-09-02T12:00:00Z');
+    const { service } = makeService({
+      listing: {
+        ...LISTING,
+        visibility: 'public',
+        status: 'listed',
+        contentChangedAt: at,
+        reviewedContentAt: at,
+      },
+      members: {},
+    });
+    await expect(service.findForViewer('tpl-1')).resolves.toMatchObject({
+      status: 'listed',
+    });
+  });
+
+  it('leaves a listing approved before the watermarks existed visible', async () => {
+    // Both columns null on an older row. Hiding those retroactively would take
+    // every existing approval off a deployment the moment it upgrades.
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+      members: {},
+    });
+    await expect(service.findForViewer('tpl-1')).resolves.toBeDefined();
+  });
+});
+
+describe('editing an approved card', () => {
+  it('re-enters review, because the card is what was approved', async () => {
+    // No Yorkie edit is involved, so the webhook path would never see this —
+    // swapping an approved card's title and picture for spam is the same
+    // bait-and-switch by a cheaper route.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+    });
+    await service.update('tpl-1', 7, { title: 'Free Crypto' });
+    expect(prisma.templateListing.update.mock.calls[0][0].data).toMatchObject({
+      status: 'pending',
+      reviewedContentAt: null,
+    });
+  });
+
+  it('leaves the state alone when nothing on the card actually changed', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+    });
+    await service.update('tpl-1', 7, { title: LISTING.title, tags: ['a'] });
+    expect(
+      prisma.templateListing.update.mock.calls[0][0].data,
+    ).not.toHaveProperty('status');
+  });
+
+  it('does not disturb a workspace-tier listing', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'workspace', status: 'listed' },
+    });
+    await service.update('tpl-1', 7, { title: 'Renamed' });
+    expect(
+      prisma.templateListing.update.mock.calls[0][0].data,
+    ).not.toHaveProperty('status');
   });
 });

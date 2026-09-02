@@ -20,7 +20,10 @@ export type NotificationType =
   // decision is the type, so the dropdown can render one sentence per outcome.
   | "template_approved"
   | "template_rejected"
-  | "template_removed";
+  | "template_removed"
+  // The publisher edited the document behind an approved public listing, so it
+  // left the gallery and is waiting to be reviewed again.
+  | "template_needs_review";
 
 export interface Notification {
   id: string;

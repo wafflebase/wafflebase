@@ -3,6 +3,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { DocumentService } from './document.service';
 import { parseYorkieDocKey } from '../yorkie/yorkie-doc-key';
 import { YorkieSignatureGuard } from './yorkie-signature.guard';
+import { TemplateReviewSyncService } from '../template/template-review-sync.service';
 
 /**
  * Shape of Yorkie's event-webhook body (yorkie 0.7.12,
@@ -32,7 +33,10 @@ const DOCUMENT_ROOT_CHANGED = 'DocumentRootChanged';
 @SkipThrottle()
 @UseGuards(YorkieSignatureGuard)
 export class YorkieEventController {
-  constructor(private readonly documentService: DocumentService) {}
+  constructor(
+    private readonly documentService: DocumentService,
+    private readonly templateReviewSync: TemplateReviewSyncService,
+  ) {}
 
   @Post('events')
   @HttpCode(200)
@@ -58,6 +62,15 @@ export class YorkieEventController {
     const at = new Date(Number.isNaN(issuedMs) ? now : Math.min(issuedMs, now));
 
     await this.documentService.touchUpdatedAt(parsed.id, at);
+
+    // An edit to a document behind an approved public listing returns that
+    // listing to review (docs/design/template-gallery.md). Failures are
+    // swallowed for the same reason everything else here is: Yorkie retries a
+    // non-200, and a retry storm over a template bookkeeping error would cost
+    // far more than the delay in noticing one edit.
+    await this.templateReviewSync
+      .onDocumentChanged(parsed.id, at)
+      .catch(() => undefined);
     return { ok: true };
   }
 }

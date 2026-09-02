@@ -330,6 +330,18 @@ model TemplateListing {
   status      String    @default("listed")
   /// When the publisher submitted for public review. Null until they do.
   submittedAt DateTime?
+  /// When this listing's document last had a real content edit, as reported by
+  /// Yorkie's `DocumentRootChanged` webhook. Deliberately not `updatedAt` on
+  /// the document, which a rename also moves.
+  contentChangedAt DateTime?
+  /// The `contentChangedAt` a reviewer attested to when they approved.
+  ///
+  /// The pair is what makes an approval about *content* rather than about a
+  /// row: a listing is publicly visible only while `contentChangedAt` has not
+  /// moved past it. That keeps the gallery correct even if the event webhook
+  /// is never registered or its write fails — the read path re-checks rather
+  /// than trusting a status somebody remembered to write.
+  reviewedContentAt DateTime?
   /// When a reviewer decided, who decided, and what they said. `reviewNote`
   /// becomes the rejection reason the publisher is notified with — a
   /// submission that disappears silently is the failure mode this pipeline
