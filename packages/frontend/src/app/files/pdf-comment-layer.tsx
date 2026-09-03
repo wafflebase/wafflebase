@@ -1,8 +1,13 @@
 import { Fragment, useRef, useState } from 'react';
 import { IconMessage } from '@tabler/icons-react';
 
-import type { PdfRect, PdfRegionAnchor, Thread } from '@/types/comments.ts';
-import { normalizeDragRect, rectToStyle } from './comments/rect.ts';
+import type { PdfAnchor, PdfRect, Thread } from '@/types/comments.ts';
+import {
+  anchorBounds,
+  anchorRects,
+  normalizeDragRect,
+  rectToStyle,
+} from './comments/rect.ts';
 
 // A single click (no drag) drops a default marker of this pixel size at the
 // click point, so commenting a spot doesn't require dragging a box.
@@ -10,7 +15,7 @@ const DEFAULT_MARK_PX = 24;
 
 type Props = {
   pageIndex: number;
-  threads: ReadonlyArray<Thread<PdfRegionAnchor>>;
+  threads: ReadonlyArray<Thread<PdfAnchor>>;
   creating: boolean;
   onCreateRegion: (pageIndex: number, rect: PdfRect) => void;
   onSelectThread: (threadId: string) => void;
@@ -51,33 +56,52 @@ export function PdfCommentLayer({
     <div className="pointer-events-none absolute inset-0">
       {pageThreads.map((t) => {
         const active = t.id === activeThreadId;
+        // A drawn region is one box; a text selection is one box per line, so
+        // the highlight follows the words instead of covering the block
+        // between the first and last character.
+        const isText = t.anchor.kind === 'pdf-text';
+        const bounds = anchorBounds(t.anchor);
         return (
           <Fragment key={t.id}>
-            {/* Faint highlight of the commented region. */}
-            <div
-              className={`absolute rounded-sm border bg-yellow-200/20 ${
-                active ? 'border-yellow-500' : 'border-yellow-400/60'
-              }`}
-              style={rectToStyle(t.anchor.rect)}
-            />
-            {/* Compact clickable pin at the region's top-left corner. */}
+            {anchorRects(t.anchor).map((rect, i) => (
+              <div
+                key={i}
+                className={
+                  isText
+                    ? // Text reads through its own highlight, so tint without
+                      // a border — a box per line would otherwise draw a
+                      // ladder of rules through the paragraph.
+                      `absolute rounded-[2px] ${
+                        active ? 'bg-yellow-300/45' : 'bg-yellow-200/40'
+                      }`
+                    : `absolute rounded-sm border bg-yellow-200/20 ${
+                        active ? 'border-yellow-500' : 'border-yellow-400/60'
+                      }`
+                }
+                style={rectToStyle(rect)}
+              />
+            ))}
+            {/* Clickable pin at the anchor's top-left corner. It sits on top
+                of the page's own content, so it stays small and translucent
+                and only resolves to full strength on hover or when its thread
+                is open — the highlight already says a comment is here. */}
             <button
               type="button"
               aria-label={`Comment by ${
                 t.comments[0]?.author.username ?? 'unknown'
               }`}
               onClick={() => onSelectThread(t.id)}
-              className={`pointer-events-auto absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-yellow-300 shadow-sm hover:bg-yellow-400 ${
+              className={`pointer-events-auto absolute flex h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-opacity hover:opacity-100 ${
                 active
-                  ? 'border-yellow-600 ring-1 ring-yellow-500'
-                  : 'border-yellow-500'
+                  ? 'border-yellow-600 bg-yellow-300 opacity-100 ring-1 ring-yellow-500'
+                  : 'border-yellow-500/70 bg-yellow-300/80 opacity-60'
               }`}
               style={{
-                left: `${t.anchor.rect.x * 100}%`,
-                top: `${t.anchor.rect.y * 100}%`,
+                left: `${bounds.x * 100}%`,
+                top: `${bounds.y * 100}%`,
               }}
             >
-              <IconMessage size={12} className="text-yellow-800" />
+              <IconMessage size={9} className="text-yellow-800" />
             </button>
           </Fragment>
         );

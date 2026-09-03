@@ -22,10 +22,10 @@ workspace membership. Viewing bytes is open to any valid share token;
 **commenting** is gated to editor-role links or workspace members
 (client-side, as with every other shared type — see Non-Goals and Slice 3).
 
-Both phases are **shipped**. This document covers Phase 1 (view/store)
-and Phase 2 (share + comments + presence); the "Phase 2" / "Slice"
-framing below is retained for historical structure but describes
-implemented behavior. Note also that the blob module was subsequently
+All three phases are **shipped**. This document covers Phase 1
+(view/store), Phase 2 (share + comments + presence) and Phase 3 (commenting
+on selected text); the "Phase 2" / "Slice" framing below is retained for
+historical structure but describes implemented behavior. Note also that the blob module was subsequently
 broadened beyond PDF: the same `FileService` and `GET /documents/:id/file`
 endpoint back the `"image"` document type (see
 [image-viewer.md](image-viewer.md)), so the file layer accepts images too.
@@ -49,8 +49,12 @@ endpoint back the `"image"` document type (see
 - **Phase 1**: comments, presence, share-token viewing (all moved to
   Phase 2 below).
 - **All phases**: annotations/markup (highlight/draw on the PDF itself),
-  PDF→Docs conversion, text extraction, re-upload/replace-version,
-  thumbnails.
+  PDF→Docs conversion, re-upload/replace-version, thumbnails.
+  *Text extraction was a Non-Goal through Phase 2 and no longer is*: Phase 3
+  reads the page's text to anchor comments to it, and
+  [`ocr.md`](ocr.md) takes it further, to a `GET /documents/:id/text` the
+  API and CLI can read. What stays out is writing text **back into the
+  bytes** — a "searchable PDF" — which the next bullet covers.
 - Editing PDF content. PDFs are view-only; editing is out of scope
   entirely (conversion-to-Docs was explicitly declined). Comments anchor
   *over* the PDF; they never mutate the bytes.
@@ -258,7 +262,8 @@ gate.
   `CommentThreadCard` (`packages/frontend/src/components/comments/`) — no
   Yorkie knowledge in that module; it renders over the `CommentStore<A>`.
 - New affordance in the viewer: click/drag on a page selects a rectangle
-  → opens the composer. Pins/highlights render as **absolutely-positioned
+  → opens the composer. (Phase 3 adds selecting *text* as the primary path
+  and leaves this one for what selection cannot reach.) Pins/highlights render as **absolutely-positioned
   DOM overlays** over each page's canvas container (normalized `rect` →
   pixels). Clicking a pin opens its thread; hovering highlights it.
 - **Orphan handling is nearly a no-op** — pages and rects never move.
@@ -296,6 +301,99 @@ gate.
   document produces a working share link today.
 - Add a **Share button** to the `FileDetail` header (owner only) that
   opens the existing share dialog.
+
+## Phase 3 — Comment on selected text (shipped)
+
+Phase 2 could only anchor a comment to a **hand-drawn rectangle**, because a
+PDF page was a canvas and canvases have no text to select. That made the
+common case — "this sentence is wrong" — a drawing exercise, and it was the
+only way in.
+
+Once the viewer gained a real text layer (see
+[`ocr.md`](ocr.md) P0, which overlays pdf.js's own `TextLayer` on each page),
+selecting text became possible, and commenting on a selection became the
+natural primary path. The region tool stays for what selection cannot reach:
+a scanned page with no text, a figure, a chart, the whitespace of a table.
+
+### The anchor
+
+One variant joins the `CommentAnchor` union beside `pdf-region`:
+
+```ts
+type PdfTextAnchor = {
+  kind: 'pdf-text';
+  pageIndex: number;
+  rects: PdfRect[];   // one box per selected line, normalized 0–1
+  quote: string;      // the selected text
+};
+type PdfAnchor = PdfRegionAnchor | PdfTextAnchor;
+```
+
+**Geometry, not text offsets** — deliberately. A docs comment anchors to a
+CRDT position because the text underneath it moves; a PDF's bytes are
+immutable, so the same file always lays out to the same boxes and there is
+nothing for an offset-based anchor to survive that geometry does not. Storing
+rectangles also means a text highlight and a region highlight are the same
+rendering job, and inherits the zoom/scale independence `pdf-region` already
+had.
+
+**One rect per line, not a bounding box.** `Range.getClientRects()` returns a
+box per line box, and keeping them is what makes a three-line highlight
+follow the words instead of tinting the whole rectangle between the first and
+last character. `normalizeClientRects` drops the degenerate and duplicated
+rectangles the DOM API also returns (collapsed ranges at line ends, one rect
+per text node where a line spans several).
+
+**Fragments are then joined back into lines.** A PDF has no notion of a text
+line: pdf.js positions a separate span for every run the content stream
+draws. Prose usually yields one rect per line, but anything typeset —
+mathematical notation above all — is a chain of small runs on shifted
+baselines, so `n₁n₅ → o₂` arrives as a dozen fragments and highlighting them
+literally paints a row of disconnected chips around the subscripts. Rects are
+therefore grouped by vertical overlap and joined left to right while the gap
+stays under `MAX_JOIN_GAP`. A subscript merges into the expression it belongs
+to; the gutter of a two-column page is far wider than that threshold, so its
+two columns stay two highlights rather than one band across the empty middle.
+
+`quote` is not decoration: the composer opens *after* the browser selection is
+cleared, so without echoing it back nothing on screen says what the comment is
+about.
+
+### The flow
+
+- `PdfPageView` labels each page wrapper `data-pdf-page={index}`. That is the
+  entire coupling — the viewer still knows nothing about comments, exactly as
+  with `renderPageOverlay`.
+- `usePdfTextSelection` settles on `pointerup`/`keyup`, **not**
+  `selectionchange`: the latter fires continuously while dragging, which would
+  make the affordance chase the cursor. It stands down while the region tool
+  is armed or a composer is open, so the two paths never compete for one drag,
+  and for a read-only viewer.
+- A selection spanning two pages is **refused**, not truncated. An anchor
+  names one `pageIndex`, and silently keeping the first page's half of what
+  the reader highlighted is worse than asking them to select again.
+- The affordance and the composer are positioned in the same page-relative
+  percentages the pins already use, so they ride the page through scroll,
+  resize and zoom with no screen-coordinate recomputation.
+- Posting a comment marks the new thread active but **does not open the side
+  panel**. The reader was reading; throwing a panel over the page they just
+  annotated interrupts that and buys nothing, since the pin and highlight
+  already confirm the comment landed.
+- A panel row **scrolls to its thread** (`scrollToAnchor`). Every page is in
+  the DOM from load — an aspect-ratio placeholder stands in until it
+  rasterizes — so a thread on a page never yet visited still resolves, and
+  the target is derived from the page's measured box rather than any stored
+  pixel. The anchor parks a third of the way down the viewport so the lines
+  it refers to stay on screen. A thread whose page is not mounted scrolls
+  nowhere rather than guessing.
+
+### Composition with the text layer
+
+Selection and region-drawing share the same pixels and are separated by
+z-order alone, with no change to `PdfCommentLayer`: its root is
+`pointer-events-none`, so an idle drag falls through to the text layer, while
+the `pointer-events-auto` capture surface it mounts *only while creating*
+takes the drag when the region tool is armed.
 
 ## Risks and Mitigation
 

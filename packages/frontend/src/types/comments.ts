@@ -47,11 +47,42 @@ export type PdfRegionAnchor = {
 };
 
 /**
+ * PDF text anchor — a comment on selected *text*, the way one comments in a
+ * word processor, as opposed to a hand-drawn box.
+ *
+ * The anchor is stored as geometry, not as text offsets, because a PDF's
+ * bytes are immutable: the same file always lays out to the same boxes, so
+ * there is nothing for an offset-based anchor to survive that geometry does
+ * not. It also makes rendering a highlight the same job as rendering a
+ * region — draw the rectangles — and keeps the whole selection independent
+ * of zoom and render scale, exactly like `PdfRegionAnchor`.
+ *
+ * `rects` holds one box per selected line (a selection spanning three lines
+ * yields three), so the highlight follows the text instead of swallowing the
+ * whole block between the first and last character. `quote` is the selected
+ * text, kept for the side panel and so a thread still says what it is about
+ * when its page is out of range.
+ */
+export type PdfTextAnchor = {
+  kind: 'pdf-text';
+  pageIndex: number;
+  rects: PdfRect[];
+  quote: string;
+};
+
+/** Either way of anchoring a comment onto a PDF page. */
+export type PdfAnchor = PdfRegionAnchor | PdfTextAnchor;
+
+/**
  * Discriminated union of all supported comment anchor types. New
  * consumers add their variant alongside the existing ones — the shared
  * comment helpers stay anchor-generic.
  */
-export type CommentAnchor = SheetCellAnchor | DocsRangeAnchor | PdfRegionAnchor;
+export type CommentAnchor =
+  | SheetCellAnchor
+  | DocsRangeAnchor
+  | PdfRegionAnchor
+  | PdfTextAnchor;
 
 /**
  * Comment thread — aliases the base shape owned by `@wafflebase/sheets`

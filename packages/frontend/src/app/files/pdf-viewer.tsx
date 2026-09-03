@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { applyTextLayerBox, textLayerBox } from "./pdf-text-layer.ts";
 // Use the legacy build: it ships polyfills (e.g. `Uint8Array.prototype.toHex`,
 // which pdf.js calls when computing document fingerprints during
 // getDocument()). The modern build assumes those TC39 APIs exist and throws
@@ -17,6 +18,12 @@ type PageDim = { width: number; height: number };
 // Structural subset of pdf.js's RenderTask (avoids depending on the exported
 // type name across versions).
 type RenderTaskLike = { promise: Promise<void>; cancel: () => void };
+// Structural subset of pdf.js's TextLayer, for the same reason.
+type TextLayerLike = { render: () => Promise<unknown>; cancel: () => void };
+// The lazily-loaded pdf.js module. Loaded once by `PdfViewer` and handed to
+// every page, rather than re-imported per page: `await import()` of the same
+// specifier from N pages at once is N concurrent resolutions of one module.
+type PdfjsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
 /**
  * Fetch the PDF while reporting download progress. Streams the body when the
@@ -73,6 +80,7 @@ export function PdfViewer({
   onActivePageChange?: (pageIndex: number) => void;
 }) {
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
+  const pdfjsRef = useRef<PdfjsModule | null>(null);
   // The getDocument() loading task owns teardown (destroy) — the resolved
   // document proxy does not expose it in every pdf.js version.
   const loadingTaskRef = useRef<{ destroy?: () => Promise<void> } | null>(null);
@@ -92,6 +100,7 @@ export function PdfViewer({
       try {
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
         pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+        pdfjsRef.current = pdfjs;
 
         const data = await fetchPdf(fileUrl, (p) => {
           if (!cancelled) setProgress(p);
@@ -134,6 +143,7 @@ export function PdfViewer({
     return () => {
       cancelled = true;
       pdfRef.current = null;
+      pdfjsRef.current = null;
       // Release the pdf.js document + worker transport and cached page bitmaps
       // via the loading task; otherwise each fileUrl change / unmount leaks
       // them. Guard the method — some pdf.js versions omit it.
@@ -152,6 +162,9 @@ export function PdfViewer({
   return (
     <div
       className="relative flex-1 overflow-auto bg-muted/30"
+      // Names the element that actually scrolls, so a consumer can bring a
+      // page into view without reaching through the viewer's class names.
+      data-pdf-viewport=""
       data-testid="pdf-pages"
     >
       {status === "loading" && <LoadingOverlay progress={progress} />}
@@ -163,6 +176,7 @@ export function PdfViewer({
           <PdfPageView
             key={i}
             pdfRef={pdfRef}
+            pdfjsRef={pdfjsRef}
             pageNumber={i + 1}
             dim={dim}
             overlay={renderPageOverlay?.(i)}
@@ -197,12 +211,14 @@ function LoadingOverlay({ progress }: { progress: number | null }) {
 
 function PdfPageView({
   pdfRef,
+  pdfjsRef,
   pageNumber,
   dim,
   overlay,
   onActive,
 }: {
   pdfRef: React.RefObject<PDFDocumentProxy | null>;
+  pdfjsRef: React.RefObject<PdfjsModule | null>;
   pageNumber: number;
   dim: PageDim;
   overlay?: React.ReactNode;
@@ -215,6 +231,16 @@ function PdfPageView({
   // In-flight pdf.js render, so a wider re-raster can cancel it — pdf.js
   // forbids two concurrent render() calls on one canvas.
   const renderTaskRef = useRef<RenderTaskLike | null>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
+  const textLayerTaskRef = useRef<TextLayerLike | null>(null);
+  // The text layer is built at most once per page; a resize only rewrites CSS.
+  const textLayerStartedRef = useRef(false);
+  // Unrotated page box + rotation, captured when the layer is built, so a
+  // later resize can re-place it without going back to pdf.js.
+  const textGeomRef = useRef<{
+    raw: { width: number; height: number };
+    rotation: number;
+  } | null>(null);
   const [visible, setVisible] = useState(false);
   // Read via ref (not an effect dep) so a parent that passes a fresh inline
   // callback each render doesn't tear down and recreate the observer.
@@ -264,8 +290,72 @@ function PdfPageView({
     }
   }, [pdfRef, pageNumber]);
 
+  // Re-place the text layer at the current display width. Four style writes,
+  // so it runs undebounced on resize while rasterizing stays debounced —
+  // selection tracks the layout as immediately as the CSS-scaled canvas does.
+  const syncTextLayer = useCallback(() => {
+    const el = textLayerRef.current;
+    const geom = textGeomRef.current;
+    const wrap = wrapRef.current;
+    if (!el || !geom || !wrap) return;
+    const cssWidth = wrap.clientWidth;
+    if (cssWidth <= 0) return;
+    applyTextLayerBox(el, textLayerBox(geom.rotation, cssWidth, geom.raw));
+  }, []);
+
+  // Overlay one transparent span per text run, so the page can be selected,
+  // copied, and found with the browser's own Ctrl/⌘-F. Rendered once at
+  // scale 1: pdf.js positions spans as percentages of the unrotated page box,
+  // so every later resize is just `--total-scale-factor`.
+  //
+  // A page with no text content — a scan — yields no spans. That is correct
+  // and silent; giving those pages text is OCR's job (docs/design/ocr.md).
+  const buildTextLayer = useCallback(async () => {
+    const pdf = pdfRef.current;
+    const pdfjs = pdfjsRef.current;
+    const container = textLayerRef.current;
+    if (!pdf || !pdfjs || !container || textLayerStartedRef.current) return;
+    // Latch before the first await so a re-entrant call can't double-render.
+    textLayerStartedRef.current = true;
+    try {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
+      // `rawDims` is typed as bare `Object` upstream; it is the unrotated
+      // viewBox box that TextLayer itself measures spans against.
+      const { pageWidth, pageHeight } = viewport.rawDims as {
+        pageWidth: number;
+        pageHeight: number;
+      };
+      textGeomRef.current = {
+        raw: { width: pageWidth, height: pageHeight },
+        rotation: viewport.rotation,
+      };
+      syncTextLayer();
+
+      const layer = new pdfjs.TextLayer({
+        textContentSource: page.streamTextContent(),
+        container,
+        viewport,
+      }) as TextLayerLike;
+      textLayerTaskRef.current = layer;
+      await layer.render();
+      // Construction writes `--min-font-size` onto the container, which feeds
+      // the span font size; re-place now that it is known.
+      syncTextLayer();
+    } catch {
+      // Non-fatal by design. A malformed text stream — or an environment with
+      // no 2D canvas context for glyph measurement, as under jsdom — must
+      // still leave a rasterized, readable page behind.
+    }
+  }, [pdfRef, pdfjsRef, pageNumber, syncTextLayer]);
+
   // Cancel any in-flight render on unmount so it can't reject after teardown.
-  useEffect(() => () => renderTaskRef.current?.cancel(), []);
+  useEffect(() => {
+    return () => {
+      renderTaskRef.current?.cancel();
+      textLayerTaskRef.current?.cancel();
+    };
+  }, []);
 
   // Lazy: mark visible when near the viewport (or eagerly where there's no
   // IntersectionObserver, e.g. jsdom).
@@ -293,6 +383,10 @@ function PdfPageView({
     if (visible) void raster();
   }, [visible, raster]);
 
+  useEffect(() => {
+    if (visible) void buildTextLayer();
+  }, [visible, buildTextLayer]);
+
   // Re-sharpen when the page grows (window resize, sidebar expand). CSS has
   // already reflowed instantly; this only upgrades bitmap resolution.
   useEffect(() => {
@@ -301,6 +395,10 @@ function PdfPageView({
     if (!el || typeof ResizeObserver === "undefined") return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ro = new ResizeObserver(() => {
+      // Text first and undebounced: it is pure CSS, and a stale text layer is
+      // visibly wrong (selection off the glyphs) where a stale raster is only
+      // soft.
+      syncTextLayer();
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void raster(), 150);
     });
@@ -309,15 +407,31 @@ function PdfPageView({
       if (timer) clearTimeout(timer);
       ro.disconnect();
     };
-  }, [visible, raster]);
+  }, [visible, raster, syncTextLayer]);
 
   return (
     <div
       ref={wrapRef}
+      // Names the page a DOM node belongs to, so a consumer can resolve a text
+      // selection to a page without the viewer knowing what it is for.
+      data-pdf-page={pageNumber - 1}
       className="relative my-4 w-full self-center bg-white shadow"
       style={{ aspectRatio: `${dim.width} / ${dim.height}` }}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
+      {/*
+        Between the pixels and the pins, and that order is the whole design.
+        `PdfCommentLayer`'s root is `pointer-events-none`, so while idle a drag
+        falls through to these spans and selects text; its pins sit above and
+        stay clickable. While a comment region is being drawn it mounts a
+        `pointer-events-auto` capture surface over this layer, which takes the
+        drag instead — so both features share the same pixels untouched.
+      */}
+      <div
+        ref={textLayerRef}
+        data-testid="pdf-text-layer"
+        className="wb-pdf-text-layer"
+      />
       {overlay}
     </div>
   );

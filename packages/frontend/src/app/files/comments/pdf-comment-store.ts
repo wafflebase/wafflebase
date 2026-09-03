@@ -4,7 +4,8 @@ import type { CommentStore } from '@/components/comments/comment-store.ts';
 import type {
   Comment,
   CommentAuthor,
-  PdfRegionAnchor,
+  PdfAnchor,
+  PdfRect,
   Thread,
 } from '@/types/comments.ts';
 import type { YorkiePdfRoot } from '@/types/pdf-document.ts';
@@ -45,20 +46,34 @@ function copyComment(c: Comment): Comment {
   return copy;
 }
 
+const copyRect = (r: PdfRect): PdfRect => ({ x: r.x, y: r.y, w: r.w, h: r.h });
+
+/**
+ * Deep-copy an anchor field by field. Every value is read off the Yorkie
+ * proxy explicitly — a spread would carry live proxy objects out of the CRDT,
+ * which is the bug this whole copy layer exists to prevent.
+ */
+function copyAnchor(anchor: PdfAnchor): PdfAnchor {
+  if (anchor.kind === 'pdf-text') {
+    return {
+      kind: 'pdf-text',
+      pageIndex: anchor.pageIndex,
+      rects: Array.from(anchor.rects ?? []).map(copyRect),
+      quote: anchor.quote,
+    };
+  }
+  return {
+    kind: 'pdf-region',
+    pageIndex: anchor.pageIndex,
+    rect: copyRect(anchor.rect),
+  };
+}
+
 /** Deep-copy a thread out of the Yorkie proxy into plain JS. */
-export function copyPdfThread(t: Thread<PdfRegionAnchor>): Thread<PdfRegionAnchor> {
-  const copy: Thread<PdfRegionAnchor> = {
+export function copyPdfThread(t: Thread<PdfAnchor>): Thread<PdfAnchor> {
+  const copy: Thread<PdfAnchor> = {
     id: t.id,
-    anchor: {
-      kind: 'pdf-region',
-      pageIndex: t.anchor.pageIndex,
-      rect: {
-        x: t.anchor.rect.x,
-        y: t.anchor.rect.y,
-        w: t.anchor.rect.w,
-        h: t.anchor.rect.h,
-      },
-    },
+    anchor: copyAnchor(t.anchor),
     comments: Array.from(t.comments ?? []).map(copyComment),
     resolved: t.resolved,
     createdAt: fromYorkieMs(t.createdAt)!,
@@ -74,7 +89,7 @@ function assertNonEmptyBody(body: string): string {
   return body;
 }
 
-export class PdfCommentStore implements CommentStore<PdfRegionAnchor> {
+export class PdfCommentStore implements CommentStore<PdfAnchor> {
   private readonly doc: Document<YorkiePdfRoot>;
   private readonly newId: () => string;
   private readonly now: () => number;
@@ -95,10 +110,10 @@ export class PdfCommentStore implements CommentStore<PdfRegionAnchor> {
   }
 
   async addThread(
-    anchor: PdfRegionAnchor,
+    anchor: PdfAnchor,
     body: string,
     author: CommentAuthor,
-  ): Promise<Thread<PdfRegionAnchor>> {
+  ): Promise<Thread<PdfAnchor>> {
     const text = assertNonEmptyBody(body);
     const threadId = this.newId();
     const rootCommentId = this.newId();
@@ -109,11 +124,7 @@ export class PdfCommentStore implements CommentStore<PdfRegionAnchor> {
       if (!root.comments) root.comments = {};
       root.comments[threadId] = {
         id: threadId,
-        anchor: {
-          kind: 'pdf-region',
-          pageIndex: anchor.pageIndex,
-          rect: { ...anchor.rect },
-        },
+        anchor: copyAnchor(anchor),
         comments: [
           {
             id: rootCommentId,
@@ -194,7 +205,7 @@ export class PdfCommentStore implements CommentStore<PdfRegionAnchor> {
     });
   }
 
-  async listThreads(opts?: { resolved?: boolean }): Promise<Thread<PdfRegionAnchor>[]> {
+  async listThreads(opts?: { resolved?: boolean }): Promise<Thread<PdfAnchor>[]> {
     const map = this.doc.getRoot().comments;
     if (!map) return [];
     const all = Object.values(map).map(copyPdfThread);
@@ -209,10 +220,10 @@ export class PdfCommentStore implements CommentStore<PdfRegionAnchor> {
     };
   }
 
-  private requireThread(root: YorkiePdfRoot, threadId: string): Thread<PdfRegionAnchor> {
+  private requireThread(root: YorkiePdfRoot, threadId: string): Thread<PdfAnchor> {
     const thread = root.comments?.[threadId];
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
-    return thread as Thread<PdfRegionAnchor>;
+    return thread as Thread<PdfAnchor>;
   }
 
   private notify(): void {

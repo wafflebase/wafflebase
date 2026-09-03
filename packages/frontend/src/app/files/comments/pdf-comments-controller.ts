@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { PdfCommentStore } from './pdf-comment-store.ts';
 import type {
   CommentAuthor,
-  PdfRegionAnchor,
+  PdfAnchor,
   Thread,
 } from '@/types/comments.ts';
 import { notifyCommentEvent } from '@/components/comments/notify.ts';
@@ -20,7 +20,7 @@ export function usePdfComments(
   store: PdfCommentStore | null,
   documentId?: string,
 ) {
-  const [threads, setThreads] = useState<Thread<PdfRegionAnchor>[]>([]);
+  const [threads, setThreads] = useState<Thread<PdfAnchor>[]>([]);
 
   const refresh = useCallback(() => {
     if (!store) {
@@ -37,7 +37,7 @@ export function usePdfComments(
   }, [store, refresh]);
 
   const addThread = useCallback(
-    async (anchor: PdfRegionAnchor, body: string, author: CommentAuthor) => {
+    async (anchor: PdfAnchor, body: string, author: CommentAuthor) => {
       if (!store) return null;
       const t = await store.addThread(anchor, body, author);
       notifyCommentEvent({

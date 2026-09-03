@@ -1,4 +1,4 @@
-import type { PdfRect } from '@/types/comments.ts';
+import type { PdfAnchor, PdfRect } from '@/types/comments.ts';
 
 export type PixelRect = { left: number; top: number; width: number; height: number };
 
@@ -30,6 +30,78 @@ export function normalizeDragRect(
     w: (maxX - minX) / pageW,
     h: (maxY - minY) / pageH,
   };
+}
+
+/**
+ * The boxes an anchor highlights: one for a drawn region, one per selected
+ * line for a text selection.
+ */
+export function anchorRects(anchor: PdfAnchor): ReadonlyArray<PdfRect> {
+  return anchor.kind === 'pdf-region' ? [anchor.rect] : anchor.rects;
+}
+
+/**
+ * The single box enclosing everything an anchor covers — where the pin goes,
+ * and what the composer positions itself against. A text anchor with no rects
+ * cannot occur through the normal path (`readPdfTextSelection` rejects it),
+ * but a hand-edited CRDT could carry one, so it degrades to an empty box at
+ * the page origin rather than returning `Infinity` from `Math.min`.
+ */
+export function anchorBounds(anchor: PdfAnchor): PdfRect {
+  const rects = anchorRects(anchor);
+  if (rects.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
+  // A single box is its own bounds. Returning it verbatim also keeps a
+  // region's pin exactly on its rect, where `(x + w) - x` would drift by a
+  // float ulp.
+  if (rects.length === 1) return rects[0]!;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const r of rects) {
+    minX = Math.min(minX, r.x);
+    minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.w);
+    maxY = Math.max(maxY, r.y + r.h);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+/**
+ * Bring a comment's anchor into view inside the PDF viewer.
+ *
+ * Every page is in the DOM from the moment the document loads (an
+ * aspect-ratio placeholder stands in until it rasterizes), so a thread on a
+ * page that has never been scrolled to still resolves. Anchors are page
+ * fractions, so the target is derived from the page's measured box rather
+ * than from any stored pixel value.
+ *
+ * The anchor is parked a third of the way down the viewport rather than at
+ * its very top, so the lines around it — the context the comment is about —
+ * stay on screen. Does nothing when the page is not mounted, which is the
+ * right outcome for a thread pointing past the end of the file.
+ */
+export function scrollToAnchor(anchor: PdfAnchor): void {
+  const page = document.querySelector<HTMLElement>(
+    `[data-pdf-page="${anchor.pageIndex}"]`,
+  );
+  const viewport = page?.closest<HTMLElement>('[data-pdf-viewport]');
+  if (!page || !viewport) return;
+
+  const pageBox = page.getBoundingClientRect();
+  const viewportBox = viewport.getBoundingClientRect();
+  if (pageBox.height <= 0) return;
+
+  const anchorTop =
+    viewport.scrollTop +
+    (pageBox.top - viewportBox.top) +
+    anchorBounds(anchor).y * pageBox.height;
+
+  viewport.scrollTo({
+    top: Math.max(0, anchorTop - viewportBox.height / 3),
+    behavior: 'smooth',
+  });
 }
 
 /** CSS percentage box for absolutely positioning a pin over a page. */

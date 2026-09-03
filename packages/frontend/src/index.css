@@ -3,6 +3,7 @@
 @import "@wafflebase/core/tokens.css";
 @import "katex/dist/katex.min.css";
 @import "./app/notes/notes-preview.css";
+@import "./app/files/pdf-text-layer.css";
 
 /* Markdown preview typography (notes editor right pane). */
 @plugin "@tailwindcss/typography";
