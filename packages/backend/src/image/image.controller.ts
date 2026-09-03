@@ -15,7 +15,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ImageService } from './image.service';
-import { VALID_IMAGE_ID_PATTERN } from './image.constants';
+import {
+  MAX_IMAGE_UPLOAD_BYTES,
+  VALID_IMAGE_ID_PATTERN,
+} from './image.constants';
 import type { Response } from 'express';
 
 // Higher ceiling: opening a doc with many embedded images bursts >60/min.
@@ -46,9 +49,32 @@ const EXT_CONTENT_TYPE: Record<string, string> = {
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}
 
+  /**
+   * The Multer `fileSize` limit is what makes the cap a bound on *memory*, not
+   * just on what gets stored. `ImageService.upload` checks the same number, but
+   * it can only do so once the whole body is already a Buffer in this process —
+   * so without this limit a client could make the server allocate an arbitrary
+   * amount before being told 10 MB was the ceiling. Multer stops reading at the
+   * limit instead, and Nest maps the resulting `LIMIT_FILE_SIZE` to a 413.
+   *
+   * The service check stays: it is the cap for every caller of `upload()`
+   * (the Miro importer, DOCX/PPTX import), not only for this route.
+   *
+   * `+ 1` because the two layers count differently. Busboy trips its limit at
+   * `fileSize === limits.fileSize` (`busboy/lib/types/multipart.js`), so
+   * `fileSize: N` accepts at most `N - 1` bytes, while the service rejects only
+   * `length > N`. Passing the cap unadjusted would make an image of exactly
+   * 10 MB — accepted today, and accepted by every other caller of `upload()` —
+   * start failing with a 413. The limit is a memory bound, not the cap itself;
+   * `ImageService` remains the one place that decides what "too large" is.
+   */
   @Post()
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES + 1 },
+    }),
+  )
   async upload(
     @UploadedFile() file: Express.Multer.File,
   ): Promise<{ id: string; url: string }> {

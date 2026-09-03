@@ -1,5 +1,12 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import type { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import type { App } from 'supertest/types';
 import { ImageController } from './image.controller';
+import { ImageService } from './image.service';
+import { imageConfig } from './image.config';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 function makeRes() {
   const headers: Record<string, string> = {};
@@ -91,5 +98,88 @@ describe('ImageController.get', () => {
       await ctrl.get(id, res as never);
       expect(res.headers['Content-Type']).toBe(expected);
     }
+  });
+});
+
+describe('ImageController.upload', () => {
+  // The cap the *service* enforces. The route's Multer limit has to be this
+  // same number, or the two disagree about what "too large" means.
+  const cap = imageConfig().maxFileSizeBytes;
+  const upload = jest.fn();
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      controllers: [ImageController],
+      providers: [{ provide: ImageService, useValue: { upload } }],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+    app = moduleRef.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const server = () => app.getHttpServer() as App;
+
+  beforeEach(() => {
+    upload.mockReset();
+    upload.mockResolvedValue({ id: 'x.png', url: '/images/x.png' });
+  });
+
+  it('refuses an over-cap body instead of buffering all of it first', async () => {
+    // The route used a bare FileInterceptor with no `limits`, so the whole
+    // body was read into memory and only then measured by the service. An
+    // unauthenticated-adjacent multipart route must stop reading at the cap,
+    // not after it — otherwise the cap bounds what is *stored*, not what an
+    // uploader can make this process allocate.
+    const res = await request(server())
+      .post('/images')
+      .attach('file', Buffer.alloc(cap + 1024), {
+        filename: 'big.png',
+        contentType: 'image/png',
+      });
+
+    expect(res.status).toBe(413);
+    // Pinned because this is a client-visible change: the oversized upload used
+    // to come back as `400 File too large (max 10 MB)` from the service. Multer
+    // aborts first now, and Nest maps `LIMIT_FILE_SIZE` to this. 413 is the
+    // more accurate status, and the only frontend caller of this route
+    // (`docsImageUploader`) reports `status statusText` and never reads the
+    // body, so the dropped "(max 10 MB)" detail was never shown to anyone.
+    expect(res.body).toMatchObject({
+      statusCode: 413,
+      message: 'File too large',
+    });
+    // The strongest available proof that the body was cut short: the handler
+    // never ran, so nothing downstream ever held the oversized buffer.
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('accepts a body at exactly the cap, so the limit is the service cap', async () => {
+    // Pins the Multer limit to `image.maxFileSizeBytes` from both sides: the
+    // test above fails if the route accepts more, this one if it accepts less.
+    // Busboy trips at `fileSize === limits.fileSize`, so a limit set to the cap
+    // unadjusted would reject exactly-10 MB — which `ImageService.upload`
+    // (`length > cap`) accepts, and which every non-HTTP caller still accepts.
+    const res = await request(server())
+      .post('/images')
+      .attach('file', Buffer.alloc(cap), {
+        filename: 'exact.png',
+        contentType: 'image/png',
+      });
+
+    expect(res.status).toBe(201);
+    expect(upload).toHaveBeenCalled();
+  });
+
+  it('still answers 400 when no file part is present', async () => {
+    const res = await request(server()).post('/images');
+    expect(res.status).toBe(400);
+    expect(upload).not.toHaveBeenCalled();
   });
 });
