@@ -66,6 +66,8 @@ export {
   serializeMarginFromEdgeAttrs,
   parseMarginFromEdgeAttr,
 } from './model/crdt-attrs.js';
+export { docsTreeToDocument, treeNodeToBlock } from './model/crdt-tree.js';
+export type { DocsTreeNode } from './model/crdt-tree.js';
 export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,

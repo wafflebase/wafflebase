@@ -16,9 +16,16 @@
  *     the caller-provided `Document` structure verbatim and does not reupload
  *     binary data.
  *
- * If/when this duplication becomes painful, extract a `writeDocsRoot()`
- * helper into `@wafflebase/docs` that takes a Yorkie `Tree` constructor + a
- * mutable root, and have both the frontend store and this module call it.
+ * The **read** half is no longer duplicated: `readDocsRoot` delegates the
+ * tree walk to `docsTreeToDocument` in `@wafflebase/docs`
+ * (`model/crdt-tree.ts`), which the revision-history preview also calls with
+ * a parsed snapshot. What remains here is the writer plus `readPageSetup`,
+ * which has to walk a Yorkie proxy property by property.
+ *
+ * If/when the writer's duplication becomes painful too, extract a
+ * `writeDocsRoot()` helper into `@wafflebase/docs` that takes a Yorkie `Tree`
+ * constructor + a mutable root, and have both the frontend store and this
+ * module call it.
  */
 import {
   type ElementNode,
@@ -26,8 +33,8 @@ import {
   type TreeNode,
 } from '@yorkie-js/sdk';
 import {
-  parseBlockStyleAttrs,
-  parseMarginFromEdgeAttr,
+  docsTreeToDocument,
+  type DocsTreeNode,
   serializeBlockStyleAttrs,
   serializeMarginFromEdgeAttrs,
 } from '@wafflebase/docs';
@@ -97,45 +104,6 @@ function serializeInlineStyle(
   return attrs;
 }
 
-function parseInlineStyle(
-  attrs: Record<string, string> | undefined,
-): DocsInline['style'] {
-  const style: DocsInline['style'] = {};
-  if (!attrs) return style;
-  if ('bold' in attrs) style.bold = attrs.bold === 'true';
-  if ('italic' in attrs) style.italic = attrs.italic === 'true';
-  if ('underline' in attrs) style.underline = attrs.underline === 'true';
-  if ('strikethrough' in attrs)
-    style.strikethrough = attrs.strikethrough === 'true';
-  if ('superscript' in attrs) style.superscript = attrs.superscript === 'true';
-  if ('subscript' in attrs) style.subscript = attrs.subscript === 'true';
-  if ('fontSize' in attrs) style.fontSize = Number(attrs.fontSize);
-  if ('fontFamily' in attrs) style.fontFamily = attrs.fontFamily;
-  if ('color' in attrs) style.color = attrs.color;
-  if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
-  if ('href' in attrs) style.href = attrs.href;
-  if ('pageNumber' in attrs) style.pageNumber = attrs.pageNumber === 'true';
-  if ('image.src' in attrs) {
-    const width = Number(attrs['image.width']);
-    const height = Number(attrs['image.height']);
-    if (
-      Number.isFinite(width) &&
-      Number.isFinite(height) &&
-      width > 0 &&
-      height > 0
-    ) {
-      const image: NonNullable<DocsInline['style']['image']> = {
-        src: attrs['image.src'],
-        width,
-        height,
-      };
-      if ('image.alt' in attrs) image.alt = attrs['image.alt'];
-      style.image = image;
-    }
-  }
-  return style;
-}
-
 // Block-level style is encoded by the shared codec in `@wafflebase/docs`
 // (`model/crdt-attrs.ts`) rather than a copy here: the editor's
 // `YorkieDocStore` writes the same Tree attributes, and a divergence between
@@ -143,7 +111,6 @@ function parseInlineStyle(
 // reader. See that module for the partial-on-the-wire contract (absent fields
 // are omitted, non-finite numbers and unknown alignments are dropped).
 const serializeBlockStyle = serializeBlockStyleAttrs;
-const parseBlockStyle = parseBlockStyleAttrs;
 
 function serializeCellStyle(cell: DocsTableCell): Record<string, string> {
   const attrs: Record<string, string> = {};
@@ -164,39 +131,6 @@ function serializeCellStyle(cell: DocsTableCell): Record<string, string> {
   if (s.borderRight)
     attrs.borderRight = `${s.borderRight.width},${s.borderRight.style},${s.borderRight.color}`;
   return attrs;
-}
-
-function parseBorderStyle(
-  value: string,
-): DocsTableCell['style']['borderTop'] | undefined {
-  // Border attributes serialize as `width,style,color`, but a CSS color
-  // like `rgb(255, 128, 0)` itself contains commas. A naive `split(',')`
-  // would yield 5 parts and drop the border. Locate the first two commas
-  // only and treat everything after the second comma as the color.
-  const firstComma = value.indexOf(',');
-  if (firstComma === -1) return undefined;
-  const secondComma = value.indexOf(',', firstComma + 1);
-  if (secondComma === -1) return undefined;
-  return {
-    width: Number(value.slice(0, firstComma)),
-    style: value.slice(firstComma + 1, secondComma) as 'solid' | 'none',
-    color: value.slice(secondComma + 1),
-  };
-}
-
-function parseCellStyle(attrs: Record<string, string>): DocsTableCell['style'] {
-  const style: DocsTableCell['style'] = {};
-  if (attrs.backgroundColor) style.backgroundColor = attrs.backgroundColor;
-  if (attrs.verticalAlign)
-    style.verticalAlign = attrs.verticalAlign as 'top' | 'middle' | 'bottom';
-  if (attrs.padding) style.padding = Number(attrs.padding);
-  if (attrs.borderTop) style.borderTop = parseBorderStyle(attrs.borderTop);
-  if (attrs.borderBottom)
-    style.borderBottom = parseBorderStyle(attrs.borderBottom);
-  if (attrs.borderLeft) style.borderLeft = parseBorderStyle(attrs.borderLeft);
-  if (attrs.borderRight)
-    style.borderRight = parseBorderStyle(attrs.borderRight);
-  return style;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,116 +225,7 @@ function buildTreeChildren(document: DocsDocument): ElementNode[] {
   return children;
 }
 
-const parseMarginFromEdge = parseMarginFromEdgeAttr;
-
 // ---------------------------------------------------------------------------
-// ElementNode → Document
-// ---------------------------------------------------------------------------
-
-function treeNodeToInline(node: TreeNode): DocsInline {
-  if (node.type === 'text') {
-    return { text: (node as { value: string }).value, style: {} };
-  }
-  const el = node as ElementNode;
-  const text = (el.children ?? [])
-    .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
-    .map((c) => c.value)
-    .join('');
-  return {
-    text,
-    style: parseInlineStyle(
-      el.attributes as Record<string, string> | undefined,
-    ),
-  };
-}
-
-function treeNodeToCell(node: TreeNode): DocsTableCell {
-  const el = node as ElementNode;
-  const attrs = (el.attributes ?? {}) as Record<string, string>;
-  const blocks = (el.children ?? [])
-    .filter((c) => c.type === 'block')
-    .map(treeNodeToBlock);
-  return {
-    blocks:
-      blocks.length > 0
-        ? blocks
-        : [
-            {
-              id: '',
-              type: 'paragraph',
-              inlines: [{ text: '', style: {} }],
-              style: parseBlockStyle(undefined),
-            },
-          ],
-    style: parseCellStyle(attrs),
-    colSpan: attrs.colSpan ? Number(attrs.colSpan) : undefined,
-    rowSpan: attrs.rowSpan ? Number(attrs.rowSpan) : undefined,
-  };
-}
-
-function treeNodeToRow(node: TreeNode): DocsTableRow {
-  const el = node as ElementNode;
-  return {
-    cells: (el.children ?? [])
-      .filter((c) => c.type === 'cell')
-      .map(treeNodeToCell),
-  };
-}
-
-function treeNodeToBlock(node: TreeNode): DocsBlock {
-  const el = node as ElementNode;
-  const attrs = (el.attributes ?? {}) as Record<string, string>;
-  const blockType = (attrs.type as DocsBlock['type']) ?? 'paragraph';
-
-  if (blockType === 'table') {
-    const rows = (el.children ?? [])
-      .filter((c) => c.type === 'row')
-      .map(treeNodeToRow);
-    const cols = (attrs.cols ?? '')
-      .split(',')
-      .map(Number)
-      .filter((n) => !isNaN(n));
-    const rowHeights = attrs.rowHeights
-      ? attrs.rowHeights
-          .split(',')
-          .map((v) => (v === '' ? undefined : Number(v)))
-      : undefined;
-    return {
-      id: attrs.id ?? '',
-      type: 'table',
-      inlines: [],
-      style: parseBlockStyle(attrs),
-      tableData: {
-        rows,
-        columnWidths: cols,
-        ...(rowHeights ? { rowHeights } : {}),
-      },
-    };
-  }
-
-  const inlines = (el.children ?? [])
-    .filter((c) => c.type === 'inline')
-    .map(treeNodeToInline);
-  const block: DocsBlock = {
-    id: attrs.id ?? '',
-    type: blockType,
-    inlines:
-      inlines.length > 0
-        ? inlines
-        : blockType === 'horizontal-rule' || blockType === 'page-break'
-          ? []
-          : [{ text: '', style: {} }],
-    style: parseBlockStyle(attrs),
-  };
-  if ('headingLevel' in attrs)
-    block.headingLevel = Number(
-      attrs.headingLevel,
-    ) as DocsBlock['headingLevel'];
-  if ('listKind' in attrs)
-    block.listKind = attrs.listKind as DocsBlock['listKind'];
-  if ('listLevel' in attrs) block.listLevel = Number(attrs.listLevel);
-  return block;
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -416,36 +241,17 @@ export function readDocsRoot(root: DocsYorkieRoot): DocsDocument {
   if (!tree || typeof tree.getRootTreeNode !== 'function') {
     return { blocks: [] };
   }
-  const treeRoot = tree.getRootTreeNode() as ElementNode;
-  const doc: DocsDocument = { blocks: [] };
-  for (const child of treeRoot.children ?? []) {
-    if (child.type === 'header') {
-      const header = child as ElementNode;
-      const attrs = (header.attributes ?? {}) as Record<string, string>;
-      doc.header = {
-        blocks: (header.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
-      };
-    } else if (child.type === 'footer') {
-      const footer = child as ElementNode;
-      const attrs = (footer.attributes ?? {}) as Record<string, string>;
-      doc.footer = {
-        blocks: (footer.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
-      };
-    } else if (child.type === 'block') {
-      doc.blocks.push(treeNodeToBlock(child));
-    }
-  }
+  // The walk itself lives in `@wafflebase/docs` (`model/crdt-tree.ts`), so
+  // that the revision-history preview — which runs the same walk over a
+  // parsed snapshot in the browser — cannot drift from this reader. A live
+  // proxy node already matches `DocsTreeNode`: the SDK hands back
+  // `attributes` with its values JSON-decoded. A *snapshot* node does not;
+  // see that module's header.
+  const doc = docsTreeToDocument(tree.getRootTreeNode() as DocsTreeNode, {
+    stylesJson: root.stylesJson,
+  });
   if (root.pageSetup) {
     doc.pageSetup = readPageSetup(root.pageSetup);
-  }
-  if (typeof root.stylesJson === 'string' && root.stylesJson.length > 0) {
-    try {
-      doc.styles = JSON.parse(root.stylesJson);
-    } catch {
-      // Malformed registry → fall back to built-in styles.
-    }
   }
   return doc;
 }
