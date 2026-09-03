@@ -246,24 +246,39 @@ the docs tree→blocks half, pulled into `@wafflebase/docs` when the docs
 preview is built, rather than a wholesale move of three modules up front.
 (`docs-tree.ts`'s own header already proposes this extraction.)
 
-**Docs preview is blocked upstream: `YSON.parse` cannot parse a snapshot
-containing a real docs tree.** `preprocessYSON` is regex-based, and its
-`Tree(...)` pattern hard-codes a maximum of three nested brace levels.
-Measured against the running server:
+**`YSON.parse` cannot reliably read a snapshot wrapped in `Tree(...)` or
+`Text([...])`.** `preprocessYSON` is a chain of regex replacements, and it
+fails two independent ways. Measured against the running server, with real
+documents:
 
-| Root shape | `YSON.parse` |
+| Case | `YSON.parse` |
 | --- | --- |
-| sheets / slides / board (plain JSON) | OK |
-| notes (`Text([...])`) | OK |
+| sheets / slides / board (plain JSON root — no wrapper at all) | OK |
 | docs `Tree` depth 3 (`doc > block > text`) | OK |
 | docs `Tree` depth 4 (`doc > block > inline > text`) | **fails** |
+| a note containing `arr[1:]` (balanced brackets) | OK |
+| a note containing `Fix issue 3] later` (one unbalanced `]`) | **fails** |
+| a note containing `a [b [c [d [e] f] g] h] i` (4 levels) | **fails** |
 
-Every wafflebase docs document is depth 4 or more, and tables go deeper, so
-this is not an edge case — it is every document of that type. Preview
-therefore ships for sheets, slides, board and notes first, and docs follows
-the upstream fix (§6). The fallback, if that fix is slow, is our own
-snapshot parser in the frontend; it is a fallback rather than the plan
-because a second regex-based parser is how this bug was born.
+1. **Nesting depth is hard-coded in the pattern** — three levels per type.
+   Every wafflebase docs document is `doc > block > inline > text`, which is
+   four, and tables go deeper. So docs preview never works.
+2. **The patterns are not string-aware.** They count `{}`/`[]` appearing
+   *inside string values* as structure. Balanced ones happen to survive,
+   which is why an ordinary markdown link parses; an unbalanced one does not.
+
+An earlier revision of this document recorded only the first defect and
+called it docs-specific. That was wrong: the second defect reaches
+**notes**, which did ship. A note whose text contains an unmatched bracket
+previews as "Couldn't read this version" instead of its content. It fails
+*safely* — the adapter throws, `RevisionPreview` renders `role="alert"`,
+and nothing incorrect is drawn — but it fails.
+
+Preview therefore ships for sheets, slides and board unconditionally, for
+notes with that caveat, and not at all for docs until the upstream fix
+(§6). The fallback, if that fix is slow, is our own snapshot parser; it is
+a fallback rather than the plan because a second regex-based parser is how
+this bug was born — any replacement must be a string-aware scanner.
 
 Presentation is a banner over the existing viewer — "Viewing a version from
 … / Restore / Back" — not a modal. Four of the five engines are canvas, and

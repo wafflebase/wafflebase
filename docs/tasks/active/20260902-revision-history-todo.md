@@ -53,13 +53,21 @@ registration against the enum and accepts all four names.
       automatic revisions can show an author), and a revision retention
       policy + delete RPC. **No issues filed** — no `yorkie-team/yorkie`
       issue links exist to add here yet.
-- [ ] `yorkie-team/yorkie`: replace `preprocessYSON`'s regex with a real
-      tokenizer. Its `Tree(...)` pattern bottoms out at three nested brace
-      levels, so `YSON.parse` throws `Unexpected token 'T'` on **every**
-      wafflebase docs snapshot (`doc > block > inline > text` is four), and
-      it would also misread a `}` inside a string value in any document
-      type. Measured: depth 2 OK, depth 3 OK, depth 4 fails. Blocks docs
-      preview. **No issue filed.**
+- [ ] `yorkie-team/yorkie`: replace `preprocessYSON`'s regex chain with a
+      string-aware scanner. Two independent defects, both measured against
+      the running server with real documents:
+      (a) nesting depth is hard-coded at three levels per type, so
+      `YSON.parse` throws `Unexpected token 'T'` on **every** wafflebase
+      docs snapshot (`doc > block > inline > text` is four; tables go
+      deeper);
+      (b) the patterns count `{}`/`[]` inside *string values* as structure,
+      so a note containing an unmatched `]` fails while `arr[1:]` survives.
+      Defect (b) reaches `Text`, not just `Tree` — it affects **notes**,
+      which shipped. Repro:
+      `YSON.parse('{"c":Text([{"val":"a]b"}])}')` and
+      `YSON.parse('{"c":Tree({"type":"doc","children":[{"type":"block","children":[{"type":"inline","children":[{"type":"text","value":"a"}]}]}]})}')`.
+      Latest SDK is `0.7.18`, so there is no version to bump to.
+      **No issue filed.**
 
 ## Plan
 
@@ -222,6 +230,15 @@ merge, not after.
   `HistoryPanel` with no `onPreview`, so the Preview button renders
   disabled with an explanatory reason rather than doing nothing when
   clicked. Unblocks only when the upstream tokenizer fix lands (PR 3).
+- **Some note previews.** The same parser has a second defect this record
+  originally missed, and it is not docs-specific: the patterns treat
+  `{}`/`[]` inside *string values* as structure. A note containing an
+  unmatched bracket (`Fix issue 3] later`) fails to parse, while balanced
+  ones (`arr[1:]`, a markdown link) survive by accident. Verified with real
+  notes against the running server. It fails **safely** — the adapter
+  throws, `RevisionPreview` renders `role="alert"`, and nothing wrong is
+  drawn — but the user sees "Couldn't read this version" instead of their
+  note. Same upstream fix unblocks it.
 - **Mobile slides has no entry point.** `HistoryPanel` is a desktop side
   `<aside>` by construction; the mobile slides layout renders its panels
   as bottom sheets via `variant="sheet"`, which `HistoryPanel` does not

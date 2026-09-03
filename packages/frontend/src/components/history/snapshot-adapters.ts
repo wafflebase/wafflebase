@@ -17,11 +17,23 @@ import { unwrapYsonScalars } from './unwrap-yson';
  * {@link unwrapYsonScalars} before it reaches an engine that types those
  * fields `number`. See that module for what went wrong without it.
  *
- * `YSON.parse`'s preprocessor is regex-based and throws once a `Tree(...)`
- * nests past three brace levels, which every wafflebase docs document does
- * (`doc > block > inline > text` is depth 4). Docs snapshots are therefore
- * unparsable until that upstream limit is fixed; callers must handle the
- * throw.
+ * `YSON.parse`'s preprocessor is a regex chain with two separate defects,
+ * both measured against a real server:
+ *
+ * 1. Nesting depth is hard-coded at three levels per type, so it throws on
+ *    any `Tree(...)` deeper than that — which every wafflebase docs
+ *    document is (`doc > block > inline > text` is depth 4). Docs
+ *    snapshots are unparsable, full stop.
+ * 2. The patterns are not string-aware: they count `{}`/`[]` inside string
+ *    *values* as structure. This reaches `Text([...])` too, so it is not
+ *    docs-specific — a note containing an unmatched `]` (`Fix issue 3]
+ *    later`) throws, while balanced brackets (`arr[1:]`, a markdown link)
+ *    survive by accident.
+ *
+ * Both are upstream (`@yorkie-js/sdk`, latest `0.7.18` at time of writing —
+ * no version to bump to). Callers must handle the throw; `RevisionPreview`
+ * turns it into a `role="alert"` rather than rendering an empty document,
+ * because a blank render would read as "this version was empty."
  */
 export function parseSheetSnapshot(snapshot: string): SpreadsheetDocument {
   return unwrapYsonScalars<SpreadsheetDocument>(YSON.parse(snapshot));
