@@ -80,9 +80,10 @@ export class ApiV1ImageReadController {
   }
 
   /**
-   * Read access = a workspace-scoped API key, OR a workspace member (JWT),
-   * OR a valid, unexpired share token whose document belongs to this
-   * workspace. Granularity is deliberately workspace-level, not
+   * Read access = a workspace-scoped API key whose minter is still a member,
+   * OR a workspace member (JWT), OR a valid, unexpired share token whose
+   * document belongs to this workspace. Granularity is deliberately
+   * workspace-level, not
    * document-level: there is no DB link from an image blob to the document
    * that embeds it (the reference lives in the CRDT), and image ids are
    * unguessable UUIDs, so a viewer can only reach the images they already
@@ -94,8 +95,21 @@ export class ApiV1ImageReadController {
     token: string | undefined,
   ): Promise<void> {
     if (user?.isApiKey) {
-      if (user.workspaceId === resolvedWorkspaceId) return;
-      throw new ForbiddenException('API key is not scoped to this workspace');
+      if (user.workspaceId !== resolvedWorkspaceId) {
+        throw new ForbiddenException('API key is not scoped to this workspace');
+      }
+      // Same bar as `WorkspaceScopeGuard`, which this controller cannot mount
+      // (the route also serves anonymous share-token viewers, who have no
+      // workspace membership to check). A key's scope is a claim frozen at
+      // mint time; the key carries the authority of the user who minted it
+      // (`ApiKey.createdBy`), resolved against their membership *now*. Without
+      // this, a removed minter's key would keep reading this workspace's
+      // images — the one hole in an invariant the rest of /api/v1 holds.
+      await this.workspaceService.assertMember(
+        resolvedWorkspaceId,
+        Number(user.id),
+      );
+      return;
     }
     if (user?.id !== undefined) {
       try {

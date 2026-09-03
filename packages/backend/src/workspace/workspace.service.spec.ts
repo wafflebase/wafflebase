@@ -10,7 +10,7 @@ import { NotificationService } from '../notification/notification.service';
 import { WorkspaceService } from './workspace.service';
 
 function createMockPrisma() {
-  return {
+  const prisma = {
     workspace: {
       create: jest.fn(),
       findMany: jest.fn(),
@@ -33,7 +33,18 @@ function createMockPrisma() {
       delete: jest.fn(),
       deleteMany: jest.fn(),
     },
+    apiKey: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    // `removeMember` runs its membership delete + key revocation in one
+    // interactive transaction. Passing the same mock client through means a
+    // test sees the calls exactly as it would outside one; the value of the
+    // real thing is atomicity, which a unit test cannot observe anyway.
+    $transaction: jest.fn(
+      (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma),
+    ),
   };
+  return prisma;
 }
 
 describe('WorkspaceService', () => {
@@ -306,6 +317,26 @@ describe('WorkspaceService', () => {
           },
         },
       });
+    });
+
+    it('revokes the API keys the removed member minted in this workspace', async () => {
+      prisma.workspaceMember.findUnique
+        .mockResolvedValueOnce({ role: 'owner' }) // assertOwner
+        .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
+      prisma.workspaceMember.delete.mockResolvedValue({});
+
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
+
+      expect(prisma.apiKey.updateMany).toHaveBeenCalledWith({
+        where: {
+          workspaceId: '11111111-1111-1111-1111-111111111111',
+          createdBy: 2,
+          revokedAt: null,
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
+      // Both halves land together, so a key cannot survive a committed removal.
+      expect(prisma.$transaction).toHaveBeenCalled();
     });
 
     it('member can leave workspace (self-remove)', async () => {

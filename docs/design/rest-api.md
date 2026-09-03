@@ -519,12 +519,20 @@ that bar: it carries the authority of the user who minted it
 than at mint time. A key is mintable only by a workspace owner
 (`assertOwner`), so a live owner's key manages the whole tree as before, while
 a key whose minter was demoted or removed no longer moves or deletes other
-people's folders. `WorkspaceScopeGuard` enforces the removal half for the
-**whole** v1 surface — it now requires the minting user still be a member, so
-removing somebody from a workspace revokes the keys they minted without a
-key-sweep on the member-removal path (which would still miss keys minted
-before it ran). `ApiKeyWriteScopeGuard`'s `write` scope is a separate, earlier
-gate.
+people's folders.
+
+The removal half is enforced twice, deliberately.
+`WorkspaceService.removeMember` revokes (`revokedAt`) every key the removed
+user minted in that workspace, in the same transaction as the membership
+delete — so the removal is permanent and re-adding them later does not
+silently reactivate keys nobody re-issued. `WorkspaceScopeGuard` is the live
+half: it requires the minting user still be a member *at request time*, which
+covers every other way a membership can end and refuses the key immediately
+rather than at its next validation. Every v1 controller mounts the guard
+except `ApiV1ImageReadController`, which also serves anonymous share-token
+viewers and so cannot; it repeats the same scope + membership pair by hand
+(`assertCanRead`). `ApiKeyWriteScopeGuard`'s `write` scope is a separate,
+earlier gate.
 
 #### 5.9 Rate limiting
 

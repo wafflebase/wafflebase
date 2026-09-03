@@ -106,8 +106,21 @@ export class WorkspaceService {
     if (member.role === 'owner' && requesterId === targetUserId) {
       throw new ForbiddenException('Owner cannot leave their own workspace');
     }
-    return this.prisma.workspaceMember.delete({
-      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    // Removing somebody also revokes every API key they minted here. The live
+    // membership check in `WorkspaceScopeGuard` already refuses such a key at
+    // request time, but that is a *suspension*: re-adding the user later would
+    // silently reactivate keys nobody re-issued. Revoking the rows makes the
+    // removal permanent, and keeps the two halves in one transaction so a key
+    // can never survive a committed removal.
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.workspaceMember.delete({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      });
+      await tx.apiKey.updateMany({
+        where: { workspaceId, createdBy: targetUserId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return deleted;
     });
   }
 

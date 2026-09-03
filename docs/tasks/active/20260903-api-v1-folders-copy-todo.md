@@ -46,9 +46,11 @@ command alone — it needs the endpoints to exist under `/api/v1` first.
       `CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard`
 - [ ] A folder outside the route workspace answers 404, not 403 — the same
       shape `getDocumentOrThrow` uses for a document in another workspace
-- [ ] Manager gating mirrors `ApiV1DocumentsController.remove()`: an API key
-      acts with workspace authority (`ApiKeyWriteScopeGuard` already required
-      `write`), a JWT caller is checked with `isDocumentManager`
+- [ ] Manager gating mirrors `ApiV1DocumentsController.remove()`: every caller
+      is checked with `isDocumentManager`. An API key is **not** waved past it
+      — it carries the authority of `ApiKey.createdBy`, resolved against that
+      user's membership at request time (`ApiKeyWriteScopeGuard`'s `write`
+      scope is a separate, earlier gate)
 - [ ] `POST api/v1/workspaces/:wid/documents/:documentId/copy` via
       `DocumentCopyService`, membership-gated only — a copy modifies nothing
 - [ ] `PATCH api/v1/.../documents/:documentId` accepts `folderId`

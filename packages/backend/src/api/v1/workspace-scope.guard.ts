@@ -15,9 +15,15 @@ import { WorkspaceService } from '../../workspace/workspace.service';
  * the user who minted it must still be a member of that workspace. The scope
  * check alone is a claim frozen at mint time — a key outlives the membership
  * that justified it, so removing somebody from a workspace would otherwise
- * leave every key they ever minted working with full workspace authority. This
- * check is what makes removal revoke them, without a key-revocation sweep on
- * the member-removal path (which would still miss keys minted before it ran).
+ * leave every key they ever minted working with full workspace authority.
+ * `WorkspaceService.removeMember` revokes those rows outright; this check is
+ * the live half, covering every other way a membership ends (a workspace
+ * deleted and re-created, a row removed out of band) and refusing the key the
+ * moment the membership is gone rather than at its next validation.
+ *
+ * Every v1 controller mounts this guard. The one route that cannot —
+ * `ApiV1ImageReadController`, which also serves anonymous share-token viewers
+ * — repeats the same two checks by hand.
  */
 @Injectable()
 export class WorkspaceScopeGuard implements CanActivate {
