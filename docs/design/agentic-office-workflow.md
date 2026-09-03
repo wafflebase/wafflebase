@@ -192,10 +192,12 @@ Two consequences follow from the nesting, both deliberate:
   takes `folderId` only (`null` = workspace root); the `workspaceId` move the
   web surface offers has no meaning to a credential bound to one workspace.
 
-Authority splits the way it already does on this surface: an API key acts with
-workspace authority (`ApiKeyWriteScopeGuard` has already required the `write`
-scope), a JWT caller is held to the same manager bar the web routes apply —
-workspace owner, or the folder's / document's author. Copy is the exception,
+Authority is the manager bar the web routes apply — workspace owner, or the
+folder's / document's author — for every caller. An API key is resolved to the
+user who minted it and held to that bar against their membership *now*, so a
+key does not outlive its minter's role (`ApiKeyWriteScopeGuard` has already
+required the `write` scope, a separate gate). Since only an owner can mint a
+key, a live owner's key manages everything as before. Copy is the exception,
 gated on membership alone: it neither modifies, moves, nor destroys the source,
 so anyone who can read a document can duplicate it.
 

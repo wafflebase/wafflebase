@@ -124,18 +124,16 @@ export class ApiV1DocumentsController {
     if (body.folderId !== undefined) {
       // Renaming is an edit any member may do; filing the document somewhere
       // else is manager-only, the same split the web surface draws. An API key
-      // acts with workspace authority (see `remove` below).
-      if (!req.user.isApiKey) {
-        const userId = Number(req.user.id);
-        const member = await this.workspaceService.assertMember(
-          workspaceId,
-          userId,
+      // is held to the same bar as its minter (see `remove` below).
+      const userId = Number(req.user.id);
+      const member = await this.workspaceService.assertMember(
+        workspaceId,
+        userId,
+      );
+      if (!isDocumentManager(member.role, doc.authorID, userId)) {
+        throw new ForbiddenException(
+          'Only the workspace owner or document owner can move this document',
         );
-        if (!isDocumentManager(member.role, doc.authorID, userId)) {
-          throw new ForbiddenException(
-            'Only the workspace owner or document owner can move this document',
-          );
-        }
       }
       if (body.folderId === null) {
         data.folder = { disconnect: true };
@@ -167,22 +165,22 @@ export class ApiV1DocumentsController {
       id: documentId,
       workspaceId,
     });
-    // API keys are workspace-scoped credentials minted by an owner; they act
-    // with workspace authority, and `ApiKeyWriteScopeGuard` has already
-    // rejected one without the `write` scope before this handler runs.
-    if (!req.user.isApiKey) {
-      // A human (JWT) caller may only delete a document they manage — as the
-      // workspace owner or the document's author.
-      const userId = Number(req.user.id);
-      const member = await this.workspaceService.assertMember(
-        workspaceId,
-        userId,
+    // Only a manager — the workspace owner or the document's author — may
+    // delete. An API key carries the authority of the user who minted it,
+    // resolved against their membership *now*: a key is minted by a workspace
+    // owner (`assertOwner`), so this costs a live owner's key nothing, and a
+    // key whose minter was demoted or removed no longer deletes anything.
+    // `ApiKeyWriteScopeGuard` has already rejected a key without the `write`
+    // scope before this handler runs; that is a separate gate.
+    const userId = Number(req.user.id);
+    const member = await this.workspaceService.assertMember(
+      workspaceId,
+      userId,
+    );
+    if (!isDocumentManager(member.role, doc.authorID, userId)) {
+      throw new ForbiddenException(
+        'Only the workspace owner or document owner can delete this document',
       );
-      if (!isDocumentManager(member.role, doc.authorID, userId)) {
-        throw new ForbiddenException(
-          'Only the workspace owner or document owner can delete this document',
-        );
-      }
     }
     const deleted = await this.documentService.deleteDocument({
       id: documentId,

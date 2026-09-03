@@ -182,7 +182,8 @@ cross-workspace move here** — the web `PATCH documents/:id` takes a
 `workspaceId`, which has no meaning to a credential bound to one workspace.
 Renaming is an edit any member may do; filing the document somewhere else is
 manager-only (workspace owner or the document's author), matching the web
-surface. An API-key caller acts with workspace authority, as it does on
+surface. An API-key caller is held to that same bar, resolved against the
+membership of the user who minted the key **as it stands now** — as it is on
 `DELETE`.
 
 `POST .../copy` runs `DocumentCopyService` — the same engine the web "Make a
@@ -512,9 +513,18 @@ folders a workspace holds is that workspace's own information, the same shape
 `getDocumentOrThrow` uses for a document outside the route's workspace.
 
 Renaming is open to any member; moving and deleting are manager-only
-(workspace owner or the folder's author). An API-key caller acts with
-workspace authority once `ApiKeyWriteScopeGuard` has required its `write`
-scope.
+(workspace owner or the folder's author). An API key is **not** waved past
+that bar: it carries the authority of the user who minted it
+(`ApiKey.createdBy`), resolved against their membership at request time rather
+than at mint time. A key is mintable only by a workspace owner
+(`assertOwner`), so a live owner's key manages the whole tree as before, while
+a key whose minter was demoted or removed no longer moves or deletes other
+people's folders. `WorkspaceScopeGuard` enforces the removal half for the
+**whole** v1 surface — it now requires the minting user still be a member, so
+removing somebody from a workspace revokes the keys they minted without a
+key-sweep on the member-removal path (which would still miss keys minted
+before it ran). `ApiKeyWriteScopeGuard`'s `write` scope is a separate, earlier
+gate.
 
 #### 5.9 Rate limiting
 

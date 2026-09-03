@@ -164,10 +164,21 @@ describe('ApiV1FoldersController', () => {
       expect(folderService.update).not.toHaveBeenCalled();
     });
 
-    it('allows a write-scoped API key to move without a membership check', async () => {
-      await controller.update(WS, 'f-1', req(0, true), { parentId: 'f-2' });
-      expect(workspaceService.assertMember).not.toHaveBeenCalled();
+    it('lets an API key minted by an owner move any folder', async () => {
+      workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
+      await controller.update(WS, 'f-1', req(OWNER, true), { parentId: 'f-2' });
+      expect(workspaceService.assertMember).toHaveBeenCalledWith(WS, OWNER);
       expect(folderService.update).toHaveBeenCalled();
+    });
+
+    // A key carries its minter's authority as it stands now, not as it stood
+    // at mint time — a demoted minter's key stops managing other people's
+    // folders, and `assertMember` rejects a removed one outright.
+    it('forbids an API key whose minter is no longer a manager', async () => {
+      await expect(
+        controller.update(WS, 'f-1', req(MEMBER, true), { parentId: 'f-2' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(folderService.update).not.toHaveBeenCalled();
     });
   });
 
@@ -186,11 +197,29 @@ describe('ApiV1FoldersController', () => {
       ).resolves.toMatchObject({ id: 'f-1' });
     });
 
-    it('allows a write-scoped API key without a membership check', async () => {
+    it('lets an API key minted by an owner delete any folder', async () => {
+      workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
       await expect(
-        controller.remove(WS, 'f-1', req(0, true)),
+        controller.remove(WS, 'f-1', req(OWNER, true)),
       ).resolves.toMatchObject({ id: 'f-1' });
-      expect(workspaceService.assertMember).not.toHaveBeenCalled();
+      expect(workspaceService.assertMember).toHaveBeenCalledWith(WS, OWNER);
+    });
+
+    it('forbids an API key whose minter is no longer a manager', async () => {
+      await expect(
+        controller.remove(WS, 'f-1', req(MEMBER, true)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(folderService.delete).not.toHaveBeenCalled();
+    });
+
+    it('refuses an API key whose minter left the workspace', async () => {
+      workspaceService.assertMember.mockRejectedValue(
+        new ForbiddenException('Not a member of this workspace'),
+      );
+      await expect(
+        controller.remove(WS, 'f-1', req(OWNER, true)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(folderService.delete).not.toHaveBeenCalled();
     });
   });
 });

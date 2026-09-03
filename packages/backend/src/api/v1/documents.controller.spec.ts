@@ -61,11 +61,23 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     ).resolves.toMatchObject({ id: 'doc-1' });
   });
 
-  it('allows a write-scoped API key without a membership check', async () => {
+  it('lets an API key minted by an owner delete any document', async () => {
+    workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
     await expect(
-      controller.remove(WS, 'doc-1', req(0, true, ['read', 'write'])),
+      controller.remove(WS, 'doc-1', req(OWNER, true, ['read', 'write'])),
     ).resolves.toMatchObject({ id: 'doc-1' });
-    expect(workspaceService.assertMember).not.toHaveBeenCalled();
+    expect(workspaceService.assertMember).toHaveBeenCalledWith(WS, OWNER);
+  });
+
+  // A key carries its minter's authority as it stands now, not as it stood at
+  // mint time — otherwise removing somebody from a workspace would leave every
+  // key they ever minted deleting documents.
+  it('forbids an API key whose minter is no longer a manager', async () => {
+    workspaceService.assertMember.mockResolvedValue({ role: 'member' });
+    await expect(
+      controller.remove(WS, 'doc-1', req(MEMBER, true, ['read', 'write'])),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(documentService.deleteDocument).not.toHaveBeenCalled();
   });
 
   // A read-scoped key is refused before this handler runs — see
@@ -211,10 +223,23 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
       expect(documentService.updateDocument).not.toHaveBeenCalled();
     });
 
-    it('allows a write-scoped API key to move without a membership check', async () => {
-      await controller.update(WS, 'doc-1', req(0, true), { folderId: 'f-1' });
-      expect(workspaceService.assertMember).not.toHaveBeenCalled();
+    it('lets an API key minted by an owner move any document', async () => {
+      workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
+      await controller.update(WS, 'doc-1', req(OWNER, true), {
+        folderId: 'f-1',
+      });
+      expect(workspaceService.assertMember).toHaveBeenCalledWith(WS, OWNER);
       expect(documentService.updateDocument).toHaveBeenCalled();
+    });
+
+    // A key carries its minter's authority as it stands now, not as it stood
+    // at mint time: a demoted minter's key stops moving other people's
+    // documents, and `assertMember` rejects a removed one outright.
+    it('forbids an API key whose minter is no longer a manager', async () => {
+      await expect(
+        controller.update(WS, 'doc-1', req(MEMBER, true), { folderId: 'f-1' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(documentService.updateDocument).not.toHaveBeenCalled();
     });
 
     it('renames and moves in one call', async () => {

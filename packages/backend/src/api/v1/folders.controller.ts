@@ -62,19 +62,21 @@ export class ApiV1FoldersController {
   }
 
   /**
-   * Whether the caller may move or delete this folder.
+   * Whether the caller may move or delete this folder — the same manager bar
+   * the web surface applies: workspace owner, or the folder's author.
    *
-   * API keys are workspace-scoped credentials minted by an owner; they act
-   * with workspace authority, and `ApiKeyWriteScopeGuard` has already rejected
-   * one without the `write` scope. A human (JWT) caller is held to the same
-   * manager bar the web surface applies — workspace owner, or the folder's
-   * author. Mirrors `ApiV1DocumentsController.remove()`.
+   * An API key is **not** waved through. It carries the authority of the user
+   * who minted it (`ApiKeyStrategy` puts that id on `req.user`), resolved
+   * against their membership *now* rather than at mint time, so a key does not
+   * outlive its minter's role. Since a key can only be minted by a workspace
+   * owner (`assertOwner`), this costs a live owner's key nothing and denies one
+   * whose minter was demoted or removed. The `write` scope
+   * (`ApiKeyWriteScopeGuard`) is a separate, earlier gate.
    */
   private async isManager(
     folder: Folder,
     req: AuthenticatedRequest,
   ): Promise<boolean> {
-    if (req.user.isApiKey) return true;
     const userId = Number(req.user.id);
     const member = await this.workspaceService.assertMember(
       folder.workspaceId,
