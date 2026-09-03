@@ -21,7 +21,7 @@ Users drop image files onto the documents list (or pick them from the "New"
 menu) and each becomes a first-class document, then open it in a lightweight
 `<img>`-based viewer at the existing `/f/:id` route. Two Google-Drive-inspired
 touches ship in the same PR: **inline row thumbnails** in the documents list
-and **prev/next navigation** through the workspace's images in the viewer.
+and **prev/next navigation** through the images in the same folder.
 
 Comments/sharing (a `image-<id>` Yorkie doc, mirroring PDF Phase 2) and a
 full documents-list **gallery/grid view** are explicit Non-Goals here.
@@ -37,7 +37,7 @@ full documents-list **gallery/grid view** are explicit Non-Goals here.
 - Serve bytes **gated by the owning document's read policy**, reusing the
   already-type-agnostic `GET /documents/:id/file` endpoint unchanged.
 - View in the `/f/:id` route: fit-to-screen, zoom, download; **prev/next**
-  across the workspace's images (arrow buttons + keyboard ←/→).
+  across the images in the same folder (arrow buttons + keyboard ←/→).
 - **Inline thumbnails** in the documents list for `image` rows — client-side
   downscale (no server thumbnail generation), lazily loaded.
 
@@ -159,19 +159,36 @@ type-dispatcher:
   cookie in dev where frontend :5173 ≠ backend :3000). Controls: fit-to-screen
   (default), zoom in/out (buttons + Ctrl/⌘-wheel), download. `revokeObjectURL`
   on unmount. Error state on load failure.
-- **Prev/next navigation** — `FileDetail` fetches the current workspace's
-  documents (existing list API), filters to `type === "image"`, sorts stably
-  (by `title`, then `id`), locates the current id. Left/right chevron buttons
-  and keyboard ←/→ navigate to the sibling `/f/:id`; the buttons hide at the
-  ends. The fetch is scoped to `doc.workspaceId` and only runs for image
-  documents.
+- **Prev/next navigation** — `ImageViewer` fetches the user's whole document
+  list once (`GET /documents`, every workspace they belong to) and narrows it
+  *client-side*: `type === "image"`, the current image's `workspaceId`, and
+  the current image's `folderId` (absent and null both meaning the workspace
+  root). It then sorts stably (by `title`, then `id`) and locates the current
+  id. Left/right chevron buttons and keyboard ←/→ navigate to the sibling
+  `/f/:id`; the buttons hide at the ends. The query is gated on `!token`, so
+  the anonymous share mount — which cannot reach the JWT-only list endpoint —
+  simply shows no arrows. Scoping to the folder and not just the workspace
+  keeps the arrows inside the folder the image lives in; since leaving the
+  viewer returns to the *current* image's folder, an unscoped walk would also
+  silently move where the back button lands. An image alone in its folder
+  therefore shows no arrows at all.
 - **Leaving the viewer** (issue #840) — a back button in the header (the
   `SiteHeader.leading` slot, left of the title) and the Esc key both return to
   the documents list. The destination comes from one `useDocumentsPath()` hook
   — the document's own workspace list, else the first workspace, else
-  `/documents` — shared with `FileShell`'s not-found redirect. Esc obeys the
-  same input/contenteditable guard as ←/→ (so the header's rename field keeps
-  Esc for cancel), and the anonymous share-link mount passes no `onClose`, so
+  `/documents` — shared with `FileShell`'s not-found redirect. A document that
+  lives in a folder returns to **that folder**: the workspace list route keys
+  its folder off a `?folder=<id>` query parameter rather than a path segment
+  (`workspace-documents.tsx`), so the hook has to append it or every
+  destination it builds reads as the workspace root. The folder is dropped
+  when the hook falls back to a *different* workspace, whose tree does not
+  contain that id. The hook reports `null` until the workspace query settles
+  — an empty list and one that has not arrived are the same shape, and both
+  would resolve to `/documents` — so the back button is disabled and Esc is
+  inert for that moment rather than leaving for the cross-workspace list.
+  Esc obeys the same input/contenteditable guard as ←/→ (so
+  the header's rename field keeps Esc for cancel), and the anonymous
+  share-link mount passes no `onClose`, so
   Esc is inert for a viewer who has no documents list. Both Esc and ←/→ also
   stand down while a *dismissable* layer is open above the viewer (ShareDialog,
   mobile sidebar Sheet, notification Popover, any dropdown/select), since those

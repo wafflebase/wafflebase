@@ -108,7 +108,11 @@ export function ImageViewer({
         : current.title;
   }, [current?.title, current?.fileId]);
 
-  // Sibling images in the same workspace, stably ordered, for prev/next.
+  // Sibling images in the same folder, stably ordered, for prev/next. Scoped
+  // to the folder and not just the workspace, so the arrows stay inside the
+  // folder this image lives in — stepping into another folder's images would
+  // also change where the back button returns to, since that destination is
+  // derived from whichever image is on screen.
   const { data: allDocs = [] } = useQuery({
     queryKey: ["documents"],
     queryFn: fetchDocuments,
@@ -118,7 +122,11 @@ export function ImageViewer({
     if (!current) return [] as string[];
     return allDocs
       .filter(
-        (d) => d.type === "image" && d.workspaceId === current.workspaceId,
+        (d) =>
+          d.type === "image" &&
+          d.workspaceId === current.workspaceId &&
+          // Absent and null both mean the workspace root.
+          (d.folderId ?? null) === (current.folderId ?? null),
       )
       .sort((a, b) =>
         a.title === b.title

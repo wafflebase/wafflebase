@@ -45,20 +45,11 @@ vi.mock("@/api/auth", () => ({
   isAuthExpiredError: () => false,
 }));
 vi.mock("@/api/documents", () => ({
-  fetchDocument: vi.fn(async () => ({
-    id: "d1",
-    title: "cat.png",
-    type: "image",
-    fileId: "abc.png",
-    workspaceId: "w2",
-  })),
+  fetchDocument: vi.fn(),
   renameDocument: vi.fn(async () => {}),
 }));
 vi.mock("@/api/workspaces", () => ({
-  fetchWorkspaces: vi.fn(async () => [
-    { id: "w1", name: "First", slug: "first", createdAt: "" },
-    { id: "w2", name: "Second", slug: "second", createdAt: "" },
-  ]),
+  fetchWorkspaces: vi.fn(),
   // The shell's sidebar nav gates its Analytics entry on this.
   fetchAnalyticsEnabled: vi.fn(async () => false),
 }));
@@ -89,10 +80,33 @@ vi.mock("@/app/files/image-viewer", () => ({
   ),
 }));
 
+import { fetchDocument } from "@/api/documents";
+import { fetchWorkspaces } from "@/api/workspaces";
+import type { Document } from "@/types/documents";
 import { FileDetail } from "@/app/files/file-detail";
 
+const workspaces = [
+  { id: "w1", name: "First", slug: "first", createdAt: "" },
+  { id: "w2", name: "Second", slug: "second", createdAt: "" },
+];
+
+/** The document the route resolves, with only the read fields spelled out. */
+function imageDoc(folderId: string | null = null): Document {
+  return {
+    id: "d1",
+    title: "cat.png",
+    type: "image",
+    fileId: "abc.png",
+    workspaceId: "w2",
+    folderId,
+  } as Document;
+}
+
+// The folder rides in the query string, so the probe has to show it — a
+// pathname-only probe reads the same whether the folder survived or not.
 function LocationProbe() {
-  return <div data-testid="location">{useLocation().pathname}</div>;
+  const { pathname, search } = useLocation();
+  return <div data-testid="location">{pathname + search}</div>;
 }
 
 function renderDetail() {
@@ -112,7 +126,14 @@ function renderDetail() {
 }
 
 describe("FileDetail image layout back navigation", () => {
-  beforeEach(() => vi.clearAllMocks());
+  // Defaults live here, not in the `vi.mock` factory: a test below replaces
+  // `fetchWorkspaces` with a promise that never settles, and `clearAllMocks`
+  // would not put a factory implementation back.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc());
+    vi.mocked(fetchWorkspaces).mockResolvedValue(workspaces);
+  });
 
   it("renders the header back button and returns to the workspace list", async () => {
     renderDetail();
@@ -138,6 +159,53 @@ describe("FileDetail image layout back navigation", () => {
     await userEvent.click(await screen.findByText("viewer-esc"));
     await waitFor(() =>
       expect(screen.getByTestId("location").textContent).toBe("/w/second"),
+    );
+  });
+
+  // A file opened from a folder used to come back to the workspace root,
+  // because the folder never left `fetchDocument`'s response.
+  it("returns to the folder the image lives in", async () => {
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc("f1"));
+
+    renderDetail();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Back to documents" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/w/second?folder=f1",
+      ),
+    );
+  });
+
+  // Opening `/f/:id` directly and hitting Back immediately: the destination
+  // is not known yet, and guessing it means landing on the cross-workspace
+  // list with the folder lost — the very outcome this feature fixes.
+  it("stays put while the workspace list is still loading", async () => {
+    vi.mocked(fetchWorkspaces).mockReturnValue(new Promise(() => {}));
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc("f1"));
+
+    renderDetail();
+    const back = await screen.findByRole("button", {
+      name: "Back to documents",
+    });
+    expect(back).toBeDisabled();
+
+    // Esc shares the same callback, and it cannot be disabled — assert it is
+    // inert rather than trusting the button's disabled state to cover both.
+    await userEvent.click(await screen.findByText("viewer-esc"));
+    expect(screen.queryByTestId("location")).toBeNull();
+  });
+
+  it("hands the viewer that same folder for Esc", async () => {
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc("f1"));
+
+    renderDetail();
+    await userEvent.click(await screen.findByText("viewer-esc"));
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/w/second?folder=f1",
+      ),
     );
   });
 });
