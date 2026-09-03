@@ -98,6 +98,35 @@ describe('useRevisionHistory', () => {
     expect(result.current.error?.message).toBe('network error');
   });
 
+  // Nothing serializes `refresh` calls: the mount load and the refresh
+  // `nameCurrentVersion` triggers can be in flight at once. If the older one
+  // resolves last it used to overwrite the newer timeline, and the version
+  // just named disappeared from the panel.
+  it('ignores a stale list response that resolves after a newer one', async () => {
+    let resolveFirst!: (revisions: unknown[]) => void;
+    listRevisions
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { resolveFirst = resolve; }),
+      )
+      .mockImplementationOnce(async () => [
+        rev('newer', 'snapshot-2', '2026-09-02T12:00:00Z'),
+      ]);
+
+    const { result } = renderHook(() =>
+      useRevisionHistory({ enabled: true, userId: 42 }),
+    );
+    await waitFor(() => expect(listRevisions).toHaveBeenCalledTimes(1));
+
+    // Started second, resolves first.
+    await act(() => result.current.refresh());
+    expect(result.current.days[0].entries[0].id).toBe('newer');
+
+    await act(async () => {
+      resolveFirst([rev('older', 'snapshot-1', '2026-09-02T10:00:00Z')]);
+    });
+    expect(result.current.days[0].entries[0].id).toBe('newer');
+  });
+
   it('notifies the editor after a restore so it can drop its undo stack', async () => {
     const onRestored = vi.fn();
     const { result } = renderHook(() =>

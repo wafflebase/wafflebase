@@ -88,8 +88,18 @@ export function HistoryPanel({
   const [label, setLabel] = useState("");
   const [isNaming, setIsNaming] = useState(false);
   const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+
+  // A restore is two RPCs — a safety revision, then the restore itself — and
+  // two of those sequences can interleave. The loser's `restoreRevision`
+  // lands last and the document ends up at a version the user did not pick,
+  // with the second safety revision recording a state that was never
+  // current. The ref is what actually refuses the second call: `isRestoring`
+  // re-renders the disabled controls, but a handler captured before that
+  // render would still read the stale `false`.
+  const restoreInFlight = useRef(false);
 
   // Skip the initial value: the hook already fetches on mount, and a second
   // request for the same list would just be waste.
@@ -126,8 +136,10 @@ export function HistoryPanel({
   };
 
   const confirmRestore = async () => {
-    if (!pendingRestoreId) return;
+    if (!pendingRestoreId || restoreInFlight.current) return;
     const id = pendingRestoreId;
+    restoreInFlight.current = true;
+    setIsRestoring(true);
     setPendingRestoreId(null);
     setRestoreError(null);
     try {
@@ -139,6 +151,9 @@ export function HistoryPanel({
       setRestoreError(
         err instanceof Error ? err.message : "The restore did not complete.",
       );
+    } finally {
+      restoreInFlight.current = false;
+      setIsRestoring(false);
     }
   };
 
@@ -226,6 +241,7 @@ export function HistoryPanel({
                     entry={entry}
                     userId={userId}
                     onPreview={onPreview}
+                    isRestoring={isRestoring}
                     onRestoreRequested={() => setPendingRestoreId(entry.id)}
                   />
                 ))}
@@ -252,6 +268,7 @@ export function HistoryPanel({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={isRestoring}
               onClick={() => {
                 void confirmRestore();
               }}
@@ -269,11 +286,14 @@ function HistoryEntryRow({
   entry,
   userId,
   onPreview,
+  isRestoring,
   onRestoreRequested,
 }: {
   entry: TimelineEntry;
   userId: number;
   onPreview?: (revisionId: string) => void;
+  /** True while any row's restore is in flight; every row is disabled then. */
+  isRestoring: boolean;
   onRestoreRequested: () => void;
 }) {
   const isAutomatic = entry.meta.kind === "automatic";
@@ -310,6 +330,8 @@ function HistoryEntryRow({
           variant="outline"
           size="sm"
           className="h-7 text-xs"
+          disabled={isRestoring}
+          title={isRestoring ? "A restore is already in progress" : undefined}
           onClick={onRestoreRequested}
         >
           Restore

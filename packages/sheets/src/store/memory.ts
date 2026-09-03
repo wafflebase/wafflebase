@@ -73,16 +73,23 @@ import { Store } from './store';
  * Maps an axis-id-keyed record (as stored on a `Worksheet`, e.g.
  * `rowHeights`/`colStyles`) onto 1-based indices, mirroring how `MemStore`
  * keeps the same data keyed by row/column number.
+ *
+ * Both arguments are optional. `Worksheet` declares them required, but a
+ * revision snapshot is a root written by some older build, and the type
+ * system cannot catch a key that simply is not there — an absent record
+ * would throw out of `Object.entries(undefined)` and an absent order out of
+ * `.forEach`. Treating either as empty matches how `getWorksheetEntries`
+ * already defaults `rowOrder`/`colOrder`.
  */
 function resolveByAxis<T>(
-  record: { [id: string]: T },
-  order: string[],
+  record: { [id: string]: T } | undefined,
+  order: string[] | undefined,
 ): Map<number, T> {
   const indexById = new Map<string, number>();
-  order.forEach((id, i) => indexById.set(id, i + 1));
+  (order ?? []).forEach((id, i) => indexById.set(id, i + 1));
 
   const out = new Map<number, T>();
-  for (const [id, value] of Object.entries(record)) {
+  for (const [id, value] of Object.entries(record ?? {})) {
     const index = indexById.get(id);
     if (index !== undefined) {
       out.set(index, value);

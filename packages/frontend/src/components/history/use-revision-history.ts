@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRevisions } from '@yorkie-js/react';
 import { groupRevisions, type TimelineDay } from './group-revisions';
 import { writeRevisionMeta } from './revision-meta';
@@ -37,18 +37,32 @@ export function useRevisionHistory({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
+  /**
+   * The most recently *started* `refresh`. Nothing serializes these calls —
+   * the mount effect and the refresh `nameCurrentVersion` triggers can be in
+   * flight at once — so without this an older `listRevisions` that resolves
+   * last would overwrite the newer timeline, and the version just named
+   * would vanish from the panel until something refreshed it again.
+   */
+  const generation = useRef(0);
+
   const refresh = useCallback(async () => {
+    const mine = ++generation.current;
     setIsLoading(true);
     try {
       const revisions = await listRevisions({ pageSize: REVISION_LIST_LIMIT });
+      if (mine !== generation.current) return;
       setDays(groupRevisions(revisions));
       setError(null);
     } catch (err) {
       // Leave `days` untouched: an empty timeline and a failed load are
       // different things and must not look the same.
+      if (mine !== generation.current) return;
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
-      setIsLoading(false);
+      // `finally` runs on the stale returns above too, so guard it as well:
+      // a superseded request must not clear the spinner a live one owns.
+      if (mine === generation.current) setIsLoading(false);
     }
   }, [listRevisions]);
 

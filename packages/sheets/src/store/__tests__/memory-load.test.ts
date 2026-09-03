@@ -67,6 +67,27 @@ describe('MemStore.load', () => {
     });
   });
 
+  // Same class as the freeze pane above: the axis records are declared
+  // required, so a snapshot written before they existed type-checks and then
+  // threw out of `Object.entries(undefined)` / `.forEach` inside `load`.
+  it('loads a worksheet whose axis records and orders are absent', async () => {
+    const store = new MemStore();
+    const legacy = worksheet() as Partial<Worksheet>;
+    for (const key of [
+      'rowHeights',
+      'colWidths',
+      'rowStyles',
+      'colStyles',
+      'rowOrder',
+      'colOrder',
+    ] as const) {
+      delete legacy[key];
+    }
+    expect(() => store.load(legacy as Worksheet)).not.toThrow();
+    expect((await store.getDimensionSizes('row')).size).toBe(0);
+    expect((await store.getDimensionSizes('column')).size).toBe(0);
+  });
+
   // A load is a replace, not a merge: previewing version B after version A
   // must not leave A's freeze pane, merges or range styles behind — that
   // would render a version that never existed.

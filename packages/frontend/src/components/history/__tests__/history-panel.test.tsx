@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistoryPanel } from '../history-panel';
@@ -81,6 +81,46 @@ describe('HistoryPanel', () => {
     expect(restore).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: /^restore this version$/i }));
     await waitFor(() => expect(restore).toHaveBeenCalledWith('n1'));
+  });
+
+  // A restore is a safety revision followed by a restore. Two of those
+  // sequences interleaved leave the document at whichever `restoreRevision`
+  // happened to land last — not the version the user picked.
+  it('refuses a second restore while one is in flight', async () => {
+    hookState = { ...baseState };
+    let settle: () => void = () => {};
+    restore.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    renderPanel();
+    const rowButtons = () =>
+      screen.getAllByRole('button', { name: /^restore$/i });
+
+    await userEvent.click(rowButtons()[0]);
+    await userEvent.click(
+      screen.getByRole('button', { name: /^restore this version$/i }),
+    );
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+
+    // Try to start the second one anyway, the whole way through the dialog.
+    await userEvent.click(rowButtons()[1]);
+    const confirm = screen.queryByRole('button', {
+      name: /^restore this version$/i,
+    });
+    if (confirm) await userEvent.click(confirm);
+    expect(restore).toHaveBeenCalledTimes(1);
+
+    for (const button of rowButtons()) expect(button).toBeDisabled();
+
+    await act(async () => {
+      settle();
+    });
+    await waitFor(() =>
+      expect(rowButtons()[0]).not.toBeDisabled(),
+    );
   });
 
   it('renders a load failure as an error, not as an empty timeline', () => {
