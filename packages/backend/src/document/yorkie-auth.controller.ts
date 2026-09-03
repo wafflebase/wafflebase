@@ -56,6 +56,20 @@ const ALWAYS_ALLOWED_METHOD = 'DetachDocument';
 const CLIENT_METHODS = new Set(['ActivateClient', 'DeactivateClient']);
 
 /**
+ * Revision **read** methods. Yorkie sends these with verb `r`, but a
+ * document's version history is not part of what a share-link *viewer* is
+ * given: `getRevision` returns a full snapshot of every past state, including
+ * content that was deleted before the link was ever shared. Google Docs hides
+ * version history from viewers and commenters for the same reason, and the
+ * viewer route (`shared-document.tsx`) never mounts the history panel at all.
+ *
+ * So these two require the same authority a write does — workspace membership
+ * or a share link with the `editor` role — even though their verb says read.
+ * See `docs/design/revision-history.md` §2.
+ */
+const REVISION_READ_METHODS = new Set(['ListRevisions', 'GetRevision']);
+
+/**
  * Yorkie **auth** webhook: server-enforced per-document read/write access. On
  * privileged RPCs Yorkie POSTs `{ token, method, attributes:[{key, verb}] }`
  * here; we resolve the token to an identity and check it against the Postgres
@@ -144,7 +158,7 @@ export class YorkieAuthController {
     }
 
     for (const attr of body.attributes) {
-      const denied = await this.checkAttribute(identity, attr);
+      const denied = await this.checkAttribute(identity, attr, method);
       if (denied) {
         return denied;
       }
@@ -156,12 +170,15 @@ export class YorkieAuthController {
   private async checkAttribute(
     identity: YorkieTokenPayload,
     attr: AuthAttribute,
+    method: string,
   ): Promise<AuthDecision | null> {
     const parsed = attr.key ? parseYorkieDocKey(attr.key) : null;
     if (!parsed) {
       return { status: 403, allowed: false, reason: 'unknown document key' };
     }
-    const needWrite = attr.verb === 'rw';
+    // Reading a document's history needs editor-or-member authority even
+    // though Yorkie asks for it with verb `r` — see REVISION_READ_METHODS.
+    const needWrite = attr.verb === 'rw' || REVISION_READ_METHODS.has(method);
     const ok = await this.hasAccess(identity, parsed.id, needWrite);
     return ok
       ? null

@@ -18,7 +18,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconMessage } from "@tabler/icons-react";
+import { IconMessage, IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
@@ -27,6 +27,7 @@ import type { EditContext } from "@wafflebase/docs";
 import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 
 
 /**
@@ -41,6 +42,27 @@ function DocsLayout({ documentId }: { documentId: string }) {
 
   const { doc } = useDocument<YorkieDocsRoot, DocsPresence>();
   const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // No `previewRevisionId` state here, unlike the other four editors:
+  // docs snapshots can't be parsed (`YSON.parse` can't read past three
+  // `Tree(...)` brace levels; every docs document nests `doc > block >
+  // inline > text`, depth 4 — see `snapshot-adapters.ts`), so `HistoryPanel`
+  // is mounted with no `onPreview` and renders its Preview button disabled
+  // with a reason instead of a dead click.
+  // Bumped on restore to remount DocsView, dropping its local selection and
+  // caret state. `doc.clearHistory()` (below) separately drops the Yorkie
+  // undo stack — a restore replaces the whole root, so neither piece of
+  // state describes a document that still exists.
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const handleHistoryRestored = useCallback(() => {
+    try {
+      doc?.clearHistory();
+    } catch {
+      // Best-effort: the document may already be detached.
+    }
+    setHistoryResetToken((t) => t + 1);
+  }, [doc]);
 
   const handleSelectPeer = useCallback(
     (clientID: string) => {
@@ -87,6 +109,16 @@ function DocsLayout({ documentId }: { documentId: string }) {
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
+  });
+
+  // Re-reads the same cached ["me"] entry DocsDetail already populated
+  // (react-query dedupes on the key), matching the pattern DocsView uses for
+  // the same purpose rather than threading the id down as a prop.
+  const { data: currentUser } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -169,6 +201,24 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 {commentsPanelOpen ? "Hide comments" : "Show comments"}
               </TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                  aria-label={
+                    historyOpen ? "Hide version history" : "Show version history"
+                  }
+                  pressed={historyOpen}
+                  onPressedChange={setHistoryOpen}
+                >
+                  <IconHistory size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {historyOpen ? "Hide version history" : "Show version history"}
+              </TooltipContent>
+            </Tooltip>
             <DocsExportButton
               editor={editor}
               title={documentData?.title ?? "document"}
@@ -182,14 +232,24 @@ function DocsLayout({ documentId }: { documentId: string }) {
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           <DocsFormattingToolbar editor={editor} editContext={editContext} />
-          <DocsView
-            onEditorReady={setEditor}
-            onJumpHandleReady={setJumpHandle}
-            documentId={documentId}
-            workspaceId={documentData?.workspaceId}
-            commentsPanelOpen={commentsPanelOpen}
-            onCommentsPanelOpenChange={setCommentsPanelOpen}
-          />
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <DocsView
+              key={historyResetToken}
+              onEditorReady={setEditor}
+              onJumpHandleReady={setJumpHandle}
+              documentId={documentId}
+              workspaceId={documentData?.workspaceId}
+              commentsPanelOpen={commentsPanelOpen}
+              onCommentsPanelOpenChange={setCommentsPanelOpen}
+            />
+            {historyOpen && currentUser && (
+              <HistoryPanel
+                userId={currentUser.id}
+                onClose={() => setHistoryOpen(false)}
+                onRestored={handleHistoryRestored}
+              />
+            )}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

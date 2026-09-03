@@ -1,7 +1,7 @@
-import { DocumentProvider } from "@yorkie-js/react";
+import { createDocumentSelector, DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type {
   NoteViewMode,
   NoteEditorAPI,
@@ -24,13 +24,57 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
+import { Toggle } from "@/components/ui/toggle";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
-import { initialNotesRoot, noteUserColor } from "@/types/notes-document";
+import {
+  initialNotesRoot,
+  noteUserColor,
+  type YorkieNotesRoot,
+  type NotesPresence,
+} from "@/types/notes-document";
 import { uploadImageFile } from "@/app/spreadsheet/image-upload";
 import { NotesView } from "./notes-view";
 import { NotesToolbar } from "./notes-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
+import {
+  EditingChrome,
+  PreviewSurface,
+} from "@/components/history/preview-surface";
+
+// Lazy: `revision-preview.tsx` statically imports all three of
+// @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
+// whichever engine a preview needs), so an eager import here would pull the
+// other two engines into this note route's own chunk for a feature almost
+// never opened.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
+
+/**
+ * Selector-based `useDocument`. A bare `useDocument()` is
+ * `useSelector(store)` with no selector and `Object.is` equality, and the
+ * store rebuilds its whole state object on every root change *and* every
+ * presence event — so subscribing to it here re-rendered `AppSidebar`,
+ * `SiteHeader`, `UserPresence` and `NotesToolbar` on every keystroke and
+ * every peer cursor move. Only `NotesView` used to subscribe. This layout
+ * only ever needed the stable `doc` handle (for `clearHistory()` after a
+ * restore), which never changes identity, so the selector form costs it
+ * nothing.
+ */
+const useNotesDocSelector = createDocumentSelector<
+  YorkieNotesRoot,
+  NotesPresence
+>();
 
 /**
  * NotesLayout provides the sidebar + header chrome around the note editor,
@@ -39,6 +83,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 function NotesLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const doc = useNotesDocSelector((s) => s.doc);
   const [editor, setEditor] = useState<NoteEditorAPI | null>(null);
   // View mode + keyboard mode are per-user (localStorage) preferences, not
   // per-document — they persist across notes and reloads.
@@ -47,6 +92,22 @@ function NotesLayout({ documentId }: { documentId: string }) {
   // The blame gutter is opt-in and, like the other two, a per-user preference.
   const [showAuthors, setShowAuthors] = useState<boolean>(readShowAuthors);
   const isMobile = useIsMobile();
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
+  // Bumped on restore to remount NotesView, dropping its local selection and
+  // caret state. `doc.clearHistory()` (below) separately drops the Yorkie
+  // undo stack — a restore replaces the whole root, so neither piece of
+  // state describes a document that still exists.
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const handleHistoryRestored = useCallback(() => {
+    try {
+      doc?.clearHistory();
+    } catch {
+      // Best-effort: the document may already be detached.
+    }
+    setHistoryResetToken((t) => t + 1);
+  }, [doc]);
 
   // Split is a fixed 50/50 pane layout (`packages/notes` `editor.ts`), so on a
   // 375px phone it is two ~187px panes. The toolbar stops offering it below
@@ -86,6 +147,16 @@ function NotesLayout({ documentId }: { documentId: string }) {
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
+  });
+
+  // Re-reads the same cached ["me"] entry NotesDetail already populated
+  // (react-query dedupes on the key) — needed for the history panel's
+  // userId, which is not otherwise threaded down to this layout.
+  const { data: currentUser } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -168,6 +239,12 @@ function NotesLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
+  // The single source of truth for "a preview is covering the editor pane",
+  // read by both halves of the containment: `EditingChrome` (which removes
+  // the toolbar) and `PreviewSurface` (which covers the pane). One
+  // expression so the two can never disagree.
+  const previewing = Boolean(previewRevisionId && currentUser);
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -185,28 +262,80 @@ function NotesLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                  aria-label={
+                    historyOpen ? "Hide version history" : "Show version history"
+                  }
+                  pressed={historyOpen}
+                  onPressedChange={setHistoryOpen}
+                >
+                  <IconHistory size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {historyOpen ? "Hide version history" : "Show version history"}
+              </TooltipContent>
+            </Tooltip>
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <NotesToolbar
-            mode={effectiveViewMode}
-            onModeChange={handleViewModeChange}
-            keymap={keymap}
-            onKeymapChange={handleKeymapChange}
-            showAuthors={showAuthors}
-            onShowAuthorsChange={handleShowAuthorsChange}
-            editor={editor}
-          />
-          <NotesView
-            viewMode={effectiveViewMode}
-            keymap={keymap}
-            showAuthors={showAuthors}
-            onEditorReady={setEditor}
-            uploadImage={handleUploadImage}
-            documentId={documentId}
-          />
+          {/* Same arrangement as slides, for the same reason and so the two
+              read alike: the toolbar stays full-width above the panel row
+              and a preview contains it by REMOVING it. See
+              `EditingChrome`. */}
+          <EditingChrome previewing={previewing}>
+            <NotesToolbar
+              mode={effectiveViewMode}
+              onModeChange={handleViewModeChange}
+              keymap={keymap}
+              onKeymapChange={handleKeymapChange}
+              showAuthors={showAuthors}
+              onShowAuthorsChange={handleShowAuthorsChange}
+              editor={editor}
+            />
+          </EditingChrome>
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <PreviewSurface
+              preview={
+                previewing && previewRevisionId && currentUser ? (
+                  <Suspense fallback={null}>
+                    <RevisionPreviewOverlay
+                      revisionId={previewRevisionId}
+                      type="note"
+                      userId={currentUser.id}
+                      onClose={() => setPreviewRevisionId(null)}
+                      onRestored={handleHistoryRestored}
+                    />
+                  </Suspense>
+                ) : null
+              }
+            >
+              <NotesView
+                key={historyResetToken}
+                viewMode={effectiveViewMode}
+                keymap={keymap}
+                showAuthors={showAuthors}
+                onEditorReady={setEditor}
+                uploadImage={handleUploadImage}
+                documentId={documentId}
+              />
+            </PreviewSurface>
+            {historyOpen && currentUser && (
+              <HistoryPanel
+                userId={currentUser.id}
+                onClose={() => setHistoryOpen(false)}
+                onPreview={setPreviewRevisionId}
+                onRestored={handleHistoryRestored}
+                refreshKey={historyResetToken}
+              />
+            )}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

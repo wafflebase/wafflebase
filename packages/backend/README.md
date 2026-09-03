@@ -206,12 +206,49 @@ yorkie project update <project> \
   --auth-webhook-method-add Watch \
   --auth-webhook-method-add DetachDocument \
   --auth-webhook-method-add Broadcast \
-  --auth-webhook-method-add RemoveDocument
+  --auth-webhook-method-add RemoveDocument \
+  --auth-webhook-method-add ListRevisions \
+  --auth-webhook-method-add GetRevision \
+  --auth-webhook-method-add RestoreRevision
 ```
+
+**Do not add `CreateRevision`.** Yorkie calls the webhook for it with
+`attributes: null` — no document key, no verb — for every caller, and
+`decide()` fails closed on a document-scoped method with no attributes. So
+registering it denies `CreateRevision` to *everyone*, the document's owner
+included, and "Name current version" stops working. Leaving it unregistered
+leaves it ungated: any attached client can create a revision. That is a
+nuisance rather than a destructive hole, and closing it needs an upstream fix
+(see [`docs/design/revision-history.md`](../../docs/design/revision-history.md) §6).
+The other three revision methods do receive real attributes and are authorized
+correctly. `test/revision-history.e2e-spec.ts` exercises that against a real
+server, but its `refuses a read-only client` case is currently `it.skip` —
+it provisions a scratch Yorkie project through the `yorkie` **admin CLI**,
+which CI does not install (only the `yorkieteam/yorkie` server container is
+available there), so unskipping it would error out rather than fail an
+assertion. It has been run by hand; see the comment above the test. What CI
+guards today is the *decision logic*, in
+`src/document/yorkie-auth.controller.spec.ts` — not the end-to-end denial
+against a live Yorkie server. Re-run the skipped case locally with the admin
+CLI on `PATH` before trusting the registration on a deployment.
+
+`ListRevisions` and `GetRevision` are a deliberate exception to the plain
+verb check. Yorkie sends them with verb `r`, which a share-link **viewer**
+passes; but `getRevision` returns a full snapshot of every past state,
+including content deleted before the link was shared. So
+`REVISION_READ_METHODS` in `yorkie-auth.controller.ts` requires the same
+editor-or-member authority a write does for those two. Workspace members and
+share-link *editors* keep their history; only viewers lose it, matching Google
+Docs and the panel's own client-side gating. An ordinary `r` (`PushPull`,
+`Watch`) is untouched — a viewer can still read the document itself.
 
 Roll out with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` first (shadow mode — logs the
 decision it *would* make), confirm no false denials, then flip to `true`.
-Unregister the methods (`--auth-webhook-method-rm ALL`) to disable.
+Unregister the methods (`--auth-webhook-method-rm ALL`) to disable. Shadow mode
+allows every request regardless of the computed decision, so a deployment that
+registers the revision methods but leaves `YORKIE_AUTH_WEBHOOK_ENFORCE=false`
+is not protected — an anonymous viewer share link can still list, read, and
+restore a document's revision history until enforcement is flipped on.
 
 ### Development
 

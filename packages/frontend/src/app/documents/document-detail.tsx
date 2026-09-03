@@ -19,7 +19,7 @@ import { SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconMessage } from "@tabler/icons-react";
+import { IconMessage, IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { toast } from "sonner";
@@ -61,8 +61,20 @@ import { cellAnchorToSref } from "@wafflebase/sheets";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
+import { PreviewSurface } from "@/components/history/preview-surface";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
+// Lazy: `revision-preview.tsx` statically imports all three of
+// @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
+// whichever engine a preview needs), so an eager import here would pull the
+// other two engines' editors into this sheet route's own chunk for a
+// feature almost never opened. See the other three `*-detail.tsx` files.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
 const DataSourceView = lazy(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
     default: module.DataSourceView,
@@ -124,6 +136,22 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const commentJumpSeq = useRef(0);
   const jumpRequestSeq = useRef(0);
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
+  // Bumped on restore to remount the active tab's view, dropping its local
+  // selection/caret state. `doc.clearHistory()` (below) separately drops the
+  // Yorkie undo stack — a restore replaces the whole root, so neither piece
+  // of state describes a document that still exists.
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const handleHistoryRestored = useCallback(() => {
+    try {
+      doc?.clearHistory();
+    } catch {
+      // Best-effort: the document may already be detached.
+    }
+    setHistoryResetToken((t) => t + 1);
+  }, [doc]);
+
   const navigate = useNavigate();
 
   const {
@@ -133,6 +161,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
+  });
+
+  // Re-reads the same cached ["me"] entry DocumentDetail already populated
+  // (react-query dedupes on the key), matching the pattern DocsView uses for
+  // the same purpose rather than threading the id down as a prop.
+  const { data: currentUser } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -627,23 +665,66 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             >
               <IconMessage size={16} />
             </button>
+            <button
+              type="button"
+              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
+                historyOpen ? "bg-muted" : ""
+              }`}
+              aria-label={historyOpen ? "Hide version history" : "Show version history"}
+              aria-pressed={historyOpen}
+              onClick={() => setHistoryOpen((v) => !v)}
+            >
+              <IconHistory size={16} />
+            </button>
             <ShareDialog documentId={documentId} />
             <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
           </div>
         </SiteHeader>
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex flex-1 flex-col min-w-0">
+          {/* The tab bar lives INSIDE the preview surface. A preview that
+              covered only the grid left it live below, so "Delete sheet"
+              and tab rename still reached the real workbook while the user
+              believed they were looking at a past version — with no visible
+              feedback, because the grid that would have shown the change
+              was behind the preview. The comments and history panels stay
+              OUTSIDE, so the version list is still reachable. */}
+          {/* `flex-col`: this surface is the grid column, so the tab bar it
+              contains stacks under the grid. Slides and notes take the
+              row-flex default. */}
+          <PreviewSurface
+            className="flex-col"
+            preview={
+              previewRevisionId && currentUser ? (
+                <Suspense fallback={null}>
+                  <RevisionPreviewOverlay
+                    revisionId={previewRevisionId}
+                    type="sheet"
+                    userId={currentUser.id}
+                    onClose={() => setPreviewRevisionId(null)}
+                    onRestored={handleHistoryRestored}
+                  />
+                </Suspense>
+              ) : null
+            }
+          >
             <div className="@container/main flex flex-1 flex-col gap-2">
-              <div className="flex flex-col h-full">
+              <div className="relative flex flex-col h-full">
                 <Suspense fallback={<Loader />}>
                   {!ready || !activeTabId ? (
                     <Loader />
                   ) : activeTab?.type === "datasource" ? (
-                    <DataSourceView tabId={activeTabId} />
+                    <DataSourceView
+                      key={historyResetToken}
+                      tabId={activeTabId}
+                    />
                   ) : activeTab?.type === "lakehouse" ? (
-                    <LakehouseView key={activeTabId} tabId={activeTabId} />
+                    <LakehouseView
+                      key={`${activeTabId}-${historyResetToken}`}
+                      tabId={activeTabId}
+                    />
                   ) : (
                     <SheetView
+                      key={historyResetToken}
                       tabId={activeTabId}
                       peerJumpTarget={peerJumpTarget}
                       commentJumpTarget={commentJumpTarget}
@@ -667,7 +748,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 onMoveTab={handleMoveTab}
               />
             )}
-          </div>
+          </PreviewSurface>
           {commentsPanelOpen && (
             <CommentSidePanel<SheetCellAnchor>
               threads={allThreads}
@@ -685,6 +766,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 );
                 return sref ? <span>{sref}</span> : null;
               }}
+            />
+          )}
+          {historyOpen && currentUser && (
+            <HistoryPanel
+              userId={currentUser.id}
+              onClose={() => setHistoryOpen(false)}
+              onPreview={setPreviewRevisionId}
+              onRestored={handleHistoryRestored}
+              refreshKey={historyResetToken}
             />
           )}
         </div>

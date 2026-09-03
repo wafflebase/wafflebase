@@ -30,6 +30,16 @@ VITE_BACKEND_API_URL=http://localhost:3000  # Backend API URL
 VITE_YORKIE_PUBLIC_KEY=           # Yorkie project public key
 ```
 
+Version history (sheets/docs/slides/notes/board) has no client-side feature
+flag — the entry point is always in the toolbar for every workspace member.
+The only gate is server-side: the backend must register `ListRevisions` /
+`GetRevision` / `RestoreRevision` on the Yorkie auth webhook and run with
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true` (see `packages/backend/README.md`) *before
+or with* any deploy of this frontend, or any attached client can read and
+restore every past snapshot. `CreateRevision` stays ungated regardless —
+registering it would deny everyone — so "Name current version" is open to any
+attached client either way.
+
 ### Development
 
 ```bash

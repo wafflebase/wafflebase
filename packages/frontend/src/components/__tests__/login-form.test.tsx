@@ -24,8 +24,8 @@ describe("LoginForm", () => {
   it("shows no alert when there is no error", () => {
     renderForm(null);
     expect(screen.queryByRole("alert")).toBeNull();
-    // No @testing-library/jest-dom in this repo — getByText throws on no
-    // match, so this is the same assertion strength as toBeInTheDocument().
+    // getByText throws on no match, so this is the same assertion strength
+    // as toBeInTheDocument().
     expect(screen.getByText("Continue with GitHub")).toBeTruthy();
   });
 

@@ -1,7 +1,7 @@
-import { DocumentProvider } from "@yorkie-js/react";
+import { createDocumentSelector, DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -11,12 +11,20 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
+import { Toggle } from "@/components/ui/toggle";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { IconHistory } from "@tabler/icons-react";
 import type { Theme } from "@wafflebase/slides";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
+import type { SlidesPresence } from "@/types/users";
 import { MobileSlidesView } from "./mobile-slides-view";
 import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesToolbar } from "./toolbar";
@@ -29,6 +37,11 @@ import { ThemePanel } from "./theme-panel";
 import { FormatPanel } from "./format-panel";
 import { MotionPanel } from "./motion-panel";
 import { BackgroundSidePanel } from "./background-side-panel";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
+import {
+  EditingChrome,
+  PreviewSurface,
+} from "@/components/history/preview-surface";
 import {
   Sheet,
   SheetContent,
@@ -42,6 +55,34 @@ import {
   FIT_ZOOM,
   type ZoomController,
 } from "./zoom-controller";
+
+// Lazy: `revision-preview.tsx` statically imports all three of
+// @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
+// whichever engine a preview needs), so an eager import here would pull the
+// other two engines into this slides route's own chunk for a feature almost
+// never opened.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
+
+/**
+ * Selector-based `useDocument`. A bare `useDocument()` is
+ * `useSelector(store)` with no selector and `Object.is` equality, and the
+ * store rebuilds its whole state object on every root change *and* every
+ * presence event — so subscribing to it here re-rendered `AppSidebar`,
+ * `SiteHeader`, `UserPresence` and the entire morphing `SlidesToolbar` on
+ * every keystroke and every peer cursor move. Only `SlidesView` used to
+ * subscribe, and `board-view.tsx`'s `shouldPublish` gate is sized for that
+ * old set. This layout only ever needed the stable `doc` handle (for
+ * `clearHistory()` after a restore), which never changes identity, so the
+ * selector form costs it nothing.
+ */
+const useSlidesDocSelector = createDocumentSelector<
+  YorkieSlidesRoot,
+  SlidesPresence
+>();
 
 /**
  * Initial Yorkie document root for a new slides presentation.
@@ -147,10 +188,25 @@ function SlidesLayout({ documentId }: { documentId: string }) {
  */
 function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
+  const doc = useSlidesDocSelector((s) => s.doc);
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
-  type RightPanel = "theme" | "format" | "motion" | "background" | null;
+  type RightPanel = "theme" | "format" | "motion" | "background" | "history" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
+  // Bumped on restore to remount SlidesView, dropping its local selection
+  // state. `doc.clearHistory()` (below) separately drops the Yorkie undo
+  // stack — a restore replaces the whole root, so neither piece of state
+  // describes a document that still exists.
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const handleHistoryRestored = useCallback(() => {
+    try {
+      doc?.clearHistory();
+    } catch {
+      // Best-effort: the document may already be detached.
+    }
+    setHistoryResetToken((t) => t + 1);
+  }, [doc]);
   // Session-scoped zoom controller shared between SlidesView (drives
   // refitCanvas) and SlidesToolbar (renders the dropdown). useRef
   // keeps identity stable so the SlidesView mount effect's captured
@@ -267,6 +323,16 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
     queryFn: fetchWorkspaces,
   });
 
+  // Re-reads the same cached ["me"] entry SlidesDetail already populated
+  // (react-query dedupes on the key) — needed for the history panel's
+  // userId, which is not otherwise threaded down to this layout.
+  const { data: currentUser } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const currentWorkspace = workspaces.find(
     (w) => w.id === documentData?.workspaceId,
   );
@@ -287,6 +353,13 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
     },
     [documentId, queryClient],
   );
+
+  // The single source of truth for "a preview is covering the canvas", read
+  // by both halves of the containment: `EditingChrome` (which removes the
+  // toolbar) and `PreviewSurface` (which covers the canvas). One expression
+  // so the two can never disagree — chrome removed with no preview painted,
+  // or a preview painted over a live toolbar.
+  const previewing = Boolean(previewRevisionId && currentUser);
 
   // Upload pipeline: wraps the workspace image API to match the shape
   // expected by SlidesToolbar (and insert-image / replace-image helpers).
@@ -347,61 +420,108 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               title={documentData?.title ?? "presentation"}
               disabled={!store || slideCount === 0}
             />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                  aria-label={
+                    rightPanel === "history"
+                      ? "Hide version history"
+                      : "Show version history"
+                  }
+                  pressed={rightPanel === "history"}
+                  onPressedChange={() =>
+                    setRightPanel((p) => (p === "history" ? null : "history"))
+                  }
+                >
+                  <IconHistory size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {rightPanel === "history"
+                  ? "Hide version history"
+                  : "Show version history"}
+              </TooltipContent>
+            </Tooltip>
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <SlidesToolbar
-            editor={editor}
-            store={store}
-            theme={activeTheme}
-            onImagePick={handleImagePick}
-            upload={uploadFn}
-            onToggleThemePanel={() =>
-              setRightPanel((p) => (p === "theme" ? null : "theme"))
-            }
-            themePanelOpen={rightPanel === "theme"}
-            onToggleFormatPanel={() =>
-              setRightPanel((p) => (p === "format" ? null : "format"))
-            }
-            formatPanelOpen={rightPanel === "format"}
-            onToggleMotionPanel={() =>
-              setRightPanel((p) => (p === "motion" ? null : "motion"))
-            }
-            motionPanelOpen={rightPanel === "motion"}
-            onToggleBackgroundPanel={() =>
-              setRightPanel((p) => (p === "background" ? null : "background"))
-            }
-            backgroundPanelOpen={rightPanel === "background"}
-            zoomController={zoomControllerRef.current}
-          />
-          {layoutEditTarget && (
-            <div className="flex items-center justify-between gap-2 border-b bg-muted/50 px-4 py-1.5 text-xs">
-              <span className="text-muted-foreground">
-                Editing layout placeholders — drag to reposition. Changes
-                apply to slides using that layout.
-              </span>
-              <button
-                type="button"
-                onClick={() => setLayoutEditTarget(null)}
-                className="shrink-0 rounded border bg-background px-2 py-1 font-medium hover:bg-muted"
-              >
-                Done
-              </button>
-            </div>
-          )}
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            <SlidesView
-              onEditorReady={setEditor}
-              onStoreReady={setStore}
-              onStartPresentation={handleStartPresentation}
-              documentId={documentId}
+          {/* The toolbar stays full-width above the panel row — pulling it
+              into the covered surface would narrow it by the panel's 288px
+              whenever one is open — so a preview contains it by REMOVING it
+              instead. See `EditingChrome`. */}
+          <EditingChrome previewing={previewing}>
+            <SlidesToolbar
+              editor={editor}
+              store={store}
+              theme={activeTheme}
+              onImagePick={handleImagePick}
+              upload={uploadFn}
+              onToggleThemePanel={() =>
+                setRightPanel((p) => (p === "theme" ? null : "theme"))
+              }
+              themePanelOpen={rightPanel === "theme"}
+              onToggleFormatPanel={() =>
+                setRightPanel((p) => (p === "format" ? null : "format"))
+              }
+              formatPanelOpen={rightPanel === "format"}
+              onToggleMotionPanel={() =>
+                setRightPanel((p) => (p === "motion" ? null : "motion"))
+              }
+              motionPanelOpen={rightPanel === "motion"}
+              onToggleBackgroundPanel={() =>
+                setRightPanel((p) => (p === "background" ? null : "background"))
+              }
+              backgroundPanelOpen={rightPanel === "background"}
               zoomController={zoomControllerRef.current}
-              uploadImage={uploadFn}
-              layoutEditTarget={layoutEditTarget}
-              onLayoutEditTargetChange={setLayoutEditTarget}
             />
+            {layoutEditTarget && (
+              <div className="flex items-center justify-between gap-2 border-b bg-muted/50 px-4 py-1.5 text-xs">
+                <span className="text-muted-foreground">
+                  Editing layout placeholders — drag to reposition. Changes
+                  apply to slides using that layout.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLayoutEditTarget(null)}
+                  className="shrink-0 rounded border bg-background px-2 py-1 font-medium hover:bg-muted"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+          </EditingChrome>
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <PreviewSurface
+              preview={
+                previewing && previewRevisionId && currentUser ? (
+                  <Suspense fallback={null}>
+                    <RevisionPreviewOverlay
+                      revisionId={previewRevisionId}
+                      type="slides"
+                      userId={currentUser.id}
+                      onClose={() => setPreviewRevisionId(null)}
+                      onRestored={handleHistoryRestored}
+                    />
+                  </Suspense>
+                ) : null
+              }
+            >
+              <SlidesView
+                key={historyResetToken}
+                onEditorReady={setEditor}
+                onStoreReady={setStore}
+                onStartPresentation={handleStartPresentation}
+                documentId={documentId}
+                zoomController={zoomControllerRef.current}
+                uploadImage={uploadFn}
+                layoutEditTarget={layoutEditTarget}
+                onLayoutEditTargetChange={setLayoutEditTarget}
+              />
+            </PreviewSurface>
             {rightPanel === "theme" && store && (
               <ThemePanel
                 store={store}
@@ -431,6 +551,15 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                 theme={activeTheme}
                 upload={uploadFn}
                 onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "history" && currentUser && (
+              <HistoryPanel
+                userId={currentUser.id}
+                onClose={() => setRightPanel(null)}
+                onPreview={setPreviewRevisionId}
+                onRestored={handleHistoryRestored}
+                refreshKey={historyResetToken}
               />
             )}
           </div>
