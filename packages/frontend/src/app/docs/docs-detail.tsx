@@ -194,7 +194,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
       />
       <SidebarInset>
         <SiteHeader
-          title={documentData?.title ?? "Loading..."}
+          title={documentData?.title ?? "Loading…"}
           editable
           syncStatus
           onRename={handleRenameDocument}

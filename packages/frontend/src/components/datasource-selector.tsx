@@ -65,7 +65,7 @@ export function DataSourceSelector({
           <div className="grid gap-4 py-2">
             {loading ? (
               <div className="text-sm text-muted-foreground text-center py-4">
-                Loading...
+                Loading…
               </div>
             ) : datasources.length === 0 ? (
               <div className="text-sm text-muted-foreground text-center py-4">

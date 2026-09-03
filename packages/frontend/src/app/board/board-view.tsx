@@ -790,11 +790,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   );
 
   if (loading) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <Loader />
-      </div>
-    );
+    return <Loader />;
   }
 
   if (error) {

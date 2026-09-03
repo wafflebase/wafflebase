@@ -458,11 +458,7 @@ export function MobileSlidesView({
   }, [mode, currentSlideId]);
 
   if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader />
-      </div>
-    );
+    return <Loader />;
   }
   if (error) {
     return (

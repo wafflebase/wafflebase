@@ -377,7 +377,7 @@ export function LakehouseView({ tabId, readOnly = false }: LakehouseViewProps) {
         />
         <div className="flex min-w-32 shrink-0 flex-col items-end text-xs text-muted-foreground">
           {reading ? (
-            <span>Loading rows...</span>
+            <span>Loading rows…</span>
           ) : result ? (
             <span>
               {result.rowCount} row{result.rowCount === 1 ? '' : 's'}
