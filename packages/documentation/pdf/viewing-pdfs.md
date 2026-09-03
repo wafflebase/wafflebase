@@ -9,12 +9,18 @@ presence, but the PDF's contents are never edited.
 
 1. Open your workspace
 2. Click the **New** dropdown button
-3. Select **Upload PDF**
+3. Select **Upload files…**
 4. Choose a `.pdf` file from your computer
 
-The file uploads and opens in the viewer. It appears in your workspace document
-list with a PDF badge, and its title defaults to the file name (which you can
-rename).
+Wafflebase reads the `.pdf` extension and creates a PDF document. It
+appears in your workspace document list with a PDF badge, and its title
+defaults to the file name (which you can rename). A panel in the bottom-right
+tracks the upload and offers an **Open** link once it finishes.
+
+::: tip
+You can also **drag a PDF straight onto the documents list** — along with any
+other files you want to upload at the same time.
+:::
 
 ## Read a PDF
 

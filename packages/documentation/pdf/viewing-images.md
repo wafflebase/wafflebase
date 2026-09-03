@@ -11,18 +11,20 @@ Supported formats are **PNG, JPEG, GIF, and WebP**, up to **25 MB** per file.
 
 1. Open your workspace
 2. Click the **New** dropdown button
-3. Select **Upload Image**
-4. Choose an image file from your computer
+3. Select **Upload files…**
+4. Choose one or more image files from your computer
 
-The file uploads and opens in the viewer. It appears in your workspace document
-list with a thumbnail, and its title defaults to the file name (which you can
-rename).
+Wafflebase reads the file extension and creates an image document. It
+appears in your workspace document list with a thumbnail, and its title
+defaults to the file name (which you can rename). A panel in the bottom-right
+tracks the upload and offers an **Open** link once it finishes.
 
 ::: tip
 You can also **drag files straight onto the documents list** to upload several
-at once — images, PDFs, spreadsheets, documents, and presentations are each
-routed to the matching document type, and a panel in the bottom-right shows
-per-file progress.
+at once. Every file goes through the same door: images, PDFs, spreadsheets,
+documents, and presentations each become the matching document type, and a file
+Wafflebase has no viewer for is stored as-is — you can download it again from
+its header. See [Import & Export](/guide/import-export) for the full list.
 :::
 
 ## View an image
