@@ -321,6 +321,9 @@ interface YorkieBoardRoot {
   This is what lets the editor be reused unmodified.
 - Reuse the slides store's proven patterns **verbatim**: `batch(fn)` →
   one `doc.update` = one undo unit; the `withUpdate` ambient-root mechanism;
+  the matching `activePresence` proxy that `updatePresence()` folds into
+  while a batch is open (a nested `doc.update` reissues the open change's
+  `clientSeq` and strands the document, so this half is not optional);
   element-array CRDT moves (`moveAfter`/`moveFront`) to preserve identity on
   reorder; remote changes via `doc.subscribe`.
 - **Text bodies** are stored as `data.blocks: Block[]` JSON exactly as slides

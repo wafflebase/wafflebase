@@ -83,8 +83,10 @@ describe('YorkieBoardStore', () => {
       .createChangePack()
       .getChanges()
       .map((c) => c.getID().getClientSeq());
-    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
-    expect(new Set(seqs).size).toBe(seqs.length);
+    // Two changes total — `makeYorkieBoardDoc`'s root seed, then the
+    // batch. A third would mean the presence write opened its own
+    // update instead of folding in.
+    expect(seqs).toHaveLength(2);
     // Contiguity is what the server actually checks.
     for (let i = 1; i < seqs.length; i++) {
       expect(seqs[i]).toBe(seqs[i - 1] + 1);
@@ -93,9 +95,10 @@ describe('YorkieBoardStore', () => {
 
   // The other half of the seam: with no batch open there is nothing to
   // fold into, so `updatePresence` must still write. Asserted on the
-  // outgoing change rather than `getMyPresence()` — these docs are never
-  // attached to a server, and the SDK only reconciles presence into its
-  // own map for an attached document.
+  // outgoing change rather than `getMyPresence()`, which returns `{}`
+  // unconditionally while the document is unattached — these test docs
+  // never reach a server. The presence map itself IS updated; the
+  // accessor just refuses to read it.
   it('updatePresence outside a batch still emits the presence change', () => {
     const doc = makeYorkieBoardDoc();
     const store = new YorkieBoardStore(doc);
