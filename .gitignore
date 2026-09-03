@@ -78,6 +78,14 @@ web_modules/
 
 # dotenv environment variable files
 .env
+# `.env.production` is a DEPLOYMENT's configuration, not the repository's. Vite
+# ranks it above `.env` in mode `production`, so committing one makes every
+# fork's and self-host's `pnpm frontend build` ship that deployment's backend,
+# Yorkie project and analytics property with nothing failing visibly. The
+# published site gets its values from repository variables instead — see the
+# "Install and Build" step in `.github/workflows/publish-ghpage.yml` — and
+# `packages/frontend/.env.production.example` is the committed template.
+.env.production
 .env.development.local
 .env.test.local
 .env.production.local

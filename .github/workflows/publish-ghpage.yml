@@ -121,7 +121,71 @@ jobs:
         # build:all runs `pnpm core build` first — required because the
         # core dist/ (incl. tokens.css imported by the frontend) is gitignored
         # — then builds the frontend + docs and copies docs into the frontend dist.
+        #
+        # THE FIVE VITE_* VALUES ARE THIS DEPLOYMENT'S CONFIGURATION, and they
+        # are baked into the bundle at build time. They used to live in a
+        # committed `packages/frontend/.env.production`, which Vite ranks above
+        # the localhost `.env` beside it in mode `production` — so every fork
+        # and self-host that ran `pnpm frontend build` with no overrides shipped
+        # a bundle addressing wafflebase's own backend and Yorkie project and
+        # reporting its visitors into wafflebase's Google Analytics property,
+        # with nothing failing visibly. That file is gone; these values now live
+        # with the deployment that uses them.
+        #
+        # `vars.*`, not `secrets.*`: none of the five is a secret. All five ship
+        # inside a public JS bundle, and the Yorkie key is a *public* key. Using
+        # `vars` keeps them readable in the run log, which is where you want
+        # deployment configuration when a deploy comes out wrong.
+        #
+        # `vars.*`, not hardcoded here either: a fork inherits none of the
+        # repository's variables, so hardcoding would restore exactly the bug
+        # above — a fork enabling this workflow would republish wafflebase's
+        # backend URL and GA measurement ID from its own Pages site. With
+        # variables, a fork gets the loud failure below instead.
+        #
+        # Missing values FAIL rather than fall back. This step runs before
+        # `pnpm i`, and the deploy step below uses `keep_files: true`, so a
+        # failure here costs a deploy and leaves the currently published site
+        # exactly as it is — strictly better than publishing a broken or
+        # upstream-pointing bundle over a working one.
+        #
+        # Through `env:` rather than interpolated into the script body, for the
+        # same reason as the affected-paths step above: `${{ }}` in a shell
+        # script is textual substitution, and unlike a SHA these values are
+        # free-form strings typed into a settings page.
+        env:
+          # Optional. `/` is React Router's own default for `basename` and
+          # matches Vite's default `base`, so it is a generic default rather
+          # than upstream configuration; set the variable only when the site is
+          # served from a subpath.
+          VITE_FRONTEND_BASENAME: ${{ vars.VITE_FRONTEND_BASENAME || '/' }}
+          VITE_BACKEND_API_URL: ${{ vars.VITE_BACKEND_API_URL }}
+          VITE_YORKIE_RPC_ADDR: ${{ vars.VITE_YORKIE_RPC_ADDR }}
+          VITE_YORKIE_PUBLIC_KEY: ${{ vars.VITE_YORKIE_PUBLIC_KEY }}
+          # Optional, and deliberately so: unset means no gtag.js is emitted at
+          # all (`gaSnippet()` in packages/frontend/vite.config.ts strips the
+          # marker), which is the right default for anyone who is not
+          # wafflebase. Note this also reaches the VitePress build inside
+          # `build:all` — a `VITE_` variable in the environment outranks every
+          # `.env*` file, including `packages/documentation/.env.production`.
+          VITE_GA_ID: ${{ vars.VITE_GA_ID }}
         run: |
+          missing=""
+          [ -n "$VITE_BACKEND_API_URL" ] || missing="$missing VITE_BACKEND_API_URL"
+          [ -n "$VITE_YORKIE_RPC_ADDR" ] || missing="$missing VITE_YORKIE_RPC_ADDR"
+          [ -n "$VITE_YORKIE_PUBLIC_KEY" ] || missing="$missing VITE_YORKIE_PUBLIC_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Cannot build the site: repository variable(s)$missing are unset or empty."
+            echo "Set them under Settings → Secrets and variables → Actions → Variables."
+            echo "See packages/frontend/.env.production.example for what each one is."
+            exit 1
+          fi
+          echo "Building with:"
+          echo "  VITE_FRONTEND_BASENAME=$VITE_FRONTEND_BASENAME"
+          echo "  VITE_BACKEND_API_URL=$VITE_BACKEND_API_URL"
+          echo "  VITE_YORKIE_RPC_ADDR=$VITE_YORKIE_RPC_ADDR"
+          echo "  VITE_YORKIE_PUBLIC_KEY=$VITE_YORKIE_PUBLIC_KEY"
+          echo "  VITE_GA_ID=${VITE_GA_ID:-<unset — no analytics snippet>}"
           pnpm i
           pnpm build:all
 
