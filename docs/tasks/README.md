@@ -22,6 +22,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | homepage docs audit (2026-09-03) | [20260903-homepage-docs-audit-todo.md](./active/20260903-homepage-docs-audit-todo.md) | - |
 | image viewer folder return (2026-09-03) | [20260903-image-viewer-folder-return-todo.md](./active/20260903-image-viewer-folder-return-todo.md) | [20260903-image-viewer-folder-return-lessons.md](./active/20260903-image-viewer-folder-return-lessons.md) |
 | notification links (2026-09-03) | [20260903-notification-links-todo.md](./active/20260903-notification-links-todo.md) | - |
+| yorkie 0719 docs revision preview (2026-09-03) | [20260903-yorkie-0719-docs-revision-preview-todo.md](./active/20260903-yorkie-0719-docs-revision-preview-todo.md) | [20260903-yorkie-0719-docs-revision-preview-lessons.md](./active/20260903-yorkie-0719-docs-revision-preview-lessons.md) |
 | release v0.6.8 (2026-09-02) | [20260902-release-v0.6.8-todo.md](./active/20260902-release-v0.6.8-todo.md) | [20260902-release-v0.6.8-lessons.md](./active/20260902-release-v0.6.8-lessons.md) |
 | revision history (2026-09-02) | [20260902-revision-history-todo.md](./active/20260902-revision-history-todo.md) | [20260902-revision-history-lessons.md](./active/20260902-revision-history-lessons.md) |
 | template gallery public tier (2026-09-02) | [20260902-template-gallery-public-tier-todo.md](./active/20260902-template-gallery-public-tier-todo.md) | [20260902-template-gallery-public-tier-lessons.md](./active/20260902-template-gallery-public-tier-lessons.md) |

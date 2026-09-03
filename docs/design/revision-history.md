@@ -246,39 +246,65 @@ the docs tree→blocks half, pulled into `@wafflebase/docs` when the docs
 preview is built, rather than a wholesale move of three modules up front.
 (`docs-tree.ts`'s own header already proposes this extraction.)
 
-**`YSON.parse` cannot reliably read a snapshot wrapped in `Tree(...)` or
-`Text([...])`.** `preprocessYSON` is a chain of regex replacements, and it
-fails two independent ways. Measured against the running server, with real
-documents:
+**`YSON.parse` could not reliably read a snapshot wrapped in `Tree(...)` or
+`Text([...])` before `@yorkie-js/sdk@0.7.19`.** `preprocessYSON` was a chain
+of regex replacements, and it failed two independent ways. Measured against
+the running server, with real documents, on both versions:
 
-| Case | `YSON.parse` |
-| --- | --- |
-| sheets / slides / board (plain JSON root — no wrapper at all) | OK |
-| docs `Tree` depth 3 (`doc > block > text`) | OK |
-| docs `Tree` depth 4 (`doc > block > inline > text`) | **fails** |
-| a note containing `arr[1:]` (balanced brackets) | OK |
-| a note containing `Fix issue 3] later` (one unbalanced `]`) | **fails** |
-| a note containing `a [b [c [d [e] f] g] h] i` (4 levels) | **fails** |
+| Case | 0.7.18 | 0.7.19 |
+| --- | --- | --- |
+| sheets / slides / board (plain JSON root — no wrapper at all) | OK | OK |
+| docs `Tree` depth 3 (`doc > block > text`) | OK | OK |
+| docs `Tree` depth 4 (`doc > block > inline > text`) | **fails** | OK |
+| docs `Tree` depth 6 (a table) | **fails** | OK |
+| a note containing `arr[1:]` (balanced brackets) | OK | OK |
+| a note containing `Fix issue 3] later` (one unbalanced `]`) | **fails** | OK |
+| a note containing `a [b [c [d [e] f] g] h] i` (4 levels) | **fails** | OK |
 
-1. **Nesting depth is hard-coded in the pattern** — three levels per type.
+1. **Nesting depth was hard-coded in the pattern** — three levels per type.
    Every wafflebase docs document is `doc > block > inline > text`, which is
-   four, and tables go deeper. So docs preview never works.
-2. **The patterns are not string-aware.** They count `{}`/`[]` appearing
-   *inside string values* as structure. Balanced ones happen to survive,
-   which is why an ordinary markdown link parses; an unbalanced one does not.
+   four, and tables go deeper. So docs preview never worked.
+2. **The patterns were not string-aware.** They counted `{}`/`[]` appearing
+   *inside string values* as structure. Balanced ones happened to survive,
+   which is why an ordinary markdown link parsed; an unbalanced one did not.
 
 An earlier revision of this document recorded only the first defect and
-called it docs-specific. That was wrong: the second defect reaches
-**notes**, which did ship. A note whose text contains an unmatched bracket
-previews as "Couldn't read this version" instead of its content. It fails
+called it docs-specific. That was wrong: the second defect reached
+**notes**, which did ship. A note whose text contained an unmatched bracket
+previewed as "Couldn't read this version" instead of its content. It failed
 *safely* — the adapter throws, `RevisionPreview` renders `role="alert"`,
-and nothing incorrect is drawn — but it fails.
+and nothing incorrect is drawn — but it failed.
 
-Preview therefore ships for sheets, slides and board unconditionally, for
-notes with that caveat, and not at all for docs until the upstream fix
-(§6). The fallback, if that fix is slow, is our own snapshot parser; it is
-a fallback rather than the plan because a second regex-based parser is how
-this bug was born — any replacement must be a string-aware scanner.
+**0.7.19 fixed both** by replacing the chain with a single-pass string-aware
+scanner (`skipString` / `findMatchingParen` / `splitTopLevelArgs`), which is
+exactly what upstream ask 4 requested. Preview now ships for all five types
+with no caveat. The contingency plan — our own snapshot parser — was not
+needed and is dropped; had it been written, the rule was that it must be a
+string-aware scanner, because a second regex-based parser is how this bug
+was born.
+
+**A parsed snapshot node is not the same shape as a live proxy node.**
+Making docs preview work took more than a parser that no longer throws,
+because docs is the one type needing a real tree→model converter, and the
+two dialects disagree twice — neither of which raises anything:
+
+| | live proxy (`tree.getRootTreeNode()`) | `YSON.parse` of a snapshot |
+| --- | --- | --- |
+| attribute key | `attributes` | `attrs` |
+| attribute value | decoded (`center`) | JSON-encoded (`"center"`) |
+
+The SDK's live path runs every attribute through `JSON.parse`
+(`parseObjectValues`); `YSON.parse` assigns the map verbatim, and its
+`postprocessTreeNode` whitelists `{type, value, attrs, children}`. Reusing
+the backend's reader unchanged would therefore have produced a document
+whose every block fell back to `paragraph` with no style and no table —
+plausible-looking content that is not what the user wrote, which is the one
+outcome this feature's error handling exists to prevent. So the shared
+converter (`docsTreeToDocument` in `@wafflebase/docs`, which the backend's
+`readDocsRoot` also calls, so the two readers cannot drift) reads a neutral
+`DocsTreeNode`, and the snapshot caller normalizes the dialect explicitly
+before delegating. The docs fixture backing those tests is captured from a
+real server through the production writer, like every other fixture here.
 
 Presentation is a banner over the existing viewer — "Viewing a version from
 … / Restore / Back" — not a modal. Four of the five engines are canvas, and
@@ -361,7 +387,8 @@ which already exists and runs in CI.
 
 ### 6. Upstream Yorkie work
 
-Three asks, in `yorkie-team/yorkie`. The first blocks this feature:
+Four asks, in `yorkie-team/yorkie`. The fourth is done; the first is the
+only one that still constrains a deployment:
 
 1. **Populate the auth-webhook attributes for `CreateRevision`.** The other
    three revision RPCs already send `{key, verb}` and are authorized
@@ -381,14 +408,14 @@ Three asks, in `yorkie-team/yorkie`. The first blocks this feature:
    show an author (§1) instead of nothing.
 3. **A retention policy and a delete RPC** (max count and/or TTL per
    document). See Risks.
-4. **Fix `YSON.parse`** — filed as
-   [yorkie-team/yorkie#1966](https://github.com/yorkie-team/yorkie/issues/1966).
-   `preprocessYSON`'s regex chain has two independent defects: its patterns
-   bottom out at three nested levels per type, and they are not
-   string-aware, counting `{}`/`[]` inside string *values* as structure.
-   The fix is a single-pass, string-aware scanner rather than a deeper
-   regex. Blocks docs preview entirely and makes some note previews
-   content-dependent (§4).
+4. ~~**Fix `YSON.parse`**~~ — **done, shipped in `@yorkie-js/sdk@0.7.19`**
+   ([yorkie-team/yorkie#1966](https://github.com/yorkie-team/yorkie/issues/1966)).
+   `preprocessYSON`'s regex chain had two independent defects: its patterns
+   bottomed out at three nested levels per type, and they were not
+   string-aware, counting `{}`/`[]` inside string *values* as structure. It
+   was replaced with the single-pass string-aware scanner this ask asked
+   for, not a deeper regex. This had blocked docs preview entirely and made
+   some note previews content-dependent (§4); both are resolved.
 
 Plus one unrelated bug found while probing: `ListRevisionsByAdmin` panics
 under `API-Key` authentication —
@@ -405,8 +432,8 @@ RPCs hits this.
 | --- | --- | --- |
 | 1 | wafflebase | History panel: list / name / restore + safety revision, all five types, shipped behind a now-removed client flag; register the three gateable webhook methods; backend README + this doc |
 | 2 | wafflebase | Preview for sheets, slides, board and notes |
-| 3 | yorkie | `YSON.parse` tokenizer (upstream ask 4) |
-| 4 | wafflebase | Docs preview: extract `treeNodeToBlock` into `@wafflebase/docs`, mount it |
+| 3 | yorkie | `YSON.parse` tokenizer (upstream ask 4) — **shipped in 0.7.19** |
+| 4 | wafflebase | Bump to 0.7.19; docs preview: move the tree read path into `@wafflebase/docs` (`docsTreeToDocument`, shared with the backend's `readDocsRoot`), normalize the snapshot node dialect, mount it |
 | 5 | wafflebase | Retention handling and polish |
 | — | wafflebase | Remove `VITE_WB_REVISION_HISTORY`: the flag's premise (RPCs ungateable without upstream) was false, and it never protected share-link viewers either (structural, §2). The deployment gate (registration + enforcement) is now the only gate — see §2 |
 
@@ -496,8 +523,9 @@ than a mitigation of it.
 **The snapshot format's parser is regex-based.** `YSON.parse` cannot read a
 snapshot of any docs document (§4), and the same preprocessing would also
 misread a `}` appearing inside a string value in any document type. We
-depend on it for every preview. *Mitigation*: upstream ask 4 replaces it
-with a tokenizer; until then docs preview is out and the other four types
+depend on it for every preview. *Mitigation*: upstream ask 4 replaced it
+with a tokenizer in 0.7.19, which is what this risk asked for. Before that
+docs preview was out and the other four types
 are covered by adapter tests built from fixtures **hand-authored** to each
 engine's wire format — *not* captured off real documents, which is a real
 weakness of the coverage: the sheets fixture was hand-authored to the wrong

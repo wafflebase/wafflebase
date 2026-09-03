@@ -50,26 +50,61 @@ the YSON dialect difference in one small normalizer on the frontend side.
 
 ## Items
 
-- [ ] Bump `@yorkie-js/sdk` 0.7.18 → 0.7.19 in backend, frontend, notes
-- [ ] Bump `@yorkie-js/react` 0.7.18 → 0.7.19 in frontend; `pnpm install`
-- [ ] Extract the read path into `@wafflebase/docs` (`docsTreeToDocument`)
+- [x] Bump `@yorkie-js/sdk` 0.7.18 → 0.7.19 in backend, frontend, notes
+- [x] Bump `@yorkie-js/react` 0.7.18 → 0.7.19 in frontend; `pnpm install`
+- [x] Extract the read path into `@wafflebase/docs` (`docsTreeToDocument`)
       over the neutral node type; export it
-- [ ] Repoint backend `readDocsRoot` at it (no behavior change) — keep the
+- [x] Repoint backend `readDocsRoot` at it (no behavior change) — keep the
       backend's `writeDocsRoot` where it is
-- [ ] Frontend `ysonTreeToDocsDocument`: `attrs` → `attributes` + per-value
+- [x] Frontend `normalizeYsonTreeNode`: `attrs` → `attributes` + per-value
       `JSON.parse`, then delegate
-- [ ] `parseDocsSnapshot` in `snapshot-adapters.ts`
-- [ ] `'doc'` in `RevisionPreviewType` + `DocsPreview` mounting
+- [x] `parseDocsSnapshot` in `snapshot-adapters.ts`
+- [x] `'doc'` in `RevisionPreviewType` + `DocsPreview` mounting
       `initialize(host, MemDocStore, theme, readOnly=true)`
-- [ ] Wire `docs-detail.tsx`: `previewRevisionId`, `EditingChrome`,
+- [x] Wire `docs-detail.tsx`: `previewRevisionId`, `EditingChrome`,
       `PreviewSurface`, `onPreview` (mirror `notes-detail.tsx`)
-- [ ] Tests: depth-4/6 parse, attribute decode, converter parity with the
-      backend path, unbalanced-bracket note
-- [ ] Update the stale "no version to bump to" comments in
-      `snapshot-adapters.ts`, `revision-preview.tsx`, `docs-detail.tsx`
-- [ ] Update `docs/design/revision-history.md` §4/§6/§7
-- [ ] `pnpm verify:fast`, browser smoke, code review before PR
+- [x] Tests: depth-4/6 parse, attribute decode, table/border/header/footer,
+      pageSetup scalars, unbalanced-bracket note
+- [x] Update the stale "no version to bump to" comments in
+      `snapshot-adapters.ts`, `revision-preview.tsx`, `docs-detail.tsx`,
+      `history-panel.tsx`
+- [x] Update `docs/design/revision-history.md` §4/§6/§7
+- [x] `pnpm verify:fast` green (exit 0, 11 suites, 0 failures)
+- [ ] **Browser smoke — blocked**, see Review
+- [ ] Code review over the branch diff before PR
 
 ## Review
 
-(filled in at the end)
+Three commits: the version bump, the converter move, the feature.
+
+**What the bump actually fixed.** Measured on a running server, 0.7.18 vs
+0.7.19, over the exact failure table in the design doc: depth-4 and depth-6
+trees and both unbalanced-bracket cases go from throwing to parsing, with
+no change to the cases that already worked. Reading the SDK source
+confirmed `preprocessYSON` is now a string-aware scanner rather than a
+deeper regex — the fix upstream ask 4 specified.
+
+**The part that was not in the plan.** Making the snapshot parse was
+necessary but not sufficient. A `YSON.parse`d tree node and a live Yorkie
+proxy node disagree on the attribute key (`attrs` vs `attributes`) and on
+whether values are still JSON-encoded, and *neither disagreement throws* —
+reusing the backend reader as-is would have rendered every block as a
+style-less `paragraph` with no tables. That is caught by an explicit
+normalizer, and the tests were mutation-checked (break the decode → 5
+failures; read the wrong key → 5 failures) so their passing means
+something. Details in the lessons file.
+
+**Not verified: the rendered preview itself.** The local app has no
+session and signing in requires GitHub OAuth, which I must not perform.
+Everything below the canvas mount is verified against real data; the mount
+itself follows the same `initialize(host, store, theme, readOnly)` pattern
+as `DocsView` and the other four previews, and no test anywhere in this
+repo mounts a canvas engine (jsdom returns `null` from `getContext`). So
+**a human needs to open a docs document, name a version, and click Preview
+before this merges.** Log in at http://localhost:5173 and it can be driven
+from there.
+
+**Pre-existing, untouched:** `packages/docs`'s node entry omits
+`BlockMarker`, so a raw `tsc -p packages/backend` reports three errors in
+`@wafflebase/slides`. Present on `main` before this branch; out of scope,
+but a real gap in the same node-entry mechanism this task had to learn.
