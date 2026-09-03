@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Loader } from "@/components/loader";
 
+import { useRestoreInProgress } from "./restore-lock";
 import { useRevisionHistory } from "./use-revision-history";
 import type { TimelineEntry } from "./group-revisions";
 
@@ -88,7 +89,7 @@ export function HistoryPanel({
   const [label, setLabel] = useState("");
   const [isNaming, setIsNaming] = useState(false);
   const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
-  const [isRestoring, setIsRestoring] = useState(false);
+  const [isRestoringHere, setIsRestoringHere] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
 
@@ -100,6 +101,14 @@ export function HistoryPanel({
   // re-renders the disabled controls, but a handler captured before that
   // render would still read the stale `false`.
   const restoreInFlight = useRef(false);
+
+  // The preview overlay can start a restore too, and this panel stays mounted
+  // and clickable behind it (so a user can switch versions from the list), so
+  // the ref above only covers restores that started *here*. `restore` itself
+  // refuses the cross-surface case — see `restore-lock.ts` — and this is how
+  // that refusal reaches these controls before a user can trigger it.
+  const isRestoringElsewhere = useRestoreInProgress();
+  const isRestoring = isRestoringHere || isRestoringElsewhere;
 
   // Skip the initial value: the hook already fetches on mount, and a second
   // request for the same list would just be waste.
@@ -139,7 +148,7 @@ export function HistoryPanel({
     if (!pendingRestoreId || restoreInFlight.current) return;
     const id = pendingRestoreId;
     restoreInFlight.current = true;
-    setIsRestoring(true);
+    setIsRestoringHere(true);
     setPendingRestoreId(null);
     setRestoreError(null);
     try {
@@ -153,7 +162,7 @@ export function HistoryPanel({
       );
     } finally {
       restoreInFlight.current = false;
-      setIsRestoring(false);
+      setIsRestoringHere(false);
     }
   };
 

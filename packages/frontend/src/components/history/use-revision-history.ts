@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRevisions } from '@yorkie-js/react';
 import { groupRevisions, type TimelineDay } from './group-revisions';
+import { beginRestore, endRestore } from './restore-lock';
 import { writeRevisionMeta } from './revision-meta';
 
 /**
@@ -76,18 +77,37 @@ export function useRevisionHistory({
 
   const restore = useCallback(
     async (revisionId: string) => {
-      // Safety first, and deliberately un-caught: if the current state cannot
-      // be preserved, the restore must not happen.
-      await createRevision(SAFETY_LABEL, writeRevisionMeta('safety', userId));
-      await restoreRevision(revisionId);
-      onRestored?.();
-      // Only the enabled instance owns a list anyone can see. The preview
-      // overlay creates a second, `enabled: false` instance purely for
-      // `restore` and never reads its `days`, so refreshing there is a
-      // `listRevisions` round-trip whose result is dropped — and it fires
-      // at exactly the moment the panel beside it is already re-reading
-      // the list via `refreshKey`.
-      if (enabled) await refresh();
+      // Every restore in the app funnels through here — the panel's list rows
+      // and the preview banner both call this — so this is the one place that
+      // can serialize the two entry points, which own separate hook instances
+      // and separate `isRestoring` state. See `restore-lock.ts` for why the
+      // lock is a module global and what would invalidate that.
+      //
+      // Refused rather than queued: the second restore was chosen against a
+      // document the first one is about to replace, so running it afterwards
+      // would apply a choice the user never made about the state it lands on.
+      // It throws instead of returning quietly so the caller reports it —
+      // both entry points already render whatever `restore` rejects with, and
+      // a silent resolve would let the preview close as if it had worked.
+      if (!beginRestore()) {
+        throw new Error('A restore is already in progress.');
+      }
+      try {
+        // Safety first, and deliberately un-caught: if the current state
+        // cannot be preserved, the restore must not happen.
+        await createRevision(SAFETY_LABEL, writeRevisionMeta('safety', userId));
+        await restoreRevision(revisionId);
+        onRestored?.();
+        // Only the enabled instance owns a list anyone can see. The preview
+        // overlay creates a second, `enabled: false` instance purely for
+        // `restore` and never reads its `days`, so refreshing there is a
+        // `listRevisions` round-trip whose result is dropped — and it fires
+        // at exactly the moment the panel beside it is already re-reading
+        // the list via `refreshKey`.
+        if (enabled) await refresh();
+      } finally {
+        endRestore();
+      }
     },
     [createRevision, enabled, onRestored, refresh, restoreRevision, userId],
   );

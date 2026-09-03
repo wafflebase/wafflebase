@@ -31,6 +31,7 @@ import {
 import { boardPreviewViewport } from './board-preview-viewport';
 import { firstWorksheetTabId } from './first-worksheet-tab';
 import { readRevisionMeta } from './revision-meta';
+import { useRestoreInProgress } from './restore-lock';
 import { useRevisionHistory } from './use-revision-history';
 
 export type RevisionPreviewType = 'sheet' | 'slides' | 'board' | 'note';
@@ -348,11 +349,17 @@ export function RevisionPreviewOverlay({
 }) {
   const { restore } = useRevisionHistory({ enabled: false, userId, onRestored });
   const [restoreError, setRestoreError] = useState<string | null>(null);
-  const [isRestoring, setIsRestoring] = useState(false);
+  const [isRestoringHere, setIsRestoringHere] = useState(false);
+  // The `HistoryPanel` stays mounted and clickable behind this overlay, so a
+  // restore can already be running when the banner's button is pressed. That
+  // one is refused inside `restore` (see `restore-lock.ts`); this only makes
+  // the button reflect it first.
+  const isRestoringElsewhere = useRestoreInProgress();
+  const isRestoring = isRestoringHere || isRestoringElsewhere;
 
   const handleRestore = async () => {
     if (isRestoring) return;
-    setIsRestoring(true);
+    setIsRestoringHere(true);
     setRestoreError(null);
     try {
       await restore(revisionId);
@@ -362,7 +369,7 @@ export function RevisionPreviewOverlay({
         err instanceof Error ? err.message : 'The restore did not complete.',
       );
     } finally {
-      setIsRestoring(false);
+      setIsRestoringHere(false);
     }
   };
 
