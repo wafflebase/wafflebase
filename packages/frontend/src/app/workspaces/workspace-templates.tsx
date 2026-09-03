@@ -21,16 +21,14 @@ export default function WorkspaceTemplates() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
 
+  // No heading of its own: `Layout`'s `ROUTE_TITLES` already puts "Templates"
+  // in the site header for this route, and no other workspace page (Documents,
+  // Analytics, Data Sources) repeats its title in the body. The copy-on-use
+  // sentence lives where a stranger meets it instead — the public gallery,
+  // `/t/:id`, and the picker dialog — rather than being said a fourth time to
+  // someone already inside their own workspace.
   return (
     <div className="space-y-4 p-4 lg:p-6">
-      <div>
-        <h1 className="text-xl font-semibold">Templates</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Using a template gives you your own copy — the original is never
-          changed.
-        </p>
-      </div>
-
       <Tabs defaultValue="workspace">
         <TabsList>
           <TabsTrigger value="workspace">This workspace</TabsTrigger>
