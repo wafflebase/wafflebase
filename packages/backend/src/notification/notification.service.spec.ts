@@ -504,5 +504,22 @@ describe('NotificationService', () => {
         }),
       );
     });
+
+    it('selects the workspace, which is all a join notification has to name itself by', async () => {
+      prisma.notification.findMany.mockResolvedValue([]);
+
+      await service.list(7);
+
+      const calls = prisma.notification.findMany.mock.calls as Array<
+        [{ select: Record<string, unknown> }]
+      >;
+      const { select } = calls[0][0];
+      expect(select.workspace).toEqual({
+        select: { id: true, name: true },
+      });
+      // Still no internal bookkeeping: the unique index shape stays server-side.
+      expect(select.dedupeKey).toBeUndefined();
+      expect(select.recipientId).toBeUndefined();
+    });
   });
 });

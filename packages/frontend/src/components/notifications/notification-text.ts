@@ -5,6 +5,8 @@ import { getDocumentPath } from "@/app/documents/document-list-utils";
 const UNKNOWN_ACTOR = "Someone";
 /** Shown when a document row exists but carries no usable title. */
 const UNTITLED_DOCUMENT = "a document";
+/** Shown when the workspace relation is missing or carries no usable name. */
+const UNNAMED_WORKSPACE = "the workspace";
 
 /**
  * One line describing what happened, in the same voice across every type.
@@ -15,6 +17,7 @@ const UNTITLED_DOCUMENT = "a document";
 export function notificationSentence(n: Notification): string {
   const actor = n.actor?.username || UNKNOWN_ACTOR;
   const document = n.document?.title || UNTITLED_DOCUMENT;
+  const workspace = n.workspace?.name || UNNAMED_WORKSPACE;
 
   switch (n.type) {
     case "comment_mention":
@@ -23,8 +26,10 @@ export function notificationSentence(n: Notification): string {
       return `${actor} replied to your comment in ${document}`;
     case "thread_resolved":
       return `${actor} resolved your comment in ${document}`;
+    // Named, not "the workspace": the reader belongs to several, and this is
+    // the one type that carries no document to identify itself by.
     case "workspace_member_joined":
-      return `${actor} joined the workspace`;
+      return `${actor} joined ${workspace}`;
     // The decision is the type, not a field — "your template was reviewed"
     // would make the reader open it to learn the one thing they want to know.
     case "template_approved":
@@ -47,11 +52,33 @@ export function notificationSentence(n: Notification): string {
 }
 
 /**
- * Where clicking the notification goes, or null when it references no
- * document (a workspace join, or a document deleted since — the row cascades
- * away, but a stale list in an open dropdown can still hold one).
+ * Where clicking the notification goes, or null when there is nowhere useful.
+ *
+ * The destination follows from **what happened**, not from which rows the
+ * notification happens to carry — two types would be wrong under a rule that
+ * just opens any attached document. A workspace join carries no document and
+ * still has a destination; a review-queue nudge carries one its recipient
+ * cannot open, because a reviewer is on a global allowlist and is not a member
+ * of the publishing workspace.
+ *
+ * Unknown types keep the document behaviour, so a type this client has not
+ * learned yet degrades to opening what it is about rather than to nothing.
  */
 export function notificationHref(n: Notification): string | null {
-  if (!n.document) return null;
-  return getDocumentPath({ id: n.document.id, type: n.document.type });
+  switch (n.type) {
+    // The member list is a section of the settings page; there is no members
+    // route. Both recipient classes — workspace owners and the invite's
+    // creator — are members, so the page is theirs to open.
+    case "workspace_member_joined":
+      return n.workspace ? `/w/${n.workspace.id}/settings` : null;
+    // Reviewer-facing. The queue is the whole point of the notification: it is
+    // a page nobody remembers to open on their own.
+    case "template_review_queued":
+      return "/admin/templates";
+    default:
+      // Null when a document was deleted since — the row cascades away, but a
+      // stale list in an open dropdown can still hold one.
+      if (!n.document) return null;
+      return getDocumentPath({ id: n.document.id, type: n.document.type });
+  }
 }

@@ -34,6 +34,12 @@ export interface Notification {
   actor: { id: number; username: string; photo: string | null } | null;
   /** Null for workspace-level notifications. */
   document: { id: string; title: string; type: DocumentType } | null;
+  /**
+   * The workspace the event happened in. It is what names and links a
+   * notification that has no document; nullable so a workspace deleted since
+   * the row was written degrades to a row that goes nowhere.
+   */
+  workspace: { id: string; name: string } | null;
   threadId: string | null;
   commentId: string | null;
   preview: string | null;

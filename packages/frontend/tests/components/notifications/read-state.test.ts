@@ -13,6 +13,7 @@ function n(id: string, readAt: string | null = null): Notification {
     type: "comment_mention",
     actor: null,
     document: null,
+    workspace: null,
     threadId: null,
     commentId: null,
     preview: null,

@@ -17,9 +17,22 @@ export const LIST_PAGE_SIZE = 20;
 
 /**
  * Exactly what the dropdown renders. An explicit select rather than an
- * include, so internal bookkeeping never reaches the client: `dedupeKey`
- * would hand out the shape of the unique index, and `recipientId` /
- * `workspaceId` are things the caller already knows or has no use for.
+ * include, so internal bookkeeping never reaches the client: `dedupeKey` would
+ * hand out the shape of the unique index, and `recipientId` is the caller.
+ *
+ * The `workspace` relation is here because a workspace-level notification has
+ * no document to name: a reader of "someone joined the workspace" belongs to
+ * several, and without the name the row says nothing and without the id it
+ * links nowhere.
+ *
+ * Almost every recipient is a member of the workspace its row belongs to, so
+ * the name and id are already theirs to see. `template_review_queued` is the
+ * exception and is worth stating rather than glossing: it addresses the global
+ * reviewer allowlist, who are members of nothing. They receive the publishing
+ * workspace's name here — a deliberate widening, and a small one beside the
+ * document title this row already carries and the preview token that lets a
+ * reviewer open the document itself. Anything added to this select later must
+ * be checked against *that* recipient, not against the membership rule.
  */
 const LIST_SELECT = {
   id: true,
@@ -32,6 +45,7 @@ const LIST_SELECT = {
   createdAt: true,
   actor: { select: { id: true, username: true, photo: true } },
   document: { select: { id: true, title: true, type: true } },
+  workspace: { select: { id: true, name: true } },
 } as const;
 
 /**
