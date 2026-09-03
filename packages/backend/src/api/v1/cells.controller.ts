@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -43,6 +44,36 @@ export class ApiV1CellsController {
       id: documentId,
       workspaceId,
     });
+  }
+
+  /**
+   * Cell writes are only meaningful on a sheet document.
+   *
+   * The read handlers attach `readonly` with no seed, so a non-sheet id costs
+   * nothing there and answers `404 Tab not found`. The write verbs pass
+   * `initialRoot`, which Yorkie applies to any *empty* document — and
+   * `withDocument` defaults to the `sheet-` docKey prefix, so a `doc` / `note`
+   * / `pdf` id opened here is empty by construction. Without this check a
+   * write to `.../documents/<a doc id>/tabs/tab-1/cells/A1` seeded a canonical
+   * spreadsheet root, stored the cell in it and answered 200, leaving a
+   * permanent `sheet-<id>` document beside the real `doc-<id>` one that
+   * subsequent reads on the same id then served back — self-consistent, and
+   * invisible to the editor that owns the id.
+   *
+   * 400 with the sibling worksheet controllers' wording: the request is
+   * well-formed, it is the document that cannot take it.
+   */
+  private async assertSheetDocument(documentId: string, workspaceId: string) {
+    const doc = await this.documentService.getDocumentOrThrow({
+      id: documentId,
+      workspaceId,
+    });
+    if (doc.type !== 'sheet') {
+      throw new BadRequestException(
+        `Cell writes are only available on sheet documents; "${documentId}" is a "${doc.type}" document.`,
+      );
+    }
+    return doc;
   }
 
   @Get()
@@ -119,7 +150,7 @@ export class ApiV1CellsController {
     @Param('sref') sref: string,
     @Body() body: { value?: string; formula?: string; style?: unknown },
   ) {
-    await this.assertDocumentInWorkspace(documentId, workspaceId);
+    await this.assertSheetDocument(documentId, workspaceId);
     // Validate the style before attaching so a bad payload 400s cheaply.
     const style =
       body.style === undefined ? undefined : parseCellStyle(body.style);
@@ -157,7 +188,7 @@ export class ApiV1CellsController {
     @Param('tabId') tabId: string,
     @Param('sref') sref: string,
   ) {
-    await this.assertDocumentInWorkspace(documentId, workspaceId);
+    await this.assertSheetDocument(documentId, workspaceId);
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
@@ -186,7 +217,7 @@ export class ApiV1CellsController {
       >;
     },
   ) {
-    await this.assertDocumentInWorkspace(documentId, workspaceId);
+    await this.assertSheetDocument(documentId, workspaceId);
     // Validate every provided style up front so one bad style 400s before any
     // write, rather than aborting a partially-applied doc.update.
     const styles: Record<string, ReturnType<typeof parseCellStyle>> = {};
