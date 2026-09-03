@@ -1,5 +1,6 @@
 import {
   createContext,
+  forwardRef,
   useContext,
   useEffect,
   useMemo,
@@ -19,6 +20,8 @@ import {
 import { PdfViewer } from './pdf-viewer.tsx';
 import { PdfCommentLayer } from './pdf-comment-layer.tsx';
 import { PdfCommentStore } from './comments/pdf-comment-store.ts';
+import { anchorBounds, scrollToAnchor } from './comments/rect.ts';
+import { usePdfTextSelection } from './comments/use-pdf-text-selection.ts';
 import { usePdfComments } from './comments/pdf-comments-controller.ts';
 import { CommentSidePanel } from '@/components/comments/components/CommentSidePanel.tsx';
 import { CommentComposer } from '@/components/comments/components/CommentComposer.tsx';
@@ -29,7 +32,7 @@ import type {
   CommentAuthor,
   PdfRect,
   Thread,
-  PdfRegionAnchor,
+  PdfAnchor,
 } from '@/types/comments.ts';
 import { fileUrl } from '@/api/files.ts';
 
@@ -49,18 +52,16 @@ export type PdfPresenceUser = {
 type PdfCollabContextValue = {
   readOnly: boolean;
   fileUrl: string;
-  threads: Thread<PdfRegionAnchor>[];
+  threads: Thread<PdfAnchor>[];
   panelOpen: boolean;
   setPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
   creating: boolean;
   setCreating: React.Dispatch<React.SetStateAction<boolean>>;
   activeThreadId: string | null;
   setActiveThreadId: (id: string | null) => void;
-  activeThread: Thread<PdfRegionAnchor> | null;
-  pending: { pageIndex: number; rect: PdfRect } | null;
-  setPending: React.Dispatch<
-    React.SetStateAction<{ pageIndex: number; rect: PdfRect } | null>
-  >;
+  activeThread: Thread<PdfAnchor> | null;
+  pending: PdfAnchor | null;
+  setPending: React.Dispatch<React.SetStateAction<PdfAnchor | null>>;
   author: CommentAuthor;
   store: PdfCommentStore | null;
   addThread: ReturnType<typeof usePdfComments>['addThread'];
@@ -110,10 +111,7 @@ export function PdfCollabStateProvider({
   const [panelOpen, setPanelOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [pending, setPending] = useState<{
-    pageIndex: number;
-    rect: PdfRect;
-  } | null>(null);
+  const [pending, setPending] = useState<PdfAnchor | null>(null);
 
   const author: CommentAuthor = {
     userId: presenceUser.userId,
@@ -222,14 +220,16 @@ export function PdfHeaderActions() {
             <Toggle
               size="sm"
               className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-              aria-label="Add comment"
+              aria-label="Comment on a region"
               pressed={creating}
               onPressedChange={setCreating}
             >
               <IconMessagePlus size={16} />
             </Toggle>
           </TooltipTrigger>
-          <TooltipContent>Add comment</TooltipContent>
+          <TooltipContent>
+            Comment on a region — or just select text
+          </TooltipContent>
         </Tooltip>
       )}
       <Tooltip>
@@ -280,6 +280,17 @@ export function PdfCollabBody() {
     closeThreadDetail,
   } = usePdfCollab();
 
+  // Selecting text offers to comment on it — the primary way to comment on a
+  // PDF that has a text layer. The region tool stays for everything text
+  // selection cannot reach: a scanned page, a figure, a table's whitespace.
+  // It is suppressed while that tool is armed, since the two would compete
+  // for the same drag.
+  const {
+    selection,
+    clear: clearSelection,
+    keepAliveRef,
+  } = usePdfTextSelection(!readOnly && !creating && !pending);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1">
@@ -298,31 +309,40 @@ export function PdfCollabBody() {
                   setPanelOpen(true);
                 }}
                 onCreateRegion={(pi, rect) => {
-                  setPending({ pageIndex: pi, rect });
+                  setPending({ kind: 'pdf-region', pageIndex: pi, rect });
                   setCreating(false);
                 }}
               />
+              {/* "Comment on this text" affordance, drawn in page
+                  coordinates so it scrolls, zooms and reflows with the page
+                  it belongs to. */}
+              {selection && selection.pageIndex === pageIndex && (
+                <PdfSelectionAction
+                  ref={keepAliveRef}
+                  bounds={anchorBounds(selection)}
+                  onClick={() => {
+                    setPending(selection);
+                    clearSelection();
+                  }}
+                />
+              )}
               {/* New-thread composer, anchored next to the drawn region on
                   this page (Google-Docs-style popover, not a docked bar). */}
               {pending && pending.pageIndex === pageIndex && !readOnly && (
                 <PdfPendingComposer
-                  rect={pending.rect}
+                  rect={anchorBounds(pending)}
+                  {...(pending.kind === 'pdf-text'
+                    ? { quote: pending.quote }
+                    : {})}
                   onCancel={() => setPending(null)}
                   onSubmit={async (body) => {
-                    const threadId = await addThread(
-                      {
-                        kind: 'pdf-region',
-                        pageIndex: pending.pageIndex,
-                        rect: pending.rect,
-                      },
-                      body,
-                      author,
-                    );
+                    const threadId = await addThread(pending, body, author);
                     setPending(null);
-                    if (threadId) {
-                      setActiveThreadId(threadId);
-                      setPanelOpen(true);
-                    }
+                    // Mark the new thread active so its pin reads as selected,
+                    // but leave the side panel alone: the reader was reading,
+                    // and throwing a panel over the page they just annotated
+                    // interrupts that for no gain.
+                    if (threadId) setActiveThreadId(threadId);
                   }}
                 />
               )}
@@ -358,7 +378,10 @@ export function PdfCollabBody() {
           ) : (
             <CommentSidePanel
               threads={threads}
-              onJumpTo={(t) => setActiveThreadId(t.id)}
+              onJumpTo={(t) => {
+                setActiveThreadId(t.id);
+                scrollToAnchor(t.anchor);
+              }}
               onClose={() => setPanelOpen(false)}
               renderAnchorLabel={(t) => `Page ${t.anchor.pageIndex + 1}`}
             />
@@ -367,6 +390,45 @@ export function PdfCollabBody() {
     </div>
   );
 }
+
+/**
+ * The "comment on this text" button that appears beside a finished text
+ * selection, mirroring the Google-Docs margin affordance.
+ *
+ * Positioned in the same page-relative percentages the composer and pins use,
+ * so it rides the page through scroll, resize and zoom without recomputing a
+ * screen coordinate. Right-anchored on the page's right half for the same
+ * reason the composer is: so it does not overflow the margin.
+ */
+const PdfSelectionAction = forwardRef<HTMLButtonElement, {
+  bounds: PdfRect;
+  onClick: () => void;
+}>(function PdfSelectionAction({ bounds, onClick }, ref) {
+  const rightAnchored = bounds.x + bounds.w / 2 > 0.5;
+  const horizontal = rightAnchored
+    ? { right: `${(1 - (bounds.x + bounds.w)) * 100}%` }
+    : { left: `${bounds.x * 100}%` };
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-label="Comment on selection"
+      onClick={onClick}
+      // Keep the browser from collapsing the very selection this button acts
+      // on — the same trick a rich-text formatting toolbar uses.
+      onPointerDown={(e) => e.preventDefault()}
+      className="pointer-events-auto absolute z-20 flex select-none items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs shadow-md hover:bg-accent"
+      style={{
+        ...horizontal,
+        top: `${(bounds.y + bounds.h) * 100}%`,
+        marginTop: 6,
+      }}
+    >
+      <IconMessagePlus size={14} />
+      Comment
+    </button>
+  );
+});
 
 /**
  * New-comment composer rendered as a popover anchored to the drawn region on
@@ -379,10 +441,12 @@ export function PdfCollabBody() {
  */
 function PdfPendingComposer({
   rect,
+  quote,
   onSubmit,
   onCancel,
 }: {
   rect: PdfRect;
+  quote?: string;
   onSubmit: (body: string) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -401,6 +465,17 @@ function PdfPendingComposer({
       // Keep pointer events inside the popover from reaching anything below.
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {/* Echo the selected text: the browser selection is cleared when the
+          composer opens, so without this there is nothing on screen saying
+          what the comment is about. */}
+      {quote && (
+        <p
+          data-testid="pdf-pending-quote"
+          className="mb-2 line-clamp-3 border-l-2 border-yellow-400 pl-2 text-xs text-muted-foreground"
+        >
+          {quote}
+        </p>
+      )}
       <CommentComposer
         submitLabel="Comment"
         autoFocus
@@ -428,7 +503,7 @@ function ThreadDetailPanel({
   onEdit,
   onDelete,
 }: {
-  thread: Thread<PdfRegionAnchor>;
+  thread: Thread<PdfAnchor>;
   author: CommentAuthor;
   readOnly: boolean;
   onBack: () => void;

@@ -218,6 +218,16 @@
           "doc": "harness-engineering.md",
           "ref": "mixed-controls.tsx",
           "reason": "The lane documentation quotes `slides/slides-toolbar-redesign.md` to illustrate why this advisory list exists, so the doc explaining the mechanism needs the mechanism. Self-demonstrating rather than circular: the quoted file is absent for the reason the quote gives."
+        },
+        {
+          "doc": "ocr.md",
+          "ref": "web/pdf_viewer.css",
+          "reason": "A path inside the `pdfjs-dist` package, not this repository. The doc names it because the shipped `packages/frontend/src/app/files/pdf-text-layer.css` is a scoped port of exactly that stylesheet's `.textLayer` rules — naming the upstream source is what makes the port auditable, and no resolver here can reach a dependency's own file."
+        },
+        {
+          "doc": "ocr.md",
+          "ref": "tesseract.js",
+          "reason": "An npm package name that happens to end in `.js`, in the table comparing candidate OCR engines. It is a dependency under evaluation, never a file in this repository."
         }
       ]
     },

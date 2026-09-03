@@ -1,4 +1,4 @@
-import type { PdfRegionAnchor, Thread } from '@/types/comments.ts';
+import type { PdfAnchor, Thread } from '@/types/comments.ts';
 
 /**
  * Yorkie document root for a PDF document. It holds ONLY comment threads —
@@ -8,7 +8,7 @@ import type { PdfRegionAnchor, Thread } from '@/types/comments.ts';
  * container (Yorkie resolves same-key object assignment by LWW).
  */
 export type YorkiePdfRoot = {
-  comments?: { [threadId: string]: Thread<PdfRegionAnchor> };
+  comments?: { [threadId: string]: Thread<PdfAnchor> };
 };
 
 export function initialPdfRoot(): Partial<YorkiePdfRoot> {

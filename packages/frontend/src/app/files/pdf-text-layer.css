@@ -1,0 +1,87 @@
+/*
+ * Selectable text layer for the PDF viewer.
+ *
+ * pdf.js paints glyphs to a canvas, which no browser can select. Its own
+ * viewer solves this by absolutely positioning one transparent <span> per
+ * text run over those pixels: the canvas is what you see, the spans are what
+ * you select. `TextLayer` (exported by pdfjs-dist) builds the spans; these
+ * rules are what make them line up and stay invisible.
+ *
+ * Ported from `pdfjs-dist/web/pdf_viewer.css` — only the `.textLayer` rules,
+ * scoped to `.wb-pdf-text-layer`. Importing that stylesheet wholesale would
+ * also pull in the annotation layer, the editor layers, and a set of
+ * unprefixed class names we don't want in a global stylesheet.
+ *
+ * The custom properties are the contract with `TextLayer`, which writes them
+ * per span (`--font-height`, `--scale-x`, `--rotate`) and per container
+ * (`--min-font-size`). `--total-scale-factor` is ours: span positions are
+ * percentages of the page box, so scaling the layer to the rendered page is
+ * this one number. See `pdf-viewer.tsx`.
+ */
+.wb-pdf-text-layer {
+  /* Selection colors are meant to read against the page, not the app theme. */
+  color-scheme: only light;
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  text-align: initial;
+  overflow: clip;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+
+  --min-font-size: 1;
+  --total-scale-factor: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.wb-pdf-text-layer :is(span, br) {
+  /* The canvas below is the visible text; these spans exist only to be
+     selected. Transparent — not `opacity: 0` or `visibility: hidden`, both of
+     which would take them out of selection too. */
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.wb-pdf-text-layer > :not(.markedContent),
+.wb-pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+
+  /* `--scale-x` horizontally squeezes a run whose substituted font measures
+     wider than the original, so selection tracks the painted glyphs. */
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+    scale(var(--min-font-size-inv));
+}
+
+.wb-pdf-text-layer .markedContent {
+  display: contents;
+}
+
+.wb-pdf-text-layer span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+
+/* Keep `color: transparent` under selection: the highlight is a background
+   wash over the canvas glyphs, never a second copy of the text drawn on top. */
+.wb-pdf-text-layer ::selection {
+  background: rgba(0 0 255 / 0.25);
+  background: color-mix(in srgb, AccentColor, transparent 50%);
+  color: transparent;
+}
