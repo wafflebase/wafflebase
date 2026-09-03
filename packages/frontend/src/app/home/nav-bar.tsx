@@ -48,6 +48,15 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
           >
             Features
           </a>
+          {/* `Link`, not `<a href>`: this is an in-SPA route, so it must go
+              through the router's basename. The `/docs` link beside it is an
+              anchor because it is a separate VitePress site. */}
+          <Link
+            to="/templates"
+            className="no-underline hover:text-[color:var(--wb-ink)] transition-colors"
+          >
+            Templates
+          </Link>
           <a
             href="/docs"
             className="no-underline hover:text-[color:var(--wb-ink)] transition-colors"
@@ -98,6 +107,13 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
           >
             Features
           </a>
+          <Link
+            to="/templates"
+            onClick={() => setOpen(false)}
+            className="text-sm text-[color:var(--wb-sub)] no-underline hover:text-[color:var(--wb-ink)]"
+          >
+            Templates
+          </Link>
           <a
             href="/docs"
             onClick={() => setOpen(false)}

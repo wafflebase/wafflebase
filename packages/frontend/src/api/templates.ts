@@ -30,13 +30,34 @@ export type TemplateListing = {
    */
   previewToken: string | null;
   canManage: boolean;
+  /**
+   * The review decision, present only for the listing's manager (and for a
+   * reviewer reading their own queue). A rejected or removed listing is one
+   * its publisher can no longer act on, so the reason has to be reachable
+   * somewhere they can see it — the notification carrying the same note is
+   * best-effort, and is suppressed when the reviewer is the publisher.
+   */
+  review: {
+    submittedAt: string | null;
+    reviewedAt: string | null;
+    note: string | null;
+    /**
+     * The content watermark as of this response. A reviewer echoes it back
+     * when approving, which is what makes the approval about the version they
+     * read rather than about whatever the row holds by then.
+     */
+    contentAt: string | null;
+  } | null;
 };
 
 /**
- * A gallery card. `TemplateListing` minus `previewToken` — the collection
- * endpoint never returns one, so the type does not have one to read.
+ * A gallery card. `TemplateListing` minus two fields the collection endpoint
+ * does not return, so the type has neither to read: `previewToken` (a page of
+ * cards would be a page of non-expiring read capabilities) and `documentId`
+ * (a public card is anonymously enumerable, and a document id is a Yorkie doc
+ * key by string concatenation).
  */
-export type TemplateCard = Omit<TemplateListing, "previewToken">;
+export type TemplateCard = Omit<TemplateListing, "previewToken" | "documentId">;
 
 export type TemplateBrowsePage = {
   items: TemplateCard[];
@@ -162,6 +183,130 @@ export async function getTemplate(id: string): Promise<TemplateListing> {
     `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}`
   );
   await assertOk(response, "Template not found");
+  return response.json();
+}
+
+export type ReviewDecision = "approve" | "reject" | "takedown";
+
+export const REPORT_REASONS = [
+  "copyright",
+  "inappropriate",
+  "broken",
+  "spam",
+  "other",
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+export type TemplateReport = {
+  id: string;
+  reason: string;
+  note: string | null;
+  createdAt: string;
+  listing: TemplateListing;
+};
+
+/**
+ * Flag a listing for a reviewer. Deliberately does not hide anything — a
+ * report that acted on its own would be a takedown anyone could trigger.
+ */
+export async function reportTemplate(
+  id: string,
+  reason: ReportReason,
+  note?: string
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}/report`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason, ...(note ? { note } : {}) }),
+    }
+  );
+  await assertOk(response, "Failed to report this template");
+}
+
+/** Open reports, for the review queue. */
+export async function listTemplateReports(): Promise<TemplateReport[]> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/reports`
+  );
+  await assertOk(response, "Failed to load reports");
+  return response.json();
+}
+
+/** Close a report, whether or not the listing was touched. */
+export async function resolveTemplateReport(
+  reportId: string,
+  outcome: "dismissed" | "actioned"
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/reports/${seg(reportId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    }
+  );
+  await assertOk(response, "Failed to close this report");
+}
+
+/**
+ * Ask for the public tier. A separate call from `updateTemplate` because
+ * `visibility` is the *effective* tier and no request body may write `public`
+ * to it — only an approval does.
+ */
+export async function submitTemplateForReview(
+  id: string
+): Promise<TemplateListing> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}/submit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acceptLicense: true }),
+    }
+  );
+  await assertOk(response, "Failed to submit this template for review");
+  return response.json();
+}
+
+/**
+ * The review queue. Unlike every other collection here this **does** carry
+ * `previewToken`: a reviewer belongs to neither the publisher's workspace nor
+ * the document, so nothing else would let them see what they are deciding.
+ */
+export async function listTemplatesForReview(): Promise<TemplateListing[]> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/review`
+  );
+  await assertOk(response, "Failed to load the review queue");
+  return response.json();
+}
+
+export async function reviewTemplate(
+  id: string,
+  decision: ReviewDecision,
+  note?: string,
+  /**
+   * The `review.contentAt` the queue row carried. Approving without it, or
+   * with a stale one, is refused with a 409 — the reviewer is attesting to the
+   * version they actually read.
+   */
+  contentAt?: string | null
+): Promise<TemplateListing> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}/review`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        decision,
+        ...(note ? { note } : {}),
+        ...(contentAt ? { contentAt } : {}),
+      }),
+    }
+  );
+  await assertOk(response, "Failed to record this decision");
   return response.json();
 }
 

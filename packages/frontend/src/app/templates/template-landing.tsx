@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getTemplate, createFromTemplate } from "@/api/templates";
+import {
+  getTemplate,
+  createFromTemplate,
+  reportTemplate,
+  REPORT_REASONS,
+  type ReportReason,
+} from "@/api/templates";
 import { imageUrl } from "@/api/images";
 import { fetchWorkspaces } from "@/api/workspaces";
 import { fetchMeOptional, isAuthExpiredError } from "@/api/auth";
@@ -28,12 +34,23 @@ import type { DocumentType } from "@/types/documents";
  * destination workspace, so it is the *Use* action — not the page — that
  * requires signing in, the same split Canva and CapCut both make.
  */
+/** Reader-facing names for the closed reason list. */
+const REPORT_LABELS: Record<ReportReason, string> = {
+  copyright: "Copyright violation",
+  inappropriate: "Inappropriate content",
+  broken: "Broken or unusable",
+  spam: "Spam",
+  other: "Something else",
+};
+
 export function TemplateLanding() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [creating, setCreating] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reporting, setReporting] = useState(false);
 
   const listing = useQuery({
     queryKey: ["template", id],
@@ -190,6 +207,54 @@ export function TemplateLanding() {
           </Button>
         )}
       </div>
+
+      {/* Reporting needs an account, so the affordance only appears for one —
+          and it is deliberately quiet: a report is a message to a reviewer,
+          not an action on the listing, and nothing about it should read like a
+          button that removes something. */}
+      {signedIn && !t.canManage && (
+        <div className="mt-8 flex flex-wrap items-center gap-2">
+          <Select value={reportReason} onValueChange={setReportReason}>
+            <SelectTrigger className="w-52" aria-label="Reason for reporting">
+              <SelectValue placeholder="Report this template" />
+            </SelectTrigger>
+            <SelectContent>
+              {REPORT_REASONS.map((reason) => (
+                <SelectItem key={reason} value={reason}>
+                  {REPORT_LABELS[reason]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {reportReason && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={reporting}
+              onClick={async () => {
+                if (!id) return;
+                setReporting(true);
+                try {
+                  await reportTemplate(id, reportReason as ReportReason);
+                  setReportReason("");
+                  toast.success("Reported. A reviewer will take a look.");
+                } catch (error) {
+                  if (isAuthExpiredError(error)) return;
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to report this template",
+                  );
+                } finally {
+                  setReporting(false);
+                }
+              }}
+            >
+              {reporting ? "Reporting..." : "Send report"}
+            </Button>
+          )}
+        </div>
+      )}
 
       <p className="text-muted-foreground mt-4 text-xs">
         {signedIn
