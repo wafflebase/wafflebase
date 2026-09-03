@@ -93,3 +93,53 @@ noting when deciding what tests to add.
 - [ ] **Version history is unreachable on mobile for slides only.**
       `MobileSlidesLayout`'s `RightPanel` union omits `"history"` while notes'
       mobile path keeps it. The panel is the only route to a restore.
+
+## Surfaced by the code review on this branch — not fixed
+
+Found while reviewing the fixes above. Each is the same defect class the
+branch set out to remove, or a consequence of it.
+
+- [ ] **`Add link` is dead at a caret inside a header or footer.** The body
+      context menu offers the row on `!readOnly` alone, but the registered
+      callback bails silently: `docs-view.tsx`'s `onLinkRequest` returns early
+      when `getCursorScreenRect()` is undefined, and that resolves through
+      `cursor.getPixelPosition` against the **body** layout with no
+      header/footer branch — the render path branches to `computeHFCursorPixel`
+      for exactly this reason, above a comment in `packages/docs/src/view/editor.ts`
+      that states it outright. `⌘K` has the same outcome. Fix is either a
+      header/footer branch in `getCursorScreenRect` or a `canLink` gate
+      mirroring the `canComment` one this branch added.
+- [ ] **`POST /images` has no multipart MIME filter.** The v1 route rejects a
+      bad MIME before buffering; the browser route relies solely on
+      `ImageService.upload`, so an authenticated caller can make the process
+      buffer up to 10 MB of `application/zip` first. The size limit still
+      bounds the allocation, so this is asymmetry and wasted work rather than a
+      memory hole. A one-liner now that `ALLOWED_IMAGE_MIME_TYPES` is shared,
+      but it changes a client-visible error path.
+- [ ] **No `--warning` token.** `upload-panel.tsx`'s `text-amber-700
+      dark:text-amber-500` is the only raw palette colour in
+      `packages/frontend/src`; every other status colour goes through a token.
+      Adding one touches `packages/core/src/tokens/semantic.ts` (interface plus
+      both maps), `packages/core/scripts/build-css.ts`, two core tests and a
+      snapshot, and `packages/frontend/src/index.css`'s `@theme inline` bridge.
+      It must carry **two** values — light ≈ amber-700, dark ≈ amber-500 — as
+      neither stop clears 4.5:1 on both backgrounds.
+- [ ] **`applyTableCellStyle` snapshots before its guard.**
+      `packages/docs/src/view/editor.ts` calls `docStore.snapshot()` before
+      `if (!cellInfo) return;`, unlike all six sibling table methods —
+      `deleteTable` even carries a comment stating the convention — so a no-op
+      call burns an undo step. It is also the only table method whose
+      cell-range branch omits the `blockId === tableBlockId` cross-check that
+      `table-merge-context.ts` makes. Unreachable through the menu today.
+- [ ] **Cells `GET` is the last type-unchecked route on the sheet surface.**
+      Every sibling family, `GET /tabs` included, answers 400 for a wrong
+      document type; cells reads answer `404 Tab not found`, which cannot be
+      told apart from a bad `tabId`. This branch left it deliberately — it is a
+      documented contract and reads create nothing — but the reason given
+      ("changing it is an API-contract change") applies equally to the write
+      verbs, which did change. Worth settling as a stated API change rather
+      than leaving the asymmetry.
+- [ ] **`assertSheetDocument` is copy-pasted into nine controllers**,
+      differing only in a message prefix. Matching the siblings was right for
+      this fix, but nine identical private methods is the shape that let the
+      cells one go missing.
