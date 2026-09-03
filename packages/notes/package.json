@@ -67,6 +67,6 @@
     "mermaid": "^11.16.0"
   },
   "peerDependencies": {
-    "@yorkie-js/sdk": "0.7.18"
+    "@yorkie-js/sdk": "0.7.19"
   }
 }
