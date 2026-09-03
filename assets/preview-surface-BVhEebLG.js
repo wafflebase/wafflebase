@@ -1,1 +1,0 @@
-import{j as n}from"./vendor-react-BcnGT3Lb.js";import{h as t}from"./index-CVcZZ98T.js";function m({className:r,preview:e,children:i}){return n.jsxs("div",{className:t("relative flex flex-1 min-w-0",r),children:[i,e]})}function o({previewing:r,children:e}){return r?null:n.jsx(n.Fragment,{children:e})}export{o as E,m as P};
