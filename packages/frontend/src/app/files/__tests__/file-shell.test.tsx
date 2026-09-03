@@ -57,35 +57,43 @@ const workspaces = [
   { id: "w2", name: "Second", slug: "second", createdAt: "" },
 ];
 
+// The folder rides in the query string, so the probe has to show it — a
+// pathname-only probe reads `/w/second` whether the folder survived or not.
 function LocationProbe() {
-  return <div data-testid="location">{useLocation().pathname}</div>;
+  const { pathname, search } = useLocation();
+  return <div data-testid="location">{pathname + search}</div>;
 }
 
 function renderShell(headerLeading?: React.ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/f/d1"]}>
-        <Routes>
-          <Route
-            path="/f/:id"
-            element={
-              <FileShell
-                documentId="d1"
-                headerActions={null}
-                headerLeading={headerLeading}
-              >
-                <div>body</div>
-              </FileShell>
-            }
-          />
-          <Route path="*" element={<LocationProbe />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return {
+    // Returned so a test can force the refetch that reaches the shell's own
+    // error branch.
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/f/d1"]}>
+          <Routes>
+            <Route
+              path="/f/:id"
+              element={
+                <FileShell
+                  documentId="d1"
+                  headerActions={null}
+                  headerLeading={headerLeading}
+                >
+                  <div>body</div>
+                </FileShell>
+              }
+            />
+            <Route path="*" element={<LocationProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe("FileShell", () => {
@@ -123,6 +131,35 @@ describe("FileShell", () => {
     renderShell();
     await waitFor(() =>
       expect(screen.getByTestId("location").textContent).toBe("/documents"),
+    );
+  });
+
+  // A *first-load* error never reaches this branch — `FileDetail` redirects
+  // before the shell mounts. What does is a refetch failure after a success
+  // (a collaborator deletes the document while the viewer is open), where
+  // react-query keeps the last data, so the folder is still known and the
+  // redirect can land where the user was rather than at the root.
+  it("carries the document's folder into the redirect", async () => {
+    vi.mocked(fetchWorkspaces).mockResolvedValue(workspaces);
+    vi.mocked(fetchDocument)
+      .mockResolvedValueOnce({
+        id: "d1",
+        title: "cat.png",
+        type: "image",
+        workspaceId: "w2",
+        folderId: "f1",
+      } as Awaited<ReturnType<typeof fetchDocument>>)
+      .mockRejectedValue(new Error("404"));
+
+    const { client } = renderShell();
+    // The first load has to succeed, or there is no folder to carry.
+    await screen.findByText("cat.png");
+
+    await client.refetchQueries({ queryKey: ["document", "d1"] });
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/w/second?folder=f1",
+      ),
     );
   });
 });

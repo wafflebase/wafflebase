@@ -109,9 +109,10 @@ export function ImageViewer({
   }, [current?.title, current?.fileId]);
 
   // Sibling images in the same folder, stably ordered, for prev/next. Scoped
-  // to the folder and not just the workspace, so the arrows walk the list the
-  // user was actually browsing — stepping into another folder's images would
-  // also change where the back button returns to.
+  // to the folder and not just the workspace, so the arrows stay inside the
+  // folder this image lives in — stepping into another folder's images would
+  // also change where the back button returns to, since that destination is
+  // derived from whichever image is on screen.
   const { data: allDocs = [] } = useQuery({
     queryKey: ["documents"],
     queryFn: fetchDocuments,

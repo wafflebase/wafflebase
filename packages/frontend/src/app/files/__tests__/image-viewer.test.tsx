@@ -48,17 +48,25 @@ function img(
   return { id, title, type: "image", workspaceId: "w1", folderId } as Document;
 }
 
-// Two siblings so ←/→ have somewhere to go. With an empty list `prevId` and
-// `nextId` are undefined and `navigate` is unreachable, which made every
-// arrow-key assertion pass for the wrong reason. Set per test rather than in
-// the module factory so a test can describe a different workspace shape.
-beforeEach(() => {
+/**
+ * Two siblings so ←/→ have somewhere to go. With an empty list `prevId` and
+ * `nextId` are undefined and `navigate` is unreachable, which made every
+ * arrow-key assertion pass for the wrong reason.
+ *
+ * Each `describe` sets the data it needs in its own `beforeEach`, after the
+ * `vi.clearAllMocks()` in the same hook list. Do not hoist this to a
+ * file-level hook: it would then depend on `clearAllMocks` keeping
+ * implementations (only `resetAllMocks` drops them), and one edit to the
+ * apparently-equivalent reset would empty the list and take the arrow
+ * assertions back to passing vacuously.
+ */
+function mockTwoSiblings() {
   vi.mocked(fetchDocument).mockResolvedValue(img("d1", "cat.png"));
   vi.mocked(fetchDocuments).mockResolvedValue([
     img("d1", "cat.png"),
     img("d2", "dog.png"),
   ]);
-});
+}
 
 function renderViewer(
   props: { onClose?: () => void; token?: string } = {},
@@ -101,7 +109,10 @@ function renderViewer(
 }
 
 describe("ImageViewer Esc handling (issue #840)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTwoSiblings();
+  });
 
   it("leaves the viewer on Esc", async () => {
     const onClose = vi.fn();
@@ -189,6 +200,8 @@ describe("ImageViewer Esc handling (issue #840)", () => {
 });
 
 describe("ImageViewer prev/next scope", () => {
+  // No shared default here: every test below states its own folder layout,
+  // which is the thing under test.
   beforeEach(() => vi.clearAllMocks());
 
   // Neighbours used to be every image in the workspace. An image opened from

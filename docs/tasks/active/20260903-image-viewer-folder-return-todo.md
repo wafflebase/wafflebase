@@ -58,8 +58,8 @@ the folder through the viewer.
       ("prev/next across the workspace's images", a destination with no
       folder in it), so it is corrected alongside the code
 - [x] `pnpm verify:fast`
-- [x] Self review over the branch diff
-- [ ] Browser smoke: open an image inside a folder, back arrow returns to it
+- [x] Self review over the branch diff (subagent reviewer), findings applied
+- [x] Browser smoke: open an image inside a folder, back arrow returns to it
 
 ## Review
 
@@ -90,3 +90,63 @@ that returns to the wrong list — adding one is a separate feature, not this
 fix. The back button also still *pushes* its destination rather than popping
 history; that is unchanged and correct, since the viewer is reachable by
 direct link with no history to pop.
+
+### Verified in a real browser
+
+Against the running dev stack, with the image the reporter linked: the live
+`GET /documents/:id` response does carry `folderId`, and the full loop
+(folder list → open the image → back arrow) lands on
+`/w/hackerwins-s-workspace?folder=a5efeafc-…` with the folder's breadcrumb
+(`Home / test`) and contents rendered. Esc reaches the same destination.
+
+**Not** browser-verified: the prev/next folder scoping. That workspace holds
+a single image, so the arrows never render — it rests on the two unit tests
+alone.
+
+### Review findings applied
+
+A reviewer subagent read the branch diff and the surrounding files. No
+Critical findings; both Important ones were about the change being
+*unfalsifiable* rather than wrong, and both are fixed:
+
+1. **`file-shell.tsx`'s share of the fix was unpinned.** Its test file still
+   used the pathname-only location probe — the exact accomplice the lessons
+   file names — and no case supplied a folder, so deleting the new argument
+   would have kept the suite green. Now probed on `pathname + search`, with
+   a case that reaches the shell's own error branch the only way production
+   can (a refetch failure *after* a success, where react-query keeps the
+   last data so the folder is still known). Confirmed a real discriminator
+   by reverting the argument: `expected '/w/second' to be
+   '/w/second?folder=f1'`.
+2. **The relocated mock defaults leaned on an undocumented invariant.**
+   Hoisting them to a file-level `beforeEach` worked only because
+   `clearAllMocks` keeps implementations where `resetAllMocks` drops them —
+   one apparently-equivalent edit away from an empty sibling list, which is
+   precisely what makes the arrow assertions pass vacuously. Each `describe`
+   now sets the data it needs in its own hook.
+
+Minor findings applied: the design doc's prev/next bullet was still wrong
+about the *component* and the fetch scope (`ImageViewer`, not `FileDetail`,
+and it fetches every workspace's documents then filters client-side); the
+`image-viewer.tsx` comment claimed the arrows follow "the list the user was
+browsing", which is only true when they arrived from that folder; and
+`useDocumentsPath` now separates *which slug* from *whether to keep the
+folder* with an early return instead of fusing both into one ternary.
+
+### Follow-ups not taken here
+
+- **A folder deleted while the viewer is open.** `Document.folderId` is
+  `SetNull`, but `["document", id]` has a 5-minute `staleTime`, so back can
+  navigate to `?folder=<deleted id>`. `folderPath()` returns `[]` for an
+  unknown id, so the list renders as a bare "Home" with no rows —
+  indistinguishable from an empty root. Reachable today by hand-typing
+  `?folder=bogus`; this change makes it reachable by a normal click.
+  `workspace-documents.tsx` dropping a `folder` absent from the loaded
+  folder list would close it, but that needs its own care (the folders query
+  must have settled first, or it would drop a valid folder mid-load).
+- **The `"folder"` parameter name is spelled in two modules** with no shared
+  symbol — read with `URLSearchParams` in `workspace-documents.tsx`, written
+  as a template literal here. Two call sites, both covered end-to-end by the
+  browser check, so a shared helper is deferred rather than speculative.
+- **A back click before `["workspaces"]` resolves** still lands on
+  `/documents`, losing workspace and folder both. Pre-existing.

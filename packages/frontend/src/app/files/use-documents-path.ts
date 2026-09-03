@@ -23,13 +23,16 @@ export function useDocumentsPath(
     queryFn: fetchWorkspaces,
   });
 
-  const own = workspaces.find((w) => w.id === workspaceId);
-  const slug = own?.slug ?? workspaces[0]?.slug;
-  if (!slug) return "/documents";
-  // A folder id only means something inside its own workspace's tree, so it
-  // is dropped when this fell back to some other workspace — that list would
-  // otherwise filter on a folder it does not contain and come up empty.
-  return own && folderId
-    ? `/w/${slug}?folder=${encodeURIComponent(folderId)}`
-    : `/w/${slug}`;
+  const ownWorkspace = workspaces.find((w) => w.id === workspaceId);
+  if (ownWorkspace) {
+    return folderId
+      ? `/w/${ownWorkspace.slug}?folder=${encodeURIComponent(folderId)}`
+      : `/w/${ownWorkspace.slug}`;
+  }
+
+  // A folder id only means something inside its own workspace's tree, so the
+  // fallback never carries one — that list would filter on a folder it does
+  // not contain and come up empty.
+  const fallback = workspaces[0]?.slug;
+  return fallback ? `/w/${fallback}` : "/documents";
 }

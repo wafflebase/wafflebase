@@ -25,6 +25,27 @@ back to revisit it. When a cross-cutting feature ships, the docs that
 describe *destinations* and *lists* are the ones most likely to be quietly
 falsified by it.
 
+## The probe lesson had a second instance I walked past
+
+Having written "a probe has to observe the part of the location that carries
+the state under test", I fixed `file-detail.test.tsx`'s probe and left the
+identical pathname-only probe in `file-shell.test.tsx` — the one file where
+the production change then had no test that could fail. Writing the lesson
+down is not the same as sweeping for other instances of it. When a defect
+turns out to be a *class* (here: a destination that silently drops state),
+grep for the class before claiming the fix is covered.
+
+## Relocating a mock default is a behavioral change
+
+Moving the `fetchDocuments` default out of the `vi.mock` factory into a
+file-level `beforeEach` looked like a refactor. It quietly made the whole
+suite depend on `clearAllMocks` preserving implementations while
+`resetAllMocks` drops them — so a later edit between two functions that read
+as synonyms would empty the sibling list and take every arrow-key assertion
+back to passing for the reason a comment in that same file warns about.
+Test-scaffolding edits deserve the "what invariant does this now rest on?"
+question that production edits get.
+
 ## One symptom, two defects
 
 The reported symptom was the back button. Reading the surrounding file turned
