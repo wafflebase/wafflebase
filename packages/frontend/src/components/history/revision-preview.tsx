@@ -18,12 +18,18 @@ import {
   initialize as initializeNote,
   MemNoteStore,
 } from '@wafflebase/notes';
+import {
+  initialize as initializeDocs,
+  MemDocStore,
+  type Document as DocsDocument,
+} from '@wafflebase/docs';
 
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/components/theme-provider';
 
 import {
   parseBoardSnapshot,
+  parseDocsSnapshot,
   parseNoteSnapshot,
   parseSheetSnapshot,
   parseSlidesSnapshot,
@@ -34,7 +40,12 @@ import { readRevisionMeta } from './revision-meta';
 import { useRestoreInProgress } from './restore-lock';
 import { useRevisionHistory } from './use-revision-history';
 
-export type RevisionPreviewType = 'sheet' | 'slides' | 'board' | 'note';
+export type RevisionPreviewType =
+  | 'sheet'
+  | 'slides'
+  | 'board'
+  | 'note'
+  | 'doc';
 
 type Props = {
   revisionId: string;
@@ -60,7 +71,8 @@ type ParsedContent =
   | { kind: 'sheet'; doc: SpreadsheetDocument }
   | { kind: 'slides'; doc: SlidesDocument }
   | { kind: 'board'; doc: SlidesDocument }
-  | { kind: 'note'; text: string };
+  | { kind: 'note'; text: string }
+  | { kind: 'doc'; doc: DocsDocument };
 
 function parseByType(type: RevisionPreviewType, snapshot: string): ParsedContent {
   switch (type) {
@@ -72,6 +84,8 @@ function parseByType(type: RevisionPreviewType, snapshot: string): ParsedContent
       return { kind: 'board', doc: parseBoardSnapshot(snapshot) };
     case 'note':
       return { kind: 'note', text: parseNoteSnapshot(snapshot) };
+    case 'doc':
+      return { kind: 'doc', doc: parseDocsSnapshot(snapshot) };
   }
 }
 
@@ -118,9 +132,11 @@ function formatRevisionTime(date: Date): string {
  * Read-only preview of one past revision, rendered as a banner over the
  * document's own viewer rather than a modal: four of the five engines are
  * Canvas-based, and a Canvas mounted inside a dialog loses the scroll, zoom
- * and pan the live viewer already implements. Docs is not a supported
- * `type` here — see `snapshot-adapters.ts` for why (`YSON.parse` cannot
- * read a docs snapshot's nested `Tree`).
+ * and pan the live viewer already implements.
+ *
+ * All five document types are supported. Docs was the last to arrive: its
+ * snapshot was unparsable until `@yorkie-js/sdk@0.7.19` rewrote
+ * `preprocessYSON` as a string-aware scanner — see `snapshot-adapters.ts`.
  */
 export function RevisionPreview({
   revisionId,
@@ -308,6 +324,7 @@ export function RevisionPreview({
         )}
         {!error && content?.kind === 'board' && <SlidesPreview doc={content.doc} board />}
         {!error && content?.kind === 'note' && <NotePreview text={content.text} />}
+        {!error && content?.kind === 'doc' && <DocsPreview doc={content.doc} />}
       </div>
     </div>
   );
@@ -755,6 +772,61 @@ function NotePreview({ text }: { text: string }) {
       <div ref={containerRef} className="h-full w-full overflow-auto" />
       {mountError !== null && (
         <MountErrorOverlay what="text" error={mountError} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Mounts `@wafflebase/docs`'s own Canvas editor read-only over a
+ * `MemDocStore` seeded with the parsed snapshot — the same
+ * `initialize(container, store, theme, readOnly)` call `DocsView` makes, and
+ * the same read-only mode a share-link viewer already gets, so pagination,
+ * scrolling and the page chrome all come for free.
+ *
+ * `MemDocStore` takes the document in its constructor, which matters under
+ * `readOnly`: `initialize` deliberately skips its "seed an empty document
+ * with one paragraph" step for read-only mounts, so a store handed nothing
+ * would render genuinely empty rather than recovering.
+ */
+function DocsPreview({ doc }: { doc: DocsDocument }) {
+  const { resolvedTheme } = useTheme();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [mountError, setMountError] = useState<unknown>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    setMountError(null);
+
+    // Same host-element discipline as `SheetPreview`: the engine gets an
+    // element belonging to *this* effect run, so a teardown racing a remount
+    // (StrictMode, a theme flip, paging to another revision) cannot empty the
+    // next mount's DOM.
+    const host = document.createElement('div');
+    host.style.width = '100%';
+    host.style.height = '100%';
+    container.appendChild(host);
+
+    let editor: ReturnType<typeof initializeDocs> | undefined;
+    try {
+      editor = initializeDocs(host, new MemDocStore(doc), resolvedTheme, true);
+    } catch (err) {
+      console.error('Failed to mount the docs preview', err);
+      setMountError(err);
+    }
+
+    return () => {
+      editor?.dispose();
+      host.remove();
+    };
+  }, [doc, resolvedTheme]);
+
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
+      {mountError !== null && (
+        <MountErrorOverlay what="document" error={mountError} />
       )}
     </div>
   );

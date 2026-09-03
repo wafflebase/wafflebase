@@ -1,7 +1,7 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -28,6 +28,20 @@ import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
+import {
+  EditingChrome,
+  PreviewSurface,
+} from "@/components/history/preview-surface";
+
+// Lazy for the same reason as the other four editors: `revision-preview.tsx`
+// statically imports every engine it might have to mount (sheets, slides,
+// notes and docs), so an eager import here would pull the other three into
+// this route's chunk for a feature almost never opened.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
 
 
 /**
@@ -44,12 +58,9 @@ function DocsLayout({ documentId }: { documentId: string }) {
   const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
 
   const [historyOpen, setHistoryOpen] = useState(false);
-  // No `previewRevisionId` state here, unlike the other four editors:
-  // docs snapshots can't be parsed (`YSON.parse` can't read past three
-  // `Tree(...)` brace levels; every docs document nests `doc > block >
-  // inline > text`, depth 4 — see `snapshot-adapters.ts`), so `HistoryPanel`
-  // is mounted with no `onPreview` and renders its Preview button disabled
-  // with a reason instead of a dead click.
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(
+    null,
+  );
   // Bumped on restore to remount DocsView, dropping its local selection and
   // caret state. `doc.clearHistory()` (below) separately drops the Yorkie
   // undo stack — a restore replaces the whole root, so neither piece of
@@ -121,6 +132,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
     staleTime: 5 * 60 * 1000,
   });
 
+  // The single source of truth for "a preview is covering the editor pane",
+  // read by both halves of the containment: `EditingChrome` (which removes
+  // the toolbar) and `PreviewSurface` (which covers the pane). One
+  // expression so the two can never disagree.
+  const previewing = Boolean(previewRevisionId && currentUser);
+
   useEffect(() => {
     document.title = documentData?.title
       ? `${documentData.title} — Wafflebase`
@@ -183,24 +200,29 @@ function DocsLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Toggle
-                  size="sm"
-                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                  aria-label={
-                    commentsPanelOpen ? "Hide comments" : "Show comments"
-                  }
-                  pressed={commentsPanelOpen}
-                  onPressedChange={setCommentsPanelOpen}
-                >
-                  <IconMessage size={16} />
-                </Toggle>
-              </TooltipTrigger>
-              <TooltipContent>
-                {commentsPanelOpen ? "Hide comments" : "Show comments"}
-              </TooltipContent>
-            </Tooltip>
+            {/* The comments toggle is editing chrome, so a preview removes it
+                like the formatting toolbar — otherwise it is the one control
+                that could re-open the side panel *over* an open preview. */}
+            <EditingChrome previewing={previewing}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Toggle
+                    size="sm"
+                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                    aria-label={
+                      commentsPanelOpen ? "Hide comments" : "Show comments"
+                    }
+                    pressed={commentsPanelOpen}
+                    onPressedChange={setCommentsPanelOpen}
+                  >
+                    <IconMessage size={16} />
+                  </Toggle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {commentsPanelOpen ? "Hide comments" : "Show comments"}
+                </TooltipContent>
+              </Tooltip>
+            </EditingChrome>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Toggle
@@ -231,22 +253,60 @@ function DocsLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <DocsFormattingToolbar editor={editor} editContext={editContext} />
+          {/* Same arrangement as slides and notes, for the same reason: the
+              formatting toolbar stays full-width above the panel row, and a
+              preview contains it by REMOVING it. Leaving it live under a
+              banner would let a viewer restyle the document they believe
+              they are only looking at. See `EditingChrome`. */}
+          <EditingChrome previewing={previewing}>
+            <DocsFormattingToolbar editor={editor} editContext={editContext} />
+          </EditingChrome>
           <div className="flex flex-1 min-h-0 overflow-hidden">
-            <DocsView
-              key={historyResetToken}
-              onEditorReady={setEditor}
-              onJumpHandleReady={setJumpHandle}
-              documentId={documentId}
-              workspaceId={documentData?.workspaceId}
-              commentsPanelOpen={commentsPanelOpen}
-              onCommentsPanelOpenChange={setCommentsPanelOpen}
-            />
+            <PreviewSurface
+              preview={
+                previewing && previewRevisionId && currentUser ? (
+                  <Suspense fallback={null}>
+                    <RevisionPreviewOverlay
+                      revisionId={previewRevisionId}
+                      type="doc"
+                      userId={currentUser.id}
+                      onClose={() => setPreviewRevisionId(null)}
+                      onRestored={handleHistoryRestored}
+                    />
+                  </Suspense>
+                ) : null
+              }
+            >
+              <DocsView
+                key={historyResetToken}
+                onEditorReady={setEditor}
+                onJumpHandleReady={setJumpHandle}
+                documentId={documentId}
+                workspaceId={documentData?.workspaceId}
+                // Docs is the only editor with a z-indexed panel *inside*
+                // `PreviewSurface`: the comments panel is `z-40` and the
+                // preview overlay is `z-20`, and neither `PreviewSurface` nor
+                // `DocsView`'s root creates a stacking context (both are
+                // `position: relative` with `z-index: auto`). So covering
+                // does not contain this one — the panel painted above the
+                // preview, fully clickable, and its Resolve / Reply / Edit /
+                // Delete controls all mutate the LIVE document behind it.
+                // That is exactly the failure `preview-surface.tsx` describes.
+                // Withholding it applies that module's own rule instead: while
+                // a preview is open, no editing control is both rendered and
+                // reachable. The user's choice survives — `commentsPanelOpen`
+                // is untouched, so closing the preview restores the panel.
+                commentsPanelOpen={commentsPanelOpen && !previewing}
+                onCommentsPanelOpenChange={setCommentsPanelOpen}
+              />
+            </PreviewSurface>
             {historyOpen && currentUser && (
               <HistoryPanel
                 userId={currentUser.id}
                 onClose={() => setHistoryOpen(false)}
+                onPreview={setPreviewRevisionId}
                 onRestored={handleHistoryRestored}
+                refreshKey={historyResetToken}
               />
             )}
           </div>

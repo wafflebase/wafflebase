@@ -17,7 +17,6 @@ import type {
   TableRow,
   TableCell,
   CellStyle,
-  BorderStyle,
   DocPosition,
   DocRange,
   DocStyles,
@@ -46,6 +45,7 @@ import {
   parseBlockStyleAttrs,
   serializeMarginFromEdgeAttrs,
   parseMarginFromEdgeAttr,
+  parseBorderStyle,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -295,11 +295,11 @@ function removeNodeStyle(
   tree.removeStyle(from, from + 1, attrsToRemove);
 }
 
-function parseBorderStyle(value: string): BorderStyle | undefined {
-  const parts = value.split(',');
-  if (parts.length !== 3) return undefined;
-  return { width: Number(parts[0]), style: parts[1] as 'solid' | 'none', color: parts[2] };
-}
+// Border parsing is shared with `@wafflebase/docs` rather than kept here.
+// This copy used a naive `split(',')` with a `length !== 3` guard, so any
+// `rgb(r, g, b)` colour yielded 5 parts and the border was silently dropped —
+// while the backend reader (and now the revision preview, which uses the
+// shared one) parsed it correctly. The two disagreed about the same table.
 
 function parseCellStyle(attrs: Record<string, string>): CellStyle {
   const style: CellStyle = {};
