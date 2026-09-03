@@ -252,5 +252,39 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
         data: { title: 'New', folder: { connect: { id: 'f-1' } } },
       });
     });
+
+    // The handler used to spread the whole request body into
+    // `prisma.document.update`, so any column a caller named was writable —
+    // and the body is an inline type, not a DTO class, so the global
+    // `ValidationPipe({ whitelist: true })` strips nothing here. `title` and
+    // `folderId` are now copied across one field at a time; these two cases
+    // are what would fail if a later edit reintroduced the spread.
+    it('drops unknown body fields instead of writing them', async () => {
+      await controller.update(WS, 'doc-1', req(AUTHOR), {
+        title: 'New',
+        // Every one of these is a real `Document` column, and none of them
+        // may be set through a rename.
+        type: 'pdf',
+        authorID: OWNER,
+        workspaceId: 'ws-attacker',
+        fileId: 'stolen-blob.pdf',
+        id: 'doc-2',
+      } as never);
+      expect(documentService.updateDocument).toHaveBeenCalledWith({
+        where: { id: 'doc-1' },
+        data: { title: 'New' },
+      });
+    });
+
+    it('writes nothing when the body carries only unknown fields', async () => {
+      await controller.update(WS, 'doc-1', req(AUTHOR), {
+        type: 'pdf',
+        fileId: 'stolen-blob.pdf',
+      } as never);
+      expect(documentService.updateDocument).toHaveBeenCalledWith({
+        where: { id: 'doc-1' },
+        data: {},
+      });
+    });
   });
 });

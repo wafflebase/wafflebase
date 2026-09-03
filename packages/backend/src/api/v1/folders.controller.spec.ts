@@ -1,5 +1,39 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ApiV1FoldersController } from './folders.controller';
+import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
+import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
+
+// `list` and `create` trust the route `workspaceId` outright — they have no
+// membership or key-scope check of their own, deliberately, because the
+// class-level guards run first. That makes the mounting itself the security
+// boundary: drop `WorkspaceScopeGuard` and an API key minted for one
+// workspace lists and writes folders in another. These tests instantiate the
+// controller directly, so no guard ever executes here; assert the metadata.
+describe('ApiV1FoldersController guards', () => {
+  const guards: unknown[] =
+    (Reflect.getMetadata(
+      '__guards__',
+      ApiV1FoldersController,
+    ) as unknown[]) ?? [];
+
+  it.each([
+    ['CombinedAuthGuard', CombinedAuthGuard],
+    ['WorkspaceScopeGuard', WorkspaceScopeGuard],
+    ['ApiKeyWriteScopeGuard', ApiKeyWriteScopeGuard],
+  ])('mounts %s at the class level', (_name, guard) => {
+    expect(guards).toContain(guard);
+  });
+
+  // Authentication has to resolve `req.user` before the scope guard reads it,
+  // and the scope guard rewrites `params.workspaceId` from a slug to a uuid
+  // before any handler sees it.
+  it('authenticates before it scopes', () => {
+    expect(guards.indexOf(CombinedAuthGuard)).toBeLessThan(
+      guards.indexOf(WorkspaceScopeGuard),
+    );
+  });
+});
 
 const WS = 'ws-1';
 const OTHER_WS = 'ws-2';
