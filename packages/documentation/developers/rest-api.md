@@ -156,8 +156,12 @@ curl -X POST \
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `title` | string | Yes | Document title |
+| `title` | string | Yes | Document title, **1–200 characters**. Missing, empty, longer than 200, or not a string is a `400` |
 | `type` | string | No | `"doc"`, `"slides"`, `"note"` or `"board"`. Every other value — including an unrecognised one — is stored as `"sheet"` |
+
+Any key other than these two is a `400 property <name> should not exist`.
+
+The 200-character cap is counted in characters, not bytes, and the title is not trimmed — a title of spaces is one character per space and is accepted. It matches the cap the web app enforces on the same column.
 
 The new document is authored by the caller. For an API key, that is the user who created the key.
 
@@ -173,20 +177,17 @@ GET /api/v1/workspaces/:wid/documents/:did
 PATCH /api/v1/workspaces/:wid/documents/:did
 ```
 
-**Send only the field you mean to change — the whole body reaches the database row.** The handler is declared as `{ title?: string }`, but that is a compile-time TypeScript type. The global validation pipe skips a body whose runtime metatype is a plain object, so no key is stripped and no key is rejected, and the body is passed straight to Prisma's `document.update()` as its `data`.
-
-What that means in practice:
+**`title` is the only writable field.** The body is validated against a DTO class, and the global validation pipe runs with `whitelist: true, forbidNonWhitelisted: true`, so an unrecognised key is *rejected* rather than ignored. The handler then copies `title` across by name instead of spreading the body, so nothing but that column can reach `document.update()`.
 
 | You send | What happens |
 |----------|--------------|
 | `title` | Renamed — the intended use |
-| `type`, `fileId`, `fileSize`, `mimeType` | **Written.** These are real `Document` columns. `PATCH {"type": "slides"}` on a spreadsheet answers `200` and changes which editor opens the document |
-| A key that is not a column Prisma will write | Prisma throws, and the request fails with a **`500`**, not a `400` |
-| `updatedAt` | Ignored. The service overwrites it with the current time whenever the body has at least one key |
+| `title` blank, longer than 200 characters, or not a string | `400` |
+| `type`, `fileId`, `fileSize`, `mimeType` | **`400`.** They are real `Document` columns, but they are not part of this body: a document's type, and the blob backing it, are fixed when it is created |
+| Any other unknown key, `updatedAt` and `editors` included | `400 property <name> should not exist`. The database is never touched |
+| `{}` — no keys at all | `200`, and nothing is written. `updatedAt` is not bumped either, so a no-op `PATCH` does not re-sort the document to the top of a list |
 
-In particular, **do not read a document row and `PATCH` the whole object back** after changing `title`. A row from [List Documents](#list-documents) can carry an `editors` field, which is not a column and gives you a `500`; a row from either read carries `type`, which would be rewritten.
-
-Anything beyond `title` here is observable behavior rather than a supported feature. Do not build on it.
+**Do not read a document row and `PATCH` the whole object back** after changing `title`. Nothing is corrupted if you do — but the rename will not happen, because the request is a `400`: a row from either read carries `type` and `createdAt`, and a row from [List Documents](#list-documents) can also carry `editors`. Send only the field you are changing.
 
 ```bash
 curl -X PATCH \

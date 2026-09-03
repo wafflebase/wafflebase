@@ -354,9 +354,18 @@ precedence order — environment variables outrank every file, including
    `.env.production`** and filling it in — also gitignored, so it will not show
    up as a repository modification or conflict on an upstream merge.
 
-Leaving a variable out is not an error and nothing prompts you. The four in the
-table below that appear in `.env` fall back to their **localhost** values;
-everything else, `VITE_GA_ID` included, is genuinely unset because no committed
+Leaving a variable out is not an error and nothing prompts you. Four of the
+variables in the table below appear in the committed `packages/frontend/.env`
+and fall back to whatever it sets, which is **not** the same value in each case:
+
+- `VITE_BACKEND_API_URL` → `http://localhost:3000`
+- `VITE_YORKIE_RPC_ADDR` → `http://localhost:8080`
+- `VITE_FRONTEND_BASENAME` → `/`
+- `VITE_YORKIE_PUBLIC_KEY` → **empty**; the key is declared there with no value,
+  so omitting it builds a client with no `apiKey`, not one pointed at a local
+  project
+
+Everything else, `VITE_GA_ID` included, is genuinely unset because no committed
 file sets it.
 
 | Variable | Required for a non-localhost deployment | Notes |

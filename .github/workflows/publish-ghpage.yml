@@ -143,11 +143,17 @@ jobs:
         # backend URL and GA measurement ID from its own Pages site. With
         # variables, a fork gets the loud failure below instead.
         #
-        # Missing values FAIL rather than fall back. This step runs before
-        # `pnpm i`, and the deploy step below uses `keep_files: true`, so a
-        # failure here costs a deploy and leaves the currently published site
-        # exactly as it is — strictly better than publishing a broken or
-        # upstream-pointing bundle over a working one.
+        # Missing values FAIL rather than fall back. A failure here costs a
+        # deploy and leaves the currently published site exactly as it is —
+        # strictly better than publishing a broken or upstream-pointing bundle
+        # over a working one. The mechanism is step ordering, not
+        # `keep_files`: every later step carries a bare `if:`, which GitHub
+        # implicitly ANDs with `success()`, so a failure here skips Deploy
+        # entirely and nothing is published. (`keep_files: true` governs what a
+        # deploy that *does* run leaves behind on gh-pages; it would matter
+        # only if a partial build reached the Deploy step.) Adding
+        # `always()`/`failure()` to any later step's `if:` would remove that
+        # protection.
         #
         # Through `env:` rather than interpolated into the script body, for the
         # same reason as the affected-paths step above: `${{ }}` in a shell
