@@ -120,6 +120,15 @@ export interface AxisMove {
   dstIndex: number;
 }
 
+/** A folder in the workspace tree; `parentId: null` means the root. */
+export interface Folder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  authorID: number | null;
+  createdAt: string;
+}
+
 /** An image stored in the workspace image bucket. */
 export interface WorkspaceImage {
   id: string;
@@ -298,6 +307,40 @@ export class HttpClient {
   }
   deleteDocument(id: string) {
     return this.request('DELETE', `/documents/${seg(id)}`);
+  }
+  /** Duplicate a document as `<title> (copy)` in the same workspace + folder. */
+  copyDocument(id: string) {
+    return this.request('POST', `/documents/${seg(id)}/copy`);
+  }
+  /**
+   * File a document under `folderId`, or return it to the workspace root when
+   * that is `null`. The same `PATCH` a rename uses — the backend reads the two
+   * fields independently, so `null` here is a move rather than "unchanged".
+   */
+  moveDocument(id: string, folderId: string | null) {
+    return this.request('PATCH', `/documents/${seg(id)}`, { folderId });
+  }
+
+  // Folders — the workspace's organizational tree. Workspace-scoped like
+  // `images`, not document-scoped: a folder holds documents, nothing holds it
+  // but the workspace and its parent.
+  listFolders() {
+    return this.request<Folder[]>('GET', '/folders');
+  }
+  createFolder(name: string, parentId?: string) {
+    const body: { name: string; parentId?: string } = { name };
+    if (parentId) body.parentId = parentId;
+    return this.request<Folder>('POST', '/folders', body);
+  }
+  renameFolder(id: string, name: string) {
+    return this.request<Folder>('PATCH', `/folders/${seg(id)}`, { name });
+  }
+  /** `null` moves the folder to the workspace root. */
+  moveFolder(id: string, parentId: string | null) {
+    return this.request<Folder>('PATCH', `/folders/${seg(id)}`, { parentId });
+  }
+  deleteFolder(id: string) {
+    return this.request<Folder>('DELETE', `/folders/${seg(id)}`);
   }
 
   // Files (blob documents) — no CRDT content, just bytes. Upload stores the

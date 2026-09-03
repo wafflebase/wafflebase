@@ -4,6 +4,7 @@ import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { ApiV1DocsContentController } from './docs-content.controller';
 import { ApiV1DocumentsController } from './documents.controller';
 import { ApiV1FilesController } from './files.controller';
+import { ApiV1FoldersController } from './folders.controller';
 import { ApiV1ImagesController } from './images.controller';
 import { ApiV1TabsController } from './tabs.controller';
 import { ApiV1CellsController } from './cells.controller';
@@ -65,6 +66,7 @@ describe('ApiKeyWriteScopeGuard', () => {
       ['docs-content', ApiV1DocsContentController],
       ['documents', ApiV1DocumentsController],
       ['files', ApiV1FilesController],
+      ['folders', ApiV1FoldersController],
       ['images', ApiV1ImagesController],
       ['tabs', ApiV1TabsController],
       ['cells', ApiV1CellsController],

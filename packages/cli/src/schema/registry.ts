@@ -134,6 +134,29 @@ const registry: CommandSchema[] = [
     aliases: ['doc.rename', 'document.rename', 'documents.rename'],
   },
   {
+    name: 'docs.copy',
+    description:
+      'Duplicate a document as "<title> (copy)" in the same workspace and folder',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID (any type: sheet, doc, slides, note, board, pdf, image, file)' },
+    },
+    response: { id: 'string', title: 'string', type: 'string' },
+    aliases: ['doc.copy', 'document.copy', 'documents.copy'],
+  },
+  {
+    name: 'docs.move',
+    description:
+      'File a document under a workspace folder; omit the folder to return it to the root',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'folder-id': { type: 'string', required: false, description: 'Target folder ID (omit for the workspace root)' },
+    },
+    response: { id: 'string', title: 'string', folderId: 'string | null' },
+    aliases: ['doc.move', 'document.move', 'documents.move'],
+  },
+  {
     name: 'docs.delete',
     description: 'Delete a document',
     safety: 'destructive',
@@ -523,6 +546,64 @@ const registry: CommandSchema[] = [
     },
     response: { deleted: 'boolean' },
     aliases: ['image.delete'],
+  },
+
+  // Folders (workspace organizational tree) namespace. Workspace-scoped like
+  // images. Folders are organizational only — they carry no permissions, so
+  // moving a document into one never changes who can read it.
+  {
+    name: 'folders.list',
+    description:
+      'List folders in the workspace (flat; parentId builds the tree, null is the root)',
+    safety: 'read-only',
+    parameters: {},
+    response: { type: 'array', items: { id: 'string', name: 'string', parentId: 'string | null', authorID: 'number', createdAt: 'string' } },
+    aliases: ['folder.list'],
+  },
+  {
+    name: 'folders.create',
+    description: 'Create a folder (default: at the workspace root)',
+    safety: 'write',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Folder name (1-200 characters)' },
+      '--parent': { type: 'string', required: false, description: 'Parent folder ID; omit to create at the workspace root' },
+    },
+    response: { id: 'string', name: 'string', parentId: 'string | null' },
+    aliases: ['folder.create'],
+  },
+  {
+    name: 'folders.rename',
+    description: 'Rename a folder',
+    safety: 'write',
+    parameters: {
+      'folder-id': { type: 'string', required: true, description: 'Folder ID' },
+      name: { type: 'string', required: true, description: 'New name (1-200 characters)' },
+    },
+    response: { id: 'string', name: 'string' },
+    aliases: ['folder.rename'],
+  },
+  {
+    name: 'folders.move',
+    description:
+      'Move a folder under a new parent; omit the parent to move it to the workspace root',
+    safety: 'write',
+    parameters: {
+      'folder-id': { type: 'string', required: true, description: 'Folder ID' },
+      'parent-folder-id': { type: 'string', required: false, description: 'New parent folder ID (omit for the workspace root); a cycle is refused' },
+    },
+    response: { id: 'string', parentId: 'string | null' },
+    aliases: ['folder.move'],
+  },
+  {
+    name: 'folders.delete',
+    description:
+      'Delete a folder and its descendant folders; their documents return to the workspace root',
+    safety: 'destructive',
+    parameters: {
+      'folder-id': { type: 'string', required: true, description: 'Folder ID' },
+    },
+    response: { id: 'string', name: 'string' },
+    aliases: ['folder.delete'],
   },
 
   // Sheets namespace — canonical names live under sheets.*

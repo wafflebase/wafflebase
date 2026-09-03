@@ -69,11 +69,15 @@ before treating this as a roadmap.
 
 ## Step 4: Decide the A′ question (7 items)
 
-- [ ] Answer open question 3 — do agents authenticate with an API key or a
-      session? Gap A′ only exists under an API key
-- [ ] If API key: `CombinedAuthGuard` on folders/copy, or an `/api/v1` folder
-      surface
-- [ ] CLI commands for folders, document copy, move-to-folder
+Closed — see [20260903-api-v1-folders-copy-todo.md](./20260903-api-v1-folders-copy-todo.md).
+
+- [x] Answer open question 3 — **an API key**. A session expires and belongs to
+      a person, so a bench that needs one cannot run unattended
+- [x] An `/api/v1` folder surface, **not** `CombinedAuthGuard` on the web
+      routes: `WorkspaceScopeGuard` scopes a key by reading `:workspaceId` from
+      the path, and `folders/:id` carries none
+- [x] CLI commands — `folders list|create|rename|move|delete`, `docs copy`,
+      `docs move` — each with a `schema/registry.ts` entry
 
 ## Step 5: `office-agent`, then the sweeps
 

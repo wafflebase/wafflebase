@@ -132,6 +132,13 @@ describe('schema registry', () => {
     expect(names).toContain('docs.content');
     expect(names).toContain('docs.export');
     expect(names).toContain('docs.import');
+    expect(names).toContain('docs.copy');
+    expect(names).toContain('docs.move');
+    expect(names).toContain('folders.list');
+    expect(names).toContain('folders.create');
+    expect(names).toContain('folders.rename');
+    expect(names).toContain('folders.move');
+    expect(names).toContain('folders.delete');
     expect(names).toContain('sheets.tabs.list');
     expect(names).toContain('sheets.cells.get');
     expect(names).toContain('sheets.cells.set');
@@ -163,6 +170,13 @@ describe('schema registry', () => {
     expect(getCommandSchema('sheets.export')!.safety).toBe('read-only');
     expect(getCommandSchema('slides.export')!.safety).toBe('read-only');
     expect(getCommandSchema('api-keys.revoke')!.safety).toBe('destructive');
+    // A copy creates and a move relocates; neither destroys anything. Deleting
+    // a folder does not delete its documents either, but it does remove a
+    // resource, so it keeps the destructive class its siblings have.
+    expect(getCommandSchema('docs.copy')!.safety).toBe('write');
+    expect(getCommandSchema('docs.move')!.safety).toBe('write');
+    expect(getCommandSchema('folders.list')!.safety).toBe('read-only');
+    expect(getCommandSchema('folders.delete')!.safety).toBe('destructive');
   });
 
   describe('alias resolution', () => {

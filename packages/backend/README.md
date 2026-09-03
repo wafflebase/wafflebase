@@ -607,8 +607,36 @@ unaffected; their authority is workspace membership and document ownership.
 | `GET` | `/api/v1/workspaces/:wid/documents` | List documents in workspace |
 | `POST` | `/api/v1/workspaces/:wid/documents` | Create document (`{ title }`) |
 | `GET` | `/api/v1/workspaces/:wid/documents/:did` | Get document metadata |
-| `PATCH` | `/api/v1/workspaces/:wid/documents/:did` | Update document (`{ title }`) |
+| `PATCH` | `/api/v1/workspaces/:wid/documents/:did` | Update document (`{ title }`) or file it (`{ folderId }`, `null` = root) |
+| `POST` | `/api/v1/workspaces/:wid/documents/:did/copy` | Duplicate as `<title> (copy)` |
 | `DELETE` | `/api/v1/workspaces/:wid/documents/:did` | Delete document |
+
+`PATCH` reads `title` and `folderId` independently — omitting `folderId` leaves
+the document where it is, and `null` returns it to the workspace root. A rename
+is open to any member; filing it elsewhere is manager-gated, matching the web
+`PATCH /documents/:id`. There is no cross-workspace move on this surface: an
+API key is bound to one workspace. `POST .../copy` runs the same
+`DocumentCopyService` the web "Make a copy" does and is gated on membership
+alone, since a copy never touches the source.
+
+#### Folders
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/v1/workspaces/:wid/folders` | Create a folder (`{ name, parentId? }`) |
+| `GET` | `/api/v1/workspaces/:wid/folders` | List folders (flat; `parentId` builds the tree) |
+| `PATCH` | `/api/v1/workspaces/:wid/folders/:folderId` | Rename (`{ name }`) or move (`{ parentId }`, `null` = root) |
+| `DELETE` | `/api/v1/workspaces/:wid/folders/:folderId` | Delete a folder |
+
+The API-key-capable equivalent of the JWT-only folder routes above, delegating
+to the same `FolderService` — so the cycle guard and the non-destructive delete
+(descendants cascade, their documents return to the workspace root) are one
+implementation. The routes are **nested under the workspace** rather than
+copied as `folders/:id`, because `WorkspaceScopeGuard` is what refuses a key
+minted for another workspace and it reads `:workspaceId` out of the path;
+mounting `CombinedAuthGuard` on the bare web routes would leave nothing for it
+to check. A folder in another workspace answers `404`, not `403`. Renaming is
+open to any member, moving and deleting are manager-gated.
 
 #### Files (blob documents)
 

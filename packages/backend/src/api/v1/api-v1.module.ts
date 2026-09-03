@@ -13,6 +13,7 @@ import { ApiV1DocsContentController } from './docs-content.controller';
 import { ApiV1ImagesController } from './images.controller';
 import { ApiV1ImageReadController } from './image-read.controller';
 import { ApiV1FilesController } from './files.controller';
+import { ApiV1FoldersController } from './folders.controller';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -21,6 +22,9 @@ import { ApiKeyModule } from '../../api-key/api-key.module';
 import { ImageModule } from '../../image/image.module';
 import { FileModule } from '../../file/file.module';
 import { FolderModule } from '../../folder/folder.module';
+// For `DocumentCopyService` — `POST /documents/:id/copy` runs the same engine
+// the web "Make a copy" does rather than a second implementation of it.
+import { DocumentModule } from '../../document/document.module';
 import { ShareLinkModule } from '../../share-link/share-link.module';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/optional-jwt-auth.guard';
@@ -35,6 +39,7 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ImageModule,
     FileModule,
     FolderModule,
+    DocumentModule,
     ShareLinkModule,
   ],
   controllers: [
@@ -52,6 +57,7 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ApiV1ImagesController,
     ApiV1ImageReadController,
     ApiV1FilesController,
+    ApiV1FoldersController,
   ],
   providers: [
     DocumentService,

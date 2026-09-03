@@ -6,6 +6,7 @@ import { registerSlidesCommand } from './commands/slides.js';
 import { registerNotesCommand } from './commands/notes.js';
 import { registerFilesCommand } from './commands/files.js';
 import { registerImagesCommand } from './commands/images.js';
+import { registerFoldersCommand } from './commands/folders.js';
 import { registerApiKeysCommand } from './commands/api-keys.js';
 import { registerSchemaCommand } from './commands/schema.js';
 import { registerLoginCommand } from './commands/login.js';
@@ -28,6 +29,7 @@ export function buildProgram(): Command {
   registerNotesCommand(program);
   registerFilesCommand(program);
   registerImagesCommand(program);
+  registerFoldersCommand(program);
   registerApiKeysCommand(program);
   registerSchemaCommand(program);
 

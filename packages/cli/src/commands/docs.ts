@@ -166,6 +166,56 @@ export function registerDocsCommand(program: Command) {
       }
     });
 
+  // `copy` and `move` are registered on `docs` rather than per type because
+  // both act on the document row — they work on a deck, a note or a PDF just
+  // as well as on a doc, and `docs` is this CLI's generic document namespace
+  // (hence its `document` / `documents` aliases).
+  doc
+    .command('copy <doc-id>')
+    .description('Duplicate a document as "<title> (copy)"')
+    .action(async function (this: Command, docId: string) {
+      const opts = getGlobalOpts(this);
+      try {
+        // Inside the try, ahead of `--format` narrowing: the preview path is
+        // built from an id and `seg()` refuses a `.` / `..` one, so that
+        // refusal reaches `outputError` as the error envelope.
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'POST', `/documents/${seg(docId)}/copy`);
+          return;
+        }
+        const fmt = parseOutputFormat(opts.format);
+        const res = await getClient(opts).copyDocument(docId);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  doc
+    .command('move <doc-id> [folder-id]')
+    .description('File a document under a folder (omit the folder for root)')
+    .action(async function (this: Command, docId: string, folderId?: string) {
+      const opts = getGlobalOpts(this);
+      try {
+        // `null`, not `undefined`: the backend reads an absent `folderId` as
+        // "leave it where it is", so the move to the root is an explicit null.
+        const target = folderId ?? null;
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+            folderId: target,
+          });
+          return;
+        }
+        const fmt = parseOutputFormat(opts.format);
+        const res = await getClient(opts).moveDocument(docId, target);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
   doc
     .command('delete <doc-id>')
     .description('Delete a document')

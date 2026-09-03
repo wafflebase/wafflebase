@@ -34,7 +34,7 @@ which consumes this surface — lives in [cli.md](cli.md).
 - Granular per-document or per-cell permission scoping on API keys
   (may be added later).
 - Usage metering or per-key quota accounting. (A global request rate
-  limit *is* enforced — see §5.8 Rate limiting.)
+  limit *is* enforced — see §5.9 Rate limiting.)
 - Frontend UI for API key management beyond the existing workspace
   settings page.
 - MCP server (may be added later as a thin wrapper over the REST API).
@@ -166,13 +166,30 @@ membership is checked via `WorkspaceService.assertMember()`.
 GET    /api/v1/workspaces/:wid/documents              List documents
 POST   /api/v1/workspaces/:wid/documents              Create document
 GET    /api/v1/workspaces/:wid/documents/:did         Get document metadata
-PATCH  /api/v1/workspaces/:wid/documents/:did         Update document (title)
+PATCH  /api/v1/workspaces/:wid/documents/:did         Update document (title, folderId)
+POST   /api/v1/workspaces/:wid/documents/:did/copy    Duplicate as `<title> (copy)`
 DELETE /api/v1/workspaces/:wid/documents/:did         Delete document
 ```
 
 These delegate to the existing `DocumentService` for Prisma operations.
 `POST` accepts `{ title, type: 'sheet' | 'doc' }` (`type` defaults to
 `sheet` for back-compat).
+
+`PATCH` reads `title` and `folderId` independently: `folderId: null` returns
+the document to the workspace root, and omitting the field leaves it where it
+is. The target folder must belong to the route's workspace. There is **no
+cross-workspace move here** — the web `PATCH documents/:id` takes a
+`workspaceId`, which has no meaning to a credential bound to one workspace.
+Renaming is an edit any member may do; filing the document somewhere else is
+manager-only (workspace owner or the document's author), matching the web
+surface. An API-key caller acts with workspace authority, as it does on
+`DELETE`.
+
+`POST .../copy` runs `DocumentCopyService` — the same engine the web "Make a
+copy" uses, so every document type is covered by one implementation (see
+[document-copy.md](document-copy.md)). It is gated on **workspace membership
+alone**, deliberately not the manager bar `DELETE` applies: a copy neither
+modifies, moves, nor destroys the source.
 
 #### 5.2 Tabs (spreadsheets only)
 
@@ -466,7 +483,40 @@ or 25 MB for image extensions.
 `DELETE /api/v1/workspaces/:wid/documents/:did` deletes the stored blob
 alongside the document row, matching the JWT delete.
 
-#### 5.8 Rate limiting
+#### 5.8 Folders (workspace tree)
+
+```
+POST   /api/v1/workspaces/:wid/folders            Create a folder ({ name, parentId? })
+GET    /api/v1/workspaces/:wid/folders            List folders (flat; parentId builds the tree)
+PATCH  /api/v1/workspaces/:wid/folders/:folderId  Rename ({ name }) or move ({ parentId })
+DELETE /api/v1/workspaces/:wid/folders/:folderId  Delete a folder
+```
+
+`ApiV1FoldersController`
+(`packages/backend/src/api/v1/folders.controller.ts`) is the API-key-capable
+equivalent of the web folder routes and delegates to the same
+`FolderService`, so the tree, the cycle guard and the non-destructive delete
+(descendant folders cascade; their documents `SetNull` back to the workspace
+root) are one implementation — see
+[workspace-folders.md](workspace-folders.md).
+
+The routes are **nested under the workspace**, unlike the web surface's bare
+`folders/:id`. That is not cosmetic: `WorkspaceScopeGuard` is what refuses an
+API key minted for a different workspace, and it works by reading
+`:workspaceId` out of the path. Mounting `CombinedAuthGuard` on the web routes
+instead would leave nothing for it to check, so any valid key could rename or
+delete any workspace's folder.
+
+A folder that exists in another workspace answers `404`, not `403` — which
+folders a workspace holds is that workspace's own information, the same shape
+`getDocumentOrThrow` uses for a document outside the route's workspace.
+
+Renaming is open to any member; moving and deleting are manager-only
+(workspace owner or the folder's author). An API-key caller acts with
+workspace authority once `ApiKeyWriteScopeGuard` has required its `write`
+scope.
+
+#### 5.9 Rate limiting
 
 The application registers a global NestJS `ThrottlerGuard` via
 `ThrottlerModule.forRoot` (default bucket: 120 requests / 60 s). Selected

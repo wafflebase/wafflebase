@@ -74,6 +74,8 @@ wafflebase
 │   ├── create <title> [--type doc|sheet]
 │   ├── get <doc-id>
 │   ├── rename <doc-id> <title>
+│   ├── copy <doc-id>                      → "<title> (copy)" (any type)
+│   ├── move <doc-id> [folder-id]          Omit the folder for the root
 │   ├── delete <doc-id>
 │   ├── content <doc-id>                   --format json|md|text + --pages
 │   ├── export <doc-id> <file>             --format pdf|docx + --pages (PDF)
@@ -112,6 +114,13 @@ wafflebase
 │   ├── upload <file>                      png|jpeg|gif|webp, 10 MB cap
 │   ├── get <image-id> [out]               --force to overwrite
 │   └── delete <image-id>
+│
+├── folders (alias: folder)                Workspace folder tree
+│   ├── list                               Flat; parentId builds the tree
+│   ├── create <name>                      --parent <id>, else the root
+│   ├── rename <folder-id> <name>
+│   ├── move <folder-id> [parent-id]       Omit the parent for the root
+│   └── delete <folder-id>                 Its documents go to the root
 │
 ├── api-keys (alias: api-key)
 │   ├── create <name>
@@ -156,6 +165,12 @@ echo '{"axis":"row","index":2,"count":3}' | wafflebase sheets insert abc-123
 # Workspace images
 wafflebase images upload logo.png
 wafflebase images get img-42 logo.png --force
+
+# Folders (organizational only — they carry no permissions)
+wafflebase folders create "Q1 Reports"
+wafflebase folders list
+wafflebase docs move abc-123 fld-1          # file it; omit fld-1 for the root
+wafflebase docs copy abc-123                # → "<title> (copy)"
 
 # Word-processor docs
 wafflebase docs content abc-123 --format md

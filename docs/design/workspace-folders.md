@@ -50,6 +50,17 @@ entirely by workspace membership and per-document share links.
 > and *drag-and-drop*. Both are now specified in
 > [Bulk multi-select move + drag-and-drop](#bulk-multi-select-move--drag-and-drop)
 > below.
+>
+> **Also delivered:** *REST API v1 folder support*, as the class-A′ close in
+> [agentic-office-workflow.md](agentic-office-workflow.md) §3.1 — an agent
+> holding an API key could reach no folder route at all. `ApiV1FoldersController`
+> mounts the same `FolderService` under `api/v1/workspaces/:wid/folders`, and
+> `PATCH api/v1/.../documents/:did` gained a `folderId`. The workspace nesting
+> is the point: `WorkspaceScopeGuard` scopes an API key by reading
+> `:workspaceId` from the path, which the bare `folders/:id` routes below do not
+> carry. The **cross-workspace** move stays out of v1 for the reason this
+> non-goal gives — a key is bound to one workspace, so `workspaceId` has no
+> meaning there.
 
 ## Proposal Details
 
