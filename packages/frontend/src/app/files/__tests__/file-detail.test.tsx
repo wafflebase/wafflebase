@@ -45,13 +45,7 @@ vi.mock("@/api/auth", () => ({
   isAuthExpiredError: () => false,
 }));
 vi.mock("@/api/documents", () => ({
-  fetchDocument: vi.fn(async () => ({
-    id: "d1",
-    title: "cat.png",
-    type: "image",
-    fileId: "abc.png",
-    workspaceId: "w2",
-  })),
+  fetchDocument: vi.fn(),
   renameDocument: vi.fn(async () => {}),
 }));
 vi.mock("@/api/workspaces", () => ({
@@ -89,10 +83,27 @@ vi.mock("@/app/files/image-viewer", () => ({
   ),
 }));
 
+import { fetchDocument } from "@/api/documents";
+import type { Document } from "@/types/documents";
 import { FileDetail } from "@/app/files/file-detail";
 
+/** The document the route resolves, with only the read fields spelled out. */
+function imageDoc(folderId: string | null = null): Document {
+  return {
+    id: "d1",
+    title: "cat.png",
+    type: "image",
+    fileId: "abc.png",
+    workspaceId: "w2",
+    folderId,
+  } as Document;
+}
+
+// The folder rides in the query string, so the probe has to show it — a
+// pathname-only probe reads the same whether the folder survived or not.
 function LocationProbe() {
-  return <div data-testid="location">{useLocation().pathname}</div>;
+  const { pathname, search } = useLocation();
+  return <div data-testid="location">{pathname + search}</div>;
 }
 
 function renderDetail() {
@@ -112,7 +123,10 @@ function renderDetail() {
 }
 
 describe("FileDetail image layout back navigation", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc());
+  });
 
   it("renders the header back button and returns to the workspace list", async () => {
     renderDetail();
@@ -138,6 +152,34 @@ describe("FileDetail image layout back navigation", () => {
     await userEvent.click(await screen.findByText("viewer-esc"));
     await waitFor(() =>
       expect(screen.getByTestId("location").textContent).toBe("/w/second"),
+    );
+  });
+
+  // A file opened from a folder used to come back to the workspace root,
+  // because the folder never left `fetchDocument`'s response.
+  it("returns to the folder the image lives in", async () => {
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc("f1"));
+
+    renderDetail();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Back to documents" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/w/second?folder=f1",
+      ),
+    );
+  });
+
+  it("hands the viewer that same folder for Esc", async () => {
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc("f1"));
+
+    renderDetail();
+    await userEvent.click(await screen.findByText("viewer-esc"));
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/w/second?folder=f1",
+      ),
     );
   });
 });

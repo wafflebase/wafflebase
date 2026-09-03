@@ -37,7 +37,7 @@ full documents-list **gallery/grid view** are explicit Non-Goals here.
 - Serve bytes **gated by the owning document's read policy**, reusing the
   already-type-agnostic `GET /documents/:id/file` endpoint unchanged.
 - View in the `/f/:id` route: fit-to-screen, zoom, download; **prev/next**
-  across the workspace's images (arrow buttons + keyboard ←/→).
+  across the images in the same folder (arrow buttons + keyboard ←/→).
 - **Inline thumbnails** in the documents list for `image` rows — client-side
   downscale (no server thumbnail generation), lazily loaded.
 
@@ -164,12 +164,22 @@ type-dispatcher:
   (by `title`, then `id`), locates the current id. Left/right chevron buttons
   and keyboard ←/→ navigate to the sibling `/f/:id`; the buttons hide at the
   ends. The fetch is scoped to `doc.workspaceId` and only runs for image
-  documents.
+  documents. The filter is scoped to the current image's **folder** as well
+  (`folderId`, absent and null both meaning the workspace root): the arrows
+  walk the list the user was browsing, and — since leaving the viewer returns
+  to the *current* image's folder — an unscoped walk would also silently move
+  where the back button lands.
 - **Leaving the viewer** (issue #840) — a back button in the header (the
   `SiteHeader.leading` slot, left of the title) and the Esc key both return to
   the documents list. The destination comes from one `useDocumentsPath()` hook
   — the document's own workspace list, else the first workspace, else
-  `/documents` — shared with `FileShell`'s not-found redirect. Esc obeys the
+  `/documents` — shared with `FileShell`'s not-found redirect. A document that
+  lives in a folder returns to **that folder**: the workspace list route keys
+  its folder off a `?folder=<id>` query parameter rather than a path segment
+  (`workspace-documents.tsx`), so the hook has to append it or every
+  destination it builds reads as the workspace root. The folder is dropped
+  when the hook falls back to a *different* workspace, whose tree does not
+  contain that id. Esc obeys the
   same input/contenteditable guard as ←/→ (so the header's rename field keeps
   Esc for cancel), and the anonymous share-link mount passes no `onClose`, so
   Esc is inert for a viewer who has no documents list. Both Esc and ←/→ also

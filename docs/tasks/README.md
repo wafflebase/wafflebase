@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | board nested doc update (2026-09-03) | [20260903-board-nested-doc-update-todo.md](./active/20260903-board-nested-doc-update-todo.md) | [20260903-board-nested-doc-update-lessons.md](./active/20260903-board-nested-doc-update-lessons.md) |
+| image viewer folder return (2026-09-03) | [20260903-image-viewer-folder-return-todo.md](./active/20260903-image-viewer-folder-return-todo.md) | [20260903-image-viewer-folder-return-lessons.md](./active/20260903-image-viewer-folder-return-lessons.md) |
 | release v0.6.8 (2026-09-02) | [20260902-release-v0.6.8-todo.md](./active/20260902-release-v0.6.8-todo.md) | [20260902-release-v0.6.8-lessons.md](./active/20260902-release-v0.6.8-lessons.md) |
 | revision history (2026-09-02) | [20260902-revision-history-todo.md](./active/20260902-revision-history-todo.md) | [20260902-revision-history-lessons.md](./active/20260902-revision-history-lessons.md) |
 | template gallery public tier (2026-09-02) | [20260902-template-gallery-public-tier-todo.md](./active/20260902-template-gallery-public-tier-todo.md) | [20260902-template-gallery-public-tier-lessons.md](./active/20260902-template-gallery-public-tier-lessons.md) |

@@ -3,6 +3,8 @@ import { render, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 
+import { fetchDocument, fetchDocuments } from "@/api/documents";
+import type { Document } from "@/types/documents";
 import { ImageViewer } from "@/app/files/image-viewer";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -28,25 +30,35 @@ vi.mock("@/api/auth", () => ({
   })),
 }));
 vi.mock("@/api/documents", () => ({
-  fetchDocument: vi.fn(async () => ({
-    id: "d1",
-    title: "cat.png",
-    type: "image",
-    workspaceId: "w1",
-  })),
-  // Two siblings so ←/→ have somewhere to go. With an empty list `prevId`
-  // and `nextId` are undefined and `navigate` is unreachable, which made
-  // every arrow-key assertion pass for the wrong reason.
-  fetchDocuments: vi.fn(async () => [
-    { id: "d1", title: "cat.png", type: "image", workspaceId: "w1" },
-    { id: "d2", title: "dog.png", type: "image", workspaceId: "w1" },
-  ]),
+  fetchDocument: vi.fn(),
+  fetchDocuments: vi.fn(),
 }));
 vi.mock("@/api/files", () => ({ fileUrl: () => "/documents/d1/file" }));
 
 // jsdom has no object-URL implementation; the viewer only needs a string.
 URL.createObjectURL = vi.fn(() => "blob:image");
 URL.revokeObjectURL = vi.fn();
+
+/** An image document row, with only the fields the viewer reads spelled out. */
+function img(
+  id: string,
+  title: string,
+  folderId: string | null = null,
+): Document {
+  return { id, title, type: "image", workspaceId: "w1", folderId } as Document;
+}
+
+// Two siblings so ←/→ have somewhere to go. With an empty list `prevId` and
+// `nextId` are undefined and `navigate` is unreachable, which made every
+// arrow-key assertion pass for the wrong reason. Set per test rather than in
+// the module factory so a test can describe a different workspace shape.
+beforeEach(() => {
+  vi.mocked(fetchDocument).mockResolvedValue(img("d1", "cat.png"));
+  vi.mocked(fetchDocuments).mockResolvedValue([
+    img("d1", "cat.png"),
+    img("d2", "dog.png"),
+  ]);
+});
 
 function renderViewer(
   props: { onClose?: () => void; token?: string } = {},
@@ -173,5 +185,60 @@ describe("ImageViewer Esc handling (issue #840)", () => {
     window.removeEventListener("error", onError);
     expect(onError).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("ImageViewer prev/next scope", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // Neighbours used to be every image in the workspace. An image opened from
+  // a folder would then step into images the user was not browsing, and the
+  // back button afterwards returns to *that* image's folder — a list the user
+  // never opened.
+  it("walks only the images in the same folder", async () => {
+    vi.mocked(fetchDocument).mockResolvedValue(img("d1", "a.png", "f1"));
+    vi.mocked(fetchDocuments).mockResolvedValue([
+      img("d1", "a.png", "f1"),
+      // Sorts between the two folder images, so an unscoped list would reach
+      // it first and the assertion below could not pass by accident.
+      img("d2", "b.png", null),
+      img("d3", "c.png", "f1"),
+    ]);
+
+    renderViewer({ onClose: vi.fn() });
+    await waitFor(() =>
+      expect(document.querySelector('[aria-label="Next image"]')).not.toBeNull(),
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/f/d3"));
+  });
+
+  it("walks the root images from a root image, not the foldered ones", async () => {
+    vi.mocked(fetchDocument).mockResolvedValue(img("d2", "b.png", null));
+    vi.mocked(fetchDocuments).mockResolvedValue([
+      img("d1", "a.png", "f1"),
+      img("d2", "b.png", null),
+      img("d3", "c.png", "f1"),
+      img("d4", "d.png", null),
+    ]);
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter initialEntries={["/f/d2"]}>
+          <ImageViewer documentId="d2" onClose={vi.fn()} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector('[aria-label="Next image"]')).not.toBeNull(),
+    );
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/f/d4"));
+    // The root image is the first of its own list, so there is no previous.
+    expect(document.querySelector('[aria-label="Previous image"]')).toBeNull();
   });
 });

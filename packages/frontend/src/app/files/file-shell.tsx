@@ -59,7 +59,10 @@ export function FileShell({
     (w) => w.id === documentData?.workspaceId,
   );
   const workspaceSlug = currentWorkspace?.slug;
-  const documentsPath = useDocumentsPath(documentData?.workspaceId);
+  const documentsPath = useDocumentsPath(
+    documentData?.workspaceId,
+    documentData?.folderId,
+  );
 
   useEffect(() => {
     if (isDocumentError) {

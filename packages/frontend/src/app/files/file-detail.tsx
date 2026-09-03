@@ -118,14 +118,16 @@ function ImageFileLayout({
   title,
   fileId,
   workspaceId,
+  folderId,
 }: {
   documentId: string;
   title: string;
   fileId?: string;
   workspaceId?: string;
+  folderId?: string | null;
 }) {
   const navigate = useNavigate();
-  const documentsPath = useDocumentsPath(workspaceId);
+  const documentsPath = useDocumentsPath(workspaceId, folderId);
   // Shared by the header button and the viewer's Esc key, so both leave for
   // the same list.
   const close = useCallback(
@@ -241,6 +243,7 @@ export function FileDetail() {
         title={documentData.title}
         fileId={documentData.fileId}
         workspaceId={documentData.workspaceId}
+        folderId={documentData.folderId}
       />
     );
   }
