@@ -56,13 +56,18 @@ describe('PdfCommentStore', () => {
     const [stored] = await store.listThreads();
 
     expect(stored.anchor).toEqual(textAnchor);
-    // Read back as plain JS, not as live Yorkie proxies: the array and every
-    // rect in it must be fresh objects, or mutating a thread later would
-    // write straight through into the CRDT.
+    // Read back as plain JS, not as live Yorkie proxies, or mutating a thread
+    // later would write straight through into the CRDT. Identity against the
+    // input proves nothing here — addThread copies the anchor before storing
+    // it, so the array we passed in is never the stored one either way. Only
+    // mutating what was read and reloading tells a copy from a proxy.
     const readAnchor = stored.anchor as PdfTextAnchor;
-    expect(readAnchor.rects).not.toBe(textAnchor.rects);
-    expect(readAnchor.rects[0]).not.toBe(textAnchor.rects[0]);
     expect(Array.isArray(readAnchor.rects)).toBe(true);
+    readAnchor.rects[0].x = 0.99;
+    readAnchor.rects.push({ x: 0, y: 0, w: 1, h: 1 });
+
+    const [reloaded] = await store.listThreads();
+    expect(reloaded.anchor).toEqual(textAnchor);
   });
 
   it('keeps region and text threads distinguishable in one document', async () => {

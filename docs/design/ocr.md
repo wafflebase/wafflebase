@@ -218,19 +218,46 @@ get different text.
   `?token=` share link, `link.documentId === id`. Reusing the controller is
   the point — a parallel permission implementation is exactly the drift
   `docs/design/pdf.md` rejected for file serving.
-- **Response** — `{ pages: [{ index, text }], totalPages, source }` where
-  `source` is `"embedded"` (P1) or `"ocr"` (P2). Per-page, not one blob:
-  page numbers are how people cite PDFs, and the region-comment anchors are
-  already page-indexed.
+- **Response** — `{ pages: [{ index, text, source }], totalPages, source }`.
+  Per-page, not one blob: page numbers are how people cite PDFs, and the
+  region-comment anchors are already page-indexed. **Provenance is per page**,
+  because a single PDF routinely mixes typeset pages with scanned inserts and
+  the viewer already treats it that way (P2 populates the text layer from
+  `getTextContent()` or from `OcrPage.words` *per page*). A page's `source` is
+  `"embedded"` (exact) or `"ocr"` (approximate); the document-level `source`
+  is a summary — `"embedded"`, `"ocr"`, or `"mixed"` — and a consumer that
+  cares about exactness reads the page. Collapsing this to one document-level
+  label would tell an agent that a 200-page contract is exact because 199 of
+  its pages are.
 - **`GET /api/v1/workspaces/:wid/documents/:did/text`** — the v1 mirror,
   alongside the existing files routes.
 - **CLI** — `wafflebase files text <doc-id> [--page N] [--json]`, next to
   the `upload`/`download` pair already in `packages/cli/src/commands/files.ts`.
 
-Extraction is CPU-bound but bounded by the 50 MB upload cap and needs no
-model, so it runs inline in the request. Results are cached by `fileId`
-(immutable, since a document's blob is never rewritten) so repeated agent
-reads do not re-parse.
+Extraction needs no model, so it runs inline in the request — but the 50 MB
+upload cap is **not** what bounds it. Cost scales with page count and with the
+declared dimensions of embedded images, neither of which is a function of file
+size: a few-hundred-kilobyte PDF can declare tens of thousands of pages or a
+single gigapixel image, and `unpdf` documents that its own hardening is the
+caller's job. Since the backend parses on the event loop, an unbounded parse
+does not merely make one request slow, it stalls the process. So the route
+carries its own three bounds, checked before extraction and independent of
+upload size:
+
+- **Pages** — read `numPages` first and refuse a document over the cap
+  (`413`) rather than starting a parse that will be abandoned.
+- **Image dimensions** — pass an explicit `maxImageSize` (~16 megapixels)
+  instead of `unpdf`'s unlimited default, which is the decompression-bomb
+  path.
+- **Wall clock** — race extraction against a hard timeout and answer `504`,
+  so a pathological document cannot hold a worker indefinitely.
+
+If those limits turn out to reject documents users legitimately have, the
+answer is to move extraction behind the same bounded background work P2
+introduces — not to raise them until the process is unprotected again.
+
+Results are cached by `fileId` (immutable, since a document's blob is never
+rewritten) so repeated agent reads do not re-parse.
 
 ### P2 — OCR
 
@@ -277,9 +304,32 @@ Two consequences have to be designed for rather than discovered:
   `POST /documents/:id/ocr` that records a `pending` row and returns
   immediately, an in-process worker draining it with bounded concurrency, and
   the existing SSE machinery from `docs/design/notifications.md` reused to
-  push completion. Multi-replica correctness comes from a
-  `SELECT … FOR UPDATE SKIP LOCKED` claim on the row, the same way the
-  notification hub tolerates replicas without Redis.
+  push completion. Two details of that are load-bearing rather than
+  incidental:
+
+  - **Authorization runs before the row is written**, not just before the
+    result is served. `POST /documents/:id/ocr` reuses the same access check
+    as `GET /documents/:id/text` — member, or a valid unexpired `?token=`
+    whose `link.documentId === id` — so a caller cannot enqueue work against
+    a document they cannot read. Throttling is not an access control: a
+    per-user quota still lets an authenticated user spend it on *other
+    people's* documents. On top of that access check, **initiating** OCR
+    requires an authenticated identity: an anonymous share-link holder can
+    read OCR text that already exists but cannot start a job, because the
+    cost control is `UserThrottlerGuard` and an anonymous trigger gives it
+    nobody to key on.
+  - **The claim is a lease, not a flag.** Multi-replica correctness comes
+    from a `SELECT … FOR UPDATE SKIP LOCKED` claim on the row, the same way
+    the notification hub tolerates replicas without Redis — but the OCR work
+    itself runs for minutes *outside* any transaction, so a process that dies
+    mid-recognition would leave `running` set forever and, with one job per
+    document enforced by the unique `documentId`, permanently lock that
+    document out of OCR. The claim therefore writes a `leaseExpiresAt` the
+    worker extends on a heartbeat while it works, and a row whose lease has
+    expired is claimable again by any replica; the same predicate is what
+    recovers rows on startup, so no separate sweeper exists to forget. An
+    attempt counter bounds the retry so a document that reliably kills the
+    worker ends `failed` rather than cycling.
 - **Model binaries ship in the image.** ~10–80 MB of ONNX graphs must be
   present without egress at runtime. There is a precedent to copy exactly:
   the lakehouse connector bakes ~170 MB of DuckDB extensions into the
@@ -300,8 +350,8 @@ home — the same reasoning that keeps PDF bytes out of Yorkie in
   the blob it describes, so deleting a document's blob disposes of it by the
   same code path.
 - **State** → a small Prisma row (`documentId` unique, `status`, `engine`,
-  `lang`, `pageCount`, `error`, timestamps). Status needs a database; the
-  payload does not.
+  `lang`, `pageCount`, `error`, `leaseExpiresAt`, `attempts`, timestamps).
+  Status needs a database; the payload does not.
 
 The payload shape is the contract P0 and P1 already read:
 
@@ -322,9 +372,24 @@ percentage arithmetic pdf.js uses, from the same numbers.
   P0 text layer is populated from `OcrPage.words` instead of
   `getTextContent()`. One layer, two sources; selection and copy behave
   identically.
-- **API / CLI** — `GET /documents/:id/text` answers with `source: "ocr"`.
-  Nothing about the response shape changes, so the CLI and any agent written
-  against P1 gain scanned documents without a client change.
+- **API / CLI** — `GET /documents/:id/text` answers with `source: "ocr"` on
+  the pages OCR produced. Nothing about the *page* shape changes, so the CLI
+  and any agent written against P1 gain scanned documents without a client
+  change.
+
+  An unfinished job is the one case P1's contract does not already cover, so
+  it is defined rather than left to whatever the first implementation does.
+  The route always answers `200` with the pages it can serve — a document
+  with embedded text on some pages must not become unreadable because OCR of
+  the others is queued — and reports the job alongside them in an `ocr`
+  field: `{ status: "pending" | "running" | "failed" | "done", error? }`,
+  absent entirely when no job was ever requested. Pages awaiting OCR are
+  present with `text: ""` and their own `source: "ocr"`, so page indexes stay
+  aligned with the document and a caller never has to infer which pages are
+  missing. `failed` carries the reason and is terminal until the caller asks
+  again; it is not an HTTP error, because the pages that *did* extract are
+  still good. Completion arrives over the SSE stream, so a client polls only
+  if it wants to.
 - **Images** — `ImageViewer` gets the same absolutely-positioned span overlay
   over its `<img>`. It has no pdf.js involvement; it consumes the same
   `OcrPage` with a single page.
@@ -367,9 +432,10 @@ percentage arithmetic pdf.js uses, from the same numbers.
   alongside the download — the same discipline the font catalog applies in
   `docs/design/slides/slides-fonts.md`.
 - **Recognition quality is not a promise.** OCR output is best-effort and
-  will contain errors. The API labels its `source`, so a consumer can tell
-  `embedded` (exact) from `ocr` (approximate) and decide accordingly. We do
-  not present OCR text as authoritative anywhere in the UI.
+  will contain errors. The API labels each **page**'s `source`, so a consumer
+  can tell `embedded` (exact) from `ocr` (approximate) at the granularity a
+  mixed document actually varies at, and decide accordingly. We do not present
+  OCR text as authoritative anywhere in the UI.
 
 ## Testing
 
@@ -390,11 +456,16 @@ percentage arithmetic pdf.js uses, from the same numbers.
 
 ### P1
 
-- Per-page text from a fixture PDF; `totalPages` matches the document.
+- Per-page text from a fixture PDF; `totalPages` matches the document, and
+  every page carries its own `source`.
 - The access gate: member serves, valid `?token=` serves, expired → 410,
   token for another document → rejected, anonymous non-member → 403. These
   mirror the existing `GET /documents/:id/file` cases because they are the
   same guard.
+- The bounds, each on a fixture that is small on disk: a page count over the
+  cap → 413 without parsing, an oversized declared image → refused by
+  `maxImageSize` rather than allocated, and a parse that exceeds the deadline
+  → 504 with the request released.
 - CLI `files text` against a fixture, `--json` shape, and a non-blob document
   type rejected.
 
@@ -404,6 +475,15 @@ percentage arithmetic pdf.js uses, from the same numbers.
 - A rotated / deskewed fixture: stored boxes land on the glyphs in the
   original page space.
 - Job lifecycle: `pending → running → done`; a second request for a document
-  already `running` does not enqueue a duplicate; a crashed claim is
-  reclaimable.
+  already `running` does not enqueue a duplicate.
+- A crash after the claim: a `running` row whose lease has expired is claimed
+  by another worker and the document completes, rather than staying locked
+  out by the unique `documentId`. The counterpart too — a live worker's
+  heartbeat keeps its row from being stolen mid-recognition — since a lease
+  that is only tested one way is a lease that can double-run.
+- Enqueueing is refused for a caller who cannot read the document, and for an
+  anonymous share-link holder even when the token is valid for it.
+- `GET /documents/:id/text` while a job is `pending`, `running` and `failed`:
+  `200` each time, embedded pages still served, `ocr.status` reported, and
+  awaiting pages present with `text: ""` so indexes stay aligned.
 - Image documents produce a single-page `OcrPage`.

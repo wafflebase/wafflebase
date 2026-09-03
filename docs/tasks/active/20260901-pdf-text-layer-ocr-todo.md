@@ -86,12 +86,18 @@ approach (hit-testing spans rather than trusting `Selection`).
 - [ ] `unpdf` (MIT) in the backend
 - [ ] `GET /documents/:id/text` on `document-file.controller.ts` — inherits
       that controller's member-or-share-token guard unchanged
-- [ ] Response `{ pages: [{ index, text }], totalPages, source }`
+- [ ] Response `{ pages: [{ index, text, source }], totalPages, source }` —
+      provenance per page, document-level `source` a summary
+      (`embedded`/`ocr`/`mixed`), since one PDF mixes typeset and scanned pages
+- [ ] Bounds independent of the 50 MB upload cap: page cap → 413 before
+      parsing, explicit `maxImageSize` (~16 MP) instead of unpdf's unlimited
+      default, hard extraction timeout → 504
 - [ ] `GET /api/v1/workspaces/:wid/documents/:did/text`
 - [ ] `wafflebase files text <doc-id> [--page N] [--json]`
 - [ ] Cache by `fileId` (immutable — blobs are never rewritten)
-- [ ] Tests: per-page text; the five access-gate cases mirroring
-      `GET /documents/:id/file`; CLI shape; non-blob type rejected
+- [ ] Tests: per-page text + per-page `source`; the five access-gate cases
+      mirroring `GET /documents/:id/file`; each of the three bounds on a
+      small fixture; CLI shape; non-blob type rejected
 
 ## P2 — OCR
 
@@ -110,14 +116,27 @@ background-work boundary, and that is its real cost.
 - [ ] Job boundary: `POST /documents/:id/ocr` → `pending` row → in-process
       worker with `FOR UPDATE SKIP LOCKED` claim → SSE completion via the
       notifications hub
+- [ ] Authorize the POST with the same member-or-share-token check as
+      `GET /text` **before** the row is written (throttling is not access
+      control), and require an authenticated identity to initiate
+- [ ] Claim is a lease, not a flag: `leaseExpiresAt` + heartbeat, expired
+      lease reclaimable by any replica (same predicate recovers on startup),
+      `attempts` bounds the retry — else a crash locks the document out
+      forever via the unique `documentId`
 - [ ] Prisma row (`documentId` unique, `status`, `engine`, `lang`,
-      `pageCount`, `error`) + `<fileId>.ocr.json` sidecar in
-      `wafflebase-files`
+      `pageCount`, `error`, `leaseExpiresAt`, `attempts`) +
+      `<fileId>.ocr.json` sidecar in `wafflebase-files`
 - [ ] Normalized 0–1 rects — same convention as `pdf-region` comment anchors
 - [ ] Viewer: populate the P0 text layer from `OcrPage.words` when a page has
       no embedded text; same overlay for `ImageViewer`
-- [ ] `GET /documents/:id/text` answers `source: "ocr"` — no client change
+- [ ] `GET /documents/:id/text` answers `source: "ocr"` per page — no client
+      change
+- [ ] Unfinished-job contract on that route: always `200` with the pages it
+      can serve, an `ocr: { status, error? }` field, awaiting pages present
+      with `text: ""` so indexes stay aligned
 - [ ] Throttle via `UserThrottlerGuard`; never automatic on upload; page cap
 - [ ] Tests: rect round-trip; rotated/deskewed fixture lands on glyphs; job
-      lifecycle incl. duplicate suppression and crash reclaim; image → single
-      page
+      lifecycle incl. duplicate suppression; crash-after-claim reclaim **and**
+      a heartbeat keeping a live claim from being stolen; enqueue refused for
+      a caller who cannot read the document and for an anonymous token
+      holder; `GET /text` during pending/running/failed; image → single page

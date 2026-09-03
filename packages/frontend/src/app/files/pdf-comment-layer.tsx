@@ -82,26 +82,38 @@ export function PdfCommentLayer({
               />
             ))}
             {/* Clickable pin at the anchor's top-left corner. It sits on top
-                of the page's own content, so it stays small and translucent
-                and only resolves to full strength on hover or when its thread
-                is open — the highlight already says a comment is here. */}
+                of the page's own content, so the *marker* stays small and
+                translucent and only resolves to full strength on hover or
+                when its thread is open — the highlight already says a comment
+                is here. The button around it is 24px, the minimum pointer
+                target, because the highlights take no pointer events and this
+                is the only way to open a thread. It is centred on the corner,
+                so only its lower-right quadrant covers the quoted text; that
+                much occlusion of the text layer is the price of a hit area a
+                mouse can land on. */}
             <button
               type="button"
               aria-label={`Comment by ${
                 t.comments[0]?.author.username ?? 'unknown'
               }`}
               onClick={() => onSelectThread(t.id)}
-              className={`pointer-events-auto absolute flex h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-opacity hover:opacity-100 ${
-                active
-                  ? 'border-yellow-600 bg-yellow-300 opacity-100 ring-1 ring-yellow-500'
-                  : 'border-yellow-500/70 bg-yellow-300/80 opacity-60'
+              className={`pointer-events-auto absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-opacity hover:opacity-100 ${
+                active ? 'opacity-100' : 'opacity-60'
               }`}
               style={{
                 left: `${bounds.x * 100}%`,
                 top: `${bounds.y * 100}%`,
               }}
             >
-              <IconMessage size={9} className="text-yellow-800" />
+              <span
+                className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
+                  active
+                    ? 'border-yellow-600 bg-yellow-300 ring-1 ring-yellow-500'
+                    : 'border-yellow-500/70 bg-yellow-300/80'
+                }`}
+              >
+                <IconMessage size={9} className="text-yellow-800" />
+              </span>
             </button>
           </Fragment>
         );
