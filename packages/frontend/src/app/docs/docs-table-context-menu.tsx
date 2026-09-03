@@ -27,6 +27,14 @@ interface DocsTableContextMenuProps {
   containerRef: React.RefObject<HTMLDivElement | null>;
   readOnly?: boolean;
   /**
+   * Whether this session can create a comment at all, apart from having a
+   * selection — `useDocsComments().canComment`. Required rather than
+   * defaulted so a caller has to answer it: the menu only knows whether
+   * commenting is available, never why, and an unanswered question here
+   * is how the row came to be offered to an anonymous share-link editor.
+   */
+  canComment: boolean;
+  /**
    * Called when the user picks "Insert comment" on a selection inside a
    * table cell. Runs `beginCompose`. Omitted / read-only hides the item.
    */
@@ -48,6 +56,7 @@ export function DocsTableContextMenu({
   editor,
   containerRef,
   readOnly = false,
+  canComment,
   onInsertComment,
 }: DocsTableContextMenuProps) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
@@ -254,7 +263,13 @@ export function DocsTableContextMenu({
         </div>
       )}
 
-      {onInsertComment && !readOnly && hasSelection && (
+      {/*
+        `beginCompose` refuses without a selection *and* without a signed-in
+        author, silently in both cases. `canComment` carries the second half:
+        an editor-role share link opened anonymously is editable
+        (`readOnly === false`) with no user, so `!readOnly` does not imply it.
+      */}
+      {onInsertComment && !readOnly && canComment && hasSelection && (
         <>
           <div className={sep} />
           <InsertCommentMenuItem

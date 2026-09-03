@@ -25,10 +25,12 @@ function makeEditor(overrides: Partial<EditorAPI> = {}): EditorAPI {
 function Wrapper({
   editor,
   readOnly = false,
+  canComment = true,
   onInsertComment = vi.fn(),
 }: {
   editor: EditorAPI;
   readOnly?: boolean;
+  canComment?: boolean;
   onInsertComment?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,11 +41,21 @@ function Wrapper({
         editor={editor}
         containerRef={containerRef}
         readOnly={readOnly}
+        canComment={canComment}
         onInsertComment={onInsertComment}
       />
     </>
   );
 }
+
+/** A selection stub — `getActiveSelection()` returning a non-empty range. */
+const withSelection = () =>
+  ({
+    getActiveSelection: vi.fn(() => ({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 3 },
+    })),
+  }) as unknown as Partial<EditorAPI>;
 
 describe('DocsContextMenu', () => {
   it('(a) no-selection + not-readonly: shows Paste/Add link, hides Cut/Copy/Insert comment', () => {
@@ -130,19 +142,16 @@ describe('DocsContextMenu', () => {
 
   // `beginCompose` returns early unless `getActiveSelection()` is non-null, so
   // an Insert comment row shown at a bare caret is an enabled item that does
-  // nothing. Gate it on the same selection the table menu gates it on.
-  it('(f) Insert comment is offered only with a selection, and composes when clicked', () => {
+  // nothing. Gate it on the same selection the table menu gates it on. The
+  // negative half of that claim is case (a).
+  it('(f) Insert comment is offered with a selection, and composes when clicked', () => {
     const onInsertComment = vi.fn();
-    const editor = makeEditor({
-      getActiveSelection: vi.fn(() => ({
-        anchor: { blockId: 'b1', offset: 0 },
-        focus: { blockId: 'b1', offset: 3 },
-      })) as unknown as EditorAPI['getActiveSelection'],
-    });
+    const editor = makeEditor(withSelection());
     render(
       <Wrapper
         editor={editor}
         readOnly={false}
+        canComment={true}
         onInsertComment={onInsertComment}
       />,
     );
@@ -153,5 +162,34 @@ describe('DocsContextMenu', () => {
     const row = screen.getByText('Insert comment');
     fireEvent.click(row);
     expect(onInsertComment).toHaveBeenCalledTimes(1);
+  });
+
+  // The other half of `beginCompose`'s guard: it also refuses without a
+  // signed-in author. `SharedDocsLayout` sets `readOnly = role === "viewer"`,
+  // so an *editor*-role share link opened by an anonymous visitor mounts
+  // DocsView with `readOnly === false` while `fetchMeOptional()` resolves to
+  // null — an editable session with no user. Selection alone would render the
+  // row, and clicking it would reach `beginCompose` and return false silently.
+  it('(g) anonymous editor-role share link: Insert comment stays hidden despite a selection', () => {
+    const onInsertComment = vi.fn();
+    const editor = makeEditor(withSelection());
+    render(
+      <Wrapper
+        editor={editor}
+        readOnly={false}
+        canComment={false}
+        onInsertComment={onInsertComment}
+      />,
+    );
+
+    const container = screen.getByTestId('doc-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
+
+    // The rest of the editable menu is intact — only the comment row is gone,
+    // so this is a gate on commenting rather than the menu failing to open.
+    expect(screen.getByText('Add link')).toBeDefined();
+    expect(screen.getByText('Cut')).toBeDefined();
+    expect(screen.queryByText('Insert comment')).toBeNull();
+    expect(onInsertComment).not.toHaveBeenCalled();
   });
 });
