@@ -67,7 +67,7 @@ registration against the enum and accepts all four names.
       `YSON.parse('{"c":Text([{"val":"a]b"}])}')` and
       `YSON.parse('{"c":Tree({"type":"doc","children":[{"type":"block","children":[{"type":"inline","children":[{"type":"text","value":"a"}]}]}]})}')`.
       Latest SDK is `0.7.18`, so there is no version to bump to.
-      **No issue filed.**
+      Filed: [yorkie-team/yorkie#1966](https://github.com/yorkie-team/yorkie/issues/1966).
 
 ## Plan
 

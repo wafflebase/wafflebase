@@ -381,12 +381,14 @@ Three asks, in `yorkie-team/yorkie`. The first blocks this feature:
    show an author (§1) instead of nothing.
 3. **A retention policy and a delete RPC** (max count and/or TTL per
    document). See Risks.
-4. **Fix `YSON.parse` for nested trees** — `preprocessYSON`'s `Tree(...)`
-   regex bottoms out at three nested brace levels, so parsing any
-   snapshot of a document whose tree is deeper throws
-   `Unexpected token 'T'`. The fix is a real tokenizer rather than a
-   deeper regex; the current one also cannot survive a `}` inside a string
-   value. Blocks docs preview (§4).
+4. **Fix `YSON.parse`** — filed as
+   [yorkie-team/yorkie#1966](https://github.com/yorkie-team/yorkie/issues/1966).
+   `preprocessYSON`'s regex chain has two independent defects: its patterns
+   bottom out at three nested levels per type, and they are not
+   string-aware, counting `{}`/`[]` inside string *values* as structure.
+   The fix is a single-pass, string-aware scanner rather than a deeper
+   regex. Blocks docs preview entirely and makes some note previews
+   content-dependent (§4).
 
 Plus one unrelated bug found while probing: `ListRevisionsByAdmin` panics
 under `API-Key` authentication —
