@@ -1,10 +1,11 @@
 # CLI
 
 The Wafflebase CLI lets you manage spreadsheets, word-processor
-documents, and slide decks from the terminal — read/write cells,
+documents, slide decks, markdown notes, and stored files from the
+terminal — read/write cells, format and restructure worksheets,
 import/export CSV and JSON, render docs as Markdown or PDF, and
-round-trip `.docx` and `.pptx` files through the same Yorkie-backed
-store the editor uses.
+round-trip `.docx`, `.pptx` and `.md` files through the same
+Yorkie-backed store the editor uses.
 
 ## Installation
 
@@ -29,6 +30,32 @@ To log in to a different server:
 ```bash
 wafflebase login --server https://api.example.com
 ```
+
+#### Logging in to a server older than nonce-bound login
+
+Each login generates a per-attempt nonce, carries it through the OAuth
+round trip, and accepts the loopback callback only when it comes back as
+`state`. That binding is what stops a web page you happen to be visiting
+from hitting `http://127.0.0.1:<port>/callback?code=…` during the wait
+window and leaving the CLI holding *its* session.
+
+A backend that predates the echo redirects with no `state` at all, and the
+callback is refused. `--allow-unbound-callback` accepts that stateless
+shape:
+
+```bash
+wafflebase login --server https://old.example.com --allow-unbound-callback
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--allow-unbound-callback` | Accept a login callback that carries no state (server predates nonce-bound CLI login) | off |
+
+Reach for it only when a current CLI has to log into a server you know is
+older, and never as a habit — it prints a warning, and while it is on, any
+local process that reaches the callback port can complete the login. A
+*mismatched* `state` is still refused either way, since only an attacker
+sends one. The fix is upgrading the server.
 
 ### Check Status
 
@@ -80,7 +107,8 @@ Settings resolve as: **flags > environment variables > session > config file**.
 
 ### Config File
 
-Location: `~/.wafflebase/config.yaml`
+Location: `~/.wafflebase/config.yaml` (override the whole path with
+`WAFFLEBASE_CONFIG`)
 
 ```yaml
 profiles:
@@ -102,7 +130,14 @@ wafflebase --profile production docs list
 export WAFFLEBASE_SERVER=http://localhost:3000
 export WAFFLEBASE_API_KEY=wfb_your_api_key
 export WAFFLEBASE_WORKSPACE=your-workspace-id
+export WAFFLEBASE_CONFIG=/etc/wafflebase/ci.yaml
 ```
+
+`WAFFLEBASE_CONFIG` is the one that is not a setting but a *location*: it
+replaces the config-file path outright, ahead of `~/.wafflebase/config.yaml`
+and ahead of the one-time migration from the older
+`~/.config/wafflebase/config.yaml`. Useful for pinning a CI job to a checked-in
+profile file without writing into `$HOME`.
 
 ## Global Options
 
@@ -112,7 +147,7 @@ export WAFFLEBASE_WORKSPACE=your-workspace-id
 | `--api-key <key>` | API key | — |
 | `--workspace <id>` | Workspace ID | — |
 | `--profile <name>` | Config profile | `default` |
-| `--format <fmt>` | Output format: `json`, `table`, `csv` (also `md` / `text` on `docs content` and `slides content`, `pdf` / `docx` on `docs export`, `pptx` on `slides export`) | `json` |
+| `--format <fmt>` | Output format: `json`, `table`, `csv`, `yaml` (also `md` / `text` on `docs content`, `slides content` and `notes content`, `pdf` / `docx` on `docs export`, `pptx` on `slides export`, `md` on `notes export`) | `json` |
 | `--quiet` | Suppress progress notices; the result body and the JSON error envelope are always emitted | `false` |
 | `--verbose` | Verbose output | `false` |
 | `--dry-run` | Show request without executing | `false` |
@@ -126,12 +161,35 @@ The command tree groups commands under plural namespaces:
 - **`slides`** — slide-deck operations (read content, import/export `.pptx`)
 - **`notes`** — markdown note operations
 - **`files`** — upload and download any file stored as a document
+- **`images`** — the workspace image bucket the editors embed images from
 - **`api-keys`** — workspace API key management
 - **`ctx`**, **`schema`**, **`login`/`logout`/`status`** — top-level utilities
 
-Singular forms (`doc`, `sheet`, `tab`, `cell`, `api-key`) work as
-aliases for back-compat with earlier scripts; new code should prefer
-the plural canonical names.
+Singular forms work as aliases for back-compat with earlier scripts; new
+code should prefer the plural canonical names. Every namespace and
+sub-namespace that has one:
+
+| Canonical | Aliases |
+|-----------|---------|
+| `docs` | `doc`, `document`, `documents` |
+| `sheets` | `sheet`, `spreadsheet`, `spreadsheets` |
+| `slides` | `slide`, `deck` |
+| `notes` | `note` |
+| `files` | `file` |
+| `images` | `image` |
+| `api-keys` | `api-key` |
+| `sheets tabs` | `sheets tab` |
+| `sheets cells` | `sheets cell` |
+| `sheets styles` | `sheets style`, `sheets range-styles` |
+| `sheets column-styles` / `row-styles` | `sheets column-style` / `row-style` |
+| `sheets column-widths` / `row-heights` | `sheets column-width` / `row-height` |
+| `sheets merges` | `sheets merge` |
+| `sheets charts` | `sheets chart` |
+| `sheets conditional-formats` | `sheets conditional-format` |
+| `sheets data-validations` | `sheets data-validation` |
+
+`sheets sheet-style`, `sheets freeze`, `sheets hidden`, `sheets filter`
+and `sheets pivot` have no alias — their names are already singular.
 
 ## docs (aliases: doc, document, documents)
 
@@ -271,6 +329,44 @@ wafflebase docs import revision.docx --replace <doc-id> --dry-run
 `{"error":{"code":"CONFIRMATION_REQ"}}`. `--dry-run` is exempt — a
 preview writes nothing, so it neither prompts nor needs `--yes`.
 
+### docs set-content
+
+::: danger Destructive — replaces the whole document
+`set-content` overwrites a document's *entire* content with the JSON you
+give it. There is no merge, no range, and no `--yes` prompt to catch a
+mistake: whatever the document held is gone the moment the request lands.
+Read it back with `docs content` first, and preview the write with
+`--dry-run`.
+:::
+
+The write half of `docs content`. Reads JSON from `--data` or stdin and
+`PUT`s it verbatim.
+
+```bash
+# From a file
+wafflebase docs set-content <doc-id> < document.json
+
+# Inline
+wafflebase docs set-content <doc-id> --data '{"blocks":[]}'
+
+# Round-trip through an edit step
+wafflebase docs content <doc-id> | jq '…' | \
+  wafflebase docs set-content <doc-id>
+
+# Preview the request without writing
+wafflebase docs set-content <doc-id> --data '{"blocks":[]}' --dry-run
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--data <json>` | Content as a JSON string | read from stdin |
+
+The backend picks the writer from the document's **stored** type, not
+from the command you typed, so a payload whose shape does not match comes
+back as a `400` naming both shapes, and a spreadsheet as a `409`
+`TYPE_MISMATCH`. The response is the stored content echoed back.
+`wafflebase schema docs.set-content` reports it as `destructive`.
+
 ## sheets (aliases: sheet, spreadsheet, spreadsheets)
 
 Spreadsheet-specific commands. The `tabs` and `cells` subcommands work
@@ -282,7 +378,25 @@ returns `TYPE_MISMATCH`.
 ```bash
 # List tabs in a spreadsheet
 wafflebase sheets tabs list <doc-id>
+
+# Create a tab; the name is optional and defaults to the next SheetN
+wafflebase sheets tabs create <doc-id>
+wafflebase sheets tabs create <doc-id> "Q2"
+
+# Rename a tab
+wafflebase sheets tabs rename <doc-id> <tab-id> "Q2 Actuals"
 ```
+
+**`sheets tabs create` options**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--type <type>` | Tab type — only `sheet` is supported | `sheet` |
+
+Anything other than `--type sheet` is refused locally, before the request
+and before `--dry-run` prints anything: a preview of a body the server
+would reject is worse than no preview. `rename` returns `404` for a
+missing tab, `400` for a blank name and `409` for one already taken.
 
 ### sheets cells
 
@@ -393,6 +507,123 @@ that command recognizes the `ref,value,formula[,style]` header this
 export writes and re-imports by reference, sending each formula as a
 formula rather than as text.
 
+### sheets clear / insert / delete / move
+
+Structural edits on a tab: empty a range, and insert, delete or move whole
+rows and columns. All four take their request body as JSON from `--data`
+or stdin — the endpoints *are* their bodies, so spelling the fields out as
+flags would only give the CLI a copy to keep in step with the server's
+parser.
+
+```bash
+# Empty a range, keeping its rows and columns
+wafflebase sheets clear <doc-id> --data '{"range": "A1:C10"}'
+
+# Insert 3 rows above row 2
+wafflebase sheets insert <doc-id> --data '{"axis": "row", "index": 2, "count": 3}'
+
+# Delete 2 columns starting at column B
+wafflebase sheets delete <doc-id> --data '{"axis": "column", "index": 2, "count": 2}'
+
+# Move one row from 2 to 5
+wafflebase sheets move <doc-id> \
+  --data '{"axis": "row", "srcIndex": 2, "count": 1, "dstIndex": 5}'
+
+# Bodies pipe in from stdin, like cells batch
+echo '{"axis": "row", "index": 1, "count": 1}' | \
+  wafflebase sheets insert <doc-id> --tab tab-2
+```
+
+| Verb | Body | Notes |
+|------|------|-------|
+| `clear` | `{ range }` | Non-empty A1 range, e.g. `A1:C10` |
+| `insert` | `{ axis, index, count }` | |
+| `delete` | `{ axis, index, count }` | `count` is positive on the wire; the engine's negative-count convention is applied server-side |
+| `move` | `{ axis, srcIndex, count, dstIndex }` | `409` if the move would split a merged range |
+
+All four share these options:
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--tab <tab-id>` | Target tab | `tab-1` |
+| `--data <json>` | Request body as JSON | read from stdin |
+
+`axis` is `"row"` or `"column"`, and every index and count is a 1-based
+positive integer — checked locally, ahead of `--dry-run`, so a preview is
+never a request the server would reject. The *limits* are not checked
+locally: the grid bounds and the server's `MaxAxisEntries` cap depend on
+how long the axis already is, which only the backend can see, so they
+arrive as its `400`.
+
+::: warning Formula caches are cleared, not recalculated
+The backend runs the same engine helpers the editor does, so formulas,
+merges, styles, validations, chart ranges and comment anchors all follow
+the edit — but cached formula *values* are dropped. A following
+`sheets cells get` reports `value: null` for formula cells until an editor
+session recalculates them.
+:::
+
+### Worksheet formatting, view state and analysis
+
+Formatting and view state are a family of `get` / `set` pairs with one
+shape: `get <doc-id> [--tab]` reads, `set <doc-id> [--tab] [--data]`
+writes.
+
+```bash
+# Read
+wafflebase sheets styles get <doc-id>
+wafflebase sheets column-widths get <doc-id> --tab tab-2
+wafflebase sheets merges get <doc-id>
+
+# Write, inline or from stdin
+wafflebase sheets sheet-style set <doc-id> --data '{"bold": true}'
+wafflebase sheets freeze set <doc-id> --data '{"rows": 1, "cols": 0}'
+wafflebase sheets hidden set <doc-id> --data '{"rows": [3], "columns": []}'
+wafflebase sheets column-widths set <doc-id> --data '{"1": 160, "2": null}'
+wafflebase sheets charts set <doc-id> < charts.json
+
+# get | set round-trips: set accepts the envelope get prints
+wafflebase sheets styles get <doc-id> | wafflebase sheets styles set <doc-id>
+```
+
+| Command | Payload | Write semantics |
+|---------|---------|-----------------|
+| `styles` | Array of `{ range, style }` patches (or `{ rangeStyles: [...] }`) | Replaces the layer — an omitted patch is deleted |
+| `sheet-style` | One style object, or `null` (or `{ style: … }`) | Merged onto the stored sheet-wide style; `null` clears it |
+| `column-styles` / `row-styles` | Map of 1-based index → style, or `null` | Merged per index; a `null` value clears that index |
+| `column-widths` / `row-heights` | Map of 1-based index → number, or `null` | Merged per index; a `null` value reverts that index to the tab default |
+| `freeze` | `{ rows, cols }` | Replaces both; an **omitted key resets to 0** |
+| `hidden` | `{ rows: [...], columns: [...] }`, 1-based | Replaces the whole set |
+| `merges` | Map of anchor ref → `{ rs, cs }` (or `{ merges: … }`) | Replaces every merge — an omitted one is removed |
+| `conditional-formats` | Array of rules (or `{ rules: [...] }`) | Replaces the whole array |
+| `data-validations` | Array of rules (or `{ rules: [...] }`) | Replaces the whole array |
+| `charts` | Array of charts (or `{ charts: [...] }`) | Replaces every chart — an omitted one is deleted |
+| `filter` | The filter object, or `null` (or `{ filter: … }`) | Replaces it; `null` clears |
+| `pivot` | The pivot definition, or `null` (or `{ pivot: … }`) | Replaces it; `null` clears |
+
+Every one of them takes the same two options on `set` (and `--tab` alone
+on `get`):
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--tab <tab-id>` | Target tab | `tab-1` |
+| `--data <json>` | Payload as a JSON string | read from stdin |
+
+Each `set` accepts **either** the bare value or the same envelope its
+matching `get` prints, which is what makes
+`… get <doc> | … set <doc>` a round trip rather than a double-wrapped
+`400`. Payload shape is validated locally, before the `--dry-run` branch,
+so a preview is always the body that would actually go on the wire.
+
+::: warning "Set" replaces more than it looks like
+Several of these are whole-collection writes: `styles`, `merges`,
+`charts`, `conditional-formats`, `data-validations` and `hidden` replace
+what is stored rather than merging into it, so anything missing from your
+payload is deleted. `wafflebase schema sheets.charts.set` (and its
+siblings) reports the safety level for each. Read with the matching `get`
+first.
+:::
+
 ## slides (aliases: slide, deck)
 
 Manage slide decks (`type: slides`) and read or convert their content.
@@ -499,6 +730,144 @@ wafflebase slides import deck.pptx --dry-run
 | `--replace <doc-id>` | Existing deck to overwrite | — |
 | `--yes` | Skip the confirmation prompt under `--replace` | `false` |
 
+### slides set-content
+
+::: danger Destructive — replaces the whole deck
+`set-content` overwrites the deck's *entire* `SlidesDocument`. No merge,
+no per-slide targeting, no confirmation prompt. Read it back with
+`slides content` first and preview with `--dry-run`.
+:::
+
+```bash
+wafflebase slides set-content <doc-id> < deck.json
+wafflebase slides set-content <doc-id> --data '{"slides":[]}'
+wafflebase slides content <doc-id> | jq '…' | \
+  wafflebase slides set-content <doc-id>
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--data <json>` | Content as a JSON string | read from stdin |
+
+Same `PUT /documents/:id/content` as `docs set-content`, and the backend
+still picks the writer from the document's stored type — so pointing this
+at a word-processor doc is a `400` naming both shapes, and at a
+spreadsheet a `409` `TYPE_MISMATCH`.
+
+## notes (alias: note)
+
+Markdown notes (`type: note`). A note's content *is* one markdown string,
+so nothing here converts between formats — `md` and `text` print that
+string verbatim and `json` wraps it as `{ "content": "…" }`.
+
+### Note management
+
+```bash
+# List notes (the workspace list, filtered to type=note client-side)
+wafflebase notes list
+
+# Create a new note
+wafflebase notes create "Standup log"
+
+# Get note metadata
+wafflebase notes get <doc-id>
+
+# Rename a note
+wafflebase notes rename <doc-id> "New Title"
+
+# Delete a note
+wafflebase notes delete <doc-id>
+```
+
+### notes content
+
+```bash
+# Default JSON — { "content": "…" }
+wafflebase notes content <doc-id>
+
+# The markdown itself
+wafflebase notes content <doc-id> --format md
+wafflebase notes content <doc-id> --format text
+
+# Save to a file (refuses to overwrite without --force)
+wafflebase notes content <doc-id> --format md --out note.md --force
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <fmt>` | `json`, `md`, `text` | `json` |
+| `--out <file>` | Write to file (`-` for stdout) | stdout |
+| `--force` | Overwrite existing output file | `false` |
+
+### notes export
+
+Export a note to Markdown. `md` is the only format — the target is
+required and `-` writes to stdout.
+
+```bash
+wafflebase notes export <doc-id> note.md
+wafflebase notes export <doc-id> note.md --force
+wafflebase notes export <doc-id> - | less
+wafflebase notes export <doc-id> out --format md
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <fmt>` | Only `md`; otherwise inferred from a `.md` / `.markdown` extension | from extension |
+| `--force` | Overwrite existing target file | `false` |
+
+A filename with neither a markdown extension nor an explicit `--format md`
+is refused rather than guessed at.
+
+### notes import
+
+Import a Markdown file as a new note or replace an existing one.
+
+```bash
+# Create a new note from a file
+wafflebase notes import log.md
+wafflebase notes import log.md --title "Standup log"
+
+# Read from stdin
+cat log.md | wafflebase notes import -
+
+# Replace an existing note (destructive — requires --yes on non-TTY)
+wafflebase notes import log.md --replace <doc-id> --yes
+
+# Preview the requests without executing
+wafflebase notes import log.md --dry-run
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--title <title>` | New note title | file basename without extension (`Untitled` for stdin) |
+| `--replace <doc-id>` | Existing note to overwrite | — |
+| `--yes` | Skip the confirmation prompt under `--replace` | `false` |
+
+As with `docs import`, `--replace` without `--yes` on a non-TTY shell
+exits 1 with `{"error":{"code":"CONFIRMATION_REQ"}}`, and `--dry-run` is
+exempt.
+
+### notes set-content
+
+::: danger Destructive — replaces the whole note
+`set-content` overwrites the note's *entire* content. No merge, no
+confirmation prompt. Read it back with `notes content` first and preview
+with `--dry-run`.
+:::
+
+```bash
+wafflebase notes set-content <doc-id> --data '{"content": "# New\n"}'
+wafflebase notes set-content <doc-id> < note.json
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--data <json>` | Content as a JSON string | read from stdin |
+
+The payload is the JSON `{ "content": "…" }` shape, not raw Markdown — to
+push a `.md` file at an existing note, use `notes import --replace`.
+
 ## files (alias: file)
 
 Store **any** file as a document. Unlike the `import` commands, nothing is
@@ -566,6 +935,50 @@ Uploading a format another namespace can parse (`.xlsx`, `.docx`, `.pptx`,
 pointing at the matching `import` command. The CLI does what the command
 says rather than redirecting.
 
+## images (alias: image)
+
+The workspace image bucket — the blobs the slides, board and docs
+renderers fetch embedded images from. Workspace-scoped rather than
+document-scoped: an image blob carries no link back to whatever embeds it
+(that reference lives in the CRDT), so there is no document id and no
+`--tab` anywhere in this namespace.
+
+```bash
+# Upload an image; the response carries its id and URL
+wafflebase images upload logo.png
+
+# Download by id (defaults to writing a file named after the id)
+wafflebase images get <image-id>
+wafflebase images get <image-id> ./logo.png --force
+wafflebase images get <image-id> - > logo.png
+
+# Delete from the bucket
+wafflebase images delete <image-id>
+```
+
+**`images get` options**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--force` | Overwrite an existing output file | `false` |
+
+`upload` takes no options. `get` and `delete` take only the ones above —
+neither reads `--format` for its result, since one returns bytes.
+
+::: warning Four formats, 10 MB, and no stdin
+`upload` accepts `png`, `jpeg`, `gif` and `webp` only, capped at 10 MB,
+both checked locally from the filename before any bytes go over the wire —
+so `--dry-run` refuses to preview a request the server would reject. That
+10 MB is the *image bucket's* limit and is deliberately tighter than the
+25 MB `files upload` allows for an image **document**. A path of `-` is
+refused (`STDIN_UNSUPPORTED`): the multipart part is named after the file
+and its content type comes from the extension, and stdin has neither.
+:::
+
+The image read route sends no filename of its own, so an `images get` with
+no output path writes a file named after the image id. Pick your own name
+by passing one.
+
 ## api-keys (alias: api-key)
 
 Manage API keys for programmatic access.
@@ -594,6 +1007,8 @@ wafflebase schema
 wafflebase schema docs.content
 wafflebase schema sheets.cells.get
 wafflebase schema slides.export
+wafflebase schema notes.import
+wafflebase schema images.upload
 
 # Singular aliases also resolve
 wafflebase schema cell.get        # → sheets.cells.get
@@ -603,7 +1018,11 @@ wafflebase schema doc.list        # → docs.list
 `docs.import` exposes a `variants` field that spells out the safety
 split — `default → write` (creates a new doc), `--replace given →
 destructive` (overwrites in place) — so AI agents know when to
-prompt for extra confirmation.
+prompt for extra confirmation. `slides.import` and `notes.import` carry
+the same split, and so do the worksheet `set` pairs whose payload can be
+`null` (`sheets.sheet-style.set`, `sheets.filter.set`,
+`sheets.pivot.set`, the per-index style/width/height maps): writing a
+value is `write`, clearing one is `destructive`.
 
 ## Output Formats
 
@@ -637,6 +1056,18 @@ A1,Revenue
 A2,1000
 B1,Expenses
 B2,500
+```
+
+### YAML
+
+```bash
+$ wafflebase --format yaml docs list
+- id: abc-123
+  title: Q1 Report
+  type: sheet
+- id: def-456
+  title: Meeting Notes
+  type: doc
 ```
 
 ## Examples
@@ -701,12 +1132,26 @@ $ wafflebase --dry-run sheets cells set abc-123 A1 "Hello"
 
 The CLI ships namespace-prefixed skill files in
 `packages/cli/skills/` so AI agents (Claude Code, Cursor, etc.) can
-discover commands by intent: `sheets-read-cells.md`,
-`sheets-write-cells.md`, `docs-manage.md`, `docs-read-content.md`,
-`docs-export-pdf.md`, `docs-export-docx.md`, `docs-import-docx.md`,
-`slides-manage.md`, `slides-read-content.md`, `slides-export-pptx.md`,
-`slides-import-pptx.md`, plus recipes (`recipe-csv-pipeline.md`,
-`recipe-docx-to-pdf.md`, `recipe-doc-to-markdown.md`, …). See
-`skills/SKILL.md` for the index
-and how the safety levels (`read-only` / `write` / `destructive`) map
-to agent confirmation behavior.
+discover commands by intent:
+
+- **Sheets** — `sheets-read-cells.md`, `sheets-write-cells.md`,
+  `sheets-import-export.md`
+- **Docs** — `docs-manage.md`, `docs-read-content.md`,
+  `docs-export-pdf.md`, `docs-export-docx.md`, `docs-import-docx.md`
+- **Slides** — `slides-manage.md`, `slides-read-content.md`,
+  `slides-export-pptx.md`, `slides-import-pptx.md`
+- **Files** — `files-upload-download.md`
+- **Recipes** — `recipe-csv-pipeline.md`, `recipe-data-collect.md`,
+  `recipe-docx-to-pdf.md`, `recipe-doc-to-markdown.md`
+
+See `skills/SKILL.md` for the index and how the safety levels
+(`read-only` / `write` / `destructive`) map to agent confirmation
+behavior.
+
+::: info No skills for `notes` or `images` yet
+Both namespaces ship as commands but have no skill file, so an agent
+working from the skills alone will not discover them. Reach for
+`wafflebase schema notes.import` / `wafflebase schema images.upload`
+in the meantime — every command in both namespaces is in the schema
+registry, aliases included.
+:::
