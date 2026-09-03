@@ -10,6 +10,7 @@ import {
   parseSheetSnapshot,
   parseSlidesSnapshot,
 } from '../snapshot-adapters';
+import { firstWorksheetTabId } from '../first-worksheet-tab';
 
 /**
  * Every fixture here is a **captured** revision snapshot — created with
@@ -42,6 +43,19 @@ describe('parseSheetSnapshot', () => {
     expect(
       Object.keys(doc.sheets[doc.tabOrder[0]].cells).length,
     ).toBeGreaterThan(0);
+  });
+
+  // `SheetPreview`'s mount effect gives up before it ever reaches
+  // `MemStore.load`/`initialize` unless `firstWorksheetTabId` names a tab that
+  // has a `sheets` entry (`if (!container || !worksheet) return`). When the
+  // preview came up blank in a browser that guard was the first suspect; this
+  // pins that it passes for a real captured document, so a future blank
+  // preview cannot be blamed on it without the fixture changing first.
+  it('yields a tab the mount guard accepts', () => {
+    const doc = parseSheetSnapshot(fixture('sheet'));
+    const tabId = firstWorksheetTabId(doc);
+    expect(tabId).toBeTruthy();
+    expect(doc.sheets[tabId!]).toBeDefined();
   });
 
   // The integers a captured worksheet carries — `frozenRows`, `nextRowId`,

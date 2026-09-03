@@ -418,10 +418,33 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
       if (!cancelled) setMountError(err);
     };
 
+    // The engine gets a host element belonging to *this* effect run, never
+    // `container` itself. `Worksheet.cleanup()` ends with
+    // `this.container.innerHTML = ''`
+    // (`packages/sheets/src/view/worksheet.ts`), and `initializeSheet` is
+    // async — so a cleanup that runs while the first mount is still in
+    // flight cannot cancel it, only tear it down later, and pointed at a
+    // shared container that teardown empties the *next* mount's DOM too.
+    //
+    // React StrictMode performs exactly that sequence on every dev mount
+    // (effect → cleanup → effect), which is what left the sheet preview
+    // permanently blank: the surviving `Spreadsheet` went on painting into
+    // a canvas no longer in the document, and its own `ResizeObserver`
+    // watched a detached element, so no amount of resizing brought it back.
+    // Outside StrictMode the same race is reachable whenever a dep changes
+    // — paging to another revision, or toggling the theme — while a mount
+    // is still resolving.
+    //
+    // Mirrors what `SlidesPreview` below already does with `slideWrap`.
+    const host = document.createElement('div');
+    host.style.width = '100%';
+    host.style.height = '100%';
+    container.appendChild(host);
+
     try {
       const store = new MemStore();
       store.load(worksheet);
-      initializeSheet(container, {
+      initializeSheet(host, {
         theme: resolvedTheme,
         store,
         readOnly: true,
@@ -441,6 +464,7 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
     return () => {
       cancelled = true;
       sheet?.cleanup();
+      host.remove();
     };
   }, [doc, tabId, resolvedTheme]);
 
@@ -587,25 +611,44 @@ function SlidesPreview({
             editor.setHostSize(availW, availH);
             editor.setViewport(viewport);
           }
-          return;
+        } else {
+          const aspect = SLIDE_WIDTH / deckSlideHeight(store.readMeta());
+          const fit = fitInside(availW, availH, aspect);
+          sizeTo(fit.w, fit.h);
+          if (!editor) {
+            editor = initializeEditor({
+              canvas,
+              overlay,
+              store,
+              hostWidth: fit.w,
+              hostHeight: fit.h,
+              dpr,
+              readOnly: true,
+            });
+          } else {
+            editor.setHostSize(fit.w, fit.h);
+          }
         }
 
-        const aspect = SLIDE_WIDTH / deckSlideHeight(store.readMeta());
-        const fit = fitInside(availW, availH, aspect);
-        sizeTo(fit.w, fit.h);
-        if (!editor) {
-          editor = initializeEditor({
-            canvas,
-            overlay,
-            store,
-            hostWidth: fit.w,
-            hostHeight: fit.h,
-            dpr,
-            readOnly: true,
-          });
-        } else {
-          editor.setHostSize(fit.w, fit.h);
-        }
+        // Unconditional, on both the mount and the resize path, because
+        // every path above has just run `sizeTo` — and assigning
+        // `canvas.width`/`canvas.height` resets the bitmap even when the
+        // value is identical. `setHostSize` early-returns on an unchanged
+        // size (`editor.ts`), so a resize that measures the same box would
+        // otherwise clear the canvas and repaint nothing.
+        //
+        // That is exactly what the `ResizeObserver` below delivers on its
+        // *initial* observation, one frame after the mount: the preview
+        // came up blank and only appeared once the user physically resized
+        // the window. `SlidesView` never hit this because its scroll host
+        // drives a refit with a genuinely different size right after mount.
+        //
+        // `markDirty()` before `render()` is what the editor documents for
+        // a repaint driven from outside its own interaction handlers —
+        // without it `render()` no-ops, the renderer's dirty flag having
+        // been reset after the last successful paint.
+        editor.markDirty();
+        editor.render();
       };
 
       mountOrResize();
