@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| board nested doc update (2026-09-03) | [20260903-board-nested-doc-update-todo.md](./active/20260903-board-nested-doc-update-todo.md) | [20260903-board-nested-doc-update-lessons.md](./active/20260903-board-nested-doc-update-lessons.md) |
 | release v0.6.8 (2026-09-02) | [20260902-release-v0.6.8-todo.md](./active/20260902-release-v0.6.8-todo.md) | [20260902-release-v0.6.8-lessons.md](./active/20260902-release-v0.6.8-lessons.md) |
 | template gallery public tier (2026-09-02) | [20260902-template-gallery-public-tier-todo.md](./active/20260902-template-gallery-public-tier-todo.md) | [20260902-template-gallery-public-tier-lessons.md](./active/20260902-template-gallery-public-tier-lessons.md) |
 | template gallery (2026-09-01) | [20260901-template-gallery-todo.md](./active/20260901-template-gallery-todo.md) | [20260901-template-gallery-lessons.md](./active/20260901-template-gallery-lessons.md) |
@@ -44,4 +45,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 577
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.6.8 (2026-09-02)
+Latest active task: board nested doc update (2026-09-03)

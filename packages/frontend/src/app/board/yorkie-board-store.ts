@@ -1,4 +1,4 @@
-import type { Document as YorkieDocument } from '@yorkie-js/sdk';
+import type { Document as YorkieDocument, Presence } from '@yorkie-js/sdk';
 import {
   type ArrowheadStyle,
   type ConnectorElement,
@@ -36,7 +36,7 @@ import {
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
 import { boardToSlidesDocument } from '@wafflebase/board';
-import type { YorkieBoardRoot } from '@/types/board-document';
+import type { BoardPresence, YorkieBoardRoot } from '@/types/board-document';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
 
 /**
@@ -219,6 +219,27 @@ export class YorkieBoardStore implements SlidesStore {
    * collapses into ONE Yorkie change (one native undo unit).
    */
   private activeRoot: YorkieBoardRoot | null = null;
+  /**
+   * The live Yorkie presence proxy for the duration of a top-level
+   * `batch()`, so {@link updatePresence} can fold into the batch's own
+   * change instead of opening a nested `doc.update`.
+   *
+   * Not an optimization — a nested update is *incorrect*. The SDK builds
+   * a `ChangeContext` from `doc.changeID` on entry and only advances
+   * `changeID` on commit, so an inner update that completes first issues
+   * the same `clientSeq` the still-open outer one is holding. The server
+   * then refuses the pack ("change clientSeq must increase by one") and,
+   * because `changeID` is left a step behind, every later push and the
+   * final detach fail the same way — the document never syncs again.
+   *
+   * This is reachable on every insert: the editor's insert commit selects
+   * the new element inside `store.batch()`, `Selection.notify()` is
+   * synchronous, and `BoardView` answers it with a presence write.
+   * Presence `set` is not added to history, so folding it in never
+   * pollutes the batch's undo unit. Mirrors
+   * `YorkieSlidesStore.activePresence`.
+   */
+  private activePresence: Presence<BoardPresence> | null = null;
   /** Undo-stack depth at construction; `canUndo()` refuses to drop below it. */
   private undoFloor = 0;
   private batchDepth = 0;
@@ -456,12 +477,17 @@ export class YorkieBoardStore implements SlidesStore {
     }
     this.batchDepth++;
     try {
-      this.doc.update((r) => {
+      // ONE doc.update for the entire batch → one Yorkie change → one
+      // native undo unit. Mutators run against `activeRoot` via
+      // `withUpdate`; presence writes fold into `activePresence`.
+      this.doc.update((r, p) => {
         this.activeRoot = r;
+        this.activePresence = p;
         try {
           fn();
         } finally {
           this.activeRoot = null;
+          this.activePresence = null;
         }
       });
     } finally {
@@ -516,6 +542,30 @@ export class YorkieBoardStore implements SlidesStore {
       }
       meta.recentColors = pushRecent(existing, hex);
     });
+  }
+
+  // --- presence ---
+
+  /**
+   * Write the local presence. The only presence writer on a board — see
+   * {@link activePresence} for why `BoardView` must not reach for
+   * `doc.update` itself.
+   *
+   * Yorkie's `Presence.set` MERGES a `Partial<P>`, so callers pass only
+   * the fields they own. Filling the identity fields
+   * (username/email/photo) here would clobber what `BoardDetail` seeded
+   * via `initialPresence` and make the user anonymous to peers after
+   * their first selection.
+   *
+   * Not part of `SlidesStore` — presence is not document state, and
+   * `BoardView` holds the concrete store, exactly as `SlidesView` does.
+   */
+  updatePresence(presence: Partial<BoardPresence>): void {
+    if (this.activePresence) {
+      this.activePresence.set(presence);
+    } else {
+      this.doc.update((_, p) => p.set(presence));
+    }
   }
 
   // --- element ops ---

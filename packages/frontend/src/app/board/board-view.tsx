@@ -500,9 +500,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       cancelFrame: (handle) => cancelAnimationFrame(handle),
       shouldPublish: () => doc.getOthersPresences().length > 0,
       publish: (position) => {
-        doc.update((_, p) => {
-          p.set({ cursor: position });
-        });
+        store.updatePresence({ cursor: position });
       },
     });
     const onCursorMove = (e: PointerEvent) => {
@@ -566,12 +564,19 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
 
     // Local presence: broadcast selection. `Presence.set` merges, so
     // only the board-specific field is passed — identity fields
-    // (username/email/photo) are seeded once by the future BoardDetail
-    // wrapper's `initialPresence` and stay intact across this partial
-    // update, exactly like SlidesView's `broadcast()`.
+    // (username/email/photo) are seeded once by BoardDetail's
+    // `initialPresence` and stay intact across this partial update,
+    // exactly like SlidesView's `broadcast()`.
+    //
+    // Through the STORE, never `doc.update` directly: this listener fires
+    // synchronously from inside `store.batch()` (the editor's insert
+    // commit selects the element it just added), and a nested
+    // `doc.update` there reissues the open change's `clientSeq` — which
+    // the server rejects and the document never recovers from. See
+    // `YorkieBoardStore.activePresence`.
     const offSelection = editor.onSelectionChange(() => {
-      doc.update((_, p) => {
-        p.set({ selectedElementIds: editor.getSelection().slice() });
+      store.updatePresence({
+        selectedElementIds: editor.getSelection().slice(),
       });
     });
 

@@ -60,6 +60,55 @@ describe('YorkieBoardStore', () => {
     expect(store.read().slides[0].elements).toHaveLength(0);
   });
 
+  // Regression: a presence write fired synchronously from inside a
+  // `batch()` — which is what every insert does, because the editor
+  // selects the element it just added and `Selection.notify()` is
+  // synchronous — must fold into the batch's own change.
+  //
+  // Opening a nested `doc.update` there instead reissues the still-open
+  // outer change's `clientSeq`, and the server refuses the whole pack
+  // with "change clientSeq must increase by one". `clientSeq` is the
+  // assertion rather than the change count because it is the exact thing
+  // the server validates.
+  it('a presence write inside batch() does not reissue the open change clientSeq', () => {
+    const doc = makeYorkieBoardDoc();
+    const store = new YorkieBoardStore(doc);
+
+    store.batch(() => {
+      store.addElement(SYNTHETIC_SLIDE_ID, makeShapeInit());
+      store.updatePresence({ selectedElementIds: ['whatever'] });
+    });
+
+    const seqs = doc
+      .createChangePack()
+      .getChanges()
+      .map((c) => c.getID().getClientSeq());
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
+    // Contiguity is what the server actually checks.
+    for (let i = 1; i < seqs.length; i++) {
+      expect(seqs[i]).toBe(seqs[i - 1] + 1);
+    }
+  });
+
+  // The other half of the seam: with no batch open there is nothing to
+  // fold into, so `updatePresence` must still write. Asserted on the
+  // outgoing change rather than `getMyPresence()` — these docs are never
+  // attached to a server, and the SDK only reconciles presence into its
+  // own map for an attached document.
+  it('updatePresence outside a batch still emits the presence change', () => {
+    const doc = makeYorkieBoardDoc();
+    const store = new YorkieBoardStore(doc);
+    store.updatePresence({ selectedElementIds: ['a'] });
+
+    const changes = doc.createChangePack().getChanges();
+    const presence = changes[changes.length - 1].getPresenceChange();
+    expect(presence).toMatchObject({
+      type: 'put',
+      presence: { selectedElementIds: ['a'] },
+    });
+  });
+
   // Regression coverage for C4: `elementsLookup` must recursively
   // resolve elements nested inside a group (not just top-level ones),
   // otherwise a connector attached to an element that becomes a group
