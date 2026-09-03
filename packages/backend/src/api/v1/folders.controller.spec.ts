@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ApiV1FoldersController } from './folders.controller';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
@@ -92,6 +96,19 @@ describe('ApiV1FoldersController', () => {
     it('checks a supplied parent belongs to the route workspace', async () => {
       await controller.create(WS, req(MEMBER), { name: 'Q1', parentId: 'f-9' });
       expect(folderService.assertSameWorkspace).toHaveBeenCalledWith('f-9', WS);
+    });
+
+    // The check has to be *awaited*: a dropped `await` still calls the mock, so
+    // asserting the call alone would pass while a folder was being parented
+    // under another workspace's folder.
+    it('creates nothing when the parent is in another workspace', async () => {
+      folderService.assertSameWorkspace.mockRejectedValue(
+        new BadRequestException('Folder must belong to the same workspace'),
+      );
+      await expect(
+        controller.create(WS, req(MEMBER), { name: 'Q1', parentId: 'f-9' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(folderService.create).not.toHaveBeenCalled();
     });
 
     it('authors an API key’s folder as the user who minted the key', async () => {
@@ -195,6 +212,41 @@ describe('ApiV1FoldersController', () => {
         controller.update(WS, 'f-1', req(AUTHOR), { parentId: 'f-2' }),
       ).rejects.toThrow('cycle');
       expect(folderService.assertSameWorkspace).toHaveBeenCalledWith('f-2', WS);
+      expect(folderService.update).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when the new parent is in another workspace', async () => {
+      folderService.assertSameWorkspace.mockRejectedValue(
+        new BadRequestException('Folder must belong to the same workspace'),
+      );
+      await expect(
+        controller.update(WS, 'f-1', req(AUTHOR), { parentId: 'f-2' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(folderService.assertNoCycle).not.toHaveBeenCalled();
+      expect(folderService.update).not.toHaveBeenCalled();
+    });
+
+    // One `PATCH` may carry both fields. The rename rides along on the move's
+    // manager gate, and a rejected parent must take the rename down with it —
+    // the write is one call, so a half-applied body is not an option.
+    it('renames and moves in a single write', async () => {
+      await controller.update(WS, 'f-1', req(AUTHOR), {
+        name: 'Renamed',
+        parentId: 'f-2',
+      });
+      expect(folderService.update).toHaveBeenCalledWith('f-1', {
+        name: 'Renamed',
+        parentId: 'f-2',
+      });
+    });
+
+    it('refuses a rename bundled with a move a plain member may not make', async () => {
+      await expect(
+        controller.update(WS, 'f-1', req(MEMBER), {
+          name: 'Renamed',
+          parentId: 'f-2',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
       expect(folderService.update).not.toHaveBeenCalled();
     });
 
