@@ -178,8 +178,8 @@ export function PdfViewer({
  * The one loading indicator that is deliberately not `<Loader />`: pdf.js
  * reports real byte progress, so this shows a determinate bar and a
  * percentage rather than an indeterminate spinner. Everything else about it —
- * the label's size and colour, the `text-primary` fill — matches `Loader`, so
- * the two read as the same family rather than as two designs.
+ * the label's size and colour, the `primary` token the bar is filled with —
+ * matches `Loader`, so the two read as the same family, not as two designs.
  */
 function LoadingOverlay({ progress }: { progress: number | null }) {
   const pct = progress === null ? null : Math.round(progress * 100);

@@ -36,7 +36,7 @@ The viewer centers the image and fits it to your window. A toolbar lets you:
   workspace without returning to the list
 - **Download** — save the original file back to your computer
 
-A progress bar shows while the file downloads on first open.
+A spinner shows while the file downloads on first open.
 
 ## Rename an image
 

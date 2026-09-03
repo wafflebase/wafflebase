@@ -53,29 +53,39 @@ visual languages, three different spellings of the word.
 | D | `Skeleton` blocks | grey placeholder rows | list pages (out of scope) |
 | E | `home/demo-section.tsx` | hand-rolled CSS spinner | homepage (out of scope) |
 
-Alignment within A:
+Alignment within A. The parent's flex **direction** decides which axis
+collapses, so the unwrapped call sites did not all fail the same way — a
+correction to the first pass of this table, which called all five
+"left-skewed":
 
-| document type | wrapper | result |
-| --- | --- | --- |
-| slides `slides-view.tsx:1236` | `flex h-full w-full items-center justify-center` | centred |
-| board `board-view.tsx:794` | same | centred |
-| mobile slides `mobile-slides-view.tsx:461` | `flex flex-1 items-center justify-center` | centred |
-| note `notes-view.tsx:199` | none | **left-skewed** |
-| doc `docs-view.tsx:613` | none | **left-skewed** |
-| sheet `sheet-view.tsx:1538` | none | **left-skewed** |
-| datasource `datasource-view.tsx:134` | none | **left-skewed** |
-| lakehouse `lakehouse-view.tsx:351` | none | **left-skewed** |
+| document type | parent | wrapper | result |
+| --- | --- | --- | --- |
+| slides `slides-view.tsx:1236` | row | `flex h-full w-full items-center justify-center` | centred |
+| board `board-view.tsx:794` | row | same | centred |
+| mobile slides `mobile-slides-view.tsx:461` | column | `flex flex-1 items-center justify-center` | centred |
+| note `notes-view.tsx:199` | row (`PreviewSurface`) | none | **left-skewed** |
+| doc `docs-view.tsx:613` | row | none | **left-skewed** |
+| sheet `sheet-view.tsx:1538` | column (`document-detail.tsx:711`) | none | **top-skewed** |
+| datasource `datasource-view.tsx:134` | column | none | **top-skewed** |
+| lakehouse `lakehouse-view.tsx:351` | column | none | **top-skewed** |
+
+A column-flex parent stretches its item on the cross axis, so those three
+were full width but sat as a 300px box at the top of a tall column. One
+`flex-1` fixes both failures, because it is the *main* axis that collapses in
+either orientation.
 
 Label spellings in use: `Loading...`, `Loading…`, `Loading PDF… 42%`,
 `Loading rows...`, `Loading demo…`.
 
 ## Plan
 
-- [x] 1. `Loader` centres itself: add `w-full flex-1` and document the
-      contract. `flex-1` fills the main axis in a **column** parent, `w-full`
-      the cross axis in a **row** parent, and both are inert in a block
-      parent — so one primitive is correct in all three, which is what lets
-      the call sites drop their wrappers.
+- [x] 1. `Loader` centres itself: add `flex-1 w-full` and document the
+      contract. `flex-1` is what does the work — it fills the **main** axis
+      of a flex parent in either orientation, which is the axis that
+      collapses. `w-full` is redundant in every parent shape that exists
+      today and is kept only so a `flex-col items-center` parent cannot
+      reintroduce shrink-to-fit on the cross axis. Both are inert in a block
+      parent.
 - [x] 2. Remove the now-redundant centring wrappers (slides-view,
       board-view, mobile-slides-view). Behaviour-neutral given step 1;
       verified per parent container.
@@ -119,10 +129,51 @@ Geometry measured in a real browser against the app's own stylesheet, in a
 62px reproduces the 63px measured in the running note editor during the
 original diagnosis, which is what anchors the probe to the real bug.
 
+### Review round
+
+A reviewer over the full branch diff independently checked all ~25 `Loader`
+call sites and found no layout regression — including the three that could
+have produced one: the history panel (Radix `ScrollArea`'s viewport is
+`display: table`, so `flex-1` is inert), `document-detail`'s column surface,
+and `docs-detail`, the one place a `Loader` is a real row-flex *sibling* of
+`HistoryPanel` (`flex h-full w-72`, `flex-grow: 0`, so `flex: 1 1 0%` claims
+only free space and cannot squash it).
+
+Applied from that review:
+
+- The label scan's regex matched `Loading` followed by `...` anywhere on the
+  line, which would have reported `const { isLoading, ...rest }` and
+  `<LoadingOverlay {...p} />`. Tightened to require whole words between, with
+  a test pinning both what it catches and what it must not.
+- The contract comment had the axes inverted (in a row-flex parent width is
+  the *main* axis, not the cross axis) and framed `flex-1`/`w-full` as two
+  independently necessary halves. `flex-1` alone fixes every parent shape the
+  app has; `w-full` is a guard, now documented as one.
+- The audit table above called all five unwrapped call sites "left-skewed".
+  Three were top-skewed. Corrected.
+- `pdf-viewer`'s new comment named `text-primary` for the bar's fill; it is
+  `bg-primary`.
+- `packages/documentation/pdf/viewing-images.md` claimed the image viewer
+  shows "a progress bar". It never did — it showed bare text, and now shows a
+  spinner. Corrected, since this change is what made the line checkable.
+- Test lookup moved from `parentElement` to `closest('[aria-live]')` and
+  class checks from substring to `classList.contains`, so a wrapper or a
+  `flex-1/2` cannot make an assertion pass by accident.
+
 ### Known limitations
 
 - The jsdom lane can only assert the class contract, not the geometry. The
   real measurement lives in this file and in the test's comments.
+- `image-viewer`'s parent is `items-center`, so the loader is not stretched
+  there and `min-h-[300px]` is a hard floor inside an `overflow-auto` box. On
+  a very short viewport that can show a transient scrollbar while the image
+  downloads. Cosmetic, and only during load.
+- `docs/tasks/README.md` is deliberately not regenerated here: `tasks:index`
+  makes every pair of concurrent task branches conflict. Regenerate once
+  after merge.
+- The `error` branches in `slides-view` / `board-view` keep their centring
+  wrapper. Their content is not a `Loader`, so the wrapper is still doing
+  real work there.
 - The two-stage entry flash (bare loader for the `me` query → app shell →
   editor) is unchanged; it is a data-fetch ordering problem, listed as a
   non-goal.

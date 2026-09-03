@@ -15,37 +15,44 @@ import { Loader } from '../loader';
  * 1016px-wide `PreviewSurface`, i.e. shrink-to-fit and pinned to the left.
  */
 describe('Loader', () => {
-  /** The `aria-live` region is the loader's own outermost box. */
+  /**
+   * The loader's own outermost box. Found by the `aria-live` region rather
+   * than by `parentElement`, so adding a wrapper around the label can't
+   * silently move the assertions onto the wrong node.
+   */
   function root() {
-    return screen.getByText('Loading…').parentElement!;
+    return screen.getByText('Loading…').closest('[aria-live]')!;
   }
 
-  // A row-flex parent (`PreviewSurface`, which every editor's canvas sits in)
-  // sizes an item by its content on the main axis. Without `w-full` the
-  // loader collapses to the spinner's width and `justify-content: flex-start`
-  // parks it at the left edge; its own `items-center` then centres the
-  // spinner inside that collapsed box, which is why it looked deliberate.
-  it('fills the cross axis of a row-flex parent', () => {
+  const has = (cls: string) => root().classList.contains(cls);
+
+  // `flex-1` is `flex: 1 1 0%`, which fills the *main* axis of a flex parent
+  // in either orientation: the width of the row-flex `PreviewSurface` every
+  // editor's canvas sits in, and the height of a column-flex page body.
+  // Without it the loader is shrink-to-fit on that axis —
+  // `justify-content: flex-start` then parks it at the start edge while its
+  // own `items-center` centres the spinner inside the collapsed box, which is
+  // why the bug looked deliberate.
+  it('fills the main axis of a flex parent in either orientation', () => {
     render(<Loader />);
-    expect(root().className).toContain('w-full');
+    expect(has('flex-1')).toBe(true);
   });
 
-  // And a column-flex parent (`document-detail`'s grid column, the mobile
-  // slides shell) sizes an item by its content on the *vertical* axis, so the
-  // same collapse happens one axis over: without `flex-1` the loader is a
-  // 300px box at the top of a full-height column.
-  it('fills the main axis of a column-flex parent', () => {
+  // `w-full` is redundant in every parent shape the app has today — see the
+  // component's own comment. It is pinned anyway because it is the guard
+  // against a parent that opts out of the cross-axis stretch
+  // (`flex-col items-center`) reintroducing shrink-to-fit one axis over.
+  it('keeps the cross-axis guard for a parent that opts out of stretch', () => {
     render(<Loader />);
-    expect(root().className).toContain('flex-1');
+    expect(has('w-full')).toBe(true);
   });
 
-  // Both together are what let a call site render `<Loader />` bare. Losing
-  // either one silently returns one axis to shrink-to-fit, and the call sites
-  // no longer carry a centring wrapper that would hide it.
+  // Filling the box is only half of it: the content has to be centred inside
+  // the box it now fills.
   it('centres its content on both axes', () => {
     render(<Loader />);
-    expect(root().className).toContain('items-center');
-    expect(root().className).toContain('justify-center');
+    expect(has('items-center')).toBe(true);
+    expect(has('justify-center')).toBe(true);
   });
 
   it('announces itself to a screen reader', () => {
@@ -84,7 +91,15 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
  *
  * Only the three-dot form is rejected: a real ellipsis inside a longer label
  * ("Loading PDF… 42%") is fine and deliberate.
+ *
+ * The dots must terminate the label itself — `Loading`, then only whole words
+ * — rather than merely appear later on the line. A looser rule matches this
+ * codebase's own vocabulary and reports lines that carry no label at all:
+ * `const { isLoading, ...rest } = useQuery()` and `<LoadingOverlay {...p} />`
+ * both contain `Loading` followed by `...`.
  */
+const ASCII_ELLIPSIS_LABEL = /Loading(?: [A-Za-z]+)*\.\.\./;
+
 describe('the loading label', () => {
   it('is spelled with an ellipsis character everywhere', () => {
     const offenders: string[] = [];
@@ -92,11 +107,25 @@ describe('the loading label', () => {
       readFileSync(file, 'utf8')
         .split('\n')
         .forEach((line, i) => {
-          if (/Loading[^\n]*\.\.\./.test(line)) {
+          if (ASCII_ELLIPSIS_LABEL.test(line)) {
             offenders.push(`${path.relative(srcDir, file)}:${i + 1}`);
           }
         });
     }
     expect(offenders, 'use "…" rather than "..."').toEqual([]);
+  });
+
+  // The rule is only worth having if it still fires. Pinning both sides
+  // keeps a later tightening from quietly turning it into a no-op.
+  it('catches the ASCII form without catching React idioms', () => {
+    expect(ASCII_ELLIPSIS_LABEL.test('<p>Loading...</p>')).toBe(true);
+    expect(ASCII_ELLIPSIS_LABEL.test('<span>Loading rows...</span>')).toBe(true);
+    expect(ASCII_ELLIPSIS_LABEL.test('title ?? "Loading..."')).toBe(true);
+    expect(
+      ASCII_ELLIPSIS_LABEL.test('const { isLoading, ...rest } = useQuery()'),
+    ).toBe(false);
+    expect(ASCII_ELLIPSIS_LABEL.test('<LoadingOverlay {...props} />')).toBe(
+      false,
+    );
   });
 });
