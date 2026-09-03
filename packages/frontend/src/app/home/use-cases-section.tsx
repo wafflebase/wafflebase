@@ -11,7 +11,7 @@ const USE_CASES: UseCase[] = [
   {
     tag: "Internal tools",
     title: "Replace the 'export to Excel, edit, paste back' loop",
-    body: "A SQL tab pulls live rows straight from PostgreSQL; the REST API writes cells back. Users get the spreadsheet they wanted; you keep the schema you wanted.",
+    body: "A SQL tab reads straight from PostgreSQL into a read-only grid, right beside your editable tabs — press Execute for fresh rows instead of exporting another CSV.",
     href: "/docs/sheets/datasources",
   },
   {
@@ -23,7 +23,7 @@ const USE_CASES: UseCase[] = [
   {
     tag: "Specs & launch plans",
     title: "Roll the spec back to the version everyone signed off on",
-    body: "Every sheet, doc, slide, note and board keeps a dated version timeline — name the one you shipped, then restore it with today's state saved first.",
+    body: "Every sheet, doc, slide, note and board keeps a dated timeline of its 50 most recent versions — name the current state as you ship it, and restoring one saves today's state first.",
     href: "/docs/guide/collaboration#version-history",
   },
 ];

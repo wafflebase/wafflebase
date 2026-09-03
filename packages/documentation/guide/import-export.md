@@ -38,12 +38,22 @@ document type based on its extension:
 | anything else | A stored file with no preview, which you can download again from its header. |
 
 A panel in the bottom-right corner shows per-file progress while each file is
-parsed and any embedded images are uploaded into your workspace. Uploads are
-capped at 50 MB per file, and 25 MB for images.
+parsed and any embedded images are uploaded into your workspace. An uploaded
+file is capped at **50 MB**, and an image document at **25 MB**. Images lifted
+*out* of a `.docx` or `.pptx` are a separate limit — they go to the workspace
+image store, which accepts **10 MB** per image.
 
-A very large `.csv` or `.tsv` stops at an import budget rather than failing:
-the sheet is created from the rows that arrived and the panel reports how many
-that was.
+A very large `.csv` or `.tsv` usually stops at an import budget (40,000 cells,
+plus an overall size ceiling) rather than failing: the sheet is created from
+the rows that arrived, and a toast on the documents list says how many were
+kept. The exception is a file whose very first row already busts a budget —
+there is nothing to truncate down to, so the import fails with an error
+instead.
+
+`.parquet` is held to the same 40,000-cell limit, but it is never truncated:
+the row and column counts are checked before anything is read and an
+over-limit file is rejected outright. `.xlsx`, `.json` and `.jsonl` have no
+cell budget.
 
 The **Import from Miro…** entry in the same menu is separate — it reads a Miro
 board through Miro's API rather than a file on disk, and creates a

@@ -5,7 +5,7 @@ Wafflebase lets multiple people edit the same sheet, document, presentation, or 
 ## Share a Document
 
 1. Open the sheet or document you want to share
-2. Click the **Share** button in the toolbar
+2. Click the **Share** button in the editor header
 3. Under **Permission**, choose the role:
    - **Viewer** — Can see the content, but not edit
    - **Editor** — Full editing access
@@ -47,9 +47,10 @@ In sheets, editors can also use formulas, insert/delete rows and columns, and re
 When a collaborator opens your shared link, you'll see:
 
 - **Their cursor** — In sheets, a colored highlight on their selected cell. In docs and notes, a colored text cursor at their position. In PDFs, you can see who else is viewing the file.
-- **Their name** — A label appears next to their cursor when they move, then
-  fades after about four seconds so the content stays readable. Hover their
-  cursor to bring the name back.
+- **Their name** — A label appears next to their cursor. In sheets and
+  documents it fades about four seconds after they move so the content stays
+  readable; hover their cursor to bring the name back. In notes, slides, and
+  boards the label stays on screen and there is nothing to hover for.
 - **Live changes** — Edits appear instantly with no need to refresh or save
 
 ::: tip
@@ -59,9 +60,11 @@ Each collaborator gets a unique color. If your collaborators sign in with GitHub
 ### Jump to a collaborator
 
 In sheets and documents, the avatars in the header are clickable: select one to
-scroll to where that person is working. Their name label reappears when you
-land so you can confirm whose position you jumped to. Your own avatar isn't
-clickable, and neither is one for a peer whose position isn't known yet.
+scroll to where that person is working. In documents, their name label
+reappears when you land so you can confirm whose position you jumped to; in
+sheets it does not, so if the label has already faded you'll see the colored
+cell highlight without a name until that person moves again. Your own avatar
+isn't clickable, and neither is one for a peer whose position isn't known yet.
 
 ## Is My Work Saved?
 
@@ -80,10 +83,14 @@ the only state that is loud about itself: if it persists for a couple of
 seconds, a warning appears, and it clears with a confirmation once your work is
 actually on the server.
 
-::: warning
-While changes are unsent, this browser tab is the only copy of them — nothing
-is stored on your machine. If you try to close or reload the tab in that state,
-the browser asks you to confirm first. Wait for **Saved** before leaving.
+::: warning Don't rely on the close prompt
+While changes are unsent — that means **Saving…** as well as **Not saved** —
+this browser tab is the only copy of them; nothing is stored on your machine.
+In either of those two states, closing or reloading the tab *may* make the
+browser ask you to confirm first. It is a safety net, not a guarantee: the
+prompt appears only if a last-moment check still finds work outstanding, so a
+tab showing **Not saved** can close without asking. Never read a missing prompt
+as proof your work is safe — wait for **Saved** before leaving.
 :::
 
 The chip appears in sheets, documents, slides, notes, and boards, and in a
@@ -108,10 +115,14 @@ boards don't have comments yet.
 
 **In a document:**
 
-1. Select the text you want to comment on
-2. Right-click and choose **Insert comment**, press **⌘+Option+M** /
-   **Ctrl+Alt+M**, or click the comment icon in the toolbar
+1. Select the text you want to comment on — a document comment needs a real
+   selection, so nothing happens if the cursor is just sitting somewhere
+2. Right-click and choose **Insert comment**, or press **⌘+Option+M** /
+   **Ctrl+Alt+M**
 3. Type your comment and click **Comment**
+
+The comment icon in the header opens and closes the comments panel; it does not
+start a comment.
 
 The commented text is highlighted so everyone can see where the discussion is.
 
@@ -173,6 +184,9 @@ You are notified when:
 - **Someone joins a workspace** you own, or accepts an invite you created
 - **A template you published** is approved, rejected, or removed from the
   public gallery, or goes back for review after its document changed
+- **A template is waiting in the review queue** — only if you are one of the
+  deployment's designated template reviewers, and at most one nudge per
+  listing per day
 
 Starting a brand-new thread notifies nobody unless it mentions someone. You are
 never notified about your own actions, and a reply that mentions you produces
@@ -191,11 +205,19 @@ Every sheet, document, presentation, note, and board keeps a history of past
 versions. Click the **history** icon in the editor header to toggle the
 **Version history** panel open on the right.
 
+::: warning Presentations need a wide window
+On a narrow screen — under 768 pixels, so most phones — a presentation opens in
+a mobile layout that has no history icon and no panel. The history is still
+being kept; you just can't reach it until you open the deck on a wider screen.
+:::
+
 The panel lists versions grouped by day. Most entries are **Automatic** —
 snapshots taken as the document is edited, so the timeline follows activity
 rather than the clock. To mark a moment you want to find again, type a name
-into **Name current version** and click **Save**; named versions you created
-are tagged **By you**.
+into **Name current version** and click **Save**. **By you** tags any
+non-automatic version you were the one to create — the versions you named, and
+also the **Before restore** versions that your own restores created (see
+below).
 
 Each entry offers two actions:
 
@@ -206,7 +228,16 @@ Each entry offers two actions:
 Restoring first saves the current state as a **Before restore** version, so a
 restore is always reversible. Note that comments are part of the version being
 restored: any comment added after it was created is removed along with the rest
-of the newer content. Wafflebase asks you to confirm before it goes ahead.
+of the newer content.
+
+::: warning Only one of the two Restore buttons asks you to confirm
+**Restore** in the version list opens a confirmation dialog first, so you can
+back out. **Restore this version** inside an open preview does **not** — it
+restores immediately, on the reasoning that the preview you are looking at is
+itself the confirmation. If you previewed a version to check it and then decide
+against restoring it, leave with **Back to current version** rather than
+expecting a dialog to catch you.
+:::
 
 ::: tip
 Version history is only available when you're signed in and opening the
@@ -227,10 +258,12 @@ In practice, presence cursors make it easy to see where others are working, so s
 To see or revoke existing links:
 
 1. Open the sheet or document
-2. Click **Share** in the toolbar
+2. Click **Share** in the editor header
 3. Under **Active links** you'll see each link's role and expiration —
    **No expiration**, a countdown such as *Expires in 6h*, or **Expired**
-4. Use the copy icon to copy a link again, or the delete icon to revoke it
+4. Use the copy icon to copy a link again, or the delete icon to revoke it.
+   The delete icon only appears on links you have the authority to revoke —
+   see below
 
 Revoking a link immediately blocks access — anyone with that URL will no longer be able to open it.
 

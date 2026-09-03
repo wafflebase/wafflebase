@@ -91,7 +91,8 @@ There is no single answer — it depends on which family you call, and the diffe
 | Family | Called against the wrong type |
 |--------|-------------------------------|
 | Tabs, rows/columns, worksheet settings, styles, dimensions, rules, charts, filter/pivot | `400`, with a message naming the actual type, e.g. `Tabs are only available on sheet documents; "<id>" is a "doc" document.` |
-| Cells | **No type check at all.** The document is opened under its `sheet-<id>` Yorkie key, which for a non-sheet document holds no worksheet, so the request returns `404 Tab not found` |
+| Cells (`GET`) | **No type check.** The read attaches to the `sheet-<id>` Yorkie key, which for a non-sheet document is empty, so there is no worksheet and the request returns `404 Tab not found` |
+| Cells (`PUT` / `DELETE` / `PATCH`) | **No type check, and not a `404` either.** The write paths attach with a seeded spreadsheet root, so a write aimed at the seeded default tab id `tab-1` returns `200` and stores the cell in a Yorkie document nothing displays. See [Cells](#cells-sheets-only) |
 | Document content (`/content`) | `409` with a structured body — the only place `TYPE_MISMATCH` exists |
 
 The `409` body is:
@@ -172,7 +173,20 @@ GET /api/v1/workspaces/:wid/documents/:did
 PATCH /api/v1/workspaces/:wid/documents/:did
 ```
 
-Only `title` is read from the body.
+**Send only the field you mean to change — the whole body reaches the database row.** The handler is declared as `{ title?: string }`, but that is a compile-time TypeScript type. The global validation pipe skips a body whose runtime metatype is a plain object, so no key is stripped and no key is rejected, and the body is passed straight to Prisma's `document.update()` as its `data`.
+
+What that means in practice:
+
+| You send | What happens |
+|----------|--------------|
+| `title` | Renamed — the intended use |
+| `type`, `fileId`, `fileSize`, `mimeType` | **Written.** These are real `Document` columns. `PATCH {"type": "slides"}` on a spreadsheet answers `200` and changes which editor opens the document |
+| A key that is not a column Prisma will write | Prisma throws, and the request fails with a **`500`**, not a `400` |
+| `updatedAt` | Ignored. The service overwrites it with the current time whenever the body has at least one key |
+
+In particular, **do not read a document row and `PATCH` the whole object back** after changing `title`. A row from [List Documents](#list-documents) can carry an `editors` field, which is not a column and gives you a `500`; a row from either read carries `type`, which would be rewritten.
+
+Anything beyond `title` here is observable behavior rather than a supported feature. Do not build on it.
 
 ```bash
 curl -X PATCH \
@@ -288,7 +302,16 @@ curl -H "Authorization: Bearer wfb_..." \
 curl "https://api.wafflebase.io/api/v1/workspaces/:wid/images/:imageId?token=<shareToken>"
 ```
 
-Access is granted to a workspace-scoped API key, a workspace member (JWT), **or** a valid unexpired `?token=` share link whose document belongs to this workspace. Anything else is `403 Not allowed to read this image`. Granularity is deliberately workspace-level: there is no database link from an image blob to the document embedding it, and image ids are unguessable UUIDs. This path exists because an `<img>` request from a shared document carries no CRDT credential — without it, every image in a shared document fails to load.
+Access is granted to a workspace-scoped API key, a workspace member (JWT), **or** a valid unexpired `?token=` share link whose document belongs to this workspace. Granularity is deliberately workspace-level: there is no database link from an image blob to the document embedding it, and image ids are unguessable UUIDs. This path exists because an `<img>` request from a shared document carries no CRDT credential — without it, every image in a shared document fails to load.
+
+A refusal is not always the same status, and the difference tells you which credential failed:
+
+| Status | Condition |
+|--------|-----------|
+| `403 API key is not scoped to this workspace` | An API key minted for a different workspace. It is refused here rather than falling through to the share token |
+| `404 Share link not found` | A `?token=` that matches no share link. Raised while resolving the token, so it wins over the generic refusal |
+| `410 Share link has expired` | A `?token=` whose link is past its `expiresAt`. Also raised while resolving the token |
+| `403 Not allowed to read this image` | Everything else: anonymous with no token, a signed-in non-member, or a valid token whose document belongs to another workspace |
 
 An `imageId` that is not `<uuid>.<png|jpg|jpeg|gif|webp>` is `400 Invalid image id`; an unknown one is `404 Image not found`.
 
@@ -378,7 +401,16 @@ Returns `{ "id", "name", "type" }`.
 
 Cell endpoints operate on a single sheet tab inside a sheet document.
 
-These routes check that the document is in the workspace but **not** that it is a sheet. Calling them against a doc, deck or note opens an empty spreadsheet document under that id and returns `404 Tab not found`.
+These routes check that the document is in the workspace but **not** that it is a sheet, and the read and write paths then behave differently. This is worth reading before you write a retry, because a wrong document id is not reliably an error.
+
+`GET` attaches read-only to the `sheet-<id>` Yorkie key. For a doc, deck, note or blob document that key holds nothing — the real content lives under `doc-<id>`, `slides-<id>`, `note-<id>`, or in blob storage — so there is no worksheet and the request is `404 Tab not found`.
+
+`PUT`, `DELETE` and `PATCH` attach with a **seeded** spreadsheet root, which Yorkie applies when the document is empty. This exists so a script can write cells into a freshly created sheet nobody has opened in the editor yet. The seed creates exactly one tab, with the id `tab-1`. The consequences:
+
+- A write aimed at `tab-1` against a **non-sheet** document id returns `200`, reports the cell it wrote, and leaves a `sheet-<id>` Yorkie document beside the real one. That document is real — a later `GET .../tabs/tab-1/cells` on the same id reads the cell back — but nothing in the product opens it. The document's own editor is unaffected: it reads a different Yorkie key and never sees the write.
+- A write to any **other** `tabId` still returns `404 Tab not found`, because the seed creates only `tab-1`.
+
+So a `200` from a cell write is not proof that you addressed a sheet. If your ids can be wrong, read the document's `type` from [Get Document](#get-document) first rather than relying on the status code.
 
 Each cell in a response has the following shape:
 
@@ -485,7 +517,13 @@ Returns `{ "ref": "A1", "deleted": true }`.
 PATCH /api/v1/workspaces/:wid/documents/:did/tabs/:tid/cells
 ```
 
-Update multiple cells in a single request. Each entry takes the same `value` / `formula` / `style` fields as `PUT`; set a cell to `null` to delete it.
+Update multiple cells in a single request.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `cells` | object | **Yes** | Keyed by A1 reference. Each entry takes the same `value` / `formula` / `style` fields as `PUT`; a `null` entry deletes that cell |
+
+`cells` is required in the strong sense: it is not defaulted and not validated, so **omitting it is a `500`, not a `400`** — the handler iterates it before anything checks it exists.
 
 Every supplied `style` is validated **before** any write, so one bad style fails the whole request with a `400` rather than leaving a partial update.
 
@@ -570,7 +608,7 @@ POST /api/v1/workspaces/:wid/documents/:did/tabs/:tid/move
 | `count` | integer ≥ 1 | Yes | Block size |
 | `dstIndex` | integer ≥ 1 | Yes | The block lands *before* this index |
 
-A `dstIndex` inside the moved block is `400` — moving a block into itself has no meaningful result.
+A `dstIndex` *strictly inside* the moved block is `400` — moving a block into itself has no meaningful result. The check is `dstIndex > srcIndex && dstIndex < srcIndex + count`, so `dstIndex === srcIndex` is **accepted**: the block lands before its own first index, which is where it already is. That is a `200` and a no-op, not a rejection.
 
 Returns `{ axis, srcIndex, count, dstIndex }`.
 
@@ -579,9 +617,9 @@ Returns `{ axis, srcIndex, count, dstIndex }`.
 | Rule | Behavior |
 |------|----------|
 | Grid bounds | Indices are 1..1000000 for rows, 1..18278 for columns; `index + count - 1` must also stay inside. `400` |
-| `MaxAxisEntries` = 10,000 | The cap on axis entries one request may **materialize** — the same budget the editor's own selection path uses. `400` |
-| Insert cost | Measured as the growth against the axis's *current* length, so the cap is cumulative across calls |
-| Move cost | Measured as `count` alone. A move on an axis that already spans the block grows it by nothing, but still splices `count` entries |
+| `MaxAxisEntries` = 10,000 | The cap on axis entries **one request** may materialize — the same budget the editor's own selection path uses. It is measured per request, not accumulated across them; what accumulates is the grid bound above, which each request is measured against as the axis grows. `400` |
+| Insert cost | The growth the request leaves behind, measured against the axis's *current* length: `max(current, index - 1) + count`. Inserting at index 1 of an empty axis costs `count`; inserting at index 50,000 of an empty axis costs ~50,000 and is refused |
+| Move cost | **Two separate bounds.** `count` alone must be ≤ 10,000 — a move splices the block out and spreads it back in, so it costs `count` even when the axis already spans it, and this is checked before the document is opened. *And* the axis is back-filled to cover both ends of the move, so `max(current, srcIndex + count - 1, dstIndex - 1)` is checked for growth like an insert. A far-offset move with a tiny `count` — say `srcIndex: 500000, count: 1` on a short axis — is refused for growth even though only one entry moves |
 | Delete cost | Bounded by the grid only. A delete materializes nothing, so `{ index: 1, count: 1000000 }` — "delete every row" — stays a single legal call |
 | Merge split (move only) | `409`, naming the merged range's anchor |
 | Non-sheet tab (insert/delete/move) | `400 Row and column edits are only available on sheet tabs; "<tab>" is a "<type>" tab.` — this is what refuses `datasource` and `lakehouse` tabs, whose grid is re-materialized from their query |
@@ -838,18 +876,20 @@ A payload that is well-formed but aimed at the wrong document is:
 | `header` | object | No | `{ blocks, marginFromEdge? }`. Omit to clear |
 | `footer` | object | No | `{ blocks, marginFromEdge? }`. Omit to clear |
 | `pageSetup` | object | No | Paper size, orientation, margins. Omit to clear |
+| `styles` | object | No | The named-style registry (`Normal`, `Title`, `Heading 1`, …). **Omitting it — or sending `{}` — deletes the stored registry**, the same destructive-omission contract as `pageSetup`. The document keeps its blocks and comes back with no named styles, behind a `200` |
 
-Every block is walked, header and footer blocks included: each needs a non-empty string `id`, a string `type`, and an object `style`. Within a style, `alignment` must be one of the engine's block alignments and the numeric style fields must be finite numbers — `null` is treated as absent throughout. A violation is a `400` naming the offending path, e.g. `Invalid block at blocks[3]: 'style.alignment' must be one of ...`.
+Omission is destructive for all four optional fields. `GET` the content, edit what comes back, and `PUT` the whole thing — do not assemble a body from `blocks` alone unless you mean to clear the rest.
 
 #### Slides body
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `meta` | object | Yes | Must carry non-empty string `title`, `themeId` and `masterId` |
-| `themes` | array | Yes | |
-| `masters` | array | Yes | |
-| `layouts` | array | Yes | Placeholders and static elements are walked for the same text-body shape as `slides` |
-| `slides` | array | Yes | Each slide needs a non-empty string `id` and `layoutId` |
+| `themes` | array | Yes | Must be an array; entries are not inspected |
+| `masters` | array | Yes | Must be an array; entries are not inspected — a `Master` carries no elements and no text |
+| `layouts` | array | Yes | Each layout's `placeholders` and `staticElements`, when present as arrays, are walked as nested elements |
+| `slides` | array | Yes | Each slide needs a non-empty string `id` and `layoutId`, an **object `background`**, and **arrays `elements` and `notes`** — all five, not just the two ids |
+| `guides` | array | No | Presentation-wide ruler guides. **Omitting it stores `[]`**, deleting every guide on the deck — the same destructive-omission trap as the docs body's optional fields |
 
 #### Note body
 
@@ -857,9 +897,31 @@ Every block is walked, header and footer blocks included: each needs a non-empty
 |-------|------|----------|-------------|
 | `content` | string | Yes | The whole markdown document |
 
-The response echoes the body you sent rather than a re-read of stored state.
+The response echoes the body rather than a re-read of stored state — and on the slides arm it echoes the body *after* validation has filled in the repairs described below, so a `PUT` can answer with fields you did not send.
 
-For docs and slides the practical advice is unchanged: **`GET` the content first and edit what comes back**. The nested block, element, theme, master and layout shapes are defined by the `@wafflebase/docs` and `@wafflebase/slides` engines, and this endpoint validates only the fields listed above — a round-trip is the reliable way to see the exact structure.
+#### What the endpoint actually checks
+
+The tables above list the top level. Validation goes considerably deeper than that, and the two arms behave differently — docs only rejects, slides both rejects and repairs.
+
+**Docs.** Every block is walked — body, header and footer blocks alike, and recursively into a `table` block's `tableData.rows[].cells[].blocks`:
+
+- Every block needs a non-empty string `id`, a string `type`, and an object `style`.
+- Within a style, `alignment` must be one of the engine's block alignments, and the numeric style fields must be finite numbers. `null` is treated as absent throughout.
+- A non-table block needs an `inlines` array, each entry an object with a string `text` and an object `style`.
+- A `table` block needs `tableData` with `columnWidths` and `rows` arrays, and every cell needs a `blocks` array and an object `style`.
+- `header` / `footer` must be objects with a `blocks` array, and a present `marginFromEdge` must be a finite number.
+
+A violation is a `400` naming the offending path, e.g. `Invalid block at blocks[3]: 'style.alignment' must be one of ...`. Nothing is repaired: the docs arm never rewrites your payload.
+
+**Slides.** Elements are walked recursively — a slide's `elements`, a group's `data.children`, and a layout's `placeholders` / `staticElements` — down to a nesting ceiling of **32**, past which the request is a `400`.
+
+- A slide's own element needs a non-empty string `id`, a string `type`, and an object `frame`.
+- A *nested* element (group child, layout placeholder) is held to no identity contract — a `PlaceholderSpec` has no `id` at all, and a deck stored before those fields existed must still round-trip. What is checked inside it is the text.
+- Text bodies anywhere get the same block-style checks as the docs arm, with one relaxation: `alignment` need only be a **string**, not a member of the allowlist, because slide text is persisted verbatim with no codec to drop an unknown value on read. Slide blocks are also not required to carry an `id`.
+
+Where a field is merely **absent** and every reader of a stored deck would dereference it, the slides arm fills in the empty shape instead of rejecting. That applies to an element's `data`, a text body's `blocks`, a block's `style` and `inlines`, an inline's `style`, a table's `columnWidths` / `rows` and each row's `cells` and each cell's `body` / `style`, a chart's `categories` / `series`, and a group's `children`. A field of the **wrong type** — an array where an object belongs, a non-array `rows` — is still a `400`.
+
+For both arms the practical advice is unchanged: **`GET` the content first and edit what comes back.** The nested block, element, theme, master and layout shapes are defined by the `@wafflebase/docs` and `@wafflebase/slides` engines, and a round-trip is the only reliable way to see the exact structure. Entries inside `themes` and `masters` in particular are stored with no inspection at all.
 
 ## Rate limits
 

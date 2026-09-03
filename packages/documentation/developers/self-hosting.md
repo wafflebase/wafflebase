@@ -12,18 +12,22 @@ This page covers two different things, and they need different setups:
   handful of variables the dev stack defaults for you.
 
 > [!IMPORTANT]
-> The frontend's API and Yorkie addresses are baked in **at build time**.
-> `packages/frontend/.env` is checked into the repository with
-> `http://localhost:3000` and `http://localhost:8080` in it, so a frontend built
-> without overriding them will silently talk to the visitor's own machine no
-> matter what the backend is configured with. See
+> The frontend's API and Yorkie addresses are baked in **at build time**, and
+> the values a default production build bakes in point at **wafflebase's own
+> hosted service**, not at your deployment and not at localhost.
+> `packages/frontend/.env.production` is checked into the repository with
+> `https://api.wafflebase.io`, `https://api.yorkie.dev` and the upstream Yorkie
+> project key in it, and `pnpm frontend build` runs in Vite's `production`
+> mode, where that file outranks the localhost `.env` beside it. Nothing about
+> this fails loudly — those addresses resolve and answer. You **must** override
+> them; see
 > [Frontend build-time configuration](#frontend-build-time-configuration).
 
 ## Requirements
 
 | Component | Version | Where it is pinned |
 |-----------|---------|--------------------|
-| Node.js | **22** | `.nvmrc` (`22`), both `Dockerfile` stages (`node:22-bookworm-slim`), every `.github/workflows/ci.yml` job (`node-version: 22.x`) |
+| Node.js | **22** | `.nvmrc` (`22`), both `Dockerfile` stages (`node:22-bookworm-slim`), and four of the five `.github/workflows/ci.yml` jobs (`node-version: 22.x`) — `verify-backend-image` sets up no Node, because it only builds and runs the container |
 | pnpm | **10.5.2** | root `package.json` → `"packageManager": "pnpm@10.5.2"`; `Dockerfile` runs `corepack prepare pnpm@10.5.2 --activate` |
 | PostgreSQL | **16** | `docker-compose.yaml` and the CI `verify-integration` service both use `postgres:16` |
 | Docker Compose | **v2** (`docker compose`, not `docker-compose`) | `docker-compose.yaml` uses `profiles:` and `depends_on: … condition: service_completed_successfully` |
@@ -85,7 +89,9 @@ run those tests. Start a subset if you would rather not run it:
 docker compose up -d postgres yorkie minio
 ```
 
-Two more services are behind the opt-in `analytics` profile — see
+Four more services carry `profiles: ["analytics"]` and start only with that
+opt-in profile: `kafka` and `starrocks`, plus two one-shot init containers that
+create the topic and the database schema and then exit. See
 [Analytics](#analytics-optional-1).
 
 ### `pnpm backend migrate` is a development command
@@ -104,16 +110,20 @@ that *"init containers can run `npx prisma migrate deploy`"*. See
 ## Backend Environment Variables
 
 Create a `.env` file in `packages/backend/`. `ConfigModule.forRoot()` is called
-with `isGlobal: true` and **no `validationSchema`**, so nothing is validated at
-boot: a missing or malformed value surfaces later, at the moment the feature
-that reads it is used.
+with `isGlobal: true` and **no `validationSchema`**, so there is no
+whole-config check at boot and most values are not validated until the feature
+that reads them runs. A few are still caught at startup, because the provider
+that needs them reads them in its constructor and Nest instantiates providers
+eagerly — `JWT_SECRET` is the notable one: `AuthService`'s constructor calls
+`requireConfig('JWT_SECRET')`, which throws `JWT_SECRET is required` and the
+process fails to start. Assume nothing else is checked for you.
 
 ### Required
 
 | Variable | Notes |
 |----------|-------|
 | `DATABASE_URL` | Read by `prisma/schema.prisma` (`env("DATABASE_URL")`) |
-| `JWT_SECRET` | Signs access tokens, and (unless `JWT_REFRESH_SECRET` is set) refresh tokens and Yorkie auth-webhook tokens |
+| `JWT_SECRET` | Signs access tokens and Yorkie auth-webhook tokens **always**, and refresh tokens unless `JWT_REFRESH_SECRET` is set. Missing, it throws at boot |
 | `GITHUB_CLIENT_ID` | GitHub OAuth app |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app |
 | `GITHUB_CALLBACK_URL` | Also the deployment's declared public scheme — see [Cookies, TLS and the callback URL](#cookies-tls-and-the-callback-url) |
@@ -209,11 +219,20 @@ caps.
 |----------|---------|-------|
 | `DATASOURCE_ENCRYPTION_KEY` | unset | 64 hex characters (32 bytes), AES-256-GCM. **Required on use, not at boot** — see the warning below |
 | `LAKEHOUSE_ALLOWED_ENDPOINTS` | empty | Comma-separated **exact** HTTP(S) origins permitted as custom S3 / Azure / GCS-interop endpoints and Iceberg REST catalogs. Empty means none are allowed |
-| `LAKEHOUSE_QUERY_TIMEOUT_MS` | `30000` | Clamped to `100`–`300000` |
+| `LAKEHOUSE_QUERY_TIMEOUT_MS` | `30000` | Must be an integer in `100`–`300000`; anything else silently falls back to the default |
 | `LAKEHOUSE_DUCKDB_MEMORY_LIMIT` | `512MB` | Must match `^[1-9][0-9]*(KB\|MB\|GB)$`; anything else silently falls back to the default |
-| `LAKEHOUSE_DUCKDB_THREADS` | `2` | Clamped to `1`–`32` |
-| `LAKEHOUSE_DUCKDB_POOL_SIZE` | `2` | Clamped to `1`–`8`. Operations stay globally serialized regardless, because DuckDB secrets are instance-global |
-| `LAKEHOUSE_DUCKDB_MAX_PENDING` | `64` | Clamped to `1`–`1000` |
+| `LAKEHOUSE_DUCKDB_THREADS` | `2` | Must be an integer in `1`–`32`; anything else silently falls back to the default |
+| `LAKEHOUSE_DUCKDB_POOL_SIZE` | `2` | Must be an integer in `1`–`8`; anything else silently falls back to the default. Operations stay globally serialized regardless, because DuckDB secrets are instance-global |
+| `LAKEHOUSE_DUCKDB_MAX_PENDING` | `64` | Must be an integer in `1`–`1000`; anything else silently falls back to the default |
+
+> [!NOTE]
+> None of these five is **clamped**. `readBoundedInteger()`
+> (`packages/backend/src/lakehouse/duckdb.service.ts`) returns the *default* for
+> any value that is not an integer inside the range — it does not round to the
+> nearest bound. So `LAKEHOUSE_DUCKDB_THREADS=64` yields `2`, not `32`, and a
+> deployment that over-reaches gets less than it asked for rather than the
+> maximum, with nothing logged. Check your effective values rather than assuming
+> a too-large number was capped.
 | `LAKEHOUSE_DUCKDB_EXTENSION_DIR` | unset (`~/.duckdb`) | Where DuckDB keeps extension binaries. The production image sets it to `/app/.duckdb-extensions` and pre-populates it — see [DuckDB extensions](#duckdb-extensions-lakehouse) |
 | `LAKEHOUSE_ALLOW_LOCAL_PATHS` | `false` | Trusted-admin feature: lets a lakehouse table point at the server's own filesystem |
 | `LAKEHOUSE_LOCAL_ROOT` | unset | Required when local paths are enabled; paths outside it are rejected |
@@ -255,20 +274,61 @@ The frontend is a Vite static build. `import.meta.env.VITE_*` values are
 **substituted into the bundle when you build it** — they are not read at
 runtime, so setting them on the server that serves the files does nothing.
 
-`packages/frontend/.env` is **committed to the repository** with localhost
-values:
+**Two** env files are committed to the repository, and the one that applies to a
+production build is not the localhost one.
 
 ```env
+# packages/frontend/.env — used by `pnpm frontend dev`
 VITE_FRONTEND_BASENAME=/
 VITE_BACKEND_API_URL=http://localhost:3000
 VITE_YORKIE_RPC_ADDR=http://localhost:8080
 VITE_YORKIE_PUBLIC_KEY=
 ```
 
-That file is why the local quick start works with no configuration — and why a
-deployment that forgets to override it produces a site whose every API call goes
-to the *visitor's own* `localhost:3000`. Symptom: the app loads, then every
-request fails and nothing ever syncs.
+```env
+# packages/frontend/.env.production — used by `pnpm frontend build`
+VITE_FRONTEND_BASENAME=/
+VITE_BACKEND_API_URL=https://api.wafflebase.io
+VITE_YORKIE_RPC_ADDR=https://api.yorkie.dev
+VITE_YORKIE_PUBLIC_KEY=fbuqYRxotajGGzb3kUD6aX
+VITE_GA_ID=G-1Q13HY79ST
+```
+
+`.env` is why the local quick start works with no configuration.
+`.env.production` is wafflebase's **own** deployment configuration, and it is
+what a self-hoster's build picks up: `pnpm frontend build` runs `vite build`,
+which uses mode `production`, and Vite loads `.env`, `.env.local`,
+`.env.production`, `.env.production.local` in that order with each overriding
+the ones before it.
+
+> [!WARNING]
+> **The failure is data egress, not a broken page.** A frontend built without
+> overrides does not point at the visitor's `localhost` and does not fail
+> loudly. It addresses wafflebase's hosted service: your users' browsers send
+> every backend call to `https://api.wafflebase.io` — your own backend is never
+> contacted — the **Sign in with GitHub** link starts an OAuth flow against that
+> service rather than yours, and the browser's Yorkie client attaches to
+> `https://api.yorkie.dev` using the *upstream project's* public key. The site
+> appears to work far enough to be deployed. Verify a build before you ship it:
+> `grep -rl api.wafflebase.io packages/frontend/dist` must print nothing.
+
+Three ways to override, best first (note that this is not the precedence order —
+environment variables outrank every file, including `.env.production.local`):
+
+1. **`packages/frontend/.env.production.local`** — the highest-precedence file,
+   and gitignored (`packages/frontend/.gitignore` ignores `*.local`), so your
+   deployment's URLs never land in a commit. This is the recommended way.
+   Beware `.env.local`, the intuitive filename: it ranks **below**
+   `.env.production` and will not override it.
+2. **Environment variables on the build command** — Vite applies any `VITE_`
+   variable already in `process.env` after every file, so these beat all four.
+   Best for CI, where nothing is written to disk.
+3. **Editing `packages/frontend/.env.production` in place** — works, but it is
+   a tracked file, so the change shows up as a repository modification and will
+   conflict on every upstream merge.
+
+Overriding is not optional and there is no "unset" fallback: leaving a variable
+out means the committed upstream value applies.
 
 | Variable | Required for a non-localhost deployment | Notes |
 |----------|------------------------------------------|-------|
@@ -276,7 +336,7 @@ request fails and nothing ever syncs.
 | `VITE_YORKIE_RPC_ADDR` | **Yes** | Passed to the browser's Yorkie client (`PrivateRoute.tsx`, `shared-document.tsx`, `apply-imported-content.ts`). This is the address **browsers** reach Yorkie at, which is not the same value as the backend's `YORKIE_RPC_ADDR` unless both run on the same host |
 | `VITE_YORKIE_PUBLIC_KEY` | If your Yorkie project requires it | The Yorkie project public key, passed as the client `apiKey` |
 | `VITE_FRONTEND_BASENAME` | Only if not served at `/` | React Router basename (`App.tsx`) |
-| `VITE_GA_ID` | No | When set, `vite.config.ts` injects a gtag.js bootstrap at build time. Leave unset for a self-host with no third-party analytics |
+| `VITE_GA_ID` | **Yes, to an empty value** | When set, `vite.config.ts` injects a gtag.js bootstrap at build time. `.env.production` sets it to wafflebase's own Google Analytics property, so a default build sends your visitors' page views to Google under *our* measurement ID. Pass `VITE_GA_ID=` explicitly (empty is falsy, so the snippet is stripped) or remove the line from `.env.production` |
 | `VITE_DEMO_SHARED_TOKEN` | No | Share token backing the sheet demo on the marketing homepage |
 | `VITE_DEMO_DOC_SHARED_TOKEN` | No | Same, for the docs demo |
 | `VITE_DEMO_SLIDES_SHARED_TOKEN` | No | Same, for the slides demo |
@@ -287,11 +347,16 @@ Build with your own values:
 VITE_BACKEND_API_URL=https://api.example.com \
 VITE_YORKIE_RPC_ADDR=https://yorkie.example.com \
 VITE_YORKIE_PUBLIC_KEY=your_yorkie_public_key \
+VITE_GA_ID= \
 pnpm frontend build          # → packages/frontend/dist
 ```
 
-Or write them to `packages/frontend/.env.production.local`, which is gitignored
-and takes precedence over the committed `.env` for `vite build`.
+`VITE_GA_ID=` is in that list deliberately: omitting it leaves wafflebase's
+measurement ID from `.env.production` in your bundle.
+
+Or write the same four to `packages/frontend/.env.production.local`, which is
+gitignored and is the last file `vite build` loads, so it overrides the
+committed `.env.production`.
 
 To ship the in-app documentation alongside the app, use the root script instead
 — it builds the frontend and VitePress and copies the latter to `dist/docs`,
@@ -344,11 +409,25 @@ Three consequences worth knowing before you deploy:
   warning at the first login for this reason.
 - **`wafflebase login` (the CLI) refuses a plain-http non-loopback origin.** CLI
   sign-in answers `400 Command-line sign-in requires an https server` unless it
-  can see that its consent cookie is trustworthy — an `https://` callback URL,
-  `COOKIE_SECURE=true`, or a loopback origin. Leaving `GITHUB_CALLBACK_URL`
-  unset is refused the same way: GitHub then falls back to the URL registered on
-  the OAuth app, so the scheme is real but invisible to the backend, and it will
-  not guess in the unsafe direction.
+  can see that its consent cookie is trustworthy. `cliLoginAvailable()`
+  (`packages/backend/src/auth/github-auth.guard.ts`) allows it when *either*
+  the cookies are already `Secure` — an `https://` callback URL, or
+  `COOKIE_SECURE=true` — *or* the callback URL is a loopback one
+  (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`). An `http://` non-loopback
+  callback URL is the case it refuses.
+- **Leaving `GITHUB_CALLBACK_URL` unset does not refuse it — under
+  `NODE_ENV=production` it allows it,** which is the shipped container's
+  default (`Dockerfile` sets `NODE_ENV=production`). With no callback URL and
+  no `COOKIE_SECURE`, `isSecureCookie()`
+  (`packages/backend/src/auth/oauth-state.ts`) falls through to
+  `NODE_ENV === 'production'` and reads the origin as https, so the consent
+  cookie goes out `Secure` and CLI sign-in is available. That is deliberate
+  rather than an oversight: if the origin turns out to be cleartext the browser
+  discards a `Secure` `__Host-` cookie, so the consent gate fails closed and
+  the login cannot complete. The practical consequence is that you cannot infer
+  your deployment's scheme from whether `wafflebase login` is offered — set
+  `GITHUB_CALLBACK_URL` to the https URL your users actually reach and the
+  question does not arise.
 
 Turning `Secure` on renames the session cookies (`wafflebase_session` →
 `__Host-wafflebase_session`), and the unprefixed name is deliberately not
@@ -530,7 +609,7 @@ not alternatives:
 | Path | Endpoint | Cap | Types |
 |------|----------|-----|-------|
 | Blob documents (drag-and-drop onto the documents list; `POST /api/v1/.../files`) | `POST /files`, `POST /api/v1/workspaces/:wid/files` | **50 MB**, but **25 MB** when the upload looks like an image | Any file. The image cap keys off the MIME **and** the extension, so renaming does not evade it |
-| Images embedded in a document | `POST /api/v1/workspaces/:wid/images` | **10 MB** | `image/png`, `image/jpeg`, `image/gif`, `image/webp` only |
+| Images embedded in a document | `POST /images` (the browser path), `POST /api/v1/workspaces/:wid/images` (API keys) | **10 MB** | `image/png`, `image/jpeg`, `image/gif`, `image/webp` only |
 
 Both numbers are correct — they belong to two different features, and neither
 overrides the other.
@@ -541,6 +620,14 @@ the frontend mirrors the same rule at enqueue time (`app/documents/file-meta.ts`
 so a multi-gigabyte file never crosses the wire at all. On the embedded-image
 path the frontend downscales an oversized image before uploading rather than
 refusing it outright, so the 10 MB limit is usually invisible to users.
+
+The 10 MB is enforced at a different point on each of the two image routes.
+`/api/v1/.../images` sets it as a Multer `limits.fileSize`, so an oversized body
+is rejected during parsing; the browser's `POST /images` uses a bare
+`FileInterceptor` with no limit, so the body is buffered whole and
+`ImageService.upload()` rejects it afterwards with `File too large (max 10 MB)`.
+The cap is the same either way — only the memory an oversized request costs
+differs.
 
 Neither cap is configurable by an environment variable; both are compile-time
 constants. If you front the backend with a proxy, make sure its own body limit
@@ -649,11 +736,18 @@ All your data is stored in:
 - **Blob storage** — uploaded files, PDFs, image documents and embedded images
   (S3-compatible).
 
-You control all of these services. There are no external dependencies, and no
-telemetry is sent anywhere outside your own infrastructure. (The optional
-analytics pipeline records Share Link view events, but only into the Kafka +
-StarRocks services you run yourself, and only when you enable it. `VITE_GA_ID`
-is the one third-party hook — leave it unset and no gtag.js is emitted.)
+You control all of these services, and once the frontend is built with your own
+values no telemetry leaves your infrastructure. Two things have to be done
+rather than assumed:
+
+- **`VITE_GA_ID` must be overridden to an empty value at build time.** It is the
+  one third-party hook, and `packages/frontend/.env.production` ships it set to
+  wafflebase's Google Analytics property — so a build that does not override it
+  emits gtag.js and reports your visitors to Google. "Leave it unset" is not
+  enough, because the committed file sets it. See
+  [Frontend build-time configuration](#frontend-build-time-configuration).
+- The optional analytics pipeline records Share Link view events, but only into
+  the Kafka + StarRocks services you run yourself, and only when you enable it.
 
 Back up your PostgreSQL database, your Yorkie data store, and your blob store to
 preserve everything. Note that access control over the Yorkie data is only

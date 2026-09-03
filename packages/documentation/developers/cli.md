@@ -813,11 +813,11 @@ wafflebase notes export <doc-id> out --format md
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--format <fmt>` | Only `md`; otherwise inferred from a `.md` / `.markdown` extension | from extension |
+| `--format <fmt>` | Only `md` or `markdown` (both accepted, though the rejection message names just `md`); otherwise inferred from a `.md` / `.markdown` extension | from extension |
 | `--force` | Overwrite existing target file | `false` |
 
-A filename with neither a markdown extension nor an explicit `--format md`
-is refused rather than guessed at.
+A filename with neither a markdown extension nor an explicit `--format md` /
+`--format markdown` is refused rather than guessed at.
 
 ### notes import
 
@@ -962,8 +962,10 @@ wafflebase images delete <image-id>
 |--------|-------------|---------|
 | `--force` | Overwrite an existing output file | `false` |
 
-`upload` takes no options. `get` and `delete` take only the ones above —
-neither reads `--format` for its result, since one returns bytes.
+`upload` takes no options. `get` takes only the one above and does **not** read
+`--format`, since its result is bytes that are written verbatim and there is
+nothing for the formatter to render. `delete` does read `--format` — its result
+is a JSON envelope like any other mutation's.
 
 ::: warning Four formats, 10 MB, and no stdin
 `upload` accepts `png`, `jpeg`, `gif` and `webp` only, capped at 10 MB,

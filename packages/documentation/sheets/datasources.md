@@ -43,8 +43,11 @@ clause when exploring large tables.
 
 - The results grid is **read-only** — it reflects the database, so you can't
   edit, sort, or filter the cells in place. Shape the data with SQL instead.
-- Reference query results from other tabs with formulas, just like any sheet,
-  to build summaries and dashboards on top of live data.
+- A datasource tab **can't be referenced from a formula** in another tab.
+  Cross-sheet references resolve only against regular sheet tabs, so
+  `DataSource1!A1` comes back empty rather than reporting an error. To build a
+  summary on top of a query, shape it in SQL, or copy the results
+  (**⌘/Ctrl+C** works in the read-only grid) and paste them into a sheet tab.
 
 ## Lakehouse tables
 
