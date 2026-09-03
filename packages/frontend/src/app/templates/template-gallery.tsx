@@ -181,7 +181,7 @@ export function TemplateGallery({
                 onClick={() => void query.fetchNextPage()}
                 disabled={query.isFetchingNextPage}
               >
-                {query.isFetchingNextPage ? "Loading..." : "Load more"}
+                {query.isFetchingNextPage ? "Loading…" : "Load more"}
               </Button>
             </div>
           )}

@@ -106,7 +106,7 @@ export function FileShell({
       />
       <SidebarInset>
         <SiteHeader
-          title={documentData?.title ?? "Loading..."}
+          title={documentData?.title ?? "Loading…"}
           editable
           onRename={handleRenameDocument}
           leading={headerLeading}

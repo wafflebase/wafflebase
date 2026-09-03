@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Loader } from "@/components/loader";
 import { fetchWithAuth } from "@/api/auth";
 import { fetchDocument, fetchDocuments } from "@/api/documents";
 import { fileUrl } from "@/api/files";
@@ -184,7 +185,7 @@ export function ImageViewer({
           className="max-h-full max-w-full object-contain transition-transform"
         />
       ) : (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <Loader />
       )}
 
       {prevId && (

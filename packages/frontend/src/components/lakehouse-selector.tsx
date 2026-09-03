@@ -133,7 +133,7 @@ export function LakehouseSelector({
           <div className="grid gap-4 py-2">
             {loading ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
-                Loading...
+                Loading…
               </div>
             ) : loadError ? (
               <div
