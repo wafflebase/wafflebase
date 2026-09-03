@@ -15,7 +15,11 @@ import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { ImageService } from '../../image/image.service';
-import { VALID_IMAGE_ID_PATTERN } from '../../image/image.constants';
+import {
+  ALLOWED_IMAGE_MIME_TYPES,
+  IMAGE_UPLOAD_MULTER_LIMIT_BYTES,
+  VALID_IMAGE_ID_PATTERN,
+} from '../../image/image.constants';
 import type { Request } from 'express';
 
 @Controller('api/v1/workspaces/:workspaceId/images')
@@ -30,22 +34,26 @@ export class ApiV1ImagesController {
     return `${workspaceId}/${imageId}`;
   }
 
+  /**
+   * Both the size limit and the MIME allowlist come from `image.constants`,
+   * which is also what `image.config.ts` derives `image.maxFileSizeBytes` and
+   * `image.allowedMimeTypes` from. They cannot be read from `ConfigService`
+   * here: a `FileInterceptor(...)` argument is evaluated when this class is
+   * decorated, before any injector exists. Hardcoding either number is what let
+   * this route and `POST /images` disagree — an image of exactly 10 MB was
+   * accepted there and 413'd here, while the shared `ImageService.upload` both
+   * end in accepts it.
+   *
+   * See `IMAGE_UPLOAD_MULTER_LIMIT_BYTES` for why the limit is the cap `+ 1`.
+   */
   @Post()
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: 10 * 1024 * 1024 },
+      limits: { fileSize: IMAGE_UPLOAD_MULTER_LIMIT_BYTES },
       fileFilter: (_req, file, cb) => {
-        const allowed = [
-          'image/png',
-          'image/jpeg',
-          'image/gif',
-          'image/webp',
-        ];
-        if (!allowed.includes(file.mimetype)) {
+        if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
           cb(
-            new BadRequestException(
-              `Unsupported file type: ${file.mimetype}`,
-            ),
+            new BadRequestException(`Unsupported file type: ${file.mimetype}`),
             false,
           );
         } else {

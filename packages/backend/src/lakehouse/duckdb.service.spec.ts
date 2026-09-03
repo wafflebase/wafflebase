@@ -347,9 +347,12 @@ describe('DuckDbService', () => {
     process.env.LAKEHOUSE_DUCKDB_MEMORY_LIMIT = '512MB; DROP TABLE x';
     const service = new DuckDbService();
 
-    expect(
-      (service as unknown as { poolSize: number }).poolSize,
-    ).toBeLessThanOrEqual(8);
+    // The exact value, not `toBeLessThanOrEqual(8)`. That weaker assertion
+    // passed both when `readBoundedInteger` clamped to MAX_POOL_SIZE and when
+    // it silently fell back to the default of 2 — which is how the fallback
+    // survived while the function claimed to clamp. An out-of-range value must
+    // land on the bound.
+    expect((service as unknown as { poolSize: number }).poolSize).toBe(8);
     expect((service as unknown as { memoryLimit: string }).memoryLimit).toBe(
       '512MB',
     );

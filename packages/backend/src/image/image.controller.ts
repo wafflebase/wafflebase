@@ -16,7 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ImageService } from './image.service';
 import {
-  MAX_IMAGE_UPLOAD_BYTES,
+  IMAGE_UPLOAD_MULTER_LIMIT_BYTES,
   VALID_IMAGE_ID_PATTERN,
 } from './image.constants';
 import type { Response } from 'express';
@@ -60,19 +60,17 @@ export class ImageController {
    * The service check stays: it is the cap for every caller of `upload()`
    * (the Miro importer, DOCX/PPTX import), not only for this route.
    *
-   * `+ 1` because the two layers count differently. Busboy trips its limit at
-   * `fileSize === limits.fileSize` (`busboy/lib/types/multipart.js`), so
-   * `fileSize: N` accepts at most `N - 1` bytes, while the service rejects only
-   * `length > N`. Passing the cap unadjusted would make an image of exactly
-   * 10 MB — accepted today, and accepted by every other caller of `upload()` —
-   * start failing with a 413. The limit is a memory bound, not the cap itself;
-   * `ImageService` remains the one place that decides what "too large" is.
+   * The limit itself is `IMAGE_UPLOAD_MULTER_LIMIT_BYTES` — the cap `+ 1`,
+   * because busboy trips at `fileSize === limits.fileSize` while the service
+   * rejects only `length > cap`. See that constant for the full reasoning; it
+   * is shared with `ApiV1ImagesController` so the two upload routes cannot
+   * disagree about which byte count is one too many.
    */
   @Post()
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES + 1 },
+      limits: { fileSize: IMAGE_UPLOAD_MULTER_LIMIT_BYTES },
     }),
   )
   async upload(

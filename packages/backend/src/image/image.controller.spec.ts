@@ -148,9 +148,14 @@ describe('ImageController.upload', () => {
     // Pinned because this is a client-visible change: the oversized upload used
     // to come back as `400 File too large (max 10 MB)` from the service. Multer
     // aborts first now, and Nest maps `LIMIT_FILE_SIZE` to this. 413 is the
-    // more accurate status, and the only frontend caller of this route
-    // (`docsImageUploader`) reports `status statusText` and never reads the
-    // body, so the dropped "(max 10 MB)" detail was never shown to anyone.
+    // more accurate status, and no user loses the dropped "(max 10 MB)" detail.
+    // Two frontend callers reach this route: `docsImageUploader`
+    // (`app/docs/export-utils.ts`), which throws `status statusText` and never
+    // reads the body at all; and `postSharedImage` (`api/images.ts`), whose
+    // shared `post()` helper *does* put `await res.text()` in its error — but
+    // its one caller is the template thumbnail capture, which swallows every
+    // non-auth error by design so a failed thumbnail cannot fail the publish
+    // it rides along with. Neither path shows the body to anybody.
     expect(res.body).toMatchObject({
       statusCode: 413,
       message: 'File too large',

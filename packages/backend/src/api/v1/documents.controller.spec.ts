@@ -552,6 +552,33 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
       expect(res.status).toBe(400);
       expect(documentService.updateDocument).not.toHaveBeenCalled();
     });
+
+    it('bounds the title at 1..200 characters, as create does', async () => {
+      for (const [title, status] of [
+        ['', 400],
+        ['a'.repeat(200), 200],
+        ['a'.repeat(201), 400],
+      ] as Array<[string, number]>) {
+        documentService.updateDocument.mockClear();
+        const res = await request(server())
+          .patch(`${base}/doc-1`)
+          .send({ title });
+        expect(res.status).toBe(status);
+        if (status === 400) {
+          expect(documentService.updateDocument).not.toHaveBeenCalled();
+        }
+      }
+    });
+
+    it('writes nothing for an empty body, so updatedAt is not bumped', async () => {
+      // `updateDocument` skips the `updatedAt` bump only when `data` has no
+      // keys, which is why the handler assigns `title` conditionally rather
+      // than passing `{ title: undefined }`. A no-op PATCH must not re-sort the
+      // document to the top of the documents list.
+      const res = await request(server()).patch(`${base}/doc-1`).send({});
+      expect(res.status).toBe(200);
+      expect(updateData()).toEqual({});
+    });
   });
 
   describe('POST (create)', () => {
@@ -605,6 +632,25 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
         .send({ title: 't', fileId: 'x.pdf' });
       expect(res.status).toBe(400);
       expect(documentService.createDocument).not.toHaveBeenCalled();
+    });
+
+    it('bounds the title at 1..200 characters', async () => {
+      // The `Document.title` column is `TEXT`, so nothing below this DTO ever
+      // bounded it: a blank or 10,000-character title used to be stored. The
+      // cap is documented in `developers/rest-api.md`, so pin both edges —
+      // 200 has to keep working, 201 and "" have to be refused.
+      for (const [title, status] of [
+        ['', 400],
+        ['a'.repeat(200), 201],
+        ['a'.repeat(201), 400],
+      ] as Array<[string, number]>) {
+        documentService.createDocument.mockClear();
+        const res = await request(server()).post(base).send({ title });
+        expect(res.status).toBe(status);
+        if (status === 400) {
+          expect(documentService.createDocument).not.toHaveBeenCalled();
+        }
+      }
     });
   });
 });
