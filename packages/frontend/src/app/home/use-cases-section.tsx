@@ -11,8 +11,8 @@ const USE_CASES: UseCase[] = [
   {
     tag: "Internal tools",
     title: "Replace the 'export to Excel, edit, paste back' loop",
-    body: "Embed an editable grid right inside your dashboard. Users get the spreadsheet they wanted; you keep the schema you wanted.",
-    href: "/docs/sheets/build-a-budget",
+    body: "A SQL tab reads straight from PostgreSQL into a read-only grid, right beside your editable tabs — press Execute for fresh rows instead of exporting another CSV.",
+    href: "/docs/sheets/datasources",
   },
   {
     tag: "Pitch decks & all-hands",
@@ -22,9 +22,9 @@ const USE_CASES: UseCase[] = [
   },
   {
     tag: "Specs & launch plans",
-    title: "Pull live formulas into the doc your team already writes",
-    body: "Wafflebase Docs reference Sheets cells inline — your launch plan reads $18,799 today and updates itself tomorrow.",
-    href: "/docs/docs-editor/writing-a-document",
+    title: "Roll the spec back to the version everyone signed off on",
+    body: "Every sheet, doc, slide, note and board keeps a dated timeline of its 50 most recent versions — name the current state as you ship it, and restoring one saves today's state first.",
+    href: "/docs/guide/collaboration#version-history",
   },
 ];
 
@@ -35,7 +35,7 @@ export function UseCasesSection() {
         <SectionHead
           kicker="Where it fits"
           title="Built to live inside the workflow you already have."
-          sub="Self-host the engine, embed the grid, weave formulas into the doc — Wafflebase keeps your data where you want it."
+          sub="Query your own database, self-host the whole stack, roll back to the version you named — Wafflebase keeps your data where you want it."
         />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-6">

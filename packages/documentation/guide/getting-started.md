@@ -10,13 +10,22 @@ Go to [wafflebase.io](https://wafflebase.io) and click **Get Started**. Sign in 
 
 After signing in, you'll see your workspace. Click the **New** dropdown button to choose what to create:
 
-- **New Sheet** — A spreadsheet for structured data, formulas, and charts
 - **New Document** — A word-processor-style editor for writing and formatting text
-- **New Note** — A Markdown editor with a live preview for quick notes and docs
+- **New Sheet** — A spreadsheet for structured data, formulas, and charts
 - **New Presentation** — A slide deck with themes, layouts, and shapes
+- **New Note** — A Markdown editor with a live preview for quick notes and docs
+- **New Board** — An infinite canvas for sticky notes, shapes, and images
 
-The same menu can import existing files (**Import XLSX / DOCX / PPTX**) or
-**Upload PDF** to store and view a PDF in your workspace.
+To bring existing work in, the same menu has a single **Upload files…** entry.
+Pick as many files as you like — Wafflebase reads each file's extension and
+creates the matching document: a spreadsheet from `.xlsx` or `.csv`, a document
+from `.docx`, a presentation from `.pptx`, a viewer for a `.pdf` or an image,
+and a stored file for anything else. Dragging files onto the
+documents list does the same thing. See
+[Import & Export](/guide/import-export).
+
+Inside a workspace the menu also offers **New from template**, **New folder**,
+and **Import from Miro…**.
 
 ## Try a Sheet
 
@@ -72,17 +81,27 @@ For more, see the [Writing a Note](/notes/writing-a-note) guide.
 - [Formulas](/sheets/formulas) — Full list of supported functions
 - [Charts & Pivot Tables](/sheets/charts) — Visualize your data
 - [Data Validation](/sheets/data-validation) — Checkboxes, dropdowns, and input rules
+- [External Datasources](/sheets/datasources) — Query a database from a tab
 - [Keyboard Shortcuts](/sheets/keyboard-shortcuts) — Speed up your workflow
 
 **Docs:**
 - [Writing a Document](/docs-editor/writing-a-document) — Text editing, formatting, and page layout
 - [Keyboard Shortcuts](/docs-editor/keyboard-shortcuts) — Document editor shortcuts
 
-**Notes:**
-- [Writing a Note](/notes/writing-a-note) — Markdown editor with live preview
+**Slides:**
+- [Build a Deck](/slides/build-a-deck) — Slides, text boxes, shapes, and images
+- [Themes & Layouts](/slides/themes-and-layouts) — Consistent colors, fonts, and placeholders
+- [Keyboard Shortcuts](/slides/keyboard-shortcuts) — Presentation editor shortcuts
 
-**PDF:**
+**Notes & Board:**
+- [Writing a Note](/notes/writing-a-note) — Markdown editor with live preview
+- [Using the Board](/board/using-the-board) — Infinite canvas with sticky notes and shapes
+
+**PDF & Files:**
 - [Viewing PDFs](/pdf/viewing-pdfs) — Upload, read, and comment on PDF files
+- [Viewing Images](/pdf/viewing-images) — Store and view images alongside your documents
+- [Organizing with Folders](/pdf/organizing-with-folders) — Group documents inside a workspace
 
 **Common:**
 - [Collaboration & Sharing](/guide/collaboration) — Share and edit together in real time
+- [Import & Export](/guide/import-export) — Which formats come in, and what goes out

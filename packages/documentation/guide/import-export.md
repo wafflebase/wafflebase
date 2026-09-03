@@ -8,34 +8,56 @@ the platform.
 
 | Product | Import | Export |
 |---------|--------|--------|
-| **Sheets** | Excel (`.xlsx`) | — *(CSV/JSON via [CLI](../developers/cli))* |
+| **Sheets** | Excel (`.xlsx`), CSV/TSV, JSON/JSONL, Parquet | — *(CSV/JSON via [CLI](../developers/cli))* |
 | **Docs** | Word (`.docx`) | Word (`.docx`), PDF (`.pdf`), Markdown (`.md`), plain text (`.txt`) |
 | **Slides** | PowerPoint (`.pptx`) | PowerPoint (`.pptx`), PDF (`.pdf`) |
-| **Notes** | — | — |
+| **Notes** | — *(Markdown via [CLI](../developers/cli))* | — *(Markdown via [CLI](../developers/cli))* |
+| **Board** | Miro board *(via **Import from Miro…**)* | — |
 | **PDF** | Upload (`.pdf`) | — *(view-only)* |
 
 Import always creates a **new** document; it never overwrites an open one.
-Export downloads a file from the document you are editing. Notes live entirely
-inside Wafflebase — they have no file import or export.
+Export downloads a file from the document you are editing. Notes have no
+in-app import or export — a note's content *is* its Markdown, and it moves in
+and out through `wafflebase notes import` / `notes export`.
 
 ## Importing files
 
-From your workspace, open the **New** menu and choose an import option:
+There is one entry for every format. From your workspace, open the **New** menu
+and choose **Upload files…**, or drag files straight onto the documents list.
+You can select several at once; each file is read and turned into the matching
+document type based on its extension:
 
-- **Import XLSX** — creates a new spreadsheet from an Excel workbook. Each
-  sheet in the workbook becomes a tab. Values, formulas, and basic cell
-  formatting are brought across.
-- **Import DOCX** — creates a new document from a Word file, mapping
-  paragraphs, headings, lists, tables, and inline formatting into the editor.
-- **Import PPTX** — creates a new deck from a PowerPoint file: slides,
-  text boxes, shapes, images, tables, and theme colors are converted to
-  native Wafflebase elements.
-- **Upload PDF** — stores a PDF as a new document you can read and comment on.
-  Unlike the other imports, the file is kept intact and viewed as-is rather than
-  converted into an editable document. See [Viewing PDFs](../pdf/viewing-pdfs).
+| You upload | You get |
+|------------|---------|
+| `.xlsx` | A spreadsheet — each sheet in the workbook becomes a tab. Values, formulas, and basic cell formatting are brought across. |
+| `.csv`, `.tsv`, `.json`, `.jsonl`, `.ndjson`, `.parquet` | A spreadsheet with a single tab holding the parsed rows. |
+| `.docx` | A document, mapping paragraphs, headings, lists, tables, and inline formatting into the editor. |
+| `.pptx` | A deck: slides, text boxes, shapes, images, tables, and theme colors become native Wafflebase elements. |
+| `.pdf` | A PDF document you can read and comment on. The file is kept intact and viewed as-is rather than converted — see [Viewing PDFs](../pdf/viewing-pdfs). |
+| `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` | An image document you can view and download again — see [Viewing Images](../pdf/viewing-images). |
+| anything else | A stored file with no preview, which you can download again from its header. |
 
-Large files show a progress indicator while they are parsed and any embedded
-images are uploaded into your workspace.
+A panel in the bottom-right corner shows per-file progress while each file is
+parsed and any embedded images are uploaded into your workspace. An uploaded
+file is capped at **50 MB**, and an image document at **25 MB**. Images lifted
+*out* of a `.docx` or `.pptx` are a separate limit — they go to the workspace
+image store, which accepts **10 MB** per image.
+
+A very large `.csv` or `.tsv` usually stops at an import budget (40,000 cells,
+plus an overall size ceiling) rather than failing: the sheet is created from
+the rows that arrived, and a toast on the documents list says how many were
+kept. The exception is a file whose very first row already busts a budget —
+there is nothing to truncate down to, so the import fails with an error
+instead.
+
+`.parquet` is held to the same 40,000-cell limit, but it is never truncated:
+the row and column counts are checked before anything is read and an
+over-limit file is rejected outright. `.xlsx`, `.json` and `.jsonl` have no
+cell budget.
+
+The **Import from Miro…** entry in the same menu is separate — it reads a Miro
+board through Miro's API rather than a file on disk, and creates a
+[board](../board/using-the-board) from it.
 
 ## Exporting files
 
@@ -89,5 +111,6 @@ and some constructs have no exact equivalent:
 
 Every import/export path above is also scriptable. See the
 [CLI reference](../developers/cli) for `docs export`, `docs import`,
-`slides export`, `slides import`, and the `sheets` cell import/export
-commands — useful for batch conversions and pipelines.
+`slides export`, `slides import`, `notes export`, `notes import`, and the
+`sheets` cell import/export commands — useful for batch conversions and
+pipelines.

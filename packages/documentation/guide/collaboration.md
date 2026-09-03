@@ -5,14 +5,29 @@ Wafflebase lets multiple people edit the same sheet, document, presentation, or 
 ## Share a Document
 
 1. Open the sheet or document you want to share
-2. Click the **Share** button in the toolbar
-3. Choose the access level:
-   - **View** — Can see the content, but not edit
-   - **Edit** — Full editing access
-4. Optionally set an expiration (1 hour, 8 hours, 24 hours, or 7 days)
-5. Click **Create Link** and copy the URL
+2. Click the **Share** button in the editor header
+3. Under **Permission**, choose the role:
+   - **Viewer** — Can see the content, but not edit
+   - **Editor** — Full editing access
+4. Under **Expiration**, choose **No limit**, **1 hour**, **8 hours**,
+   **24 hours**, or **7 days**
+5. Click **Create Link** — the URL is created and copied to your clipboard
 
 Send the link to anyone. They can open it in their browser without signing in.
+
+::: warning Expiration defaults to No limit
+**Expiration** starts on **No limit**, so a link you create without touching
+that field never expires — it keeps working until you revoke it. Set a window
+before you click **Create Link** if the content is sensitive.
+:::
+
+### Who can create an editor link
+
+**Viewer** links are open to any member of the document's workspace.
+**Editor** is restricted: only the document's author or an **owner** of its
+workspace can create one. Everyone else sees the Editor option greyed out with
+a note explaining why, and can create viewer links instead. The rule is
+enforced on the server, not just in the dialog.
 
 ## Access Levels
 
@@ -31,18 +46,63 @@ In sheets, editors can also use formulas, insert/delete rows and columns, and re
 
 When a collaborator opens your shared link, you'll see:
 
-- **Their cursor** — In sheets, a colored highlight on their selected cell. In docs and notes, a colored text cursor at their position. In PDFs, presence follows the page they're reading.
-- **Their name** — Appears near their cursor so you know who's editing where
+- **Their cursor** — In sheets, a colored highlight on their selected cell. In docs and notes, a colored text cursor at their position. In PDFs, you can see who else is viewing the file.
+- **Their name** — A label appears next to their cursor. In sheets and
+  documents it fades about four seconds after they move so the content stays
+  readable; hover their cursor to bring the name back. In notes, slides, and
+  boards the label stays on screen and there is nothing to hover for.
 - **Live changes** — Edits appear instantly with no need to refresh or save
 
 ::: tip
 Each collaborator gets a unique color. If your collaborators sign in with GitHub, their name will appear next to their cursor.
 :::
 
+### Jump to a collaborator
+
+In sheets and documents, the avatars in the header are clickable: select one to
+scroll to where that person is working. In documents, their name label
+reappears when you land so you can confirm whose position you jumped to; in
+sheets it does not, so if the label has already faded you'll see the colored
+cell highlight without a name until that person moves again. Your own avatar
+isn't clickable, and neither is one for a peer whose position isn't known yet.
+
+## Is My Work Saved?
+
+A small status chip sits in the editor header and reports whether your edits
+have reached the server. It has four states:
+
+| Chip | What it means |
+|------|---------------|
+| **Saved** | Connected, and everything you've done is on the server. |
+| **Saving…** | Connected, and your recent changes are on their way. |
+| **Reconnecting…** | The connection dropped, but nothing of yours is waiting to be sent. |
+| **Not saved** | You have changes that aren't reaching the server. |
+
+Hover the chip for a fuller explanation of the current state. **Not saved** is
+the only state that is loud about itself: if it persists for a couple of
+seconds, a warning appears, and it clears with a confirmation once your work is
+actually on the server.
+
+::: warning Don't rely on the close prompt
+While changes are unsent — that means **Saving…** as well as **Not saved** —
+this browser tab is the only copy of them; nothing is stored on your machine.
+In either of those two states, closing or reloading the tab *may* make the
+browser ask you to confirm first. It is a safety net, not a guarantee: the
+prompt appears only if a last-moment check still finds work outstanding, so a
+tab showing **Not saved** can close without asking. Never read a missing prompt
+as proof your work is safe — wait for **Saved** before leaving.
+:::
+
+The chip appears in sheets, documents, slides, notes, and boards, and in a
+share link opened with the **Editor** role. A **Viewer** share link shows a
+**View only** badge in its place — a viewer makes no changes, so there is
+nothing for it to report.
+
 ## Comments & Mentions
 
-Leave feedback without changing the content. Comments work on cells in sheets
-and on selected text in documents.
+Leave feedback without changing the content. Comments work on cells in sheets,
+on selected text in documents, and on a page region in PDFs. Slides, notes, and
+boards don't have comments yet.
 
 ### Add a comment
 
@@ -55,10 +115,14 @@ and on selected text in documents.
 
 **In a document:**
 
-1. Select the text you want to comment on
-2. Right-click and choose **Insert comment**, press **⌘+Option+M** /
-   **Ctrl+Alt+M**, or click the comment icon in the toolbar
+1. Select the text you want to comment on — a document comment needs a real
+   selection, so nothing happens if the cursor is just sitting somewhere
+2. Right-click and choose **Insert comment**, or press **⌘+Option+M** /
+   **Ctrl+Alt+M**
 3. Type your comment and click **Comment**
+
+The comment icon in the header opens and closes the comments panel; it does not
+start a comment.
 
 The commented text is highlighted so everyone can see where the discussion is.
 
@@ -80,13 +144,17 @@ more.
 - **Edit / Delete** — Hover your own comment and use the **⋯** menu. Deleting
   the first comment removes the whole thread.
 
-### The comments panel (documents)
+### The comments panel
 
-In a document, click the comment icon in the toolbar — or press
-**⌘+Option+Shift+M** / **Ctrl+Alt+Shift+M** — to open the comments panel. It
-lists every thread under **Open** and **Resolved** tabs; click a thread to jump
-to its text. If the text a comment was attached to is later deleted, the thread
+Sheets and documents both have a side panel listing every thread. Click the
+comment icon in the header — or press **⌘+Option+Shift+M** /
+**Ctrl+Alt+Shift+M** — to open it. Threads are grouped under **Open** and
+**Resolved** tabs; click a thread to jump to the cell or text it belongs to. In
+a document, if the text a comment was attached to is later deleted, the thread
 moves to an orphaned list so the conversation is preserved.
+
+PDFs have a comments panel too, opened from the header — see
+[Viewing PDFs](/pdf/viewing-pdfs).
 
 ### Mention a teammate
 
@@ -98,6 +166,83 @@ thread.
 ::: tip
 Mentions highlight who a comment is for. Only people who are members of the
 workspace can be mentioned.
+:::
+
+## Notifications
+
+A mention doesn't just stand out in the thread — it reaches the person. The
+bell in the header carries a badge with your unread count (it stops counting at
+**99+**), and opening it lists what happened, newest first. Select a row to
+mark it read and jump to what it's about, or use **Mark all read** to clear the
+badge.
+
+You are notified when:
+
+- **Someone mentions you** in a comment
+- **Someone replies** to a thread you've commented in
+- **Someone resolves** a thread you've commented in
+- **Someone joins a workspace** you own, or accepts an invite you created
+- **A template you published** is approved, rejected, or removed from the
+  public gallery, or goes back for review after its document changed
+- **A template is waiting in the review queue** — only if you are one of the
+  deployment's designated template reviewers, and at most one nudge per
+  listing per day
+
+Starting a brand-new thread notifies nobody unless it mentions someone. You are
+never notified about your own actions, and a reply that mentions you produces
+one notification, not two.
+
+::: tip
+The bell only appears when you're signed in — someone reading through a share
+link has no inbox. Notifications also stay inside the workspace: only workspace
+members can be notified, and only a workspace member's comment can notify
+anyone.
+:::
+
+## Version History
+
+Every sheet, document, presentation, note, and board keeps a history of past
+versions. Click the **history** icon in the editor header to toggle the
+**Version history** panel open on the right.
+
+::: warning Presentations need a wide window
+On a narrow screen — under 768 pixels, so most phones — a presentation opens in
+a mobile layout that has no history icon and no panel. The history is still
+being kept; you just can't reach it until you open the deck on a wider screen.
+:::
+
+The panel lists versions grouped by day. Most entries are **Automatic** —
+snapshots taken as the document is edited, so the timeline follows activity
+rather than the clock. To mark a moment you want to find again, type a name
+into **Name current version** and click **Save**. **By you** tags any
+non-automatic version you were the one to create — the versions you named, and
+also the **Before restore** versions that your own restores created (see
+below).
+
+Each entry offers two actions:
+
+- **Preview** — open that version read-only without changing anything.
+  Not yet available in documents, where the button is disabled.
+- **Restore** — roll the document back to that version.
+
+Restoring first saves the current state as a **Before restore** version, so a
+restore is always reversible. Note that comments are part of the version being
+restored: any comment added after it was created is removed along with the rest
+of the newer content.
+
+::: warning Only one of the two Restore buttons asks you to confirm
+**Restore** in the version list opens a confirmation dialog first, so you can
+back out. **Restore this version** inside an open preview does **not** — it
+restores immediately, on the reasoning that the preview you are looking at is
+itself the confirmation. If you previewed a version to check it and then decide
+against restoring it, leave with **Back to current version** rather than
+expecting a dialog to catch you.
+:::
+
+::: tip
+Version history is only available when you're signed in and opening the
+document from your workspace — the panel isn't part of a share link. The list
+shows the 50 most recent versions.
 :::
 
 ## How Conflicts Work
@@ -113,18 +258,27 @@ In practice, presence cursors make it easy to see where others are working, so s
 To see or revoke existing links:
 
 1. Open the sheet or document
-2. Click **Share** in the toolbar
-3. You'll see a list of active links with their role and expiration
-4. Click the delete icon next to a link to revoke it immediately
+2. Click **Share** in the editor header
+3. Under **Active links** you'll see each link's role and expiration —
+   **No expiration**, a countdown such as *Expires in 6h*, or **Expired**
+4. Use the copy icon to copy a link again, or the delete icon to revoke it.
+   The delete icon only appears on links you have the authority to revoke —
+   see below
 
 Revoking a link immediately blocks access — anyone with that URL will no longer be able to open it.
+
+You can always revoke a link you created yourself. Revoking links other people
+created takes the same authority as creating an editor link: the document's
+author or a workspace owner. Editor links you didn't create aren't listed for
+you at all, so the token can't be copied and passed on.
 
 ## Good to Know
 
 - Revoking or expiring a link blocks access immediately
 - Deleting a document automatically invalidates all its share links
 - Links cannot be guessed — each one is generated with a unique random ID
-- For sensitive data, use short expirations (1 hour or 8 hours)
+- New links are created with **No limit** unless you pick an expiration, so for
+  sensitive data choose a short one (1 hour or 8 hours) before creating the link
 
 ## Tips for Collaboration
 
