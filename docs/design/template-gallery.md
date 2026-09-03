@@ -397,9 +397,15 @@ update by id. Two reviewers deciding at once otherwise both pass the source-stat
 check and the later write simply wins: a takedown followed by a concurrent
 approve leaves `status: 'listed', visibility: 'public'` on a listing whose
 preview link was already deleted, which is a public listing no reviewer
-approved. The loser gets a `409` telling them to look again. `submit` takes the
-same guard, or a submission racing a takedown moves a decided listing back to
-`pending`.
+approved. The loser gets a `409` telling them to look again.
+
+**`submit` takes the same guard**, and the case it exists for is a submission
+racing a takedown: with the guard, a takedown that commits first leaves the
+submission matching nothing and the publisher gets a `409`; without it, the
+submission would write `pending` over `removed` and walk back a terminal
+decision. (`submit` also refuses a `removed` listing outright when it reads
+one — the compare-and-set is what covers the window between that read and the
+write.)
 
 The takedown's link revoke rides in the **same transaction** as the row write,
 which is what makes the ordering question disappear: revoke-first leaves a
@@ -615,8 +621,12 @@ deduped per day, since editing a document is not one event.
 
 The write is guarded on `visibility: 'public', status: 'listed'` rather than
 read-then-written, so it runs alongside reviewer decisions without walking a
-takedown back to `pending`, and it ignores an event older than the decision it
-would undo — the handler always answers 200, which suppresses only the retries
+takedown back to `pending`, and on `reviewedContentAt` — the *same* watermark
+visibility compares against, not `reviewedAt`. Those are different clocks, and
+an event landing between them would otherwise push `contentChangedAt` past the
+approval (hiding the listing) while matching no row here (so it never enters
+the queue): hidden and unreviewable at once. It also ignores an event older
+than the decision it would undo — the handler always answers 200, which suppresses only the retries
 it can see. And it must stay cheap: it fires for *every* document's every edit,
 so the case that matters is "this document has no public listing", which
 `documentId`'s unique index answers in one lookup that touches nothing.
@@ -632,7 +642,7 @@ correct on the two paths where content actually reaches somebody. The collection
 query keeps using `status`, because Prisma cannot express a column-to-column
 comparison there; the single-row paths are the ones that matter.
 
-Three things this defence has to cover that "the document changed" alone does
+Four things this defence has to cover that "the document changed" alone does
 not:
 
 - **Edits during review.** The transition only fires from `listed`, so an edit
@@ -644,10 +654,16 @@ not:
   edited" and "edited once" — is a `409`.
 - **The card, not just the document.** A gallery card *is* its title,
   description, category and thumbnail. Editing those needs no Yorkie write at
-  all, so the webhook would never see it; `update()` therefore re-enters review
-  when one of them changes on an approved public listing. `tags` and
-  `visibility` do not, because they steer discovery rather than represent the
-  template.
+  all, so the webhook would never see it; `update()` — *and* `publish()`, which
+  is an upsert taking the same fields — therefore re-enters review when one of
+  them changes on an approved public listing. `tags` and `visibility` do not,
+  because they steer discovery rather than represent the template.
+- **The card while it is *under* review.** The content attestation does not
+  reach here either: a card edit writes no Yorkie change, so `contentChangedAt`
+  does not move and the reviewer's echoed watermark still matches — the
+  approval would publish metadata nobody inspected. Card fields are therefore
+  **frozen while `pending`** (`409`), which is the honest shape: a submission
+  under review is a fixed thing, and a decision is coming.
 - **Who can trigger it.** A public listing hands `previewToken` to every
   visitor, and with `YORKIE_AUTH_WEBHOOK_ENFORCE` unset the auth webhook only
   *shadows* — it logs the decision it would have made and allows the write. That

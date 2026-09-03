@@ -60,17 +60,25 @@ export class TemplateReviewSyncService {
     // concurrently with reviewer decisions, and an unconditional update could
     // walk a takedown back to `pending`.
     //
-    // The `reviewedAt` clause makes it idempotent under redelivery. Without it
-    // a duplicate of an old event, arriving after a reviewer re-approved,
-    // knocks the fresh approval back to `pending` with a `submittedAt` in the
-    // past — the handler always answers 200, which suppresses only the retries
-    // it can see.
+    // Guarded on `reviewedContentAt` — the same watermark visibility compares
+    // against — and **not** on `reviewedAt`. The two are different clocks:
+    // `reviewedContentAt` is the content the reviewer attested to,
+    // `reviewedAt` is when they clicked. An event whose instant falls between
+    // them would, under a `reviewedAt` guard, set `contentChangedAt` past the
+    // approval (so the listing goes invisible) while matching zero rows here
+    // (so it never enters the queue and nobody is told) — hidden and
+    // unreviewable at once.
+    //
+    // It also keeps the write idempotent under redelivery: a duplicate of an
+    // old event arriving after a re-approval matches nothing, rather than
+    // knocking the fresh approval back to `pending` with a `submittedAt` in
+    // the past.
     const { count } = await this.prisma.templateListing.updateMany({
       where: {
         documentId,
         visibility: 'public',
         status: 'listed',
-        OR: [{ reviewedAt: null }, { reviewedAt: { lt: at } }],
+        OR: [{ reviewedContentAt: null }, { reviewedContentAt: { lt: at } }],
       },
       data: {
         status: 'pending',

@@ -161,7 +161,7 @@ function makeService(
       deleteMany: jest.fn(() => Promise.resolve({ count: 1 })),
     },
     templateReport: {
-      upsert: jest.fn((_args: UpsertReportArgs) =>
+      upsert: jest.fn<Promise<{ id: string }>, [UpsertReportArgs]>(() =>
         Promise.resolve({ id: 'rep-1' }),
       ),
       findMany: jest.fn(() =>
@@ -176,7 +176,7 @@ function makeService(
           })),
         ),
       ),
-      updateMany: jest.fn((_args: UpdateManyArgs) =>
+      updateMany: jest.fn<Promise<{ count: number }>, [UpdateManyArgs]>(() =>
         Promise.resolve({ count: opts.staleWrite ? 0 : 1 }),
       ),
     },
@@ -224,14 +224,16 @@ function makeService(
   const config = {
     get: (key: string) =>
       key === 'WAFFLEBASE_TEMPLATE_REVIEWER_IDS'
-        ? ('reviewerIds' in opts ? opts.reviewerIds : '99')
+        ? 'reviewerIds' in opts
+          ? opts.reviewerIds
+          : '99'
         : key === 'YORKIE_AUTH_WEBHOOK_ENFORCE'
-        ? // `in`, not `??`: a test says "unset" by passing `undefined`, which
-          // is exactly what `??` would replace with the default.
-          'yorkieEnforce' in opts
-          ? opts.yorkieEnforce
-          : 'true'
-        : undefined,
+          ? // `in`, not `??`: a test says "unset" by passing `undefined`, which
+            // is exactly what `??` would replace with the default.
+            'yorkieEnforce' in opts
+            ? opts.yorkieEnforce
+            : 'true'
+          : undefined,
   };
 
   const service = new TemplateService(
@@ -1267,10 +1269,12 @@ describe('a removed listing', () => {
 
 describe('publish preserves the review state', () => {
   it('does not reset a pending listing to listed', async () => {
+    // A publish that changes no card field is allowed while pending, and must
+    // leave the review state where it is.
     const { service, prisma } = makeService({
       listing: { ...LISTING, status: 'pending' },
     });
-    await service.publish('doc-1', 7, { title: 'Renamed' });
+    await service.publish('doc-1', 7, { tags: ['budget'] });
     const { update } = prisma.templateListing.upsert.mock.calls[0][0];
     expect(update.status).toBe('pending');
   });
@@ -1687,3 +1691,44 @@ describe('useCount ranking guards', () => {
     });
   });
 });
+
+describe('editing while under review', () => {
+  it('refuses a card change through update()', async () => {
+    // The `contentAt` attestation covers the document; a card field writes no
+    // Yorkie change, so the watermark does not move and the approval would
+    // publish metadata the reviewer never inspected.
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await expect(
+      service.update('tpl-1', 7, { title: 'Free Crypto' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('refuses the same change through publish(), which takes the same fields', async () => {
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await expect(
+      service.publish('doc-1', 7, { thumbnailId: NEW_THUMB }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('still allows a change that is not on the card', async () => {
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await expect(
+      service.update('tpl-1', 7, { tags: ['budget'] }),
+    ).resolves.toBeDefined();
+  });
+
+  it('leaves a listed listing editable', async () => {
+    const { service } = makeService();
+    await expect(
+      service.update('tpl-1', 7, { title: 'Renamed' }),
+    ).resolves.toBeDefined();
+  });
+});
+
+const NEW_THUMB = '11111111-2222-3333-4444-555555555555.png';

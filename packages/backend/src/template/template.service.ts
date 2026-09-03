@@ -78,6 +78,36 @@ function isSame(a: unknown, b: unknown): boolean {
  * existing listing with the same fields. Having it in only one of them is a
  * gate with a door beside it.
  */
+/**
+ * Refuse a card edit while the listing is under review.
+ *
+ * The `contentAt` attestation covers the *document*: a reviewer echoes the
+ * content watermark they read, and an edit between reading and approving is a
+ * `409`. Card fields have no such watermark — editing a title or thumbnail
+ * writes no Yorkie change, so `contentChangedAt` does not move and the
+ * attestation still matches. The approval would then publish metadata the
+ * reviewer never inspected, which is the same TOCTOU the content watermark
+ * exists to close, on the axis it does not cover.
+ *
+ * Refusing is the honest fix rather than a second watermark: a submission
+ * under review is a frozen thing, and the publisher has a decision coming.
+ * `tags` are unaffected — they steer discovery rather than represent the
+ * template, which is why they are not `CARD_FIELDS` either.
+ */
+function assertCardEditable(
+  listing: TemplateListing,
+  dto: PublishTemplateDto,
+): void {
+  if (listing.status !== 'pending') return;
+  const changed = CARD_FIELDS.filter(
+    (field) => dto[field] !== undefined && !isSame(dto[field], listing[field]),
+  );
+  if (changed.length === 0) return;
+  throw new ConflictException(
+    `This template is under review; ${changed.join(', ')} cannot change until it is decided`,
+  );
+}
+
 type CardReviewReset = {
   status?: string;
   submittedAt?: Date;
@@ -334,6 +364,7 @@ export class TemplateService {
         'This template was removed by a reviewer and cannot be republished',
       );
     }
+    if (existing) assertCardEditable(existing, dto);
 
     // Minted through `ShareLinkService` rather than Prisma directly so link
     // creation keeps a single source of truth. A republish reuses the live
@@ -400,6 +431,7 @@ export class TemplateService {
         'This template was removed by a reviewer and cannot be edited',
       );
     }
+    assertCardEditable(listing, dto);
 
     const updated = await this.prisma.templateListing.update({
       where: { id },

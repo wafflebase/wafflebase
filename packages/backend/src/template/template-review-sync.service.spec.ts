@@ -10,7 +10,9 @@ type UpdateManyArgs = {
 function makeService(opts: { count?: number; listing?: unknown } = {}) {
   const prisma = {
     templateListing: {
-      updateMany: jest.fn((_args: UpdateManyArgs) =>
+      // Typed via the generic rather than an unused parameter, so the calls
+      // are inspectable without tripping `no-unused-vars`.
+      updateMany: jest.fn<Promise<{ count: number }>, [UpdateManyArgs]>(() =>
         Promise.resolve({ count: opts.count ?? 1 }),
       ),
       findUnique: jest.fn(() =>
@@ -69,16 +71,22 @@ describe('TemplateReviewSyncService', () => {
     });
   });
 
-  it('ignores an event older than the decision it would undo', async () => {
-    // A duplicate of an old event, arriving after a reviewer re-approved,
-    // would otherwise knock the fresh approval back to `pending` with a
-    // `submittedAt` in the past. The handler always answers 200, which
-    // suppresses only the retries it can see.
+  it('guards the transition on the same watermark visibility compares', async () => {
+    // `reviewedContentAt`, not `reviewedAt`: they are different clocks — the
+    // content a reviewer attested to, and when they clicked. An event landing
+    // between them would, under a `reviewedAt` guard, push `contentChangedAt`
+    // past the approval (hiding the listing) while matching zero rows here
+    // (so it never enters the queue and nobody is told) — hidden and
+    // unreviewable at once. It also keeps redelivery idempotent: a duplicate
+    // of an old event matches nothing rather than knocking a fresh approval
+    // back to `pending` with a `submittedAt` in the past.
     const { service, prisma } = makeService();
     await service.onDocumentChanged('doc-1', AT);
     expect(
       prisma.templateListing.updateMany.mock.calls[1][0].where,
-    ).toMatchObject({ OR: [{ reviewedAt: null }, { reviewedAt: { lt: AT } }] });
+    ).toMatchObject({
+      OR: [{ reviewedContentAt: null }, { reviewedContentAt: { lt: AT } }],
+    });
   });
 
   it('costs one query for a document with no public listing', async () => {
