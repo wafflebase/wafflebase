@@ -759,7 +759,6 @@ erDiagram
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
 | `JWT_SECRET` | Yes | — | Secret for signing JWT tokens |
 | `JWT_REFRESH_SECRET` | No | `JWT_SECRET` | Secret for refresh-token signing |
-| `OAUTH_STATE_SECRET` | No | HKDF of `JWT_SECRET` | Key the OAuth login bindings are signed with. Unset, it is derived from `JWT_SECRET` with a fixed label, so no deployment has to configure it; set it to an independent value to remove any relation between the `state` an unauthenticated `GET /auth/github` publishes and the session-signing key. |
 | `JWT_ACCESS_EXPIRES_IN` | No | `1h` | Access-token expiry passed to `jsonwebtoken` |
 | `JWT_REFRESH_EXPIRES_IN` | No | `7d` | Refresh-token expiry passed to `jsonwebtoken` |
 | `JWT_ACCESS_COOKIE_MAX_AGE_MS` | No | `3600000` | Access-cookie max-age in milliseconds |

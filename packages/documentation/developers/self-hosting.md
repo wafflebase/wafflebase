@@ -13,14 +13,13 @@ This page covers two different things, and they need different setups:
 
 > [!IMPORTANT]
 > The frontend's API and Yorkie addresses are baked in **at build time**, and
-> the values a default production build bakes in point at **wafflebase's own
-> hosted service**, not at your deployment and not at localhost.
-> `packages/frontend/.env.production` is checked into the repository with
-> `https://api.wafflebase.io`, `https://api.yorkie.dev` and the upstream Yorkie
-> project key in it, and `pnpm frontend build` runs in Vite's `production`
-> mode, where that file outranks the localhost `.env` beside it. Nothing about
-> this fails loudly — those addresses resolve and answer. You **must** override
-> them; see
+> nothing supplies yours for you. `packages/frontend/.env.production` is **not**
+> in the repository — it is a deployment's configuration, and `.gitignore`
+> ignores it — so a `pnpm frontend build` with nothing configured falls back to
+> the localhost `.env` beside it and bakes in `http://localhost:3000`. That
+> build is visibly broken for anyone not sitting on the machine that made it,
+> which is the intended failure: it points at nothing rather than quietly at
+> somebody else's service. Supply your own values before you ship; see
 > [Frontend build-time configuration](#frontend-build-time-configuration).
 
 ## Requirements
@@ -219,23 +218,44 @@ caps.
 |----------|---------|-------|
 | `DATASOURCE_ENCRYPTION_KEY` | unset | 64 hex characters (32 bytes), AES-256-GCM. **Required on use, not at boot** — see the warning below |
 | `LAKEHOUSE_ALLOWED_ENDPOINTS` | empty | Comma-separated **exact** HTTP(S) origins permitted as custom S3 / Azure / GCS-interop endpoints and Iceberg REST catalogs. Empty means none are allowed |
-| `LAKEHOUSE_QUERY_TIMEOUT_MS` | `30000` | Must be an integer in `100`–`300000`; anything else silently falls back to the default |
-| `LAKEHOUSE_DUCKDB_MEMORY_LIMIT` | `512MB` | Must match `^[1-9][0-9]*(KB\|MB\|GB)$`; anything else silently falls back to the default |
-| `LAKEHOUSE_DUCKDB_THREADS` | `2` | Must be an integer in `1`–`32`; anything else silently falls back to the default |
-| `LAKEHOUSE_DUCKDB_POOL_SIZE` | `2` | Must be an integer in `1`–`8`; anything else silently falls back to the default. Operations stay globally serialized regardless, because DuckDB secrets are instance-global |
-| `LAKEHOUSE_DUCKDB_MAX_PENDING` | `64` | Must be an integer in `1`–`1000`; anything else silently falls back to the default |
-
-> [!NOTE]
-> None of these five is **clamped**. `readBoundedInteger()`
-> (`packages/backend/src/lakehouse/duckdb.service.ts`) returns the *default* for
-> any value that is not an integer inside the range — it does not round to the
-> nearest bound. So `LAKEHOUSE_DUCKDB_THREADS=64` yields `2`, not `32`, and a
-> deployment that over-reaches gets less than it asked for rather than the
-> maximum, with nothing logged. Check your effective values rather than assuming
-> a too-large number was capped.
+| `LAKEHOUSE_QUERY_TIMEOUT_MS` | `30000` | Integer in `100`–`300000`. Out of range is clamped to the nearest bound, a non-integer keeps the default; both warn — see the note below |
+| `LAKEHOUSE_DUCKDB_MEMORY_LIMIT` | `512MB` | Must match `^[1-9][0-9]*(KB\|MB\|GB)$`; anything else silently falls back to the default. This one is **not** clamped and logs nothing — it takes a different code path from the four integers |
+| `LAKEHOUSE_DUCKDB_THREADS` | `2` | Integer in `1`–`32`. Clamped, with a warning — see the note below |
+| `LAKEHOUSE_DUCKDB_POOL_SIZE` | `2` | Integer in `1`–`8`. Clamped, with a warning. Operations stay globally serialized regardless, because DuckDB secrets are instance-global |
+| `LAKEHOUSE_DUCKDB_MAX_PENDING` | `64` | Integer in `1`–`1000`. Clamped, with a warning |
 | `LAKEHOUSE_DUCKDB_EXTENSION_DIR` | unset (`~/.duckdb`) | Where DuckDB keeps extension binaries. The production image sets it to `/app/.duckdb-extensions` and pre-populates it — see [DuckDB extensions](#duckdb-extensions-lakehouse) |
 | `LAKEHOUSE_ALLOW_LOCAL_PATHS` | `false` | Trusted-admin feature: lets a lakehouse table point at the server's own filesystem |
 | `LAKEHOUSE_LOCAL_ROOT` | unset | Required when local paths are enabled; paths outside it are rejected |
+
+> [!NOTE]
+> **Four of these are clamped, and say so; the memory limit is not.**
+> `readBoundedInteger()` (`packages/backend/src/lakehouse/duckdb.service.ts`)
+> reads `LAKEHOUSE_QUERY_TIMEOUT_MS`, `LAKEHOUSE_DUCKDB_THREADS`,
+> `LAKEHOUSE_DUCKDB_POOL_SIZE` and `LAKEHOUSE_DUCKDB_MAX_PENDING`, and it does
+> not treat the two kinds of bad input the same way:
+>
+> - **Out of range** is clamped to the nearest bound, so
+>   `LAKEHOUSE_DUCKDB_THREADS=64` yields `32` — the maximum, not the default.
+>   It warns: `LAKEHOUSE_DUCKDB_THREADS=64 is outside the supported range 1-32; using 32.`
+> - **Not an integer** (`abc`, `2.5`, `Infinity`) keeps the default, because
+>   there is no nearest bound for a value that is not a number. It warns:
+>   `LAKEHOUSE_DUCKDB_THREADS="abc" is not an integer; using the default 2.`
+>
+> Unset, empty, or whitespace-only is neither of those: it is read as *not
+> configured*, takes the default, and warns nothing. That is deliberate —
+> `Number('') === 0` would otherwise clamp a bare `LAKEHOUSE_DUCKDB_THREADS=`
+> down to the minimum.
+>
+> Both warnings name the variable, the value read and the value used, and are
+> logged under the `DuckDbService` context. They are emitted once per setting
+> during startup — these are field initializers on a singleton, so nothing is
+> re-read on the query path. If an effective value does not look like the one
+> you set, the startup log says which substitution happened.
+>
+> `LAKEHOUSE_DUCKDB_MEMORY_LIMIT` is the exception. It goes through
+> `readMemoryLimit()`, which pattern-matches rather than bounds: a value that
+> does not match falls back to `512MB` silently, with nothing logged. Check that
+> one yourself.
 
 > [!WARNING]
 > **`DATASOURCE_ENCRYPTION_KEY` is required-on-use, not required-at-boot.**
@@ -274,61 +294,70 @@ The frontend is a Vite static build. `import.meta.env.VITE_*` values are
 **substituted into the bundle when you build it** — they are not read at
 runtime, so setting them on the server that serves the files does nothing.
 
-**Two** env files are committed to the repository, and the one that applies to a
-production build is not the localhost one.
+Exactly **one** env file is committed to the repository, and it is the localhost
+one:
 
 ```env
-# packages/frontend/.env — used by `pnpm frontend dev`
+# packages/frontend/.env — tracked, deliberately: it is what makes a fresh
+# clone work under `pnpm dev` with no configuration at all
 VITE_FRONTEND_BASENAME=/
 VITE_BACKEND_API_URL=http://localhost:3000
 VITE_YORKIE_RPC_ADDR=http://localhost:8080
 VITE_YORKIE_PUBLIC_KEY=
 ```
 
-```env
-# packages/frontend/.env.production — used by `pnpm frontend build`
-VITE_FRONTEND_BASENAME=/
-VITE_BACKEND_API_URL=https://api.wafflebase.io
-VITE_YORKIE_RPC_ADDR=https://api.yorkie.dev
-VITE_YORKIE_PUBLIC_KEY=fbuqYRxotajGGzb3kUD6aX
-VITE_GA_ID=G-1Q13HY79ST
-```
+`pnpm frontend build` runs `vite build`, which uses mode `production`, and Vite
+loads `.env`, `.env.local`, `.env.production`, `.env.production.local` in that
+order with each overriding the ones before it. Only the **first** of those four
+is in the repository: `.env.production` is gitignored (root `.gitignore`) and
+`*.local` is too (`packages/frontend/.gitignore`), because those are a
+*deployment's* configuration rather than the project's.
 
-`.env` is why the local quick start works with no configuration.
-`.env.production` is wafflebase's **own** deployment configuration, and it is
-what a self-hoster's build picks up: `pnpm frontend build` runs `vite build`,
-which uses mode `production`, and Vite loads `.env`, `.env.local`,
-`.env.production`, `.env.production.local` in that order with each overriding
-the ones before it.
+What ships instead is a template, `packages/frontend/.env.production.example`,
+documenting each variable. Vite never loads it — `.example` is not a mode — so
+copying or otherwise supplying the values is a step you have to take.
 
 > [!WARNING]
-> **The failure is data egress, not a broken page.** A frontend built without
-> overrides does not point at the visitor's `localhost` and does not fail
-> loudly. It addresses wafflebase's hosted service: your users' browsers send
-> every backend call to `https://api.wafflebase.io` — your own backend is never
-> contacted — the **Sign in with GitHub** link starts an OAuth flow against that
-> service rather than yours, and the browser's Yorkie client attaches to
-> `https://api.yorkie.dev` using the *upstream project's* public key. The site
-> appears to work far enough to be deployed. Verify a build before you ship it:
-> `grep -rl api.wafflebase.io packages/frontend/dist` must print nothing.
+> **An unconfigured production build is broken, and that is the design.** With
+> no `.env.production` and no environment variables, the four localhost values
+> above are what get baked in, so every visitor's browser calls
+> `http://localhost:3000` and `http://localhost:8080` — their own machine, not
+> your server. The page loads and then fails to sign in or sync.
+>
+> This replaced a worse failure. A committed `.env.production` used to carry
+> wafflebase's own backend, Yorkie project and Google Analytics property, so an
+> unconfigured build worked well enough to deploy while sending your users'
+> traffic to us. If you are building from a checkout older than that change,
+> check `packages/frontend/.env.production` before you trust the output.
+>
+> Verify a build either way: `grep -rl api.wafflebase.io packages/frontend/dist`
+> must print nothing. Grep for **your backend's** host to confirm the positive
+> case. Do *not* grep for `api.yorkie.dev` — it is the yorkie-js-sdk's own
+> built-in default `rpcAddr` and is present in the vendor bundle regardless of
+> how you configured the build, so it is always a false positive.
 
-Three ways to override, best first (note that this is not the precedence order —
-environment variables outrank every file, including `.env.production.local`):
+Three ways to supply the values, best first (note that this is not the
+precedence order — environment variables outrank every file, including
+`.env.production.local`):
 
 1. **`packages/frontend/.env.production.local`** — the highest-precedence file,
-   and gitignored (`packages/frontend/.gitignore` ignores `*.local`), so your
-   deployment's URLs never land in a commit. This is the recommended way.
-   Beware `.env.local`, the intuitive filename: it ranks **below**
-   `.env.production` and will not override it.
+   and gitignored, so your deployment's URLs never land in a commit. This is the
+   recommended way. Beware `.env.local`, the intuitive filename: it ranks
+   **below** `.env.production` and will not override it.
 2. **Environment variables on the build command** — Vite applies any `VITE_`
    variable already in `process.env` after every file, so these beat all four.
-   Best for CI, where nothing is written to disk.
-3. **Editing `packages/frontend/.env.production` in place** — works, but it is
-   a tracked file, so the change shows up as a repository modification and will
-   conflict on every upstream merge.
+   Best for CI, where nothing is written to disk. This is what wafflebase's own
+   deploy does; see the "Install and Build" step in
+   `.github/workflows/publish-ghpage.yml`, which reads them from repository
+   variables and fails the build when the required ones are missing.
+3. **Copying `packages/frontend/.env.production.example` to
+   `.env.production`** and filling it in — also gitignored, so it will not show
+   up as a repository modification or conflict on an upstream merge.
 
-Overriding is not optional and there is no "unset" fallback: leaving a variable
-out means the committed upstream value applies.
+Leaving a variable out is not an error and nothing prompts you. The four in the
+table below that appear in `.env` fall back to their **localhost** values;
+everything else, `VITE_GA_ID` included, is genuinely unset because no committed
+file sets it.
 
 | Variable | Required for a non-localhost deployment | Notes |
 |----------|------------------------------------------|-------|
@@ -336,7 +365,7 @@ out means the committed upstream value applies.
 | `VITE_YORKIE_RPC_ADDR` | **Yes** | Passed to the browser's Yorkie client (`PrivateRoute.tsx`, `shared-document.tsx`, `apply-imported-content.ts`). This is the address **browsers** reach Yorkie at, which is not the same value as the backend's `YORKIE_RPC_ADDR` unless both run on the same host |
 | `VITE_YORKIE_PUBLIC_KEY` | If your Yorkie project requires it | The Yorkie project public key, passed as the client `apiKey` |
 | `VITE_FRONTEND_BASENAME` | Only if not served at `/` | React Router basename (`App.tsx`) |
-| `VITE_GA_ID` | **Yes, to an empty value** | When set, `vite.config.ts` injects a gtag.js bootstrap at build time. `.env.production` sets it to wafflebase's own Google Analytics property, so a default build sends your visitors' page views to Google under *our* measurement ID. Pass `VITE_GA_ID=` explicitly (empty is falsy, so the snippet is stripped) or remove the line from `.env.production` |
+| `VITE_GA_ID` | **No — leave it unset** | Google Analytics measurement ID. Unset is the correct default and needs no action: no committed file sets it, and `gaSnippet()` in `packages/frontend/vite.config.ts` emits no gtag.js when it is missing or empty. Set it only if the property is yours |
 | `VITE_DEMO_SHARED_TOKEN` | No | Share token backing the sheet demo on the marketing homepage |
 | `VITE_DEMO_DOC_SHARED_TOKEN` | No | Same, for the docs demo |
 | `VITE_DEMO_SLIDES_SHARED_TOKEN` | No | Same, for the slides demo |
@@ -347,16 +376,15 @@ Build with your own values:
 VITE_BACKEND_API_URL=https://api.example.com \
 VITE_YORKIE_RPC_ADDR=https://yorkie.example.com \
 VITE_YORKIE_PUBLIC_KEY=your_yorkie_public_key \
-VITE_GA_ID= \
 pnpm frontend build          # → packages/frontend/dist
 ```
 
-`VITE_GA_ID=` is in that list deliberately: omitting it leaves wafflebase's
-measurement ID from `.env.production` in your bundle.
+`VITE_GA_ID` is absent from that list on purpose — unset already means no
+analytics. Add it only to opt in.
 
-Or write the same four to `packages/frontend/.env.production.local`, which is
-gitignored and is the last file `vite build` loads, so it overrides the
-committed `.env.production`.
+Or write the same three to `packages/frontend/.env.production.local`, the last
+file `vite build` loads, or to `packages/frontend/.env.production`. Both are
+gitignored; `.env.production.example` is the template for either.
 
 To ship the in-app documentation alongside the app, use the root script instead
 — it builds the frontend and VitePress and copies the latter to `dist/docs`,
@@ -364,6 +392,23 @@ matching the `/docs` route the dev server proxies:
 
 ```bash
 pnpm build:all
+```
+
+The documentation site is a **second** Vite build with its own configuration,
+and it reads one variable of its own: `packages/documentation/.vitepress/config.ts`
+loads `VITE_GA_ID` from `packages/documentation/` and injects gtag.js into every
+docs page when it is set. That directory's `.env.production` is gitignored for
+the same reason as the frontend's — it used to be committed carrying
+wafflebase's measurement ID, so any `pnpm build:all` reported into our analytics
+property — and `packages/documentation/.env.production.example` is its template.
+Unset, the docs site emits no analytics either.
+
+Because a `VITE_`-prefixed environment variable outranks every `.env*` file in
+both builds, one variable on the command covers both:
+
+```bash
+VITE_GA_ID=G-YOUR-OWN-ID pnpm build:all    # opt in for app + docs
+pnpm build:all                             # no analytics anywhere
 ```
 
 Serve `packages/frontend/dist` from any static host or CDN, with a SPA fallback
@@ -737,17 +782,18 @@ All your data is stored in:
   (S3-compatible).
 
 You control all of these services, and once the frontend is built with your own
-values no telemetry leaves your infrastructure. Two things have to be done
-rather than assumed:
+values no telemetry leaves your infrastructure. Two notes on that:
 
-- **`VITE_GA_ID` must be overridden to an empty value at build time.** It is the
-  one third-party hook, and `packages/frontend/.env.production` ships it set to
-  wafflebase's Google Analytics property — so a build that does not override it
-  emits gtag.js and reports your visitors to Google. "Leave it unset" is not
-  enough, because the committed file sets it. See
+- **Analytics is opt-in, and unset means off.** `VITE_GA_ID` is the one
+  third-party hook — it injects gtag.js into the app (`vite.config.ts`) and into
+  the docs site (`.vitepress/config.ts`) at build time. No committed file sets
+  it any more, so doing nothing emits no gtag.js and makes no request to Google.
+  You only get analytics by setting it to a property of your own. If you build
+  from a checkout predating that change, or you copied an `.env.production`
+  from one, check the value — it used to be wafflebase's measurement ID. See
   [Frontend build-time configuration](#frontend-build-time-configuration).
-- The optional analytics pipeline records Share Link view events, but only into
-  the Kafka + StarRocks services you run yourself, and only when you enable it.
+- The optional Share Link view-event pipeline records into the Kafka +
+  StarRocks services you run yourself, and only when you enable it.
 
 Back up your PostgreSQL database, your Yorkie data store, and your blob store to
 preserve everything. Note that access control over the Yorkie data is only
