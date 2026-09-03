@@ -61,8 +61,8 @@ export function PreviewSurface({
  * Slides and notes put their toolbar full-width above the row that holds the
  * canvas *and* the right-slot panels. Pulling that toolbar into the covered
  * box would contain it, but it would also narrow it by the panel's width
- * (288px) whenever a panel is open — a layout regression for every user, on
- * a feature that ships with its flag off, and a divergence from Google
+ * (288px) whenever a panel is open — a layout regression for every user of
+ * every side panel, version history or not, and a divergence from Google
  * Slides, where side panels start below a full-width toolbar. So the toolbar
  * stays where it was and is simply not rendered while a preview is open,
  * which is what Google Docs does too: opening a version replaces the editing

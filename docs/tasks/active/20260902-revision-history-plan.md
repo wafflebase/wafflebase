@@ -1,5 +1,13 @@
 # Revision History Implementation Plan
 
+> **This file is a historical record of what was planned, not a description
+> of what shipped.** Several of its claims and code blocks were disproved
+> during execution and are deliberately left intact, because the value of a
+> plan is showing what was believed at the time. Do not copy commands or
+> code out of it. The authoritative statements of what shipped are
+> [`20260902-revision-history-todo.md`](./20260902-revision-history-todo.md)
+> and [`docs/design/revision-history.md`](../../design/revision-history.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a Google-Docs-style Version history panel — list, name, preview and non-destructively restore past versions — on wafflebase's five CRDT document types.
@@ -817,6 +825,13 @@ Expected: PASS without production changes. If any case fails, fix `yorkie-auth.c
 
 In `packages/backend/README.md`, extend the `yorkie project update` example with the four methods and add a sentence that a deployment registering them while `YORKIE_AUTH_WEBHOOK_ENFORCE=false` is still unprotected, because shadow mode allows every request:
 
+> **Do not run this block: `--auth-webhook-method-add CreateRevision` breaks
+> a deployment.** Yorkie calls the webhook for `CreateRevision` with
+> `attributes: null`, so registering it makes `decide()` deny every caller
+> including the owner and "Name current version" fails for everyone. Only
+> the other three methods are registrable; the shipped command is in
+> `packages/backend/README.md`.
+
 ```bash
   --auth-webhook-method-add ListRevisions \
   --auth-webhook-method-add GetRevision \
@@ -985,6 +1000,12 @@ it('converges a second attached client onto the restored state', async () => {
 ```
 
 - [ ] **Step 3: Write the read-only refusal test, watch it fail, then skip it**
+
+> **This snippet does not compile: `AttachOptions` has no `readOnly`
+> option.** A read-only attachment is not expressible in the SDK, so the
+> refusal it sketches is enforced by the auth webhook instead — see
+> `packages/backend/src/document/yorkie-auth.controller.ts` and its spec for
+> what actually gates the revision RPCs.
 
 ```ts
 // Expected to fail until yorkie gates the revision RPCs behind the auth

@@ -121,7 +121,7 @@ blocked on an upstream Yorkie change. That was inferred from a truncated
 string in the server binary and is **false**. The server validates
 registration against its method enum, and all four names are members:
 
-```
+```bash
 $ yorkie project update <p> --auth-webhook-method-add ListRevisions   → accepted
 $ yorkie project update <p> --auth-webhook-method-add NotARealMethod  → invalid_argument,
                                                     "given AuthWebhookMethods is invalid method"
@@ -183,7 +183,7 @@ So the deployment posture is:
 A shared module at `packages/frontend/src/components/history/`, mirroring
 how `components/comments/` is shared across engines:
 
-```
+```text
 components/history/
   revision-meta.ts         # the description JSON contract from §1, parse + write
   group-revisions.ts       # flat revision list → day-keyed timeline
@@ -218,7 +218,7 @@ document header menu. Document types: `sheet`, `doc`, `slides`, `note`,
 
 ### 4. Preview
 
-```
+```text
 getRevision(id) → YSON string → YSON.parse → per-type adapter
                → engine model → MemStore | MemDocStore | MemSlidesStore
                → the document's own viewer, read-only
