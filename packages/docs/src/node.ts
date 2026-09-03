@@ -108,7 +108,11 @@ export {
 // safety: `model/crdt-tree.js` imports only `model/types.js` and
 // `model/crdt-attrs.js`, and is deliberately CRDT-library-agnostic. The
 // backend's `readDocsRoot` delegates its whole walk to it.
-export { docsTreeToDocument, treeNodeToBlock } from './model/crdt-tree.js';
+export {
+  docsTreeToDocument,
+  parseBorderStyle,
+  treeNodeToBlock,
+} from './model/crdt-tree.js';
 export type { DocsTreeNode } from './model/crdt-tree.js';
 export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
 export {

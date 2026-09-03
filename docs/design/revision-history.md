@@ -196,7 +196,7 @@ components/history/
 The hook is named `use-revision-history` rather than `use-revisions` so it
 cannot be confused at an import site with the SDK hook it wraps.
 
-`use-revision-history.ts` is deliberately thin — `@yorkie-js/react@0.7.18`
+`use-revision-history.ts` is deliberately thin — `@yorkie-js/react`
 already exports `useRevisions()` returning
 `{createRevision, listRevisions, getRevision, restoreRevision}` bound to
 the current `DocumentProvider`. What we add is list state and the grouping
@@ -520,20 +520,36 @@ bounds only what the *panel reads*, not what is stored — and it is what
 makes older versions unreachable, so it is a symptom of this risk rather
 than a mitigation of it.
 
-**The snapshot format's parser is regex-based.** `YSON.parse` cannot read a
-snapshot of any docs document (§4), and the same preprocessing would also
-misread a `}` appearing inside a string value in any document type. We
-depend on it for every preview. *Mitigation*: upstream ask 4 replaced it
-with a tokenizer in 0.7.19, which is what this risk asked for. Before that
-docs preview was out and the other four types
-are covered by adapter tests built from fixtures **hand-authored** to each
-engine's wire format — *not* captured off real documents, which is a real
-weakness of the coverage: the sheets fixture was hand-authored to the wrong
-format until the final review round. Asserting the sheets one *through*
-`MemStore.load` rather than by counting JSON keys is what caught that, and
-capturing fixtures from real documents remains open. A regression in the
-parser does surface in CI rather than in a user's preview; a fixture that
-drifts from the real wire format does not.
+**The snapshot format's parser was regex-based, and every preview depends
+on it.** Through 0.7.18 `YSON.parse` could not read a snapshot of any docs
+document, and the same preprocessing misread a `{`/`}`/`[`/`]` appearing
+inside a string value in any document type (§4). *Mitigation, delivered*:
+upstream ask 4 replaced the regex chain with a string-aware scanner in
+0.7.19 — exactly what this risk asked for — so both defects are closed and
+docs preview ships.
+
+The residual risk is now the fixtures rather than the parser, and it is
+smaller than it was. Every fixture under
+`components/history/__tests__/fixtures/` is **captured** — created with
+`createRevision` against a real Yorkie server and copied byte for byte —
+after hand-authored ones proved actively misleading: the sheets fixture was
+hand-authored to the wrong format until the final review round, and none of
+them carried the `Int(…)`/`Long(…)` literals a real snapshot is full of, so
+they passed against a parser that was corrupting every integer. Asserting
+the sheets one *through* `MemStore.load` rather than by counting JSON keys
+is what caught that.
+
+Capturing is necessary but not sufficient, which the docs fixture then
+showed: bytes off a real server still describe whatever document was fed
+in, and a hand-built one carried semantic block ids, no
+`DEFAULT_BLOCK_STYLE` attributes, no `orientation`, and a `listKind` the
+model cannot hold. It is now built through the docs model's own
+constructors (`createBlock`, `DEFAULT_PAGE_SETUP`, the `comments` key
+`initialDocsRoot()` seeds) before capture. The standing rule for this
+directory is therefore both halves: **capture the bytes from a real server,
+and produce the document with the real writers.** A parser regression
+surfaces in CI; a fixture that drifts from what the app actually stores
+does not.
 
 **A restore is a whole-root replacement, and comments ride along.** Sheet
 and docs comment threads live in the same Yorkie root, so restoring a

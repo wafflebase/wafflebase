@@ -224,6 +224,7 @@ describe('parseDocsSnapshot', () => {
     expect(doc().blocks.map((b) => b.type)).toEqual([
       'heading',
       'paragraph',
+      'list-item',
       'paragraph',
       'table',
     ]);
@@ -237,14 +238,25 @@ describe('parseDocsSnapshot', () => {
   it('decodes JSON-encoded tree attributes rather than passing them through', () => {
     const heading = doc().blocks[0];
     expect(heading).toMatchObject({
-      id: 'b-title',
       type: 'heading',
       headingLevel: 1,
-      style: { alignment: 'center' },
+      // The whole DEFAULT_BLOCK_STYLE set rides on every block the editor
+      // writes, so this also proves the shared block-style codec is reached.
+      style: { alignment: 'center', lineHeight: 1.5, marginBottom: 8 },
     });
+    // Ids come from `generateBlockId()`, so assert the shape, not the value.
+    expect(heading.id).toMatch(/^block-\d+-\d+$/);
     expect(heading.inlines[0]).toMatchObject({
       text: 'Quarterly Report',
       style: { bold: true },
+    });
+  });
+
+  it('reads a list item with its kind and level', () => {
+    expect(doc().blocks[2]).toMatchObject({
+      type: 'list-item',
+      listKind: 'unordered',
+      listLevel: 0,
     });
   });
 
@@ -258,8 +270,23 @@ describe('parseDocsSnapshot', () => {
     expect(runs[1].style).toMatchObject({ italic: true, color: '#C2484C' });
   });
 
+  // `view/layout.ts` paints an image segment for ANY inline carrying
+  // `style.image`, with no text-length guard, so an empty-text image inline
+  // renders a ghost — usually a duplicate. The editor's live reader has
+  // dropped those since issue #182; a revision preview renders precisely the
+  // pre-#182 trees that fix was written for, so the shared reader must drop
+  // them too. The fixture carries one deliberately.
+  it('drops the empty-text image inline a pre-#182 CRDT left behind', () => {
+    const images = doc().blocks[3].inlines;
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({
+      text: 'logo',
+      style: { image: { src: 'https://example.com/logo.png', width: 64 } },
+    });
+  });
+
   it('reads a nested table, its spans and its comma-bearing border colour', () => {
-    const table = doc().blocks[3];
+    const table = doc().blocks[4];
     expect(table.tableData?.columnWidths).toEqual([120, 240]);
     const [header, body] = table.tableData!.rows;
     expect(
@@ -293,15 +320,26 @@ describe('parseDocsSnapshot', () => {
     const parsed = doc();
     expectPlainNumber(parsed.pageSetup?.margins.top, 'margins.top');
     expectPlainNumber(parsed.pageSetup?.paperSize.width, 'paperSize.width');
-    expect(parsed.pageSetup?.paperSize).toMatchObject({
-      width: 816,
-      height: 1056,
+    expect(parsed.pageSetup).toMatchObject({
+      orientation: 'portrait',
+      paperSize: { name: 'Letter', width: 816, height: 1056 },
     });
-    expect(parsed.styles).toEqual({ Normal: { fontSize: 11 } });
+    expect(parsed.styles).toEqual({
+      Normal: { fontSize: 11, fontFamily: 'Arial' },
+    });
   });
 
   it('returns an empty document when content was never written', () => {
     expect(parseDocsSnapshot('{}')).toEqual({ blocks: [] });
+  });
+
+  // `stylesJson` is only a string by convention — it comes out of a CRDT.
+  // A number would pass `JSON.parse` via coercion and land a non-object in
+  // `doc.styles`.
+  it('ignores a non-string named-style registry', () => {
+    const snapshot =
+      '{"content":Tree({"type":"doc","children":[]}),"stylesJson":5}';
+    expect(parseDocsSnapshot(snapshot).styles).toBeUndefined();
   });
 });
 

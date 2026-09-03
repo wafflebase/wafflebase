@@ -200,24 +200,29 @@ function DocsLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Toggle
-                  size="sm"
-                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                  aria-label={
-                    commentsPanelOpen ? "Hide comments" : "Show comments"
-                  }
-                  pressed={commentsPanelOpen}
-                  onPressedChange={setCommentsPanelOpen}
-                >
-                  <IconMessage size={16} />
-                </Toggle>
-              </TooltipTrigger>
-              <TooltipContent>
-                {commentsPanelOpen ? "Hide comments" : "Show comments"}
-              </TooltipContent>
-            </Tooltip>
+            {/* The comments toggle is editing chrome, so a preview removes it
+                like the formatting toolbar — otherwise it is the one control
+                that could re-open the side panel *over* an open preview. */}
+            <EditingChrome previewing={previewing}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Toggle
+                    size="sm"
+                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                    aria-label={
+                      commentsPanelOpen ? "Hide comments" : "Show comments"
+                    }
+                    pressed={commentsPanelOpen}
+                    onPressedChange={setCommentsPanelOpen}
+                  >
+                    <IconMessage size={16} />
+                  </Toggle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {commentsPanelOpen ? "Hide comments" : "Show comments"}
+                </TooltipContent>
+              </Tooltip>
+            </EditingChrome>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Toggle
@@ -278,7 +283,20 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 onJumpHandleReady={setJumpHandle}
                 documentId={documentId}
                 workspaceId={documentData?.workspaceId}
-                commentsPanelOpen={commentsPanelOpen}
+                // Docs is the only editor with a z-indexed panel *inside*
+                // `PreviewSurface`: the comments panel is `z-40` and the
+                // preview overlay is `z-20`, and neither `PreviewSurface` nor
+                // `DocsView`'s root creates a stacking context (both are
+                // `position: relative` with `z-index: auto`). So covering
+                // does not contain this one — the panel painted above the
+                // preview, fully clickable, and its Resolve / Reply / Edit /
+                // Delete controls all mutate the LIVE document behind it.
+                // That is exactly the failure `preview-surface.tsx` describes.
+                // Withholding it applies that module's own rule instead: while
+                // a preview is open, no editing control is both rendered and
+                // reachable. The user's choice survives — `commentsPanelOpen`
+                // is untouched, so closing the preview restores the panel.
+                commentsPanelOpen={commentsPanelOpen && !previewing}
                 onCommentsPanelOpenChange={setCommentsPanelOpen}
               />
             </PreviewSurface>

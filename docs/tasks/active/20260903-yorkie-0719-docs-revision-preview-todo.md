@@ -71,7 +71,21 @@ the YSON dialect difference in one small normalizer on the frontend side.
 - [x] Update `docs/design/revision-history.md` §4/§6/§7
 - [x] `pnpm verify:fast` green (exit 0, 11 suites, 0 failures)
 - [ ] **Browser smoke — blocked**, see Review
-- [ ] Code review over the branch diff before PR
+- [x] Code review over the branch diff (5 reviewers); blocking findings applied:
+  - [x] Ghost-image filter missing from the shared reader (would double every
+        inline image in a pre-#182 revision preview) — plus a regression test,
+        mutation-checked
+  - [x] Comments panel (`z-40`) painted above the preview (`z-20`) and stayed
+        clickable, mutating the live document — panel withheld and its toggle
+        moved into `EditingChrome`
+  - [x] Fixture captured but not representative (hand-built document) —
+        recaptured through the docs model's own constructors
+  - [x] `parseBorderStyle` divergence: the editor's live reader kept a naive
+        `split(',')` that dropped any `rgb(r, g, b)` border, so preview and
+        editor disagreed — pointed at the shared parser
+  - [x] `stylesJson` `typeof` guard restored
+  - [x] Stale design docs: index row (0.7.18 + "no job here"), the Risks
+        paragraph (present-tense defect, broken tense, fixture provenance)
 
 ## Review
 

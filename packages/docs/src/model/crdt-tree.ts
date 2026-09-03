@@ -94,7 +94,16 @@ function parseInlineStyle(
   return style;
 }
 
-function parseBorderStyle(
+/**
+ * One `width,style,color` border attribute.
+ *
+ * Exported because the editor's live reader (`yorkie-doc-store.ts`) must use
+ * this exact parser rather than its own: it kept a naive `split(',')` that
+ * returns `undefined` for any `rgb(r, g, b)` colour, so the same table
+ * rendered with its border in a revision preview and without one in the
+ * editor behind it.
+ */
+export function parseBorderStyle(
   value: string,
 ): TableCell['style']['borderTop'] | undefined {
   // Border attributes serialize as `width,style,color`, but a CSS color
@@ -202,7 +211,21 @@ export function treeNodeToBlock(node: DocsTreeNode): Block {
 
   const inlines = (node.children ?? [])
     .filter((c) => c.type === 'inline')
-    .map(treeNodeToInline);
+    .map(treeNodeToInline)
+    // Invariant: an empty-text inline must never carry `style.image`.
+    // `view/layout.ts` emits an image segment for any inline with
+    // `style.image` regardless of text length, so such an inline paints a
+    // ghost — usually a duplicate of the image beside it.
+    //
+    // This filter came from the editor's own reader (issue #182, "Fix
+    // duplicate image after Enter / Backspace at end of inline images"),
+    // where it normalizes legacy CRDTs written by a pre-fix split-after-image
+    // bug. The producers were fixed then, so it only matters for trees
+    // written *before* that fix — which is exactly the population a revision
+    // preview renders. It must therefore live in the shared reader, not only
+    // in the live one, or an old revision previews with doubled images while
+    // the editor behind it shows them once.
+    .filter((inl) => !(inl.text.length === 0 && inl.style.image));
   const block: Block = {
     id: attrs.id ?? '',
     type: blockType,
@@ -251,7 +274,10 @@ export function docsTreeToDocument(
       doc.blocks.push(treeNodeToBlock(child));
     }
   }
-  if (opts?.stylesJson) {
+  // The `typeof` check is not redundant with the truthiness one: `stylesJson`
+  // comes out of a CRDT, so it is only a string by convention. A number would
+  // pass `JSON.parse` (via coercion) and land a non-object in `doc.styles`.
+  if (typeof opts?.stylesJson === 'string' && opts.stylesJson.length > 0) {
     try {
       doc.styles = JSON.parse(opts.stylesJson);
     } catch {
