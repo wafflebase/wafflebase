@@ -288,16 +288,45 @@ every editor shell, so mounting the bell there covers the whole app from a
 single place. It renders **only for an authenticated session** — anonymous
 share-link viewers have no inbox and get no bell.
 
-Item click routes by document type through the existing prefixes
-(`/s/` sheet, `/d/` doc, `/p/` slides, `/f/` file, `/n/` note, `/b/` board),
-so the list response embeds `document: { id, title, type }`. Relative times
-use `date-fns`, already a dependency.
+Relative times use `date-fns`, already a dependency.
+
+#### Where a click goes
+
+`notificationHref` (`notification-text.ts`) switches on the **type**, because
+the destination follows from what happened and not from which rows the
+notification happens to carry. Most types resolve to the document, routed by
+document type through the existing prefixes (`/s/` sheet, `/d/` doc, `/p/`
+slides, `/f/` file, `/n/` note, `/b/` board) — which is why the list response
+embeds `document: { id, title, type }`. An unrecognized type takes that path
+too, so a type this client has not learned yet still opens what it is about.
+
+Two are exceptions, and a rule that just opened any attached document got both
+wrong:
+
+- **`workspace_member_joined` → `/w/:workspaceId/settings`.** It has no
+  document at all, so under the old rule it rendered a row that marked itself
+  read and went nowhere. The member list is a section of the settings page;
+  there is no members route. Both recipient classes — workspace owners and the
+  invite's creator — are members, so the page is theirs to open.
+- **`template_review_queued` → `/admin/templates`.** It carries a document its
+  recipient *cannot open*: a reviewer is on the global
+  `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` allowlist and belongs to neither the
+  publishing workspace nor the document. The queue is the whole reason the
+  notification exists.
+
+The list response therefore also embeds `workspace: { id, name }`. It is what
+identifies a workspace-level notification — a reader belongs to several, and
+"someone joined the workspace" names none of them — and it is what the join
+href is built from. Nullable on the client, so a workspace deleted since the
+row was written degrades to a row that goes nowhere rather than to
+`/w/undefined/settings`.
 
 ### Testing
 
 - `packages/backend/src/notification/notification.service.spec.ts` — non-member recipients dropped, actor
   excluded from its own event, repeated `commentId` yields one row, preview
-  truncation and control-character stripping, 404/403 paths.
+  truncation and control-character stripping, 404/403 paths, and that the list
+  select carries the workspace while `dedupeKey`/`recipientId` stay server-side.
 - `packages/backend/src/notification/notification-hub.spec.ts` — publish reaches subscribers, unsubscribe stops
   delivery, no cross-user leakage.
 - `packages/backend/src/notification/notification-stream.spec.ts` — the SSE

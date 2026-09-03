@@ -476,6 +476,9 @@ describeDb('Notification HTTP integration', () => {
       type: 'workspace_member_joined',
       documentId: null,
       actor: { id: joiner.id },
+      // With no document, the workspace is the only thing that names this row
+      // and the only thing the dropdown can link it to.
+      workspace: { id: workspace.id, name: workspace.name },
     });
   });
 });

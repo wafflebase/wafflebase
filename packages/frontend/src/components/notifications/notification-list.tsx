@@ -12,7 +12,8 @@ interface Props {
 
 /**
  * The dropdown body: header with "Mark all read", then the rows. Selecting a
- * row marks just that one read and navigates if it points at a document.
+ * row marks just that one read and navigates if it has a destination — which
+ * `notificationHref` decides from the type, not from the rows it carries.
  */
 export function NotificationList({ onNavigate }: Props) {
   const navigate = useNavigate();
