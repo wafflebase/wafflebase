@@ -270,6 +270,16 @@ Board side (`board-view.tsx`):
 - `pointerleave` publishes `null` so a departed cursor does not stick.
 - `mapBoardPeers` forwards `presence.cursor` into `PeerView.cursor`.
 
+Both writes go through `YorkieBoardStore.updatePresence()`, never
+`doc.update` directly. `batch()` holds one `doc.update` open for the
+whole batch, and the selection listener fires synchronously from inside
+it (an insert commit selects the element it just added) — a nested
+`doc.update` there reissues the open change's `clientSeq`, the server
+refuses the pack, and the document never syncs again. `updatePresence`
+folds into the batch's ambient presence proxy when one is open; see the
+class comment on `YorkieBoardStore.activePresence`. Presence reads still
+go straight to the document.
+
 "At most one write per frame" is a ceiling, not a rate: a presence write
 emits a SELF `presence-changed` that re-renders the whole React tree, so
 `createCursorPublisher` also drops a frame whose position is unchanged,

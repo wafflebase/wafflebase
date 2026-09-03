@@ -124,12 +124,18 @@ function mapBoardPeers(
  * panels, and layout-edit machinery dropped (a board has none of
  * those concepts).
  *
- * Presence: peers are read straight off the Yorkie `doc` (board's
- * `YorkieBoardStore` does not expose `getPeers`/`onPresenceChange`/
- * `updatePresence` — those are `YorkieSlidesStore`-only conveniences,
- * not part of the shared `SlidesStore` interface) using the same
- * `getOthersPresences()` / `subscribe('others', ...)` / `doc.update`
- * primitives `YorkieSlidesStore` wraps. The local pointer is published
+ * Presence READS go straight off the Yorkie `doc` — board's
+ * `YorkieBoardStore` does not expose `getPeers`/`onPresenceChange`
+ * (those are `YorkieSlidesStore`-only conveniences, not part of the
+ * shared `SlidesStore` interface), so this view uses the underlying
+ * `getOthersPresences()` / `subscribe('others', ...)` directly.
+ *
+ * Presence WRITES must NOT: they go through `store.updatePresence()`,
+ * which the board store does expose. A raw `doc.update` here can nest
+ * inside the one `store.batch()` holds open (the selection listener
+ * fires synchronously from an insert commit) and reissue that change's
+ * `clientSeq`, which strands the document — see the class comment on
+ * `YorkieBoardStore.activePresence`. The local pointer is published
  * into `cursor` (rAF-coalesced via `createCursorPublisher`) and peer
  * cursors are read back through `mapBoardPeers` — a bare selection ring
  * is not enough to locate a collaborator working off-screen on an
@@ -500,9 +506,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       cancelFrame: (handle) => cancelAnimationFrame(handle),
       shouldPublish: () => doc.getOthersPresences().length > 0,
       publish: (position) => {
-        doc.update((_, p) => {
-          p.set({ cursor: position });
-        });
+        store.updatePresence({ cursor: position });
       },
     });
     const onCursorMove = (e: PointerEvent) => {
@@ -566,12 +570,17 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
 
     // Local presence: broadcast selection. `Presence.set` merges, so
     // only the board-specific field is passed — identity fields
-    // (username/email/photo) are seeded once by the future BoardDetail
-    // wrapper's `initialPresence` and stay intact across this partial
-    // update, exactly like SlidesView's `broadcast()`.
+    // (username/email/photo) are seeded once by BoardDetail's
+    // `initialPresence` and stay intact across this partial update,
+    // exactly like SlidesView's `broadcast()`.
+    //
+    // This is the listener the "presence writes go through the store"
+    // rule in the file header exists for: it fires synchronously from
+    // inside `store.batch()` when an insert commit selects the element
+    // it just added.
     const offSelection = editor.onSelectionChange(() => {
-      doc.update((_, p) => {
-        p.set({ selectedElementIds: editor.getSelection().slice() });
+      store.updatePresence({
+        selectedElementIds: editor.getSelection().slice(),
       });
     });
 
