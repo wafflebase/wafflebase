@@ -1,0 +1,1 @@
+const M=0;const c=[.5,.75,1,1.5,2];function r(t){return t===0?0:Math.min(4,Math.max(.25,t))}function Z(t=0){let n=r(t);const o=new Set;return{get:()=>n,set:e=>{const O=r(e);if(O!==n){n=O;for(const s of o)s()}},subscribe:e=>(o.add(e),()=>{o.delete(e)})}}export{M as F,c as Z,Z as c};
