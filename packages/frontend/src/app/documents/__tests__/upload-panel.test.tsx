@@ -51,6 +51,36 @@ describe("UploadPanel", () => {
     expect(screen.getByText(/start the import again/i)).toBeTruthy();
   });
 
+  it("surfaces a warning on a row that succeeded, without reading as a failure", () => {
+    // The toast is transient; the panel row is the durable surface. A
+    // truncated import that shows a bare "Open" link reads as unqualified
+    // success.
+    const [item] = q.enqueue([new File([new Uint8Array([1])], "rows.csv")]);
+    q.patchItem(item.id, {
+      status: "done",
+      docPath: "/d/abc",
+      warning: "Only the first 5,000 rows were imported.",
+    });
+    render(<MemoryRouter><UploadPanel /></MemoryRouter>);
+
+    const line = screen
+      .getByText(/Only the first 5,000 rows were imported\./)
+      .closest("p");
+    expect(line).toBeTruthy();
+    // The document exists, so the row keeps its link to it.
+    expect(screen.getByRole("link", { name: "Open" })).toBeTruthy();
+    // A warned item did not fail — it must not borrow the error styling.
+    expect(line!.className).not.toContain("destructive");
+  });
+
+  it("shows no warning line on a clean success", () => {
+    const [item] = q.enqueue([new File([new Uint8Array([1])], "rows.csv")]);
+    q.patchItem(item.id, { status: "done", docPath: "/d/abc" });
+    const { container } = render(<MemoryRouter><UploadPanel /></MemoryRouter>);
+
+    expect(container.querySelectorAll("li p")).toHaveLength(0);
+  });
+
   it("keeps the retry control for a failed file upload", () => {
     const [item] = q.enqueue([new File([new Uint8Array([1])], "deck.pptx")]);
     q.patchItem(item.id, { status: "error", reason: "network died" });

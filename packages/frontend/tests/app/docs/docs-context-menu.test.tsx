@@ -46,7 +46,7 @@ function Wrapper({
 }
 
 describe('DocsContextMenu', () => {
-  it('(a) no-selection + not-readonly: shows Paste/Add link/Insert comment, hides Cut/Copy', () => {
+  it('(a) no-selection + not-readonly: shows Paste/Add link, hides Cut/Copy/Insert comment', () => {
     const editor = makeEditor();
     render(<Wrapper editor={editor} readOnly={false} />);
 
@@ -56,11 +56,13 @@ describe('DocsContextMenu', () => {
     // Insert / paste group visible
     expect(screen.getByText('Paste')).toBeDefined();
     expect(screen.getByText('Add link')).toBeDefined();
-    expect(screen.getByText('Insert comment')).toBeDefined();
 
     // Clipboard-selection-gated items absent (no selection)
     expect(screen.queryByText('Cut')).toBeNull();
     expect(screen.queryByText('Copy')).toBeNull();
+    // A comment anchors to a text range, so `beginCompose` refuses a bare
+    // caret. The row must not be offered at all — see (f).
+    expect(screen.queryByText('Insert comment')).toBeNull();
   });
 
   it('(b) readOnly + no selection + no spell error: menu does not open', () => {
@@ -124,5 +126,32 @@ describe('DocsContextMenu', () => {
     fireEvent.click(screen.getByText('Copy'));
 
     expect(copy).toHaveBeenCalledTimes(1);
+  });
+
+  // `beginCompose` returns early unless `getActiveSelection()` is non-null, so
+  // an Insert comment row shown at a bare caret is an enabled item that does
+  // nothing. Gate it on the same selection the table menu gates it on.
+  it('(f) Insert comment is offered only with a selection, and composes when clicked', () => {
+    const onInsertComment = vi.fn();
+    const editor = makeEditor({
+      getActiveSelection: vi.fn(() => ({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 3 },
+      })) as unknown as EditorAPI['getActiveSelection'],
+    });
+    render(
+      <Wrapper
+        editor={editor}
+        readOnly={false}
+        onInsertComment={onInsertComment}
+      />,
+    );
+
+    const container = screen.getByTestId('doc-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
+
+    const row = screen.getByText('Insert comment');
+    fireEvent.click(row);
+    expect(onInsertComment).toHaveBeenCalledTimes(1);
   });
 });

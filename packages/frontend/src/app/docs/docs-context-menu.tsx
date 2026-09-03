@@ -183,8 +183,17 @@ export function DocsContextMenu({
   const showPaste = !readOnly;
   const hasClipboardGroup = showCut || showCopy || showPaste;
 
-  // Insert actions — hidden in readOnly
+  // Insert actions — hidden in readOnly. Add link covers the group there, so
+  // it is non-empty whenever the editor is editable.
   const hasInsertGroup = !readOnly;
+  // Insert comment: needs a selection + editable. `beginCompose` anchors the
+  // thread to a text range and returns early when `getActiveSelection()` is
+  // null, which it is for a bare caret — so an ungated row is an enabled item
+  // that silently does nothing. Hidden rather than disabled: every other
+  // unavailable action here (Cut, Copy, Paste) is hidden, and the table menu
+  // hides this same row on the same condition. The disabled style is reserved
+  // for the spell group's status text ("Checking…"), which is not an action.
+  const showInsertComment = hasInsertGroup && hasSelection;
 
   // Separators: only between groups that both exist
   const sepAfterSpell = hasSpellGroup && (hasClipboardGroup || hasInsertGroup);
@@ -270,14 +279,16 @@ export function DocsContextMenu({
             Add link
             <span className={shortcut}>{modKey}K</span>
           </button>
-          <InsertCommentMenuItem
-            className={item}
-            onSelect={() => {
-              onInsertComment();
-              editor?.focus();
-              close();
-            }}
-          />
+          {showInsertComment && (
+            <InsertCommentMenuItem
+              className={item}
+              onSelect={() => {
+                onInsertComment();
+                editor?.focus();
+                close();
+              }}
+            />
+          )}
         </>
       )}
     </div>
