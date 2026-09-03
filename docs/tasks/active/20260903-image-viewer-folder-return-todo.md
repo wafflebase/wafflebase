@@ -148,5 +148,18 @@ folder* with an early return instead of fusing both into one ternary.
   symbol — read with `URLSearchParams` in `workspace-documents.tsx`, written
   as a template literal here. Two call sites, both covered end-to-end by the
   browser check, so a shared helper is deferred rather than speculative.
-- **A back click before `["workspaces"]` resolves** still lands on
-  `/documents`, losing workspace and folder both. Pre-existing.
+### Applied from the PR review (CodeRabbit, PR #1013)
+
+Both findings were valid and are fixed on the branch:
+
+- **The Summary section still described workspace-wide prev/next.** Third
+  instance of the same class — the fix corrected the Goals bullet and the
+  detail bullet and walked past the one-line summary at the top.
+- **A back click before `["workspaces"]` resolves landed on `/documents`,**
+  losing workspace and folder both. This had been recorded below as a
+  pre-existing limitation, but it is the same defect as the reported one,
+  reached a different way. `useDocumentsPath` now returns `null` while that
+  query is pending — an empty workspace list and one that has not arrived
+  are otherwise the same shape — and the back button is disabled while Esc
+  no-ops. Confirmed a discriminator: without the guard, both new tests fail
+  with `expected '/documents' to be null`.

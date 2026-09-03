@@ -76,6 +76,20 @@ describe("useDocumentsPath", () => {
     await waitFor(() => expect(result.current).toBe("/w/first"));
   });
 
+  // An empty list and a list that has not arrived are otherwise the same
+  // shape, and both would resolve to `/documents` — sending a user who acted
+  // early to the cross-workspace list.
+  it("reports no destination while the workspace query is pending", async () => {
+    vi.mocked(fetchWorkspaces).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useDocumentsPath("w2", "f1"), {
+      wrapper,
+    });
+    expect(result.current).toBeNull();
+    // Still null a tick later: this is pending, not a transient first render.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(result.current).toBeNull();
+  });
+
   it("escapes a folder id that would otherwise alter the query", async () => {
     vi.mocked(fetchWorkspaces).mockResolvedValue(workspaces);
     const { result } = renderHook(() => useDocumentsPath("w2", "a&b=c"), {

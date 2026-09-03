@@ -13,17 +13,26 @@ import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
  * Lives in a hook because two siblings need the same destination — the
  * header's back button and the viewer's Esc key. The `["workspaces"]` query
  * is shared with `FileShell` by react-query, so this costs no extra request.
+ *
+ * Returns `null` while that query is still pending. An empty workspace list
+ * is otherwise indistinguishable from one that has not arrived yet, and both
+ * would resolve to `/documents` — so a user who opens `/f/:id` directly and
+ * hits Back within the first moments would be sent to the cross-workspace
+ * list, losing exactly the workspace and folder this hook exists to keep.
+ * Callers hold the control inert until it settles.
  */
 export function useDocumentsPath(
   workspaceId?: string,
   folderId?: string | null,
-): string {
-  const { data: workspaces = [] } = useQuery<Workspace[]>({
+): string | null {
+  const { data: workspaces, isPending } = useQuery<Workspace[]>({
     queryKey: ["workspaces"],
     queryFn: fetchWorkspaces,
   });
 
-  const ownWorkspace = workspaces.find((w) => w.id === workspaceId);
+  if (isPending) return null;
+
+  const ownWorkspace = workspaces?.find((w) => w.id === workspaceId);
   if (ownWorkspace) {
     return folderId
       ? `/w/${ownWorkspace.slug}?folder=${encodeURIComponent(folderId)}`
@@ -33,6 +42,6 @@ export function useDocumentsPath(
   // A folder id only means something inside its own workspace's tree, so the
   // fallback never carries one — that list would filter on a folder it does
   // not contain and come up empty.
-  const fallback = workspaces[0]?.slug;
+  const fallback = workspaces?.[0]?.slug;
   return fallback ? `/w/${fallback}` : "/documents";
 }

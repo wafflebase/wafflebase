@@ -53,7 +53,14 @@ function DownloadFileButton({
 }
 
 /** Header button that leaves a viewer for the documents list. */
-function BackToDocumentsButton({ onClick }: { onClick: () => void }) {
+function BackToDocumentsButton({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void;
+  /** True while the destination is still unknown (workspace list loading). */
+  disabled?: boolean;
+}) {
   const label = "Back to documents";
   return (
     <Button
@@ -62,6 +69,7 @@ function BackToDocumentsButton({ onClick }: { onClick: () => void }) {
       aria-label={label}
       title={label}
       className="shrink-0"
+      disabled={disabled}
       onClick={onClick}
     >
       <ArrowLeft className="h-4 w-4" />
@@ -129,16 +137,18 @@ function ImageFileLayout({
   const navigate = useNavigate();
   const documentsPath = useDocumentsPath(workspaceId, folderId);
   // Shared by the header button and the viewer's Esc key, so both leave for
-  // the same list.
-  const close = useCallback(
-    () => navigate(documentsPath),
-    [navigate, documentsPath],
-  );
+  // the same list. Both stay inert until the destination is known — leaving
+  // for the wrong list is worse than not leaving yet.
+  const close = useCallback(() => {
+    if (documentsPath) navigate(documentsPath);
+  }, [navigate, documentsPath]);
 
   return (
     <FileShell
       documentId={documentId}
-      headerLeading={<BackToDocumentsButton onClick={close} />}
+      headerLeading={
+        <BackToDocumentsButton onClick={close} disabled={!documentsPath} />
+      }
       headerActions={
         <>
           <DownloadFileButton

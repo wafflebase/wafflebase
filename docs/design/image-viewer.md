@@ -21,7 +21,7 @@ Users drop image files onto the documents list (or pick them from the "New"
 menu) and each becomes a first-class document, then open it in a lightweight
 `<img>`-based viewer at the existing `/f/:id` route. Two Google-Drive-inspired
 touches ship in the same PR: **inline row thumbnails** in the documents list
-and **prev/next navigation** through the workspace's images in the viewer.
+and **prev/next navigation** through the images in the same folder.
 
 Comments/sharing (a `image-<id>` Yorkie doc, mirroring PDF Phase 2) and a
 full documents-list **gallery/grid view** are explicit Non-Goals here.
@@ -182,7 +182,11 @@ type-dispatcher:
   (`workspace-documents.tsx`), so the hook has to append it or every
   destination it builds reads as the workspace root. The folder is dropped
   when the hook falls back to a *different* workspace, whose tree does not
-  contain that id. Esc obeys the same input/contenteditable guard as ←/→ (so
+  contain that id. The hook reports `null` until the workspace query settles
+  — an empty list and one that has not arrived are the same shape, and both
+  would resolve to `/documents` — so the back button is disabled and Esc is
+  inert for that moment rather than leaving for the cross-workspace list.
+  Esc obeys the same input/contenteditable guard as ←/→ (so
   the header's rename field keeps Esc for cancel), and the anonymous
   share-link mount passes no `onClose`, so
   Esc is inert for a viewer who has no documents list. Both Esc and ←/→ also

@@ -49,10 +49,7 @@ vi.mock("@/api/documents", () => ({
   renameDocument: vi.fn(async () => {}),
 }));
 vi.mock("@/api/workspaces", () => ({
-  fetchWorkspaces: vi.fn(async () => [
-    { id: "w1", name: "First", slug: "first", createdAt: "" },
-    { id: "w2", name: "Second", slug: "second", createdAt: "" },
-  ]),
+  fetchWorkspaces: vi.fn(),
   // The shell's sidebar nav gates its Analytics entry on this.
   fetchAnalyticsEnabled: vi.fn(async () => false),
 }));
@@ -84,8 +81,14 @@ vi.mock("@/app/files/image-viewer", () => ({
 }));
 
 import { fetchDocument } from "@/api/documents";
+import { fetchWorkspaces } from "@/api/workspaces";
 import type { Document } from "@/types/documents";
 import { FileDetail } from "@/app/files/file-detail";
+
+const workspaces = [
+  { id: "w1", name: "First", slug: "first", createdAt: "" },
+  { id: "w2", name: "Second", slug: "second", createdAt: "" },
+];
 
 /** The document the route resolves, with only the read fields spelled out. */
 function imageDoc(folderId: string | null = null): Document {
@@ -123,9 +126,13 @@ function renderDetail() {
 }
 
 describe("FileDetail image layout back navigation", () => {
+  // Defaults live here, not in the `vi.mock` factory: a test below replaces
+  // `fetchWorkspaces` with a promise that never settles, and `clearAllMocks`
+  // would not put a factory implementation back.
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchDocument).mockResolvedValue(imageDoc());
+    vi.mocked(fetchWorkspaces).mockResolvedValue(workspaces);
   });
 
   it("renders the header back button and returns to the workspace list", async () => {
@@ -169,6 +176,25 @@ describe("FileDetail image layout back navigation", () => {
         "/w/second?folder=f1",
       ),
     );
+  });
+
+  // Opening `/f/:id` directly and hitting Back immediately: the destination
+  // is not known yet, and guessing it means landing on the cross-workspace
+  // list with the folder lost — the very outcome this feature fixes.
+  it("stays put while the workspace list is still loading", async () => {
+    vi.mocked(fetchWorkspaces).mockReturnValue(new Promise(() => {}));
+    vi.mocked(fetchDocument).mockResolvedValue(imageDoc("f1"));
+
+    renderDetail();
+    const back = await screen.findByRole("button", {
+      name: "Back to documents",
+    });
+    expect(back).toBeDisabled();
+
+    // Esc shares the same callback, and it cannot be disabled — assert it is
+    // inert rather than trusting the button's disabled state to cover both.
+    await userEvent.click(await screen.findByText("viewer-esc"));
+    expect(screen.queryByTestId("location")).toBeNull();
   });
 
   it("hands the viewer that same folder for Esc", async () => {

@@ -65,7 +65,10 @@ export function FileShell({
   );
 
   useEffect(() => {
-    if (isDocumentError) {
+    // `documentsPath` is null until the workspace list arrives; redirecting
+    // before then would land on the cross-workspace list rather than the one
+    // this document belongs to. The effect re-runs when it settles.
+    if (isDocumentError && documentsPath) {
       toast.error("Document not found");
       navigate(documentsPath, { replace: true });
     }
