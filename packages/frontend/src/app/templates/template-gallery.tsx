@@ -270,7 +270,14 @@ function TemplateGalleryCard({
       )}
 
       <div className="mt-4 flex justify-end">
-        <Button size="sm" variant="outline" onClick={() => onSelect(card)}>
+        <Button
+          size="sm"
+          variant="outline"
+          // Named, because a grid of 24 cards otherwise gives a screen-reader
+          // user 24 buttons all called "Use".
+          aria-label={`${selectLabel} ${card.title}`}
+          onClick={() => onSelect(card)}
+        >
           {selectLabel}
         </Button>
       </div>

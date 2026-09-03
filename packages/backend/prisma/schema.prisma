@@ -17,6 +17,7 @@ model User {
   notificationsReceived Notification[] @relation("NotificationRecipient")
   notificationsActed    Notification[] @relation("NotificationActor")
   templateListings      TemplateListing[]
+  templateReports       TemplateReport[]
 }
 
 model UserDocStyles {
@@ -311,8 +312,44 @@ model TemplateListing {
 
   /// unlisted (link only) | workspace | public
   visibility  String    @default("unlisted")
-  /// listed | pending | rejected. Only the `public` tier ever leaves `listed`.
+  /// listed | pending | rejected | removed.
+  ///
+  /// The review state, kept deliberately separate from `visibility`, which
+  /// stays the *effective* tier throughout. Submitting for public review moves
+  /// only this column, so an already-handed-out unlisted link neither breaks
+  /// nor silently widens while a reviewer looks at it; `visibility` becomes
+  /// `public` only on approval.
+  ///
+  /// `rejected` and `removed` are not the same verdict. A rejection says the
+  /// submission missed the gallery's bar and leaves the listing working at the
+  /// tier it already had — the publisher may revise and resubmit. A takedown
+  /// (`removed`) says the content may not be served at all: every non-manager
+  /// read is refused, the preview link is revoked, and the row is **terminal**
+  /// — it cannot be resubmitted, republished, edited or even unpublished,
+  /// because deleting it would let the next publish mint a fresh anonymous
+  /// link to the content that was removed. One state cannot carry both.
   status      String    @default("listed")
+  /// When the publisher submitted for public review. Null until they do.
+  submittedAt DateTime?
+  /// When this listing's document last had a real content edit, as reported by
+  /// Yorkie's `DocumentRootChanged` webhook. Deliberately not `updatedAt` on
+  /// the document, which a rename also moves.
+  contentChangedAt DateTime?
+  /// The `contentChangedAt` a reviewer attested to when they approved.
+  ///
+  /// The pair is what makes an approval about *content* rather than about a
+  /// row: a listing is publicly visible only while `contentChangedAt` has not
+  /// moved past it. That keeps the gallery correct even if the event webhook
+  /// is never registered or its write fails — the read path re-checks rather
+  /// than trusting a status somebody remembered to write.
+  reviewedContentAt DateTime?
+  /// When a reviewer decided, who decided, and what they said. `reviewNote`
+  /// becomes the rejection reason the publisher is notified with — a
+  /// submission that disappears silently is the failure mode this pipeline
+  /// exists to avoid.
+  reviewedAt  DateTime?
+  reviewedBy  Int?
+  reviewNote  String?
   /// Incremented on each successful use. A counter, not a ledger: an
   /// occasional lost increment is acceptable, and it is what a future creator
   /// program would rank and pay on.
@@ -337,6 +374,43 @@ model TemplateListing {
   @@index([visibility, status, publishedAt])
   /// The workspace gallery's query.
   @@index([workspaceId, visibility])
+  reports     TemplateReport[]
+}
+
+/// Someone flagging a listing for a reviewer — see
+/// docs/design/template-gallery.md.
+///
+/// A takedown is a *reviewer* decision and always was; this is only the intake
+/// that tells them there is something to look at. It exists because a public
+/// gallery with no reported-content path has no remedy at all: the only people
+/// who can act are the ones who never see the problem.
+model TemplateReport {
+  id         String          @id @default(uuid())
+  listingId  String
+  listing    TemplateListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Who reported it. Authenticated, so a report is attributable and the
+  /// per-reporter unique index below can exist at all.
+  reporterId Int
+  reporter   User            @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  /// copyright | inappropriate | broken | spam | other
+  reason     String
+  note       String?
+  /// open | dismissed | actioned. A reviewer closes a report; nothing deletes
+  /// one, so the queue keeps its own history.
+  status     String          @default("open")
+  /// Who closed it and when. A queue that keeps its history without recording
+  /// who acted keeps no history worth having.
+  resolvedBy Int?
+  resolvedAt DateTime?
+  createdAt  DateTime        @default(now())
+
+  /// One report per person per listing. Not a nicety: without it a single
+  /// account can stack a queue deep enough that the real reports are not
+  /// findable, which is a denial of the reviewer's attention.
+  @@unique([listingId, reporterId])
+  /// The reviewer queue's own query: open reports, oldest first.
+  @@index([status, createdAt])
 }
 
 datasource db {

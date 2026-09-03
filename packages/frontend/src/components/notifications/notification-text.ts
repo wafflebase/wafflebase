@@ -25,6 +25,22 @@ export function notificationSentence(n: Notification): string {
       return `${actor} resolved your comment in ${document}`;
     case "workspace_member_joined":
       return `${actor} joined the workspace`;
+    // The decision is the type, not a field — "your template was reviewed"
+    // would make the reader open it to learn the one thing they want to know.
+    case "template_approved":
+      return `Your template ${document} is now in the public gallery`;
+    case "template_rejected":
+      return `Your template ${document} was not accepted into the gallery`;
+    case "template_removed":
+      return `Your template ${document} was removed from the gallery`;
+    // No actor, and no "you": a collaborator or an editor-share-link holder
+    // can change the document too, so naming the publisher as the editor would
+    // often be wrong.
+    case "template_needs_review":
+      return `${document} left the public gallery for review after it changed`;
+    // Reviewer-facing, so it names the queue rather than "your template".
+    case "template_review_queued":
+      return `${document} is waiting in the template review queue`;
     default:
       return `${actor} sent you a notification`;
   }

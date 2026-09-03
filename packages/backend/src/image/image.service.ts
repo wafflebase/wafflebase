@@ -5,6 +5,8 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  CopyObjectCommand,
+  HeadObjectCommand,
   CreateBucketCommand,
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
@@ -23,6 +25,12 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
+
+/**
+ * Extensions that can appear in a *stored* id, which is a superset of the ones
+ * `upload` writes: `VALID_IMAGE_ID_PATTERN` accepts `jpeg` as well as `jpg`.
+ */
+const SERVABLE_EXTS = new Set([...Object.values(MIME_TO_EXT), 'jpeg']);
 
 @Injectable()
 export class ImageService implements OnModuleInit {
@@ -81,7 +89,7 @@ export class ImageService implements OnModuleInit {
       } catch (err) {
         // Bucket creation may fail during tests or when storage is unreachable.
         // Log and continue so the module can still boot.
-        // eslint-disable-next-line no-console
+
         console.warn(
           `[ImageService] Failed to ensure bucket "${this.bucket}":`,
           err instanceof Error ? err.message : err,
@@ -126,6 +134,63 @@ export class ImageService implements OnModuleInit {
     );
 
     return { id, url: `/images/${key}` };
+  }
+
+  /**
+   * Server-side copy of a stored object into a new id, optionally under a
+   * different key prefix — how an image follows a document across a workspace
+   * boundary (docs/design/template-gallery.md).
+   *
+   * `sourceId` is the *stored key* as it appears after the prefix, so it
+   * carries the source's own `{workspaceId}/` segment when there is one; the
+   * copy is written under `keyPrefix` instead, or at the bucket root without
+   * one. Both go through `storageKey`, so a deployment's configured prefix
+   * applies to each exactly as it does everywhere else.
+   *
+   * `CopyObject` rather than get-then-put: the bytes never enter this process,
+   * so a 25 MB image costs no heap and no second transfer.
+   */
+  async copy(sourceId: string, keyPrefix?: string): Promise<string> {
+    const ext = sourceId.split('.').pop()?.toLowerCase();
+    // `SERVABLE_EXTS`, not `MIME_TO_EXT`'s values: `.jpeg` is stored by nobody
+    // but is *served* (`VALID_IMAGE_ID_PATTERN` admits it), so refusing it here
+    // would make an image that renders perfectly a permanent "could not be
+    // copied" — and, under the `fail` policy, a permanent abort.
+    if (!ext || !SERVABLE_EXTS.has(ext)) {
+      throw new BadRequestException(`Unsupported image reference: ${sourceId}`);
+    }
+    const id = `${randomUUID()}.${ext}`;
+    const key = keyPrefix ? `${keyPrefix}/${id}` : id;
+    await this.s3.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: this.storageKey(key),
+        // Each segment is encoded separately: `CopySource` is a path, so an
+        // encoded `/` would stop naming the same object.
+        CopySource: `${this.bucket}/${this.storageKey(sourceId)}`
+          .split('/')
+          .map(encodeURIComponent)
+          .join('/'),
+      }),
+    );
+    return id;
+  }
+
+  /**
+   * The stored size of an object, in bytes.
+   *
+   * Exists for the re-hosting budget: `CopyObject` never brings the bytes into
+   * this process, so a byte ceiling cannot be measured from the copy itself —
+   * a `HeadObject` first is the only way to bound what one request may write.
+   */
+  async size(id: string): Promise<number> {
+    const response = await this.s3.send(
+      new HeadObjectCommand({
+        Bucket: this.bucket,
+        Key: this.storageKey(id),
+      }),
+    );
+    return response.ContentLength ?? 0;
   }
 
   async getObject(
