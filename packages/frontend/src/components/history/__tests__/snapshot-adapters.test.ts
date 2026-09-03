@@ -6,6 +6,7 @@ import { MemSlidesStore } from '@wafflebase/slides';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import {
   parseBoardSnapshot,
+  parseDocsSnapshot,
   parseNoteSnapshot,
   parseSheetSnapshot,
   parseSlidesSnapshot,
@@ -212,17 +213,113 @@ describe('parseNoteSnapshot', () => {
   });
 });
 
-// The parser is regex-based upstream and silently loses whole document types.
-// This test is the tripwire that tells us which types are still readable.
+describe('parseDocsSnapshot', () => {
+  const doc = () => parseDocsSnapshot(fixture('docs'));
+
+  // Depth 4 (`doc > block > inline > text`) is the shallowest a real docs
+  // document gets, and it is exactly what the pre-0.7.19 regex parser could
+  // not reach. The fixture's table goes deeper still
+  // (`block > row > cell > block > inline > text`).
+  it('reads a captured docs snapshot past three nesting levels', () => {
+    expect(doc().blocks.map((b) => b.type)).toEqual([
+      'heading',
+      'paragraph',
+      'paragraph',
+      'table',
+    ]);
+  });
+
+  // The two silent-corruption traps in one assertion. `attrs`-vs-`attributes`
+  // would make every block a style-less `paragraph`; leaving the values
+  // JSON-encoded would make `type` compare as `"heading"` *with quotes* and
+  // miss just as quietly. Neither throws, so only a value assertion catches
+  // them.
+  it('decodes JSON-encoded tree attributes rather than passing them through', () => {
+    const heading = doc().blocks[0];
+    expect(heading).toMatchObject({
+      id: 'b-title',
+      type: 'heading',
+      headingLevel: 1,
+      style: { alignment: 'center' },
+    });
+    expect(heading.inlines[0]).toMatchObject({
+      text: 'Quarterly Report',
+      style: { bold: true },
+    });
+  });
+
+  // Unbalanced brackets inside a string value were the parser's second
+  // defect, and reached notes as well as docs.
+  it('keeps text containing unbalanced brackets and braces intact', () => {
+    const runs = doc().blocks[1].inlines;
+    expect(runs.map((r) => r.text).join('')).toBe(
+      'See issue 3] for context and { unmatched brace.',
+    );
+    expect(runs[1].style).toMatchObject({ italic: true, color: '#C2484C' });
+  });
+
+  it('reads a nested table, its spans and its comma-bearing border colour', () => {
+    const table = doc().blocks[3];
+    expect(table.tableData?.columnWidths).toEqual([120, 240]);
+    const [header, body] = table.tableData!.rows;
+    expect(
+      header.cells.map((c) => c.blocks[0].inlines[0].text),
+    ).toEqual(['Region', 'Revenue']);
+    expect(header.cells[0].style.backgroundColor).toBe('#EEEEEE');
+    // `rgb(255, 128, 0)` contains the same separator the border codec uses.
+    expect(header.cells[1].style.borderTop).toEqual({
+      width: 1,
+      style: 'solid',
+      color: 'rgb(255, 128, 0)',
+    });
+    expect(body.cells.map((c) => c.blocks[0].inlines[0].text)).toEqual([
+      'APAC',
+      '¥1,200',
+    ]);
+  });
+
+  it('reads the header and footer regions alongside the body', () => {
+    const { header, footer } = doc();
+    expect(header?.blocks[0].inlines[0].text).toBe('Confidential');
+    expect(header?.marginFromEdge).toBe(36);
+    // The page-number run is an empty inline carrying only a flag.
+    expect(footer?.blocks[0].inlines[1].style.pageNumber).toBe(true);
+  });
+
+  // `pageSetup` is plain JSON rather than a tree node, so it rides the same
+  // scalar unwrap every other type depends on — `Int(96)` must arrive as 96,
+  // not `{type:'Int',value:96}`, or the layout computes NaN margins.
+  it('unwraps pageSetup scalars and the named-style registry', () => {
+    const parsed = doc();
+    expectPlainNumber(parsed.pageSetup?.margins.top, 'margins.top');
+    expectPlainNumber(parsed.pageSetup?.paperSize.width, 'paperSize.width');
+    expect(parsed.pageSetup?.paperSize).toMatchObject({
+      width: 816,
+      height: 1056,
+    });
+    expect(parsed.styles).toEqual({ Normal: { fontSize: 11 } });
+  });
+
+  it('returns an empty document when content was never written', () => {
+    expect(parseDocsSnapshot('{}')).toEqual({ blocks: [] });
+  });
+});
+
+// These two defects are why docs preview could not ship before
+// `@yorkie-js/sdk@0.7.19`, and why some note previews were
+// content-dependent. Both were measured against a real server. This is the
+// tripwire that tells us if a future SDK bump regresses either one.
 describe('YSON parse limits', () => {
-  it('cannot yet read a docs tree, and says so loudly when that changes', () => {
-    const docsSnapshot =
+  it('reads a Tree nested deeper than three levels', () => {
+    const deep =
       '{"content":Tree({"type":"doc","children":[{"type":"block","children":' +
       '[{"type":"inline","children":[{"type":"text","value":"a"}]}]}]})}';
-    // Pin the failure to the YSON parse step itself (not, say, a broken
-    // import) so this only stays green for the reason we mean.
-    expect(() => parseSheetSnapshot(docsSnapshot)).toThrow(
-      /Failed to parse YSON:.*Unexpected token/,
-    );
+    expect(parseDocsSnapshot(deep).blocks[0].inlines[0].text).toBe('a');
+  });
+
+  it('is string-aware: an unmatched bracket in a note is not structure', () => {
+    expect(
+      parseNoteSnapshot('{"content":Text([{"val":"Fix issue 3] later"}])}'),
+    ).toBe('Fix issue 3] later');
   });
 });

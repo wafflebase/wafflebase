@@ -23,13 +23,14 @@ type Props = {
   userId: number;
   onClose: () => void;
   /**
-   * Omitted when this document type has no preview surface — today only
-   * docs, whose snapshots `YSON.parse` cannot read past three `Tree(...)`
-   * brace levels (every docs document nests `doc > block > inline > text`,
-   * depth 4). Rather than a dead click (`setPreviewRevisionId` writing to
-   * state nothing reads), each row renders its Preview button disabled
-   * with a reason so a user can tell preview isn't available here without
-   * clicking to find out.
+   * Omitted when this document type has no preview surface. All five CRDT
+   * types now pass one — docs was the last, blocked until
+   * `@yorkie-js/sdk@0.7.19` made its snapshots parsable — so the disabled
+   * branch below is currently unreachable from the app. It is kept because
+   * it is the honest fallback for a type added without a preview: rather
+   * than a dead click (`setPreviewRevisionId` writing to state nothing
+   * reads), each row renders its Preview button disabled with a reason, so a
+   * user can tell preview isn't available without clicking to find out.
    */
   onPreview?: (revisionId: string) => void;
   /**
