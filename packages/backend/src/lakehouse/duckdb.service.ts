@@ -35,6 +35,14 @@ const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
  */
 const INTERRUPT_GRACE_MS = 5_000;
 
+/**
+ * Settings are read in field initializers, before any instance logger exists,
+ * so configuration warnings need their own. The context is spelled out rather
+ * than taken from `DuckDbService.name`, which is still in its temporal dead
+ * zone at this point in module evaluation.
+ */
+const configLogger = new Logger('DuckDbService');
+
 type ConnectionWaiter = {
   resolve: (connection: DuckDBConnection) => void;
   reject: (error: Error) => void;
@@ -59,16 +67,56 @@ export class DuckDbUnavailableError extends Error {
   }
 }
 
-function readBoundedInteger(
+/**
+ * Read the environment variable `name` as an integer inside `[minimum,
+ * maximum]`, and say so out loud whenever the answer is not what was written.
+ *
+ * The two bad inputs are not the same kind of bad, so they do not get the same
+ * answer:
+ *
+ * - **Out of range** is clamped to the nearest bound. It used to return
+ *   `fallback`, which meant an operator raising a ceiling got *less* than they
+ *   already had — `LAKEHOUSE_DUCKDB_POOL_SIZE=1000` yielded 2, not the maximum
+ *   of 8 — the one outcome nobody could have intended. Clamping is also what
+ *   the name has always promised, and what `duckdb.service.spec.ts`'s
+ *   "clamps pool size" test has always claimed to be checking.
+ * - **Malformed** (`abc`, `2.5`, `Infinity`) keeps `fallback`. There is no
+ *   nearest bound for a value that is not a number, and inventing one would be
+ *   guessing at an intent that was never expressed.
+ *
+ * Blank is neither: `Number('') === 0` would clamp an unset-looking
+ * `LAKEHOUSE_DUCKDB_THREADS=` down to the minimum, so an empty or
+ * whitespace-only value is read as "not configured" and takes the default in
+ * silence.
+ *
+ * Both substitutions warn, naming the variable, the value read and the value
+ * used — silently changing an operator's number is the same surprise as
+ * silently discarding it, and the only firm requirement is that they can find
+ * out which happened. Volume is not a concern: every caller is a field
+ * initializer on a singleton, so this runs four times per process at boot and
+ * never on the query path.
+ */
+export function readBoundedInteger(
+  name: string,
   value: string | undefined,
   fallback: number,
   minimum: number,
   maximum: number,
 ): number {
-  if (value === undefined) return fallback;
+  if (value === undefined || value.trim() === '') return fallback;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+  if (!Number.isInteger(parsed)) {
+    configLogger.warn(
+      `${name}="${value}" is not an integer; using the default ${fallback}.`,
+    );
     return fallback;
+  }
+  if (parsed < minimum || parsed > maximum) {
+    const clamped = Math.min(Math.max(parsed, minimum), maximum);
+    configLogger.warn(
+      `${name}=${parsed} is outside the supported range ${minimum}-${maximum}; using ${clamped}.`,
+    );
+    return clamped;
   }
   return parsed;
 }
@@ -97,24 +145,28 @@ export class DuckDbService implements OnModuleDestroy {
   private readonly extensionDirectory =
     process.env.LAKEHOUSE_DUCKDB_EXTENSION_DIR?.trim() || undefined;
   private readonly poolSize = readBoundedInteger(
+    'LAKEHOUSE_DUCKDB_POOL_SIZE',
     process.env.LAKEHOUSE_DUCKDB_POOL_SIZE,
     DEFAULT_POOL_SIZE,
     1,
     MAX_POOL_SIZE,
   );
   private readonly maxPending = readBoundedInteger(
+    'LAKEHOUSE_DUCKDB_MAX_PENDING',
     process.env.LAKEHOUSE_DUCKDB_MAX_PENDING,
     DEFAULT_MAX_PENDING,
     1,
     1_000,
   );
   private readonly defaultTimeoutMs = readBoundedInteger(
+    'LAKEHOUSE_QUERY_TIMEOUT_MS',
     process.env.LAKEHOUSE_QUERY_TIMEOUT_MS,
     DEFAULT_QUERY_TIMEOUT_MS,
     100,
     300_000,
   );
   private readonly threads = readBoundedInteger(
+    'LAKEHOUSE_DUCKDB_THREADS',
     process.env.LAKEHOUSE_DUCKDB_THREADS,
     2,
     1,

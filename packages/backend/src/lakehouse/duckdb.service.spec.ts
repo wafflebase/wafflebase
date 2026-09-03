@@ -4,11 +4,13 @@ import {
   DuckDBResultReader,
   DuckDBTypeId,
 } from '@duckdb/node-api';
+import { Logger } from '@nestjs/common';
 import {
   DuckDbPoolExhaustedError,
   DuckDbQueryTimeoutError,
   DuckDbService,
   DuckDbUnavailableError,
+  readBoundedInteger,
 } from './duckdb.service';
 import { LakehouseSecretPlan } from './lakehouse.types';
 
@@ -855,5 +857,99 @@ describe('DuckDbService', () => {
     await expect(
       service.withConnection((leased) => Promise.resolve(leased)),
     ).resolves.toBe(replacement);
+  });
+});
+
+describe('readBoundedInteger', () => {
+  const originalEnv = process.env;
+  let warnings: string[];
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    warnings = [];
+    warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation((message: unknown) => {
+        warnings.push(String(message));
+      });
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    warn.mockRestore();
+  });
+
+  function read(value: string | undefined): number {
+    return readBoundedInteger('LAKEHOUSE_DUCKDB_THREADS', value, 2, 1, 32);
+  }
+
+  it('returns a value that is already inside the range, silently', () => {
+    expect(read('8')).toBe(8);
+    expect(read('1')).toBe(1);
+    expect(read('32')).toBe(32);
+    expect(warnings).toEqual([]);
+  });
+
+  it('clamps an over-range value up to the maximum, not down to the default', () => {
+    // The defect: reaching above the ceiling dropped the operator all the way
+    // back to the default. `LAKEHOUSE_DUCKDB_THREADS=64` yielded 2 — an
+    // operator asking for 64 threads got 2, when 32 was theirs for the asking
+    // and even leaving the variable unset would have been no worse.
+    expect(read('64')).toBe(32);
+  });
+
+  it('clamps an under-range value up to the minimum', () => {
+    expect(read('0')).toBe(1);
+    expect(read('-5')).toBe(1);
+  });
+
+  it('names the variable and the substituted value when it clamps', () => {
+    // Bounding an operator's number without saying so is the same surprise as
+    // discarding it. The one requirement is that they can find out.
+    read('64');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('LAKEHOUSE_DUCKDB_THREADS');
+    expect(warnings[0]).toContain('64');
+    expect(warnings[0]).toContain('32');
+  });
+
+  it('keeps the default for a value that is not an integer, and warns', () => {
+    // Distinct from out-of-range: "abc" and "2.5" name no bound to clamp to,
+    // so the default is the only defensible answer.
+    expect(read('abc')).toBe(2);
+    expect(read('2.5')).toBe(2);
+    expect(read('Infinity')).toBe(2);
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0]).toContain('LAKEHOUSE_DUCKDB_THREADS');
+    expect(warnings[0]).toContain('abc');
+  });
+
+  it('treats unset and empty as "not configured" rather than as a bad value', () => {
+    // `Number('') === 0`, so an empty variable would otherwise clamp to the
+    // minimum — turning `LAKEHOUSE_DUCKDB_THREADS=` into 1 instead of the
+    // default. Blank means the operator configured nothing.
+    expect(read(undefined)).toBe(2);
+    expect(read('')).toBe(2);
+    expect(read('   ')).toBe(2);
+    expect(warnings).toEqual([]);
+  });
+
+  it('clamps every setting the service reads from the environment', () => {
+    process.env.LAKEHOUSE_DUCKDB_THREADS = '64';
+    process.env.LAKEHOUSE_DUCKDB_POOL_SIZE = '1000';
+    process.env.LAKEHOUSE_DUCKDB_MAX_PENDING = '100000';
+    process.env.LAKEHOUSE_QUERY_TIMEOUT_MS = '50';
+    const service = new DuckDbService() as unknown as {
+      threads: number;
+      poolSize: number;
+      maxPending: number;
+      defaultTimeoutMs: number;
+    };
+
+    expect(service.threads).toBe(32);
+    expect(service.poolSize).toBe(8);
+    expect(service.maxPending).toBe(1_000);
+    expect(service.defaultTimeoutMs).toBe(100);
   });
 });
