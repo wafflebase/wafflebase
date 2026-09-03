@@ -8,7 +8,7 @@ reading is "HMR is stale". It was not:
 
 ```
 lsof -nP -iTCP:5173 -sTCP:LISTEN     → node … pid 53178
-lsof -a -p 53178 -d cwd -Fn          → /Users/hackerwins/Development/wafflebase/waffleslides/…
+lsof -a -p 53178 -d cwd -Fn          → <dev-root>/waffleslides/packages/frontend
 ```
 
 A *different clone* of the repo was serving :5173. Every browser measurement
