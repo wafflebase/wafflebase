@@ -177,6 +177,19 @@ async function seedOne(
     where: { id: documentId },
   });
 
+  // The id is derived from the slug alone, so it is the same in every
+  // workspace on a deployment. Without this check, seeding a second workspace
+  // reports `exists` and silently creates nothing — and `--force-content`
+  // would rewrite the *first* workspace's documents.
+  if (existing && existing.workspaceId !== ctx.workspaceId) {
+    throw new Error(
+      `${seed.slug} is already seeded into workspace ${existing.workspaceId}. ` +
+        'A seeded document id is derived from its slug, so one deployment can ' +
+        'hold one copy of the catalogue; seed a different deployment, or ' +
+        'delete that document first.',
+    );
+  }
+
   if (!existing) {
     await ctx.prisma.document.create({
       data: {
@@ -187,7 +200,15 @@ async function seedOne(
         authorID: ctx.authorId,
       },
     });
-    await writeContent(ctx.yorkie, documentId, seed.content);
+    try {
+      await writeContent(ctx.yorkie, documentId, seed.content);
+    } catch (err) {
+      // Undo the row. Left behind, the next run would see `exists` and skip
+      // the content forever — an empty document that only `--force-content`
+      // could repair, and nothing would tell the operator to reach for it.
+      await ctx.prisma.document.delete({ where: { id: documentId } });
+      throw err;
+    }
     return 'created';
   }
 

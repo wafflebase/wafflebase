@@ -455,6 +455,52 @@ rather than being deleted: it is the one line to flip if the gallery has to be
 shut for a moderation incident or a migration, without reverting a feature or
 teaching every deployment a new setting.
 
+#### Seeding the gallery
+
+Two operator commands fill a deployment's public gallery from the catalogue in
+`src/template/seed/catalog/` (everything there is authored for this repo and
+Apache-2.0 licensed; see that directory's `README.md` before adding to it).
+
+```bash
+pnpm backend seed:templates:build --workspace <workspaceId> --author <userId>
+pnpm backend register:templates:build --author <userId> [--frontend URL] [--reset]
+```
+
+They run from `dist`, not through `tsx`: esbuild emits no
+`design:paramtypes`, so a Nest context booted under `tsx` resolves every
+injected dependency to `undefined`. The `:build` variants compile first.
+
+**`seed:templates` only creates the documents** and writes their content
+through the same writers the v1 content endpoints use. It deliberately does
+*not* publish them. Registering happens through the product's own Share dialog,
+driven by `register:templates` with Playwright, because a template's thumbnail
+is captured by whichever editor is mounted at publish time — a headless publish
+has no editor and therefore no picture. That ordering is also the only one the
+review rules allow: `thumbnailId` is a `CARD_FIELD`, so attaching it after
+approval returns the listing to review, and attaching it while `pending` is
+refused outright.
+
+`register:templates` mints the same session cookie the OAuth callback writes,
+publishes each document, sets its category and tags, submits it, then approves
+the queue at `/admin/templates`. It needs Chromium
+(`pnpm --filter @wafflebase/frontend exec playwright install chromium`) and a
+running frontend and API. It is **not** idempotent — a document that already
+has a listing is skipped, since the dialog shows the listing form rather than
+the publish block once one exists; `--reset` unpublishes first.
+
+**Order these against the Yorkie auth webhook.** `register:templates` requires
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true` (a public listing's preview token would
+otherwise also grant write access), while `seed:templates` writes content
+through `YorkieService`, whose client carries no auth token — so with the
+webhook methods registered *and* enforcement on, its writes are denied. This is
+not specific to seeding; it applies to the v1 content endpoints and
+`DocumentCopyService` too. Seed the documents before registering the webhook
+methods on the Yorkie project, or unregister them for the duration.
+
+Both commands also require `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` to name the
+`--author`, who approves their own submissions — which is what a seed is, and
+why the command mints no authority of its own.
+
 #### Reports
 
 `POST /templates/:id/report` records that somebody objected and does nothing

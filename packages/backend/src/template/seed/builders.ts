@@ -21,7 +21,16 @@ import type {
  * own writers accept — no seed-only shortcuts.
  */
 
-/** Deterministic ids, so re-running the seed produces byte-identical content. */
+/**
+ * Readable ids, counted per module load.
+ *
+ * Deliberately *not* claimed to be stable across runs, which an earlier
+ * version of this comment did claim: `applyLayoutToSlide` stamps every
+ * placeholder it creates with `generateId()` (a random UUID prefix), and these
+ * counters depend on `catalog/index.ts`'s import order, so adding a template
+ * shifts the ids of everything imported after it. Neither matters — content is
+ * written once, on create — but the ids are not a fixture anyone may key on.
+ */
 function id(prefix: string, n: number): string {
   return `${prefix}-${n}`;
 }

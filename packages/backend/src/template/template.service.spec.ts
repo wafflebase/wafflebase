@@ -661,6 +661,41 @@ describe('TemplateService.update', () => {
     });
   });
 
+  it('writes an explicit null description through', async () => {
+    // What the Share dialog sends when the field is emptied: `null`, not `''`.
+    // `@IsOptional()` skips validation for null rather than rejecting it, so
+    // the value reaches here — and it has to reach the column, or clearing a
+    // description would silently leave the old one on the card.
+    const { service, prisma } = makeService();
+    await service.update('tpl-1', 7, { description: null });
+    expect(prisma.templateListing.update.mock.calls[0][0].data).toEqual({
+      description: null,
+    });
+  });
+
+  it('does not return a public listing to review when the description is unchanged', async () => {
+    // `description` is a CARD_FIELD, so *changing* it on an approved listing
+    // re-enters review — that is the bait-and-switch defence. But the Share
+    // dialog sends the field on every Save, so a listing whose description was
+    // merely re-submitted unchanged must not be knocked out of the gallery.
+    // `isSame` is what makes that hold; this pins it.
+    const { service, prisma } = makeService({
+      listing: {
+        ...LISTING,
+        description: 'why',
+        visibility: 'public',
+        status: 'listed',
+      },
+    });
+    await service.update('tpl-1', 7, { description: 'why' });
+    const data = prisma.templateListing.update.mock.calls[0][0].data as Record<
+      string,
+      unknown
+    >;
+    expect(data.status).toBeUndefined();
+    expect(data.reviewedContentAt).toBeUndefined();
+  });
+
   it('refuses a non-manager', async () => {
     const { service } = makeService({ members: { 'ws-1:9': 'member' } });
     await expect(

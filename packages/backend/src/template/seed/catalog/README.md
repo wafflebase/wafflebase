@@ -26,7 +26,8 @@ None: everything here is original to this repository.
 
 ## Adding one
 
-1. Add a `<slug>.ts` exporting a `TemplateSeed`.
+1. Add a `TemplateSeed` to the file for its document kind (`slides.ts`,
+   `sheets.ts`, `docs.ts`, `note-and-board.ts`), or start a new one.
 2. Register it in `index.ts`.
 3. `pnpm backend test -- seed` — the catalogue test runs every seed through
    the same validators `PUT /documents/:id/content` applies, so a malformed

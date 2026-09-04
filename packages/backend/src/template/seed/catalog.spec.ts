@@ -17,19 +17,7 @@ import { seedDocumentId } from './seed-templates';
  * deployment instead of in CI.
  */
 
-// Mirrors `TEMPLATE_CATEGORIES` in packages/frontend/src/api/templates.ts.
-// Duplicated deliberately: the backend does not import from the frontend, and
-// a category the picker cannot show is a card nobody can filter to.
-const TEMPLATE_CATEGORIES = [
-  'Business',
-  'Education',
-  'Personal',
-  'Project management',
-  'Finance',
-  'Marketing',
-  'Design',
-  'Other',
-];
+import { TEMPLATE_CATEGORIES } from '../template-taxonomy';
 
 describe('template seed catalogue', () => {
   it('is not empty', () => {
@@ -49,10 +37,13 @@ describe('template seed catalogue', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
     }
-    // Stability is the whole reason the id is derived rather than random: a
-    // re-run has to find the document it created last time. Pin one.
+    // Pinned to a literal, not to another call of the same function — that
+    // holds for any pure function and proves nothing. The property worth
+    // guarding is that the derivation never *changes*: it is how a re-run
+    // finds the document it created last time, so altering it orphans every
+    // document already seeded on every deployment.
     expect(seedDocumentId('weekly-business-review')).toBe(
-      seedDocumentId('weekly-business-review'),
+      '88d23516-225e-5b7c-911a-ea882d767f70',
     );
   });
 

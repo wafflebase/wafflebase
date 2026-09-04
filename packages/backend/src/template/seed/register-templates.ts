@@ -147,18 +147,40 @@ async function main(): Promise<void> {
       // step of the real flow this cannot reproduce — GitHub's consent screen
       // is not automatable — and it is the *only* one: everything after this
       // is the product's own UI, reached as a signed-in user.
+      //
+      // The shape follows the *name*. `sessionCookieName()` prefixes `__Host-`
+      // on any deployment with secure cookies, and a `__Host-` cookie is only
+      // accepted with `Secure`, `Path=/` and **no `Domain`** — so setting a
+      // domain, as this first did, makes the browser silently discard it and
+      // the run proceeds signed out. Deriving it from the prefix keeps the two
+      // in step without exporting the backend's private `isSecureCookie()`.
+      const name = sessionCookieName();
+      const hostPrefixed = name.startsWith('__Host-');
       await context.addCookies([
         {
-          name: sessionCookieName(),
+          name,
           value: auth.createTokens(user).accessToken,
-          // Cookies ignore the port, so one entry covers the frontend on 5173
-          // and the API on 3000.
-          domain: new URL(frontend).hostname,
-          path: '/',
+          // With `url`, Playwright derives a host-only cookie at `/` — which is
+          // exactly what `__Host-` requires. The plain-name case keeps the
+          // domain form, where cookies ignore the port and one entry covers the
+          // frontend on 5173 and the API on 3000.
+          ...(hostPrefixed
+            ? { url: frontend, secure: true }
+            : { domain: new URL(frontend).hostname, path: '/' }),
           httpOnly: true,
           sameSite: 'Lax',
         },
       ]);
+      // Asserted, because a rejected cookie is otherwise invisible until the
+      // first page times out 60s later looking for a Share button that a
+      // signed-out visitor never gets.
+      const stored = await context.cookies(frontend);
+      if (!stored.some((c) => c.name === name)) {
+        throw new Error(
+          `The browser rejected the session cookie '${name}'. ` +
+            `A '__Host-' cookie needs an https origin; --frontend is ${frontend}.`,
+        );
+      }
 
       const page = await context.newPage();
       page.on('console', (m) => {
@@ -181,6 +203,20 @@ async function main(): Promise<void> {
       });
 
       for (const seed of TEMPLATE_CATALOG) {
+        // Registering is not idempotent and cannot be: the Share dialog shows
+        // the listing form instead of the publish block once a listing exists,
+        // and `submit` refuses a listing that is already public. Skipping is
+        // the honest outcome — the alternative was a 30s selector timeout that
+        // named nothing.
+        const existing = await prisma.templateListing.findUnique({
+          where: { documentId: seedDocumentId(seed.slug) },
+        });
+        if (existing) {
+          logger.log(
+            `${seed.slug}: already listed (${existing.visibility}/${existing.status}) — skipping. Pass --reset to re-register.`,
+          );
+          continue;
+        }
         await registerOne(page, frontend, seed);
         await assertListingState(prisma, page, seed, { status: 'pending' });
         logger.log(`${seed.slug}: published and submitted`);
@@ -237,8 +273,11 @@ async function registerOne(
   await page
     .locator('#template-description')
     .waitFor({ state: 'visible', timeout: 60_000 });
+  // Scoped to the dialog. A bare `img[alt=""]` is page-wide, so the first
+  // decorative image added to an editor shell would satisfy it and report a
+  // thumbnail that was never captured.
   await page
-    .locator('img[alt=""]')
+    .locator('[role="dialog"] img[alt=""]')
     .first()
     .waitFor({ state: 'visible', timeout: 60_000 })
     .catch(() => {
@@ -333,12 +372,29 @@ async function approveAll(page: Page, frontend: string): Promise<number> {
 
   let approved = 0;
   for (;;) {
-    const button = page.getByRole('button', { name: 'Approve' }).first();
-    if ((await button.count()) === 0) break;
-    await button.click();
-    // Each decision removes its row, so re-query rather than iterating a
-    // snapshot of the list.
-    await page.waitForTimeout(750);
+    const buttons = page.getByRole('button', { name: 'Approve' });
+    const before = await buttons.count();
+    if (before === 0) break;
+    await buttons.first().click();
+    // Wait for the decided row to leave the queue rather than sleeping a fixed
+    // interval: a slow decision would otherwise leave the same row on screen
+    // and `.first()` would click Approve on it twice.
+    await page
+      .waitForFunction(
+        (n) =>
+          document.querySelectorAll('button').length >= 0 &&
+          [...document.querySelectorAll('button')].filter(
+            (b) => b.textContent?.trim() === 'Approve',
+          ).length < n,
+        before,
+        { timeout: 30_000 },
+      )
+      .catch(() => {
+        throw new Error(
+          'A template stayed in the review queue after Approve was clicked; ' +
+            'check the queue for the refusal it reported.',
+        );
+      });
     approved += 1;
     if (approved > TEMPLATE_CATALOG.length) {
       throw new Error('Approve loop did not terminate');

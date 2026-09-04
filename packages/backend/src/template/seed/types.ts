@@ -1,4 +1,5 @@
 import type { Cell } from '@wafflebase/sheets';
+import type { TemplateCategory } from '../template-taxonomy';
 import type { NoteDocument } from '../../yorkie/note-content';
 import type { DocsDocument, SlidesDocument } from '../../yorkie/yorkie.types';
 import type { BoardRoot } from './board';
@@ -49,8 +50,11 @@ export interface TemplateSeed {
   slug: string;
   title: string;
   description: string;
-  /** Must be one of `TEMPLATE_CATEGORIES`; asserted by the catalogue test. */
-  category: string;
+  /**
+   * Typed against the same closed list the DTO validates, so a typo is a
+   * compile error rather than a `400` half-way through a seed run.
+   */
+  category: TemplateCategory;
   tags: string[];
   content: SeedContent;
 }

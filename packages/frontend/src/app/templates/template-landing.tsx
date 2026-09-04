@@ -30,14 +30,6 @@ import { SharedDocumentByToken } from "@/app/shared/shared-document";
 import type { DocumentType } from "@/types/documents";
 
 /**
- * `/t/:id` — the template landing page (docs/design/template-gallery.md).
- *
- * Renders for a logged-out visitor, which is the point: a template link is
- * handed to people who may not have an account yet. Using one needs a
- * destination workspace, so it is the *Use* action — not the page — that
- * requires signing in, the same split Canva and CapCut both make.
- */
-/**
  * Come back to this template after signing in. The path is a *request*: the
  * backend stores it in its own cookie and re-validates it in the OAuth
  * callback, refusing anything that is not a same-origin path
@@ -58,6 +50,14 @@ const REPORT_LABELS: Record<ReportReason, string> = {
   other: "Something else",
 };
 
+/**
+ * `/t/:id` — the template landing page (docs/design/template-gallery.md).
+ *
+ * Renders for a logged-out visitor, which is the point: a template link is
+ * handed to people who may not have an account yet. Using one needs a
+ * destination workspace, so it is the *Use* action — not the page — that
+ * requires signing in, the same split Canva and CapCut both make.
+ */
 export function TemplateLanding() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
