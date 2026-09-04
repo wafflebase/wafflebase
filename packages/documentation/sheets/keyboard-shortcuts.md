@@ -5,7 +5,10 @@ Windows/Linux and `⌘` on Mac — either one works wherever both are listed.
 
 ::: tip
 Press `Ctrl+/` / `⌘+/` in the spreadsheet to open the **Keyboard shortcuts**
-dialog, which lists the same bindings in the app.
+dialog. It's a hand-maintained summary of the most common bindings, so it is
+shorter than this page — a shortcut listed here but missing from the dialog
+(`F4`, the in-cell `Alt+Enter`, `Space`, `Alt+↓`, and `Tab` while editing) still
+works.
 :::
 
 ## Navigation
@@ -57,7 +60,7 @@ can walk a block without leaving it.
 
 `Space` and `Alt+↓` only apply to cells covered by a data validation rule —
 a checkbox rule for `Space`, a dropdown rule for `Alt+↓`. See
-[Data Validation](./data-validation.md).
+[Data Validation](./data-validation).
 
 In the in-cell editor, `Ctrl+Enter` / `⌘+Enter` also inserts a line break.
 It exists because the macOS Korean IME reserves `Option` for Hanja

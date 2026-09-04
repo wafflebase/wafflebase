@@ -9,8 +9,8 @@ Wafflebase includes built-in charts and pivot tables so you can visualize and su
 1. Select the data range you want to chart (include headers in the first row).
    The selection must cover at least 2 rows and 2 columns
 2. Click the **Insert chart** button (the bar-chart icon) in the toolbar. On a
-   narrow screen, the toolbar collapses its extra tools into an overflow (**⋯**)
-   menu — choose **Insert chart** there
+   narrow screen the toolbar collapses its extra tools into a **More formatting
+   options** (⋮) menu — open it and choose **Insert chart** there
 3. A bar chart appears anchored to the top-left cell of your selection, with
    the chart editor panel open on the right
 

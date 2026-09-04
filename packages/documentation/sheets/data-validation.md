@@ -13,8 +13,8 @@ Open the right-side **Data validation** panel in either of these ways:
 - Click the **Data validation** icon in the toolbar
 - Right-click a cell and choose **Data validation**
 
-On a narrow screen, the toolbar collapses its extra tools into an overflow
-(**⋯**) menu — open it and choose **Data validation** there.
+On a narrow screen the toolbar collapses its extra tools into a **More
+formatting options** (⋮) menu — open it and choose **Data validation** there.
 
 ## Add a Rule
 
@@ -86,15 +86,19 @@ Validates text input:
 
 ## Handling Invalid Input
 
-Each rule chooses how to treat a value that fails validation:
+List, date, number, and text rules choose how to treat a value that fails
+validation:
 
 - **Show a warning** — the value is accepted and stored
 - **Reject the input** — a typed entry is refused and the cell keeps its
   previous value
 
-Either way, **any cell holding a value that fails its rule is flagged with a
-small red triangle in its top-right corner** — the same corner the yellow
-comment marker uses. The marker is not exclusive to warning rules: an invalid
+Checkbox rules have no such choice, because there is nothing for them to
+reject: the cell is a checkbox, and any value it holds is treated as valid.
+
+For the other four kinds, **a cell holding a value that fails its rule is
+flagged with a small red triangle in its top-right corner** — the same corner
+the yellow comment marker uses. The marker is not exclusive to warning rules: an invalid
 value can still reach a reject-mode cell by paste, by the API, or by already
 being there when the rule was added, and the marker is what makes that visible.
 A formula is checked by its computed result at render time rather than by its

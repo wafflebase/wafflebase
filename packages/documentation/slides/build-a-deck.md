@@ -71,8 +71,12 @@ In presentation mode:
 Most per-object settings that aren't on the toolbar live in the **Format
 options** panel. Open it with the sliders button at the right end of the
 toolbar (tooltip: **Format options**). With nothing selected it shows
-**Slide size** — Widescreen 16:9, Standard 4:3, or Widescreen 16:10, plus
-custom width and height.
+**Slide size** — Widescreen 16:9, Standard 4:3, or Widescreen 16:10.
+
+Slide **width is fixed** and its box is disabled; only the **Height** changes,
+which is what changes the aspect ratio. To go to a size that isn't one of the
+three presets, type a height — the preset dropdown then reads *Custom* on its
+own. Picking **Custom** from the dropdown does nothing.
 
 Select something and the panel shows the sections that apply to it:
 
@@ -108,8 +112,9 @@ Guides belong to the whole presentation, not to one slide.
 Snapping is always on as you drag: elements snap to the slide centre, to your
 guides, and to other elements' edges. **Smart guides** — the arrows and dashed
 outlines showing equal spacing or matching sizes — are always on too; neither
-has a setting. Hold `Shift` while resizing to suppress equal-size snapping,
-and `Shift` while dragging to lock movement to one axis.
+has a setting. Hold `Shift` while resizing to **preserve the aspect ratio**
+(which also turns off equal-size snapping, since the two would fight), and
+`Shift` while dragging to lock movement to one axis.
 
 ## Copy Formatting Between Objects
 
@@ -123,8 +128,14 @@ stroke from one object to another:
 It applies once and switches itself off — there is no double-click-to-stay-on
 mode, and no keyboard shortcut. Click the button again, or press `Esc`, to
 cancel without painting. Selecting nothing (or more than one object) makes the
-button do nothing, and painting between different kinds of object is ignored.
-Images can't be used as a source.
+button do nothing, and images can't be used as a source.
+
+Shapes and text boxes share a fill and stroke, so you can paint either way
+between them — a shape's formatting onto a text box, or the reverse. (Painting
+onto text keeps only a solid colour: a gradient fill collapses to one of its
+colours.) Connectors are the exception: they carry a stroke only, so a
+connector can be painted onto another connector and nothing else, and nothing
+else can be painted onto a connector.
 
 ## Crop an Image
 
@@ -163,9 +174,27 @@ Two limits worth knowing:
   *are* written into a `.pptx` export as real PowerPoint notes, so a deck you
   export keeps them; a PDF export does not include them.
 
-If two people edit the same slide's notes at the same time, the notes box is
-last-write-wins rather than merged character by character — unlike the text on
-the slide itself. Agree who's writing the notes, or take turns.
+Notes are last-write-wins if two people type in them at once — see
+[Editing at the Same Time](#editing-at-the-same-time) below.
+
+## Editing at the Same Time
+
+::: warning Two people in the same text lose one set of edits
+Text in a deck is **not** merged character by character the way it is in the
+document editor. Speaker notes, text boxes, shape text, and table cells each
+commit their whole contents when you click away, so the last person to click
+away overwrites what the other typed — silently, with no conflict prompt.
+
+Presence cursors show you where others are working; use them to keep out of
+each other's text, or take turns.
+:::
+
+Structural edits converge without losing work: adding, deleting, duplicating,
+and reordering slides; adding, deleting, and restacking elements; table row and
+column changes; and theme and guide changes. Moving or restyling elements
+settles per field on the last change committed, so two people dragging
+*different* elements are fine — it's two people in the same text box, or the
+same notes, that costs somebody their edits.
 
 ## Arrange, Align, and Order
 
@@ -183,8 +212,8 @@ With one or more elements selected, the **Arrange** button in the toolbar
 Each command counts as a single undo step, and every element keeps whatever
 rotation it already had.
 
-The **Order** entries stay clickable even when nothing is selected; in that
-case they simply do nothing.
+The **Arrange** button only appears while something is selected — with an empty
+selection the toolbar shows its idle tools instead.
 
 ## Add a Table
 
@@ -246,10 +275,11 @@ with no warning**. The rest of the deck exports normally; the chart is simply
 absent from the exported file.
 :::
 
-Charts can only arrive by importing a PowerPoint deck. There is no way to
-insert a chart in Wafflebase, and an imported chart cannot be edited — you
+In a deck, charts can only arrive by importing a PowerPoint file — the slides
+toolbar has no insert-chart tool, and an imported chart cannot be edited. You
 can move and resize it, but its numbers, series, and type are fixed at whatever
-PowerPoint last saved.
+PowerPoint last saved. (Spreadsheets *do* have an **Insert chart** button; see
+[Charts & Pivot Tables](/sheets/charts).)
 
 If you need a round-trip through `.pptx` on a deck with charts, keep the
 original file, or rebuild the chart as a picture before exporting.

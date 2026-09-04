@@ -4,8 +4,9 @@ Keyboard shortcuts for the document editor. Mac shortcuts are shown with `⌘`,
 Windows/Linux with `Ctrl`.
 
 ::: tip
-Press **⌘+/** / **Ctrl+/** inside the editor to see this list in a dialog. It is
-generated from the editor's own shortcut table, so it never goes stale.
+Press **⌘+/** / **Ctrl+/** inside the editor to see this list in a dialog. The
+dialog is maintained alongside the editor's bindings rather than derived from
+them, but it currently matches this page entry for entry.
 :::
 
 ## Navigation
@@ -120,6 +121,10 @@ still works:
 - **⌘+A** / **Ctrl+A** to select all
 - **⌘+C** / **Ctrl+C** to copy
 - **⌘+F** / **Ctrl+F** to find
+- **⌘+/** / **Ctrl+/** to open the shortcuts dialog
+- **⌘+Option+Shift+M** / **Ctrl+Alt+Shift+M** to open and close the comments
+  panel — you can read the existing threads, though not reply to them or start
+  a new one
 
 ## What's Next
 
