@@ -358,15 +358,30 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
    */
   const FOLDER = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 
+  /**
+   * Of those, the ones `prisma/schema.prisma` declares non-nullable. Writing
+   * `null` to one is an "Expected String" error from Prisma, not a stored null
+   * — and with no exception filter registered, a 500.
+   */
+  const NON_NULLABLE_COLUMNS = new Set(['title', 'type', 'workspaceId']);
+
   beforeAll(async () => {
     documentService = {
       getDocumentOrThrow: jest.fn().mockResolvedValue(DOC),
-      // Stands in for Prisma closely enough to reproduce both failure modes:
-      // a real column is written, an unknown argument throws.
+      // Stands in for Prisma closely enough to reproduce its failure modes:
+      // a real column is written, an unknown argument throws, and so does a
+      // `null` for a column the schema declares non-nullable. Without that last
+      // rule the double is more forgiving than the database and a `null` title
+      // reads as a clean 200 here while 500ing in production.
       updateDocument: jest.fn(({ data }: { data: Record<string, unknown> }) => {
         for (const key of Object.keys(data)) {
           if (!DOCUMENT_COLUMNS.has(key)) {
             throw new Error(`Unknown argument \`${key}\``);
+          }
+          if (data[key] === null && NON_NULLABLE_COLUMNS.has(key)) {
+            throw new Error(
+              `Argument \`${key}\`: Got invalid value null. Expected String.`,
+            );
           }
         }
         return Promise.resolve({ ...DOC, ...data });
@@ -553,6 +568,19 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
       expect(documentService.updateDocument).not.toHaveBeenCalled();
     });
 
+    it('rejects an explicitly null title with a 400, not a 500 from Prisma', async () => {
+      // `@IsOptional()` counts `null` as "absent" and skips every decorator
+      // after it, so this body used to validate. The handler forwards any
+      // title that is not `undefined`, and `Document.title` is a non-nullable
+      // `String`, so the `null` reached `prisma.document.update` and threw —
+      // an unhandled 500, since this backend registers no exception filter.
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ title: null });
+      expect(res.status).toBe(400);
+      expect(documentService.updateDocument).not.toHaveBeenCalled();
+    });
+
     it('bounds the title at 1..200 characters, as create does', async () => {
       for (const [title, status] of [
         ['', 400],
@@ -575,6 +603,11 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
       // keys, which is why the handler assigns `title` conditionally rather
       // than passing `{ title: undefined }`. A no-op PATCH must not re-sort the
       // document to the top of the documents list.
+      //
+      // This is also the other half of the `title` `@ValidateIf` condition:
+      // rejecting an explicit `null` must not turn `title` into a required
+      // property. (There is no separate `{ title: undefined }` case to write —
+      // `JSON.stringify` drops the key, so such a body is this one.)
       const res = await request(server()).patch(`${base}/doc-1`).send({});
       expect(res.status).toBe(200);
       expect(updateData()).toEqual({});
@@ -624,6 +657,30 @@ describe('ApiV1DocumentsController body validation (global pipe)', () => {
         .post(base)
         .send({ title: { a: 1 } });
       expect(res.status).toBe(400);
+    });
+
+    it('rejects an explicitly null title', async () => {
+      // Create's `title` carries no `@IsOptional()`, so it never had the update
+      // DTO's `null` hole — `@IsString()` runs and refuses. Pinned so the two
+      // DTOs cannot drift apart silently.
+      const res = await request(server()).post(base).send({ title: null });
+      expect(res.status).toBe(400);
+      expect(documentService.createDocument).not.toHaveBeenCalled();
+    });
+
+    it('absorbs a null type into the sheet fallback rather than erroring', async () => {
+      // Deliberately NOT symmetric with `title`. `null` does skip `@IsString()`
+      // on `type`, but the handler never forwards this value — it matches it
+      // against the four accepted types and passes `sheet` otherwise — so
+      // `null` lands where `"nonsense"` already lands. That is the documented
+      // coercion contract, not a 500 waiting to happen.
+      const res = await request(server())
+        .post(base)
+        .send({ title: 't', type: null });
+      expect(res.status).toBe(201);
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'sheet' }),
+      );
     });
 
     it('rejects an unknown key rather than silently dropping it', async () => {

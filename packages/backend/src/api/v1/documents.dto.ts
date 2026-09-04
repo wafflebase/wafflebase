@@ -1,4 +1,10 @@
-import { IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  ValidateIf,
+} from 'class-validator';
 
 /**
  * Bodies for `/api/v1/workspaces/:workspaceId/documents`.
@@ -21,6 +27,10 @@ import { IsOptional, IsString, IsUUID, Length } from 'class-validator';
 const TITLE_MAX = 200;
 
 export class ApiV1CreateDocumentDto {
+  /**
+   * No `@IsOptional()` here, so the `null` hole the update DTO had never
+   * existed on this one: `{"title": null}` reaches `@IsString()` and is a 400.
+   */
   @IsString()
   @Length(1, TITLE_MAX)
   title: string;
@@ -30,6 +40,14 @@ export class ApiV1CreateDocumentDto {
    * unrecognized type to `sheet` rather than rejecting it, and the handler
    * still does. The decorator only bounds the shape so the property is
    * whitelisted; which types are accepted is unchanged.
+   *
+   * `@IsOptional()` is also deliberate, and is *not* the update DTO's bug.
+   * `null` does skip `@IsString()` here, but the handler never forwards this
+   * value — it matches it against the four accepted types and passes `sheet`
+   * otherwise — so `null` lands on the same fallback any unrecognized string
+   * does. Rejecting it would make `null` a 400 while `"nonsense"` still
+   * becomes a sheet, which contradicts the coercion contract above rather
+   * than tightening it.
    */
   @IsOptional()
   @IsString()
@@ -37,7 +55,22 @@ export class ApiV1CreateDocumentDto {
 }
 
 export class ApiV1UpdateDocumentDto {
-  @IsOptional()
+  /**
+   * `@ValidateIf`, not `@IsOptional()`. `@IsOptional()` treats `null` as
+   * "absent" and skips every decorator after it, so `{"title": null}` used to
+   * validate; the handler forwards any title that is not `undefined`, and
+   * `Document.title` is a non-nullable `String`, so the `null` reached
+   * `prisma.document.update` and threw. With no global exception filter that
+   * surfaced as a 500 — the same shape of defect this DTO was added to close.
+   *
+   * The condition distinguishes the two cases `@IsOptional()` conflates:
+   * omitted stays legal (a PATCH need not carry a title), `null` now fails
+   * `@IsString()` and is a 400. `class-validator`'s `whitelist` still keeps the
+   * property, which is decided by `@IsString`/`@Length` being present at all,
+   * not by the condition. Matches `lakehouse.dto.ts`, which uses this idiom
+   * throughout for the same reason.
+   */
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @Length(1, TITLE_MAX)
   title?: string;
