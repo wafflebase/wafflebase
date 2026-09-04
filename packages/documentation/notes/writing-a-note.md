@@ -41,6 +41,38 @@ modes:
 
 Your choice is remembered per browser, so the note opens the same way next time.
 
+### See Who Wrote What
+
+The same **view** dropdown has a **Show authors** switch at the bottom. Turn it
+on and a narrow column appears to the left of the line numbers, naming whoever
+most recently edited each line. A run of consecutive lines by the same person is
+labelled once, at the top, so the column stays quiet. Hover a name to see it in
+full if it's been cut short.
+
+Some lines are blank in that column: text written before this feature existed
+carries no authorship, and an editor who had no display name shows as
+**Anonymous**.
+
+Like the view mode, the switch is remembered per browser. It isn't available in
+a note opened through a share link, which has no view menu.
+
+::: warning Your name is recorded whether or not you switch this on
+**Show authors** only decides what *you* see — it does not decide what you leave
+behind. Every editor's client stamps their display name onto the text they type,
+always, and that name is stored in the note's content rather than in the
+temporary presence data behind cursor labels.
+
+That means it is permanent and public to the note: it stays for the life of the
+note, it is readable by anyone who can read the note at all — including someone
+opening a read-only share link anonymously — and turning the switch off later
+doesn't remove what's already recorded. Nothing rewrites a name out of the text
+after the fact.
+
+Names are also **self-reported**: they come from whichever browser wrote the
+text, and no server verifies them, which is why the tooltip on a name says so.
+Read the column as a helpful hint about who wrote a line, not as proof.
+:::
+
 ## Formatting Toolbar
 
 When the editor is visible, a toolbar gives you one-click Markdown for the most
@@ -117,10 +149,83 @@ The preview supports **GitHub-Flavored Markdown** plus a few extras:
 - **Code blocks** — fenced ``` blocks get syntax highlighting and a **Copy**
   button in the corner
 - **Math** — inline `$…$` and block `$$…$$` render with KaTeX
+- **Diagrams** — a ` ```mermaid ` fence renders as a diagram instead of a code
+  block (see [Diagrams](#diagrams) below)
 - **Links, headings, lists, blockquotes, images** — as you'd expect
 
-For safety, the preview does **not** render raw HTML embedded in your Markdown —
-only Markdown syntax is rendered.
+### Single Newlines Are Line Breaks
+
+One thing differs from standard Markdown: pressing **Enter** once breaks the
+line. In most Markdown, two lines separated by a single newline join into one
+paragraph and you need a blank line — or two trailing spaces — to force a break.
+Here, what you see in the source is what you get in the preview.
+
+```markdown
+Roses are red
+Violets are blue
+```
+
+renders as two lines, not one.
+
+### Diagrams
+
+Open a fence with `mermaid` instead of a language name and the block renders as
+a live [Mermaid](https://mermaid.js.org/) diagram — flowcharts, sequence
+diagrams, class diagrams, and the rest:
+
+````markdown
+```mermaid
+flowchart LR
+  Draft --> Review --> Published
+```
+````
+
+The diagram follows the editor's light or dark theme, and updates as you type.
+The rendering engine is fetched the first time a note needs it, so the first
+diagram on a page can take a moment to appear — until it does, you see the
+diagram's source.
+
+A diagram that doesn't parse keeps its source on screen with the error printed
+above it, so a half-typed diagram never leaves a blank hole in the preview.
+
+A few things are deliberately turned off, and say so on the block if you use
+them:
+
+- **Nothing may load an external URL.** Image shapes (`@{ img: … }`), sequence
+  actor icons, `url(…)` and `@import` in diagram styling, and any HTML tag that
+  fetches something are all refused
+- **Per-diagram configuration is ignored** — `%%{init: …}%%` directives and
+  YAML front matter inside the fence (including its `title:`) are stripped
+  before the diagram is drawn
+- **Labels are plain text.** Bold, italic and other HTML formatting inside a
+  node label won't apply, though `<br/>` still breaks the line
+- A single fence is capped at 50,000 characters
+
+### Raw HTML
+
+The preview does not render arbitrary HTML. Paste a `<div>`, a `<script>`, or a
+`style=` attribute into a note and it appears in the preview as the literal text
+you typed, escaped rather than executed. That's deliberate: a note is shared,
+and HTML written by one collaborator would otherwise run in everyone else's
+browser.
+
+Two tags are allowlisted as exceptions, because Markdown has no syntax of its
+own for what they do:
+
+- **`<details>` / `<summary>`** — the collapsible section the **Foldout**
+  toolbar button inserts. Put each tag on its own line, keep the summary on a
+  single line, and use `<details open>` to have it start expanded. Everything
+  between the tags is ordinary Markdown, so lists, fences, and nested foldouts
+  all work
+- **`<img>`** — the sized-image snippet people copy from GitHub, e.g.
+  `<img src="diagram.png" alt="Diagram" width="400">`. Only `src`, `alt`,
+  `width` and `height` are accepted, and the dimensions must be a plain number
+  or a percentage
+
+Anything outside that — an extra attribute on the image, `width="400px"`, a
+`style=`, a different tag — makes the whole snippet fall back to being shown as
+literal text. It's refused visibly rather than silently ignored, so you can see
+that it didn't take.
 
 ## Keyboard Mode
 

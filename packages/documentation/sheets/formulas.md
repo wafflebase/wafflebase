@@ -1,6 +1,6 @@
 # Formulas
 
-Wafflebase supports **430+ functions** — the same ones you know from Google Sheets. This page covers the essentials. For a hands-on tutorial, see [Build a Budget Spreadsheet](./build-a-budget).
+Wafflebase supports **440+ functions** — the same ones you know from Google Sheets. This page covers the essentials. For a hands-on tutorial, see [Build a Budget Spreadsheet](./build-a-budget).
 
 ## How Formulas Work
 
@@ -87,11 +87,15 @@ A formula can reference other cells, use operators, and call functions. The resu
 | Math | 84 |
 | Engineering | 50 |
 | Financial | 49 |
-| Text | 38 |
-| Lookup | 32 |
+| Text | 45 |
+| Lookup | 31 |
 | Date & Time | 25 |
 | Info | 21 |
+| Operator | 17 |
 | Database | 12 |
-| Logical | 10 |
+| Logical | 12 |
 
-Wafflebase covers ~85% of Google Sheets functions. Most common functions are fully supported.
+That is 462 in all. The **Operator** row is the named form of things you'd
+normally type as a symbol — `ADD`, `DIVIDE`, `GT`, `EQ`, and so on — plus
+`CONCAT`, `UNIQUE`, and `ISBETWEEN`; the "440+" above counts the other ten
+categories. Most common functions are fully supported.

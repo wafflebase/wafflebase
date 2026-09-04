@@ -18,8 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
+| loading indicator unification (2026-09-04) | [20260904-loading-indicator-unification-todo.md](./active/20260904-loading-indicator-unification-todo.md) | [20260904-loading-indicator-unification-lessons.md](./active/20260904-loading-indicator-unification-lessons.md) |
+| api v1 folders copy (2026-09-03) | [20260903-api-v1-folders-copy-todo.md](./active/20260903-api-v1-folders-copy-todo.md) | [20260903-api-v1-folders-copy-lessons.md](./active/20260903-api-v1-folders-copy-lessons.md) |
 | board nested doc update (2026-09-03) | [20260903-board-nested-doc-update-todo.md](./active/20260903-board-nested-doc-update-todo.md) | [20260903-board-nested-doc-update-lessons.md](./active/20260903-board-nested-doc-update-lessons.md) |
-| homepage docs audit (2026-09-03) | [20260903-homepage-docs-audit-todo.md](./active/20260903-homepage-docs-audit-todo.md) | - |
+| homepage docs audit (2026-09-03) | [20260903-homepage-docs-audit-todo.md](./active/20260903-homepage-docs-audit-todo.md) | [20260903-homepage-docs-audit-lessons.md](./active/20260903-homepage-docs-audit-lessons.md) |
 | image viewer folder return (2026-09-03) | [20260903-image-viewer-folder-return-todo.md](./active/20260903-image-viewer-folder-return-todo.md) | [20260903-image-viewer-folder-return-lessons.md](./active/20260903-image-viewer-folder-return-lessons.md) |
 | notification links (2026-09-03) | [20260903-notification-links-todo.md](./active/20260903-notification-links-todo.md) | - |
 | yorkie 0719 docs revision preview (2026-09-03) | [20260903-yorkie-0719-docs-revision-preview-todo.md](./active/20260903-yorkie-0719-docs-revision-preview-todo.md) | [20260903-yorkie-0719-docs-revision-preview-lessons.md](./active/20260903-yorkie-0719-docs-revision-preview-lessons.md) |
@@ -51,4 +54,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 577
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: board nested doc update (2026-09-03)
+Latest active task: audit followup code defects (2026-09-04)

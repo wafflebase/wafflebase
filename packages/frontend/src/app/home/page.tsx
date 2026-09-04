@@ -16,7 +16,7 @@ export default function HomePage({
   workspacePath: string | null;
 }) {
   useEffect(() => {
-    document.title = "Wafflebase — Word Processor & Spreadsheet You Can Own";
+    document.title = "Wafflebase — The Open-Source Office Suite You Can Own";
   }, []);
 
   return (

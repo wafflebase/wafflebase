@@ -57,8 +57,8 @@ export function HeroSection({
 
           {/* Sub */}
           <p className="text-[color:var(--wb-sub)] leading-[1.55] text-[clamp(17px,1.4vw,19px)] max-w-[560px] m-0 mb-10">
-            Sheets, Docs, and Slides. Real-time collaboration, REST API,
-            fully self-hosted.
+            Sheets, Docs, Slides, Notes, and Boards. Real-time collaboration,
+            REST API, fully self-hosted.
           </p>
 
           {/* CTAs */}

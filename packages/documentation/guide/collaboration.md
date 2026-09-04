@@ -202,48 +202,20 @@ anyone.
 ## Version History
 
 Every sheet, document, presentation, note, and board keeps a history of past
-versions. Click the **history** icon in the editor header to toggle the
-**Version history** panel open on the right.
+versions. The **history** icon in the editor header opens the panel; each entry
+can be previewed read-only or restored, and a restore is itself reversible.
 
-::: warning Presentations need a wide window
-On a narrow screen — under 768 pixels, so most phones — a presentation opens in
-a mobile layout that has no history icon and no panel. The history is still
-being kept; you just can't reach it until you open the deck on a wider screen.
-:::
+Two things about it matter when other people are in the document with you:
 
-The panel lists versions grouped by day. Most entries are **Automatic** —
-snapshots taken as the document is edited, so the timeline follows activity
-rather than the clock. To mark a moment you want to find again, type a name
-into **Name current version** and click **Save**. **By you** tags any
-non-automatic version you were the one to create — the versions you named, and
-also the **Before restore** versions that your own restores created (see
-below).
+- **Comments are part of the version being restored.** Restoring an older
+  version removes every comment added after it, along with the rest of the
+  newer content.
+- **History is signed-in only.** It is not part of a share link, so a
+  collaborator working through a shared URL has no panel and cannot restore.
 
-Each entry offers two actions:
-
-- **Preview** — open that version read-only without changing anything.
-  Not yet available in documents, where the button is disabled.
-- **Restore** — roll the document back to that version.
-
-Restoring first saves the current state as a **Before restore** version, so a
-restore is always reversible. Note that comments are part of the version being
-restored: any comment added after it was created is removed along with the rest
-of the newer content.
-
-::: warning Only one of the two Restore buttons asks you to confirm
-**Restore** in the version list opens a confirmation dialog first, so you can
-back out. **Restore this version** inside an open preview does **not** — it
-restores immediately, on the reasoning that the preview you are looking at is
-itself the confirmation. If you previewed a version to check it and then decide
-against restoring it, leave with **Back to current version** rather than
-expecting a dialog to catch you.
-:::
-
-::: tip
-Version history is only available when you're signed in and opening the
-document from your workspace — the panel isn't part of a share link. The list
-shows the 50 most recent versions.
-:::
+The full treatment — naming a version, what a preview shows for each document
+type, what a restore replaces, and the limits — is in
+[Version History](/guide/version-history).
 
 ## How Conflicts Work
 
