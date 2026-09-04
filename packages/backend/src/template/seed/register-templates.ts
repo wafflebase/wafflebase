@@ -223,6 +223,7 @@ async function main(): Promise<void> {
           );
       });
 
+      let registered = 0;
       for (const seed of TEMPLATE_CATALOG) {
         // Registering is not idempotent and cannot be: the Share dialog shows
         // the listing form instead of the publish block once a listing exists,
@@ -253,21 +254,26 @@ async function main(): Promise<void> {
           await templates.unpublish(existing.id, authorId);
           logger.log(`${seed.slug}: unpublished`);
         }
+        // Publish, submit **and approve** before touching the next seed.
+        //
+        // Approving the whole batch at the end left every submitted listing
+        // `pending` if approval failed — which is the same "one failure
+        // withdraws templates it never touched" shape as the pre-browser
+        // `--reset`, just moved to the other end of the run. Carrying each
+        // template all the way to `public` first means a failure costs the one
+        // in flight; everything before it is already live.
         await registerOne(page, frontend, seed);
         await assertListingState(prisma, page, seed, { status: 'pending' });
-        logger.log(`${seed.slug}: published and submitted`);
-      }
-
-      const approved = await approveAll(page, frontend);
-      for (const seed of TEMPLATE_CATALOG) {
+        await approveOne(page, frontend, seed.title);
         await assertListingState(prisma, page, seed, {
           status: 'listed',
           visibility: 'public',
         });
+        registered += 1;
+        logger.log(`${seed.slug}: published, submitted and approved`);
       }
-      logger.log(
-        `Approved ${approved} template(s); all are public and listed.`,
-      );
+
+      logger.log(`${registered} template(s) are public and listed.`);
     } finally {
       await browser.close();
     }
@@ -396,8 +402,19 @@ async function assertListingState(
   );
 }
 
-/** Approve everything sitting in the reviewer queue. */
-async function approveAll(page: Page, frontend: string): Promise<number> {
+/**
+ * Approve one listing, by the title its queue row shows.
+ *
+ * Targeted rather than "approve everything pending" for two reasons. A
+ * deployment's queue can hold a real user's submission, which this command has
+ * no business deciding; and approving per template is what keeps a failure
+ * bounded — see the call site.
+ */
+async function approveOne(
+  page: Page,
+  frontend: string,
+  title: string,
+): Promise<void> {
   await page.goto(`${frontend}/admin/templates`, {
     waitUntil: 'domcontentloaded',
   });
@@ -408,37 +425,20 @@ async function approveAll(page: Page, frontend: string): Promise<number> {
     timeout: 60_000,
   });
 
-  let approved = 0;
-  for (;;) {
-    const buttons = page.getByRole('button', { name: 'Approve' });
-    const before = await buttons.count();
-    if (before === 0) break;
-    await buttons.first().click();
-    // Wait for the decided row to leave the queue rather than sleeping a fixed
-    // interval: a slow decision would otherwise leave the same row on screen
-    // and `.first()` would click Approve on it twice.
-    await page
-      .waitForFunction(
-        (n) =>
-          document.querySelectorAll('button').length >= 0 &&
-          [...document.querySelectorAll('button')].filter(
-            (b) => b.textContent?.trim() === 'Approve',
-          ).length < n,
-        before,
-        { timeout: 30_000 },
-      )
-      .catch(() => {
-        throw new Error(
-          'A template stayed in the review queue after Approve was clicked; ' +
-            'check the queue for the refusal it reported.',
-        );
-      });
-    approved += 1;
-    if (approved > TEMPLATE_CATALOG.length) {
-      throw new Error('Approve loop did not terminate');
-    }
-  }
-  return approved;
+  const row = page.locator('li').filter({ hasText: title });
+  await row
+    .first()
+    .waitFor({ timeout: 30_000 })
+    .catch(() => {
+      throw new Error(
+        `"${title}" never appeared in the review queue. It was submitted, so ` +
+          'either the queue is filtered differently or the submission was ' +
+          'decided by someone else.',
+      );
+    });
+  await row.first().getByRole('button', { name: 'Approve' }).click();
+  // The caller polls for `public`/`listed`, which is the outcome this click is
+  // supposed to produce.
 }
 
 if (require.main === module) {
