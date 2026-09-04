@@ -4,7 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import {
   initialSpreadsheetDocument,
   parseRef,
-  updateWorksheetCell,
+  replaceWorksheetCells,
 } from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import { AppModule } from '../../app.module';
@@ -120,8 +120,14 @@ async function writeContent(
   }
 
   // Sheets have no whole-document writer — `PUT /documents/:id/content`
-  // refuses a spreadsheet — so cells go in one at a time through the same
-  // `updateWorksheetCell` the v1 cells endpoint uses.
+  // refuses a spreadsheet — so the worksheet is rebuilt here instead.
+  //
+  // `replaceWorksheetCells`, not a loop of `updateWorksheetCell`: the other
+  // four kinds go through whole-root writers that *replace*, and writing cell
+  // by cell would not. Under `--force-content` a catalogue revision that drops
+  // a cell would otherwise leave the old value behind and still report
+  // `rewritten`, so the document on screen would match no version of the
+  // catalogue.
   await yorkie.withDocument<void, SpreadsheetDocument>(
     documentId,
     (doc) => {
@@ -129,12 +135,15 @@ async function writeContent(
         const tabId = root.tabOrder[0];
         const worksheet = root.sheets[tabId];
         root.tabs[tabId].name = content.tabName;
-        if (content.frozenRows !== undefined) {
-          worksheet.frozenRows = content.frozenRows;
-        }
-        for (const [ref, value] of Object.entries(content.cells)) {
-          updateWorksheetCell(worksheet, parseRef(ref), () => value);
-        }
+        // Assigned unconditionally for the same reason: a revision that drops
+        // `frozenRows` has to unfreeze the header, not keep the old pane.
+        worksheet.frozenRows = content.frozenRows ?? 0;
+        replaceWorksheetCells(
+          worksheet,
+          Object.entries(content.cells).map(
+            ([ref, value]) => [parseRef(ref), value] as const,
+          ),
+        );
       });
     },
     {

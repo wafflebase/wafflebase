@@ -17,6 +17,12 @@ import { seedDocumentId } from './seed-templates';
  * deployment instead of in CI.
  */
 
+import {
+  createWorksheet,
+  getWorksheetCell,
+  parseRef,
+  replaceWorksheetCells,
+} from '@wafflebase/sheets';
 import { TEMPLATE_CATEGORIES } from '../template-taxonomy';
 
 describe('template seed catalogue', () => {
@@ -199,6 +205,35 @@ describe('template seed catalogue', () => {
         expect(num(c, ref)).toBe(statuses.filter((s) => s === status).length);
       }
     });
+  });
+
+  it('rebuilds a worksheet rather than merging into it', () => {
+    // `--force-content` re-writes a document that already holds the previous
+    // catalogue. `updateWorksheetCell` per cell would leave anything a
+    // revision *removed* sitting there, so the sheet on screen would match no
+    // version of the catalogue while the run still reported `rewritten`.
+    // The other four kinds go through whole-root writers that replace; this
+    // pins that sheets do too.
+    const ws = createWorksheet();
+    replaceWorksheetCells(ws, [[parseRef('A1'), { v: 'stale' }]]);
+    expect(getWorksheetCell(ws, parseRef('A1'))?.v).toBe('stale');
+
+    const budget = TEMPLATE_CATALOG.find(
+      (s) => s.slug === 'monthly-budget-tracker',
+    );
+    if (!budget || budget.content.kind !== 'sheet') throw new Error('missing');
+    replaceWorksheetCells(
+      ws,
+      Object.entries(budget.content.cells).map(
+        ([ref, cell]) => [parseRef(ref), cell] as const,
+      ),
+    );
+
+    // A1 is a header in this catalogue entry, so it is overwritten rather than
+    // dropped — the cell that proves removal is one the catalogue never names.
+    expect(getWorksheetCell(ws, parseRef('A1'))?.v).toBe('Category');
+    replaceWorksheetCells(ws, [[parseRef('Z99'), { v: 'orphan' }]]);
+    expect(getWorksheetCell(ws, parseRef('A1'))).toBeUndefined();
   });
 
   it('gives every element on a board a unique id', () => {

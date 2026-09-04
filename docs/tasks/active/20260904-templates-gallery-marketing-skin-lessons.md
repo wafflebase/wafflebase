@@ -13,9 +13,10 @@ should have been imported by two chunks. It was imported by everything.
 **Check the import edges of a chunk you just created**, not only the count:
 
 ```bash
-node -e "const fs=require('fs'),d='packages/frontend/dist/assets/';
+# $1 is the chunk you just created, e.g. marketing-page-ByPaM1fb.js
+node -e "const fs=require('fs'),d='packages/frontend/dist/assets/',t=process.argv[1];
 for(const f of fs.readdirSync(d).filter(n=>n.endsWith('.js')))
-  if(f!==T && fs.readFileSync(d+f,'utf8').includes(T)) console.log(f)"
+  if(f!==t && fs.readFileSync(d+f,'utf8').includes(t)) console.log(f)" "$1"
 ```
 
 A chunk count going down is not evidence the download shape improved.

@@ -64,6 +64,41 @@ function arg(name: string): string | undefined {
 }
 
 /**
+ * Refuse to hand a real session token to a cleartext non-loopback origin.
+ *
+ * `--frontend` decides where the minted session cookie is installed and sent,
+ * so a mistyped or pasted origin is a session token delivered somewhere it was
+ * never meant to go — and over `http://` it also crosses the network in the
+ * clear. The rule is the one this codebase already applies to its other
+ * credential-bearing flow: `cliLoginAvailable()`
+ * (`src/auth/github-auth.guard.ts`) allows a CLI sign-in only on a secure
+ * origin or a loopback one, for the same reason.
+ */
+function assertTrustedFrontend(frontend: string): void {
+  let url: URL;
+  try {
+    url = new URL(frontend);
+  } catch {
+    throw new Error(`--frontend is not a URL: ${frontend}`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`--frontend must be http(s): ${frontend}`);
+  }
+  const loopback =
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.hostname === '[::1]' ||
+    url.hostname === '::1';
+  if (url.protocol === 'https:' || loopback) return;
+  throw new Error(
+    `Refusing to install a session cookie on ${url.origin}: it is neither ` +
+      'https nor loopback, so the token would cross the network in the clear. ' +
+      'Point --frontend at the https origin your users reach, or run the ' +
+      'frontend on localhost.',
+  );
+}
+
+/**
  * Playwright is a devDependency and only this command needs it, so it is
  * imported lazily — `seed:templates` and every runtime path stay free of it.
  */
@@ -100,6 +135,7 @@ async function main(): Promise<void> {
         'Usage: pnpm backend register:templates --author <userId> [--frontend URL] [--reset]',
       );
     }
+    assertTrustedFrontend(frontend);
 
     const user = await prisma.user.findUnique({ where: { id: authorId } });
     if (!user) throw new Error(`No such user: ${authorId}`);
@@ -121,21 +157,7 @@ async function main(): Promise<void> {
       );
     }
 
-    // `--reset` is cleanup, not part of the procedure being reproduced, so it
-    // goes through the service directly. It exists because a listing that is
-    // already public cannot be re-registered: `submit` refuses a public
-    // listing, and changing its card sends it back to review instead.
-    if (process.argv.includes('--reset')) {
-      for (const seed of TEMPLATE_CATALOG) {
-        const documentId = seedDocumentId(seed.slug);
-        const listing = await prisma.templateListing.findUnique({
-          where: { documentId },
-        });
-        if (!listing) continue;
-        await templates.unpublish(listing.id, authorId);
-        logger.log(`${seed.slug}: unpublished`);
-      }
-    }
+    const reset = process.argv.includes('--reset');
 
     const { chromium } = await loadPlaywright();
     const browser = await chromium.launch();
@@ -160,13 +182,12 @@ async function main(): Promise<void> {
         {
           name,
           value: auth.createTokens(user).accessToken,
-          // With `url`, Playwright derives a host-only cookie at `/` — which is
-          // exactly what `__Host-` requires. The plain-name case keeps the
-          // domain form, where cookies ignore the port and one entry covers the
-          // frontend on 5173 and the API on 3000.
-          ...(hostPrefixed
-            ? { url: frontend, secure: true }
-            : { domain: new URL(frontend).hostname, path: '/' }),
+          // `url` in both branches, so the cookie is **host-only** either way.
+          // A `domain=` cookie is also sent to every subdomain, which is more
+          // reach than a seeding run needs; `__Host-` forbids it outright and
+          // the plain-name branch simply has no reason to want it.
+          url: frontend,
+          ...(hostPrefixed ? { secure: true } : {}),
           httpOnly: true,
           sameSite: 'Lax',
         },
@@ -211,11 +232,26 @@ async function main(): Promise<void> {
         const existing = await prisma.templateListing.findUnique({
           where: { documentId: seedDocumentId(seed.slug) },
         });
-        if (existing) {
+        if (existing && !reset) {
           logger.log(
             `${seed.slug}: already listed (${existing.visibility}/${existing.status}) — skipping. Pass --reset to re-register.`,
           );
           continue;
+        }
+        if (existing) {
+          // Unpublished here, one template at a time, rather than clearing the
+          // whole catalogue before the browser starts. `unpublish` also revokes
+          // the preview share link and nothing restores it, so a failure part
+          // way through used to leave every *later* template withdrawn as well.
+          // This bounds that to the one being re-registered.
+          //
+          // Not made transactional: `unpublish` deletes the row and destroys
+          // the share link, and a republish mints a new token regardless — so a
+          // "restored" listing would be a different capability to everyone
+          // holding the old link. Bounding the blast radius is the honest fix;
+          // pretending it can be rolled back is not.
+          await templates.unpublish(existing.id, authorId);
+          logger.log(`${seed.slug}: unpublished`);
         }
         await registerOne(page, frontend, seed);
         await assertListingState(prisma, page, seed, { status: 'pending' });
@@ -229,7 +265,9 @@ async function main(): Promise<void> {
           visibility: 'public',
         });
       }
-      logger.log(`Approved ${approved} template(s); all are public and listed.`);
+      logger.log(
+        `Approved ${approved} template(s); all are public and listed.`,
+      );
     } finally {
       await browser.close();
     }
