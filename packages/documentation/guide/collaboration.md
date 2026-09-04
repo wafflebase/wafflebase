@@ -222,7 +222,6 @@ below).
 Each entry offers two actions:
 
 - **Preview** — open that version read-only without changing anything.
-  Not yet available in documents, where the button is disabled.
 - **Restore** — roll the document back to that version.
 
 Restoring first saves the current state as a **Before restore** version, so a
