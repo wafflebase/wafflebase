@@ -45,10 +45,9 @@ Click **Test Connection** to check it without saving, then **Save**.
 | Azure Blob / ADLS | Container, an optional **Custom endpoint**, and either a **Connection string** on its own or an **Account name** with an **Account key** *or* a **SAS token** |
 | Local filesystem (server-configured) | Just an absolute path — see below |
 
-Access key and secret key always travel together: the dialog refuses a change
-that supplies one without the other. When you reopen a saved connection, the
-credential boxes read *"Leave blank to keep existing"* — leaving them empty
-keeps what's stored.
+Access key and secret key always travel together: for S3, S3-compatible, and
+GCS storage the dialog requires both, and refuses a connection that supplies
+one without the other.
 
 ::: warning
 **Local filesystem** only works if the operator has switched it on. The dialog

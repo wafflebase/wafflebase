@@ -39,7 +39,7 @@ invite says otherwise.
 | Create an **editor** share link | Only for documents you created | Yes |
 | Revoke someone else's share link | No | Yes |
 | Create, edit, delete, and query datasources | Yes | Yes |
-| See the list of API keys | Yes | Yes |
+| See the list of API keys | Yes, but only via the CLI or REST API | Yes |
 | Create or revoke an API key | No | Yes |
 | Invite people, and revoke invites | No | Yes |
 | Remove a member | Only yourself | Yes |
@@ -67,8 +67,10 @@ documents created by people who have since left.
 
 ::: warning Datasource credentials are shared
 A datasource connection is stored on the workspace, not on the person who added
-it. Any member can run queries against its saved credentials, and can edit or
-delete the connection — there is no owner-only tier for them. See
+it. Any member can run queries against its saved credentials, and — for
+**database** connections — can edit or delete the connection too. There is no
+owner-only tier for them. **Lakehouse** connections are shared on the same
+terms but cannot be edited or deleted at all: the app has no screen for it. See
 [Connections are shared with the workspace](/sheets/datasources#connections-are-shared-with-the-workspace).
 :::
 
@@ -86,6 +88,14 @@ of sections:
 - **Danger Zone** — *owners only*
 
 A member sees the first three sections and nothing below them.
+
+::: tip API keys are listed to members, but not on this page
+The server lets any member *list* a workspace's API keys — creating and
+revoking are owner-only. The Settings page doesn't act on that: it hides the
+whole **API Keys** section from anyone who isn't an owner, so a member has to
+use the CLI (`wafflebase api-keys list`) or the REST API to see the list. There
+is nothing to find in Settings.
+:::
 
 ::: tip
 The Name and URL fields are visible to members, but saving them is an owner
@@ -156,16 +166,26 @@ What happens to their work:
 A member can remove their own row to leave. An **owner cannot leave** — the
 option isn't offered, and the server refuses it.
 
-::: warning Roles are fixed once someone joins, and owners are permanent
+::: warning Roles are fixed once someone joins
 There is no way to promote a member to owner, demote an owner, or transfer
 ownership after the fact — no control in the interface and no API for it. Owners
 also can't be removed from the Members table: the trash icon never appears on an
 owner's row.
 
-In practice this means the role someone joins with is the role they keep, and an
-owner's only way out of a workspace is to delete it. Decide who should be an
-owner before you invite them.
+In practice this means the role someone joins with is the role they keep.
 :::
+
+An owner who wants out has two routes, and neither is in the interface:
+
+- **Another owner removes them.** The server only refuses an owner's request to
+  remove *themselves*; one owner removing a different owner is allowed. Since
+  Settings never draws the trash icon on an owner's row, this means calling
+  `DELETE /workspaces/:id/members/:userId` directly — and it needs a second
+  owner to exist, which means the workspace was set up with an owner-role
+  invite (also API-only, see above).
+- **Delete the workspace.** The only route available to a sole owner.
+
+Decide who should be an owner before you invite them.
 
 ## Delete a Workspace
 
@@ -187,8 +207,14 @@ you belong to.
   purely organizational: a folder grants and restricts nothing, and deleting one
   returns its documents to the workspace root rather than deleting them. See
   [Organizing with Folders](/pdf/organizing-with-folders)
-- **Templates**, **datasources**, **API keys**, and **analytics** are all scoped
-  to one workspace and don't cross between them
+- **Datasources**, **API keys**, and **analytics** are scoped to one workspace
+  and don't cross between them
+- **Templates** are the exception, and the only one. A template is published
+  *from* a workspace, but using it creates the new document in whichever
+  workspace **you** pick — you need only be a member of the destination, not of
+  the workspace that published it. That is how the public gallery works at all.
+  The content is copied; nothing is shared afterwards. See
+  [Templates](/guide/templates)
 - **Comments and mentions** stay inside the workspace too — only members can be
   mentioned or notified
 

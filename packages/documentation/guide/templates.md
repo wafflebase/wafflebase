@@ -22,8 +22,13 @@ if that is not possible the card falls back to the document-type icon.
 Only the document's **author** or an **owner** of its workspace can publish —
 the same authority it takes to create an editor share link, and for the same
 reason: a template hands the content to an audience that workspace membership
-no longer bounds. Everyone else sees the controls disabled with a note saying
-so, and the rule is enforced on the server, not just in the dialog.
+no longer bounds. The rule is enforced on the server, not just in the dialog.
+
+Everyone else is not shown the controls at all. A member who can't publish sees
+no **Template** section in the Share dialog while the document has no listing;
+once it has one, they see the card's title, how many times it has been used,
+and a button to copy its link — but nothing to publish, edit, submit, or
+unpublish it.
 
 A document has at most one listing. Publishing again updates the one that
 exists rather than creating a second, and the link stays the same.

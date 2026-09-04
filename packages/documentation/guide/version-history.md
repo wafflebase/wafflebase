@@ -26,8 +26,9 @@ documents, notes, and boards keep the icon at every width.
 
 ## What the list shows
 
-Versions are grouped under a heading per day (*Monday, 3 September 2026*),
-newest first, with the time beside each entry.
+Versions are grouped under a heading per day — the weekday and full date,
+written the way your browser's language settings write dates — newest first,
+with the time beside each entry.
 
 Most entries are named **Automatic**. Wafflebase does not decide when those are
 taken — the server records one each time it snapshots the document, so the
@@ -93,10 +94,10 @@ exists — **⌘+Z** / **Ctrl+Z** will not walk a restore back, and **Before
 restore** is what you use instead.
 
 ::: warning Comments come back with the version
-Comments live inside the document, so they are part of the version being
-restored. Any comment added after that version was created is removed along
-with the rest of the newer content. The confirmation dialog says so before you
-commit.
+[Comments](/guide/collaboration#comments-mentions) live inside the document, so
+they are part of the version being restored. Any comment added after that
+version was created is removed along with the rest of the newer content. The
+confirmation dialog says so before you commit.
 :::
 
 ::: warning Only one of the two Restore buttons asks you to confirm
