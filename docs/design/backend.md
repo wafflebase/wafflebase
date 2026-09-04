@@ -289,9 +289,14 @@ allowed to delete or move it (`DocumentController.resolveDocManager`).
   cleanup for `pdf` documents.
 
 The REST v1 `DELETE /api/v1/workspaces/:wid/documents/:did` applies the same
-manager gate for JWT callers; API-key callers (workspace-scoped credentials
-minted by an owner) act with workspace authority but must carry the `write`
-scope — a read-only key is rejected.
+manager gate to every caller. An API key carries the authority of the user who
+minted it, resolved against that user's membership at request time: a key is
+mintable only by a workspace owner (`assertOwner`), so a live owner's key is
+unaffected, while a key whose minter was demoted or removed is refused —
+`WorkspaceScopeGuard` requires the minting user still be a member, and
+`WorkspaceService.removeMember` revokes their keys outright in the same
+transaction as the membership delete. It must also carry the `write` scope —
+a read-only key is rejected.
 
 #### Share Links (`/documents/:id/share-links`, `/share-links`)
 

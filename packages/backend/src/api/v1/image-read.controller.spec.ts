@@ -161,7 +161,8 @@ describe('ApiV1ImageReadController.get', () => {
     expect(getObject).not.toHaveBeenCalled();
   });
 
-  it('serves the bytes to a workspace-scoped API key', async () => {
+  it('serves the bytes to a workspace-scoped API key whose minter is still a member', async () => {
+    const assertMember = jest.fn().mockResolvedValue({});
     const getObject = jest.fn().mockResolvedValue({
       body: new Uint8Array([1]),
       contentType: 'image/webp',
@@ -169,6 +170,7 @@ describe('ApiV1ImageReadController.get', () => {
     const ctrl = makeController({
       workspaceService: {
         resolveId: jest.fn((id: string) => Promise.resolve(id)),
+        assertMember,
       },
       imageService: { getObject },
     });
@@ -177,11 +179,42 @@ describe('ApiV1ImageReadController.get', () => {
       'w1',
       VALID_ID,
       undefined,
-      { user: { isApiKey: true, workspaceId: 'w1' } } as never,
+      { user: { id: 7, isApiKey: true, workspaceId: 'w1' } } as never,
       res as never,
     );
+    expect(assertMember).toHaveBeenCalledWith('w1', 7);
     expect(getObject).toHaveBeenCalledWith(`w1/${VALID_ID}`);
     expect(res.end).toHaveBeenCalled();
+  });
+
+  it('forbids an API key whose minter is no longer a member, token or not', async () => {
+    const assertMember = jest
+      .fn()
+      .mockRejectedValue(new ForbiddenException('not a member'));
+    const findByToken = jest
+      .fn()
+      .mockResolvedValue({ documentId: 'd1', document: { workspaceId: 'w1' } });
+    const getObject = jest.fn();
+    const ctrl = makeController({
+      workspaceService: {
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
+        assertMember,
+      },
+      shareLinkService: { findByToken },
+      imageService: { getObject },
+    });
+    await expect(
+      ctrl.get(
+        'w1',
+        VALID_ID,
+        'tok',
+        { user: { id: 7, isApiKey: true, workspaceId: 'w1' } } as never,
+        makeRes() as never,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // A key is not a browser: it never falls through to the share-token path.
+    expect(findByToken).not.toHaveBeenCalled();
+    expect(getObject).not.toHaveBeenCalled();
   });
 
   it('forbids an API key scoped to a different workspace', async () => {

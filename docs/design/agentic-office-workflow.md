@@ -164,6 +164,46 @@ group does not close by adding a command: it needs `CombinedAuthGuard` or an
 `/api/v1` folder surface, and a decision about whether agent-facing automation
 is expected to work under an API key at all.
 
+> **Status note (Step 4 of the todo, landed after this audit).** The decision is
+> **yes, an API key must reach them**, and the close is an `/api/v1` surface
+> rather than a wider guard on the web controllers — see §3.1. All seven now
+> have both a route and a command: `folders list|create|rename|move|delete`,
+> `docs copy`, `docs move`. As with class A the table above is left as measured;
+> it is the *before* half of the comparison §3 exists to make.
+
+##### 3.1 Why a new surface rather than `CombinedAuthGuard` on the web routes
+
+Swapping the guard on `folder.controller.ts` looks like the smaller change and
+is the wrong one. `WorkspaceScopeGuard` is what makes an API key safe on
+`/api/v1` — it refuses a key minted for a different workspace — and it works by
+reading `:workspaceId` out of the path. The web folder routes are
+`PATCH folders/:id` and `DELETE folders/:id`, with no workspace in the path at
+all, so there would be nothing for it to check: any valid key could rename or
+delete any workspace's folder. Nesting the routes under
+`workspaces/:workspaceId/folders` is what makes the key's scope enforceable,
+and it is the shape every other `/api/v1` route already has.
+
+Two consequences follow from the nesting, both deliberate:
+
+- A folder that exists in **another** workspace answers `404`, not `403` — the
+  same shape `getDocumentOrThrow` uses. Which folders a workspace holds is
+  that workspace's own information.
+- There is no cross-workspace document move here. `PATCH .../documents/:id`
+  takes `folderId` only (`null` = workspace root); the `workspaceId` move the
+  web surface offers has no meaning to a credential bound to one workspace.
+
+Authority is the manager bar the web routes apply — workspace owner, or the
+folder's / document's author — for every caller. An API key is resolved to the
+user who minted it and held to that bar against their membership *now*, so a
+key does not outlive its minter's role (`ApiKeyWriteScopeGuard` has already
+required the `write` scope, a separate gate). Since only an owner can mint a
+key, a live owner's key manages everything as before. Copy is the exception,
+gated on membership alone: it neither modifies, moves, nor destroys the source,
+so anyone who can read a document can duplicate it.
+
+The web controllers are untouched. The frontend calls them, and closing this gap
+must not change what a browser session can do.
+
 #### B — not in the backend either (18)
 
 No command can close these.
@@ -191,7 +231,7 @@ uniformly). The total is not the point. The composition is:
 | Class | Items | What closing it costs |
 | --- | --- | --- |
 | A | ~37 | CLI commands only |
-| A′ | 7 | Backend auth/surface change **and** a CLI command |
+| A′ | 7 | An `/api/v1` surface **and** a CLI command — no new behavior |
 | B | 18 | New backend endpoints first |
 | C | 2 | Nothing — separate it from the score |
 
@@ -302,6 +342,10 @@ else.
    monorepo (`packages/`, or `scripts/agent/` beside the existing eval harness),
    or outside it? The eval harness keeps run data outside the repo; the same
    question applies to fixtures.
-3. **Do agents authenticate with an API key or a session?** Gap A′ is only a gap
-   under an API key. The answer decides whether folder and copy support is a
-   guard change or a non-issue.
+3. ~~**Do agents authenticate with an API key or a session?**~~ **Answered: an
+   API key.** A session is a person's credential and expires; a bench that
+   depends on one cannot run unattended, and a `/api/v1` surface that works only
+   under a login would make the score a measure of how the harness authenticated
+   rather than of what an agent can do. So gap A′ closed as an `/api/v1` folder
+   surface plus `POST .../documents/:id/copy` and a `folderId` on the document
+   `PATCH` — see §A′ and §3.1.

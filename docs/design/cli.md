@@ -405,6 +405,8 @@ wafflebase
   │     ├── create <title>                   [--type doc|sheet] (default: sheet)
   │     ├── get <doc-id>                     Show document metadata
   │     ├── rename <doc-id> <title>          Rename a document
+  │     ├── copy <doc-id>                    Duplicate as "<title> (copy)"
+  │     ├── move <doc-id> [folder-id]        File it under a folder (omit → root)
   │     ├── delete <doc-id>                  Delete a document
   │     ├── content <doc-id>
   │     │     [--format json|md|text]        (default: json)
@@ -540,12 +542,34 @@ wafflebase
   │     ├── rename <doc-id> <title>          Rename a file document
   │     └── delete <doc-id>                   Delete it and its stored bytes
   │
-  └── images (alias: image)                  The workspace image bucket
-        ├── upload <file>                    png|jpeg|gif|webp, 10 MB cap
-        ├── get <image-id> [out]             (out: path, - for stdout;
-        │     [--force]                       default: the image id)
-        └── delete <image-id>                 Delete the stored image
+  ├── images (alias: image)                  The workspace image bucket
+  │     ├── upload <file>                    png|jpeg|gif|webp, 10 MB cap
+  │     ├── get <image-id> [out]             (out: path, - for stdout;
+  │     │     [--force]                       default: the image id)
+  │     └── delete <image-id>                 Delete the stored image
+  │
+  └── folders (alias: folder)                The workspace folder tree
+        ├── list                             Flat; parentId builds the tree
+        ├── create <name> [--parent <id>]    Omit --parent for the root
+        ├── rename <folder-id> <name>        Rename a folder
+        ├── move <folder-id> [parent-id]     Omit the parent for the root
+        └── delete <folder-id>               Documents return to the root
 ```
+
+`folders` is workspace-scoped like `images`: there is no doc id and no `--tab`.
+The tree comes back flat and `parentId` reconstructs it, with `null` for the
+workspace root. Both `move` verbs — `folders move` and `docs move` — take the
+new parent as an *optional positional* rather than a flag, because omitting it
+means the root, which is the one destination that has no id to spell. On the
+wire that is an explicit `null`: the API reads an absent `parentId` / `folderId`
+as "leave it where it is", so dropping the field would make the move a silent
+no-op that still reported success.
+
+Folders are organizational only (see
+[workspace-folders.md](workspace-folders.md)) — `docs move` changes where a
+document is listed, never who can read it. `folders delete` is annotated
+`destructive` because it removes folders, but it never deletes a document: the
+descendants cascade and their documents return to the workspace root.
 
 The Slides `content` command is text-only for `md`/`text`: it walks each
 slide's elements (text boxes, shape labels, table cells, flattened
@@ -754,6 +778,18 @@ wafflebase docs set-content abc-123 --data "$(cat doc.json)"
 wafflebase images upload logo.png
 wafflebase images get img-42 logo.png --force
 wafflebase images delete img-42
+
+# Folders, and filing documents into them
+wafflebase folders create "Q1 Reports"
+wafflebase folders create "Drafts" --parent fld-1
+wafflebase folders list
+wafflebase folders move fld-2 fld-1                    # nest under fld-1
+wafflebase folders move fld-2                          # back to the root
+wafflebase folders rename fld-1 "Q1 2026"
+wafflebase folders delete fld-2                        # its docs go to the root
+wafflebase docs move abc-123 fld-1                     # file a document
+wafflebase docs move abc-123                           # back to the root
+wafflebase docs copy abc-123                           # → "<title> (copy)"
 
 # Files (any file, stored as bytes)
 wafflebase files upload archive.zip                    # → a `file` document

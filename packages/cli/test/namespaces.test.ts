@@ -7,6 +7,7 @@ import { registerSlidesCommand } from '../src/commands/slides.js';
 import { registerNotesCommand } from '../src/commands/notes.js';
 import { registerApiKeysCommand } from '../src/commands/api-keys.js';
 import { registerFilesCommand } from '../src/commands/files.js';
+import { registerFoldersCommand } from '../src/commands/folders.js';
 
 function buildProgram(): Command {
   const p = createProgram();
@@ -15,6 +16,7 @@ function buildProgram(): Command {
   registerSlidesCommand(p);
   registerNotesCommand(p);
   registerFilesCommand(p);
+  registerFoldersCommand(p);
   registerApiKeysCommand(p);
   return p;
 }
@@ -161,6 +163,31 @@ describe('CLI namespace structure', () => {
     const program = buildProgram();
     const files = findChild(program, 'files');
     expect(findChild(files!, 'content')).toBeUndefined();
+  });
+
+  it('exposes the folders namespace with the folder alias', () => {
+    const program = buildProgram();
+    const folders = findChild(program, 'folders');
+    expect(folders?.name()).toBe('folders');
+    expect(folders?.aliases()).toEqual(expect.arrayContaining(['folder']));
+  });
+
+  it('folders contains list/create/rename/move/delete', () => {
+    const program = buildProgram();
+    const folders = findChild(program, 'folders');
+    expect(folders).toBeDefined();
+    for (const sub of ['list', 'create', 'rename', 'move', 'delete']) {
+      expect(findChild(folders!, sub)?.name()).toBe(sub);
+    }
+  });
+
+  // `copy` and `move` act on the document row, so they belong to the generic
+  // document namespace rather than being repeated per type.
+  it('docs contains copy and move', () => {
+    const program = buildProgram();
+    const docs = findChild(program, 'docs');
+    expect(findChild(docs!, 'copy')?.name()).toBe('copy');
+    expect(findChild(docs!, 'move')?.name()).toBe('move');
   });
 
   it('notes contains list/create/get/rename/delete/content/import/export', () => {

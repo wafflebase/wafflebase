@@ -28,7 +28,7 @@ describe('WorkspaceScopeGuard', () => {
     );
   });
 
-  it('allows API key access when workspaceId matches', async () => {
+  it('allows API key access when workspaceId matches and its minter is still a member', async () => {
     const ctx = createMockContext(
       { id: 1, isApiKey: true, workspaceId: 'ws-1' },
       'ws-1',
@@ -37,7 +37,24 @@ describe('WorkspaceScopeGuard', () => {
     const result = await guard.canActivate(ctx);
 
     expect(result).toBe(true);
-    expect(workspaceService.assertMember).not.toHaveBeenCalled();
+    expect(workspaceService.assertMember).toHaveBeenCalledWith('ws-1', 1);
+  });
+
+  // The scope claim is frozen at mint time; membership is not. Removing
+  // somebody from a workspace has to revoke the keys they minted, or the key
+  // outlives the authority that justified it.
+  it('rejects an API key whose minter has left the workspace', async () => {
+    workspaceService.assertMember.mockRejectedValue(
+      new ForbiddenException('Not a member'),
+    );
+    const ctx = createMockContext(
+      { id: 1, isApiKey: true, workspaceId: 'ws-1' },
+      'ws-1',
+    );
+
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 
   it('rejects API key access when workspaceId does not match', async () => {
