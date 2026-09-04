@@ -1,0 +1,21 @@
+import{c as i}from"./createReactComponent-CVa0ZtGS.js";import{h as e}from"./sheet-core-XxT5Z_Lh.js";import{j as r,r as c}from"./vendor-react-BcnGT3Lb.js";import{v as g}from"./index-CVUJgu4k.js";/**
+ * @license @tabler/icons-react v3.31.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */var B=i("outline","align-center","IconAlignCenter",[["path",{d:"M4 6l16 0",key:"svg-0"}],["path",{d:"M8 12l8 0",key:"svg-1"}],["path",{d:"M6 18l12 0",key:"svg-2"}]]);/**
+ * @license @tabler/icons-react v3.31.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */var m=i("outline","align-left","IconAlignLeft",[["path",{d:"M4 6l16 0",key:"svg-0"}],["path",{d:"M4 12l10 0",key:"svg-1"}],["path",{d:"M4 18l14 0",key:"svg-2"}]]);/**
+ * @license @tabler/icons-react v3.31.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */var v=i("outline","align-right","IconAlignRight",[["path",{d:"M4 6l16 0",key:"svg-0"}],["path",{d:"M10 12l10 0",key:"svg-1"}],["path",{d:"M6 18l14 0",key:"svg-2"}]]);/**
+ * @license @tabler/icons-react v3.31.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */var f=i("outline","typography","IconTypography",[["path",{d:"M4 20l3 0",key:"svg-0"}],["path",{d:"M14 20l7 0",key:"svg-1"}],["path",{d:"M6.9 15l6.9 0",key:"svg-2"}],["path",{d:"M10.2 6.3l5.8 13.7",key:"svg-3"}],["path",{d:"M5 20l6 -16l2 0l7 16",key:"svg-4"}]]);const x=["#000000",e.neutrals.light.ink,"#4A3826",e.neutrals.light.sub,"#857060","#A89784","#CFC3B0","#FFFFFF",e.syrupDeep,e.syrup,e.syrupBright,e.butter,e.berry,e.berryBright,e.leaf,e.leafBright,"#1A73E8","#039BE5","#00897B","#00BCD4","#3F51B5","#673AB7","#7B1FA2","#D81B60","#4E342E","#795548","#5D4037","#607D8B","#455A64","#FF5722","#FFC107","#4CAF50"],E=["#FFFFFF",e.neutrals.light.paper,e.neutrals.light.bg,"#F4ECDB",e.neutrals.light.rule,"#D7C5A0","#BFA67C","#A89784","#FBE8A8","#F4E4D2","#FAD7B0","#F8DADC","#F4C2C5","#E0EAD0","#C7DAA9","#F0E6CC","#D9E8FB","#BBD9F5","#CFE8E5","#B0DAD0","#DCDFF4","#C1C6E8","#E6D7EC","#F8D7E2","#F5F5F5","#E8E8E8","#D5D5D5","#BBBBBB","#FFE0B2","#FFECB3","#C8E6C9","#B2DFDB"];function p({selected:n=!1,className:t}){return r.jsx("span",{"data-testid":"none-swatch","aria-hidden":"true",className:`relative inline-block h-5 w-5 shrink-0 overflow-hidden rounded-sm border bg-white ${n?"border-foreground ring-2 ring-ring/50":"border-border"} ${t??""}`,children:r.jsx("svg",{viewBox:"0 0 20 20",className:"absolute inset-0 h-full w-full",preserveAspectRatio:"none",children:r.jsx("line",{x1:"2",y1:"18",x2:"18",y2:"2",stroke:"#EA4335",strokeWidth:"1.5"})})})}function h({color:n,label:t,onClick:o,selected:a,title:l}){return r.jsx("button",{type:"button","aria-label":t,"aria-pressed":a,title:l??t,onClick:o,className:g("h-5 w-5 cursor-pointer rounded-sm border transition-transform hover:scale-125",a?"border-foreground ring-2 ring-ring/50":"border-border"),style:{backgroundColor:n}})}function D({colors:n,onSelect:t,onReset:o,noneLabel:a="Reset",colorKind:l="color"}){return r.jsxs(r.Fragment,{children:[r.jsxs("button",{type:"button","data-none-control":!0,"aria-label":a,className:"mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted",onClick:o,children:[r.jsx(p,{}),a]}),r.jsx("div",{className:"grid grid-cols-8 gap-1",children:n.map(s=>r.jsx(h,{color:s,label:`Select ${l} ${s}`,title:s,onClick:()=>t(s)},s))})]})}const u=c.forwardRef(({icon:n,color:t,label:o,className:a,disabled:l,...s},d)=>r.jsxs("button",{ref:d,type:"button","aria-label":o,disabled:l,className:["inline-flex h-7 w-7 cursor-pointer flex-col items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50",a??""].filter(Boolean).join(" "),...s,children:[r.jsx("span",{className:"flex h-3.5 items-center justify-center",children:n}),r.jsx("span",{className:"mt-0.5 block h-[3px] w-4 rounded-sm border",style:{backgroundColor:t??"transparent",borderColor:t||"var(--border)"}})]}));u.displayName="ColorSwatchButton";export{E as B,u as C,f as I,p as N,x as T,D as a,B as b,v as c,m as d,h as e};
