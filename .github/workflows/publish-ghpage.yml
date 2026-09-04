@@ -186,6 +186,35 @@ jobs:
             echo "See packages/frontend/.env.production.example for what each one is."
             exit 1
           fi
+          # Both endpoints must additionally be https://. This is not general
+          # hardening — it is specific to where this workflow publishes. GitHub
+          # Pages serves only over https, so a bundle built against an http://
+          # backend has every request blocked by the browser's mixed-content
+          # rules: credentialed auth (cookies), the notifications SSE stream and
+          # Yorkie sync all fail at runtime, with nothing wrong in the build log
+          # to explain it. Failing here names the offending variable instead.
+          #
+          # VITE_YORKIE_PUBLIC_KEY is deliberately not checked — it is a project
+          # key, not an endpoint.
+          #
+          # Reached only once `missing` is empty, so both values are non-empty
+          # here and an unset variable is reported by one gate rather than two.
+          #
+          # `case` rather than a bare `[ ]`: its exit status is 0 whether or not
+          # a branch matches, so it cannot trip the `bash -e` these `run:` blocks
+          # execute under — the same care the `|| assignment` idiom above takes.
+          # The pattern is literal and lowercase (`?*` also rejects a bare
+          # "https://"), so an uppercased scheme is refused as well; lowercase is
+          # what every URL in the examples uses.
+          cleartext=""
+          case "$VITE_BACKEND_API_URL" in https://?*) ;; *) cleartext="$cleartext VITE_BACKEND_API_URL" ;; esac
+          case "$VITE_YORKIE_RPC_ADDR" in https://?*) ;; *) cleartext="$cleartext VITE_YORKIE_RPC_ADDR" ;; esac
+          if [ -n "$cleartext" ]; then
+            echo "::error::Cannot build the site: repository variable(s)$cleartext must be https:// URLs."
+            echo "This site is published to GitHub Pages, which is https-only, so a cleartext endpoint is blocked as mixed content in the browser and the app cannot work at all."
+            echo "Set them under Settings → Secrets and variables → Actions → Variables."
+            exit 1
+          fi
           echo "Building with:"
           echo "  VITE_FRONTEND_BASENAME=$VITE_FRONTEND_BASENAME"
           echo "  VITE_BACKEND_API_URL=$VITE_BACKEND_API_URL"
