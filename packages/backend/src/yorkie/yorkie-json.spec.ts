@@ -152,8 +152,12 @@ describe('unwrapJson', () => {
     expect(unwrapJson(proxy)).toEqual({ cells: { A1: { v: 'one\ntwo' } } });
   });
 
-  it('falls back to a proxy walk when the string is unparseable', () => {
+  it('throws rather than degrading to a proxy walk', () => {
+    // `detachYorkieValue` would "succeed" here and hand back CRDT metadata in
+    // place of every nested array, because `Array.isArray` is false for a
+    // Yorkie array proxy. Every caller reads a shape with nested arrays, so a
+    // loud failure is the only correct answer.
     const proxy = rootProxy('{not json at all', { a: 1, b: 'two' });
-    expect(unwrapJson(proxy)).toEqual({ a: 1, b: 'two' });
+    expect(() => unwrapJson(proxy)).toThrow(SyntaxError);
   });
 });

@@ -5,9 +5,11 @@ import {
   applyAddThread,
   applyDeleteComment,
   applyDeleteThread,
+  applyEditComment,
   applySetResolved,
   buildReply,
   buildThread,
+  commentAuthorId,
   copyThread,
   findThread,
   fromYorkieMs,
@@ -86,6 +88,37 @@ describe('copyThread / listThreads', () => {
   it('returns an empty list for a document with no comments', () => {
     expect(listThreads(undefined)).toEqual([]);
   });
+
+  it('reads a thread whose comment list is not a real array', () => {
+    // The shape that actually reaches these functions inside `doc.update`: a
+    // Yorkie array proxy wraps a `CRDTArray`, so `Array.isArray` is **false**
+    // for it. Guarding on `Array.isArray` made every stored thread invisible —
+    // the comments API read empty and every reply/resolve/delete 404'd — while
+    // the plain-object fixtures above passed.
+    const { thread } = seeded(42);
+    const comments = thread.comments;
+    const proxied = {
+      ...thread,
+      comments: new Proxy(
+        {},
+        {
+          get: (_t, key) =>
+            key === 'length'
+              ? comments.length
+              : key === Symbol.iterator
+                ? comments[Symbol.iterator].bind(comments)
+                : Reflect.get(comments, key),
+        },
+      ) as unknown as typeof comments,
+    };
+    expect(Array.isArray(proxied.comments)).toBe(false);
+    const map = { [thread.id]: proxied } as unknown as ThreadMap;
+
+    expect(findThread(map, thread.id)).toBeDefined();
+    expect(listThreads(map).map((t) => t.comments[0].body)).toEqual([
+      'why is this negative?',
+    ]);
+  });
 });
 
 describe('applyAddReply', () => {
@@ -115,6 +148,66 @@ describe('applySetResolved', () => {
     expect(thread.resolved).toBe(false);
     expect(thread.resolvedAt).toBeUndefined();
     expect(thread.resolvedBy).toBeUndefined();
+  });
+
+  it('reopens a never-resolved thread without deleting absent keys', () => {
+    // Yorkie's object proxy routes `delete` to `RHTPQMap.deleteByKey`, which
+    // throws `fail to find <key>` for a key that was never set — so an
+    // unguarded `delete thread.resolvedAt` turned `PATCH {resolved:false}` on
+    // an open thread into a 500. A proxy that throws the same way stands in.
+    const { thread } = seeded();
+    const deleted: Array<string | symbol> = [];
+    const strict = new Proxy(thread as Record<string, unknown>, {
+      deleteProperty: (target, key) => {
+        if (!(key in target)) throw new Error(`fail to find ${String(key)}`);
+        deleted.push(key);
+        delete target[key as string];
+        return true;
+      },
+    }) as unknown as AnyThread;
+
+    expect(() => applySetResolved(strict, false, AUTHOR, 1000)).not.toThrow();
+    expect(deleted).toEqual([]);
+    expect(strict.resolved).toBe(false);
+  });
+});
+
+describe('applyEditComment', () => {
+  it('rewrites the body in place and stamps editedAt', () => {
+    const { thread } = seeded();
+    const commentId = thread.comments[0].id;
+    const edited = applyEditComment(thread, commentId, 'reworded', 2_000);
+
+    expect(edited).toMatchObject({ id: commentId, body: 'reworded' });
+    expect(edited!.editedAt).toBe(2_000);
+    // The stored comment object is mutated, never replaced: swapping the
+    // element would clobber a concurrent write to a sibling field.
+    expect(thread.comments[0].body).toBe('reworded');
+    expect(fromYorkieMs(thread.comments[0].editedAt!)).toBe(2_000);
+  });
+
+  it('reports an unknown comment id rather than editing something else', () => {
+    const { thread } = seeded();
+    expect(applyEditComment(thread, 'nope', 'x', 1)).toBeUndefined();
+    expect(thread.comments[0].body).toBe('why is this negative?');
+  });
+
+  it('refuses an empty body, the engine’s own rule', () => {
+    const { thread } = seeded();
+    expect(() =>
+      applyEditComment(thread, thread.comments[0].id, '   ', 1),
+    ).toThrow();
+  });
+});
+
+describe('commentAuthorId', () => {
+  it('reads the stored id as a string, and nothing otherwise', () => {
+    const { thread } = seeded();
+    expect(commentAuthorId(thread.comments[0])).toBe('7');
+    expect(commentAuthorId(undefined)).toBeNull();
+    expect(
+      commentAuthorId({ ...thread.comments[0], author: {} as never }),
+    ).toBeNull();
   });
 });
 

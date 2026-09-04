@@ -22,13 +22,23 @@ backend already has authority.
 Since v0.6.7 that premise has one exception. `/api/v1/.../comments`
 (`packages/backend/src/api/v1/comments.controller.ts`) lets an agent or the CLI
 open, reply to and resolve a thread, so for *those* writes the backend is the
-party that observes the comment and it plans the notifications itself —
-`planCommentNotifications` in that controller applies the same rule the
-frontend's `notify.ts` does and calls the same
-`NotificationService.createFromComment`, so membership authorization, the
-recipient cap and the dedupe keys stay one implementation. There is no third
-path: a comment either passes through an editor session or through that
-controller, and both notify.
+party that observes the comment and it plans the notifications itself. It does
+so by calling the *same function* the frontend's `notify.ts` calls —
+`planCommentNotifications`, which lives in `@wafflebase/sheets`
+(`src/comment/notify-plan.ts`) beside the `Comment` it reads, the lowest
+package both callers already depend on — and the same
+`NotificationService.createFromComment`. So who is told, **what excerpt they
+see**, membership authorization, the recipient cap and the dedupe keys stay one
+implementation. There is no third path: a comment either passes through an
+editor session or through that controller, and both notify.
+
+Restating the rule in the controller was tried first and is what the shared
+module replaces: the two copies had already diverged on the preview (the
+backend stored the raw `@[name](id)` markup where the frontend stored the
+flattened `@name`), so a mention notification looked different depending on who
+wrote the comment. The mention grammar itself moved for the same reason and now
+lives at `@wafflebase/sheets`' `comment/mentions.ts`, which the frontend's
+`components/comments/mentions.ts` re-exports.
 
 This closes the follow-up that [comments-mentions.md](comments-mentions.md)
 deferred; its `extractMentionedUserIds()` helper — written for "future

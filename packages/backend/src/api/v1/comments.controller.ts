@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Logger,
   NotFoundException,
@@ -30,7 +31,10 @@ import {
   applyAddThread,
   applyDeleteComment,
   applyDeleteThread,
+  applyEditComment,
   applySetResolved,
+  commentAuthorId,
+  findComment,
   buildReply,
   buildThread,
   copyThread,
@@ -42,8 +46,14 @@ import {
   cellAnchorToSref,
   initialSpreadsheetDocument,
   parseRef,
+  planCommentNotifications,
 } from '@wafflebase/sheets';
-import type { CommentAuthor, Worksheet } from '@wafflebase/sheets';
+import type {
+  Comment,
+  CommentAuthor,
+  CommentEventKind,
+  Worksheet,
+} from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '../../yorkie/yorkie.types';
 
 /** The document types that store comment threads. */
@@ -86,10 +96,18 @@ type FlatCommentRoot = Record<string, unknown> & { comments?: ThreadMap };
  * `POST /notifications/comment` exists for the browser to report one; these
  * routes are the second writer, and an agent-authored mention that told nobody
  * would be a silently dropped notification rather than a deferred feature. The
- * planning rule is the same one `packages/frontend/src/components/comments/notify.ts`
- * applies (see {@link planCommentNotifications}), and it goes through the same
- * `NotificationService.createFromComment`, so membership authorization, the
- * recipient cap and the dedupe keys are one implementation.
+ * planning rule is `planCommentNotifications` from `@wafflebase/sheets`, the
+ * *same function* the editor's `components/comments/notify.ts` calls rather
+ * than a second statement of it, and it goes through the same
+ * `NotificationService.createFromComment` — so who is told, what excerpt they
+ * see, membership authorization, the recipient cap and the dedupe keys are all
+ * one implementation.
+ *
+ * Editing and deleting are **author-only**, the rule
+ * `docs/design/sheets/comments.md` states and `CommentThreadCard.tsx` enforces
+ * in the editor. The API is the second writer of that lifecycle too, and it is
+ * the one reachable by a workspace-scoped key, so the check is made here rather
+ * than left to the UI.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/comments')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
@@ -174,15 +192,15 @@ export class ApiV1CommentsController {
     thread: AnyThread,
     comment?: { id: string; body: string },
   ): Promise<void> {
-    const actorId = toUserId(actor.userId);
-    if (actorId === null) return;
+    const actorId = Number(actor.userId);
+    if (!Number.isSafeInteger(actorId) || actorId <= 0) return;
     const plans = planCommentNotifications({
       documentId,
-      actorId,
+      actorUserId: actor.userId,
       event,
-      thread,
+      thread: { id: thread.id, comments: thread.comments ?? [] },
       comment,
-    });
+    }) as CommentNotificationDto[];
     for (const plan of plans) {
       try {
         await this.notificationService.createFromComment(actorId, plan);
@@ -385,18 +403,66 @@ export class ApiV1CommentsController {
     return updated;
   }
 
+  @Patch(':threadId/comments/:commentId')
+  async editComment(
+    @Param('workspaceId') workspaceId: string,
+    @Param('documentId') documentId: string,
+    @Param('threadId') threadId: string,
+    @Param('commentId') commentId: string,
+    @Body() body: unknown,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const type = await this.loadCommentableType(workspaceId, documentId);
+    const text = normalizeBody(asObject(body, 'body').body);
+    if (!text) {
+      throw new BadRequestException("'body' must be a non-empty string");
+    }
+    const author = await this.author(req);
+    let edited: Comment | undefined;
+    await this.mutateMap(
+      documentId,
+      type,
+      threadId,
+      (map) => {
+        const thread = findThread(map, threadId);
+        if (!thread) throw new NotFoundException('Thread not found');
+        edited = applyEditComment(thread, commentId, text, Date.now());
+      },
+      (map) => this.assertCommentAuthor(map, threadId, commentId, author),
+    );
+    // Editing does not notify: the recipients were told when the comment was
+    // written, and a second row for the same comment id would be absorbed by
+    // the dedupe index anyway.
+    return { threadId, comment: edited };
+  }
+
   @Delete(':threadId')
   async deleteThread(
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Param('threadId') threadId: string,
+    @Req() req: AuthenticatedRequest,
   ) {
     const type = await this.loadCommentableType(workspaceId, documentId);
-    await this.mutateMap(documentId, type, threadId, (map) => {
-      if (!applyDeleteThread(map, threadId)) {
-        throw new NotFoundException('Thread not found');
-      }
-    });
+    const author = await this.author(req);
+    await this.mutateMap(
+      documentId,
+      type,
+      threadId,
+      (map) => {
+        if (!applyDeleteThread(map, threadId)) {
+          throw new NotFoundException('Thread not found');
+        }
+      },
+      // Deleting a thread is deleting its opening comment, so the authority
+      // for it is that comment's author — exactly what the editor offers, and
+      // what `docs/design/sheets/comments.md` calls "delete by author only".
+      (map) => {
+        const thread = findThread(map, threadId);
+        if (!thread) throw new NotFoundException('Thread not found');
+        this.assertCommentAuthor(map, threadId, rootCommentId(thread), author);
+      },
+    );
     return { id: threadId, deleted: 'thread' as const };
   }
 
@@ -406,28 +472,65 @@ export class ApiV1CommentsController {
     @Param('documentId') documentId: string,
     @Param('threadId') threadId: string,
     @Param('commentId') commentId: string,
+    @Req() req: AuthenticatedRequest,
   ) {
     const type = await this.loadCommentableType(workspaceId, documentId);
+    const author = await this.author(req);
     let response!: {
       id: string;
       threadId: string;
       deleted: 'comment' | 'thread';
     };
-    await this.mutateMap(documentId, type, threadId, (map) => {
-      const result = applyDeleteComment(map, threadId, commentId);
-      if (result === 'not_found') {
-        throw new NotFoundException('Comment not found');
-      }
-      // Deleting the opening comment deletes the conversation it opened, the
-      // same rule the editor's stores follow. Say which happened rather than
-      // reporting a bare success for what was in fact a thread deletion.
-      response = {
-        id: commentId,
-        threadId,
-        deleted: result === 'thread_deleted' ? 'thread' : 'comment',
-      };
-    });
+    await this.mutateMap(
+      documentId,
+      type,
+      threadId,
+      (map) => {
+        const result = applyDeleteComment(map, threadId, commentId);
+        if (result === 'not_found') {
+          throw new NotFoundException('Comment not found');
+        }
+        // Deleting the opening comment deletes the conversation it opened, the
+        // same rule the editor's stores follow. Say which happened rather than
+        // reporting a bare success for what was in fact a thread deletion.
+        response = {
+          id: commentId,
+          threadId,
+          deleted: result === 'thread_deleted' ? 'thread' : 'comment',
+        };
+      },
+      (map) => this.assertCommentAuthor(map, threadId, commentId, author),
+    );
     return response;
+  }
+
+  /**
+   * Refuse an edit or a delete the caller did not author.
+   *
+   * `docs/design/sheets/comments.md` states the lifecycle as "edit / delete by
+   * author only", and `CommentThreadCard.tsx` is where the editor enforces it —
+   * client-side, which is authorization only for as long as the editor is the
+   * only writer. It no longer is: these routes are reachable with a
+   * workspace-scoped API key, so without this check any member of a workspace
+   * could delete anybody's comment. Comparison is on the stored string id, so
+   * a share-link author (whose `userId` is not a `User.id` at all) matches
+   * nobody.
+   */
+  private assertCommentAuthor(
+    map: ThreadMap | undefined,
+    threadId: string,
+    commentId: string | undefined,
+    caller: CommentAuthor,
+  ): void {
+    const thread = findThread(map, threadId);
+    if (!thread) throw new NotFoundException('Thread not found');
+    const comment = commentId ? findComment(thread, commentId) : undefined;
+    if (!comment) throw new NotFoundException('Comment not found');
+    if (commentAuthorId(comment) !== caller.userId) {
+      throw new ForbiddenException(
+        'Only the author of a comment can edit or delete it.',
+      );
+    }
   }
 
   /**
@@ -435,12 +538,17 @@ export class ApiV1CommentsController {
    * sheet thread lives under is not in the path — a thread id is unique
    * across the document, and making the caller repeat the tab would let them
    * name the wrong one.
+   *
+   * `authorize` runs against the same map *before* `doc.update` opens: an
+   * authorization failure has to be an answer, not an exception thrown out of
+   * the middle of a CRDT transaction.
    */
   private async mutateMap(
     documentId: string,
     type: CommentableType,
     threadId: string,
     mutate: (map: ThreadMap) => void,
+    authorize?: (map: ThreadMap | undefined) => void,
   ): Promise<void> {
     if (type === 'sheet') {
       await this.yorkieService.withDocument<void, SpreadsheetDocument>(
@@ -448,6 +556,10 @@ export class ApiV1CommentsController {
         (doc) => {
           const tabId = tabIdOfThread(doc.getRoot(), threadId);
           if (!tabId) throw new NotFoundException('Thread not found');
+          const worksheet = doc.getRoot().sheets?.[tabId] as
+            | Worksheet
+            | undefined;
+          authorize?.(worksheet?.comments as ThreadMap | undefined);
           doc.update((root) => {
             const ws = root.sheets[tabId];
             mutate(ws.comments as ThreadMap);
@@ -463,6 +575,7 @@ export class ApiV1CommentsController {
         if (!findThread(doc.getRoot().comments, threadId)) {
           throw new NotFoundException('Thread not found');
         }
+        authorize?.(doc.getRoot().comments);
         doc.update((root) => {
           mutate(root.comments as ThreadMap);
         });
@@ -493,113 +606,12 @@ function prefixFor(type: CommentableType): string {
   return YORKIE_DOC_KEY_PREFIXES[type];
 }
 
-/** Which comment write happened — the same three the frontend reports. */
-export type CommentEventKind = 'thread' | 'reply' | 'resolve';
-
 /**
- * `@[username](userId)` is how a mention is stored inline in the plain-string
- * comment body (`docs/design/comments-mentions.md`); only the id is read here.
- * Mirrors `MENTION_RE` in `packages/frontend/src/components/comments/mentions.ts`.
+ * The id of the comment that opened the thread — the one whose author holds
+ * the authority to delete the whole conversation.
  */
-const MENTION_RE = /@\[[^\]]*\]\(([^)]*)\)/g;
-
-/**
- * `CommentAuthor.userId` is a string because the comment model is shared with
- * anonymous share-link sessions, but a notification recipient must be a real
- * `User.id`. Anything that is not a plain positive integer is not notifiable.
- */
-function toUserId(raw: string): number | null {
-  if (!/^\d+$/.test(raw)) return null;
-  const id = Number(raw);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
-}
-
-/**
- * Decide which notifications a comment write should produce.
- *
- * The rule is the frontend's `planCommentNotifications`, restated for a server
- * caller (which knows the actor as a `User.id` rather than as a
- * `CommentAuthor`): a reply notifies the thread's earlier participants, minus
- * anyone that same reply *mentions* — otherwise one reply lands in the same
- * inbox twice — and the actor is excluded everywhere. Resolving notifies the
- * participants. `NotificationService` re-checks workspace membership and
- * re-applies its own recipient cap, so this only decides intent, and an event
- * with nobody to notify costs no work at all.
- *
- * Exported for its own test: this is the only part of the notification path
- * that is a decision rather than a database write.
- */
-export function planCommentNotifications(input: {
-  documentId: string;
-  actorId: number;
-  event: CommentEventKind;
-  thread: AnyThread;
-  comment?: { id: string; body: string };
-}): CommentNotificationDto[] {
-  const { documentId, actorId, event, thread, comment } = input;
-  const plans: CommentNotificationDto[] = [];
-
-  if (event === 'resolve') {
-    const participants = participantIds(thread).filter((id) => id !== actorId);
-    if (participants.length > 0) {
-      plans.push({
-        type: 'thread_resolved',
-        documentId,
-        threadId: thread.id,
-        recipientUserIds: participants,
-        preview: thread.comments[0]?.body ?? '',
-      });
-    }
-    return plans;
-  }
-
-  if (!comment) return plans;
-
-  const mentioned: number[] = [];
-  for (const match of comment.body.matchAll(MENTION_RE)) {
-    const id = toUserId(match[1]);
-    if (id !== null && id !== actorId && !mentioned.includes(id)) {
-      mentioned.push(id);
-    }
-  }
-  if (mentioned.length > 0) {
-    plans.push({
-      type: 'comment_mention',
-      documentId,
-      threadId: thread.id,
-      commentId: comment.id,
-      recipientUserIds: mentioned,
-      preview: comment.body,
-    });
-  }
-
-  if (event === 'reply') {
-    const participants = participantIds({
-      ...thread,
-      comments: thread.comments.filter((c) => c.id !== comment.id),
-    }).filter((id) => id !== actorId && !mentioned.includes(id));
-    if (participants.length > 0) {
-      plans.push({
-        type: 'comment_reply',
-        documentId,
-        threadId: thread.id,
-        commentId: comment.id,
-        recipientUserIds: participants,
-        preview: comment.body,
-      });
-    }
-  }
-
-  return plans;
-}
-
-function participantIds(thread: AnyThread): number[] {
-  const ids: number[] = [];
-  for (const c of thread.comments ?? []) {
-    const id = toUserId(String(c.author?.userId ?? ''));
-    if (id !== null && !ids.includes(id)) ids.push(id);
-  }
-  return ids;
+function rootCommentId(thread: AnyThread): string | undefined {
+  return copyThread(thread).comments[0]?.id;
 }
 
 function asObject(body: unknown, name: string): Record<string, unknown> {

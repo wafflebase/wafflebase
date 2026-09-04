@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { createSpreadsheetDocument } from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import { ApiV1CommentsController } from './comments.controller';
@@ -192,7 +196,7 @@ describe('ApiV1CommentsController on a sheet', () => {
       thread.id,
     ]);
 
-    expect(await controller.deleteThread(WS, DOC, thread.id)).toEqual({
+    expect(await controller.deleteThread(WS, DOC, thread.id, REQ)).toEqual({
       id: thread.id,
       deleted: 'thread',
     });
@@ -217,6 +221,17 @@ describe('ApiV1CommentsController on a sheet', () => {
       REQ,
     );
     expect(reply.threadId).toBe(thread.id);
+    // `buildReply` stores `createdAt` as a Long (a JS `bigint`), which
+    // `res.json()` refuses outright — so the response has to carry a plain
+    // number or every reply is a 500. Assert the whole payload survives
+    // serialisation, not just its type.
+    expect(typeof reply.comment.createdAt).toBe('number');
+    expect(() => JSON.stringify(reply)).not.toThrow();
+    expect(JSON.parse(JSON.stringify(reply)).comment).toMatchObject({
+      id: reply.comment.id,
+      body: 'two',
+      createdAt: reply.comment.createdAt,
+    });
 
     const resolved = await controller.setResolved(
       WS,
@@ -262,6 +277,7 @@ describe('ApiV1CommentsController on a sheet', () => {
       DOC,
       thread.id,
       thread.comments[0].id,
+      REQ,
     );
     expect(res.deleted).toBe('thread');
     expect(root.sheets['tab-1'].comments).toEqual({});
@@ -277,12 +293,12 @@ describe('ApiV1CommentsController on a sheet', () => {
       REQ,
     );
 
-    expect(await controller.deleteThread(WS, DOC, thread.id)).toEqual({
+    expect(await controller.deleteThread(WS, DOC, thread.id, REQ)).toEqual({
       id: thread.id,
       deleted: 'thread',
     });
     await expect(
-      controller.deleteThread(WS, DOC, thread.id),
+      controller.deleteThread(WS, DOC, thread.id, REQ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
@@ -434,6 +450,94 @@ describe('ApiV1CommentsController author identity', () => {
   });
 });
 
+describe('ApiV1CommentsController edit / delete authorship', () => {
+  /** A second workspace member, holding their own key. */
+  const PEER = {
+    user: { id: 9, username: 'grace' },
+  } as unknown as AuthenticatedRequest;
+
+  async function seededThread() {
+    const root = sheetRoot();
+    const harnessed = harness('sheet', root as never);
+    const thread = await harnessed.controller.createThread(
+      WS,
+      DOC,
+      { body: 'mine', tabId: 'tab-1', ref: 'A1' },
+      REQ,
+    );
+    const reply = await harnessed.controller.reply(
+      WS,
+      DOC,
+      thread.id,
+      { body: 'theirs' },
+      PEER,
+    );
+    return { ...harnessed, root, thread, replyId: reply.comment.id };
+  }
+
+  it('refuses to delete a comment the caller did not write', async () => {
+    const { controller, root, thread, replyId } = await seededThread();
+    await expect(
+      controller.deleteComment(WS, DOC, thread.id, replyId, REQ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // Nothing was written: the check runs before the CRDT transaction opens.
+    expect(root.sheets['tab-1'].comments![thread.id].comments).toHaveLength(2);
+  });
+
+  it('lets the author delete their own reply', async () => {
+    const { controller, thread, replyId } = await seededThread();
+    expect(
+      await controller.deleteComment(WS, DOC, thread.id, replyId, PEER),
+    ).toEqual({ id: replyId, threadId: thread.id, deleted: 'comment' });
+  });
+
+  it('refuses to delete a thread the caller did not open', async () => {
+    const { controller, root, thread } = await seededThread();
+    await expect(
+      controller.deleteThread(WS, DOC, thread.id, PEER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(root.sheets['tab-1'].comments![thread.id]).toBeDefined();
+  });
+
+  it('edits a comment body and stamps editedAt, author only', async () => {
+    const { controller, root, thread } = await seededThread();
+    const commentId = thread.comments[0].id;
+
+    await expect(
+      controller.editComment(WS, DOC, thread.id, commentId, { body: 'no' }, PEER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const edited = await controller.editComment(
+      WS,
+      DOC,
+      thread.id,
+      commentId,
+      { body: 'mine, revised' },
+      REQ,
+    );
+    expect(edited.comment).toMatchObject({ id: commentId, body: 'mine, revised' });
+    expect(typeof edited.comment!.editedAt).toBe('number');
+    // Written onto the stored comment, not just reported back.
+    expect(
+      root.sheets['tab-1'].comments![thread.id].comments[0].body,
+    ).toBe('mine, revised');
+  });
+
+  it('refuses an empty edit body', async () => {
+    const { controller, thread } = await seededThread();
+    await expect(
+      controller.editComment(
+        WS,
+        DOC,
+        thread.id,
+        thread.comments[0].id,
+        { body: '  ' },
+        REQ,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
 describe('ApiV1CommentsController notifications', () => {
   const mention = (id: number) => `@[peer](${id})`;
 
@@ -457,7 +561,9 @@ describe('ApiV1CommentsController notifications', () => {
       threadId: thread.id,
       commentId: thread.comments[0].id,
       recipientUserIds: [9],
-      preview: body,
+      // Flattened through the shared planner, so a raw `@[peer](9)` token
+      // never reaches an inbox — the same excerpt the editor would report.
+      preview: 'look at this @peer',
     });
   });
 

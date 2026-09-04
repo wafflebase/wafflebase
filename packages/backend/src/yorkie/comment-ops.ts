@@ -3,6 +3,7 @@ import {
   addReply,
   createThread,
   deleteComment,
+  editComment,
   setThreadResolved,
 } from '@wafflebase/sheets';
 import type {
@@ -105,17 +106,36 @@ export function copyThread(t: AnyThread): AnyThread {
   return copy;
 }
 
+/**
+ * Whether a map entry is a thread.
+ *
+ * **Not `Array.isArray(thread.comments)`.** A Yorkie array proxy wraps a
+ * `CRDTArray`, not an array, so `Array.isArray` is false for every comment
+ * list actually stored in a CRDT — the same trap `worksheet-charts.controller.ts`
+ * documents for `detachYorkieValue`. Guarding on it made `listThreads` skip
+ * every real thread and `findThread` return `undefined`, so the whole comments
+ * API read empty against a live document while passing on plain-object
+ * fixtures.
+ *
+ * Array-*likeness* is the test that holds on both sides: the proxy exposes a
+ * numeric `length` (and `Symbol.iterator`, which is what `copyThread`'s
+ * `Array.from` reads), and so does a plain array. A `toJSON`/`getID` function
+ * surfaced by a key walk is not an object, so it is still rejected.
+ */
+function isThread(value: unknown): value is AnyThread {
+  if (!value || typeof value !== 'object') return false;
+  const comments = (value as { comments?: unknown }).comments;
+  if (!comments || typeof comments !== 'object') return false;
+  return typeof (comments as { length?: unknown }).length === 'number';
+}
+
 /** Every thread in the map, oldest first, detached from the CRDT proxy. */
 export function listThreads(map: ThreadMap | undefined): AnyThread[] {
   if (!map) return [];
   const out: AnyThread[] = [];
   for (const id of Object.keys(map)) {
     const thread = map[id];
-    // A Yorkie object proxy answers `toJSON`/`getID` with a truthy function,
-    // so a key walk can surface entries that are not threads at all.
-    if (!thread || typeof thread !== 'object' || !Array.isArray(thread.comments)) {
-      continue;
-    }
+    if (!isThread(thread)) continue;
     out.push(copyThread(thread));
   }
   return out.sort((a, b) => a.createdAt - b.createdAt);
@@ -126,10 +146,7 @@ export function findThread(
   threadId: string,
 ): AnyThread | undefined {
   const thread = map?.[threadId];
-  if (!thread || typeof thread !== 'object' || !Array.isArray(thread.comments)) {
-    return undefined;
-  }
-  return thread;
+  return isThread(thread) ? thread : undefined;
 }
 
 /**
@@ -186,6 +203,33 @@ export function buildReply(input: {
   return built.comments[built.comments.length - 1];
 }
 
+/**
+ * One comment of a thread, detached, or `undefined`.
+ *
+ * Detached rather than live because the only caller is an authorization check
+ * that reads `author.userId` and then answers — handing it a proxy would let a
+ * comparison run against a CRDT wrapper instead of a string.
+ */
+export function findComment(
+  thread: AnyThread,
+  commentId: string,
+): Comment | undefined {
+  return copyThread(thread).comments.find((c) => c.id === commentId);
+}
+
+/**
+ * The `User.id` a comment is attributed to, as it was stored.
+ *
+ * `CommentAuthor.userId` is a string on purpose (the model is shared with
+ * anonymous share-link sessions), so authorship is compared as a string and
+ * never coerced — an author id that is not a `User.id` matches nobody rather
+ * than matching user 0.
+ */
+export function commentAuthorId(comment: Comment | undefined): string | null {
+  const raw = comment?.author?.userId;
+  return typeof raw === 'string' && raw.length > 0 ? raw : null;
+}
+
 export function applyAddThread(map: ThreadMap, thread: AnyThread): void {
   map[thread.id] = thread;
 }
@@ -195,9 +239,48 @@ export function applyAddReply(thread: AnyThread, reply: Comment): void {
 }
 
 /**
+ * Rewrite one comment's body, through the engine's own `editComment` (which
+ * owns the non-empty-body rule and the `editedAt` stamp the editor renders
+ * "(edited)" from).
+ *
+ * The engine builds a whole new thread; only the two fields that actually
+ * changed are written onto the live comment, never a whole-comment
+ * reassignment — replacing the element would clobber a concurrent write to a
+ * sibling field the same way reassigning the thread would clobber a reply.
+ * Returns the edited comment detached, or `undefined` when there is no such
+ * comment.
+ */
+export function applyEditComment(
+  thread: AnyThread,
+  commentId: string,
+  body: string,
+  now: number,
+): Comment | undefined {
+  const index = thread.comments.findIndex((c) => c.id === commentId);
+  if (index < 0) return undefined;
+  const next = editComment(
+    scratchThread(copyThread(thread).comments) as unknown as Thread,
+    commentId,
+    body,
+    () => toYorkieMs(now),
+  );
+  const edited = next.comments[index];
+  const target = thread.comments[index];
+  target.body = edited.body;
+  target.editedAt = edited.editedAt as number;
+  return copyComment(edited);
+}
+
+/**
  * Resolve or reopen, writing the fields `setThreadResolved` produces onto the
  * live proxy — the engine decides *which* fields a resolution carries and
  * that reopening drops them, this only lands the difference.
+ *
+ * A drop is guarded on the key being *present*: Yorkie's object proxy routes
+ * `delete` to `CRDTObject.deleteByKey` → `RHTPQMap.deleteByKey`, which throws
+ * `fail to find <key>` for a key that was never set. Reopening a thread that
+ * was never resolved is a perfectly ordinary request (`PATCH {resolved:false}`
+ * is accepted on any thread), and it must not 500.
  */
 export function applySetResolved(
   thread: AnyThread,
@@ -214,12 +297,12 @@ export function applySetResolved(
   thread.resolved = next.resolved;
   if (next.resolvedAt !== undefined) {
     thread.resolvedAt = next.resolvedAt;
-  } else {
+  } else if (thread.resolvedAt !== undefined) {
     delete thread.resolvedAt;
   }
   if (next.resolvedBy !== undefined) {
     thread.resolvedBy = next.resolvedBy;
-  } else {
+  } else if (thread.resolvedBy !== undefined) {
     delete thread.resolvedBy;
   }
 }
