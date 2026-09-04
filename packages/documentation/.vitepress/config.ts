@@ -52,6 +52,11 @@ export default defineConfig({
     "Documentation for Wafflebase — collaborative spreadsheets, documents, and presentations",
   base: "/docs/",
 
+  // This package's own README is developer notes, not a site page. Without
+  // this it builds to /docs/README.html and joins the local search index,
+  // reachable from no sidebar entry.
+  srcExclude: ["README.md"],
+
   head,
 
   vite: {
@@ -70,6 +75,7 @@ export default defineConfig({
       { text: "Docs", link: "/docs-editor/writing-a-document" },
       { text: "Slides", link: "/slides/build-a-deck" },
       { text: "Notes & Board", link: "/notes/writing-a-note" },
+      { text: "PDF & Files", link: "/pdf/viewing-pdfs" },
       { text: "Developers", link: "/developers/self-hosting" },
     ],
 
@@ -78,10 +84,13 @@ export default defineConfig({
         text: "Guide",
         items: [
           { text: "Getting Started", link: "/guide/getting-started" },
+          { text: "Workspaces & Members", link: "/guide/workspaces" },
           {
             text: "Collaboration & Sharing",
             link: "/guide/collaboration",
           },
+          { text: "Version History", link: "/guide/version-history" },
+          { text: "Templates", link: "/guide/templates" },
           { text: "Import & Export", link: "/guide/import-export" },
         ],
       },
@@ -92,7 +101,12 @@ export default defineConfig({
           { text: "Formulas", link: "/sheets/formulas" },
           { text: "Charts & Pivot Tables", link: "/sheets/charts" },
           { text: "Data Validation", link: "/sheets/data-validation" },
+          {
+            text: "Conditional Formatting",
+            link: "/sheets/conditional-formatting",
+          },
           { text: "External Datasources", link: "/sheets/datasources" },
+          { text: "Lakehouse Tables", link: "/sheets/lakehouse" },
           {
             text: "Keyboard Shortcuts",
             link: "/sheets/keyboard-shortcuts",

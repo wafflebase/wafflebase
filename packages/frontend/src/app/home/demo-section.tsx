@@ -89,7 +89,7 @@ export function DemoSection() {
         <SectionHead
           kicker="Live demo"
           title="Try it live"
-          sub="Edit cells, type formulas, see updates instantly. Both panes are real Wafflebase documents running in your browser."
+          sub="Edit cells, type formulas, see updates instantly. All three panes are real Wafflebase documents running in your browser."
         />
 
         <div

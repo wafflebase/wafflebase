@@ -20,8 +20,9 @@ commit than the code it describes.
 
 ## Status
 
-**P0 is complete** — all seven items landed on `fix/homepage-docs-p0-staleness`
-as one commit each (`696c197b0` … `13163b64e`). P1–P3 below are untouched.
+**Complete.** P0 landed in #1014, the code defects it surfaced in #1019, P1
+in #1021, P2 in #1023, and P3 in this branch. The code follow-ups the work
+surfaced are tracked in `20260904-audit-followup-code-defects-todo.md`.
 
 The datasource item was resolved by **documenting the real behavior**, per the
 decision recorded in P0 #3. The authorization model itself is unchanged and is
@@ -29,7 +30,7 @@ listed under "Follow-ups" at the end of this file.
 
 ---
 
-## P0 — Factually wrong, user-visible
+## P0 — Factually wrong, user-visible (all fixed in #1014)
 
 ### 1. The homepage claims a feature that does not exist
 
@@ -48,7 +49,7 @@ The card's headline ("Pull live formulas into the doc your team already
 writes") and the section subtitle rest on the same claim, and the card links
 to `/docs/docs-editor/writing-a-document`, which does not describe it either.
 
-- [ ] Rewrite or remove the use case. This is a quantified capability claim
+- [x] Rewrite or remove the use case. This is a quantified capability claim
       with nothing behind it.
 
 ### 2. Four doc pages tell users to click menu items that were deleted
@@ -68,7 +69,7 @@ Pages still naming the removed items:
 
 Verified: none of these strings exist anywhere in `packages/frontend/src`.
 
-- [ ] Fix all four pages to the single "Upload files…" flow.
+- [x] Fix all four pages to the single "Upload files…" flow.
 
 ### 3. The datasource security model is documented backwards
 
@@ -93,7 +94,7 @@ The doc reads as materially *safer* than the implementation. Either the doc
 or the authorization model should change; that is a product decision, not a
 doc edit.
 
-- [ ] Decide: document the real shared-credential model, or tighten
+- [x] Decide: document the real shared-credential model, or tighten
       authorization to match the doc.
 
 ### 4. Share links never expire by default, while the doc advises expirations
@@ -110,7 +111,7 @@ workspace member reading `collaboration.md:9-11` will expect a link they
 cannot create. Role labels are "Viewer"/"Editor" under "Permission", not
 "View"/"Edit".
 
-- [ ] Fix the options list, state the default, document the editor-link gate.
+- [x] Fix the options list, state the default, document the editor-link gate.
 
 ### 5. Self-hosting: a non-localhost deployment cannot work as written
 
@@ -149,7 +150,7 @@ historical cause of a dead login: the shipped image sets `NODE_ENV=production`
 (`Dockerfile:106`) while the doc hands out an `http://` callback URL (`:42`).
 The code now resolves it, but the doc never mentions the interaction.
 
-- [ ] `self-hosting.md` needs a rewrite, not edits.
+- [x] `self-hosting.md` needs a rewrite, not edits.
 
 ### 6. `developers/rest-api.md` documents 14 routes; the code serves ~44
 
@@ -175,7 +176,7 @@ clear/insert/delete/move, freeze/hidden/merges, range-styles/sheet-style,
 column-styles/row-styles/column-widths/row-heights, conditional-formats,
 data-validations, charts, filter, pivot.
 
-- [ ] Rewrite `rest-api.md`.
+- [x] Rewrite `rest-api.md`.
 
 ### 7. `developers/cli.md` is missing two namespaces and ~40 subcommands
 
@@ -196,7 +197,7 @@ data-validations, charts, filter, pivot.
 
 ---
 
-## P1 — Whole shipped features that are invisible
+## P1 — Whole shipped features that are invisible (all shipped in #1021)
 
 Absent from **both** the homepage and the docs site:
 
@@ -223,21 +224,22 @@ v0.6.8 was cut for.
 Homepage additionally omits, as product surfaces: **Notes**, **Board**,
 **PDF**, **Images**, **folders**.
 
-- [ ] New page `guide/version-history.md`
-- [ ] New page `guide/templates.md`
-- [ ] New page `sheets/conditional-formatting.md`
-- [ ] New page `sheets/lakehouse.md`
-- [ ] New page `guide/workspaces.md` (membership, roles, invites)
-- [ ] `guide/collaboration.md` — add Notifications + sync status sections
-- [ ] `notes/writing-a-note.md` — add Mermaid to the preview list (`:106`),
+- [x] New page `guide/version-history.md`
+- [x] New page `guide/templates.md`
+- [x] New page `sheets/conditional-formatting.md`
+- [x] New page `sheets/lakehouse.md`
+- [x] New page `guide/workspaces.md` (membership, roles, invites)
+- [x] `guide/collaboration.md` — add Notifications + sync status sections
+      (and Version History) — shipped in #1014
+- [x] `notes/writing-a-note.md` — add Mermaid to the preview list (`:106`),
       add a blame-gutter section
-- [ ] Homepage — feature cards for Notes, Board, version history, templates;
+- [x] Homepage — feature cards for Notes, Board, version history, templates;
       widen the "Sheets, Docs & Slides" phrasing at `why-section.tsx:47`,
       `hero-section.tsx:60`, `footer.tsx:62-64`, `page.tsx:19`
 
 ---
 
-## P2 — Wrong details within otherwise-good pages
+## P2 — Wrong details within otherwise-good pages (all fixed in #1023)
 
 ### Slides
 
@@ -355,7 +357,7 @@ peer selections, auto fit-to-content on open.
 
 ---
 
-## P3 — Housekeeping
+## P3 — Housekeeping (all fixed in this branch)
 
 - `README.md:8-10` still says "Early development … not yet production-ready.
   We are actively working on DataSource integration" — datasources shipped.

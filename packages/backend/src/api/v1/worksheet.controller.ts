@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -14,6 +13,7 @@ import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
+import { assertSheetDocument } from './sheet-document.util';
 import {
   parseFreeze,
   parseHidden,
@@ -34,17 +34,13 @@ export class ApiV1WorksheetController {
     private readonly documentService: DocumentService,
   ) {}
 
-  private async assertSheetDocument(documentId: string, workspaceId: string) {
-    const doc = await this.documentService.getDocumentOrThrow({
-      id: documentId,
+  private assertSheetDocument(documentId: string, workspaceId: string) {
+    return assertSheetDocument(
+      this.documentService,
+      'Worksheet settings',
+      documentId,
       workspaceId,
-    });
-    if (doc.type !== 'sheet') {
-      throw new BadRequestException(
-        `Worksheet settings are only available on sheet documents; "${documentId}" is a "${doc.type}" document.`,
-      );
-    }
-    return doc;
+    );
   }
 
   private worksheetOrThrow(root: { sheets?: Record<string, unknown> }, tabId: string) {

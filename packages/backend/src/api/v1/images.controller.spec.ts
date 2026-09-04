@@ -92,6 +92,15 @@ describe('ApiV1ImagesController.upload', () => {
       });
 
     expect(res.status).toBe(400);
+    // Written out rather than built from `unsupportedFileTypeMessage`, which
+    // would pass whatever that function returned. `upload` here is a mock, so
+    // this pins only what the filter says; `image.service.spec.ts` pins the
+    // real service against the same literal, and
+    // `image.constants.spec.ts` pins that there is one source for both.
+    expect(res.body).toMatchObject({
+      statusCode: 400,
+      message: 'Unsupported file type: image/svg+xml',
+    });
     expect(upload).not.toHaveBeenCalled();
   });
 

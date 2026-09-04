@@ -44,7 +44,7 @@ browser:
 
 ```
 ✓ dependencies installed
-✓ editor shell built
+✓ editor built
 ✓ @wafflebase/core built
 ✓ the design editor is at http://localhost:5173/__design-editor/
 ```

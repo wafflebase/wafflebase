@@ -70,6 +70,12 @@ describe("UploadPanel", () => {
     // The document exists, so the row keeps its link to it.
     expect(screen.getByRole("link", { name: "Open" })).toBeTruthy();
     // A warned item did not fail — it must not borrow the error styling.
+    // `not.toContain` alone would pass on an empty class list, so pin the
+    // class that has to be there as well: the row goes through the
+    // `--warning` semantic token, not a raw `text-amber-700 dark:text-amber-500`
+    // pair (the one palette literal left in `packages/frontend/src` until
+    // this change).
+    expect(line!.className).toContain("text-warning");
     expect(line!.className).not.toContain("destructive");
   });
 

@@ -387,6 +387,16 @@ export class TextEditor {
     return this.hfActivePageIndex;
   }
 
+  /**
+   * Which page's header/footer the caret is in. Production sets this from the
+   * double-click that entered the region (see `onPointerDown`); this setter
+   * exists so a test can reach page 2 without a synthetic pointer against a
+   * real page rectangle.
+   */
+  setHFActivePageIndex(index: number): void {
+    this.hfActivePageIndex = index;
+  }
+
   setEditContext(context: EditContext): void {
     const prev = this.editContext;
     this.editContext = context;

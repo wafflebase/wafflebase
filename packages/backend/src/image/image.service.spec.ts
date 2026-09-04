@@ -21,7 +21,15 @@ jest.mock('@aws-sdk/client-s3', () => {
   };
 });
 
-function makeService(prefix = ''): ImageService {
+function makeService(
+  prefix = '',
+  allowedMimeTypes: string[] = [
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+  ],
+): ImageService {
   const values: Record<string, unknown> = {
     'image.endpoint': 'http://localhost:9000',
     'image.region': 'us-east-1',
@@ -30,12 +38,7 @@ function makeService(prefix = ''): ImageService {
     'image.bucket': 'wafflebase-images',
     'image.prefix': prefix,
     'image.maxFileSizeBytes': 10 * 1024 * 1024,
-    'image.allowedMimeTypes': [
-      'image/png',
-      'image/jpeg',
-      'image/gif',
-      'image/webp',
-    ],
+    'image.allowedMimeTypes': allowedMimeTypes,
   };
   const config = { get: (k: string) => values[k] } as unknown as ConfigService;
   return new ImageService(config);
@@ -98,5 +101,40 @@ describe('ImageService storage prefix', () => {
     const svc = makeService('/');
     const { id } = await svc.upload(Buffer.from('x'), 'image/png', 'a.png');
     expect(lastKey(PutObjectCommand)).toBe(id);
+  });
+});
+
+/**
+ * The other half of the shared-wording property. Both upload routes' specs
+ * assert the same literal against a **mocked** `ImageService`, so on their own
+ * they pin what the filters say and nothing about what the service they claim
+ * to match says. These exercise the real `upload()`.
+ *
+ * The literal is written out here rather than built from
+ * `unsupportedFileTypeMessage`, which would pass whatever that function
+ * returned. Together with the two route specs it means a reworded message
+ * fails in three places, one per producer.
+ */
+describe('ImageService.upload — the refusal both routes mirror', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('refuses a MIME type off the allowlist with the shared wording', async () => {
+    const svc = makeService();
+    await expect(
+      svc.upload(Buffer.from('PKnot-an-image'), 'application/zip', 'x.zip'),
+    ).rejects.toThrow('Unsupported file type: application/zip');
+    // Nothing was written: the refusal precedes the PutObject.
+    expect(PutObjectCommand).not.toHaveBeenCalled();
+  });
+
+  it('says the same thing for an allowed type with no extension mapping', async () => {
+    // The second, deeper refusal in `upload()`. Unreachable unless
+    // `image.allowedMimeTypes` names a type `MIME_TO_EXT` does not, which is
+    // exactly what this configuration does.
+    const svc = makeService('', ['image/png', 'image/avif']);
+    await expect(
+      svc.upload(Buffer.from('x'), 'image/avif', 'x.avif'),
+    ).rejects.toThrow('Unsupported file type: image/avif');
+    expect(PutObjectCommand).not.toHaveBeenCalled();
   });
 });

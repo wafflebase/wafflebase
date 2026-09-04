@@ -57,8 +57,11 @@ format** — **Apache Iceberg** or **Delta Lake** — and the **storage** that h
 it: Amazon S3, an S3-compatible service, Google Cloud Storage, Azure Blob /
 ADLS, or a local filesystem path the server has been configured to allow.
 
-Lakehouse sources are shared with the workspace on exactly the same terms as
-database connections, so the section below applies to them too.
+Lakehouse sources are shared with the workspace the same way database
+connections are — every member can pick one and read through its saved
+credentials — so the section below applies to them, with one exception: there
+is no screen for editing or deleting a Lakehouse connection once it is saved.
+See [Lakehouse Tables](/sheets/lakehouse).
 
 ## Connections are shared with the workspace
 
@@ -68,7 +71,9 @@ it. Every member of the workspace can:
 - choose the connection when creating a datasource tab,
 - run queries through it — whoever presses **Execute**, the query runs against
   the username and password stored with the connection,
-- change its connection details, or delete it.
+- change its connection details, or delete it — for **database** connections.
+  A Lakehouse connection has no edit or delete control anywhere in the app; it
+  can be created and used, and that is all.
 
 Query **results**, by contrast, are never shared. Only the SQL text is saved
 into the document, so a collaborator who opens a datasource tab sees the saved

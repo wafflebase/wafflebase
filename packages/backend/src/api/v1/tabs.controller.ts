@@ -27,6 +27,7 @@ import {
   resolveRename,
 } from '../../yorkie/tab-ops';
 import { unwrapJson } from '../../yorkie/yorkie-json';
+import { assertSheetDocument } from './sheet-document.util';
 import { initialSpreadsheetDocument } from '@wafflebase/sheets';
 import type { Worksheet } from '@wafflebase/sheets';
 
@@ -39,28 +40,21 @@ export class ApiV1TabsController {
   ) {}
 
   /**
-   * Workspace membership AND document type.
+   * Workspace membership AND document type — see `sheet-document.util.ts` for
+   * why the type check is not cosmetic.
    *
-   * The type check is not cosmetic. `withDocument` defaults to the `sheet-`
-   * docKey prefix, so a `doc`/`slides`/`pdf` document reaching here does not
-   * open ITS Yorkie document — it attaches an empty one under `sheet-<id>`
-   * that no editor will ever open. `list` would then report zero tabs for a
-   * document that has content, and `create` would throw on `root.tabs[tabId]`
+   * What it costs this family specifically: without it `list` reports zero
+   * tabs for a document that has content (it read the empty `sheet-<id>`
+   * attach, not the real one), and `create` throws on `root.tabs[tabId]`
    * (undefined on a fresh root) after having already created that phantom.
    */
-  private async assertSheetDocument(documentId: string, workspaceId: string) {
-    const doc = await this.documentService.getDocumentOrThrow({
-      id: documentId,
+  private assertSheetDocument(documentId: string, workspaceId: string) {
+    return assertSheetDocument(
+      this.documentService,
+      'Tabs',
+      documentId,
       workspaceId,
-    });
-
-    if (doc.type !== 'sheet') {
-      throw new BadRequestException(
-        `Tabs are only available on sheet documents; "${documentId}" is a "${doc.type}" document.`,
-      );
-    }
-
-    return doc;
+    );
   }
 
   @Get()
