@@ -36,6 +36,11 @@ export type {
   HeadingLevel,
   Inline,
   BlockStyle,
+  // A pure model type, and the one `@wafflebase/slides`' PPTX text importer
+  // and exporter need: those modules import it from `@wafflebase/docs`, which
+  // resolves to *this* entry for a Node consumer, so leaving it out made the
+  // slides source unusable from a backend test.
+  BlockMarker,
   InlineStyle,
   ImageData,
   DocPosition,

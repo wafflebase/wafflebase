@@ -120,6 +120,63 @@ export interface AxisMove {
   dstIndex: number;
 }
 
+/**
+ * A floating image on a worksheet. `src` is the URL an image upload returned;
+ * the collection is keyed by `id` server-side, so a PUT replaces it.
+ */
+export interface SheetImage {
+  id: string;
+  src: string;
+  /** Anchor cell as an A1 reference. */
+  anchor: string;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+  originalWidth?: number;
+  originalHeight?: number;
+  alt?: string;
+}
+
+/** One entry of a deck's layout catalog. */
+export interface SlideLayoutSummary {
+  id: string;
+  name: string;
+  masterId: string;
+  placeholders: string[];
+}
+
+/** What a per-slide operation reports back. Positions are 1-based. */
+export interface SlideOpResult {
+  id?: string;
+  index?: number;
+  slideCount: number;
+}
+
+/**
+ * Canonical board content JSON: one flat element array on an unbounded
+ * canvas. Elements are the slides engine's own, which is why a board reuses
+ * the same scene shapes rather than a format of its own.
+ */
+export interface BoardContent {
+  meta: { title: string; unit?: 'in' | 'cm'; recentColors?: string[] };
+  elements: Record<string, unknown>[];
+}
+
+/** A comment thread as the comments endpoint returns it. */
+export interface CommentThread {
+  id: string;
+  anchor: Record<string, unknown> & { kind: string };
+  comments: Array<{
+    id: string;
+    body: string;
+    createdAt: number;
+    author: { userId: string; username: string; photo?: string };
+  }>;
+  resolved: boolean;
+  createdAt: number;
+}
+
 /** A folder in the workspace tree; `parentId: null` means the root. */
 export interface Folder {
   id: string;
@@ -474,6 +531,138 @@ export class HttpClient {
     return this.request('PATCH', `/documents/${seg(docId)}/tabs/${seg(tabId)}`, {
       name,
     });
+  }
+  deleteTab(docId: string, tabId: string) {
+    return this.request(
+      'DELETE',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}`,
+    );
+  }
+  /** `index` is 1-based, like every other index on this surface. */
+  moveTab(docId: string, tabId: string, index: number) {
+    return this.request(
+      'POST',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/move`,
+      { index },
+    );
+  }
+  duplicateTab(docId: string, tabId: string, name?: string) {
+    return this.request(
+      'POST',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/duplicate`,
+      name ? { name } : {},
+    );
+  }
+
+  // Worksheet floating images — pictures anchored to a cell. `src` is the URL
+  // an `images upload` returned; the bytes live in the workspace image
+  // bucket, not in the document.
+  getWorksheetImages(docId: string, tabId: string) {
+    return this.request<{ images: SheetImage[] }>(
+      'GET',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/images`,
+    );
+  }
+  setWorksheetImages(docId: string, tabId: string, images: SheetImage[]) {
+    return this.request<{ images: SheetImage[] }>(
+      'PUT',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/images`,
+      { images },
+    );
+  }
+
+  // Slides — per-slide editing and the layout catalog. `PUT content` can
+  // replace a whole deck; these four touch one slide each, so a concurrent
+  // edit elsewhere in the deck survives.
+  listSlideLayouts(docId: string) {
+    return this.request<{ layouts: SlideLayoutSummary[] }>(
+      'GET',
+      `/documents/${seg(docId)}/layouts`,
+    );
+  }
+  addSlide(docId: string, body: { layoutId?: string; index?: number }) {
+    return this.request<SlideOpResult>(
+      'POST',
+      `/documents/${seg(docId)}/slides`,
+      body,
+    );
+  }
+  duplicateSlide(docId: string, slideId: string) {
+    return this.request<SlideOpResult>(
+      'POST',
+      `/documents/${seg(docId)}/slides/${seg(slideId)}/duplicate`,
+    );
+  }
+  moveSlide(docId: string, slideId: string, index: number) {
+    return this.request<SlideOpResult>(
+      'POST',
+      `/documents/${seg(docId)}/slides/${seg(slideId)}/move`,
+      { index },
+    );
+  }
+  deleteSlide(docId: string, slideId: string) {
+    return this.request<SlideOpResult>(
+      'DELETE',
+      `/documents/${seg(docId)}/slides/${seg(slideId)}`,
+    );
+  }
+
+  // Board content — the same `content` endpoint the other CRDT types use; the
+  // backend dispatches on the persisted document type.
+  getBoardContent(docId: string) {
+    return this.request<BoardContent>(
+      'GET',
+      `/documents/${seg(docId)}/content`,
+    );
+  }
+  putBoardContent(docId: string, board: BoardContent) {
+    return this.request<BoardContent>(
+      'PUT',
+      `/documents/${seg(docId)}/content`,
+      board,
+    );
+  }
+
+  // Comments — threads live in the CRDT, so these are the only way to reach
+  // them without an editor session.
+  listComments(docId: string) {
+    return this.request<{ threads: CommentThread[] }>(
+      'GET',
+      `/documents/${seg(docId)}/comments`,
+    );
+  }
+  createCommentThread(docId: string, body: Record<string, unknown>) {
+    return this.request<CommentThread>(
+      'POST',
+      `/documents/${seg(docId)}/comments`,
+      body,
+    );
+  }
+  replyToComment(docId: string, threadId: string, body: string) {
+    return this.request(
+      'POST',
+      `/documents/${seg(docId)}/comments/${seg(threadId)}/replies`,
+      { body },
+    );
+  }
+  setCommentResolved(docId: string, threadId: string, resolved: boolean) {
+    return this.request<CommentThread>(
+      'PATCH',
+      `/documents/${seg(docId)}/comments/${seg(threadId)}`,
+      { resolved },
+    );
+  }
+  deleteCommentThread(docId: string, threadId: string) {
+    return this.request(
+      'DELETE',
+      `/documents/${seg(docId)}/comments/${seg(threadId)}`,
+    );
+  }
+  deleteComment(docId: string, threadId: string, commentId: string) {
+    return this.request(
+      'DELETE',
+      `/documents/${seg(docId)}/comments/${seg(threadId)}/comments/${seg(commentId)}`,
+    );
   }
 
   // Cells

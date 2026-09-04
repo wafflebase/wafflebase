@@ -338,6 +338,171 @@ const registry: CommandSchema[] = [
     aliases: ['slide.set-content', 'deck.set-content', 'decks.set-content'],
   },
 
+  {
+    name: 'slides.layouts',
+    description: "List the layout ids this deck's slides can be built from",
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { layouts: 'array of { id, name, masterId, placeholders: string[] }' },
+    aliases: ['slides.layout', 'slide.layouts', 'deck.layouts'],
+  },
+  {
+    name: 'slides.slide.add',
+    description: 'Append a slide built from a layout, or insert it at --index',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--layout': { type: 'string', required: false, description: 'Layout id (see slides layouts)', default: 'blank' },
+      '--index': { type: 'number', required: false, description: '1-based position to insert at (default: append)' },
+    },
+    response: { id: 'string (new slide id)', index: 'number (1-based)', slideCount: 'number' },
+    aliases: ['slide.add', 'slides.add-slide', 'deck.slide.add'],
+  },
+  {
+    name: 'slides.slide.duplicate',
+    description: 'Copy a slide and insert the copy right after it',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'slide-id': { type: 'string', required: true, description: 'Slide ID' },
+    },
+    response: { id: 'string (new slide id)', index: 'number (1-based)', slideCount: 'number' },
+    aliases: ['slide.duplicate', 'deck.slide.duplicate'],
+  },
+  {
+    name: 'slides.slide.move',
+    description: 'Move a slide to a 1-based position in the deck',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'slide-id': { type: 'string', required: true, description: 'Slide ID' },
+      index: { type: 'number', required: true, description: '1-based target position (1 = first slide); clamped to the deck length' },
+    },
+    response: { id: 'string', index: 'number (1-based)', slideCount: 'number' },
+    aliases: ['slide.move', 'deck.slide.move'],
+  },
+  {
+    name: 'slides.slide.delete',
+    description: 'Delete a slide (refuses the last remaining one)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'slide-id': { type: 'string', required: true, description: 'Slide ID' },
+    },
+    response: { slideCount: 'number' },
+    aliases: ['slide.delete', 'deck.slide.delete'],
+  },
+
+  // Board (infinite canvas) namespace
+  {
+    name: 'board.content',
+    description: 'Read board content as JSON',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { meta: '{ title, unit?, recentColors? }', elements: 'array of canvas elements in world coordinates' },
+    aliases: ['boards.content'],
+  },
+  {
+    name: 'board.set-content',
+    description: 'Replace board content from JSON (stdin or --data)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--data': { type: 'string', required: false, description: 'Content as a JSON string (default: read stdin)' },
+    },
+    response: { type: 'object', description: 'The stored board JSON, echoed back by the server' },
+    aliases: ['boards.set-content'],
+  },
+
+  // Comments — threads live in the CRDT, so these routes are the only way to
+  // reach them without an editor session.
+  {
+    name: 'comments.list',
+    description: 'List every comment thread on a document',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { threads: 'array of { id, anchor, comments: [{ id, body, author, createdAt }], resolved, createdAt }' },
+    aliases: ['comment.list'],
+  },
+  {
+    name: 'comments.add',
+    description: 'Open a comment thread on a sheet cell (--tab/--ref) or a PDF page region (--page/--rect)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      body: { type: 'string', required: true, description: 'Comment text' },
+      '--tab': { type: 'string', required: false, description: 'Sheet tab holding the cell', default: 'tab-1' },
+      '--ref': { type: 'string', required: false, description: 'Anchor cell as an A1 reference (sheet documents)' },
+      '--page': { type: 'number', required: false, description: 'Page index, 0-based (PDF documents)' },
+      '--rect': { type: 'string', required: false, description: 'Page-relative rectangle "x,y,w,h" in 0..1 units (PDF documents)' },
+    },
+    response: { id: 'string', anchor: 'object', comments: 'array', resolved: 'boolean', createdAt: 'number' },
+    aliases: ['comment.add', 'comments.create', 'comment.create'],
+  },
+  {
+    name: 'comments.reply',
+    description: 'Add a reply to an existing thread',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'thread-id': { type: 'string', required: true, description: 'Thread ID' },
+      body: { type: 'string', required: true, description: 'Reply text' },
+    },
+    response: { threadId: 'string', comment: '{ id, body, author, createdAt }' },
+    aliases: ['comment.reply'],
+  },
+  {
+    name: 'comments.resolve',
+    description: 'Mark a comment thread resolved',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'thread-id': { type: 'string', required: true, description: 'Thread ID' },
+    },
+    response: { id: 'string', resolved: 'boolean', resolvedBy: 'object', resolvedAt: 'number' },
+    aliases: ['comment.resolve'],
+  },
+  {
+    name: 'comments.unresolve',
+    description: 'Reopen a resolved comment thread',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'thread-id': { type: 'string', required: true, description: 'Thread ID' },
+    },
+    response: { id: 'string', resolved: 'boolean' },
+    aliases: ['comment.unresolve'],
+  },
+  {
+    name: 'comments.delete',
+    description: 'Delete a whole thread and every comment in it',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'thread-id': { type: 'string', required: true, description: 'Thread ID' },
+    },
+    response: { id: 'string', deleted: "'thread'" },
+    aliases: ['comment.delete'],
+  },
+  {
+    name: 'comments.delete-comment',
+    description: 'Delete one comment; deleting the opening comment deletes the thread',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'thread-id': { type: 'string', required: true, description: 'Thread ID' },
+      'comment-id': { type: 'string', required: true, description: 'Comment ID' },
+    },
+    response: { id: 'string', threadId: 'string', deleted: "'comment' | 'thread'" },
+    aliases: ['comment.delete-comment'],
+  },
+
   // Notes (markdown) namespace
   {
     name: 'notes.list',
@@ -649,6 +814,64 @@ const registry: CommandSchema[] = [
     },
     response: { id: 'string', name: 'string', type: 'string' },
     aliases: ['tab.rename', 'tabs.rename', 'sheet.tabs.rename', 'sheet.tab.rename', 'sheets.tab.rename'],
+  },
+  {
+    name: 'sheets.tabs.delete',
+    description: 'Delete a tab and its grid (refuses the last remaining tab)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'tab-id': { type: 'string', required: true, description: 'Tab ID' },
+    },
+    response: { id: 'string', name: 'string', deleted: 'boolean' },
+    aliases: ['tab.delete', 'tabs.delete', 'sheet.tabs.delete', 'sheet.tab.delete', 'sheets.tab.delete'],
+  },
+  {
+    name: 'sheets.tabs.move',
+    description: 'Move a tab to a 1-based position in the tab bar',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'tab-id': { type: 'string', required: true, description: 'Tab ID' },
+      index: { type: 'number', required: true, description: '1-based target position (1 = first tab); clamped to the tab count' },
+    },
+    response: { id: 'string', index: 'number (1-based)' },
+    aliases: ['tab.move', 'tabs.move', 'sheet.tabs.move', 'sheet.tab.move', 'sheets.tab.move'],
+  },
+  {
+    name: 'sheets.tabs.duplicate',
+    description: 'Copy a tab and its grid next to it (comments are not carried over)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'tab-id': { type: 'string', required: true, description: 'Tab ID' },
+      name: { type: 'string', required: false, description: 'Name for the copy (default: "<tab> (copy)", uniqued)' },
+    },
+    response: { id: 'string', name: 'string', type: 'string' },
+    aliases: ['tab.duplicate', 'tabs.duplicate', 'sheet.tabs.duplicate', 'sheet.tab.duplicate', 'sheets.tab.duplicate'],
+  },
+  {
+    name: 'sheets.images.get',
+    description: 'Get the floating images on a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { images: 'array of { id, src, anchor (A1), offsetX, offsetY, width, height, originalWidth, originalHeight, alt? }' },
+    aliases: ['sheets.image.get', 'sheet.images.get', 'sheet.image.get'],
+  },
+  {
+    name: 'sheets.images.set',
+    description: 'Replace all floating images on a spreadsheet tab (JSON from stdin or --data; omitted images are deleted)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Images as a JSON array, or { "images": [ ... ] } (or pipe from stdin)' },
+    },
+    response: { images: 'array of the stored images, echoed back' },
+    aliases: ['sheets.image.set', 'sheet.images.set', 'sheet.image.set'],
   },
   {
     name: 'sheets.cells.get',

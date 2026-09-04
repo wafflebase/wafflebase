@@ -1,0 +1,163 @@
+import {
+  AnyThread,
+  ThreadMap,
+  applyAddReply,
+  applyAddThread,
+  applyDeleteComment,
+  applyDeleteThread,
+  applySetResolved,
+  buildReply,
+  buildThread,
+  copyThread,
+  findThread,
+  fromYorkieMs,
+  listThreads,
+  normalizeBody,
+} from './comment-ops';
+
+const AUTHOR = { userId: '7', username: 'ada' };
+const CELL = { kind: 'sheet-cell', tabId: 'tab-1', rowId: 'r1', colId: 'c1' };
+
+function seeded(now = 1_700_000_000_000): {
+  map: ThreadMap;
+  thread: AnyThread;
+} {
+  const map: ThreadMap = {};
+  const thread = buildThread({
+    anchor: { ...CELL },
+    body: 'why is this negative?',
+    author: AUTHOR,
+    now,
+  });
+  applyAddThread(map, thread);
+  return { map, thread };
+}
+
+describe('buildThread', () => {
+  it('opens a thread with exactly one comment, unresolved', () => {
+    const { thread } = seeded();
+    expect(thread.comments).toHaveLength(1);
+    expect(thread.comments[0].body).toBe('why is this negative?');
+    expect(thread.comments[0].author).toEqual(AUTHOR);
+    expect(thread.resolved).toBe(false);
+  });
+
+  it('stores timestamps as Long so the editor does not read a 1970 date', () => {
+    const now = 1_700_000_000_000;
+    const { thread } = seeded(now);
+    // Yorkie 0.7.x types an integer-valued number as a 32-bit int, so the
+    // frontend stores write bigint. A plain number here would truncate.
+    expect(typeof thread.createdAt).toBe('bigint');
+    expect(fromYorkieMs(thread.createdAt)).toBe(now);
+  });
+
+  it('mints distinct ids for the thread and its comment', () => {
+    const { thread } = seeded();
+    expect(thread.id).not.toBe(thread.comments[0].id);
+    expect(seeded().thread.id).not.toBe(thread.id);
+  });
+});
+
+describe('copyThread / listThreads', () => {
+  it('converts stored Longs back to numbers', () => {
+    const { thread } = seeded(1_700_000_000_000);
+    const copy = copyThread(thread);
+    expect(copy.createdAt).toBe(1_700_000_000_000);
+    expect(copy.comments[0].createdAt).toBe(1_700_000_000_000);
+  });
+
+  it('sorts threads oldest first', () => {
+    const map: ThreadMap = {};
+    const older = buildThread({ anchor: { ...CELL }, body: 'a', author: AUTHOR, now: 10 });
+    const newer = buildThread({ anchor: { ...CELL }, body: 'b', author: AUTHOR, now: 20 });
+    applyAddThread(map, newer);
+    applyAddThread(map, older);
+    expect(listThreads(map).map((t) => t.comments[0].body)).toEqual(['a', 'b']);
+  });
+
+  it('skips map entries that are not threads', () => {
+    // A Yorkie object proxy answers `toJSON` with a truthy function, so a key
+    // walk can surface something that is not a thread at all.
+    const map = { toJSON: (() => '{}') as never } as unknown as ThreadMap;
+    expect(listThreads(map)).toEqual([]);
+    expect(findThread(map, 'toJSON')).toBeUndefined();
+  });
+
+  it('returns an empty list for a document with no comments', () => {
+    expect(listThreads(undefined)).toEqual([]);
+  });
+});
+
+describe('applyAddReply', () => {
+  it('appends to the thread it was replied on', () => {
+    const { map, thread } = seeded();
+    applyAddReply(thread, buildReply({ body: 'fixed', author: AUTHOR, now: 5 }));
+    expect(listThreads(map)[0].comments.map((c) => c.body)).toEqual([
+      'why is this negative?',
+      'fixed',
+    ]);
+  });
+});
+
+describe('applySetResolved', () => {
+  it('records who resolved it and when', () => {
+    const { thread } = seeded();
+    applySetResolved(thread, true, AUTHOR, 999);
+    expect(thread.resolved).toBe(true);
+    expect(thread.resolvedBy).toEqual(AUTHOR);
+    expect(fromYorkieMs(thread.resolvedAt!)).toBe(999);
+  });
+
+  it('clears the resolution when reopened', () => {
+    const { thread } = seeded();
+    applySetResolved(thread, true, AUTHOR, 999);
+    applySetResolved(thread, false, AUTHOR, 1000);
+    expect(thread.resolved).toBe(false);
+    expect(thread.resolvedAt).toBeUndefined();
+    expect(thread.resolvedBy).toBeUndefined();
+  });
+});
+
+describe('applyDeleteComment', () => {
+  it('deletes the whole thread when the opening comment goes', () => {
+    const { map, thread } = seeded();
+    applyAddReply(thread, buildReply({ body: 'reply', author: AUTHOR, now: 5 }));
+    expect(
+      applyDeleteComment(map, thread.id, thread.comments[0].id),
+    ).toBe('thread_deleted');
+    expect(map[thread.id]).toBeUndefined();
+  });
+
+  it('deletes only the reply when a reply goes', () => {
+    const { map, thread } = seeded();
+    const reply = buildReply({ body: 'reply', author: AUTHOR, now: 5 });
+    applyAddReply(thread, reply);
+    expect(applyDeleteComment(map, thread.id, reply.id)).toBe(
+      'comment_deleted',
+    );
+    expect(map[thread.id].comments).toHaveLength(1);
+  });
+
+  it('reports not_found for an unknown thread or comment', () => {
+    const { map, thread } = seeded();
+    expect(applyDeleteComment(map, 'nope', 'x')).toBe('not_found');
+    expect(applyDeleteComment(map, thread.id, 'nope')).toBe('not_found');
+  });
+});
+
+describe('applyDeleteThread', () => {
+  it('removes the thread and reports whether it existed', () => {
+    const { map, thread } = seeded();
+    expect(applyDeleteThread(map, thread.id)).toBe(true);
+    expect(applyDeleteThread(map, thread.id)).toBe(false);
+  });
+});
+
+describe('normalizeBody', () => {
+  it('trims and rejects an empty body', () => {
+    expect(normalizeBody('  hi  ')).toBe('hi');
+    expect(normalizeBody('   ')).toBeNull();
+    expect(normalizeBody(42)).toBeNull();
+    expect(normalizeBody(undefined)).toBeNull();
+  });
+});

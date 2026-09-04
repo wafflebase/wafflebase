@@ -10,6 +10,9 @@ import { ApiV1WorksheetDimensionsController } from './worksheet-dimensions.contr
 import { ApiV1WorksheetChartsController } from './worksheet-charts.controller';
 import { ApiV1WorksheetStructureController } from './worksheet-structure.controller';
 import { ApiV1DocsContentController } from './docs-content.controller';
+import { ApiV1CommentsController } from './comments.controller';
+import { ApiV1SlidesController } from './slides.controller';
+import { ApiV1WorksheetImagesController } from './worksheet-images.controller';
 import { ApiV1ImagesController } from './images.controller';
 import { ApiV1ImageReadController } from './image-read.controller';
 import { ApiV1FilesController } from './files.controller';
@@ -53,7 +56,10 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ApiV1WorksheetDimensionsController,
     ApiV1WorksheetChartsController,
     ApiV1WorksheetStructureController,
+    ApiV1WorksheetImagesController,
     ApiV1DocsContentController,
+    ApiV1CommentsController,
+    ApiV1SlidesController,
     ApiV1ImagesController,
     ApiV1ImageReadController,
     ApiV1FilesController,
