@@ -30,6 +30,7 @@ describe('semantic tokens', () => {
       'accent',
       'accentForeground',
       'destructive',
+      'warning',
       'border',
       'input',
       'ring',
@@ -50,5 +51,16 @@ describe('semantic tokens', () => {
       expect(semantic.light).toHaveProperty(key);
       expect(semantic.dark).toHaveProperty(key);
     }
+  });
+
+  /**
+   * `warning` is the one token whose two values are not the same hue at two
+   * lightnesses — no single amber stop clears 4.5:1 on both `background`
+   * values, so the light and dark entries were chosen independently. A future
+   * edit that "tidies" them into one shared value would silently drop one
+   * theme under the WCAG AA floor, so pin that they differ.
+   */
+  it('gives warning a distinct value per theme', () => {
+    expect(semantic.light.warning).not.toBe(semantic.dark.warning);
   });
 });

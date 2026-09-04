@@ -35,6 +35,7 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --accent: oklch(0.967 0.001 286.375);
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
+  --warning: oklch(0.555 0.163 48.998);
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
   --ring: #B8651A;
@@ -79,6 +80,7 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --accent: oklch(0.274 0.006 286.033);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --warning: oklch(0.769 0.188 70.08);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: #E08A3A;

@@ -16,6 +16,21 @@ type SemanticColorMap = {
   accent: string;
   accentForeground: string;
   destructive: string;
+  /**
+   * Qualified success — an operation completed, but not cleanly. Distinct from
+   * `destructive`, which says the operation failed.
+   *
+   * Unlike every other colour here it is NOT one hue rendered lighter in dark
+   * mode: no single amber stop is readable on both backgrounds. Measured as
+   * 12px text against this file's own `background` values (`oklch(1 0 0)` =
+   * #ffffff and `oklch(0.141 0.005 285.823)` = #09090b), the whole ramp
+   * straddles the 4.5:1 WCAG AA floor — amber-500 is 2.15:1 on white and
+   * 9.27:1 on the dark background; amber-700 inverts that to 5.05:1 and
+   * 3.94:1. Sweeping the ramp finds no crossover: at the lightness where the
+   * light ratio first clears 4.5, the dark ratio has already fallen to 4.38.
+   * So the two values are independently chosen, not one value and its tint.
+   */
+  warning: string;
   border: string;
   input: string;
   ring: string;
@@ -50,6 +65,9 @@ const light: SemanticColorMap = {
   accent: 'oklch(0.967 0.001 286.375)',
   accentForeground: 'oklch(0.21 0.006 285.885)',
   destructive: 'oklch(0.577 0.245 27.325)',
+  // amber-700 — 5.05:1 on `background` (#ffffff). amber-600 would be 3.19:1,
+  // under the floor and *less* legible than the destructive red beside it.
+  warning: 'oklch(0.555 0.163 48.998)',
   border: 'oklch(0.92 0.004 286.32)',
   input: 'oklch(0.92 0.004 286.32)',
   ring: palette.syrup,
@@ -87,6 +105,9 @@ const dark: SemanticColorMap = {
   accent: 'oklch(0.274 0.006 286.033)',
   accentForeground: 'oklch(0.985 0 0)',
   destructive: 'oklch(0.704 0.191 22.216)',
+  // amber-500 — 9.27:1 on `background` (#09090b). The light stop would be
+  // 3.94:1 here, which is why this token carries two values rather than one.
+  warning: 'oklch(0.769 0.188 70.08)',
   border: 'oklch(1 0 0 / 10%)',
   input: 'oklch(1 0 0 / 15%)',
   ring: palette.syrupBright,
