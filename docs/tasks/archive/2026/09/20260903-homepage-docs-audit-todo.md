@@ -20,8 +20,9 @@ commit than the code it describes.
 
 ## Status
 
-**P0 is complete** — all seven items landed on `fix/homepage-docs-p0-staleness`
-as one commit each (`696c197b0` … `13163b64e`). P1–P3 below are untouched.
+**Complete.** P0 landed in #1014, the code defects it surfaced in #1019, P1
+in #1021, P2 in #1023, and P3 in this branch. The code follow-ups the work
+surfaced are tracked in `20260904-audit-followup-code-defects-todo.md`.
 
 The datasource item was resolved by **documenting the real behavior**, per the
 decision recorded in P0 #3. The authorization model itself is unchanged and is
@@ -196,7 +197,7 @@ data-validations, charts, filter, pivot.
 
 ---
 
-## P1 — Whole shipped features that are invisible
+## P1 — Whole shipped features that are invisible (all shipped in #1021)
 
 Absent from **both** the homepage and the docs site:
 
@@ -223,22 +224,22 @@ v0.6.8 was cut for.
 Homepage additionally omits, as product surfaces: **Notes**, **Board**,
 **PDF**, **Images**, **folders**.
 
-- [ ] New page `guide/version-history.md`
-- [ ] New page `guide/templates.md`
-- [ ] New page `sheets/conditional-formatting.md`
-- [ ] New page `sheets/lakehouse.md`
-- [ ] New page `guide/workspaces.md` (membership, roles, invites)
+- [x] New page `guide/version-history.md`
+- [x] New page `guide/templates.md`
+- [x] New page `sheets/conditional-formatting.md`
+- [x] New page `sheets/lakehouse.md`
+- [x] New page `guide/workspaces.md` (membership, roles, invites)
 - [x] `guide/collaboration.md` — add Notifications + sync status sections
       (and Version History) — shipped in #1014
-- [ ] `notes/writing-a-note.md` — add Mermaid to the preview list (`:106`),
+- [x] `notes/writing-a-note.md` — add Mermaid to the preview list (`:106`),
       add a blame-gutter section
-- [ ] Homepage — feature cards for Notes, Board, version history, templates;
+- [x] Homepage — feature cards for Notes, Board, version history, templates;
       widen the "Sheets, Docs & Slides" phrasing at `why-section.tsx:47`,
       `hero-section.tsx:60`, `footer.tsx:62-64`, `page.tsx:19`
 
 ---
 
-## P2 — Wrong details within otherwise-good pages
+## P2 — Wrong details within otherwise-good pages (all fixed in #1023)
 
 ### Slides
 
@@ -356,7 +357,7 @@ peer selections, auto fit-to-content on open.
 
 ---
 
-## P3 — Housekeeping
+## P3 — Housekeeping (all fixed in this branch)
 
 - `README.md:8-10` still says "Early development … not yet production-ready.
   We are actively working on DataSource integration" — datasources shipped.
