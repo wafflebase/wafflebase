@@ -32,6 +32,10 @@
 export type {
   Document,
   Block,
+  // `@wafflebase/slides`'s PPTX import/export reads it from this entry (it is
+  // the Node-safe one), so omitting it here made those three modules fail to
+  // typecheck against `node.ts` while compiling fine against `index.ts`.
+  BlockMarker,
   BlockType,
   HeadingLevel,
   Inline,

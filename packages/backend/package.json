@@ -22,6 +22,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-e2e.json",
     "fixtures:lakehouse:seed": "tsx test/seed-lakehouse-fixtures.ts",
+    "seed:templates": "node dist/template/seed/seed-templates.js",
+    "seed:templates:build": "nest build && node dist/template/seed/seed-templates.js",
     "migrate": "prisma migrate dev --name init",
     "migrate:yorkie:worksheet-shape": "tsx scripts/migrate-yorkie-worksheet-shape.ts",
     "migrate:yorkie:cf-ranges": "tsx scripts/migrate-yorkie-cf-ranges.ts"
