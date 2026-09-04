@@ -223,6 +223,12 @@ What happens if two people edit the same cell or text at the same time?
 
 Wafflebase uses CRDTs (Conflict-free Replicated Data Types) to handle this. Both edits are preserved in the system — the last writer's value is displayed in sheets, and concurrent text insertions are merged in docs. There's no "conflict dialog" or manual merge step.
 
+Slides are the exception: text on a slide is committed as a whole when you
+click away, not merged keystroke by keystroke. Two people typing in the same
+text box, shape, table cell, or speaker-notes box will lose one set of edits —
+see [Editing at the Same Time](/slides/build-a-deck#editing-at-the-same-time).
+Everything else in a deck merges normally.
+
 In practice, presence cursors make it easy to see where others are working, so simultaneous edits to the same location are rare.
 
 ## Manage Share Links

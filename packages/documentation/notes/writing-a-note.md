@@ -30,6 +30,16 @@ right pane render it live as you go.
 See the [design doc](https://example.com) for details.
 ```
 
+The source pane is a full code editor, so a few things come with it:
+
+- **Line numbers** run down the left gutter
+- **Folding** — a fold arrow appears in the gutter beside a heading or a fenced
+  block; click it to collapse that section, and click again to expand it
+- **Find and replace** — press <kbd>⌘F</kbd> / <kbd>Ctrl+F</kbd> for a search
+  panel with a replace field. <kbd>⌘G</kbd> / <kbd>Ctrl+G</kbd> jumps to the next
+  match, <kbd>Shift</kbd> with it to the previous, and <kbd>Esc</kbd> closes the
+  panel
+
 ### Choose Your View
 
 Use the **view** dropdown at the right of the toolbar to switch between three
@@ -39,7 +49,26 @@ modes:
 - **Editor** — Markdown source only, full width
 - **Preview** — rendered output only
 
+In Split, the two panes are separated by a **draggable divider**: drag it left or
+right to give either side more room (it stops at 15% and 85%, so neither pane can
+be squeezed away). The panes also **scroll together** — scrolling the source
+moves the preview to the same relative position, and scrolling the preview moves
+the source. Both are Split-only; in Editor or Preview there is one pane and
+nothing to sync.
+
 Your choice is remembered per browser, so the note opens the same way next time.
+
+::: warning Split isn't offered on a narrow window
+Below 768 pixels — so most phones — **Split** is removed from the view menu; two
+side-by-side panes on a phone-width screen leave neither one usable. A stored
+Split preference opens as **Editor** instead, so you never land in a layout the
+menu can't get you out of.
+
+A mode you pick on a narrow window is also deliberately *not* saved. It applies
+for that session only, and the preference you set on a wide screen is left
+untouched — so checking the preview on your phone doesn't cost you Split on your
+desktop.
+:::
 
 ### See Who Wrote What
 
@@ -241,6 +270,16 @@ Standard editing shortcuts work in Default mode:
 | Redo | ⌘+Shift+Z / Ctrl+Shift+Z |
 | Select all | ⌘+A / Ctrl+A |
 | Copy / Cut / Paste | ⌘+C·X·V / Ctrl+C·X·V |
+| Indent the line or selection | Tab |
+| Remove a level of indentation | Shift+Tab |
+| Find and replace | ⌘+F / Ctrl+F |
+| Move focus out of the editor | Esc |
+
+<kbd>Tab</kbd> indents the text itself, which is not quite the toolbar's
+**Indent** button — that one re-nests a list item. Because <kbd>Tab</kbd> is
+taken, <kbd>Esc</kbd> is how you leave the editor with the keyboard alone; it
+only moves focus when nothing else is using it, so it closes the find panel or an
+open suggestion list first. In Vim mode, <kbd>Esc</kbd> belongs to Vim.
 
 ## Collaborate in Real Time
 
@@ -254,6 +293,12 @@ slides. When a teammate opens the same note:
 Share a note the same way as any document — click **Share** in the header to
 create a view or edit link. See
 [Collaboration & Sharing](/guide/collaboration) for the full sharing flow.
+
+## Version History
+
+Notes are versioned like every other editable document type. Click the
+**history** icon in the header to browse earlier versions, open one read-only,
+and roll the note back. See [Version History](/guide/version-history).
 
 ## Rename a Note
 
