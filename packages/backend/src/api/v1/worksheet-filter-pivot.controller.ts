@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -14,6 +13,7 @@ import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
+import { assertSheetDocument } from './sheet-document.util';
 import { unwrapJson } from '../../yorkie/yorkie-json';
 import { parseFilter, parsePivot } from '../../yorkie/worksheet-filter-pivot';
 
@@ -31,17 +31,13 @@ export class ApiV1WorksheetFilterPivotController {
     private readonly documentService: DocumentService,
   ) {}
 
-  private async assertSheetDocument(documentId: string, workspaceId: string) {
-    const doc = await this.documentService.getDocumentOrThrow({
-      id: documentId,
+  private assertSheetDocument(documentId: string, workspaceId: string) {
+    return assertSheetDocument(
+      this.documentService,
+      'Filter and pivot',
+      documentId,
       workspaceId,
-    });
-    if (doc.type !== 'sheet') {
-      throw new BadRequestException(
-        `Filter and pivot are only available on sheet documents; "${documentId}" is a "${doc.type}" document.`,
-      );
-    }
-    return doc;
+    );
   }
 
   private worksheetOrThrow(

@@ -146,36 +146,74 @@ describe('ApiV1CellsController initialRoot', () => {
       },
     );
 
-    // Reads are a deliberate exception, kept as-is: they attach readonly with
-    // no seed, so they create nothing, and the documented contract for a
-    // non-sheet id is `404 Tab not found`. Changing that is an API-contract
-    // change (see packages/documentation/developers/rest-api.md), so it is
-    // pinned here rather than altered.
+    // Reads used to be a deliberate exception: they create nothing, so a
+    // non-sheet id fell through to `404 Tab not found` — the empty `sheet-<id>`
+    // attach simply has no worksheet. But that is the same status a genuine
+    // sheet returns for an unknown `tabId`, so a caller could not tell "this
+    // document is not a sheet" from "that tab does not exist", and retried tab
+    // ids that were never the problem. Reads now refuse the way the writes and
+    // every sibling family do. Breaking change, documented in the Cells
+    // section of packages/documentation/developers/rest-api.md.
     it.each(['getCells', 'getCell'] as const)(
-      '%s on a non-sheet document still 404s Tab not found, readonly and unseeded',
+      '%s on a non-sheet document 400s instead of 404 Tab not found',
       async (op) => {
         documentService.getDocumentOrThrow.mockResolvedValue({
           id: DOC,
           workspaceId: WS,
           type: 'doc',
         });
-        // A `doc-` document opened under the `sheet-` key is empty: no
-        // `sheets` at all.
-        const emptyDoc = { getRoot: () => ({}) as SpreadsheetDocument };
-        withDocument.mockImplementation(
-          (_id: string, cb: (d: typeof emptyDoc) => unknown) =>
-            Promise.resolve(cb(emptyDoc)),
-        );
 
         const call = {
           getCells: () => controller.getCells(WS, DOC, 'tab-1', undefined),
           getCell: () => controller.getCell(WS, DOC, 'tab-1', 'A1'),
         }[op];
 
-        await expect(call()).rejects.toBeInstanceOf(NotFoundException);
-        expect(lastOptions()?.initialRoot).toBeUndefined();
-        expect(lastOptions()?.syncMode).toBe('readonly');
+        const error = await call().then(
+          () => null,
+          (e: unknown) => e,
+        );
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect(error).not.toBeInstanceOf(NotFoundException);
+        expect((error as Error).message).toBe(
+          `Cell reads are only available on sheet documents; "${DOC}" is a "doc" document.`,
+        );
+        // Refused before the attach, so a wrong-type read now costs no Yorkie
+        // round-trip either — the same shape as the write guard.
+        expect(withDocument).not.toHaveBeenCalled();
       },
     );
+
+    it.each(['doc', 'slides', 'note', 'pdf', 'image', 'file'] as const)(
+      '400s a read against a %s document',
+      async (type) => {
+        documentService.getDocumentOrThrow.mockResolvedValue({
+          id: DOC,
+          workspaceId: WS,
+          type,
+        });
+
+        await expect(
+          controller.getCells(WS, DOC, 'tab-1', undefined),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(withDocument).not.toHaveBeenCalled();
+      },
+    );
+
+    // The refusal keys on the document's type, not on the attach coming back
+    // empty — so an unknown tab on a genuine sheet is still `404 Tab not
+    // found`, still readonly, still unseeded.
+    it('still 404s an unknown tab on a genuine sheet, readonly and unseeded', async () => {
+      const emptyDoc = { getRoot: () => ({}) as SpreadsheetDocument };
+      withDocument.mockImplementation(
+        (_id: string, cb: (d: typeof emptyDoc) => unknown) =>
+          Promise.resolve(cb(emptyDoc)),
+      );
+
+      await expect(
+        controller.getCells(WS, DOC, 'no-such-tab', undefined),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(lastOptions()?.initialRoot).toBeUndefined();
+      expect(lastOptions()?.syncMode).toBe('readonly');
+    });
   });
 });

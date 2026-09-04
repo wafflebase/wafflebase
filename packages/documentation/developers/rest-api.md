@@ -86,12 +86,12 @@ A workspace holds documents of eight types. `type` is a **viewer-routing key** �
 
 ### What a wrong document type returns
 
-There is no single answer — it depends on which family you call, and the difference is worth knowing before you write a retry:
+Every sheet-only family — reads included — answers `400` with a message naming the type the document actually is. Document content is the exception, and the difference is worth knowing before you write a retry:
 
 | Family | Called against the wrong type |
 |--------|-------------------------------|
 | Tabs, rows/columns, worksheet settings, styles, dimensions, rules, charts, filter/pivot | `400`, with a message naming the actual type, e.g. `Tabs are only available on sheet documents; "<id>" is a "doc" document.` |
-| Cells (`GET`) | **No type check** — the reads are deliberately left open. The read attaches to the `sheet-<id>` Yorkie key, which for a non-sheet document is empty, so there is no worksheet and the request returns `404 Tab not found` |
+| Cells (`GET`) | `400`, like the families above: `Cell reads are only available on sheet documents; "<id>" is a "doc" document.` **This used to be `404 Tab not found`** — see [Cells](#cells-sheets-only) |
 | Cells (`PUT` / `DELETE` / `PATCH`) | `400`, like the families above: `Cell writes are only available on sheet documents; "<id>" is a "doc" document.` See [Cells](#cells-sheets-only) |
 | Document content (`/content`) | `409` with a structured body — the only place `TYPE_MISMATCH` exists |
 
@@ -402,15 +402,14 @@ Returns `{ "id", "name", "type" }`.
 
 Cell endpoints operate on a single sheet tab inside a sheet document.
 
-The two halves of this family answer a wrong document id differently, which is worth knowing before you write a retry. Every route checks that the document is in the workspace; only the **writes** additionally check that it is a sheet.
-
-`PUT`, `DELETE` and `PATCH` refuse a non-sheet document before attaching to Yorkie at all, with the same `400` the other sheet-only families use:
+Every route checks that the document is in the workspace **and** that it is a sheet, refusing a non-sheet document before attaching to Yorkie at all, with the same `400` the other sheet-only families use. Reads and writes differ only in the noun:
 
 ```
+400 Cell reads are only available on sheet documents; "<id>" is a "doc" document.
 400 Cell writes are only available on sheet documents; "<id>" is a "doc" document.
 ```
 
-`GET` has **no** such check. It attaches read-only to the `sheet-<id>` Yorkie key, and for a doc, deck, note or blob document that key holds nothing — the real content lives under `doc-<id>`, `slides-<id>`, `note-<id>`, or in blob storage — so there is no worksheet and the request is `404 Tab not found`. That is the same status an unknown `tabId` on a genuine sheet returns, so a read gives you no way to tell a wrong document id from a wrong tab id. If your ids can be wrong, read the document's `type` from [Get Document](#get-document) first.
+> **Breaking change.** `GET` used to have no type check. It attached read-only to the `sheet-<id>` Yorkie key, and for a doc, deck, note or blob document that key holds nothing — the real content lives under `doc-<id>`, `slides-<id>`, `note-<id>`, or in blob storage — so the request came back `404 Tab not found`. That is the same status an unknown `tabId` on a genuine sheet returns, so a read gave you no way to tell a wrong document id from a wrong tab id. A client that branched on that `404` now sees a `400` instead. A `404 Tab not found` from a cells read now means what it says: the document **is** a sheet and that tab is not in it.
 
 The write verbs attach with a **seeded** spreadsheet root, which Yorkie applies when the document is empty. The seed is deliberate and still required: a sheet's Yorkie document does not exist until something attaches to it, so a script writing cells into a freshly created sheet that nobody has opened in the editor yet depends on it. It creates exactly one tab, with the id `tab-1` — so a write to any **other** `tabId` on such a sheet is `404 Tab not found` until the tab exists.
 

@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -15,6 +14,7 @@ import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
+import { assertSheetDocument } from './sheet-document.util';
 import { parseCharts } from '../../yorkie/worksheet-charts';
 import { unwrapJson } from '../../yorkie/yorkie-json';
 
@@ -33,17 +33,13 @@ export class ApiV1WorksheetChartsController {
     private readonly documentService: DocumentService,
   ) {}
 
-  private async assertSheetDocument(documentId: string, workspaceId: string) {
-    const doc = await this.documentService.getDocumentOrThrow({
-      id: documentId,
+  private assertSheetDocument(documentId: string, workspaceId: string) {
+    return assertSheetDocument(
+      this.documentService,
+      'Worksheet charts',
+      documentId,
       workspaceId,
-    });
-    if (doc.type !== 'sheet') {
-      throw new BadRequestException(
-        `Worksheet charts are only available on sheet documents; "${documentId}" is a "${doc.type}" document.`,
-      );
-    }
-    return doc;
+    );
   }
 
   private worksheetOrThrow(
