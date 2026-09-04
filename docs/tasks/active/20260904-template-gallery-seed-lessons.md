@@ -56,3 +56,50 @@ were to re-assert the shape by hand or to export the three
 Exporting them is three words of diff and means the catalogue is checked
 against the contract that actually gates the write path — a copy would have
 drifted, and the drift would have surfaced mid-run against a live deployment.
+
+## "There is no headless path" can mean "go through the browser"
+
+Thumbnails were deferred because the backend has no canvas and every renderer
+is in the browser. Both halves of that are true, and the conclusion — defer —
+was wrong. The renderers being in the browser is not an obstacle to reaching
+them; it is a *statement of where they are*. Driving the real UI got the
+picture, the capture sizing, the WebP encoding, the notes special case and the
+correct publish ordering, none of which had to be rebuilt.
+
+Before deferring on "the code for this lives somewhere I am not", check
+whether you can go there.
+
+## Automating a UI means asserting on state, not on clicks
+
+Two failures in one session, same root:
+
+- The first run clicked Publish and Submit ten times and reported ten
+  successes. The server had refused every submission; the product reports that
+  as a toast and carries on, which is correct for a person and invisible to a
+  script. **Read the outcome back from the database.**
+- A 500 ms sleep after Submit passed ten times, then failed on the first item
+  of the next run. **Poll for the state the click should produce**, with a
+  deadline.
+
+Also: log failed responses with their bodies. The message that actually
+diagnosed the first failure was the server's own sentence, and until it was
+logged the script only knew "expected pending, got listed".
+
+## A feature can be half-built without anyone noticing
+
+`description` had a column, a DTO field, a frontend API type, and two places
+that render it — and no control anywhere that set it. Every listing published
+through the product had `null`. Nothing failed; the feature just quietly did
+not exist.
+
+Working backwards from "reproduce the official procedure" is what surfaced it.
+Asking what the real flow *can* express is a better audit than reading the
+model, which looked complete.
+
+## The env a server reads is the server's, not the script's
+
+`YORKIE_AUTH_WEBHOOK_ENFORCE` was set on the seed process and checked by the
+API process. Worse, `nest start --watch` respawned and dropped ad-hoc
+variables, so the value was there for one run and gone the next. For anything
+a *server* checks, put it in the server's `.env` and verify with
+`ps eww -p <pid>` rather than assuming inheritance.

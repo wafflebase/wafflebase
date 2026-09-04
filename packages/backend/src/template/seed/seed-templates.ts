@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import {
   initialSpreadsheetDocument,
@@ -15,8 +14,6 @@ import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
 import { DocsYorkieRoot, writeDocsRoot } from '../../yorkie/docs-tree';
 import { SlidesYorkieRoot, writeSlidesRoot } from '../../yorkie/slides-tree';
 import { NoteYorkieRoot, writeNoteRoot } from '../../yorkie/note-content';
-import { parseReviewerIds } from '../template-review';
-import { TemplateService } from '../template.service';
 import type { BoardRoot } from './board';
 import { TEMPLATE_CATALOG } from './catalog';
 import type { SeedContent, TemplateSeed } from './types';
@@ -26,14 +23,13 @@ import type { SeedContent, TemplateSeed } from './types';
  *
  *   pnpm backend seed:templates --workspace <id> --author <userId>
  *
- * A backend command rather than a new HTTP route: filling a gallery is an
- * operator action with database access, not something an API key should be
- * able to do, and a public route would be auth surface to maintain forever.
- * It reuses the writers the v1 content endpoints use and drives
- * `TemplateService` for publish / submit / approve, so **none of the
- * public-tier gates are bypassed** — a deployment that has not configured
- * reviewers or enabled the Yorkie auth webhook is refused here exactly as a
- * person clicking through the UI would be.
+ * A backend command rather than a new HTTP route: creating a workspace's
+ * starter documents is an operator action with database access. It reuses the
+ * writers the v1 content endpoints use.
+ *
+ * It stops at the documents. Registering them as templates is
+ * `register-templates.ts`, which drives the product's own Share dialog — see
+ * there for why that cannot be done headlessly.
  */
 
 const logger = new Logger('SeedTemplates');
@@ -149,166 +145,57 @@ async function writeContent(
 }
 
 // --------------------------------------------------------------------------
-// The content watermark
-// --------------------------------------------------------------------------
-
-const SETTLE_POLL_MS = 1500;
-const SETTLE_STABLE_READS = 2;
-const SETTLE_TIMEOUT_MS = 20_000;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Wait until a listing's `contentChangedAt` stops moving.
- *
- * `review({ decision: 'approve', contentAt })` pins `reviewedContentAt` to the
- * watermark the reviewer attested to, and `isVisibleTo` hides the listing once
- * live content moves past it. That watermark is driven by the **asynchronous**
- * Yorkie `DocumentRootChanged` event webhook — so a script that writes content
- * and approves a second later can have its own write land *after* the
- * approval, which both hides the listing and knocks it back to `pending`.
- *
- * A human reviewer never hits this because they open a queue minutes later.
- * This is that pause, made explicit: poll until the value has been stable
- * across consecutive reads, then approve *that* value.
- *
- * On a deployment with no event webhook registered the watermark simply never
- * moves, so this settles on the first two reads and costs one poll interval.
- */
-async function settleWatermark(
-  prisma: PrismaService,
-  listingId: string,
-): Promise<Date | null> {
-  const startedAt = Date.now();
-  let last: number | null | undefined = undefined;
-  let stable = 0;
-
-  for (;;) {
-    const row = await prisma.templateListing.findUnique({
-      where: { id: listingId },
-      select: { contentChangedAt: true },
-    });
-    const current = row?.contentChangedAt?.getTime() ?? null;
-
-    stable = current === last ? stable + 1 : 0;
-    last = current;
-    if (stable >= SETTLE_STABLE_READS - 1) {
-      return current === null ? null : new Date(current);
-    }
-    if (Date.now() - startedAt > SETTLE_TIMEOUT_MS) {
-      throw new Error(
-        `Content watermark for listing ${listingId} never settled. ` +
-          `Something is still writing to the document; re-run the seed when it is quiet.`,
-      );
-    }
-    await sleep(SETTLE_POLL_MS);
-  }
-}
-
-// --------------------------------------------------------------------------
 // One seed
 // --------------------------------------------------------------------------
 
-interface SeedContext {
-  prisma: PrismaService;
-  yorkie: YorkieService;
-  templates: TemplateService;
-  workspaceId: string;
-  authorId: number;
-  reviewerId: number;
-  forceContent: boolean;
-}
-
-type SeedOutcome = 'created' | 'refreshed' | 'already-live' | 'needs-review';
-
+/**
+ * Create the document and write its content — and stop there.
+ *
+ * Registering it as a template is deliberately **not** here. That happens
+ * through the product's own Share dialog, driven by `register-templates.ts`,
+ * because the thumbnail is taken by whichever editor is mounted at publish
+ * time and a headless publish has none. Leaving a second, service-level
+ * publish path in this file would also be exactly the "second unguarded way
+ * to swap an approved gallery card" that `publish()` guards against.
+ *
+ * Content is written only when the document is new, unless asked otherwise: a
+ * re-run must not clobber edits somebody made to a seeded template.
+ */
 async function seedOne(
-  ctx: SeedContext,
+  ctx: {
+    prisma: PrismaService;
+    yorkie: YorkieService;
+    workspaceId: string;
+    authorId: number;
+    forceContent: boolean;
+  },
   seed: TemplateSeed,
-): Promise<SeedOutcome> {
+): Promise<'created' | 'exists' | 'rewritten'> {
   const documentId = seedDocumentId(seed.slug);
-  const type = documentType(seed.content);
 
-  const existingDoc = await ctx.prisma.document.findUnique({
+  const existing = await ctx.prisma.document.findUnique({
     where: { id: documentId },
   });
 
-  if (!existingDoc) {
+  if (!existing) {
     await ctx.prisma.document.create({
       data: {
         id: documentId,
         title: seed.title,
-        type,
+        type: documentType(seed.content),
         workspaceId: ctx.workspaceId,
         authorID: ctx.authorId,
       },
     });
-  }
-
-  // Content is written only when the document is new, unless asked otherwise.
-  // A re-run must not clobber edits somebody made to a seeded template — and
-  // rewriting content also moves the watermark, which takes an approved
-  // listing back out of the gallery for no reason.
-  const wroteContent = !existingDoc || ctx.forceContent;
-  if (wroteContent) {
     await writeContent(ctx.yorkie, documentId, seed.content);
+    return 'created';
   }
 
-  const existingListing = await ctx.prisma.templateListing.findUnique({
-    where: { documentId },
-  });
-
-  const listing = await ctx.templates.publish(documentId, ctx.authorId, {
-    title: seed.title,
-    description: seed.description,
-    category: seed.category,
-    tags: seed.tags,
-    // Only on first publish. Passing it on a re-run would narrow an
-    // already-approved listing back down to workspace scope.
-    ...(existingListing ? {} : { visibility: 'workspace' as const }),
-  });
-
-  const current = await ctx.prisma.templateListing.findUniqueOrThrow({
-    where: { id: listing.id },
-  });
-
-  if (current.visibility === 'public' && current.status === 'listed') {
-    const stale =
-      current.contentChangedAt !== null &&
-      (current.reviewedContentAt === null ||
-        current.contentChangedAt > current.reviewedContentAt);
-    if (!stale) return existingDoc ? 'refreshed' : 'already-live';
-    // Already public but the content has moved past its approval. `submit`
-    // refuses a public listing ("re-reviewing a published template is not
-    // supported yet"), so the seed cannot fix this — a reviewer has to.
-    logger.warn(
-      `${seed.slug}: public but its content is ahead of the approval. ` +
-        `Re-approve it from the reviewer queue.`,
-    );
-    return 'needs-review';
+  if (ctx.forceContent) {
+    await writeContent(ctx.yorkie, documentId, seed.content);
+    return 'rewritten';
   }
-
-  if (current.status !== 'pending') {
-    await ctx.templates.submit(listing.id, ctx.authorId, {
-      acceptLicense: true,
-    });
-  }
-
-  const contentAt = await settleWatermark(ctx.prisma, listing.id);
-  await ctx.templates.review(listing.id, ctx.reviewerId, {
-    decision: 'approve',
-    contentAt: contentAt ? contentAt.toISOString() : undefined,
-  });
-
-  const after = await ctx.prisma.templateListing.findUniqueOrThrow({
-    where: { id: listing.id },
-  });
-  if (after.visibility !== 'public' || after.status !== 'listed') {
-    throw new Error(
-      `${seed.slug}: approve did not leave the listing public+listed ` +
-        `(visibility=${after.visibility}, status=${after.status})`,
-    );
-  }
-  return existingDoc ? 'refreshed' : 'created';
+  return 'exists';
 }
 
 // --------------------------------------------------------------------------
@@ -328,8 +215,6 @@ async function main(): Promise<void> {
   try {
     const prisma = app.get(PrismaService);
     const yorkie = app.get(YorkieService);
-    const templates = app.get(TemplateService);
-    const config = app.get(ConfigService);
 
     const workspaceId = arg('workspace') ?? process.env.SEED_WORKSPACE_ID;
     const authorId = Number(arg('author') ?? process.env.SEED_AUTHOR_ID);
@@ -343,58 +228,30 @@ async function main(): Promise<void> {
       where: { id: workspaceId },
     });
     if (!workspace) throw new Error(`No such workspace: ${workspaceId}`);
+    const author = await prisma.user.findUnique({ where: { id: authorId } });
+    if (!author) throw new Error(`No such user: ${authorId}`);
 
-    // Checked here rather than left to the first `submit` so the run fails
-    // before creating ten documents it cannot publish.
-    const reviewers = parseReviewerIds(
-      config.get<string>('WAFFLEBASE_TEMPLATE_REVIEWER_IDS'),
-    );
-    if (!reviewers.has(authorId)) {
-      throw new Error(
-        `User ${authorId} is not in WAFFLEBASE_TEMPLATE_REVIEWER_IDS, so this run ` +
-          `could publish templates but never approve them. Add them, or pass an ` +
-          `--author who is a reviewer.`,
-      );
-    }
-    if (config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE') !== 'true') {
-      throw new Error(
-        'The public tier requires YORKIE_AUTH_WEBHOOK_ENFORCE=true. In shadow mode ' +
-          "each listing's preview token also grants write access to its document.",
-      );
-    }
-
-    const ctx: SeedContext = {
+    const ctx = {
       prisma,
       yorkie,
-      templates,
       workspaceId,
       authorId,
-      // The author approves their own submissions. That is the point of a
-      // seed — this content is ours — and it is why the command needs an
-      // author who is already a configured reviewer rather than minting any
-      // new authority of its own.
-      reviewerId: authorId,
       forceContent: process.argv.includes('--force-content'),
     };
 
-    const tally: Record<SeedOutcome, number> = {
-      created: 0,
-      refreshed: 0,
-      'already-live': 0,
-      'needs-review': 0,
-    };
-
+    const tally: Record<string, number> = {};
     for (const seed of TEMPLATE_CATALOG) {
       const outcome = await seedOne(ctx, seed);
-      tally[outcome] += 1;
+      tally[outcome] = (tally[outcome] ?? 0) + 1;
       logger.log(`${seed.slug}: ${outcome}`);
     }
 
     logger.log(
       `Done. ${Object.entries(tally)
-        .filter(([, n]) => n > 0)
         .map(([k, n]) => `${n} ${k}`)
-        .join(', ')}.`,
+        .join(', ')}. ` +
+        'Register them with: pnpm backend register:templates --author ' +
+        `${authorId}`,
     );
   } finally {
     await app.close();
