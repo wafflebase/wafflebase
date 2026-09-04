@@ -68,6 +68,7 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--accent', m.accent],
     ['--accent-foreground', m.accentForeground],
     ['--destructive', m.destructive],
+    ['--warning', m.warning],
     ['--border', m.border],
     ['--input', m.input],
     ['--ring', m.ring],

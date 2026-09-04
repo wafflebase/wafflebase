@@ -148,14 +148,12 @@ export function UploadPanel() {
                 // field today, and a producer that later sets it elsewhere
                 // should not have it silently swallowed again.
                 //
-                // amber-700 (not -600) in light mode: this is 12px text on
-                // `bg-background` (oklch(1 0 0) = #fff), where amber-600
-                // (#e17100) measures 3.19:1 — under the 4.5:1 WCAG AA floor
-                // for text this size, and *less* legible than the red failure
-                // line above it. amber-700 (#bb4d00) measures 5.05:1. Dark
-                // mode keeps amber-500 (#fe9a00 on #09090b = 9.27:1); amber-700
-                // there would be 3.94:1, so the two stops are not swappable.
-                <p className="mt-0.5 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-500">
+                // `text-warning`, not a raw amber stop with a `dark:` variant:
+                // the per-theme split this needs (no single amber stop clears
+                // 4.5:1 on both backgrounds — in fact no colour does) now lives
+                // in the token, which is where the contrast derivation is
+                // recorded — see `packages/core/src/tokens/semantic.ts`.
+                <p className="mt-0.5 flex items-start gap-1 text-xs text-warning">
                   <AlertTriangle
                     className="mt-[0.15rem] h-3 w-3 shrink-0"
                     aria-hidden="true"

@@ -187,4 +187,82 @@ describe('ImageController.upload', () => {
     expect(res.status).toBe(400);
     expect(upload).not.toHaveBeenCalled();
   });
+
+  it('refuses a disallowed MIME at the multipart filter, not after buffering', async () => {
+    // This route had no `fileFilter`, so a `application/zip` part was read all
+    // the way into a Buffer and only then refused by `ImageService.upload`.
+    // Its v1 sibling has always rejected at the interceptor. The size limit
+    // still bounded the allocation, so this was wasted work and an asymmetry
+    // between the two upload routes rather than a memory hole.
+    const res = await request(server())
+      .post('/images')
+      .attach('file', Buffer.from('PKnot-an-image'), {
+        filename: 'payload.zip',
+        contentType: 'application/zip',
+      });
+
+    // Byte-identical to what `ImageService.upload` throws for the same MIME,
+    // so moving the check earlier changes nothing a client can observe. Both
+    // now render `unsupportedFileTypeMessage`; the literal is written out here
+    // rather than built from it, because a test that asks the function what it
+    // returns passes whatever it returns.
+    //
+    // `upload` is a mock in this suite, so this assertion pins the *filter*
+    // and says nothing about the service it claims to match —
+    // `image.service.spec.ts` exercises the real `upload()` against this same
+    // literal, and `image.constants.spec.ts` asserts there is one source for
+    // both. All three have to be reworded together.
+    //
+    // `transformException` returns an `HttpException` from a `fileFilter`
+    // unchanged, which is what makes matching the status and message possible
+    // at all — a plain `Error` there would have surfaced as a 500.
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      statusCode: 400,
+      message: 'Unsupported file type: application/zip',
+    });
+    // The handler never ran, so the bytes never reached the service. Same
+    // proof the over-cap test above relies on.
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('answers the disallowed type, not the size, when a body is both', async () => {
+    // The one client-visible change the filter makes. With only a size limit
+    // this came back 413; the filter runs on the part header before any bytes
+    // flow, so it is now 400. Pinned rather than left incidental: it is the
+    // only case where the status moved, and the more useful answer of the two
+    // (resending a smaller zip was never going to work).
+    const res = await request(server())
+      .post('/images')
+      .attach('file', Buffer.alloc(cap + 1024), {
+        filename: 'big.zip',
+        contentType: 'application/zip',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      message: 'Unsupported file type: application/zip',
+    });
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('filters on the part MIME type, never on the filename extension', async () => {
+    // `ImageService.upload` derives the stored extension from the validated
+    // MIME type and ignores the filename entirely (a JPEG sent as `foo.bmp` is
+    // stored `.jpg`). A filter that looked at the extension instead would
+    // start rejecting uploads that store and serve perfectly well today.
+    const res = await request(server())
+      .post('/images')
+      .attach('file', Buffer.from('jpegbytes'), {
+        filename: 'photo.bmp',
+        contentType: 'image/jpeg',
+      });
+
+    expect(res.status).toBe(201);
+    expect(upload).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'image/jpeg',
+      'photo.bmp',
+    );
+  });
 });

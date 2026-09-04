@@ -19,6 +19,7 @@ import {
   ALLOWED_IMAGE_MIME_TYPES,
   IMAGE_UPLOAD_MULTER_LIMIT_BYTES,
   VALID_IMAGE_ID_PATTERN,
+  unsupportedFileTypeMessage,
 } from '../../image/image.constants';
 import type { Request } from 'express';
 
@@ -45,6 +46,10 @@ export class ApiV1ImagesController {
    * end in accepts it.
    *
    * See `IMAGE_UPLOAD_MULTER_LIMIT_BYTES` for why the limit is the cap `+ 1`.
+   * The refusal wording is shared the same way, via
+   * `unsupportedFileTypeMessage`: this filter and the `ImageService.upload`
+   * check behind it are one refusal seen at two depths, so a client must not
+   * be able to tell which of them answered.
    */
   @Post()
   @UseInterceptors(
@@ -53,7 +58,7 @@ export class ApiV1ImagesController {
       fileFilter: (_req, file, cb) => {
         if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
           cb(
-            new BadRequestException(`Unsupported file type: ${file.mimetype}`),
+            new BadRequestException(unsupportedFileTypeMessage(file.mimetype)),
             false,
           );
         } else {

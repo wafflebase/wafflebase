@@ -11,6 +11,7 @@ import {
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { unsupportedFileTypeMessage } from './image.constants';
 
 /**
  * Map from validated MIME type → canonical storage extension. Deriving the
@@ -105,7 +106,10 @@ export class ImageService implements OnModuleInit {
     keyPrefix?: string,
   ): Promise<{ id: string; url: string }> {
     if (!this.allowedMimeTypes.includes(mimeType)) {
-      throw new BadRequestException(`Unsupported file type: ${mimeType}`);
+      // Shared with both upload routes' `fileFilter` (see
+      // `unsupportedFileTypeMessage`): they refuse the same request earlier,
+      // and a client must not be able to tell which layer answered.
+      throw new BadRequestException(unsupportedFileTypeMessage(mimeType));
     }
     if (file.length > this.maxFileSize) {
       throw new BadRequestException(
@@ -119,7 +123,11 @@ export class ImageService implements OnModuleInit {
     // on retrieval.
     const ext = MIME_TO_EXT[mimeType];
     if (!ext) {
-      throw new BadRequestException(`Unsupported file type: ${mimeType}`);
+      // Only reachable when `image.allowedMimeTypes` names a type
+      // `MIME_TO_EXT` has no extension for — a configuration mistake rather
+      // than a client one, but it is the same refusal, so it says the same
+      // thing.
+      throw new BadRequestException(unsupportedFileTypeMessage(mimeType));
     }
     const id = `${randomUUID()}.${ext}`;
     const key = keyPrefix ? `${keyPrefix}/${id}` : id;
