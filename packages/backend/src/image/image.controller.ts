@@ -16,6 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ImageService } from './image.service';
 import {
+  ALLOWED_IMAGE_MIME_TYPES,
   IMAGE_UPLOAD_MULTER_LIMIT_BYTES,
   VALID_IMAGE_ID_PATTERN,
 } from './image.constants';
@@ -65,12 +66,48 @@ export class ImageController {
    * rejects only `length > cap`. See that constant for the full reasoning; it
    * is shared with `ApiV1ImagesController` so the two upload routes cannot
    * disagree about which byte count is one too many.
+   *
+   * The `fileFilter` is the same idea applied to the MIME type, and closes the
+   * one remaining asymmetry with `ApiV1ImagesController`, which has always had
+   * it: `ImageService.upload` can only refuse `application/zip` once the whole
+   * part is a Buffer in this process, so without a filter an authenticated
+   * caller could make the server buffer up to the cap of something it was
+   * never going to store. The size limit still bounded that allocation, so
+   * this is wasted work and a difference between two sibling routes rather
+   * than a memory hole.
+   *
+   * The message is byte-identical to the service's own
+   * (`Unsupported file type: ${mimeType}`), and a `BadRequestException` is
+   * thrown rather than a plain `Error` because Nest's `transformException`
+   * passes an `HttpException` through untouched (a plain `Error` becomes a
+   * 500). So moving the check earlier leaves the client-visible 400 and body
+   * exactly as they were. The one surface that does change is a request that
+   * is *both* oversized and disallowed: it answered 413 when only the size
+   * limit existed, and answers 400 now that the filter runs first.
+   *
+   * It filters on `file.mimetype` alone, never the filename: `upload` derives
+   * the stored extension from the validated MIME type and ignores the
+   * filename, so a JPEG named `foo.bmp` stores and serves correctly today and
+   * must keep doing so.
+   *
+   * The service check stays for the same reason the size check does — it is
+   * the allowlist for every non-HTTP caller of `upload()`.
    */
   @Post()
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: IMAGE_UPLOAD_MULTER_LIMIT_BYTES },
+      fileFilter: (_req, file, cb) => {
+        if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
+          cb(
+            new BadRequestException(`Unsupported file type: ${file.mimetype}`),
+            false,
+          );
+        } else {
+          cb(null, true);
+        }
+      },
     }),
   )
   async upload(
