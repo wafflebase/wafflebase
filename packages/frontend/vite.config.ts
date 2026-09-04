@@ -265,6 +265,17 @@ function manualChunks(id: string): string | undefined {
     return "notes-editor-engine";
   }
 
+  // NOTE: the landing page's chrome (`nav-bar` / `footer` / `marketing-page` /
+  // `section-head`) is deliberately NOT grouped here, though it looks like an
+  // obvious candidate now that `/templates` and `/t/:id` mount it too. It was
+  // tried and measured: naming those four as one chunk pulled `waffle-logo`
+  // in with them, and since `components/app-sidebar` imports the logo, the
+  // result was `Layout`, `sheet-view`, `docs-detail` and ~80 other chunks
+  // importing `marketing-chrome` — the whole app downloading the marketing
+  // nav and footer to get one 1 kB SVG. Rollup's own per-module hoist is the
+  // better outcome here; the six small chunks it emits are accounted for in
+  // harness.config.json's `maxChunkCountTemplatesMarketingSkinReason`.
+
   return undefined;
 }
 
