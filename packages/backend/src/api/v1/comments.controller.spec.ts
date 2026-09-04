@@ -538,6 +538,156 @@ describe('ApiV1CommentsController edit / delete authorship', () => {
   });
 });
 
+describe.each([
+  ['doc', 'doc-'],
+  ['pdf', 'pdf-'],
+])(
+  'ApiV1CommentsController edit / delete authorship on a %s',
+  (type, docKeyPrefix) => {
+    /**
+     * The flat-root branch of `mutateMap` — `root.comments`, no tab walk — is a
+     * separate code path from the sheet one, including its own
+     * `authorize?.(doc.getRoot().comments)` call. A `doc` root additionally
+     * cannot be seeded through `createThread` (it refuses, for want of a tree
+     * anchor), so the fixture is written the way an editor session would have
+     * left it: an opening comment by the caller, a reply by a peer.
+     */
+    const PEER = {
+      user: { id: 9, username: 'grace' },
+    } as unknown as AuthenticatedRequest;
+
+    function flatRoot(): Record<string, unknown> {
+      return {
+        comments: {
+          t1: {
+            id: 't1',
+            anchor:
+              type === 'pdf'
+                ? { kind: 'pdf-region', pageIndex: 0, rect: { x: 0, y: 0, w: 1, h: 1 } }
+                : { kind: 'docs-range', blockId: 'b1' },
+            comments: [
+              {
+                id: 'c1',
+                author: { userId: '7', username: 'ada' },
+                body: 'mine',
+                createdAt: 5,
+              },
+              {
+                id: 'c2',
+                author: { userId: '9', username: 'grace' },
+                body: 'theirs',
+                createdAt: 6,
+              },
+            ],
+            resolved: false,
+            createdAt: 5,
+          },
+        },
+      };
+    }
+
+    const threadsOf = (root: Record<string, unknown>) =>
+      root.comments as Record<string, { comments: { id: string; body: string }[] }>;
+
+    it('edits a comment body and stamps editedAt, author only', async () => {
+      const root = flatRoot();
+      const { controller, withDocument } = harness(type, root);
+
+      await expect(
+        controller.editComment(WS, DOC, 't1', 'c1', { body: 'no' }, PEER),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(threadsOf(root).t1.comments[0].body).toBe('mine');
+
+      const edited = await controller.editComment(
+        WS,
+        DOC,
+        't1',
+        'c1',
+        { body: 'mine, revised' },
+        REQ,
+      );
+      expect(edited.comment).toMatchObject({ id: 'c1', body: 'mine, revised' });
+      expect(typeof edited.comment!.editedAt).toBe('number');
+      // Written onto the stored comment in the type's own Yorkie document.
+      expect(threadsOf(root).t1.comments[0].body).toBe('mine, revised');
+      expect(withDocument.mock.calls[0][2]).toMatchObject({ docKeyPrefix });
+    });
+
+    it('refuses an empty edit body', async () => {
+      const { controller } = harness(type, flatRoot());
+      await expect(
+        controller.editComment(WS, DOC, 't1', 'c1', { body: '  ' }, REQ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('refuses to delete a comment the caller did not write', async () => {
+      const root = flatRoot();
+      const { controller } = harness(type, root);
+
+      await expect(
+        controller.deleteComment(WS, DOC, 't1', 'c2', REQ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      // Nothing was written: the check runs before the CRDT transaction opens.
+      expect(threadsOf(root).t1.comments).toHaveLength(2);
+    });
+
+    it('lets the author delete their own reply', async () => {
+      const root = flatRoot();
+      const { controller } = harness(type, root);
+
+      expect(await controller.deleteComment(WS, DOC, 't1', 'c2', PEER)).toEqual({
+        id: 'c2',
+        threadId: 't1',
+        deleted: 'comment',
+      });
+      expect(threadsOf(root).t1.comments.map((c) => c.id)).toEqual(['c1']);
+    });
+
+    it('reports that deleting the opening comment deleted the thread', async () => {
+      const root = flatRoot();
+      const { controller } = harness(type, root);
+
+      const res = await controller.deleteComment(WS, DOC, 't1', 'c1', REQ);
+      expect(res.deleted).toBe('thread');
+      expect(threadsOf(root)).toEqual({});
+    });
+
+    it('refuses to delete a thread the caller did not open', async () => {
+      const root = flatRoot();
+      const { controller } = harness(type, root);
+
+      await expect(
+        controller.deleteThread(WS, DOC, 't1', PEER),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(threadsOf(root).t1).toBeDefined();
+    });
+
+    it('lets the thread’s opener delete it', async () => {
+      const root = flatRoot();
+      const { controller } = harness(type, root);
+
+      expect(await controller.deleteThread(WS, DOC, 't1', REQ)).toEqual({
+        id: 't1',
+        deleted: 'thread',
+      });
+      expect(threadsOf(root)).toEqual({});
+      await expect(
+        controller.deleteThread(WS, DOC, 't1', REQ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('404s an edit or a delete of a thread that does not exist', async () => {
+      const { controller } = harness(type, flatRoot());
+      await expect(
+        controller.editComment(WS, DOC, 'nope', 'c1', { body: 'hi' }, REQ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        controller.deleteComment(WS, DOC, 'nope', 'c1', REQ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  },
+);
+
 describe('ApiV1CommentsController notifications', () => {
   const mention = (id: number) => `@[peer](${id})`;
 
