@@ -1,13 +1,17 @@
 # Wafflebase
 
 Wafflebase is a web-based collaborative office suite — spreadsheets, word
-documents, and presentations. It offers real-time collaboration and scalable
-performance, and bridges the gap between traditional spreadsheets and database
-tools for handling large datasets.
+documents, presentations, markdown notes, and an infinite canvas, plus viewers
+for uploaded PDFs, images, and other files. It offers real-time collaboration
+and scalable performance, and bridges the gap between traditional spreadsheets
+and database tools for handling large datasets.
 
-> **Status:** Early development. Core spreadsheet and document editing features
-> work, but the project is not yet production-ready. We are actively working on
-> DataSource integration and advanced analysis features.
+> **Status:** Actively developed, pre-1.0. Wafflebase ships tagged releases,
+> publishes [`@wafflebase/cli`](packages/cli/README.md) to npm and a
+> `yorkieteam/wafflebase` image to Docker Hub, and runs the public site at
+> [wafflebase.io](https://wafflebase.io). Every document type below works
+> today, including external PostgreSQL and lakehouse data sources — but there
+> is no 1.0 release and we don't call it production-ready yet.
 
 **Demo:** https://wafflebase.io/shared/bed3dbe8-bdce-46ef-a76e-65fd67178cde
 
@@ -17,12 +21,20 @@ tools for handling large datasets.
 
 - **High-performance rendering** — Canvas-based virtualized grid that handles
   large row/column counts smoothly.
-- **Formulas** — ANTLR4-based formula engine with SUM, AVERAGE, MIN, MAX,
-  and more.
-- **Cell formatting** — Font, color, alignment, freeze panes.
+- **Formulas** — ANTLR4-based formula engine with a 462-entry catalog
+  (445 functions plus 17 operators) spanning math, statistical, lookup,
+  text, date, financial, engineering, and database categories.
+- **Cell formatting** — Font, color, alignment, freeze panes, conditional
+  formatting, and data validation with in-cell checkbox / dropdown / date
+  controls.
+- **Charts & pivot tables** — Bar, line, area, pie, and scatter charts
+  anchored to the grid, plus pivot tables.
+- **File import** — `.xlsx` (including styles), CSV, JSON, and Parquet.
 - **Undo/Redo & Copy/Paste** — Google Sheets-compatible clipboard handling.
-- **Data Source integration** *(coming soon)* — Connect directly to
-  PostgreSQL/MySQL to query live data.
+- **Data Source integration** — Query an external PostgreSQL database from a
+  datasource tab, or read Iceberg / Delta tables out of object storage (S3,
+  S3-compatible, GCS, Azure, or a local path) through the lakehouse
+  connector.
 
 ### Docs
 
@@ -31,17 +43,38 @@ tools for handling large datasets.
 - **Pagination** — Word-processor-style pages with configurable paper size
   and margins.
 - **Block editing** — Paragraph-level operations with alignment and line
-  height controls.
+  height controls, plus tables, images, headers/footers, and spell check.
+- **Import & export** — DOCX import and export, and PDF export.
 
 ### Slides
 
-- **Free-position canvas** — Place text boxes, shapes, and images anywhere
-  on a slide; reuses the Docs rich-text engine inside text boxes.
-- **Themes & layouts** — 5 built-in themes and 11 Google Slides–parity
+- **Free-position canvas** — Place text boxes, images, tables, connectors,
+  and any of 137 insertable shapes anywhere on a slide; reuses the Docs
+  rich-text engine inside text boxes.
+- **Themes & layouts** — 23 built-in themes and 11 Google Slides–parity
   layouts with placeholder identity tracking.
 - **Canvas + DOM editor** — Two-pane editor (slide list + main canvas) with
   a DOM overlay for inline text editing.
-- **Import & export** — Best-effort PPTX import and PDF export.
+- **Presentation mode** — Fullscreen player with keyboard and click
+  navigation.
+- **Import & export** — Best-effort PPTX import, plus PPTX and PDF export.
+
+### Notes
+
+- **Markdown editor** — CodeMirror 6 source editor with a live preview,
+  backed by a single Yorkie `Text` CRDT.
+
+### Board
+
+- **Infinite canvas** — Boundless pan/zoom plane reusing the Slides scene
+  engine, with sticky notes, shapes, images, and connectors.
+- **Miro import** — Best-effort structured import of a Miro board.
+
+### Files
+
+- **PDF, image, and generic file documents** — Upload any file as a
+  document; PDFs and images get dedicated viewers, everything else is
+  stored and downloadable.
 
 ### Shared
 
@@ -49,6 +82,14 @@ tools for handling large datasets.
   [Yorkie](https://yorkie.dev) CRDT.
 - **Peer cursor labels** — See collaborators' cursors with name tags in
   real time.
+- **Comments** — Threaded comments with `@user` mentions and in-app
+  notifications.
+- **Version history** — Browse, preview, and restore past revisions of any
+  CRDT document type.
+- **Sharing** — URL-based share links with viewer/editor roles and
+  anonymous access, on top of workspaces, folders, and a template gallery.
+- **CLI & REST API** — Workspace-scoped API keys, a `/api/v1/` surface, and
+  the [`wafflebase`](packages/cli/README.md) command-line client.
 
 ## Tech Stack
 
@@ -58,6 +99,8 @@ tools for handling large datasets.
 | Sheets engine | Canvas rendering, ANTLR4 formula parser, Yorkie CRDT |
 | Docs engine | Canvas rendering, custom layout & pagination |
 | Slides engine | Canvas + DOM-overlay editor, theme/master/layout model, reuses Docs rich-text engine in text boxes |
+| Notes engine | CodeMirror 6 source editor, single Yorkie `Text` CRDT |
+| Board engine | Slides scene engine under an injected pan/zoom viewport |
 | Backend | NestJS, Prisma, PostgreSQL, GitHub OAuth + JWT |
 
 ## Project Structure
@@ -67,7 +110,7 @@ tools for handling large datasets.
 - [packages/slides/](packages/slides/README.md) — Presentation engine (free-position elements, themes/layouts, Canvas + DOM overlay)
 - [packages/notes/](packages/notes/README.md) — Markdown note engine (CodeMirror source editor, live preview)
 - [packages/board/](packages/board/README.md) — Infinite-canvas engine (boundless pan/zoom over the Slides scene engine)
-- [packages/core/](packages/core/README.md) — Shared foundation, subpath exports only (tokens, geometry, url)
+- [packages/core/](packages/core/README.md) — Shared foundation, subpath exports only (tokens, geometry, url, image)
 - [packages/frontend/](packages/frontend/README.md) — React web app (pages, components, hooks)
 - [packages/backend/](packages/backend/README.md) — NestJS API server (auth, documents, data sources)
 - [packages/cli/](packages/cli/README.md) — Command-line interface for the Wafflebase API ([skills](packages/cli/skills/SKILL.md))
@@ -149,12 +192,20 @@ Before submitting a PR, run the self-contained verification lane:
 pnpm verify:self
 ```
 
-This runs lint, unit tests, builds all packages, and checks chunk budgets,
-visual regressions, and code entropy in one command. CI runs this
-automatically and posts results as a PR comment.
+This runs lint, unit tests, builds all packages, and checks chunk budgets
+and code entropy in one command. CI runs this automatically and posts
+results as a PR comment.
 
-For database-backed end-to-end tests (starts a temporary PostgreSQL
-container):
+Browser visual and interaction tests are a **separate** lane — `verify:self`
+does not run them:
+
+```bash
+pnpm verify:browser:docker      # visual + interaction, in Docker
+pnpm verify:frontend:visual     # the visual suite alone, locally
+```
+
+For database-backed end-to-end tests (starts PostgreSQL, MinIO, and
+Azurite containers for you):
 
 ```bash
 pnpm verify:integration:docker

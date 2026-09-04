@@ -1,10 +1,10 @@
 # Contributing to Wafflebase
 
 Thanks for considering a contribution! Wafflebase is a web-based
-collaborative office suite (Sheets, Docs, Slides) built on Yorkie CRDTs
-and Canvas rendering. This guide describes how we accept changes, how
-the verification lanes work, and how AI coding agents fit into the
-workflow.
+collaborative office suite (Sheets, Docs, Slides, Notes, Board) built on
+Yorkie CRDTs and Canvas rendering. This guide describes how we accept
+changes, how the verification lanes work, and how AI coding agents fit
+into the workflow.
 
 ## TL;DR
 
@@ -16,8 +16,9 @@ workflow.
   that includes the design doc and the code.
 - **Docs / refactor** → straight to PR.
 
-All PRs target `main`. CI runs `verify:self` and `verify:integration` —
-only the parts your change can affect (see
+All PRs target `main`. CI runs `verify-self`, `verify-browser`,
+`verify-integration`, and `verify-backend-image` — only the parts your
+change can affect (see
 [What CI actually runs](#what-ci-actually-runs)) — and comments with the
 scope it chose.
 
@@ -115,14 +116,20 @@ start.
 
 ## Verification gates
 
-We have three verification lanes; pick the one matching the scope of
+We have four verification lanes; pick the one matching the scope of
 your change.
 
 | Command                          | When to run                                                      |
 | -------------------------------- | ---------------------------------------------------------------- |
-| `pnpm verify:fast`               | Before every commit. Lint + unit tests; the pre-commit gate.     |
-| `pnpm verify:self`               | Before opening a PR. Adds full builds, chunk budgets, visual + entropy checks. |
-| `pnpm verify:integration:docker` | When touching backend, datasource, share-link, or Yorkie code paths. Spins up Postgres + Yorkie automatically. |
+| `pnpm verify:fast`               | Before every commit. Lint, typechecks, and unit tests; the pre-commit gate. |
+| `pnpm verify:self`               | Before opening a PR. Adds full builds, chunk budgets, and entropy checks. |
+| `pnpm verify:integration:docker` | When touching backend, datasource, share-link, or Yorkie code paths. Spins up Postgres, MinIO, and Azurite automatically. |
+| `pnpm verify:browser:docker`     | When touching frontend rendering or interaction. Visual + interaction suites in Docker — **not** part of `verify:self`. |
+
+`verify:integration:docker` does **not** start Yorkie. The Yorkie-attached
+suites are gated on `YORKIE_RPC_ADDR`, which CI sets after launching the
+server; locally, run `docker compose up -d` and export it yourself if you
+need them.
 
 CI re-runs these on every PR. Pass/fail is in the PR's checks list; the
 comment reports the scope CI chose — what was skipped and why. The two

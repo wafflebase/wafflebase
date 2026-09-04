@@ -4,7 +4,8 @@ import { WbButton } from "./primitives/wb-button";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
-// `v0.4` from `0.4.1` — minor-version label for the marketing eyebrow.
+// Major.minor label for the marketing eyebrow: `0.6.8` -> `v0.6`.
+// `__APP_VERSION__` is defined by vite.config.ts from the root package version.
 const VERSION_LABEL = `v${__APP_VERSION__.split(".").slice(0, 2).join(".")}`;
 
 const STATS = [

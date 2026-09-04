@@ -52,6 +52,11 @@ export default defineConfig({
     "Documentation for Wafflebase — collaborative spreadsheets, documents, and presentations",
   base: "/docs/",
 
+  // This package's own README is developer notes, not a site page. Without
+  // this it builds to /docs/README.html and joins the local search index,
+  // reachable from no sidebar entry.
+  srcExclude: ["README.md"],
+
   head,
 
   vite: {
@@ -70,6 +75,7 @@ export default defineConfig({
       { text: "Docs", link: "/docs-editor/writing-a-document" },
       { text: "Slides", link: "/slides/build-a-deck" },
       { text: "Notes & Board", link: "/notes/writing-a-note" },
+      { text: "PDF & Files", link: "/pdf/viewing-pdfs" },
       { text: "Developers", link: "/developers/self-hosting" },
     ],
 

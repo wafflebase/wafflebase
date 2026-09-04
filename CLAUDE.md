@@ -2,7 +2,7 @@
 
 Wafflebase is a web-based collaborative office suite — spreadsheets,
 word documents, presentations, markdown notes, an infinite-canvas board,
-and PDF/image viewers. Yorkie CRDTs for real-time collaboration,
+and PDF/image/file viewers. Yorkie CRDTs for real-time collaboration,
 ANTLR4-based formula engine, Canvas rendering.
 
 - **Sheets** — Spreadsheet engine (data model, ANTLR4 formulas, Canvas grid rendering)
@@ -10,7 +10,7 @@ ANTLR4-based formula engine, Canvas rendering.
 - **Slides** — Presentation engine (free-position elements, theme system, Canvas + DOM overlay editor); reuses the docs rich-text engine inside text boxes
 - **Notes** — Markdown note engine (CodeMirror source editor, single Yorkie `Text` CRDT)
 - **Board** — Infinite-canvas engine (boundless pan/zoom plane; reuses the Slides scene engine)
-- **PDF / Image** — Static file document types (blob-stored original, no CRDT editing)
+- **PDF / Image / File** — Static blob document types (blob-stored original, no CRDT editing)
 
 See @docs/design/README.md for architecture, @packages/sheets/README.md,
 @packages/docs/README.md, @packages/slides/README.md,
@@ -21,13 +21,13 @@ for package details.
 
 ```bash
 pnpm install                        # Install all dependencies
-docker compose up -d                # Start PostgreSQL + Yorkie server
-pnpm dev                            # Start frontend (:5173) + backend (:3000)
+docker compose up -d                # Start PostgreSQL, Yorkie, MinIO, Azurite
+pnpm dev                            # Start frontend (:5173) + backend (:3000) + docs site
 pnpm verify:fast                    # Lint + unit tests (pre-commit gate)
-pnpm verify:self                    # verify:fast + all builds
-pnpm verify:full                    # verify:self + integration (DB required)
+pnpm verify:self                    # verify:fast + all builds + chunk/entropy (no browser lane)
+pnpm verify:full                    # verify:self + browser + integration (DB required)
 pnpm verify:browser:docker          # Visual + interaction tests in Docker
-pnpm test                           # Sheets package tests only (Vitest)
+pnpm test                           # Unit tests across all packages (Vitest; backend is Jest)
 pnpm sheets build:formula           # IMPORTANT: regenerate ANTLR formula parser
 pnpm backend migrate                # Run Prisma database migrations
 ```
@@ -48,7 +48,7 @@ detached.
 
 ## Pitfalls
 
-- **ANTLR generated files** have `@ts-nocheck` — do NOT hand-edit or add type fixes. Regenerate with `pnpm sheet build:formula` and commit the output.
+- **ANTLR generated files** have `@ts-nocheck` — do NOT hand-edit or add type fixes. Regenerate with `pnpm sheets build:formula` and commit the output.
 - **Store abstraction** — all spreadsheet behavior must go through the `Store` interface, all document behavior through `DocStore`. Do not bypass with ad-hoc persistence.
 - **Integration/e2e tests** require `docker compose up -d` first.
 - **Frontend chunk-gate** defaults are in `harness.config.json`; override with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
