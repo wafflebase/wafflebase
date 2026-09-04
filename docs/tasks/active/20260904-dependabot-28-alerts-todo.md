@@ -24,34 +24,53 @@ reached only through jest coverage).
 
 ## Tasks
 
-### A. Bump the stale override pins — 14 alerts
+The four sections below are **disjoint and total exactly 28**. They are split by
+*manifest* first, then by fix, because the same stale pin raises a separate
+alert in each lockfile: the stale-pin mechanism accounts for 14 alerts overall,
+but 6 of those live in `scripts/agent/package-lock.json` and are section D's,
+not section A's.
 
-- [x] `fast-uri@<3.1.5: 3.1.5` → `fast-uri@<3.1.6: 3.1.6` (8 alerts)
-- [x] `qs@<6.15.2: 6.15.2` → `qs@<6.16.0: 6.16.0` (4 alerts)
-- [x] `js-yaml@<3.15.0: 3.15.0` → `js-yaml@<3.15.1: 3.15.1` (1 alert)
-- [x] `js-yaml@>=4.0.0 <4.3.0: 4.3.0` → `>=4.0.0 <4.3.1: 4.3.1` (1 alert)
+| section | alerts | ids |
+| --- | --- | --- |
+| A. stale override pins (`pnpm-lock.yaml`) | 8 | 154, 155, 170, 172, 173, 174, 176, 177 |
+| B. direct dependency bumps | 10 | 156, 157, 158, 159, 160, 161, 162, 166, 167, 175 |
+| C. new transitive overrides | 4 | 163, 164, 165, 168 |
+| D. `scripts/agent/package-lock.json` | 6 | 169, 171, 178, 179, 180, 181 |
+| **total** | **28** | no overlap |
+
+### A. Bump the stale override pins (`pnpm-lock.yaml`) — 8 alerts
+
+- [x] `fast-uri@<3.1.5: 3.1.5` → `fast-uri@<3.1.6: 3.1.6` (170, 172, 176, 177)
+- [x] `qs@<6.15.2: 6.15.2` → `qs@<6.16.0: 6.16.0` (173, 174)
+- [x] `js-yaml@<3.15.0: 3.15.0` → `js-yaml@<3.15.1: 3.15.1` (155)
+- [x] `js-yaml@>=4.0.0 <4.3.0: 4.3.0` → `>=4.0.0 <4.3.1: 4.3.1` (154)
 
 ### B. Direct dependency bumps — 10 alerts
 
 - [x] `pdfjs-dist ^6.1.200 → ^6.2.108` (`packages/frontend`) — GHSA-hq66-cqwq-w95j,
       arbitrary JS execution on opening a malicious PDF. The one change with
-      real regression risk: the viewer opens user-uploaded PDFs.
+      real regression risk: the viewer opens user-uploaded PDFs. (156)
 - [x] `@xmldom/xmldom 0.9.10 → 0.9.12` (`packages/frontend` pinned,
-      `packages/cli` caret) — 2 alerts
+      `packages/cli` caret) — (166, 167)
 - [x] `mysql2` → 3.23.1, `dompurify` → 3.4.13, `mermaid` → 11.16.1 — carets
-      already admit the patch, lockfile refresh only (7 alerts)
+      already admit the patch, lockfile refresh only
+      (175; 162; 157, 158, 159, 160, 161)
 
 ### C. New overrides for transitive build-time deps — 4 alerts
 
-- [x] `browserslist@<4.28.7: 4.28.7` (2 alerts)
-- [x] `nanoid@<3.3.18: 3.3.18`
-- [x] `@humanfs/node@<0.16.8: 0.16.8`
+- [x] `browserslist@<4.28.7: 4.28.7` (164, 165)
+- [x] `nanoid@<3.3.18: 3.3.18` (163)
+- [x] `@humanfs/node@<0.16.8: 0.16.8` (168)
 
 ### D. `scripts/agent/` — 6 alerts
 
-- [x] Separate npm lockfile outside the pnpm workspace, so `pnpm.overrides`
-      does not reach it. Needs its own `overrides` block or `npm update`:
-      `fast-uri` → 3.1.6 (4 alerts), `qs` → 6.16.0 (2 alerts).
+Same two packages as part of section A, but **distinct alert records**: they are
+raised against `scripts/agent/package-lock.json`, a separate npm lockfile
+outside the pnpm workspace, so the root `pnpm.overrides` never reaches them and
+they need their own fix.
+
+- [x] Own `overrides` block: `fast-uri` → 3.1.6 (169, 171, 180, 181),
+      `qs` → 6.16.0 (178, 179).
 
 ### E. Verification
 
@@ -136,11 +155,11 @@ nothing about the real API. Checked separately:
 
 ### Completed
 
-- [x] A. Stale override pins bumped — 14 alerts
+- [x] A. Stale override pins bumped — 8 alerts (pnpm-lock.yaml)
 - [x] B. Direct dependency bumps — 10 alerts
 - [x] C. New transitive overrides — 4 alerts
 - [x] D. `scripts/agent/` npm `overrides` block — 6 alerts
-- [x] E. `pnpm verify:fast` and `pnpm verify:self` both green (all 16 lanes)
+- [x] E. `pnpm verify:fast` and `pnpm verify:self` both green (32/32 lanes)
 - [x] E. Both lockfiles confirmed free of alert-listed versions
 - [x] E. PDF viewer verified by typecheck + asset emission + runtime smoke
       (see above) rather than by the mocked unit test
