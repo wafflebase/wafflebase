@@ -2,7 +2,9 @@ import {
   BarChart3,
   FileText,
   FunctionSquare,
+  LayoutTemplate,
   MessageSquare,
+  NotebookPen,
   Palette,
   Presentation,
 } from "lucide-react";
@@ -29,7 +31,7 @@ const HERO_FEATURES: HeroFeature[] = [
     glyph: "sync",
     title: "Real-Time Collaboration",
     description:
-      "CRDT-powered concurrent editing — multiple users work on the same sheet or document without conflicts or data loss.",
+      "CRDT-powered concurrent editing — sheets, docs, slides, notes, and boards all take simultaneous edits without conflicts or data loss.",
     href: "/docs/guide/collaboration",
   },
   {
@@ -52,13 +54,15 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
   {
     Icon: FunctionSquare,
     title: "Google Sheets-Compatible Formulas",
-    description: "SUM, VLOOKUP, IF, and cross-sheet references",
+    description:
+      "440+ functions — SUM, VLOOKUP, IF — plus cross-sheet references",
     href: "/docs/sheets/formulas",
   },
   {
     Icon: BarChart3,
-    title: "Charts, Pivots & SQL Datasources",
-    description: "Visualize, aggregate, and pull live data from PostgreSQL",
+    title: "Charts, Pivots & Live Data",
+    description:
+      "Visualize, aggregate, and query PostgreSQL or an Iceberg/Delta lakehouse",
     href: "/docs/sheets/charts",
   },
   {
@@ -78,7 +82,7 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
     Icon: Palette,
     title: "Themes, Layouts & Shapes",
     description:
-      "Built-in themes, Google-Slides-parity layouts, 55+ shapes & connectors",
+      "23 built-in themes, Google-Slides-parity layouts, 137 shapes and 4 connector types",
     href: "/docs/slides/themes-and-layouts",
   },
   {
@@ -87,6 +91,20 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
     description:
       "Object and slide animations plus a full-screen keyboard-driven player",
     href: "/docs/slides/build-a-deck",
+  },
+  {
+    Icon: NotebookPen,
+    title: "Markdown Notes & Infinite Boards",
+    description:
+      "A Markdown editor with live preview, and a boundless pan-and-zoom canvas",
+    href: "/docs/notes/writing-a-note",
+  },
+  {
+    Icon: LayoutTemplate,
+    title: "Templates, PDFs & Files",
+    description:
+      "Publish any document as a template — and keep PDFs, images, and files beside it",
+    href: "/docs/guide/templates",
   },
 ];
 
