@@ -1654,6 +1654,40 @@ export function initialize(
     dirtyBlockIds = undefined;
   };
 
+  /**
+   * Resolve the caret's pixel position in the *active* edit context.
+   *
+   * `cursor.getPixelPosition` resolves against the body layout only and
+   * returns undefined for a header/footer block, so every consumer of the
+   * caret pixel has to branch to `computeHFCursorPixel` first. Both produce
+   * the same page-space document coordinates (see the paint path, which
+   * feeds either through one `(y - scrollY) * scaleFactor` transform), so
+   * callers can treat the result as one coordinate space.
+   *
+   * Shared by `paint()` and `getCursorScreenRect()`; the latter used to
+   * call the body resolver directly, which is why the link popover (⌘K and
+   * the context menu's "Add link") was dead in a header or footer.
+   */
+  const resolveActiveCursorPixel = (
+    logicalWidth: number,
+  ): { x: number; y: number; height: number; visible: boolean } | undefined => {
+    const editCtx = textEditor?.getEditContext() ?? 'body';
+    const hfActivePageIndex = textEditor?.getHFActivePageIndex() ?? 0;
+    if (editCtx === 'header' && headerLayout && doc.document.header) {
+      return computeHFCursorPixel(
+        cursor.position, cursor.lineAffinity, headerLayout, doc.document.header, 'header',
+        paginatedLayout, measurer, logicalWidth, hfActivePageIndex, cursor.isVisible(),
+      );
+    }
+    if (editCtx === 'footer' && footerLayout && doc.document.footer) {
+      return computeHFCursorPixel(
+        cursor.position, cursor.lineAffinity, footerLayout, doc.document.footer, 'footer',
+        paginatedLayout, measurer, logicalWidth, hfActivePageIndex, cursor.isVisible(),
+      );
+    }
+    return cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalWidth);
+  };
+
   // Paint helper — repaints using cached layout (no recomputation)
   const paint = () => {
     // Read width from the parent element whose size is determined by CSS
@@ -1702,22 +1736,9 @@ export function initialize(
     // would leave the hidden textarea stale and make the browser auto-scroll
     // (the caret appears to jump to the table's edge on arrow keys).
     const editCtx = textEditor?.getEditContext() ?? 'body';
-    const hfActivePageIndex = textEditor?.getHFActivePageIndex() ?? 0;
     const cursorPixelRaw = selection.range?.tableCellRange
       ? undefined
-      : editCtx === 'header' && headerLayout && doc.document.header
-        ? computeHFCursorPixel(
-            cursor.position, cursor.lineAffinity, headerLayout, doc.document.header, 'header',
-            paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
-            cursor.isVisible(),
-          )
-        : editCtx === 'footer' && footerLayout && doc.document.footer
-          ? computeHFCursorPixel(
-              cursor.position, cursor.lineAffinity, footerLayout, doc.document.footer, 'footer',
-              paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
-              cursor.isVisible(),
-            )
-          : cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalCanvasWidth);
+      : resolveActiveCursorPixel(logicalCanvasWidth);
     // Caret color tracks the resolved text color at the cursor position
     // so it stays readable when the user picks a non-default color.
     // findBlock walks body / header / footer / cell blocks so this works
@@ -1937,8 +1958,8 @@ export function initialize(
     }
     lastSpellErrorRects = spellErrorRects; // cache for hit-testing (Task 8)
 
-    // Compute header/footer cursor and selection (editCtx / hfActivePageIndex
-    // are hoisted above for the textarea-tracking cursor pixel).
+    // Compute header/footer cursor and selection (editCtx is hoisted above
+    // for the textarea-tracking cursor pixel).
     let hfCursorHeader: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     let hfCursorFooter: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     let hfSelectionRects: Array<{ x: number; y: number; width: number; height: number }> | undefined;
@@ -3637,7 +3658,11 @@ export function initialize(
       const pw = paginatedLayout.pages[0]?.width ?? 0;
       const physicalWidth = scaleFactor < 1 ? vw : Math.max(vw, pw);
       const logicalWidth = scaleFactor < 1 ? physicalWidth / scaleFactor : physicalWidth;
-      const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalWidth);
+      // Header/footer aware: the caret can live in either region, and the
+      // body resolver answers undefined there. Callers (the link popover)
+      // treat undefined as "no anchor" and give up silently, which is how
+      // "Add link" / ⌘K came to be dead in a header or footer.
+      const cursorPixel = resolveActiveCursorPixel(logicalWidth);
       if (!cursorPixel) return undefined;
       const canvasRect = canvas.getBoundingClientRect();
       const sy = container.scrollTop / scaleFactor;
@@ -4002,10 +4027,13 @@ export function initialize(
     getTableMergeContext: () =>
       computeTableMergeContext(doc, doc.blockParentMap, cursor.position, selection.range),
     applyTableCellStyle: (style: Partial<CellStyle>) => {
-      docStore.snapshot();
-      // Cell-range selection: apply to all cells in range
+      // Cell-range selection: apply to all cells in range. Snapshot inside
+      // each branch, after its own guard — a call that writes nothing must
+      // not push an undo entry (see `deleteTable`, which states the
+      // convention every other table method here follows).
       if (selection.range?.tableCellRange) {
         const cr = selection.range.tableCellRange;
+        docStore.snapshot();
         const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
         const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
         const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
@@ -4022,6 +4050,7 @@ export function initialize(
       // Single cell
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      docStore.snapshot();
       doc.applyCellStyle(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex }, style);
       markDirty(cellInfo.tableBlockId);
       render();
