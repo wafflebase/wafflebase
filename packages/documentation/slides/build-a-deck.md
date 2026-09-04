@@ -4,30 +4,42 @@ In this guide, you'll build a short three-slide deck from scratch. Along the way
 
 ## 1. Create a New Presentation
 
-From your workspace, click **New** → **Presentation**. You'll see a blank deck with a single title slide and a thumbnail strip on the left.
+From your workspace, click **New** → **New Presentation**. You'll get a deck with one slide — an empty canvas, using the **Blank** layout — and a thumbnail strip on the left.
 
 ## 2. Pick a Theme
 
 A **theme** controls the colors, fonts, and background used across every slide. Wafflebase ships with several built-in themes.
 
-Open the **Theme** panel from the right sidebar and click any theme to apply it to the whole deck. You can switch themes any time — your content stays put.
+Click the palette button in the toolbar (tooltip: **Theme**) to open the Theme panel on the right, then click any theme to apply it to the whole deck. You can switch themes any time — your content stays put.
 
-See [Themes & Layouts](./themes-and-layouts) for the full set of built-in themes and how the four-tier theme model works.
+See [Themes & Layouts](./themes-and-layouts) for the full set of built-in themes and how to customize one.
 
 ## 3. Add a Title
 
-The blank deck opens with a **Title slide** layout. Double-click the title placeholder and type a deck title — for example, `Q2 Roadmap`. Double-click the subtitle placeholder and add a short tagline.
+The first slide starts blank, so give it a layout: right-click an empty part of
+the canvas, choose **Change layout…**, and pick **Title slide**. The slide now
+has a title and a subtitle placeholder.
+
+Double-click the title placeholder and type a deck title — for example,
+`Q2 Roadmap`. Double-click the subtitle placeholder and add a short tagline.
 
 The placeholders inherit the heading and body fonts from the active theme, so you don't need to format text manually.
 
 ## 4. Add a Content Slide
 
-Insert a new slide:
+Insert a new slide after the current one. The three routes differ in which
+layout the new slide gets:
 
-- Press `⌘+M` (Mac) or `Ctrl+M` (Windows/Linux), **or**
-- Click the **+** button at the top of the slide thumbnail strip.
+| How | Layout of the new slide |
+|---|---|
+| Press `⌘+M` / `Ctrl+M` | Same layout as the slide you're on |
+| Click **Add slide** in the toolbar | Blank |
+| Right-click the thumbnail strip → **New slide** | Blank |
 
-The new slide reuses the current slide's layout. To pick a different layout, click the **Layout** split-button in the toolbar and choose **Title and body**.
+To choose the layout as you insert, click the chevron next to **Add slide** —
+its tooltip reads **Choose a layout** — and pick **Title and body**. That adds a
+*new* slide with that layout; it does not re-lay-out the slide you're on. (For
+that, see [Choosing a Layout](./themes-and-layouts#choosing-a-layout).)
 
 Type a title — `Themes` — and add a few bullet points in the body placeholder:
 
@@ -54,6 +66,126 @@ In presentation mode:
 - `←` / `Page Up` — go back
 - `Esc` — exit
 
+## Format Options
+
+Most per-object settings that aren't on the toolbar live in the **Format
+options** panel. Open it with the sliders button at the right end of the
+toolbar (tooltip: **Format options**). With nothing selected it shows
+**Slide size** — Widescreen 16:9, Standard 4:3, or Widescreen 16:10, plus
+custom width and height.
+
+Select something and the panel shows the sections that apply to it:
+
+| Section | Appears for | What's in it |
+|---|---|---|
+| **Size & Position** | Everything | Width, Height, X position, Y position, Rotation, a **Lock aspect ratio** toggle, two 90° rotate buttons, and a deck-wide **Units** choice of Inches or Centimeters |
+| **Text fitting** | Text boxes | Do not autofit / Shrink text on overflow / Resize shape to fit text |
+| **Recolor** | Images | No recolor / Grayscale / Sepia |
+| **Adjustments** | Images | Transparency, Brightness, Contrast |
+| **Drop shadow** | Shapes, images, text boxes | Color, Transparency, Angle, Distance, Blur |
+| **Reflection** | Shapes, images, text boxes | Transparency, Distance, Size |
+| **Alt text** | Shapes, images, text boxes, tables | A description for screen readers |
+
+Connectors and groups get **Size & Position** only, and tables get
+**Size & Position** and **Alt text**. Width, Height, and Rotation are hidden
+for connectors, and a text box set to *Resize shape to fit text* has its
+Height locked, since it's computed from the content.
+
+## Rulers, Guides, and Snapping
+
+Rulers run along the top and left of the canvas. They're always on — there's
+no show/hide command — and they use inches or centimetres based on your
+locale, independently of the **Units** choice in the Format options panel.
+
+To place a **guide**, press on a ruler and drag onto the slide; release inside
+the slide to drop it, or outside to cancel. Drag an existing guide to move it,
+or drag it back onto a ruler to delete it. Right-clicking on or near a guide
+offers **Delete guide**, **Delete all vertical guides** / **Delete all
+horizontal guides**, and **Delete all guides**.
+
+Guides belong to the whole presentation, not to one slide.
+
+Snapping is always on as you drag: elements snap to the slide centre, to your
+guides, and to other elements' edges. **Smart guides** — the arrows and dashed
+outlines showing equal spacing or matching sizes — are always on too; neither
+has a setting. Hold `Shift` while resizing to suppress equal-size snapping,
+and `Shift` while dragging to lock movement to one axis.
+
+## Copy Formatting Between Objects
+
+The brush button in the toolbar (tooltip: **Format painter**) copies fill and
+stroke from one object to another:
+
+1. Select a single shape, text box, or connector.
+2. Click **Format painter**.
+3. Click the object you want to paint.
+
+It applies once and switches itself off — there is no double-click-to-stay-on
+mode, and no keyboard shortcut. Click the button again, or press `Esc`, to
+cancel without painting. Selecting nothing (or more than one object) makes the
+button do nothing, and painting between different kinds of object is ignored.
+Images can't be used as a source.
+
+## Crop an Image
+
+Select an image and click the crop button in the toolbar (tooltip: **Crop**),
+or just double-click the image. The picture dims outside the crop window, and
+eight black handles appear on the window itself:
+
+- Drag a handle to trim.
+- Drag *inside* the window to slide the picture under it.
+- Press `Enter`, click the toolbar button again (now **Done cropping**), or
+  click anywhere outside the crop window to apply.
+- Press `Esc` to cancel.
+
+**Reset crop**, next to the crop button, restores the full picture in one undo
+step; it's greyed out until the image has actually been cropped.
+
+Cropping is a free rectangle only — there are no aspect-ratio presets and no
+crop-to-shape. Images inside a group can't be cropped; ungroup first.
+
+## Speaker Notes
+
+Every slide has a speaker-notes box below the canvas, showing the placeholder
+**Speaker notes…** when it's empty. Click into it and type — notes are saved
+with the slide, and switching slides switches the notes with them.
+
+The pane is always visible; there is no show/hide toggle. Drag the thin
+divider directly above it to make it taller or shorter (the size is remembered
+per browser). It can be shrunk but not collapsed away entirely.
+
+Two limits worth knowing:
+
+- **Notes are plain text.** There is no bold, italic, or bullet formatting in
+  the notes box.
+- **They are not shown while presenting.** There is no presenter view or
+  second-screen notes display — presentation mode shows the slide only. Notes
+  *are* written into a `.pptx` export as real PowerPoint notes, so a deck you
+  export keeps them; a PDF export does not include them.
+
+If two people edit the same slide's notes at the same time, the notes box is
+last-write-wins rather than merged character by character — unlike the text on
+the slide itself. Agree who's writing the notes, or take turns.
+
+## Arrange, Align, and Order
+
+With one or more elements selected, the **Arrange** button in the toolbar
+(the stacked-layers icon) collects the positioning commands:
+
+| Menu entry | What it does |
+|---|---|
+| **Group** / **Ungroup** | Bind the selection into one object, or break it apart. Group needs 2+ elements selected; Ungroup needs a single selected group. |
+| **Order** → Bring to front / Bring forward / Send backward / Send to back | Move the selection up and down the stacking order. |
+| **Align** → Left / Center / Right / Top / Middle / Bottom | With several elements selected, aligns them to each other. With just one selected, aligns it to the slide. |
+| **Distribute** → Horizontally / Vertically | Even out the gaps. Needs **3 or more** elements — the outermost two stay put and the ones between them move. |
+| **Rotate 90° clockwise** / **Rotate 90° counter-clockwise** | Each selected element turns about its own center. |
+
+Each command counts as a single undo step, and every element keeps whatever
+rotation it already had.
+
+The **Order** entries stay clickable even when nothing is selected; in that
+case they simply do nothing.
+
 ## Add a Table
 
 Click the **Insert table** button in the toolbar and drag across the grid
@@ -76,6 +208,7 @@ Use connectors to link shapes — handy for flowcharts and diagrams. Click the
 - **Line** and **Arrow** — straight connectors.
 - **Elbow connector** — right-angled routing.
 - **Curved connector** — a smooth curve.
+- **Scribble** — freehand drawing, not a connector.
 
 Drag from the start point to the end point. As you approach a shape, connection
 points appear and the endpoint snaps to it, so the connector stays attached when
@@ -84,7 +217,7 @@ right-click it and choose **Straight**, **Elbow**, or **Curved**.
 
 ## Animations & Transitions
 
-Open the **Motion** panel from the right sidebar to add motion to a deck.
+Click the sparkles button in the toolbar (tooltip: **Motion**) to open the Motion panel on the right.
 
 **Slide transitions** (how one slide gives way to the next):
 
@@ -103,6 +236,25 @@ Open the **Motion** panel from the right sidebar to add motion to a deck.
 
 Click the **▶ Play** button to preview the animations right in the editor.
 They also run when you present the deck.
+
+## Charts in an Imported Deck
+
+::: warning Exporting to PowerPoint drops imported charts
+If you import a `.pptx` that contains charts, they appear on the slides and
+they render in a PDF export — but **a PowerPoint (`.pptx`) export omits them,
+with no warning**. The rest of the deck exports normally; the chart is simply
+absent from the exported file.
+:::
+
+Charts can only arrive by importing a PowerPoint deck. There is no way to
+insert a chart in Wafflebase, and an imported chart cannot be edited — you
+can move and resize it, but its numbers, series, and type are fixed at whatever
+PowerPoint last saved.
+
+If you need a round-trip through `.pptx` on a deck with charts, keep the
+original file, or rebuild the chart as a picture before exporting.
+
+See [Import & Export](/guide/import-export) for the full format support table.
 
 ## What's Next
 

@@ -18,7 +18,8 @@ On a narrow screen, the toolbar collapses its extra tools into an overflow
 
 ## Add a Rule
 
-1. Click **Add** in the panel to create a rule
+1. Click **Add** in the panel. This creates a **Dropdown** rule — change the
+   criteria in step 3 if you want a different one
 2. Set **Apply to range** — type a range like `B2:B100`, or click **Use selected
    range** to fill it from your current selection, then click **Apply**
 3. Pick a **Criteria** (see below)
@@ -57,9 +58,9 @@ Validates that the cell holds a date, with an operator:
 |----------|---------|
 | is a valid date | Any valid date |
 | date is | Equals a specific date |
-| is before / is on or before | Earlier than a date |
-| is after / is on or after | Later than a date |
-| is between / is not between | Within (or outside) two dates |
+| date is before / date is on or before | Earlier than a date |
+| date is after / date is on or after | Later than a date |
+| date is between / date is not between | Within (or outside) two dates |
 
 **Double-click** a date-validated cell to pick a value from a calendar popover
 instead of typing it.
@@ -87,10 +88,18 @@ Validates text input:
 
 Each rule chooses how to treat a value that fails validation:
 
-- **Show a warning** — the value is accepted but the cell gets a small red
-  marker in its corner, so you can spot it and fix it later
-- **Reject the input** — the entry is refused and the cell keeps its previous
-  value
+- **Show a warning** — the value is accepted and stored
+- **Reject the input** — a typed entry is refused and the cell keeps its
+  previous value
+
+Either way, **any cell holding a value that fails its rule is flagged with a
+small red triangle in its top-right corner** — the same corner the yellow
+comment marker uses. The marker is not exclusive to warning rules: an invalid
+value can still reach a reject-mode cell by paste, by the API, or by already
+being there when the rule was added, and the marker is what makes that visible.
+A formula is checked by its computed result at render time rather than by its
+text, so a formula that returns an invalid value gets the marker instead of
+being rejected.
 
 ::: tip
 Use **warning** while cleaning up existing data so nothing is lost, and switch
@@ -99,6 +108,6 @@ to **reject** once a column should only ever hold valid values.
 
 ## Remove a Rule
 
-Open the **Data validation** panel and click the delete (trash) icon on the
-rule's card. The in-cell controls for that range are removed and the cells go
-back to plain values.
+Open the **Data validation** panel and click the **✕** button on the rule's
+card. The in-cell controls for that range are removed and the cells go back to
+plain values.

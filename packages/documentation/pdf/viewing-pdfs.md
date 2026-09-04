@@ -70,8 +70,9 @@ thread, labeled by page. Select a thread to:
 PDF documents carry the same live collaboration as the rest of Wafflebase — the
 file bytes stay static, but comments and presence sync instantly:
 
-- **Presence** — avatars in the header show who else is viewing, and follow each
-  person to the page they're currently reading
+- **Presence** — avatars in the header show who else has the PDF open. They tell
+  you *who* is reading, not *where*: there is no click-to-jump to the page
+  someone else is on, the way there is in a sheet or a doc
 - **Comments** — new threads and replies appear for everyone without a refresh
 
 ### Share a PDF

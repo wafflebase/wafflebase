@@ -29,19 +29,41 @@ its header. See [Import & Export](/guide/import-export) for the full list.
 
 ## View an image
 
-The viewer centers the image and fits it to your window. A toolbar lets you:
+The viewer centers the image and fits it to your window. A spinner shows while
+the file downloads on first open.
 
-- **Zoom in / out** — step the zoom level up or down
-- **Previous / Next** — jump to the previous or next image in the same
-  workspace without returning to the list
-- **Download** — save the original file back to your computer
+- **Zoom** — a small toolbar sits at the bottom of the viewer, with the current
+  zoom shown as a percentage between the two buttons. Each click steps 25%, from
+  **25%** at the smallest to **500%** at the largest. Opening another image
+  starts again at 100%.
+- **Previous / Next** — arrow buttons float over the left and right edges of the
+  image and move to the neighbouring image, so you can page through a set without
+  going back to the list. `←` and `→` do the same from the keyboard. Each arrow
+  only appears when there is something on that side.
+- **Esc** — leaves the viewer for the documents list you came from.
+- **Download** — the download icon in the page *header* (beside **Share**) saves
+  the original file to your computer.
 
-A spinner shows while the file downloads on first open.
+::: tip Prev/Next stay inside one folder
+The neighbours are the other images in the **same folder** of the same
+workspace, ordered by title — not every image in the workspace. An image at the
+workspace root pages through the other root images, never into a folder.
+:::
 
 ## Rename an image
 
 Click the title in the header to rename the document. The change is reflected in
 your workspace list right away.
+
+## Share an image
+
+Click **Share** in the header to create a link, the same way you would for any
+other document — see [Collaboration & Sharing](/guide/collaboration).
+
+Someone opening that link sees the image and can zoom and download it, but gets
+**no previous/next arrows and no Esc shortcut**: both need the workspace's
+document list, which a share link doesn't grant access to. A share link is one
+image, not a tour of the folder it lives in.
 
 ::: tip
 Images are read-only. To change one, edit it elsewhere and upload the new
