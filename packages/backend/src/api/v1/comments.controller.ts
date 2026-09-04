@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -15,6 +16,9 @@ import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { DocumentService } from '../../document/document.service';
+import { UserService } from '../../user/user.service';
+import { NotificationService } from '../../notification/notification.service';
+import type { CommentNotificationDto } from '../../notification/notification.dto';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
 import type { AuthenticatedRequest } from '../../auth/auth.types';
@@ -76,13 +80,27 @@ type FlatCommentRoot = Record<string, unknown> & { comments?: ThreadMap };
  * The author is the authenticated caller — an API key resolves to the user
  * who minted it, which is the same identity the notification routes hold a
  * comment reporter to.
+ *
+ * Writes **notify** like the editor's do. `docs/design/notifications.md` was
+ * written when the client was the only party that could observe a comment, so
+ * `POST /notifications/comment` exists for the browser to report one; these
+ * routes are the second writer, and an agent-authored mention that told nobody
+ * would be a silently dropped notification rather than a deferred feature. The
+ * planning rule is the same one `packages/frontend/src/components/comments/notify.ts`
+ * applies (see {@link planCommentNotifications}), and it goes through the same
+ * `NotificationService.createFromComment`, so membership authorization, the
+ * recipient cap and the dedupe keys are one implementation.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/comments')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1CommentsController {
+  private readonly logger = new Logger(ApiV1CommentsController.name);
+
   constructor(
     private readonly documentService: DocumentService,
     private readonly yorkieService: YorkieService,
+    private readonly userService: UserService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private async loadCommentableType(
@@ -102,13 +120,80 @@ export class ApiV1CommentsController {
     return meta.type as CommentableType;
   }
 
-  private author(req: AuthenticatedRequest): CommentAuthor {
+  /**
+   * The comment author for the authenticated caller.
+   *
+   * `req.user` is only a full `User` row for a **JWT** caller: the API-key
+   * strategy returns `{ id, workspaceId, scopes, isApiKey }`
+   * (`api-key.strategy.ts`), with no `username` and no `photo` — and an API
+   * key is the primary way these routes are reached. Reading `req.user.username`
+   * straight off the request therefore stored `username: undefined` for every
+   * agent-authored comment, so the id is resolved against the `User` table
+   * whenever the request does not already carry a name.
+   */
+  private async author(req: AuthenticatedRequest): Promise<CommentAuthor> {
+    const userId = req.user.id;
+    if (typeof req.user.username === 'string' && req.user.username.length > 0) {
+      const author: CommentAuthor = {
+        userId: String(userId),
+        username: req.user.username,
+      };
+      if (req.user.photo) author.photo = req.user.photo;
+      return author;
+    }
+
+    const user = await this.userService.user({ id: userId });
+    if (!user) {
+      // The key's creator was deleted. Storing an anonymous author would put
+      // an unattributable comment in the document, so refuse the write.
+      throw new BadRequestException(
+        'The user this API key was created by no longer exists, so a comment ' +
+          'cannot be attributed to an author.',
+      );
+    }
     const author: CommentAuthor = {
-      userId: String(req.user.id),
-      username: req.user.username,
+      userId: String(user.id),
+      username: user.username,
     };
-    if (req.user.photo) author.photo = req.user.photo;
+    if (user.photo) author.photo = user.photo;
     return author;
+  }
+
+  /**
+   * Report a comment event to the notification pipeline.
+   *
+   * Fire-and-forget, exactly like `notifyCommentEvent` in the frontend and for
+   * the same reason: the comment is already committed to the CRDT, so a failed
+   * notification must never turn a successful write into an error for the
+   * caller.
+   */
+  private async notify(
+    documentId: string,
+    actor: CommentAuthor,
+    event: CommentEventKind,
+    thread: AnyThread,
+    comment?: { id: string; body: string },
+  ): Promise<void> {
+    const actorId = toUserId(actor.userId);
+    if (actorId === null) return;
+    const plans = planCommentNotifications({
+      documentId,
+      actorId,
+      event,
+      thread,
+      comment,
+    });
+    for (const plan of plans) {
+      try {
+        await this.notificationService.createFromComment(actorId, plan);
+      } catch (err) {
+        this.logger.warn(
+          `comment notification (${plan.type}) failed for document ${documentId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
   }
 
   @Get()
@@ -167,7 +252,7 @@ export class ApiV1CommentsController {
     if (!text) {
       throw new BadRequestException("'body' must be a non-empty string");
     }
-    const author = this.author(req);
+    const author = await this.author(req);
     const now = Date.now();
 
     if (type === 'doc') {
@@ -187,7 +272,10 @@ export class ApiV1CommentsController {
 
     if (type === 'pdf') {
       const anchor = parsePdfAnchor(input);
-      return this.yorkieService.withDocument<AnyThread, FlatCommentRoot>(
+      const created = await this.yorkieService.withDocument<
+        AnyThread,
+        FlatCommentRoot
+      >(
         documentId,
         (doc) => {
           const thread = buildThread({ anchor, body: text, author, now });
@@ -199,11 +287,19 @@ export class ApiV1CommentsController {
         },
         { docKeyPrefix: prefixFor(type), initialRoot: { comments: {} } },
       );
+      await this.notify(documentId, author, 'thread', created, {
+        id: created.comments[0].id,
+        body: text,
+      });
+      return created;
     }
 
     const tabId = requireString(input, 'tabId');
     const ref = requireString(input, 'ref');
-    return this.yorkieService.withDocument<AnyThread, SpreadsheetDocument>(
+    const created = await this.yorkieService.withDocument<
+      AnyThread,
+      SpreadsheetDocument
+    >(
       documentId,
       (doc) => {
         const worksheet = doc.getRoot().sheets?.[tabId] as
@@ -221,6 +317,11 @@ export class ApiV1CommentsController {
       },
       { initialRoot: initialSpreadsheetDocument() },
     );
+    await this.notify(documentId, author, 'thread', created, {
+      id: created.comments[0].id,
+      body: text,
+    });
+    return created;
   }
 
   @Post(':threadId/replies')
@@ -236,10 +337,20 @@ export class ApiV1CommentsController {
     if (!text) {
       throw new BadRequestException("'body' must be a non-empty string");
     }
-    const reply = buildReply({ body: text, author: this.author(req), now: Date.now() });
+    const author = await this.author(req);
+    const reply = buildReply({ body: text, author, now: Date.now() });
 
-    await this.mutateThread(documentId, type, threadId, (thread) => {
-      applyAddReply(thread, reply);
+    const updated = await this.mutateThread(
+      documentId,
+      type,
+      threadId,
+      (thread) => {
+        applyAddReply(thread, reply);
+      },
+    );
+    await this.notify(documentId, author, 'reply', updated, {
+      id: reply.id,
+      body: text,
     });
     return { threadId, comment: { ...reply, createdAt: Number(reply.createdAt) } };
   }
@@ -257,10 +368,21 @@ export class ApiV1CommentsController {
     if (typeof resolved !== 'boolean') {
       throw new BadRequestException("'resolved' must be a boolean");
     }
-    const author = this.author(req);
-    return this.mutateThread(documentId, type, threadId, (thread) => {
-      applySetResolved(thread, resolved, author, Date.now());
-    });
+    const author = await this.author(req);
+    const updated = await this.mutateThread(
+      documentId,
+      type,
+      threadId,
+      (thread) => {
+        applySetResolved(thread, resolved, author, Date.now());
+      },
+    );
+    // Only resolving is an event anyone is waiting on — reopening notifies
+    // nobody, matching the editor's controllers.
+    if (resolved) {
+      await this.notify(documentId, author, 'resolve', updated);
+    }
+    return updated;
   }
 
   @Delete(':threadId')
@@ -369,6 +491,115 @@ export class ApiV1CommentsController {
 
 function prefixFor(type: CommentableType): string {
   return YORKIE_DOC_KEY_PREFIXES[type];
+}
+
+/** Which comment write happened — the same three the frontend reports. */
+export type CommentEventKind = 'thread' | 'reply' | 'resolve';
+
+/**
+ * `@[username](userId)` is how a mention is stored inline in the plain-string
+ * comment body (`docs/design/comments-mentions.md`); only the id is read here.
+ * Mirrors `MENTION_RE` in `packages/frontend/src/components/comments/mentions.ts`.
+ */
+const MENTION_RE = /@\[[^\]]*\]\(([^)]*)\)/g;
+
+/**
+ * `CommentAuthor.userId` is a string because the comment model is shared with
+ * anonymous share-link sessions, but a notification recipient must be a real
+ * `User.id`. Anything that is not a plain positive integer is not notifiable.
+ */
+function toUserId(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * Decide which notifications a comment write should produce.
+ *
+ * The rule is the frontend's `planCommentNotifications`, restated for a server
+ * caller (which knows the actor as a `User.id` rather than as a
+ * `CommentAuthor`): a reply notifies the thread's earlier participants, minus
+ * anyone that same reply *mentions* — otherwise one reply lands in the same
+ * inbox twice — and the actor is excluded everywhere. Resolving notifies the
+ * participants. `NotificationService` re-checks workspace membership and
+ * re-applies its own recipient cap, so this only decides intent, and an event
+ * with nobody to notify costs no work at all.
+ *
+ * Exported for its own test: this is the only part of the notification path
+ * that is a decision rather than a database write.
+ */
+export function planCommentNotifications(input: {
+  documentId: string;
+  actorId: number;
+  event: CommentEventKind;
+  thread: AnyThread;
+  comment?: { id: string; body: string };
+}): CommentNotificationDto[] {
+  const { documentId, actorId, event, thread, comment } = input;
+  const plans: CommentNotificationDto[] = [];
+
+  if (event === 'resolve') {
+    const participants = participantIds(thread).filter((id) => id !== actorId);
+    if (participants.length > 0) {
+      plans.push({
+        type: 'thread_resolved',
+        documentId,
+        threadId: thread.id,
+        recipientUserIds: participants,
+        preview: thread.comments[0]?.body ?? '',
+      });
+    }
+    return plans;
+  }
+
+  if (!comment) return plans;
+
+  const mentioned: number[] = [];
+  for (const match of comment.body.matchAll(MENTION_RE)) {
+    const id = toUserId(match[1]);
+    if (id !== null && id !== actorId && !mentioned.includes(id)) {
+      mentioned.push(id);
+    }
+  }
+  if (mentioned.length > 0) {
+    plans.push({
+      type: 'comment_mention',
+      documentId,
+      threadId: thread.id,
+      commentId: comment.id,
+      recipientUserIds: mentioned,
+      preview: comment.body,
+    });
+  }
+
+  if (event === 'reply') {
+    const participants = participantIds({
+      ...thread,
+      comments: thread.comments.filter((c) => c.id !== comment.id),
+    }).filter((id) => id !== actorId && !mentioned.includes(id));
+    if (participants.length > 0) {
+      plans.push({
+        type: 'comment_reply',
+        documentId,
+        threadId: thread.id,
+        commentId: comment.id,
+        recipientUserIds: participants,
+        preview: comment.body,
+      });
+    }
+  }
+
+  return plans;
+}
+
+function participantIds(thread: AnyThread): number[] {
+  const ids: number[] = [];
+  for (const c of thread.comments ?? []) {
+    const id = toUserId(String(c.author?.userId ?? ''));
+    if (id !== null && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
 }
 
 function asObject(body: unknown, name: string): Record<string, unknown> {

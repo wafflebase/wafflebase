@@ -22,8 +22,10 @@ import {
 } from '../../yorkie/slides-tree';
 import {
   LayoutSummary,
+  SlideArrayLike,
   SlideOpResult,
   addSlide,
+  applySlideChange,
   deleteSlide,
   duplicateSlide,
   listLayouts,
@@ -40,8 +42,10 @@ const SLIDES_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.slides;
  * before this controller: adding a slide meant reading the deck, hand-building
  * a slide with placeholder elements seeded from the master's styles, and
  * writing the entire document back — with every concurrent edit in between
- * lost. These four verbs each rewrite only `root.slides`, and the layout list
- * is what makes `layoutId` guessable rather than folklore.
+ * lost. These four verbs instead land a **single granular change** on
+ * `root.slides` (one `splice`, or the CRDT array's in-place reorder for a
+ * move), so a collaborator's concurrent edit to any other slide survives; and
+ * the layout list is what makes `layoutId` guessable rather than folklore.
  *
  * Positions are 1-based, matching the row/column endpoints, and out-of-range
  * values clamp rather than fail: "put it at the end" is a legitimate thing to
@@ -145,11 +149,17 @@ export class ApiV1SlidesController {
   }
 
   /**
-   * Read the deck, run one slide operation, and persist `root.slides` alone.
+   * Read the deck, decide one slide operation, and land it on `root.slides`
+   * as a **granular** change.
    *
-   * The operation runs *outside* `doc.update` on a detached copy of the deck
-   * and only its result is assigned, so a failure (an unknown slide id)
-   * leaves the document untouched instead of half-edited.
+   * The operation runs *outside* `doc.update` on a detached copy of the deck,
+   * so a failure (an unknown slide id) leaves the document untouched instead
+   * of half-edited. What is then written is a single `splice` — or, for a move,
+   * the CRDT array's own in-place reorder — never an assignment of a whole
+   * array: `root.slides = <array>` is last-write-wins across the entire deck,
+   * so it would discard any element or text edit a collaborator committed
+   * between the read and the write, which is precisely the lost update these
+   * verbs exist to avoid. See `slide-ops.ts#applySlideChange`.
    */
   private async apply(
     documentId: string,
@@ -171,14 +181,15 @@ export class ApiV1SlidesController {
               'instead of its last slide.',
           );
         }
+        let index: number | undefined;
+        let slideCount = 0;
         doc.update((root) => {
-          root.slides = result.slides;
+          if (!root.slides) root.slides = [];
+          const slides = root.slides as unknown as SlideArrayLike;
+          index = applySlideChange(slides, result.change);
+          slideCount = slides.length;
         });
-        return {
-          id: result.id,
-          index: result.index,
-          slideCount: result.slides.length,
-        };
+        return { id: result.id, index, slideCount };
       },
       { docKeyPrefix: SLIDES_KEY_PREFIX },
     );

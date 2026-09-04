@@ -3,6 +3,7 @@ import {
   normalizeJsonSnapshot,
   parseJsonSnapshot,
   snapshotJsonRoot,
+  unwrapJson,
 } from './yorkie-json';
 
 /**
@@ -130,5 +131,29 @@ describe('snapshotJsonRoot', () => {
         },
       }),
     ).toThrow('root unavailable');
+  });
+});
+
+describe('unwrapJson', () => {
+  it('detaches a proxy through its own toJSON', () => {
+    expect(unwrapJson(rootProxy('{"a":1}', { a: 1 }))).toEqual({ a: 1 });
+  });
+
+  it('passes plain values and undefined through', () => {
+    expect(unwrapJson({ a: 1 })).toEqual({ a: 1 });
+    expect(unwrapJson(undefined)).toBeUndefined();
+    expect(unwrapJson(null)).toBeUndefined();
+  });
+
+  it('repairs a raw string carrying an unescaped control character', () => {
+    // A spreadsheet cell holding a multi-line value: Yorkie's raw JSON path
+    // emits the newline unescaped, which bare `JSON.parse` refuses.
+    const proxy = rootProxy('{"cells":{"A1":{"v":"one\ntwo"}}}', {});
+    expect(unwrapJson(proxy)).toEqual({ cells: { A1: { v: 'one\ntwo' } } });
+  });
+
+  it('falls back to a proxy walk when the string is unparseable', () => {
+    const proxy = rootProxy('{not json at all', { a: 1, b: 'two' });
+    expect(unwrapJson(proxy)).toEqual({ a: 1, b: 'two' });
   });
 });

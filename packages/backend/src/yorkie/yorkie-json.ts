@@ -3,6 +3,13 @@
  * JSON *string* (not a plain object). Spread / JSON.stringify therefore
  * double-encode. This helper detects the proxy shape and parses back to
  * a plain JS value; plain inputs (or `undefined`) pass through.
+ *
+ * Parsing goes through {@link parseJsonSnapshot}, not bare `JSON.parse`: the
+ * same raw-JSON path this unwraps leaves control characters *inside* string
+ * values unescaped, so a value holding a multi-line string (a spreadsheet cell
+ * with a newline in it) would otherwise throw a `SyntaxError` and surface as a
+ * 500. {@link detachYorkieValue} is the last resort for anything the repaired
+ * parse still cannot read.
  */
 export function unwrapJson<T>(value: unknown): T | undefined {
   if (value == null) return undefined;
@@ -11,7 +18,11 @@ export function unwrapJson<T>(value: unknown): T | undefined {
     if (typeof maybeJson === 'function') {
       const str = maybeJson.call(value);
       if (typeof str === 'string') {
-        return JSON.parse(str) as T;
+        try {
+          return parseJsonSnapshot(str) as T;
+        } catch {
+          return detachYorkieValue(value) as T;
+        }
       }
     }
   }

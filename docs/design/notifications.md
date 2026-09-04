@@ -13,11 +13,22 @@ event types ship in v1 — comment mention, comment reply, thread resolved, and
 workspace member joined.
 
 Notifications live in Postgres (`Notification`) and reach the browser over an
-SSE stream. Comment events are **reported by the client and authorized by the
-server**: comments live inside Yorkie CRDT documents and never pass through
-the backend, so the client is the only party that knows a comment was posted.
+SSE stream. Comment events written **in a browser** are reported by the client
+and authorized by the server: comments live inside Yorkie CRDT documents, so
+an editor session is the only party that knows one was posted there.
 The workspace-join event is created server-side in `acceptInvite()`, where the
 backend already has authority.
+
+Since v0.6.7 that premise has one exception. `/api/v1/.../comments`
+(`packages/backend/src/api/v1/comments.controller.ts`) lets an agent or the CLI
+open, reply to and resolve a thread, so for *those* writes the backend is the
+party that observes the comment and it plans the notifications itself —
+`planCommentNotifications` in that controller applies the same rule the
+frontend's `notify.ts` does and calls the same
+`NotificationService.createFromComment`, so membership authorization, the
+recipient cap and the dedupe keys stay one implementation. There is no third
+path: a comment either passes through an editor session or through that
+controller, and both notify.
 
 This closes the follow-up that [comments-mentions.md](comments-mentions.md)
 deferred; its `extractMentionedUserIds()` helper — written for "future
@@ -213,6 +224,17 @@ Callers are the three comment controllers —
 Each fires the report **after** the CRDT write succeeds, and ignores failures:
 the comment is already saved, so a failed notification must not surface an
 error to the author.
+
+The API comment routes are the fourth caller and the one that does not go
+through this endpoint at all: `ApiV1CommentsController` already holds the
+caller's identity from `CombinedAuthGuard`, so it calls
+`NotificationService.createFromComment` directly rather than issuing an HTTP
+request to itself. It keeps the two properties that matter — planned after the
+CRDT write, failures logged and swallowed — and it is subject to the same
+membership check inside the service. What it is *not* subject to is
+`UserThrottlerGuard`, which guards the HTTP route: an API-key caller is already
+bounded by the one-comment-per-request shape of these verbs, and each verb
+notifies at most the thread's participants.
 
 ### Creating join notifications
 

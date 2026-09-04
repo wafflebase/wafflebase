@@ -392,7 +392,11 @@ const registry: CommandSchema[] = [
       'slide-id': { type: 'string', required: true, description: 'Slide ID' },
     },
     response: { slideCount: 'number' },
-    aliases: ['slide.delete', 'deck.slide.delete'],
+    // Deliberately NOT `slide.delete`: `slides.delete` (delete the whole
+    // deck) already claims it, and `getCommandSchema` resolves first-match,
+    // so re-using it here would leave `slide.delete` pointing at the
+    // destructive document delete while looking like it named this one.
+    aliases: ['deck.slide.delete'],
   },
 
   // Board (infinite canvas) namespace

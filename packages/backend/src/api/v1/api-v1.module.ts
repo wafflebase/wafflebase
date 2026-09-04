@@ -25,6 +25,10 @@ import { ApiKeyModule } from '../../api-key/api-key.module';
 import { ImageModule } from '../../image/image.module';
 import { FileModule } from '../../file/file.module';
 import { FolderModule } from '../../folder/folder.module';
+import { UserModule } from '../../user/user.module';
+// Comment writes notify the same way the editor's do, through the same
+// service — see `comments.controller.ts`.
+import { NotificationModule } from '../../notification/notification.module';
 // For `DocumentCopyService` — `POST /documents/:id/copy` runs the same engine
 // the web "Make a copy" does rather than a second implementation of it.
 import { DocumentModule } from '../../document/document.module';
@@ -42,6 +46,8 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ImageModule,
     FileModule,
     FolderModule,
+    UserModule,
+    NotificationModule,
     DocumentModule,
     ShareLinkModule,
   ],

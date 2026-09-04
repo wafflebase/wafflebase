@@ -225,7 +225,12 @@ import {
   type CommentAuthor,
   type Thread,
 } from './comment/types';
-import { createThread, addReply } from './comment/thread';
+import {
+  createThread,
+  addReply,
+  deleteComment,
+  setThreadResolved,
+} from './comment/thread';
 import { cellAnchorToSref, isAnchorAlive } from './comment/anchor';
 import { importXlsxFile, importXlsxWorkbook } from './import/xlsx-importer';
 import type { ImportedXlsxSheet, XlsxFileLike } from './import/xlsx-importer';
@@ -372,6 +377,8 @@ export {
   rangeToRangeAnchor,
   createThread,
   addReply,
+  deleteComment,
+  setThreadResolved,
   cellAnchorToSref,
   isAnchorAlive,
   importXlsxFile,

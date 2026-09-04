@@ -100,6 +100,10 @@ export class ApiV1WorksheetImagesController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
+        // Checked *before* `doc.update` rather than inside it: throwing from
+        // within the update leaves an aborted change on a document this
+        // request should not have touched at all.
+        this.worksheetOrThrow(doc.getRoot(), tabId);
         doc.update((root) => {
           const ws = this.worksheetOrThrow(root, tabId) as {
             images?: Record<string, SheetImage>;

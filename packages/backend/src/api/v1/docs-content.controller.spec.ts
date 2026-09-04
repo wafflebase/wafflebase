@@ -1589,4 +1589,170 @@ describe('ApiV1DocsContentController', () => {
     });
 
   });
+
+  /**
+   * The board arm. A board is "one unbounded slide" — `{ meta, elements }` —
+   * so it shares the slides element walk but has its own docKey prefix, its
+   * own `initialBoardRoot()` seeding, and an `elements` shape anchor that has
+   * to be tested *after* `slides`, or a deck would sniff as a board.
+   */
+  describe('board', () => {
+    function makeBoardFixture() {
+      return {
+        meta: { title: 'Retro', unit: 'in' as const },
+        elements: [
+          {
+            id: 'e1',
+            type: 'shape',
+            frame: { x: 0, y: 0, w: 100, h: 100 },
+            data: {},
+          },
+        ],
+      };
+    }
+
+    it('returns the board content JSON for a board-typed document', async () => {
+      const board = makeBoardFixture();
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'board',
+      });
+      yorkieService.withDocument.mockResolvedValue(board);
+
+      expect(await controller.getContent('ws-1', 'd1')).toEqual(board);
+      expect(yorkieService.withDocument).toHaveBeenCalledWith(
+        'd1',
+        expect.any(Function),
+        expect.objectContaining({
+          docKeyPrefix: 'board-',
+          syncMode: 'readonly',
+        }),
+      );
+    });
+
+    it('writes a board body via doc.update and seeds the initial root', async () => {
+      const board = makeBoardFixture();
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'board',
+      });
+      const capturedRoot: Record<string, unknown> = {};
+      yorkieService.withDocument.mockImplementation(
+        (_id: string, cb: (doc: unknown) => unknown) =>
+          Promise.resolve(
+            cb({
+              update: (fn: (root: Record<string, unknown>) => void) =>
+                fn(capturedRoot),
+              getRoot: () => capturedRoot,
+            }),
+          ),
+      );
+
+      expect(await putContent('ws-1', 'd1', board)).toEqual(board);
+      expect(capturedRoot.meta).toEqual({ title: 'Retro', unit: 'in' });
+      expect(capturedRoot.elements).toEqual(board.elements);
+      const opts = yorkieService.withDocument.mock.calls.at(-1)?.[2] as {
+        docKeyPrefix: string;
+        initialRoot: { meta: { title: string }; elements: unknown[] };
+      };
+      expect(opts.docKeyPrefix).toBe('board-');
+      // A board document may never have been attached before, so the write
+      // has to be able to seed a root — unlike docs/slides, which the editor
+      // always created first.
+      expect(opts.initialRoot).toEqual({
+        meta: { title: 'Untitled board' },
+        elements: [],
+      });
+    });
+
+    it('routes a deck to the slides arm even though its slides hold elements', async () => {
+      // `sniffBodyShape` checks `slides` before `elements` for exactly this
+      // reason; the other order would post every deck to the board writer.
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'board',
+      });
+      await expect(
+        putContent('ws-1', 'd1', makeSlidesFixture() as never),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: expect.stringMatching(/shape 'slides'.*type 'board'/),
+      });
+    });
+
+    it('returns 400 when a board body targets a slides document', async () => {
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'slides',
+      });
+      await expect(
+        putContent('ws-1', 'd1', makeBoardFixture() as never),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: expect.stringMatching(/shape 'board'.*type 'slides'/),
+      });
+      expect(yorkieService.withDocument).not.toHaveBeenCalled();
+    });
+
+    describe('assertValidBoardBody', () => {
+      function expectBoardReject(body: unknown, messageRe: RegExp) {
+        return expect(
+          putContent('ws-1', 'd1', body as never),
+        ).rejects.toMatchObject({
+          constructor: BadRequestException,
+          message: expect.stringMatching(messageRe),
+        });
+      }
+
+      it('rejects a missing meta', async () => {
+        await expectBoardReject({ elements: [] }, /'meta' must be an object/);
+      });
+
+      it('rejects a blank title', async () => {
+        await expectBoardReject(
+          { meta: { title: '' }, elements: [] },
+          /'meta.title'/,
+        );
+      });
+
+      it('rejects an unknown unit', async () => {
+        await expectBoardReject(
+          { meta: { title: 'B', unit: 'furlong' }, elements: [] },
+          /'meta.unit'/,
+        );
+      });
+
+      it('rejects non-string recentColors', async () => {
+        await expectBoardReject(
+          { meta: { title: 'B', recentColors: [1, 2] }, elements: [] },
+          /'meta.recentColors'/,
+        );
+      });
+
+      it('applies the slides element walk to board elements', async () => {
+        // The same walk, not a looser copy: a board element missing `frame`
+        // is refused exactly as a slide's is.
+        await expectBoardReject(
+          {
+            meta: { title: 'B' },
+            elements: [{ id: 'e1', type: 'shape' }],
+          },
+          /elements\[0\].*'frame'/,
+        );
+      });
+
+      it('rejects a board body validated before any metadata lookup', async () => {
+        documentService.getDocumentOrThrow.mockClear();
+        await expectBoardReject(
+          { meta: { title: 'B' }, elements: [{ type: 'shape', frame: {} }] },
+          /elements\[0\].*'id'/,
+        );
+        expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

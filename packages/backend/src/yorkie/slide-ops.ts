@@ -16,11 +16,19 @@ import type { Layout, Slide, SlidesDocument } from '@wafflebase/slides';
  * and connector-endpoint remapping on a duplicate one implementation rather
  * than a second, drifting copy.
  *
- * Every function returns the resulting `slides` array and nothing else. The
- * caller assigns *only* that back onto the Yorkie root: `readSlidesRoot`
- * narrows `meta` to `{ title, themeId, masterId }`, so a read → mutate →
- * `writeSlidesRoot` round trip would silently drop `unit`, `pxPerPt`,
- * `slideHeight` and `recentColors` from a deck that had them.
+ * Every function returns a **granular change**, never a replacement array.
+ * That is the whole point of these verbs existing beside `PUT .../content`:
+ * `root.slides = <array>` is last-write-wins over the entire deck, so it would
+ * discard every element and text edit a collaborator committed between the
+ * read and the write — the exact lost update the whole-document route suffers
+ * from. {@link applySlideChange} lands the change as one `splice` (or one
+ * in-place reorder) on the live CRDT array instead, so an edit to any *other*
+ * slide, and to the edited slide's untouched siblings, survives.
+ *
+ * A read → mutate → `writeSlidesRoot` round trip is avoided for a second
+ * reason too: `readSlidesRoot` narrows `meta` to `{ title, themeId, masterId }`,
+ * so it would silently drop `unit`, `pxPerPt`, `slideHeight` and
+ * `recentColors` from a deck that had them.
  *
  * Indices on the wire are **1-based**, matching the row/column endpoints; the
  * store's own are 0-based, and the conversion happens here.
@@ -30,17 +38,99 @@ export type SlideOpFailure =
   | { ok: false; reason: 'not_found' }
   | { ok: false; reason: 'last_slide' };
 
+/**
+ * One granular edit to the `slides` array, resolved against the live array at
+ * apply time (`insert-after` / `remove` / `move` carry ids, not indices, so a
+ * concurrent insert elsewhere in the deck cannot make them land on the wrong
+ * slide).
+ */
+export type SlideChange =
+  | { kind: 'insert'; slide: Slide; index: number }
+  | { kind: 'insert-after'; slide: Slide; afterId: string }
+  | { kind: 'remove'; slideId: string }
+  | { kind: 'move'; slideId: string; index: number };
+
 export type SlideOpSuccess = {
   ok: true;
-  /** The new `slides` array to persist. */
-  slides: Slide[];
-  /** The slide the operation produced, when it produced one. */
+  /** The granular change to apply to the live `slides` array. */
+  change: SlideChange;
+  /** The slide the operation produced or acted on, when there is one. */
   id?: string;
-  /** Its 1-based position in `slides`. */
-  index?: number;
 };
 
 export type SlideOpResult = SlideOpSuccess | SlideOpFailure;
+
+/**
+ * The slice of the array interface a Yorkie array proxy shares with a plain
+ * JS array, plus the reorder methods only the proxy has.
+ *
+ * `moveAfterByIndex` / `moveFront` reorder *in place*, which is what keeps a
+ * peer's concurrent edit to the moved slide's children — remove-and-reinsert
+ * would rebuild the subtree and drop it. `yorkie-slides-store.ts#moveSlide`
+ * makes the same choice for the same reason; a plain array (a unit test) has
+ * neither method and falls back to the splice pair.
+ */
+export interface SlideArrayLike {
+  readonly length: number;
+  [index: number]: Slide;
+  findIndex(predicate: (slide: Slide) => boolean): number;
+  splice(start: number, deleteCount: number, ...items: Slide[]): Slide[];
+  moveFront?(id: unknown): void;
+  moveAfterByIndex?(prevIndex: number, targetIndex: number): void;
+  getElementByIndex?(index: number): { getID(): unknown };
+}
+
+/**
+ * Land a {@link SlideChange} on the live `slides` array. Must run inside
+ * `doc.update`.
+ *
+ * Returns the affected slide's resulting 1-based position, or `undefined` when
+ * the change removed it. Throws nothing: ids were validated against the same
+ * root a moment earlier, and a slide that vanished in between is a no-op
+ * rather than a 500 on an operation whose intent already happened.
+ */
+export function applySlideChange(
+  slides: SlideArrayLike,
+  change: SlideChange,
+): number | undefined {
+  switch (change.kind) {
+    case 'insert': {
+      const at = Math.min(Math.max(change.index, 0), slides.length);
+      slides.splice(at, 0, change.slide);
+      return at + 1;
+    }
+    case 'insert-after': {
+      const source = slides.findIndex((s) => s.id === change.afterId);
+      const at = source < 0 ? slides.length : source + 1;
+      slides.splice(at, 0, change.slide);
+      return at + 1;
+    }
+    case 'remove': {
+      const at = slides.findIndex((s) => s.id === change.slideId);
+      if (at >= 0) slides.splice(at, 1);
+      return undefined;
+    }
+    case 'move': {
+      const from = slides.findIndex((s) => s.id === change.slideId);
+      if (from < 0) return undefined;
+      const to = Math.min(Math.max(change.index, 0), slides.length - 1);
+      if (to === from) return from + 1;
+      if (slides.moveAfterByIndex && slides.getElementByIndex) {
+        if (to === 0 && slides.moveFront) {
+          slides.moveFront(slides.getElementByIndex(from).getID());
+        } else if (to > from) {
+          slides.moveAfterByIndex(to, from);
+        } else {
+          slides.moveAfterByIndex(to - 1, from);
+        }
+      } else {
+        const [moved] = slides.splice(from, 1);
+        slides.splice(to, 0, moved);
+      }
+      return to + 1;
+    }
+  }
+}
 
 function slideIndex(doc: SlidesDocument, slideId: string): number {
   return doc.slides.findIndex((s) => s.id === slideId);
@@ -70,13 +160,14 @@ export function addSlide(
   position?: number,
 ): SlideOpResult {
   const store = new MemSlidesStore(document);
-  const doc = store.read();
+  const length = store.read().slides.length;
+  const at = toStoreIndex(position, length) ?? length;
   let id!: string;
   store.batch(() => {
-    id = store.addSlide(layoutId, toStoreIndex(position, doc.slides.length));
+    id = store.addSlide(layoutId, at);
   });
-  const slides = store.read().slides;
-  return { ok: true, slides, id, index: slides.findIndex((s) => s.id === id) + 1 };
+  const slide = store.read().slides.find((s) => s.id === id)!;
+  return { ok: true, change: { kind: 'insert', slide, index: at }, id };
 }
 
 /** Deep-copy a slide and insert the copy immediately after it. */
@@ -92,8 +183,12 @@ export function duplicateSlide(
   store.batch(() => {
     id = store.duplicateSlide(slideId);
   });
-  const slides = store.read().slides;
-  return { ok: true, slides, id, index: slides.findIndex((s) => s.id === id) + 1 };
+  const slide = store.read().slides.find((s) => s.id === id)!;
+  return {
+    ok: true,
+    change: { kind: 'insert-after', slide, afterId: slideId },
+    id,
+  };
 }
 
 /**
@@ -109,10 +204,7 @@ export function deleteSlide(
   const doc = store.read();
   if (slideIndex(doc, slideId) < 0) return { ok: false, reason: 'not_found' };
   if (doc.slides.length <= 1) return { ok: false, reason: 'last_slide' };
-  store.batch(() => {
-    store.removeSlide(slideId);
-  });
-  return { ok: true, slides: store.read().slides };
+  return { ok: true, change: { kind: 'remove', slideId }, id: slideId };
 }
 
 /** Move a slide to a 1-based position, clamped to the deck's length. */
@@ -121,19 +213,13 @@ export function moveSlide(
   slideId: string,
   position: number,
 ): SlideOpResult {
-  const store = new MemSlidesStore(document);
-  const doc = store.read();
+  const doc = new MemSlidesStore(document).read();
   if (slideIndex(doc, slideId) < 0) return { ok: false, reason: 'not_found' };
   const target = Math.min(Math.max(position, 1), doc.slides.length) - 1;
-  store.batch(() => {
-    store.moveSlide(slideId, target);
-  });
-  const slides = store.read().slides;
   return {
     ok: true,
-    slides,
+    change: { kind: 'move', slideId, index: target },
     id: slideId,
-    index: slides.findIndex((s) => s.id === slideId) + 1,
   };
 }
 

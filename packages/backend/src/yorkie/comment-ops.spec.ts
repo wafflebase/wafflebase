@@ -154,10 +154,37 @@ describe('applyDeleteThread', () => {
 });
 
 describe('normalizeBody', () => {
-  it('trims and rejects an empty body', () => {
-    expect(normalizeBody('  hi  ')).toBe('hi');
+  it('keeps the body verbatim and rejects a whitespace-only one', () => {
+    // Same rule as `assertNonEmpty` in `@wafflebase/sheets`: emptiness is
+    // judged on the trimmed value, the content is preserved — so an
+    // API-written comment matches the same text typed in the editor.
+    expect(normalizeBody('  hi  ')).toBe('  hi  ');
+    expect(normalizeBody('line one\nline two')).toBe('line one\nline two');
     expect(normalizeBody('   ')).toBeNull();
+    expect(normalizeBody('')).toBeNull();
     expect(normalizeBody(42)).toBeNull();
     expect(normalizeBody(undefined)).toBeNull();
+  });
+});
+
+describe('copyThread anchor detachment', () => {
+  it('detaches nested anchor values instead of spreading proxies out', () => {
+    // A PDF anchor's `rect` and a docs anchor's `posRange` are nested
+    // objects: a shallow spread would hand live Yorkie proxies to
+    // `res.json()`, the bug `copyAnchor` in pdf-comment-store.ts prevents.
+    const rect = { x: 0.1, y: 0.2, w: 0.3, h: 0.4 };
+    const thread = buildThread({
+      anchor: { kind: 'pdf-region', pageIndex: 1, rect },
+      body: 'illegible',
+      author: AUTHOR,
+      now: 5,
+    });
+    const copy = copyThread(thread);
+    expect(copy.anchor).toEqual({
+      kind: 'pdf-region',
+      pageIndex: 1,
+      rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
+    });
+    expect(copy.anchor.rect).not.toBe(rect);
   });
 });
