@@ -55,10 +55,12 @@ describe('semantic tokens', () => {
 
   /**
    * `warning` is the one token whose two values are not the same hue at two
-   * lightnesses — no single amber stop clears 4.5:1 on both `background`
-   * values, so the light and dark entries were chosen independently. A future
-   * edit that "tidies" them into one shared value would silently drop one
-   * theme under the WCAG AA floor, so pin that they differ.
+   * lightnesses. No *colour at all* clears 4.5:1 on both `background` values
+   * — the best a single value can do against #ffffff and #09090b is 4.46:1
+   * (derivation in `semantic.ts`) — so the light and dark entries were chosen
+   * independently. A future edit that "tidies" them into one shared value
+   * would silently drop one theme under the WCAG AA floor, and no amount of
+   * hue-hunting would fix it, so pin that they differ.
    */
   it('gives warning a distinct value per theme', () => {
     expect(semantic.light.warning).not.toBe(semantic.dark.warning);

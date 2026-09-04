@@ -21,14 +21,25 @@ type SemanticColorMap = {
    * `destructive`, which says the operation failed.
    *
    * Unlike every other colour here it is NOT one hue rendered lighter in dark
-   * mode: no single amber stop is readable on both backgrounds. Measured as
-   * 12px text against this file's own `background` values (`oklch(1 0 0)` =
-   * #ffffff and `oklch(0.141 0.005 285.823)` = #09090b), the whole ramp
-   * straddles the 4.5:1 WCAG AA floor — amber-500 is 2.15:1 on white and
-   * 9.27:1 on the dark background; amber-700 inverts that to 5.05:1 and
-   * 3.94:1. Sweeping the ramp finds no crossover: at the lightness where the
-   * light ratio first clears 4.5, the dark ratio has already fallen to 4.38.
-   * So the two values are independently chosen, not one value and its tint.
+   * mode, and that is not a fact about amber — **no colour of any hue can
+   * clear 4.5:1 against both of this file's `background` values.** WCAG
+   * contrast is `(Yhi + 0.05) / (Ylo + 0.05)` over relative luminance alone,
+   * so hue and chroma reach it only through `Y`, and the question collapses
+   * to one number. Against `oklch(1 0 0)` (#ffffff, Y = 1) and
+   * `oklch(0.141 0.005 285.823)` (#09090b, Y ≈ 0.00279):
+   *
+   *     light: 1.05 / (Y + 0.05)        — falls as Y rises
+   *     dark:  (Y + 0.05) / 0.05279     — rises as Y rises
+   *
+   * The worse of the two is largest where they cross, at
+   * `(Y + 0.05)² = 1.05 × 0.05279`, i.e. `Y ≈ 0.1854` — where both are
+   * **4.46:1**. That is the ceiling for a single value, and it is under the
+   * AA floor for text. Two independently chosen values are therefore forced,
+   * not a shortcut; trying a different hue cannot recover it.
+   *
+   * The two shipped stops sit either side of that ceiling, each clearing AA
+   * on its own background: amber-700 is 5.05:1 on white and 3.94:1 on the
+   * dark one, amber-500 inverts it at 2.15:1 and 9.27:1.
    */
   warning: string;
   border: string;

@@ -19,6 +19,7 @@ import {
   ALLOWED_IMAGE_MIME_TYPES,
   IMAGE_UPLOAD_MULTER_LIMIT_BYTES,
   VALID_IMAGE_ID_PATTERN,
+  unsupportedFileTypeMessage,
 } from './image.constants';
 import type { Response } from 'express';
 
@@ -76,9 +77,11 @@ export class ImageController {
    * this is wasted work and a difference between two sibling routes rather
    * than a memory hole.
    *
-   * The message is byte-identical to the service's own
-   * (`Unsupported file type: ${mimeType}`), and a `BadRequestException` is
-   * thrown rather than a plain `Error` because Nest's `transformException`
+   * The message comes from `unsupportedFileTypeMessage`, the same function
+   * `ImageService.upload` refuses with, so the two cannot be reworded apart —
+   * it is not a literal repeated here and hoped to match. A
+   * `BadRequestException` is thrown rather than a plain `Error` because Nest's
+   * `transformException`
    * passes an `HttpException` through untouched (a plain `Error` becomes a
    * 500). So moving the check earlier leaves the client-visible 400 and body
    * exactly as they were. The one surface that does change is a request that
@@ -101,7 +104,7 @@ export class ImageController {
       fileFilter: (_req, file, cb) => {
         if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
           cb(
-            new BadRequestException(`Unsupported file type: ${file.mimetype}`),
+            new BadRequestException(unsupportedFileTypeMessage(file.mimetype)),
             false,
           );
         } else {

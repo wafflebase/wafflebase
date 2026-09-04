@@ -47,3 +47,26 @@ export const ALLOWED_IMAGE_MIME_TYPES: readonly string[] = [
   'image/gif',
   'image/webp',
 ];
+
+/**
+ * The one wording for "that MIME type is not an image this service stores".
+ *
+ * Four call sites produce it: the `fileFilter` on each of the two upload
+ * routes, and the two refusals inside `ImageService.upload` (the allowlist
+ * check and the extension-map miss behind it). They are the *same* refusal
+ * seen at two depths — the filters exist only to stop reading the body before
+ * the service would have refused it anyway — so the message they answer with
+ * is a contract between them, not four independent strings that happen to
+ * match today.
+ *
+ * It lives here for the same reason {@link ALLOWED_IMAGE_MIME_TYPES} does: a
+ * `FileInterceptor(...)` argument is evaluated at class-decoration time and
+ * can reach no injector, so a route cannot ask the service what it would have
+ * said. Sharing the function is what keeps "moving the check earlier changes
+ * nothing a client can observe" true rather than merely true-when-written —
+ * `image.constants.spec.ts` asserts this stays the only definition, and the
+ * three route/service specs each pin the rendered string independently.
+ */
+export function unsupportedFileTypeMessage(mimeType: string): string {
+  return `Unsupported file type: ${mimeType}`;
+}

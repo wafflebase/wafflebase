@@ -201,12 +201,21 @@ describe('ImageController.upload', () => {
         contentType: 'application/zip',
       });
 
-    // Deliberately byte-identical to what `ImageService.upload` throws for the
-    // same MIME (`Unsupported file type: ${mimeType}`), so moving the check
-    // earlier changes nothing a client can observe. `transformException`
-    // returns an `HttpException` from a `fileFilter` unchanged, which is what
-    // makes matching the status and message possible at all — a plain `Error`
-    // there would have surfaced as a 500.
+    // Byte-identical to what `ImageService.upload` throws for the same MIME,
+    // so moving the check earlier changes nothing a client can observe. Both
+    // now render `unsupportedFileTypeMessage`; the literal is written out here
+    // rather than built from it, because a test that asks the function what it
+    // returns passes whatever it returns.
+    //
+    // `upload` is a mock in this suite, so this assertion pins the *filter*
+    // and says nothing about the service it claims to match —
+    // `image.service.spec.ts` exercises the real `upload()` against this same
+    // literal, and `image.constants.spec.ts` asserts there is one source for
+    // both. All three have to be reworded together.
+    //
+    // `transformException` returns an `HttpException` from a `fileFilter`
+    // unchanged, which is what makes matching the status and message possible
+    // at all — a plain `Error` there would have surfaced as a 500.
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({
       statusCode: 400,

@@ -33,6 +33,19 @@ function installCanvasShim(): void {
   (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
     observe(): void {} unobserve(): void {} disconnect(): void {}
   };
+  // jsdom answers every getBoundingClientRect with zeros, which drives
+  // `computeScaleFactor(0, pageWidth)` to ~0 and collapses every pixel this
+  // file asserts on to ~1e-14. Ordering survives that, but nothing else does
+  // — an `x` or a `height` "greater than zero" stops meaning anything you
+  // could point at on screen. A viewport wider than a Letter page (816px at
+  // 96dpi) puts the editor at scale 1, so the numbers below are the document
+  // coordinates themselves.
+  HTMLElement.prototype.getBoundingClientRect = function (): DOMRect {
+    return {
+      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 800,
+      width: 1000, height: 800, toJSON: () => ({}),
+    } as DOMRect;
+  };
 }
 
 function para(text: string): Block {
@@ -130,6 +143,87 @@ describe('getCursorScreenRect — header / footer edit context', () => {
     expect(footerRect!.y).toBeGreaterThan(headerRect!.y);
   });
 
+  /**
+   * The single-page cases above cannot fail on a page offset: with one page,
+   * "footer below header" holds even if every header resolved onto page 1,
+   * because that is just page geometry. `computeHFCursorPixel` takes the
+   * active page index and offsets `y` by it (`getHeaderYStart` /
+   * `getFooterYStart`), and `resolveActiveCursorPixel` is what now forwards
+   * it from `getCursorScreenRect` — a regression that dropped the index (or
+   * hardcoded 0) would anchor the link popover over page 1 while the caret
+   * blinks on page 2, which the tests above would not notice.
+   */
+  describe('two pages', () => {
+    function setupTwoPages(): {
+      editor: EditorAPI;
+      body: Block;
+      header: Block;
+      footer: Block;
+    } {
+      const store = new MemDocStore();
+      // Enough body paragraphs to overflow one page's content box. 200 is far
+      // past the ~55 a Letter page fits at this line height, so the assertion
+      // does not depend on the exact page setup.
+      const bodyBlocks = Array.from({ length: 200 }, (_, i) => para(`line ${i}`));
+      const header = para('header text');
+      const footer = para('footer text');
+      store.setDocument({
+        blocks: bodyBlocks,
+        header: { blocks: [header], marginFromEdge: 48 },
+        footer: { blocks: [footer], marginFromEdge: 48 },
+      });
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const editor = initialize(container, store);
+      editors.push(editor);
+      return { editor, body: bodyBlocks[0], header, footer };
+    }
+
+    test('the page-2 header rect sits below page 1 entirely', () => {
+      const { editor, body, header, footer } = setupTwoPages();
+
+      place(editor, body.id, 0);
+      const bodyTop = editor.getCursorScreenRect();
+
+      editor._setEditContextForTest('header', 0);
+      place(editor, header.id, 0);
+      const headerP1 = editor.getCursorScreenRect();
+
+      editor._setEditContextForTest('footer', 0);
+      place(editor, footer.id, 0);
+      const footerP1 = editor.getCursorScreenRect();
+
+      editor._setEditContextForTest('header', 1);
+      place(editor, header.id, 0);
+      const headerP2 = editor.getCursorScreenRect();
+
+      for (const r of [bodyTop, headerP1, footerP1, headerP2]) {
+        expect(r).toBeDefined();
+      }
+      // Page 1, top to bottom.
+      expect(headerP1!.y).toBeLessThan(bodyTop!.y);
+      expect(bodyTop!.y).toBeLessThan(footerP1!.y);
+      // The one assertion the single-page cases cannot make: the *same*
+      // header block resolves to a different y once the active page moves,
+      // and that y is past everything on page 1.
+      expect(headerP2!.y).toBeGreaterThan(footerP1!.y);
+    });
+
+    test('a header caret is inset by the page and left margin, not pinned to 0', () => {
+      // `height > 0` and a y ordering both survive an x that never left the
+      // origin, so pin the x too: `computeHFCursorPixel` adds the page offset
+      // and the left margin before the in-line caret offset.
+      const { editor, header } = setupTwoPages();
+      editor._setEditContextForTest('header', 1);
+      place(editor, header.id, 3);
+      const rect = editor.getCursorScreenRect();
+
+      expect(rect).toBeDefined();
+      expect(rect!.x).toBeGreaterThan(0);
+      expect(rect!.height).toBeGreaterThan(0);
+    });
+  });
+
   test('⌘K in the header reaches onLinkRequest with a usable anchor', () => {
     const { editor, container, header } = setup();
     editor._setEditContextForTest('header');
@@ -151,6 +245,15 @@ describe('getCursorScreenRect — header / footer edit context', () => {
     expect(anchor).toBeDefined();
   });
 
+  /**
+   * Documents, does not guard. This passes on `main` too: `insertLink` was
+   * never the broken half — it already wrote to a header block, and only the
+   * *anchor* the popover needed was missing. It is here because that is the
+   * fact which made "add the anchor" the right fix instead of gating the menu
+   * row off, and a reader should not have to re-derive it. Do not count it
+   * among this change's regression tests; the ones that fail on `main` are
+   * the header/footer rect cases and the ⌘K case above.
+   */
   test('insertLink writes to a header block, so the offered action is not dead', () => {
     const { editor, store, header } = setup();
     editor._setEditContextForTest('header');

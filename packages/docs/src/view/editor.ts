@@ -412,8 +412,17 @@ export interface EditorAPI {
    * across cells produces) is reachable from tests too.
    */
   _setSelectionForTest(range: DocRange | null): void;
-  /** Test-only: force the edit context (body/header/footer). */
-  _setEditContextForTest(ctx: 'body' | 'header' | 'footer'): void;
+  /**
+   * Test-only: force the edit context (body/header/footer), and optionally
+   * which page's header/footer is being edited. Production sets the page
+   * index from the double-click that entered the region
+   * (`TextEditor.onPointerDown`), which needs a real pointer against a real
+   * page rectangle; `pageIndex` lets a test reach page 2 without that.
+   */
+  _setEditContextForTest(
+    ctx: 'body' | 'header' | 'footer',
+    pageIndex?: number,
+  ): void;
   /** Test-only: read the current caret position. */
   _getCursorForTest(): DocPosition;
 }
@@ -4027,10 +4036,18 @@ export function initialize(
     getTableMergeContext: () =>
       computeTableMergeContext(doc, doc.blockParentMap, cursor.position, selection.range),
     applyTableCellStyle: (style: Partial<CellStyle>) => {
-      // Cell-range selection: apply to all cells in range. Snapshot inside
-      // each branch, after its own guard — a call that writes nothing must
-      // not push an undo entry (see `deleteTable`, which states the
-      // convention every other table method here follows).
+      // Snapshot moved inside each branch so the single-cell path takes it
+      // *after* its `!cellInfo` guard — a call with the caret outside a table
+      // wrote nothing but still burned an undo step (see `deleteTable`, which
+      // states the convention every other table method here follows).
+      //
+      // The cell-range branch below is not in that shape and is not made so
+      // here: it has no guard to snapshot after, and `doc.applyCellStyle`
+      // throws `Block not found` on a stale `cr.blockId` once the snapshot is
+      // already pushed. That hazard predates this change and is shared with
+      // `applyStyleToCellRange`, which the inline-style path reaches with the
+      // same range; fixing it in one place only would leave the pair
+      // inconsistent, so it is left for a change that covers both.
       if (selection.range?.tableCellRange) {
         const cr = selection.range.tableCellRange;
         docStore.snapshot();
@@ -4287,8 +4304,11 @@ export function initialize(
       // a caret that reads it the same way production would.
       if (range) cursor.moveTo(range.focus);
     },
-    _setEditContextForTest: (ctx) => {
+    _setEditContextForTest: (ctx, pageIndex) => {
       textEditor?.setEditContext(ctx);
+      if (pageIndex !== undefined) {
+        textEditor?.setHFActivePageIndex(pageIndex);
+      }
     },
     _getCursorForTest: () => ({ ...cursor.position }),
   };

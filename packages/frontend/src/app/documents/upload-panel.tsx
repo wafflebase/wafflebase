@@ -150,9 +150,9 @@ export function UploadPanel() {
                 //
                 // `text-warning`, not a raw amber stop with a `dark:` variant:
                 // the per-theme split this needs (no single amber stop clears
-                // 4.5:1 on both backgrounds) now lives in the token, which is
-                // where the contrast reasoning is recorded — see
-                // `packages/core/src/tokens/semantic.ts`.
+                // 4.5:1 on both backgrounds — in fact no colour does) now lives
+                // in the token, which is where the contrast derivation is
+                // recorded — see `packages/core/src/tokens/semantic.ts`.
                 <p className="mt-0.5 flex items-start gap-1 text-xs text-warning">
                   <AlertTriangle
                     className="mt-[0.15rem] h-3 w-3 shrink-0"

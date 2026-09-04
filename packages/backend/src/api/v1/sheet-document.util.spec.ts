@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiV1CellsController } from './cells.controller';
 import { ApiV1TabsController } from './tabs.controller';
 import { ApiV1WorksheetController } from './worksheet.controller';
@@ -202,6 +202,37 @@ describe('sheet-only families: wrong document type', () => {
       );
     },
   );
+
+  it('lets a workspace-scope 404 through, ahead of any type check', async () => {
+    // `assertSheetDocument`'s own doc comment promises this ordering — an id
+    // outside the workspace is `404 Document not found` from
+    // `getDocumentOrThrow`, before the type is looked at — and it is what
+    // stops the guard from telling a caller that an id they may not see
+    // exists and what type it is. Nothing pinned it: every case above
+    // resolves `getDocumentOrThrow`, so the rejecting path was never taken.
+    const withDocument = jest.fn();
+    const getDocumentOrThrow = jest
+      .fn()
+      .mockRejectedValue(new NotFoundException('Document not found'));
+
+    const error = await new ApiV1TabsController(
+      { withDocument } as never,
+      { getDocumentOrThrow } as never,
+    )
+      .list(WS, DOC)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+
+    // Unconverted: still the 404 the document service raised, not a 400
+    // describing a type the caller was never allowed to learn.
+    expect(error).toBeInstanceOf(NotFoundException);
+    expect(error).not.toBeInstanceOf(BadRequestException);
+    expect((error as NotFoundException).getStatus()).toBe(404);
+    expect((error as Error).message).toBe('Document not found');
+    expect(withDocument).not.toHaveBeenCalled();
+  });
 
   it('passes a sheet document through to the handler', async () => {
     const withDocument = jest.fn().mockResolvedValue([]);
