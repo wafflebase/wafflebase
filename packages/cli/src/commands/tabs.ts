@@ -156,7 +156,7 @@ export function registerTabsCommand(parent: Command) {
           printDryRun(
             getConfig(opts),
             'POST',
-            `/documents/${seg(docId)}/tabs/${seg(tabId)}/move`,
+            `/documents/${seg(docId)}/tabs/${seg(tabId)}/reorder`,
             { index },
           );
           return;

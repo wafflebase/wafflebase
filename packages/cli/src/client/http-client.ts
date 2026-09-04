@@ -538,11 +538,16 @@ export class HttpClient {
       `/documents/${seg(docId)}/tabs/${seg(tabId)}`,
     );
   }
-  /** `index` is 1-based, like every other index on this surface. */
+  /**
+   * `index` is 1-based, like every other index on this surface.
+   *
+   * `reorder`, not `move`: `.../tabs/:tabId/move` is the row/column axis move
+   * (`moveAxis` below), which shipped first.
+   */
   moveTab(docId: string, tabId: string, index: number) {
     return this.request(
       'POST',
-      `/documents/${seg(docId)}/tabs/${seg(tabId)}/move`,
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/reorder`,
       { index },
     );
   }

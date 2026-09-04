@@ -15,7 +15,7 @@ attaches to.
 | --- | --- | --- |
 | Comments | 6 | `/api/v1/.../documents/:id/comments`: list, create thread, reply, resolve, delete comment, delete thread |
 | Slide granular editing | 5 | `POST slides` (add), `POST slides/:id/duplicate`, `DELETE slides/:id`, `POST slides/:id/move`, `GET layouts` |
-| Tab rearrange | 3 | `DELETE tabs/:id`, `POST tabs/:id/move`, `POST tabs/:id/duplicate` |
+| Tab rearrange | 3 | `DELETE tabs/:id`, `POST tabs/:id/reorder` (`move` is taken by the row/column axis move one segment deeper), `POST tabs/:id/duplicate` |
 | Sheet floating images | 2 | `GET`/`PUT .../tabs/:tabId/images` |
 | Board | 2 | `GET`/`PUT .../content` accepts `board` |
 

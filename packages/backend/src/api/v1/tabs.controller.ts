@@ -198,7 +198,19 @@ export class ApiV1TabsController {
     );
   }
 
-  @Post(':tabId/move')
+  /**
+   * Reorder a tab in the tab bar, NOT `POST .../tabs/:tabId/move`.
+   *
+   * `ApiV1WorksheetStructureController` is mounted one segment deeper
+   * (`.../tabs/:tabId`) and already owns `move` there, for the row/column axis
+   * move. `:tabId/move` here resolves to the very same Express path, and since
+   * this controller is registered first in `api-v1.module.ts` it would shadow
+   * that endpoint entirely — a `{ axis, srcIndex, count, dstIndex }` body would
+   * reach this handler and 400 on the missing `index`. The axis move is the
+   * older, published route, so the tab reorder is the one that takes another
+   * verb.
+   */
+  @Post(':tabId/reorder')
   async move(
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
