@@ -239,15 +239,22 @@ const SECURE_KEYS = [
 /**
  * The mermaid release the carrier patterns below were copied from. They are
  * verbatim copies of a NON-EXPORTED upstream module, so nothing here can be
- * derived from the installed engine at runtime, and `mermaid: ^11.16.0` lets a
+ * derived from the installed engine at runtime, and `mermaid: ^11.17.2` lets a
  * routine minor/patch upgrade move the patterns while these copies stay put —
  * exactly the drift that leaves a live carrier behind.
  *
  * `preview.test.ts` asserts this equals the installed `mermaid` version, so an
  * upgrade fails the suite until someone re-diffs `src/utils/regexes.ts` and
  * moves this constant.
+ *
+ * Last re-diffed at 11.16.0 → 11.17.2 (the security bump clearing
+ * GHSA-2v8p-3f2j-5mp7 / GHSA-3rrr-jr9j-h3q3 / GHSA-6x64-9x62-f2gx /
+ * GHSA-c4c3-pg64-4m4v / GHSA-rhh3-jpg6-66xh): `directiveRegex` and
+ * `frontMatterRegex` are byte-identical to the copies below, and `htmlLabels`
+ * still appears only at the root and on `flowchart` / `class`, which is what
+ * `SECURE_KEYS` above already pins.
  */
-export const MERMAID_CARRIER_PATTERNS_VERSION = '11.16.0';
+export const MERMAID_CARRIER_PATTERNS_VERSION = '11.17.2';
 
 /**
  * Mermaid's own carrier patterns, copied verbatim from its `src/utils/regexes.ts`

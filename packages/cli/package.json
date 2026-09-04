@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@xmldom/xmldom": "^0.9.10",
+    "@xmldom/xmldom": "^0.9.12",
     "commander": "^13.0.0",
     "fontkit": "^2.0.4",
     "open": "^11.0.0",
