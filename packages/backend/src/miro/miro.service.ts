@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ImageService } from '../image/image.service';
+import { MAX_IMAGE_UPLOAD_BYTES } from '../image/image.constants';
 import { parseMiroBoardId } from './parse-board-id';
 import type {
   MiroConnector,
@@ -55,14 +56,16 @@ const IMAGE_HOST_ALLOWLIST: {
 /**
  * Ceiling on a single downloaded image, in bytes.
  *
- * Source of truth is `image.maxFileSizeBytes` in `src/image/image.config.ts`
- * (10 MB); it lives behind `ConfigService` inside `ImageService`, so it is
- * mirrored here rather than imported. Keep the two in step. Checking here as
- * well as in `ImageService.upload` is not redundant: upload only sees a Buffer
- * that has already been fully materialised, so a hostile/oversized response
- * would blow up memory before its check ever runs.
+ * The same cap `ImageService.upload` enforces, taken from the constant
+ * `image.config.ts` derives `image.maxFileSizeBytes` from rather than being
+ * mirrored as a literal — the comparison here is `> cap`, exactly as it is
+ * there, so the two cannot disagree about which byte is one too many.
+ *
+ * Checking here as well as in `ImageService.upload` is not redundant: upload
+ * only sees a Buffer that has already been fully materialised, so a
+ * hostile/oversized response would blow up memory before its check ever runs.
  */
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = MAX_IMAGE_UPLOAD_BYTES;
 
 /**
  * Deadlines for the outbound calls.

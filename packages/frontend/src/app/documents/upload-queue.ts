@@ -453,6 +453,14 @@ async function runItem(item: UploadItem): Promise<void> {
     patchItem(item.id, {
       status: "error",
       reason: err instanceof Error ? err.message : "Upload failed",
+      // Clear any warning the same way retry() clears `reason`. Unreachable
+      // today — `finish()` is the only writer of `warning` and a "done" item
+      // never re-enters the worker — but `finish()` calls `settle()`, whose
+      // host callback runs inside the try. If that ever threw, the throw
+      // would unwind to here and patch an error over an item that had just
+      // been given a warning, rendering the red reason and the amber warning
+      // together with no Open link.
+      warning: undefined,
     });
     settle(item.id);
   } finally {

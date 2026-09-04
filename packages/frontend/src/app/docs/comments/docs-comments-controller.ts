@@ -61,6 +61,22 @@ export interface UseDocsCommentsHandle {
   store: YorkieCommentStore | null;
   state: DocsCommentsState;
   active: ActivePopover | null;
+  /**
+   * Whether this session can create a comment at all: `beginCompose`'s
+   * session-level preconditions (editable, an editor is mounted, and a
+   * signed-in author to attribute the thread to), lifted out so a menu
+   * can hide an unusable "Insert comment" row without having to know
+   * *why* it is unusable.
+   *
+   * The one precondition left out is the text selection, because that is
+   * per-right-click rather than per-session — each menu reads it from the
+   * editor when it opens.
+   *
+   * `currentUser` is null for an anonymous visitor, and an **editor**-role
+   * share link opened anonymously is editable (`readOnly === false`), so
+   * this is not implied by `readOnly`.
+   */
+  canComment: boolean;
   panelOpen: boolean;
   togglePanel: () => void;
   closePanel: () => void;
@@ -231,8 +247,15 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
     pendingRangeRef.current = null;
   }, []);
 
+  // Single source of truth for "could a comment be created here", shared
+  // with the context menus so a row can never be offered for an action
+  // `beginCompose` refuses on its first line.
+  const canComment = !readOnly && !!editor && !!currentUser;
+
   const beginCompose = useCallback((): boolean => {
-    if (readOnly || !editor || !currentUser) return false;
+    // `!editor` is redundant with `canComment` at runtime; it is repeated
+    // so TypeScript narrows `editor` below.
+    if (!canComment || !editor) return false;
     const sel = editor.getActiveSelection();
     if (!sel) return false;
     const docModel = editor.getDoc().document;
@@ -248,7 +271,7 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
     pendingRangeRef.current = { startPath: s, endPath: e, blockId, quotedText };
     setComposeOpen(true);
     return true;
-  }, [editor, readOnly, currentUser]);
+  }, [editor, canComment]);
 
   const submitNewComment = useCallback(
     async (body: string) => {
@@ -368,6 +391,7 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
     store: storeRef.current,
     state,
     active,
+    canComment,
     panelOpen,
     togglePanel,
     closePanel,

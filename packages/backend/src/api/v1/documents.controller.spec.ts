@@ -1,5 +1,21 @@
-import { ForbiddenException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import type { Server } from 'http';
+import * as request from 'supertest';
 import { ApiV1DocumentsController } from './documents.controller';
+import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
+import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
+import { DocumentService } from '../../document/document.service';
+import { DocumentCopyService } from '../../document/document-copy.service';
+import { FolderService } from '../../folder/folder.service';
+import { WorkspaceService } from '../../workspace/workspace.service';
+import { YorkieAdminService } from '../../yorkie/yorkie-admin.service';
+import { FileService } from '../../file/file.service';
 
 const WS = 'ws-1';
 const AUTHOR = 1;
@@ -254,11 +270,14 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
     });
 
     // The handler used to spread the whole request body into
-    // `prisma.document.update`, so any column a caller named was writable —
-    // and the body is an inline type, not a DTO class, so the global
-    // `ValidationPipe({ whitelist: true })` strips nothing here. `title` and
-    // `folderId` are now copied across one field at a time; these two cases
-    // are what would fail if a later edit reintroduced the spread.
+    // `prisma.document.update`, so any column a caller named was writable.
+    // `title` and `folderId` are now copied across one field at a time; these
+    // two cases are what would fail if a later edit reintroduced the spread.
+    //
+    // They are the *handler's* half of the defence, and the reason it is worth
+    // having on top of the DTO: calling a handler directly bypasses the global
+    // `ValidationPipe` entirely, so nothing strips these keys here. The pipe's
+    // half is covered over real HTTP in the suite below.
     it('drops unknown body fields instead of writing them', async () => {
       await controller.update(WS, 'doc-1', req(AUTHOR), {
         title: 'New',
@@ -285,6 +304,410 @@ describe('ApiV1DocumentsController copy and move-to-folder', () => {
         where: { id: 'doc-1' },
         data: {},
       });
+    });
+  });
+});
+
+/**
+ * Body validation, exercised over real HTTP so the global `ValidationPipe`
+ * actually runs. Calling a handler directly (as the suite above does) bypasses
+ * the pipe entirely, which is exactly how a mass-assignment hole survives a
+ * green unit suite: the pipe only engages for a handler whose `@Body()`
+ * parameter is a **DTO class**. Declared as an inline structural type
+ * (`{ title?: string }`), TypeScript emits `Object` as the metatype, the pipe
+ * skips it, and the raw JSON body reaches Prisma.
+ */
+describe('ApiV1DocumentsController body validation (global pipe)', () => {
+  let app: INestApplication;
+  let documentService: {
+    getDocumentOrThrow: jest.Mock;
+    updateDocument: jest.Mock;
+    createDocument: jest.Mock;
+    documents: jest.Mock;
+    deleteDocument: jest.Mock;
+  };
+
+  const DOC = { id: 'doc-1', workspaceId: WS, authorID: AUTHOR, type: 'sheet' };
+
+  /**
+   * Writable keys of a Prisma `Document` update. A spread of the raw body into
+   * `document.update` writes any of these; anything else makes Prisma throw,
+   * which this backend (no exception filter) surfaces as a 500.
+   *
+   * `folder` is the relation the folder move goes through — the handler writes
+   * `{ folder: { connect } }` / `{ folder: { disconnect } }` rather than the
+   * `folderId` scalar — so it belongs here even though it is not a column.
+   */
+  const DOCUMENT_COLUMNS = new Set([
+    'title',
+    'type',
+    'fileId',
+    'fileSize',
+    'mimeType',
+    'folderId',
+    'folder',
+    'workspaceId',
+    'updatedAt',
+  ]);
+
+  /**
+   * A genuine v4 UUID. `folderId` is `@IsUUID()`, so `'f-1'` is a 400 — and
+   * class-validator checks the RFC version and variant nibbles, not just the
+   * 8-4-4-4-12 hex shape, so a hand-typed `1111...-3333-4444-...` fails too.
+   * Prisma's `@default(uuid())` mints v4, so real folder ids pass.
+   */
+  const FOLDER = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+
+  /**
+   * Of those, the ones `prisma/schema.prisma` declares non-nullable. Writing
+   * `null` to one is an "Expected String" error from Prisma, not a stored null
+   * — and with no exception filter registered, a 500.
+   */
+  const NON_NULLABLE_COLUMNS = new Set(['title', 'type', 'workspaceId']);
+
+  beforeAll(async () => {
+    documentService = {
+      getDocumentOrThrow: jest.fn().mockResolvedValue(DOC),
+      // Stands in for Prisma closely enough to reproduce its failure modes:
+      // a real column is written, an unknown argument throws, and so does a
+      // `null` for a column the schema declares non-nullable. Without that last
+      // rule the double is more forgiving than the database and a `null` title
+      // reads as a clean 200 here while 500ing in production.
+      updateDocument: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+        for (const key of Object.keys(data)) {
+          if (!DOCUMENT_COLUMNS.has(key)) {
+            throw new Error(`Unknown argument \`${key}\``);
+          }
+          if (data[key] === null && NON_NULLABLE_COLUMNS.has(key)) {
+            throw new Error(
+              `Argument \`${key}\`: Got invalid value null. Expected String.`,
+            );
+          }
+        }
+        return Promise.resolve({ ...DOC, ...data });
+      }),
+      createDocument: jest.fn((data: Record<string, unknown>) => {
+        if (typeof data.title !== 'string' || data.title.length === 0) {
+          throw new Error('Invalid value for argument `title`');
+        }
+        return Promise.resolve({ id: 'doc-new', ...data });
+      }),
+      documents: jest.fn().mockResolvedValue([]),
+      deleteDocument: jest.fn(),
+    };
+
+    const allow = { canActivate: () => true };
+    const moduleRef = await Test.createTestingModule({
+      controllers: [ApiV1DocumentsController],
+      providers: [
+        { provide: DocumentService, useValue: documentService },
+        { provide: YorkieAdminService, useValue: { getEditors: jest.fn() } },
+        {
+          provide: WorkspaceService,
+          // The caller the auth guard below installs *is* `DOC.authorID`, so a
+          // plain member role still clears `isDocumentManager` — these cases
+          // are about the pipe, not about the gate (covered above).
+          useValue: {
+            assertMember: jest.fn().mockResolvedValue({ role: 'member' }),
+          },
+        },
+        { provide: FileService, useValue: { delete: jest.fn() } },
+        { provide: DocumentCopyService, useValue: { copy: jest.fn() } },
+        {
+          provide: FolderService,
+          useValue: {
+            assertSameWorkspace: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+      ],
+    })
+      .overrideGuard(CombinedAuthGuard)
+      .useValue({
+        canActivate: (ctx: {
+          switchToHttp: () => { getRequest: () => { user?: unknown } };
+        }) => {
+          ctx.switchToHttp().getRequest().user = {
+            id: AUTHOR,
+            isApiKey: false,
+          };
+          return true;
+        },
+      })
+      .overrideGuard(WorkspaceScopeGuard)
+      .useValue(allow)
+      .overrideGuard(ApiKeyWriteScopeGuard)
+      .useValue(allow)
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    // Mirrors `main.ts` exactly. Keep the two in sync — this suite is only
+    // meaningful while it reproduces the deployed pipe configuration.
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: false },
+      }),
+    );
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  beforeEach(() => {
+    documentService.updateDocument.mockClear();
+    documentService.createDocument.mockClear();
+  });
+
+  const base = `/api/v1/workspaces/${WS}/documents`;
+  const server = (): Server => app.getHttpServer() as Server;
+  const updateData = (): Record<string, unknown> | undefined => {
+    const call = documentService.updateDocument.mock.calls[0] as
+      | [{ data: Record<string, unknown> }]
+      | undefined;
+    return call?.[0].data;
+  };
+
+  describe('PATCH :documentId', () => {
+    it('accepts a rename and forwards only the title', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ title: 'renamed' });
+      expect(res.status).toBe(200);
+      expect(updateData()).toEqual({ title: 'renamed' });
+    });
+
+    it('refuses to reroute which editor opens the document', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ title: 'x', type: 'note' });
+      expect(res.status).toBe(400);
+      expect(updateData()?.type).toBeUndefined();
+    });
+
+    it('refuses to repoint the blob a document is backed by', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ fileId: '11111111-2222-3333-4444-555555555555.pdf' });
+      expect(res.status).toBe(400);
+      expect(updateData()?.fileId).toBeUndefined();
+    });
+
+    it('refuses fileSize and mimeType', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ fileSize: 1, mimeType: 'text/html' });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an unknown key with a 400, not a 500 from Prisma', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ title: 'x', nope: 1 });
+      expect(res.status).toBe(400);
+      expect(documentService.updateDocument).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-string title', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ title: 42 });
+      expect(res.status).toBe(400);
+    });
+
+    // The folder move has to survive the DTO. `forbidNonWhitelisted` rejects
+    // any key the class does not declare, so an `ApiV1UpdateDocumentDto`
+    // without `folderId` would turn every move into a 400 — a green unit suite
+    // (which never runs the pipe) would not notice.
+    it('accepts a folder move and forwards the relation write', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ folderId: FOLDER });
+      expect(res.status).toBe(200);
+      expect(updateData()).toEqual({ folder: { connect: { id: FOLDER } } });
+    });
+
+    // `null` is meaningful on this field — "move to the workspace root" — which
+    // is why it is `@IsOptional()` (skipped for `null` as well as `undefined`)
+    // rather than the `@ValidateIf(value !== undefined)` `title` uses.
+    it('accepts an explicit null folderId as a move to the root', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ folderId: null });
+      expect(res.status).toBe(200);
+      expect(updateData()).toEqual({ folder: { disconnect: true } });
+    });
+
+    it('accepts a rename and a folder move together', async () => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ title: 'renamed', folderId: FOLDER });
+      expect(res.status).toBe(200);
+      expect(updateData()).toEqual({
+        title: 'renamed',
+        folder: { connect: { id: FOLDER } },
+      });
+    });
+
+    // Nullable must not decay into "anything goes": everything that is neither
+    // a UUID string nor `null` is still a 400, and never reaches Prisma.
+    it.each([
+      ['a number', 42],
+      ['an object', { id: FOLDER }],
+      ['an array', [FOLDER]],
+      ['a non-UUID string', 'f-1'],
+      ['an empty string', ''],
+    ])('rejects a folderId that is %s', async (_label, folderId) => {
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ folderId });
+      expect(res.status).toBe(400);
+      expect(documentService.updateDocument).not.toHaveBeenCalled();
+    });
+
+    it('rejects an explicitly null title with a 400, not a 500 from Prisma', async () => {
+      // `@IsOptional()` counts `null` as "absent" and skips every decorator
+      // after it, so this body used to validate. The handler forwards any
+      // title that is not `undefined`, and `Document.title` is a non-nullable
+      // `String`, so the `null` reached `prisma.document.update` and threw —
+      // an unhandled 500, since this backend registers no exception filter.
+      const res = await request(server())
+        .patch(`${base}/doc-1`)
+        .send({ title: null });
+      expect(res.status).toBe(400);
+      expect(documentService.updateDocument).not.toHaveBeenCalled();
+    });
+
+    it('bounds the title at 1..200 characters, as create does', async () => {
+      for (const [title, status] of [
+        ['', 400],
+        ['a'.repeat(200), 200],
+        ['a'.repeat(201), 400],
+      ] as Array<[string, number]>) {
+        documentService.updateDocument.mockClear();
+        const res = await request(server())
+          .patch(`${base}/doc-1`)
+          .send({ title });
+        expect(res.status).toBe(status);
+        if (status === 400) {
+          expect(documentService.updateDocument).not.toHaveBeenCalled();
+        }
+      }
+    });
+
+    it('writes nothing for an empty body, so updatedAt is not bumped', async () => {
+      // `updateDocument` skips the `updatedAt` bump only when `data` has no
+      // keys, which is why the handler assigns `title` conditionally rather
+      // than passing `{ title: undefined }`. A no-op PATCH must not re-sort the
+      // document to the top of the documents list.
+      //
+      // This is also the other half of the `title` `@ValidateIf` condition:
+      // rejecting an explicit `null` must not turn `title` into a required
+      // property. (There is no separate `{ title: undefined }` case to write —
+      // `JSON.stringify` drops the key, so such a body is this one.)
+      const res = await request(server()).patch(`${base}/doc-1`).send({});
+      expect(res.status).toBe(200);
+      expect(updateData()).toEqual({});
+    });
+  });
+
+  describe('POST (create)', () => {
+    it('creates a sheet by default', async () => {
+      const res = await request(server()).post(base).send({ title: 'new' });
+      expect(res.status).toBe(201);
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'new', type: 'sheet' }),
+      );
+    });
+
+    it('still accepts the CRDT types it always accepted', async () => {
+      for (const type of ['doc', 'slides', 'note', 'board']) {
+        documentService.createDocument.mockClear();
+        const res = await request(server())
+          .post(base)
+          .send({ title: 't', type });
+        expect(res.status).toBe(201);
+        expect(documentService.createDocument).toHaveBeenCalledWith(
+          expect.objectContaining({ type }),
+        );
+      }
+    });
+
+    it('still falls back to sheet for a type it never accepted', async () => {
+      const res = await request(server())
+        .post(base)
+        .send({ title: 't', type: 'pdf' });
+      expect(res.status).toBe(201);
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'sheet' }),
+      );
+    });
+
+    it('rejects a missing title with a 400, not a 500 from Prisma', async () => {
+      const res = await request(server()).post(base).send({});
+      expect(res.status).toBe(400);
+      expect(documentService.createDocument).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-string title', async () => {
+      const res = await request(server())
+        .post(base)
+        .send({ title: { a: 1 } });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an explicitly null title', async () => {
+      // Create's `title` carries no `@IsOptional()`, so it never had the update
+      // DTO's `null` hole — `@IsString()` runs and refuses. Pinned so the two
+      // DTOs cannot drift apart silently.
+      const res = await request(server()).post(base).send({ title: null });
+      expect(res.status).toBe(400);
+      expect(documentService.createDocument).not.toHaveBeenCalled();
+    });
+
+    it('absorbs a null type into the sheet fallback rather than erroring', async () => {
+      // Deliberately NOT symmetric with `title`. `null` does skip `@IsString()`
+      // on `type`, but the handler never forwards this value — it matches it
+      // against the four accepted types and passes `sheet` otherwise — so
+      // `null` lands where `"nonsense"` already lands. That is the documented
+      // coercion contract, not a 500 waiting to happen.
+      const res = await request(server())
+        .post(base)
+        .send({ title: 't', type: null });
+      expect(res.status).toBe(201);
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'sheet' }),
+      );
+    });
+
+    it('rejects an unknown key rather than silently dropping it', async () => {
+      const res = await request(server())
+        .post(base)
+        .send({ title: 't', fileId: 'x.pdf' });
+      expect(res.status).toBe(400);
+      expect(documentService.createDocument).not.toHaveBeenCalled();
+    });
+
+    it('bounds the title at 1..200 characters', async () => {
+      // The `Document.title` column is `TEXT`, so nothing below this DTO ever
+      // bounded it: a blank or 10,000-character title used to be stored. The
+      // cap is documented in `developers/rest-api.md`, so pin both edges —
+      // 200 has to keep working, 201 and "" have to be refused.
+      for (const [title, status] of [
+        ['', 400],
+        ['a'.repeat(200), 201],
+        ['a'.repeat(201), 400],
+      ] as Array<[string, number]>) {
+        documentService.createDocument.mockClear();
+        const res = await request(server()).post(base).send({ title });
+        expect(res.status).toBe(status);
+        if (status === 400) {
+          expect(documentService.createDocument).not.toHaveBeenCalled();
+        }
+      }
     });
   });
 });

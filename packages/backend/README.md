@@ -22,16 +22,6 @@ FRONTEND_URL=http://localhost:5173
 DATABASE_URL=postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
 JWT_SECRET=your_jwt_secret
 JWT_REFRESH_SECRET=your_refresh_secret   # Optional, defaults to JWT_SECRET
-OAUTH_STATE_SECRET=                      # Optional. Key the OAuth login
-                                        # bindings are signed with. Unset
-                                        # (default) it is HKDF-derived from
-                                        # JWT_SECRET, so nothing has to be
-                                        # configured; set it to an
-                                        # independent high-entropy value if
-                                        # you want the `state` published by
-                                        # the unauthenticated
-                                        # GET /auth/github to carry no
-                                        # relation to the session key at all.
 JWT_ACCESS_EXPIRES_IN=1h                # Optional
 JWT_REFRESH_EXPIRES_IN=7d               # Optional
 JWT_ACCESS_COOKIE_MAX_AGE_MS=3600000    # Optional
@@ -158,12 +148,25 @@ decides whether the login cookies are `Secure` (and so `__Host-`-prefixed), and
 with it whether `wafflebase login` is available at all. CLI sign-in answers
 `400 Command-line sign-in requires an https server` unless it can see that its
 consent cookie is trustworthy — an `https://` callback URL (or
-`COOKIE_SECURE=true`), or a loopback one. A plain-http non-loopback origin is
-refused because anything on such an origin can plant that cookie, and so is a
-deployment that configures **no** callback URL at all: GitHub falls back to the
-URL registered on the OAuth app, so the scheme is real but invisible here, and
-guessing "secure" would be guessing in the unsafe direction. Serve over https
-(or keep it on `localhost`) to use it.
+`COOKIE_SECURE=true`), or a loopback one. A plain-http non-loopback callback
+URL is the case it refuses, because anything on such an origin can plant that
+cookie. Serve over https (or keep it on `localhost`) to use it.
+
+Configuring **no** callback URL at all is not that case. `isSecureCookie()`
+(`src/auth/oauth-state.ts`) resolves the scheme in three steps —
+`COOKIE_SECURE`, then the callback URL's scheme, then, with neither set,
+`NODE_ENV === 'production'` — so an install with no callback URL and no
+`COOKIE_SECURE` reads as https, mints its cookies `Secure`/`__Host-`, and
+`cliLoginAvailable()` (`src/auth/github-auth.guard.ts`) *allows* CLI sign-in.
+That is the shipped image's default, since the `Dockerfile` sets
+`NODE_ENV=production`; outside production the same install refuses. Both cases
+are asserted in `src/auth/github-auth.guard.spec.ts`. Allowing it is deliberate
+rather than an oversight: if the origin turns out to be cleartext the browser
+discards a `Secure` `__Host-` cookie on arrival, so the consent gate fails
+closed — the login cannot complete — rather than open. The operational
+consequence is that whether `wafflebase login` is offered tells you nothing
+about your deployment's real scheme; set `GITHUB_CALLBACK_URL` to the https URL
+your users actually reach and the question does not arise.
 
 ### Lakehouse: DuckDB extensions are bundled into the image
 

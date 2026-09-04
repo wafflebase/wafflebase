@@ -24,6 +24,10 @@ import { YorkieAdminService } from '../../yorkie/yorkie-admin.service';
 import { yorkieDocKey } from '../../yorkie/yorkie-doc-key';
 import { FileService } from '../../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../../file/file.constants';
+import {
+  ApiV1CreateDocumentDto,
+  ApiV1UpdateDocumentDto,
+} from './documents.dto';
 
 @Controller('api/v1/workspaces/:workspaceId/documents')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
@@ -55,7 +59,7 @@ export class ApiV1DocumentsController {
   async create(
     @Param('workspaceId') workspaceId: string,
     @Req() req: AuthenticatedRequest,
-    @Body() body: { title: string; type?: string },
+    @Body() body: ApiV1CreateDocumentDto,
   ) {
     return this.documentService.createDocument({
       title: body.title,
@@ -112,13 +116,20 @@ export class ApiV1DocumentsController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Req() req: AuthenticatedRequest,
-    @Body() body: { title?: string; folderId?: string | null },
+    @Body() body: ApiV1UpdateDocumentDto,
   ) {
     const doc = await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
 
+    // Build the update explicitly rather than spreading `body`. The DTO on the
+    // parameter above is what makes the global pipe strip a hostile key, but
+    // this surface writes straight into `prisma.document.update`, so the
+    // handler names the columns it is allowed to touch too. Assigned
+    // conditionally, never as `{ title: undefined }` — `updateDocument` counts
+    // the keys to decide whether to bump `updatedAt`, and a no-op PATCH must
+    // not re-sort the document to the top of the list.
     const data: Prisma.DocumentUpdateInput = {};
     if (body.title !== undefined) data.title = body.title;
     if (body.folderId !== undefined) {

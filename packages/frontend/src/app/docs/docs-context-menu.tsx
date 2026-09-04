@@ -14,6 +14,14 @@ interface Props {
   editor: EditorAPI | null;
   containerRef: React.RefObject<HTMLDivElement | null>;
   readOnly?: boolean;
+  /**
+   * Whether this session can create a comment at all, apart from having a
+   * selection — `useDocsComments().canComment`. Required rather than
+   * defaulted so a caller has to answer it: the menu only knows whether
+   * commenting is available, never why, and an unanswered question here
+   * is how the row came to be offered to an anonymous share-link editor.
+   */
+  canComment: boolean;
   /** Called when the user picks "Add comment". Should run beginCompose. */
   onInsertComment: () => void;
 }
@@ -48,6 +56,7 @@ export function DocsContextMenu({
   editor,
   containerRef,
   readOnly = false,
+  canComment,
   onInsertComment,
 }: Props) {
   const [open, setOpen] = useState<OpenState | null>(null);
@@ -183,8 +192,21 @@ export function DocsContextMenu({
   const showPaste = !readOnly;
   const hasClipboardGroup = showCut || showCopy || showPaste;
 
-  // Insert actions — hidden in readOnly
+  // Insert actions — hidden in readOnly. Add link covers the group there, so
+  // it is non-empty whenever the editor is editable.
   const hasInsertGroup = !readOnly;
+  // Insert comment: needs a selection *and* a session that can comment.
+  // `beginCompose` has two preconditions and refuses on either, silently —
+  // it anchors the thread to a text range, so it returns early for a bare
+  // caret, and it attributes the thread to an author, so it returns early
+  // with no signed-in user. The second is not implied by `!readOnly`: an
+  // editor-role share link opened anonymously is editable with no user.
+  // `canComment` carries that half (see `useDocsComments`). Hidden rather
+  // than disabled: every other unavailable action here (Cut, Copy, Paste)
+  // is hidden, and the table menu hides this same row on the same
+  // conditions. The disabled style is reserved for the spell group's status
+  // text ("Checking…"), which is not an action.
+  const showInsertComment = hasInsertGroup && hasSelection && canComment;
 
   // Separators: only between groups that both exist
   const sepAfterSpell = hasSpellGroup && (hasClipboardGroup || hasInsertGroup);
@@ -270,14 +292,16 @@ export function DocsContextMenu({
             Add link
             <span className={shortcut}>{modKey}K</span>
           </button>
-          <InsertCommentMenuItem
-            className={item}
-            onSelect={() => {
-              onInsertComment();
-              editor?.focus();
-              close();
-            }}
-          />
+          {showInsertComment && (
+            <InsertCommentMenuItem
+              className={item}
+              onSelect={() => {
+                onInsertComment();
+                editor?.focus();
+                close();
+              }}
+            />
+          )}
         </>
       )}
     </div>

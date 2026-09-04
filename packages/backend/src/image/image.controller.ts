@@ -15,7 +15,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ImageService } from './image.service';
-import { VALID_IMAGE_ID_PATTERN } from './image.constants';
+import {
+  IMAGE_UPLOAD_MULTER_LIMIT_BYTES,
+  VALID_IMAGE_ID_PATTERN,
+} from './image.constants';
 import type { Response } from 'express';
 
 // Higher ceiling: opening a doc with many embedded images bursts >60/min.
@@ -46,9 +49,30 @@ const EXT_CONTENT_TYPE: Record<string, string> = {
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}
 
+  /**
+   * The Multer `fileSize` limit is what makes the cap a bound on *memory*, not
+   * just on what gets stored. `ImageService.upload` checks the same number, but
+   * it can only do so once the whole body is already a Buffer in this process —
+   * so without this limit a client could make the server allocate an arbitrary
+   * amount before being told 10 MB was the ceiling. Multer stops reading at the
+   * limit instead, and Nest maps the resulting `LIMIT_FILE_SIZE` to a 413.
+   *
+   * The service check stays: it is the cap for every caller of `upload()`
+   * (the Miro importer, DOCX/PPTX import), not only for this route.
+   *
+   * The limit itself is `IMAGE_UPLOAD_MULTER_LIMIT_BYTES` — the cap `+ 1`,
+   * because busboy trips at `fileSize === limits.fileSize` while the service
+   * rejects only `length > cap`. See that constant for the full reasoning; it
+   * is shared with `ApiV1ImagesController` so the two upload routes cannot
+   * disagree about which byte count is one too many.
+   */
   @Post()
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: IMAGE_UPLOAD_MULTER_LIMIT_BYTES },
+    }),
+  )
   async upload(
     @UploadedFile() file: Express.Multer.File,
   ): Promise<{ id: string; url: string }> {

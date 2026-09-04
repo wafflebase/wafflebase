@@ -91,8 +91,8 @@ There is no single answer — it depends on which family you call, and the diffe
 | Family | Called against the wrong type |
 |--------|-------------------------------|
 | Tabs, rows/columns, worksheet settings, styles, dimensions, rules, charts, filter/pivot | `400`, with a message naming the actual type, e.g. `Tabs are only available on sheet documents; "<id>" is a "doc" document.` |
-| Cells (`GET`) | **No type check.** The read attaches to the `sheet-<id>` Yorkie key, which for a non-sheet document is empty, so there is no worksheet and the request returns `404 Tab not found` |
-| Cells (`PUT` / `DELETE` / `PATCH`) | **No type check, and not a `404` either.** The write paths attach with a seeded spreadsheet root, so a write aimed at the seeded default tab id `tab-1` returns `200` and stores the cell in a Yorkie document nothing displays. See [Cells](#cells-sheets-only) |
+| Cells (`GET`) | **No type check** — the reads are deliberately left open. The read attaches to the `sheet-<id>` Yorkie key, which for a non-sheet document is empty, so there is no worksheet and the request returns `404 Tab not found` |
+| Cells (`PUT` / `DELETE` / `PATCH`) | `400`, like the families above: `Cell writes are only available on sheet documents; "<id>" is a "doc" document.` See [Cells](#cells-sheets-only) |
 | Document content (`/content`) | `409` with a structured body — the only place `TYPE_MISMATCH` exists |
 
 The `409` body is:
@@ -156,8 +156,12 @@ curl -X POST \
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `title` | string | Yes | Document title |
+| `title` | string | Yes | Document title, **1–200 characters**. Missing, empty, longer than 200, or not a string is a `400` |
 | `type` | string | No | `"doc"`, `"slides"`, `"note"` or `"board"`. Every other value — including an unrecognised one — is stored as `"sheet"` |
+
+Any key other than these two is a `400 property <name> should not exist`.
+
+The 200-character cap is counted in characters, not bytes, and the title is not trimmed — a title of spaces is one character per space and is accepted. It matches the cap the web app enforces on the same column.
 
 The new document is authored by the caller. For an API key, that is the user who created the key.
 
@@ -173,20 +177,17 @@ GET /api/v1/workspaces/:wid/documents/:did
 PATCH /api/v1/workspaces/:wid/documents/:did
 ```
 
-**Send only the field you mean to change — the whole body reaches the database row.** The handler is declared as `{ title?: string }`, but that is a compile-time TypeScript type. The global validation pipe skips a body whose runtime metatype is a plain object, so no key is stripped and no key is rejected, and the body is passed straight to Prisma's `document.update()` as its `data`.
-
-What that means in practice:
+**`title` is the only writable field.** The body is validated against a DTO class, and the global validation pipe runs with `whitelist: true, forbidNonWhitelisted: true`, so an unrecognised key is *rejected* rather than ignored. The handler then copies `title` across by name instead of spreading the body, so nothing but that column can reach `document.update()`.
 
 | You send | What happens |
 |----------|--------------|
 | `title` | Renamed — the intended use |
-| `type`, `fileId`, `fileSize`, `mimeType` | **Written.** These are real `Document` columns. `PATCH {"type": "slides"}` on a spreadsheet answers `200` and changes which editor opens the document |
-| A key that is not a column Prisma will write | Prisma throws, and the request fails with a **`500`**, not a `400` |
-| `updatedAt` | Ignored. The service overwrites it with the current time whenever the body has at least one key |
+| `title` blank, longer than 200 characters, or not a string | `400` |
+| `type`, `fileId`, `fileSize`, `mimeType` | **`400`.** They are real `Document` columns, but they are not part of this body: a document's type, and the blob backing it, are fixed when it is created |
+| Any other unknown key, `updatedAt` and `editors` included | `400 property <name> should not exist`. The database is never touched |
+| `{}` — no keys at all | `200`, and nothing is written. `updatedAt` is not bumped either, so a no-op `PATCH` does not re-sort the document to the top of a list |
 
-In particular, **do not read a document row and `PATCH` the whole object back** after changing `title`. A row from [List Documents](#list-documents) can carry an `editors` field, which is not a column and gives you a `500`; a row from either read carries `type`, which would be rewritten.
-
-Anything beyond `title` here is observable behavior rather than a supported feature. Do not build on it.
+**Do not read a document row and `PATCH` the whole object back** after changing `title`. Nothing is corrupted if you do — but the rename will not happen, because the request is a `400`: a row from either read carries `type` and `createdAt`, and a row from [List Documents](#list-documents) can also carry `editors`. Send only the field you are changing.
 
 ```bash
 curl -X PATCH \
@@ -401,16 +402,19 @@ Returns `{ "id", "name", "type" }`.
 
 Cell endpoints operate on a single sheet tab inside a sheet document.
 
-These routes check that the document is in the workspace but **not** that it is a sheet, and the read and write paths then behave differently. This is worth reading before you write a retry, because a wrong document id is not reliably an error.
+The two halves of this family answer a wrong document id differently, which is worth knowing before you write a retry. Every route checks that the document is in the workspace; only the **writes** additionally check that it is a sheet.
 
-`GET` attaches read-only to the `sheet-<id>` Yorkie key. For a doc, deck, note or blob document that key holds nothing — the real content lives under `doc-<id>`, `slides-<id>`, `note-<id>`, or in blob storage — so there is no worksheet and the request is `404 Tab not found`.
+`PUT`, `DELETE` and `PATCH` refuse a non-sheet document before attaching to Yorkie at all, with the same `400` the other sheet-only families use:
 
-`PUT`, `DELETE` and `PATCH` attach with a **seeded** spreadsheet root, which Yorkie applies when the document is empty. This exists so a script can write cells into a freshly created sheet nobody has opened in the editor yet. The seed creates exactly one tab, with the id `tab-1`. The consequences:
+```
+400 Cell writes are only available on sheet documents; "<id>" is a "doc" document.
+```
 
-- A write aimed at `tab-1` against a **non-sheet** document id returns `200`, reports the cell it wrote, and leaves a `sheet-<id>` Yorkie document beside the real one. That document is real — a later `GET .../tabs/tab-1/cells` on the same id reads the cell back — but nothing in the product opens it. The document's own editor is unaffected: it reads a different Yorkie key and never sees the write.
-- A write to any **other** `tabId` still returns `404 Tab not found`, because the seed creates only `tab-1`.
+`GET` has **no** such check. It attaches read-only to the `sheet-<id>` Yorkie key, and for a doc, deck, note or blob document that key holds nothing — the real content lives under `doc-<id>`, `slides-<id>`, `note-<id>`, or in blob storage — so there is no worksheet and the request is `404 Tab not found`. That is the same status an unknown `tabId` on a genuine sheet returns, so a read gives you no way to tell a wrong document id from a wrong tab id. If your ids can be wrong, read the document's `type` from [Get Document](#get-document) first.
 
-So a `200` from a cell write is not proof that you addressed a sheet. If your ids can be wrong, read the document's `type` from [Get Document](#get-document) first rather than relying on the status code.
+The write verbs attach with a **seeded** spreadsheet root, which Yorkie applies when the document is empty. The seed is deliberate and still required: a sheet's Yorkie document does not exist until something attaches to it, so a script writing cells into a freshly created sheet that nobody has opened in the editor yet depends on it. It creates exactly one tab, with the id `tab-1` — so a write to any **other** `tabId` on such a sheet is `404 Tab not found` until the tab exists.
+
+Because the type check runs before the attach, that seed can no longer land on a non-sheet document: a write against a doc, deck, note or blob id is the `400` above, not a phantom `sheet-<id>` document beside the real one.
 
 Each cell in a response has the following shape:
 

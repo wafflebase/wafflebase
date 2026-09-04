@@ -647,6 +647,7 @@ export function DocsView({
         editor={mountedEditor}
         containerRef={containerRef}
         readOnly={readOnly}
+        canComment={comments.canComment}
         onInsertComment={() => {
           comments.beginCompose();
         }}
@@ -655,6 +656,7 @@ export function DocsView({
         editor={mountedEditor}
         containerRef={containerRef}
         readOnly={readOnly}
+        canComment={comments.canComment}
         onInsertComment={() => {
           comments.beginCompose();
         }}

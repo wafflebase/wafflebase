@@ -20,15 +20,40 @@ function makeEditor(overrides: Partial<EditorAPI> = {}): EditorAPI {
 }
 
 /** Wrapper that owns the container ref the menu attaches its listener to. */
-function Wrapper({ editor, readOnly = false }: { editor: EditorAPI; readOnly?: boolean }) {
+function Wrapper({
+  editor,
+  readOnly = false,
+  canComment = true,
+  onInsertComment,
+}: {
+  editor: EditorAPI;
+  readOnly?: boolean;
+  canComment?: boolean;
+  onInsertComment?: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   return (
     <>
       <div ref={containerRef} data-testid="doc-container" />
-      <DocsTableContextMenu editor={editor} containerRef={containerRef} readOnly={readOnly} />
+      <DocsTableContextMenu
+        editor={editor}
+        containerRef={containerRef}
+        readOnly={readOnly}
+        canComment={canComment}
+        onInsertComment={onInsertComment}
+      />
     </>
   );
 }
+
+/** A selection stub — `getActiveSelection()` returning a non-empty range. */
+const withSelection = () =>
+  ({
+    getActiveSelection: vi.fn(() => ({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 3 },
+    })),
+  }) as unknown as Partial<EditorAPI>;
 
 describe('DocsTableContextMenu read-only bail (issue #482)', () => {
   it('control: right-click inside a table opens the edit menu when not read-only', () => {
@@ -88,5 +113,54 @@ describe('DocsTableContextMenu cell background reset (issue #728)', () => {
 
     const style = applyTableCellStyle.mock.calls[0][0] as Record<string, unknown>;
     expect(typeof style.backgroundColor).toBe('string');
+  });
+});
+
+describe('DocsTableContextMenu Insert comment gating', () => {
+  it('control: a selection in a session that can comment offers the row', () => {
+    const onInsertComment = vi.fn();
+    const editor = makeEditor(withSelection());
+    render(
+      <Wrapper editor={editor} canComment={true} onInsertComment={onInsertComment} />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByText('Insert comment'));
+
+    expect(onInsertComment).toHaveBeenCalledTimes(1);
+  });
+
+  // `beginCompose` refuses without a signed-in author as well as without a
+  // selection. `SharedDocsLayout` sets `readOnly = role === "viewer"`, so an
+  // *editor*-role share link opened by an anonymous visitor mounts DocsView
+  // with `readOnly === false` while `fetchMeOptional()` resolves to null — an
+  // editable session with no user. Selection alone would render the row, and
+  // clicking it would reach `beginCompose` and return false silently.
+  it('anonymous editor-role share link: the row stays hidden despite a selection', () => {
+    const onInsertComment = vi.fn();
+    const editor = makeEditor(withSelection());
+    render(
+      <Wrapper editor={editor} canComment={false} onInsertComment={onInsertComment} />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 10, clientY: 10 });
+
+    // The table-edit menu itself is intact — only the comment row is gone.
+    expect(screen.getByText('Delete row')).toBeDefined();
+    expect(screen.queryByText('Insert comment')).toBeNull();
+    expect(onInsertComment).not.toHaveBeenCalled();
+  });
+
+  it('no selection: the row stays hidden even when the session can comment', () => {
+    const onInsertComment = vi.fn();
+    const editor = makeEditor();
+    render(
+      <Wrapper editor={editor} canComment={true} onInsertComment={onInsertComment} />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 10, clientY: 10 });
+
+    expect(screen.getByText('Delete row')).toBeDefined();
+    expect(screen.queryByText('Insert comment')).toBeNull();
   });
 });

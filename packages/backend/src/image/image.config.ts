@@ -1,4 +1,8 @@
 import { registerAs } from '@nestjs/config';
+import {
+  ALLOWED_IMAGE_MIME_TYPES,
+  MAX_IMAGE_UPLOAD_BYTES,
+} from './image.constants';
 
 // MinIO defaults are only applied when NODE_ENV is not 'production'. In
 // production the fallbacks are empty strings so that misconfiguration fails
@@ -20,6 +24,6 @@ export const imageConfig = registerAs('image', () => ({
   // Optional object-key prefix so a deployment can namespace its images inside
   // a bucket shared with another app. Empty (default) keeps keys at the root.
   prefix: process.env.IMAGE_STORAGE_PREFIX || '',
-  maxFileSizeBytes: 10 * 1024 * 1024, // 10 MB
-  allowedMimeTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+  maxFileSizeBytes: MAX_IMAGE_UPLOAD_BYTES,
+  allowedMimeTypes: [...ALLOWED_IMAGE_MIME_TYPES],
 }));
