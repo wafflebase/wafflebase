@@ -148,12 +148,13 @@ Use the alignment dropdown in the toolbar, or the shortcuts:
 
 ### Type Instead of Clicking
 
-A few markdown-style prefixes convert as you type. Type one on an otherwise
-empty paragraph and press the space after it:
+A few markdown-style prefixes convert as you type. Type one at the start of an
+otherwise empty paragraph, then press **Space** — the space is what fires the
+conversion:
 
-- `# ` through `###### ` — Heading 1 to Heading 6
-- `- ` or `* ` — bulleted list
-- `1. ` — numbered list
+- `#` through `######` + **Space** — Heading 1 to Heading 6
+- `-` or `*` + **Space** — bulleted list
+- `1.` + **Space** — numbered list
 
 Typing `---` on its own line and pressing **Enter** inserts a horizontal rule,
 and a `http://` or `https://` address becomes a clickable link as soon as you
@@ -299,8 +300,9 @@ You can also use the undo/redo buttons in the toolbar.
 ## See Every Shortcut
 
 Press **⌘+/** / **Ctrl+/** anywhere in the editor to open the shortcuts dialog.
-It is generated from the editor's own list, so it is always current. **Esc**
-closes it.
+The dialog is maintained alongside the editor's bindings rather than derived
+from them, but it currently matches
+[Keyboard Shortcuts](./keyboard-shortcuts) entry for entry. **Esc** closes it.
 
 ## What's Next
 

@@ -78,9 +78,12 @@ These apply while editing inside a text box.
 | Underline | `⌘+U` / `Ctrl+U` |
 | Insert / edit link | `⌘+K` / `Ctrl+K` |
 | Clear formatting | `⌘+\` / `Ctrl+\` |
-| Align left / center / right | `⌘+Shift+L` / `E` / `R` |
+| Align left | `⌘+Shift+L` / `Ctrl+Shift+L` |
+| Align center | `⌘+Shift+E` / `Ctrl+Shift+E` |
+| Align right | `⌘+Shift+R` / `Ctrl+Shift+R` |
 | Align justified | `⌘+Shift+J` / `Ctrl+Shift+J` |
-| Indent / outdent | `⌘+]` / `⌘+[` |
+| Indent | `⌘+]` / `Ctrl+]` |
+| Outdent | `⌘+[` / `Ctrl+[` |
 
 ## Tables
 

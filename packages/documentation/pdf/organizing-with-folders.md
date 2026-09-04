@@ -43,8 +43,10 @@ the selection move.
 Moving is limited to documents you created, unless you own the workspace: a row
 you don't manage can't be picked up at all, and a multi-selection containing one
 is refused with a message instead of moving the rest. Moving a *folder* follows
-the same rule — the **Move to…** entry is offered on every folder row, but the
-server refuses the move and you get a "Failed to move" message. See
+the same rule, but — as with deleting one — the menu entry is shown to everyone:
+**Move to…** is offered on every folder row, so a member moving a folder they
+neither created nor own the workspace for gets a "Failed to move" message rather
+than a missing button. See
 [Workspaces & Members](/guide/workspaces#roles) for who counts as what.
 
 ## Browse folders

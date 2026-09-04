@@ -107,8 +107,9 @@ you a stops bar — click to add a stop, drag to move it, and set each stop's
 color — plus eight direction presets and an angle. Gradients here are linear.
 
 **Image** lets you pick a picture as the background, then set its **Opacity**,
-swap it with **Replace image…**, or take it away with **Remove image**. A slide
-has either a color or an image, not both — setting one clears the other.
+swap it with **Replace image…**, or take it away with **Remove image**. A
+slide's *own* background is either a color or an image, not both — setting one
+here clears the other.
 
 Two actions sit at the bottom:
 
@@ -116,7 +117,9 @@ Two actions sit at the bottom:
   theme again.
 - **Apply to all slides** pushes this slide's background onto the deck's master,
   so it becomes the new baseline. Slides that have set their *own* background
-  keep it.
+  keep it. The master is the one place the either/or above doesn't apply: it
+  always takes the color, and takes the image too when the current slide shows
+  one — inheriting slides then paint that image over the color.
 
 The panel always edits the slide you're currently on, and follows you as you
 move between slides.
