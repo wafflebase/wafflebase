@@ -156,6 +156,32 @@ describe('schema registry', () => {
     expect(getCommandSchema('nonexistent')).toBeUndefined();
   });
 
+  // `getCommandSchema` resolves first-match, so a second entry claiming an
+  // alias somebody else already owns is silently unreachable — and the loser
+  // can be the *safer* command. `slide.delete` was claimed by both
+  // `slides.delete` (delete the whole deck) and `slides.slide.delete`, which
+  // left an agent asking to delete one slide reaching the document delete.
+  it('never registers the same alias twice, or an alias that is a name', () => {
+    const all = getAllCommandSchemas();
+    const names = new Set(all.map((c) => c.name));
+    const owner = new Map<string, string>();
+    const collisions: string[] = [];
+    for (const command of all) {
+      for (const alias of command.aliases ?? []) {
+        if (names.has(alias)) {
+          collisions.push(`${command.name} aliases the name '${alias}'`);
+        }
+        const previous = owner.get(alias);
+        if (previous) {
+          collisions.push(`'${alias}' claimed by ${previous} and ${command.name}`);
+        } else {
+          owner.set(alias, command.name);
+        }
+      }
+    }
+    expect(collisions).toEqual([]);
+  });
+
   it('safety levels match the design contract', () => {
     expect(getCommandSchema('docs.list')!.safety).toBe('read-only');
     expect(getCommandSchema('docs.create')!.safety).toBe('write');

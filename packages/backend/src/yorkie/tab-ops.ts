@@ -6,7 +6,12 @@ import {
   isTabNameTaken,
   normalizeTabName,
 } from '@wafflebase/sheets';
-import type { SpreadsheetDocument, TabType } from '@wafflebase/sheets';
+import type {
+  SpreadsheetDocument,
+  TabMeta,
+  TabType,
+  Worksheet,
+} from '@wafflebase/sheets';
 
 /**
  * Pure tab create/rename operations over the spreadsheet document root.
@@ -47,6 +52,151 @@ export function createTab(
   root.sheets[tabId] = createWorksheet();
 
   return { id: tabId, name, type };
+}
+
+export type DeleteResolution =
+  | { ok: true; name: string }
+  | { ok: false; reason: 'not_found' | 'last_tab' }
+  | { ok: false; reason: 'pivot_dependents'; dependents: string[] };
+
+/**
+ * Validates a tab delete without mutating.
+ *
+ * Two refusals, both of which the editor handles with UI an API caller does
+ * not have:
+ *
+ * - **The last tab.** A workbook with no tabs is a state nothing produces;
+ *   the tab bar hides its delete entry entirely when one tab is left.
+ * - **A pivot output tab that reads from this one.** The editor deletes those
+ *   too, after a confirm dialog naming them. Cascading destructive deletes off
+ *   a single request instead reports them, so the caller decides.
+ */
+export function resolveDelete(
+  root: SpreadsheetDocument,
+  tabId: string,
+): DeleteResolution {
+  const tab = root.tabs?.[tabId];
+  if (!tab) return { ok: false, reason: 'not_found' };
+
+  const order = root.tabOrder ?? [];
+  if (order.length <= 1) return { ok: false, reason: 'last_tab' };
+
+  const dependents: string[] = [];
+  for (const id of order) {
+    if (id === tabId) continue;
+    const pivot = root.sheets?.[id]?.pivotTable;
+    if (pivot && String(pivot.sourceTabId) === tabId) dependents.push(id);
+  }
+  if (dependents.length > 0) {
+    return { ok: false, reason: 'pivot_dependents', dependents };
+  }
+
+  return { ok: true, name: tab.name };
+}
+
+/**
+ * Removes a tab's three records: its metadata, its display-order entry, and
+ * its worksheet. The worksheet is deleted only when it exists — a
+ * `datasource` / `lakehouse` tab has metadata and no `sheets` entry.
+ */
+export function applyDelete(root: SpreadsheetDocument, tabId: string): void {
+  delete root.tabs[tabId];
+  if (root.sheets?.[tabId]) delete root.sheets[tabId];
+  const index = root.tabOrder.indexOf(tabId);
+  if (index !== -1) root.tabOrder.splice(index, 1);
+}
+
+export type MoveResolution =
+  | { ok: true; from: number; to: number }
+  | { ok: false; reason: 'not_found' };
+
+/**
+ * Resolves a tab move to a pair of 0-based `tabOrder` indices. `position` is
+ * 1-based on the wire, matching the row/column endpoints, and clamps to the
+ * ends rather than failing — a number past the last tab means "last".
+ */
+export function resolveMove(
+  root: SpreadsheetDocument,
+  tabId: string,
+  position: number,
+): MoveResolution {
+  const order = root.tabOrder ?? [];
+  const from = order.indexOf(tabId);
+  if (from === -1) return { ok: false, reason: 'not_found' };
+  const to = Math.min(Math.max(position, 1), order.length) - 1;
+  return { ok: true, from, to };
+}
+
+export function applyMove(
+  root: SpreadsheetDocument,
+  from: number,
+  to: number,
+): void {
+  const [moved] = root.tabOrder.splice(from, 1);
+  root.tabOrder.splice(to, 0, moved);
+}
+
+/**
+ * Appends a copy of `tabId` immediately after it, carrying the supplied plain
+ * worksheet snapshot as the new tab's content.
+ *
+ * The snapshot is passed in rather than read here because the source is a
+ * Yorkie proxy at the call site and has to be detached first (`unwrapJson`).
+ * Comments are dropped, matching what "Make a copy" does to a whole document:
+ * a duplicated grid is new content, and carrying a conversation about the
+ * original into it attributes remarks to a place they were never made.
+ *
+ * Two more fields cannot be copied verbatim, because both name a *tab* and a
+ * verbatim copy would leave the new tab pointing at the old one:
+ *
+ * - **Charts** carry a `sourceTabId`, and the editor creates a chart
+ *   self-sourced (`sourceTabId: tabId`). Copied as-is, every chart on the
+ *   duplicate reads `root.sheets[<original>]` — the source tab's numbers, not
+ *   the copy's — so a chart that looked duplicated would silently stop
+ *   tracking the grid under it. A chart that sources a *different* tab is left
+ *   alone: that reference is still the tab the user chose.
+ * - **A pivot definition** is dropped, and with it the `pivot` tab kind. The
+ *   copy keeps the materialized cells (so it reads as the snapshot of the
+ *   pivot it was taken from) but is a plain sheet. Carrying the definition
+ *   would make the copy a second output tab nobody configured, recomputing
+ *   over the same source — and `resolveDelete` would then refuse to delete
+ *   that source, naming a tab the user never asked for.
+ */
+export function duplicateTab(
+  root: SpreadsheetDocument,
+  tabId: string,
+  worksheet: Worksheet,
+  requestedName?: string,
+): TabResult {
+  const source = root.tabs[tabId];
+  const preferred = normalizeTabName(requestedName ?? '') || `${source.name} (copy)`;
+  const name = getUniqueTabName(root.tabs, preferred, SHEET_NAME_FALLBACK);
+  const newTabId = generateTabId();
+  const type = source.type;
+
+  const meta: TabMeta = { id: newTabId, name, type };
+  if (source.kind !== undefined && source.kind !== 'pivot') meta.kind = source.kind;
+  if (source.datasourceId !== undefined) meta.datasourceId = source.datasourceId;
+  if (source.query !== undefined) meta.query = source.query;
+  root.tabs[newTabId] = meta;
+
+  const copy: Worksheet = { ...worksheet, comments: {} };
+  if (copy.charts) {
+    const charts: NonNullable<Worksheet['charts']> = {};
+    for (const [chartId, chart] of Object.entries(copy.charts)) {
+      if (!chart || typeof chart !== 'object') continue;
+      charts[chartId] =
+        chart.sourceTabId === tabId ? { ...chart, sourceTabId: newTabId } : chart;
+    }
+    copy.charts = charts;
+  }
+  delete copy.pivotTable;
+  root.sheets[newTabId] = copy;
+
+  const index = root.tabOrder.indexOf(tabId);
+  root.tabOrder.splice(index === -1 ? root.tabOrder.length : index + 1, 0, newTabId);
+
+  return { id: newTabId, name, type };
 }
 
 export type RenameResolution =

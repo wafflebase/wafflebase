@@ -29,7 +29,13 @@ still live in `packages/sheets/src/comment/` and are re-exported.
 - Threaded comments anchored to a single cell. Multiple independent threads per
   cell are supported.
 - Thread lifecycle: open → resolved → reopen, performed by any collaborator.
-- Comment lifecycle: edit / delete by author only.
+- Comment lifecycle: edit / delete by author only. The editor enforces this in
+  `CommentThreadCard.tsx`, but since v0.6.8 it is no longer the only writer:
+  `/api/v1/.../comments` (`comments.controller.ts`) checks the stored
+  `author.userId` against the authenticated caller before an edit or a delete,
+  so a workspace-scoped API key cannot delete somebody else's comment. Deleting
+  a *thread* is authorized as deleting its opening comment, which is what the
+  editor offers.
 - Anchor stability: comments stay attached to the same logical cell across row
   or column inserts and deletes performed by other collaborators.
 - Five UI surfaces: cell marker (canvas), cell-click popover, side panel

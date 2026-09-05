@@ -3,6 +3,7 @@ import {
   normalizeJsonSnapshot,
   parseJsonSnapshot,
   snapshotJsonRoot,
+  unwrapJson,
 } from './yorkie-json';
 
 /**
@@ -130,5 +131,33 @@ describe('snapshotJsonRoot', () => {
         },
       }),
     ).toThrow('root unavailable');
+  });
+});
+
+describe('unwrapJson', () => {
+  it('detaches a proxy through its own toJSON', () => {
+    expect(unwrapJson(rootProxy('{"a":1}', { a: 1 }))).toEqual({ a: 1 });
+  });
+
+  it('passes plain values and undefined through', () => {
+    expect(unwrapJson({ a: 1 })).toEqual({ a: 1 });
+    expect(unwrapJson(undefined)).toBeUndefined();
+    expect(unwrapJson(null)).toBeUndefined();
+  });
+
+  it('repairs a raw string carrying an unescaped control character', () => {
+    // A spreadsheet cell holding a multi-line value: Yorkie's raw JSON path
+    // emits the newline unescaped, which bare `JSON.parse` refuses.
+    const proxy = rootProxy('{"cells":{"A1":{"v":"one\ntwo"}}}', {});
+    expect(unwrapJson(proxy)).toEqual({ cells: { A1: { v: 'one\ntwo' } } });
+  });
+
+  it('throws rather than degrading to a proxy walk', () => {
+    // `detachYorkieValue` would "succeed" here and hand back CRDT metadata in
+    // place of every nested array, because `Array.isArray` is false for a
+    // Yorkie array proxy. Every caller reads a shape with nested arrays, so a
+    // loud failure is the only correct answer.
+    const proxy = rootProxy('{not json at all', { a: 1, b: 'two' });
+    expect(() => unwrapJson(proxy)).toThrow(SyntaxError);
   });
 });

@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  NotFoundException,
-  Param,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { initialSpreadsheetDocument } from '@wafflebase/sheets';
 import type { SheetChart } from '@wafflebase/sheets';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
@@ -17,6 +9,7 @@ import { DocumentService } from '../../document/document.service';
 import { assertSheetDocument } from './sheet-document.util';
 import { parseCharts } from '../../yorkie/worksheet-charts';
 import { unwrapJson } from '../../yorkie/yorkie-json';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 /**
  * Chart collection for a spreadsheet tab. A chart is a `SheetChart` (type,
@@ -40,15 +33,6 @@ export class ApiV1WorksheetChartsController {
       documentId,
       workspaceId,
     );
-  }
-
-  private worksheetOrThrow(
-    root: { sheets?: Record<string, unknown> },
-    tabId: string,
-  ) {
-    const worksheet = root.sheets?.[tabId];
-    if (!worksheet) throw new NotFoundException('Tab not found');
-    return worksheet as Record<string, unknown>;
   }
 
   private readCharts(source: unknown): SheetChart[] {
@@ -81,9 +65,7 @@ export class ApiV1WorksheetChartsController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { charts?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ charts?: unknown }>(doc.getRoot(), tabId);
         return { charts: this.readCharts(ws?.charts) };
       },
       { syncMode: 'readonly' },
@@ -103,9 +85,9 @@ export class ApiV1WorksheetChartsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId) as {
+          const ws = worksheetOrThrow<{
             charts?: Record<string, SheetChart>;
-          };
+          }>(root, tabId);
           ws.charts = {};
           for (const chart of charts) ws.charts[chart.id] = chart;
         });

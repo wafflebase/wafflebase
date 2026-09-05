@@ -12,6 +12,7 @@ import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
 import type {
   ApiResponse,
+  BoardContent,
   HttpClient,
   NoteContent,
 } from '../client/http-client.js';
@@ -64,6 +65,13 @@ const SLIDES_SPEC: SetContentSpec = {
   description: 'Replace deck content from JSON (stdin or --data)',
   send: (client, docId, body) =>
     client.putSlidesContent(docId, body as SlidesDocument),
+};
+
+const BOARD_SPEC: SetContentSpec = {
+  noun: 'board',
+  description: 'Replace board content from JSON (stdin or --data)',
+  send: (client, docId, body) =>
+    client.putBoardContent(docId, body as BoardContent),
 };
 
 const NOTES_SPEC: SetContentSpec = {
@@ -155,6 +163,11 @@ export function registerDocsSetContentCommand(doc: Command) {
 /** Mount `slides set-content` on the `slides` group. */
 export function registerSlidesSetContentCommand(slides: Command) {
   registerSetContent(slides, SLIDES_SPEC);
+}
+
+/** Mount `board set-content` on the `board` group. */
+export function registerBoardSetContentCommand(board: Command) {
+  registerSetContent(board, BOARD_SPEC);
 }
 
 /** Mount `notes set-content` on the `notes` group. */

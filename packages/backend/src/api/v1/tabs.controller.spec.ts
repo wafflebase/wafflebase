@@ -158,3 +158,208 @@ describe('ApiV1TabsController create/rename', () => {
     });
   });
 });
+
+/**
+ * The delete / move / duplicate arms. `tab-ops.spec.ts` covers the pure
+ * resolvers and appliers over plain objects; what is only reachable here is
+ * the controller's own work — the 404/409 mapping, and the `unwrapJson`
+ * proxy-detach that exists so a duplicated worksheet is stored as a grid
+ * rather than as Yorkie's own JSON string.
+ */
+describe('ApiV1TabsController delete/move/duplicate', () => {
+  let controller: ApiV1TabsController;
+  let root: SpreadsheetDocument;
+  let documentService: { getDocumentOrThrow: jest.Mock };
+  let withDocument: jest.Mock;
+
+  /** Add a second tab so the last-tab refusal is not in the way. */
+  function addTab(name: string): string {
+    const id = `tab-${name.toLowerCase()}`;
+    root.tabs[id] = { id, name, type: 'sheet' };
+    root.tabOrder.push(id);
+    root.sheets[id] = createSpreadsheetDocument().sheets['tab-1'];
+    return id;
+  }
+
+  beforeEach(() => {
+    root = createSpreadsheetDocument();
+    const doc = {
+      getRoot: () => root,
+      update: (fn: (r: SpreadsheetDocument) => void) => fn(root),
+    };
+    withDocument = jest.fn((_id: string, cb: (d: typeof doc) => unknown) =>
+      Promise.resolve(cb(doc)),
+    );
+    documentService = {
+      getDocumentOrThrow: jest
+        .fn()
+        .mockResolvedValue({ id: DOC, workspaceId: WS, type: 'sheet' }),
+    };
+    controller = new ApiV1TabsController(
+      { withDocument } as never,
+      documentService as never,
+    );
+  });
+
+  describe('remove', () => {
+    it('deletes the metadata, order entry and worksheet', async () => {
+      const second = addTab('History');
+      expect(await controller.remove(WS, DOC, second)).toEqual({
+        id: second,
+        name: 'History',
+        deleted: true,
+      });
+      expect(root.tabs[second]).toBeUndefined();
+      expect(root.sheets[second]).toBeUndefined();
+      expect(root.tabOrder).toEqual(['tab-1']);
+    });
+
+    it('404s an unknown tab', async () => {
+      await expect(controller.remove(WS, DOC, 'nope')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('409s the last remaining tab', async () => {
+      await expect(controller.remove(WS, DOC, 'tab-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(root.tabOrder).toEqual(['tab-1']);
+    });
+
+    it('409s a tab a pivot output tab reads from, naming the dependents', async () => {
+      const output = addTab('Pivot');
+      root.sheets[output].pivotTable = {
+        sourceTabId: 'tab-1',
+      } as never;
+      await expect(
+        controller.remove(WS, DOC, 'tab-1'),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining(output),
+      });
+      expect(root.tabs['tab-1']).toBeDefined();
+    });
+
+    it('refuses a non-sheet document before opening Yorkie', async () => {
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: DOC,
+        workspaceId: WS,
+        type: 'slides',
+      });
+      await expect(controller.remove(WS, DOC, 'tab-1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(withDocument).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('move', () => {
+    it('reorders tabOrder and reports the 1-based landing position', async () => {
+      const second = addTab('History');
+      expect(await controller.move(WS, DOC, second, { index: 1 })).toEqual({
+        id: second,
+        index: 1,
+      });
+      expect(root.tabOrder).toEqual([second, 'tab-1']);
+    });
+
+    it('clamps a position past the end', async () => {
+      const second = addTab('History');
+      expect(await controller.move(WS, DOC, 'tab-1', { index: 99 })).toEqual({
+        id: 'tab-1',
+        index: 2,
+      });
+      expect(root.tabOrder).toEqual([second, 'tab-1']);
+    });
+
+    it('400s a non-positive or non-integer index without opening Yorkie', async () => {
+      for (const index of [0, -1, 1.5, '2', undefined]) {
+        await expect(
+          controller.move(WS, DOC, 'tab-1', { index }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      }
+      expect(withDocument).not.toHaveBeenCalled();
+    });
+
+    it('404s an unknown tab', async () => {
+      await expect(
+        controller.move(WS, DOC, 'nope', { index: 1 }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('duplicate', () => {
+    it('copies the grid under a new id and a uniqued name', async () => {
+      root.sheets['tab-1'].cells = { '1:1': { v: 'kept' } } as never;
+
+      const res = (await controller.duplicate(WS, DOC, 'tab-1', {})) as {
+        id: string;
+        name: string;
+        type: string;
+      };
+
+      expect(res.id).not.toBe('tab-1');
+      expect(res.name).toBe('Sheet1 (copy)');
+      expect(root.tabOrder).toEqual(['tab-1', res.id]);
+      expect(root.sheets[res.id].cells).toEqual({ '1:1': { v: 'kept' } });
+      // A copy, not a shared reference.
+      expect(root.sheets[res.id]).not.toBe(root.sheets['tab-1']);
+    });
+
+    it('detaches the source worksheet through the proxy’s own toJSON', async () => {
+      // A Yorkie worksheet is a proxy whose `toJSON()` answers a JSON
+      // *string*; assigning it straight into a new key would store that
+      // string instead of a grid.
+      const plain = root.sheets['tab-1'];
+      const proxied = {
+        ...plain,
+        toJSON: () => JSON.stringify({ ...plain, cells: { '1:1': { v: 1 } } }),
+      };
+      root.sheets['tab-1'] = proxied as never;
+
+      const res = (await controller.duplicate(WS, DOC, 'tab-1', {})) as {
+        id: string;
+      };
+
+      expect(root.sheets[res.id].cells).toEqual({ '1:1': { v: 1 } });
+      expect(typeof root.sheets[res.id]).toBe('object');
+    });
+
+    it('survives a grid holding an unescaped control character', async () => {
+      // Yorkie's raw JSON path leaves control characters inside string
+      // values unescaped, so a multi-line cell made bare `JSON.parse` throw
+      // — a 500 on a tab that duplicates fine in the editor.
+      const plain = root.sheets['tab-1'];
+      const raw = `{"cells":{"1:1":{"v":"one\ntwo"}},"rowOrder":[],"colOrder":[]}`;
+      root.sheets['tab-1'] = { ...plain, toJSON: () => raw } as never;
+
+      const res = (await controller.duplicate(WS, DOC, 'tab-1', {})) as {
+        id: string;
+      };
+
+      expect(root.sheets[res.id].cells).toEqual({ '1:1': { v: 'one\ntwo' } });
+    });
+
+    it('honours a requested name and uniques a collision', async () => {
+      addTab('Backup');
+      const res = (await controller.duplicate(WS, DOC, 'tab-1', {
+        name: 'Backup',
+      })) as { name: string };
+      expect(res.name).toBe('Backup (2)');
+    });
+
+    it('404s an unknown tab', async () => {
+      await expect(
+        controller.duplicate(WS, DOC, 'nope', {}),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('400s a tab with no worksheet (datasource / lakehouse)', async () => {
+      root.tabs['ds-1'] = { id: 'ds-1', name: 'DS', type: 'datasource' };
+      root.tabOrder.push('ds-1');
+      await expect(
+        controller.duplicate(WS, DOC, 'ds-1', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+});

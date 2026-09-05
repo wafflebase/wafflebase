@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  NotFoundException,
-  Param,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import {
   initialSpreadsheetDocument,
   normalizeRangeStylePatch,
@@ -22,6 +14,7 @@ import {
   parseRangeStyles,
   parseSheetStyle,
 } from '../../yorkie/worksheet-styles';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 /**
  * Range-scoped and whole-sheet formatting for a spreadsheet tab. `range-styles`
@@ -47,15 +40,6 @@ export class ApiV1WorksheetStylesController {
     );
   }
 
-  private worksheetOrThrow(
-    root: { sheets?: Record<string, unknown> },
-    tabId: string,
-  ) {
-    const worksheet = root.sheets?.[tabId];
-    if (!worksheet) throw new NotFoundException('Tab not found');
-    return worksheet as Record<string, unknown>;
-  }
-
   @Get('range-styles')
   async getRangeStyles(
     @Param('workspaceId') workspaceId: string,
@@ -66,9 +50,10 @@ export class ApiV1WorksheetStylesController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { rangeStyles?: RangeStylePatch[] }
-          | undefined;
+        const ws = findWorksheet<{ rangeStyles?: RangeStylePatch[] }>(
+          doc.getRoot(),
+          tabId,
+        );
         const rangeStyles = (ws?.rangeStyles ?? [])
           .map((p) => normalizeRangeStylePatch(p))
           .filter((p): p is RangeStylePatch => Boolean(p));
@@ -91,7 +76,7 @@ export class ApiV1WorksheetStylesController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          this.worksheetOrThrow(root, tabId).rangeStyles = rangeStyles;
+          worksheetOrThrow(root, tabId).rangeStyles = rangeStyles;
         });
         return { rangeStyles };
       },
@@ -109,9 +94,10 @@ export class ApiV1WorksheetStylesController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { sheetStyle?: CellStyle }
-          | undefined;
+        const ws = findWorksheet<{ sheetStyle?: CellStyle }>(
+          doc.getRoot(),
+          tabId,
+        );
         return { style: ws?.sheetStyle ? { ...ws.sheetStyle } : null };
       },
       { syncMode: 'readonly' },
@@ -131,9 +117,7 @@ export class ApiV1WorksheetStylesController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId) as {
-            sheetStyle?: CellStyle;
-          };
+          const ws = worksheetOrThrow<{ sheetStyle?: CellStyle }>(root, tabId);
           if (style === null) delete ws.sheetStyle;
           else ws.sheetStyle = { ...(ws.sheetStyle ?? {}), ...style };
         });

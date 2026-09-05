@@ -241,13 +241,16 @@ describe('tabs commands', () => {
 });
 
 describe('tabs command registration', () => {
-  it('mounts create and rename alongside list', () => {
+  it('mounts the whole tab verb set alongside list', () => {
     const sheets = new Command('sheets');
     registerTabsCommand(sheets);
     const tabs = sheets.commands.find((c) => c.name() === 'tabs');
     expect(tabs?.commands.map((c) => c.name()).sort()).toEqual([
       'create',
+      'delete',
+      'duplicate',
       'list',
+      'move',
       'rename',
     ]);
   });

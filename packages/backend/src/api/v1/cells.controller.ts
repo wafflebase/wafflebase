@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import type { Worksheet } from '@wafflebase/sheets';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
@@ -25,6 +26,7 @@ import {
 } from '@wafflebase/sheets';
 import { parseCellStyle } from '../../yorkie/cell-style';
 import { assertSheetDocument } from './sheet-document.util';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 @Controller(
   'api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId/cells',
@@ -84,8 +86,7 @@ export class ApiV1CellsController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const root = doc.getRoot();
-        const worksheet = root.sheets?.[tabId];
+        const worksheet = findWorksheet<Worksheet>(doc.getRoot(), tabId);
         if (!worksheet) throw new NotFoundException('Tab not found');
 
         const cells = getWorksheetEntries(worksheet).map(([ref, cell]) => ({
@@ -121,8 +122,7 @@ export class ApiV1CellsController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const root = doc.getRoot();
-        const worksheet = root.sheets?.[tabId];
+        const worksheet = findWorksheet<Worksheet>(doc.getRoot(), tabId);
         if (!worksheet) throw new NotFoundException('Tab not found');
 
         const cell = getWorksheetCell(worksheet, parseRef(sref));
@@ -155,8 +155,7 @@ export class ApiV1CellsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const worksheet = root.sheets?.[tabId];
-          if (!worksheet) throw new NotFoundException('Tab not found');
+          const worksheet = worksheetOrThrow<Worksheet>(root, tabId);
 
           const ref = parseRef(sref);
           updateWorksheetCell(worksheet, ref, (existing) => ({
@@ -190,8 +189,7 @@ export class ApiV1CellsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const worksheet = root.sheets?.[tabId];
-          if (!worksheet) throw new NotFoundException('Tab not found');
+          const worksheet = worksheetOrThrow<Worksheet>(root, tabId);
           writeWorksheetCell(worksheet, parseRef(sref), undefined);
         });
 
@@ -227,8 +225,7 @@ export class ApiV1CellsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const worksheet = root.sheets?.[tabId];
-          if (!worksheet) throw new NotFoundException('Tab not found');
+          const worksheet = worksheetOrThrow<Worksheet>(root, tabId);
 
           for (const [ref, cellData] of Object.entries(body.cells)) {
             const parsedRef = parseRef(ref);

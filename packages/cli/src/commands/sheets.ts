@@ -9,6 +9,7 @@ import { registerSheetsDimensionsCommand } from './sheets-dimensions.js';
 import { registerSheetsViewCommand } from './sheets-view.js';
 import { registerSheetsRulesCommand } from './sheets-rules.js';
 import { registerSheetsChartsCommand } from './sheets-charts.js';
+import { registerSheetsImagesCommand } from './sheets-images.js';
 import { registerSheetsAnalysisCommand } from './sheets-analysis.js';
 
 export function registerSheetsCommand(program: Command) {
@@ -28,6 +29,7 @@ export function registerSheetsCommand(program: Command) {
   registerSheetsViewCommand(sheets);
   registerSheetsRulesCommand(sheets);
   registerSheetsChartsCommand(sheets);
+  registerSheetsImagesCommand(sheets);
   registerSheetsAnalysisCommand(sheets);
   return sheets;
 }

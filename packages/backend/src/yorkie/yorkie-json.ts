@@ -3,6 +3,21 @@
  * JSON *string* (not a plain object). Spread / JSON.stringify therefore
  * double-encode. This helper detects the proxy shape and parses back to
  * a plain JS value; plain inputs (or `undefined`) pass through.
+ *
+ * Parsing goes through {@link parseJsonSnapshot}, not bare `JSON.parse`: the
+ * same raw-JSON path this unwraps leaves control characters *inside* string
+ * values unescaped, so a value holding a multi-line string (a spreadsheet cell
+ * with a newline in it) would otherwise throw a `SyntaxError` and surface as a
+ * 500.
+ *
+ * Anything the repaired parse still cannot read **throws**, deliberately. The
+ * obvious last resort — {@link detachYorkieValue} — is wrong for this helper's
+ * callers: it branches on `Array.isArray`, which is false for a Yorkie array
+ * proxy, so a chart's `seriesColumns` or a slide's `elements` would come back
+ * as `{createdAt, movedAt}` CRDT metadata. Every caller here reads a shape with
+ * nested arrays (see `worksheet-charts.controller.ts#readCharts` and
+ * `slides-tree.ts#readSlidesRoot`), so silently returning that would turn a
+ * loud 500 into a 200 carrying wrong data.
  */
 export function unwrapJson<T>(value: unknown): T | undefined {
   if (value == null) return undefined;
@@ -11,7 +26,7 @@ export function unwrapJson<T>(value: unknown): T | undefined {
     if (typeof maybeJson === 'function') {
       const str = maybeJson.call(value);
       if (typeof str === 'string') {
-        return JSON.parse(str) as T;
+        return parseJsonSnapshot(str) as T;
       }
     }
   }

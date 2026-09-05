@@ -29,6 +29,13 @@ import {
   readNoteRoot,
   writeNoteRoot,
 } from '../../yorkie/note-content';
+import {
+  BoardDocument,
+  BoardYorkieRoot,
+  initialBoardRoot,
+  readBoardRoot,
+  writeBoardRoot,
+} from '../../yorkie/board-tree';
 import type {
   DocsDocument,
   SlidesDocument,
@@ -46,6 +53,7 @@ import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
 const DOC_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.doc;
 const SLIDES_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.slides;
 const NOTE_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.note;
+const BOARD_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.board;
 
 const TYPE_MISMATCH_BODY = {
   error: {
@@ -54,7 +62,13 @@ const TYPE_MISMATCH_BODY = {
   },
 };
 
-type ContentDocument = DocsDocument | SlidesDocument | NoteDocument;
+type ContentDocument =
+  | DocsDocument
+  | SlidesDocument
+  | NoteDocument
+  | BoardDocument;
+
+type ContentType = 'doc' | 'slides' | 'note' | 'board';
 
 /**
  * Read/write the canonical content JSON for word-processor (`doc`), slides
@@ -87,12 +101,17 @@ export class ApiV1DocsContentController {
   private async loadContentType(
     workspaceId: string,
     documentId: string,
-  ): Promise<'doc' | 'slides' | 'note'> {
+  ): Promise<ContentType> {
     const meta = await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
-    if (meta.type !== 'doc' && meta.type !== 'slides' && meta.type !== 'note') {
+    if (
+      meta.type !== 'doc' &&
+      meta.type !== 'slides' &&
+      meta.type !== 'note' &&
+      meta.type !== 'board'
+    ) {
       throw new ConflictException(TYPE_MISMATCH_BODY);
     }
     return meta.type;
@@ -116,6 +135,13 @@ export class ApiV1DocsContentController {
         documentId,
         (doc) => readNoteRoot(doc.getRoot()),
         { docKeyPrefix: NOTE_KEY_PREFIX, syncMode: 'readonly' },
+      );
+    }
+    if (type === 'board') {
+      return this.yorkieService.withDocument<BoardDocument, BoardYorkieRoot>(
+        documentId,
+        (doc) => readBoardRoot(doc.getRoot()),
+        { docKeyPrefix: BOARD_KEY_PREFIX, syncMode: 'readonly' },
       );
     }
     return this.yorkieService.withDocument<SlidesDocument, SlidesYorkieRoot>(
@@ -148,13 +174,15 @@ export class ApiV1DocsContentController {
     const shape = sniffBodyShape(body);
     if (shape === null) {
       throw new BadRequestException(
-        "Invalid content payload: must contain 'blocks' (docs), 'slides' (slides), or 'content' (note)",
+        "Invalid content payload: must contain 'blocks' (docs), 'slides' (slides), 'elements' (board), or 'content' (note)",
       );
     }
     if (shape === 'doc') {
       assertValidDocsBody(body);
     } else if (shape === 'note') {
       assertValidNoteBody(body);
+    } else if (shape === 'board') {
+      assertValidBoardBody(body);
     } else {
       assertValidSlidesBody(body);
     }
@@ -192,6 +220,18 @@ export class ApiV1DocsContentController {
       );
       return body as NoteDocument;
     }
+    if (type === 'board') {
+      await this.yorkieService.withDocument<void, BoardYorkieRoot>(
+        documentId,
+        (doc) => {
+          doc.update((root) => {
+            writeBoardRoot(root as BoardYorkieRoot, body as BoardDocument);
+          });
+        },
+        { docKeyPrefix: BOARD_KEY_PREFIX, initialRoot: initialBoardRoot() },
+      );
+      return body as BoardDocument;
+    }
     await this.yorkieService.withDocument<void, SlidesYorkieRoot>(
       documentId,
       (doc) => {
@@ -210,7 +250,7 @@ export class ApiV1DocsContentController {
  * than the document's persisted type. Returns `null` if neither anchor
  * field is recognisable; the caller surfaces this as a 400.
  */
-function sniffBodyShape(body: unknown): 'doc' | 'slides' | 'note' | null {
+function sniffBodyShape(body: unknown): ContentType | null {
   if (!body || typeof body !== 'object') return null;
   const b = body as Record<string, unknown>;
   // `slides` is the unambiguous anchor for slides decks — docs bodies
@@ -219,6 +259,10 @@ function sniffBodyShape(body: unknown): 'doc' | 'slides' | 'note' | null {
   // `meta` and the other required arrays).
   if (Array.isArray(b.slides)) return 'slides';
   if (Array.isArray(b.blocks)) return 'doc';
+  // A board is one flat `elements` array and no slides — checked after the
+  // `slides` anchor so a deck (whose slides each hold their own `elements`,
+  // never a top-level one) cannot be mistaken for a board.
+  if (Array.isArray(b.elements)) return 'board';
   // A note body is just `{ content: <markdown string> }`. Checked last so
   // the array anchors above win; docs/slides bodies never carry a
   // top-level string `content` field.
@@ -518,6 +562,52 @@ export function assertValidSlidesBody(body: unknown): asserts body is SlidesDocu
   const layouts = b.layouts as unknown[];
   for (let i = 0; i < layouts.length; i++) {
     assertValidLayout(layouts[i], `layouts[${i}]`);
+  }
+}
+
+/**
+ * Validate a board body: `{ meta: { title }, elements: Element[] }`.
+ *
+ * A board is one unbounded canvas, so there is no deck scaffolding to check —
+ * but its elements are the *same* slides `Element`s, laid out and rendered by
+ * the same scene engine, so they go through the same walk a slide's do rather
+ * than a second, looser copy of it.
+ */
+function assertValidBoardBody(body: unknown): asserts body is BoardDocument {
+  if (!body || typeof body !== 'object') {
+    throw new BadRequestException(
+      'Invalid board content payload: not an object',
+    );
+  }
+  const b = body as Record<string, unknown>;
+  const meta = b.meta as Record<string, unknown> | undefined;
+  if (!meta || typeof meta !== 'object') {
+    throw new BadRequestException(
+      "Invalid board content payload: 'meta' must be an object",
+    );
+  }
+  if (typeof meta.title !== 'string' || meta.title.length === 0) {
+    throw new BadRequestException(
+      "Invalid board content payload: 'meta.title' must be a non-empty string",
+    );
+  }
+  if (meta.unit !== undefined && meta.unit !== 'in' && meta.unit !== 'cm') {
+    throw new BadRequestException(
+      "Invalid board content payload: 'meta.unit' must be 'in' or 'cm'",
+    );
+  }
+  if (
+    meta.recentColors !== undefined &&
+    (!Array.isArray(meta.recentColors) ||
+      meta.recentColors.some((c) => typeof c !== 'string'))
+  ) {
+    throw new BadRequestException(
+      "Invalid board content payload: 'meta.recentColors' must be an array of strings",
+    );
+  }
+  const elements = b.elements as unknown[];
+  for (let i = 0; i < elements.length; i++) {
+    assertValidElement(elements[i], `elements[${i}]`);
   }
 }
 

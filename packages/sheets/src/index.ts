@@ -225,8 +225,32 @@ import {
   type CommentAuthor,
   type Thread,
 } from './comment/types';
-import { createThread, addReply } from './comment/thread';
+import {
+  createThread,
+  addReply,
+  editComment,
+  deleteComment,
+  setThreadResolved,
+} from './comment/thread';
 import { cellAnchorToSref, isAnchorAlive } from './comment/anchor';
+import {
+  type BodySegment,
+  type MentionRef,
+  serializeMention,
+  parseMentionBody,
+  mentionBodyToPlainText,
+  extractMentionedUserIds,
+} from './comment/mentions';
+import {
+  type CommentEvent,
+  type CommentEventKind,
+  type CommentNotificationPlan,
+  type CommentNotificationType,
+  MAX_COMMENT_PREVIEW_LENGTH,
+  commentPreview,
+  planCommentNotifications,
+  toNotifiableUserId,
+} from './comment/notify-plan';
 import { importXlsxFile, importXlsxWorkbook } from './import/xlsx-importer';
 import type { ImportedXlsxSheet, XlsxFileLike } from './import/xlsx-importer';
 import { importJsonText } from './import/json-importer';
@@ -372,8 +396,19 @@ export {
   rangeToRangeAnchor,
   createThread,
   addReply,
+  editComment,
+  deleteComment,
+  setThreadResolved,
   cellAnchorToSref,
   isAnchorAlive,
+  serializeMention,
+  parseMentionBody,
+  mentionBodyToPlainText,
+  extractMentionedUserIds,
+  MAX_COMMENT_PREVIEW_LENGTH,
+  commentPreview,
+  planCommentNotifications,
+  toNotifiableUserId,
   importXlsxFile,
   importXlsxWorkbook,
   importJsonText,
@@ -449,6 +484,12 @@ export type {
   CommentAnchor,
   CommentAuthor,
   Thread,
+  BodySegment,
+  MentionRef,
+  CommentEvent,
+  CommentEventKind,
+  CommentNotificationPlan,
+  CommentNotificationType,
   ImportedSheet,
   ParquetImportOptions,
   ImportedXlsxSheet,

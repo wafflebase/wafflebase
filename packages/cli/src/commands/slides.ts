@@ -20,6 +20,7 @@ import { writeBinary } from '../output/binary.js';
 import { createImageFetcher } from '../docs/image-fetcher.js';
 import { exportPptxCli } from '../slides/pptx-export.js';
 import { registerSlidesSetContentCommand } from './content-write.js';
+import { registerSlidesEditCommand } from './slides-edit.js';
 
 interface SlidesImportOpts {
   title?: string;
@@ -235,6 +236,7 @@ export function registerSlidesCommand(program: Command) {
 
   registerSlidesImportCommand(slides);
   registerSlidesSetContentCommand(slides);
+  registerSlidesEditCommand(slides);
 }
 
 export function registerSlidesImportCommand(slides: Command) {

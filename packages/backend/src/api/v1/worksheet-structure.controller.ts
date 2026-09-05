@@ -3,7 +3,6 @@ import {
   Body,
   ConflictException,
   Controller,
-  NotFoundException,
   Param,
   Post,
   UseGuards,
@@ -18,7 +17,6 @@ import {
   normalizeStoredCell,
   parseRef,
   safeWorksheetRecordEntries,
-  safeWorksheetRecordKeys,
   shiftCrossTabDataRanges,
   toRefsFromRanges,
   writeWorksheetCell,
@@ -30,6 +28,7 @@ import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
 import { assertSheetDocument } from './sheet-document.util';
+import { worksheetOrThrow } from './worksheet-lookup.util';
 import {
   assertAxisGrowth,
   parseAxisMove,
@@ -78,41 +77,6 @@ export class ApiV1WorksheetStructureController {
   }
 
   /**
-   * Resolve `tabId` against the document's own tabs.
-   *
-   * This has to be a membership test over the real keys, not a truthiness
-   * check on the value. `root.sheets` is a Yorkie `JSONObject` proxy whose get
-   * trap answers `getID` / `toJSON` / `toJS` / `toJSForTest` / `toString` with
-   * a **function** — truthy — so `.../tabs/toString/insert` walked past a bare
-   * `if (!worksheet)` and handed the engine a function to splice `rowOrder`
-   * on. (`__proto__` is safe through that proxy only by accident: the trap
-   * reads a real `Map`, so it answers `undefined`. On a plain object it is
-   * truthy, which is what the clear-range spec's fixture exercises.)
-   *
-   * `Object.hasOwn` and `in` are both unusable here — the proxy's
-   * `getOwnPropertyDescriptor` trap returns a descriptor unconditionally, and
-   * there is no `has` trap, so `in` is false even for a real tab. The key list
-   * goes through the `ownKeys` trap, which returns the CRDT object's actual
-   * keys, and is equally correct on a plain object.
-   *
-   * It reads that list through `safeWorksheetRecordKeys` rather than raw
-   * `Object.keys`, which is what that helper exists for: `ownKeys` throws
-   * `TypeError: ... duplicate` on a record that ended up with duplicate CRDT
-   * keys, and a tab lookup that throws would 500 every structural request on
-   * such a document instead of resolving the tab.
-   */
-  private worksheetOrThrow(
-    root: { sheets?: Record<string, unknown> },
-    tabId: string,
-  ) {
-    const sheets = root.sheets;
-    if (!sheets || !safeWorksheetRecordKeys(sheets).includes(tabId)) {
-      throw new NotFoundException('Tab not found');
-    }
-    return sheets[tabId] as Worksheet;
-  }
-
-  /**
    * Row/column edits are only meaningful on a normal sheet tab.
    *
    * `Sheet.insertRows` / `deleteRows` / `insertColumns` / `deleteColumns` all
@@ -122,8 +86,9 @@ export class ApiV1WorksheetStructureController {
    * boundary mirrors `assertSheetDocument`: say no rather than write something
    * the editor would never produce.
    *
-   * Reading `root.tabs?.[tabId]` is safe only because `worksheetOrThrow` has
-   * already proved `tabId` is a real key — keep the call order.
+   * Reading `root.tabs?.[tabId]` is safe only because `worksheetOrThrow`
+   * (`worksheet-lookup.util.ts`) has already proved `tabId` is a real key —
+   * keep the call order.
    */
   private assertEditableTab(
     root: { tabs?: Record<string, { type?: string } | undefined> },
@@ -201,7 +166,7 @@ export class ApiV1WorksheetStructureController {
       (doc) => {
         let cleared = 0;
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow<Worksheet>(root, tabId);
           for (const ref of toRefsFromRanges([range])) {
             if (getWorksheetCell(ws, ref) !== undefined) {
               writeWorksheetCell(ws, ref, undefined);
@@ -263,7 +228,7 @@ export class ApiV1WorksheetStructureController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow<Worksheet>(root, tabId);
           this.assertEditableTab(root, ws, tabId);
           // `moveWorksheetAxis` back-fills the axis to cover both ends of the
           // move before splicing in place, so this is the length it needs to
@@ -315,7 +280,7 @@ export class ApiV1WorksheetStructureController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow<Worksheet>(root, tabId);
           this.assertEditableTab(root, ws, tabId);
           if (count > 0) {
             // Insert only: a delete splices entries out and materializes none,
