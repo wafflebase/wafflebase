@@ -18,10 +18,15 @@ import { useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
 import { isAuthExpiredError } from "@/api/auth";
 import { Loader } from "@/components/loader";
+import {
+  isCoarsePointer,
+  TOUCH_HANDLE_TOLERANCE,
+} from "@/hooks/use-coarse-pointer";
 import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
+import { attachBoardTouchGestures } from "./board-touch-gestures";
 import { createCursorPublisher } from "./board-cursor-publish";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
@@ -300,6 +305,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // editor still paints (including remote peer edits) but accepts
       // no pointer/keyboard input.
       readOnly,
+      // Fingertip-sized hit slack for the 8px selection handles. Keyed
+      // on the pointer being coarse rather than on viewport width: a
+      // tablet, and a phone in landscape, are both wide enough to take
+      // this mount and are both driven by a finger.
+      touchHandleTolerance: isCoarsePointer()
+        ? TOUCH_HANDLE_TOLERANCE
+        : undefined,
       // "Fit to content" in the empty-canvas context menu. Wrapped in an
       // arrow because the zoom binding is created below (it needs the
       // minimap) — the call only ever happens after mount, so the
@@ -711,6 +723,40 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
 
+    // --- touch: one-finger pan, two-finger pinch zoom ---
+    //
+    // Every pan path above needs hardware touch cannot produce — a
+    // keyboard for Space, a third button for the middle-drag, a wheel —
+    // and `container`'s `touch-action: none` denies the browser its own
+    // pan on top of that. So until this, a board was unreachable by
+    // finger past whatever happened to be on screen at open.
+    //
+    // Registered AFTER the space/middle handler above, on the same
+    // element and phase, so the two run in registration order. They
+    // cannot both claim: that one returns unless a middle button or
+    // Space is involved, neither of which exists in a touch stream.
+    const detachTouch = attachBoardTouchGestures(container, {
+      getViewport: () => vp.current,
+      commit: commitViewport,
+      // The editor answers "is anything under this point" — it owns the
+      // hit-test and the group drill-in scope the answer depends on.
+      //
+      // A read-only mount answers "nothing, anywhere": it binds no
+      // pointer handlers at all, so conceding a press over an element
+      // would hand it to nobody and leave a viewer unable to pan off
+      // whatever their finger happened to land on.
+      hasContentAt: readOnly ? () => false : (x, y) => editor.hasContentAt(x, y),
+      toCanvasPoint: (x, y) => ({
+        x: x - canvasRect.left,
+        y: y - canvasRect.top,
+      }),
+      // The empty-canvas press was intercepted before the editor could
+      // run its lasso path, which is where a tap on nothing normally
+      // clears the selection.
+      onEmptyTap: () => editor.setSelection([]),
+      onZoomChange: (z) => zoom.reportViewportZoom(z),
+    });
+
     // RAF loop so async asset loads (e.g. the image cache backing image
     // elements) repaint — mirrors SlidesView's render loop.
     //
@@ -739,6 +785,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
+      detachTouch();
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);

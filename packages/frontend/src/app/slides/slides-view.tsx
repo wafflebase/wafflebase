@@ -18,6 +18,10 @@ import { useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
+import {
+  isCoarsePointer,
+  TOUCH_HANDLE_TOLERANCE,
+} from "@/hooks/use-coarse-pointer";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
@@ -285,6 +289,13 @@ export function SlidesView({
     // this into a `useEditorMount` hook.
     container.innerHTML = "";
     const dpr = window.devicePixelRatio || 1;
+    // Whether the primary input is a fingertip. This mount is reached by
+    // more touch devices than its name suggests: `useIsMobile()` keys on
+    // viewport WIDTH, so a tablet — and a phone in landscape — take the
+    // desktop path while still being driven by a finger. Read once here
+    // rather than through the hook because everything below it is
+    // imperative DOM built inside this effect.
+    const coarsePointer = isCoarsePointer();
 
     // Width of the left thumbnail panel — persisted to localStorage so
     // the user's resize preference survives reloads. Clamped on read in
@@ -478,6 +489,14 @@ export function SlidesView({
     // bg shows through). The slide rect stays visually distinct via
     // `slideElevation`'s drop shadow + hairline (below).
     canvasWrap.style.background = "transparent";
+    // iOS's long-press callout is not a `contextmenu` event, so
+    // `preventDefault` cannot reach it; suppressing it is CSS-only.
+    // Unlike the mobile shell we do NOT also set `user-select: none`
+    // here — the docs text-box editor mounts inside this subtree on the
+    // desktop path and needs its selection.
+    if (coarsePointer) {
+      canvasWrap.style.setProperty("-webkit-touch-callout", "none");
+    }
 
     // Slide elevation: an absolute-positioned transparent div pinned
     // to the slide rect, carrying the 1-px theme-aware hairline and
@@ -557,6 +576,30 @@ export function SlidesView({
     scrollHost.style.justifyContent = "safe center";
     scrollHost.style.alignItems = "safe center";
 
+    /**
+     * Decide who owns a one-finger drag on the slide surface.
+     *
+     * With no `touch-action` at all — the state before this — the
+     * browser claimed every touch drag as a scroll of `scrollHost` and
+     * cancelled the editor's pointer stream mid-gesture, so on a tablet
+     * dragging a shape scrolled the page instead of moving the shape.
+     *
+     * `none` hands the gesture to the editor, but it also removes the
+     * only way to reach the parts of an over-sized slide that are off
+     * screen. So it is applied exactly when there is nothing to scroll:
+     * at Fit — the state a deck opens in and spends almost all its time
+     * in — the canvas is no larger than its host. Past Fit, scrolling
+     * wins and dragging by finger is unavailable until the user returns
+     * to Fit. Re-evaluated on every refit because zoom changes which
+     * side of that line the canvas is on.
+     */
+    const applyCanvasTouchAction = (w: number, h: number): void => {
+      if (!coarsePointer) return;
+      const fits =
+        w <= scrollHost.clientWidth && h <= scrollHost.clientHeight;
+      canvasWrap.style.touchAction = fits ? "none" : "pan-x pan-y";
+    };
+
     scrollHost.appendChild(canvasWrap);
     canvasArea.appendChild(scrollHost);
     right.appendChild(canvasArea);
@@ -623,6 +666,9 @@ export function SlidesView({
 
     layout.appendChild(right);
     container.appendChild(layout);
+    // Seed the rule now that `scrollHost` has a measurable size. The
+    // ResizeObserver-driven refit below re-evaluates it from here on.
+    applyCanvasTouchAction(canvasFullW, canvasFullH);
 
     // Inject pointer-events for handles (overlay-level CSS). The
     // overlay itself uses pointer-events: none so empty-area clicks
@@ -670,6 +716,10 @@ export function SlidesView({
       slideOffsetLogicalX: 0,
       slideOffsetLogicalY: 0,
       readOnly: readOnlyMount,
+      // Fingertip-sized hit slack for the 8px handles, on the same
+      // coarse-pointer test as the `touch-action` rule above. Left
+      // `undefined` for a mouse so precise input keeps precise handles.
+      touchHandleTolerance: coarsePointer ? TOUCH_HANDLE_TOLERANCE : undefined,
       hRulerCanvas,
       vRulerCanvas,
       rulerCorner,
@@ -825,6 +875,10 @@ export function SlidesView({
       // ruler tick origin lags behind the actual viewport until the
       // next user scroll.
       editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
+      // Before the early return: a resize that leaves the canvas alone
+      // can still change whether it fits (the notes pane growing, the
+      // thumbnail panel widening), which is the whole input to the rule.
+      applyCanvasTouchAction(nextCanvasW, nextCanvasH);
       if (sameSlide && sameCanvas) return;
       hostW = nextW;
       hostH = nextH;

@@ -19,6 +19,7 @@ import {
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import { usePointerSwipe } from "@/hooks/use-pointer-swipe";
+import { TOUCH_HANDLE_TOLERANCE } from "@/hooks/use-coarse-pointer";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
 import {
@@ -82,9 +83,9 @@ interface MobileSlidesViewProps {
   onEditorReady?: (editor: SlidesEditor | null) => void;
 }
 
-/** Touch hit slack passed to the editor in `edit` mode. 22px expands
- * each 8px visual handle into ~44px hit area — Apple HIG min. */
-const TOUCH_HANDLE_TOLERANCE = 22;
+// Touch hit slack passed to the editor in `edit` mode. Shared with the
+// desktop slides mount and the board so the three cannot drift apart —
+// see `@/hooks/use-coarse-pointer`.
 
 /**
  * Mobile shell for the slides deck. Mounted by `slides-detail.tsx`'s

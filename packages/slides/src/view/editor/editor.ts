@@ -76,9 +76,11 @@ import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
 import { dragEndpoint } from './interactions/connector-endpoint-drag';
 import {
+  allowsSlowDoubleClick,
   commitTranslate,
+  dragThresholdFor,
   isSlowDoubleClick,
-  DRAG_THRESHOLD_PX,
+  pointerTypeOf,
   SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX,
   SLOW_DOUBLE_CLICK_SEQUENCE_WINDOW_MS,
 } from './interactions/drag';
@@ -689,6 +691,23 @@ export interface SlidesEditor {
    * Get the last computed hover cursor. Exposed for tests.
    */
   getLastHoverCursor(): string;
+
+  /**
+   * Whether a pointer at this viewport coordinate would land on
+   * something the editor acts on — an element (descending into groups
+   * at the current selection scope) or a selection handle.
+   *
+   * Exists for hosts that layer their own gesture on the same surface
+   * and have to decide, before the editor sees the event, whether this
+   * press belongs to them. The board is the caller: a one-finger drag
+   * pans the plane when it starts on empty canvas and moves an element
+   * when it starts on one, which is the Miro/FigJam convention and is
+   * not expressible in `touch-action`. Answering it here rather than
+   * re-implementing a hit-test in the host keeps one definition of
+   * "what is under the pointer" — the host has no access to the
+   * selection scope a group drill-in establishes.
+   */
+  hasContentAt(clientX: number, clientY: number): boolean;
 
   /**
    * Preview the current slide's animations on the editor canvas.
@@ -3559,6 +3578,23 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onPointerDown(e: MouseEvent): void {
+    // Multi-touch: only the first finger drives the editor. Without
+    // this, a second finger landing while the first is mid-gesture runs
+    // this whole handler again — re-entering select / drag / lasso on
+    // top of an in-flight one, each with its own document-level move and
+    // up listeners. It is also the precondition for a host layering a
+    // two-finger pan / pinch over this canvas (the board does): the
+    // gesture's second finger must not be read as a second edit.
+    //
+    // Scoped to touch rather than testing `isPrimary` alone, for two
+    // reasons that agree. Multi-pointer input is what the rule is about,
+    // and a mouse cannot produce it. And `PointerEventInit.isPrimary`
+    // defaults to FALSE, so an `isPrimary`-only test would silently
+    // reject every synthetic `PointerEvent` — the editor dispatches some
+    // itself, and the interaction suite is built out of them.
+    const pe = e as PointerEvent;
+    if (pe.pointerType === 'touch' && pe.isPrimary === false) return;
+
     // Clear any pending hover highlight when the user starts interacting.
     // This suppresses the outline during drag/resize/connector operations.
     this.clearHoverHighlight();
@@ -5335,8 +5371,12 @@ class SlidesEditorImpl implements SlidesEditor {
         doc.guides,
         // `peakRawClientDist` is already the gesture's "was this a drag
         // or a click" measure (it gates slow-double-click entry below),
-        // so the grid reuses it rather than measuring travel twice.
-        this.activeSnapGrid(ev, peakRawClientDist >= DRAG_THRESHOLD_PX),
+        // so the grid reuses it rather than measuring travel twice. The
+        // threshold itself is per-device: see `dragThresholdFor`.
+        this.activeSnapGrid(
+          ev,
+          peakRawClientDist >= dragThresholdFor(pointerTypeOf(ev)),
+        ),
       );
       const smart = smartGuides(bbox, snapped.dx, snapped.dy, otherFrames);
       // Re-apply the lock after snap + smart-guides: both evaluate X and Y
@@ -5435,6 +5475,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // human gesture as a 2 px twitch at 400 %.
       if (
         slowDoubleClickEligible &&
+        allowsSlowDoubleClick(pointerTypeOf(ev)) &&
         peakRawClientDist < SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX &&
         isSlowDoubleClick(
           clientX, clientY, downTimeMs,
@@ -5686,6 +5727,14 @@ class SlidesEditorImpl implements SlidesEditor {
       clientY - rect.top,
       this.options.touchHandleTolerance,
     );
+  }
+
+  hasContentAt(clientX: number, clientY: number): boolean {
+    if (this.handleAtClient(clientX, clientY) !== null) return true;
+    const slide = this.currentSlide();
+    if (!slide) return false;
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    return this.hitTestAt(slide, x, y) !== null;
   }
 
   private onPointerDownHandle(handle: HandleKind, clientX: number, clientY: number): void {
@@ -6514,7 +6563,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const onMove = (ev: MouseEvent) => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
-      const isDrag = peakClientDist >= DRAG_THRESHOLD_PX;
+      const isDrag = peakClientDist >= dragThresholdFor(pointerTypeOf(ev));
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
@@ -6675,7 +6724,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const onMove = (ev: MouseEvent): void => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
-      const isDrag = peakClientDist >= DRAG_THRESHOLD_PX;
+      const isDrag = peakClientDist >= dragThresholdFor(pointerTypeOf(ev));
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
