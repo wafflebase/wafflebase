@@ -754,6 +754,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // run its lasso path, which is where a tap on nothing normally
       // clears the selection.
       onEmptyTap: () => editor.setSelection([]),
+      // The board's canvas menu carries Paste, the insert entries and
+      // "Snap to grid" — a finger has no other way to reach any of them.
+      // Suppressed on a read-only mount, where every entry it would open
+      // is either a mutation or disabled.
+      onLongPress: readOnly
+        ? () => undefined
+        : (x, y) => editor.openContextMenuAt(x, y),
       onZoomChange: (z) => zoom.reportViewportZoom(z),
     });
 

@@ -11,6 +11,14 @@ export const TOUCH_PAN_THRESHOLD_PX = 10;
 /** Longest press still read as a tap rather than an aborted pan. */
 export const TAP_MAX_DURATION_MS = 400;
 
+/**
+ * Held-still duration that opens the context menu. Same number as the
+ * editor's own long-press and the spreadsheet's, so the gesture means
+ * one thing across the product. The board needs its own copy because it
+ * intercepts empty-canvas presses before the editor can time them.
+ */
+export const LONG_PRESS_DELAY_MS = 500;
+
 /** A press we are tracking, in viewport coordinates. */
 export interface GesturePointer {
   id: number;
@@ -33,8 +41,20 @@ export interface BoardGestureHost {
   toCanvasPoint(clientX: number, clientY: number): { x: number; y: number };
   /** A tap that landed on empty canvas and never became a pan. */
   onEmptyTap(): void;
+  /**
+   * A press held still on empty canvas. The editor times its own
+   * long-press, but never sees these — we claimed them — so the board
+   * has to open the canvas menu itself or it becomes unreachable by
+   * finger.
+   */
+  onLongPress(clientX: number, clientY: number): void;
   /** Zoom changed; the toolbar readout follows. Not called on a pure pan. */
   onZoomChange(zoom: number): void;
+  /**
+   * Schedules `fn` after `ms` and returns a cancel function. Injected so
+   * the gesture's timing is drivable from a test without fake timers.
+   */
+  setTimer?(fn: () => void, ms: number): () => void;
 }
 
 type Mode = "idle" | "pending" | "pan" | "pinch";
@@ -102,8 +122,22 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
   /** Pinch reference, refreshed every frame so zoom is incremental. */
   let lastPinchDist = 0;
   let lastPinchMid: Tracked = { x: 0, y: 0 };
+  let cancelLongPress: (() => void) | null = null;
+
+  const schedule =
+    host.setTimer ??
+    ((fn: () => void, ms: number) => {
+      const id = setTimeout(fn, ms);
+      return () => clearTimeout(id);
+    });
+
+  const disarmLongPress = (): void => {
+    cancelLongPress?.();
+    cancelLongPress = null;
+  };
 
   const reset = (): void => {
+    disarmLongPress();
     active.clear();
     pointers.clear();
     owned = false;
@@ -147,9 +181,19 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
       startTime = p.timeStamp;
       lastX = p.clientX;
       lastY = p.clientY;
+      cancelLongPress = schedule(() => {
+        cancelLongPress = null;
+        // Only a press that never became anything else. `mode` is still
+        // `pending` exactly when the finger has stayed inside the pan
+        // threshold, which is the same "held still" the editor's own
+        // long-press requires.
+        if (mode === "pending") host.onLongPress(startX, startY);
+      }, LONG_PRESS_DELAY_MS);
       return true;
     }
     if (!owned) return false;
+    // A second finger is a pinch, not a menu.
+    disarmLongPress();
     pointers.set(p.id, { x: p.clientX, y: p.clientY });
     if (pointers.size >= 2) beginPinch();
     return true;
@@ -194,6 +238,9 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
     if (mode === "pending") {
       const travelled = Math.hypot(p.clientX - startX, p.clientY - startY);
       if (travelled < TOUCH_PAN_THRESHOLD_PX) return;
+      // Moving past the threshold makes this a pan, so the pending menu
+      // must not fire under the finger mid-drag.
+      disarmLongPress();
       mode = "pan";
       // Pan from the press point, not from where the threshold was
       // crossed, so the content does not jump by the threshold on the

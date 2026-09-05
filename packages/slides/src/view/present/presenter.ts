@@ -44,6 +44,19 @@ const END_SCREEN_FONT_RATIO = 0.04;
 const END_SCREEN_TEXT = 'End of slideshow — click or press Esc to exit';
 /** Milliseconds of mousemove inactivity before the cursor is hidden. */
 const CURSOR_HIDE_DELAY_MS = 3_000;
+
+/** Horizontal travel that turns a touch drag into a slide change. */
+const SWIPE_THRESHOLD_PX = 50;
+/** Above this the gesture was a slow drag, not a swipe. */
+const SWIPE_MAX_DURATION_MS = 600;
+/** Travel below which a touch counts as a tap on a zone. */
+const TAP_MAX_DISTANCE_PX = 10;
+/**
+ * Share of the screen width, measured from the left edge, where a tap
+ * goes backwards. A third is the common choice across slide and reader
+ * apps; the remaining two thirds advance.
+ */
+const BACK_TAP_ZONE_RATIO = 1 / 3;
 /** z-index for the overlay fallback when fullscreen is unavailable. */
 const OVERLAY_Z_INDEX = 9999;
 
@@ -621,8 +634,20 @@ export function startPresenter(options: PresenterOptions): Presenter {
   }
   document.addEventListener('keydown', onKeyDown, { capture: true });
 
+  /**
+   * Set when a touch gesture has already been acted on, so the
+   * synthetic `click` the browser emits afterwards does not advance a
+   * second time — a swipe back to the previous slide would otherwise
+   * immediately advance to the one it came from.
+   */
+  let touchHandledClick = false;
+
   function onCanvasClick(): void {
     if (disposed) return;
+    if (touchHandledClick) {
+      touchHandledClick = false;
+      return;
+    }
     if (state.atEndScreen) {
       options.onExit();
       return;
@@ -630,6 +655,75 @@ export function startPresenter(options: PresenterOptions): Presenter {
     next();
   }
   canvas.addEventListener('click', onCanvasClick);
+
+  // --- touch navigation ---
+  //
+  // Click-to-advance works under a finger, but it is the whole of what
+  // does: every way back to the previous slide is a key, so a deck
+  // presented from a tablet could only ever go forwards. A swipe and a
+  // left-edge tap are what every slide app on a touch screen offers,
+  // and both are reachable with the device held in one hand.
+  //
+  // Bound to `container`, not `canvas`: at most aspect ratios the slide
+  // is letterboxed, and a tap on the bar beside it is still a tap on
+  // the presentation.
+  let touchStart: { id: number; x: number; y: number; t: number } | null = null;
+
+  function onTouchDown(e: PointerEvent): void {
+    if (disposed || e.pointerType !== 'touch') return;
+    // Ignore a second finger — a pinch is not navigation, and letting
+    // it overwrite the anchor would turn the gesture into nonsense.
+    if (touchStart !== null) return;
+    touchStart = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp };
+  }
+
+  function onTouchUp(e: PointerEvent): void {
+    if (e.pointerType !== 'touch') return;
+    const start = touchStart;
+    if (start === null || start.id !== e.pointerId) return;
+    touchStart = null;
+    if (disposed) return;
+    touchHandledClick = true;
+
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+
+    if (
+      Math.abs(dx) >= SWIPE_THRESHOLD_PX &&
+      Math.abs(dx) > Math.abs(dy) &&
+      e.timeStamp - start.t <= SWIPE_MAX_DURATION_MS
+    ) {
+      // Content follows the finger: swiping left brings the next slide
+      // in from the right.
+      if (dx < 0) next();
+      else prev();
+      return;
+    }
+
+    if (Math.hypot(dx, dy) >= TAP_MAX_DISTANCE_PX) return;
+
+    if (state.atEndScreen) {
+      options.onExit();
+      return;
+    }
+    // Tap zones. The back zone is deliberately the smaller share: going
+    // forward is the gesture a presenter makes hundreds of times, and
+    // it should be reachable anywhere the thumb lands.
+    const rect = container.getBoundingClientRect();
+    const relative =
+      rect.width > 0 ? (e.clientX - rect.left) / rect.width : 1;
+    if (relative < BACK_TAP_ZONE_RATIO) prev();
+    else next();
+  }
+
+  function onTouchCancel(e: PointerEvent): void {
+    if (e.pointerType !== 'touch') return;
+    if (touchStart !== null && touchStart.id === e.pointerId) touchStart = null;
+  }
+
+  container.addEventListener('pointerdown', onTouchDown);
+  container.addEventListener('pointerup', onTouchUp);
+  container.addEventListener('pointercancel', onTouchCancel);
 
   // Cursor auto-hide: any `mousemove` restores the cursor and re-arms
   // a single setTimeout. While the timer is dormant we set
@@ -741,6 +835,9 @@ export function startPresenter(options: PresenterOptions): Presenter {
     // removeEventListener is a silent no-op and the listener leaks.
     document.removeEventListener('keydown', onKeyDown, { capture: true });
     canvas.removeEventListener('click', onCanvasClick);
+    container.removeEventListener('pointerdown', onTouchDown);
+    container.removeEventListener('pointerup', onTouchUp);
+    container.removeEventListener('pointercancel', onTouchCancel);
     container.removeEventListener('mousemove', onMouseMove);
 
     if (cursorHideTimer !== null) clearTimeout(cursorHideTimer);

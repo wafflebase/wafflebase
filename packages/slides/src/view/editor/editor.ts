@@ -80,6 +80,8 @@ import {
   commitTranslate,
   dragThresholdFor,
   isSlowDoubleClick,
+  LONG_PRESS_DELAY_MS,
+  LONG_PRESS_TOLERANCE_PX,
   pointerTypeOf,
   SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX,
   SLOW_DOUBLE_CLICK_SEQUENCE_WINDOW_MS,
@@ -710,6 +712,16 @@ export interface SlidesEditor {
   hasContentAt(clientX: number, clientY: number): boolean;
 
   /**
+   * Open the context menu for whatever is at this viewport coordinate,
+   * exactly as a right-click there would. The editor calls it itself
+   * from `contextmenu` and from its own touch long-press; it is public
+   * so a host that intercepts a press before the editor sees it can
+   * still offer the menu — the board does, for presses on empty canvas
+   * that its pan gesture claims.
+   */
+  openContextMenuAt(clientX: number, clientY: number): void;
+
+  /**
    * Preview the current slide's animations on the editor canvas.
    * Auto-plays every step back-to-back (unlike the presenter which
    * waits for clicks). The canvas returns to static render when done.
@@ -934,6 +946,14 @@ class SlidesEditorImpl implements SlidesEditor {
    * ended or editor torn down before release) cannot leak listeners.
    */
   private cropDragCleanup: (() => void) | null = null;
+  /** Pending touch long-press → context menu. See `armLongPress`. */
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Teardown for the document listeners that disarm a pending
+   * long-press. Held so `detach` can drop them: a press abandoned by a
+   * teardown mid-gesture never sees its own pointerup.
+   */
+  private longPressCleanup: (() => void) | null = null;
   /** Listeners for crop-session state changes (enter + exit). */
   private cropListeners = new Set<() => void>();
   /** Listeners for table cell-range selection state changes. */
@@ -2764,6 +2784,11 @@ class SlidesEditorImpl implements SlidesEditor {
       this.editingTextBox = null;
       this.editingElementId = null;
     }
+    // A press still being timed for a long-press would otherwise fire
+    // its menu after teardown, and its disarm listeners would outlive
+    // the editor that installed them.
+    this.longPressCleanup?.();
+    this.cancelLongPress();
     // Drop any active crop session, its in-flight drag listeners, and its
     // capture-phase key listener so a SlidesView remount starts clean.
     this.cropDragCleanup?.();
@@ -2953,11 +2978,74 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private onContextMenu(e: MouseEvent): void {
     e.preventDefault();
-    this.lastContextX = e.clientX;
-    this.lastContextY = e.clientY;
+    this.openContextMenuAt(e.clientX, e.clientY);
+  }
+
+  /**
+   * Touch long-press → the same menu a right-click opens. Armed on
+   * every touch press and disarmed by movement past
+   * `LONG_PRESS_TOLERANCE_PX`, by release, or by the platform
+   * cancelling the pointer — so a press that becomes a drag never
+   * ends in a menu.
+   *
+   * Skipped in the modes where a press already means something else:
+   * an armed insert (the press places the shape), an open crop session
+   * (modal), a live format-painter pick, and text editing (the caret
+   * and the platform's own text menu own the gesture there).
+   *
+   * The press may already have started an element drag by the time the
+   * timer fires. That drag has moved less than the tolerance, so its
+   * `onUp` commits nothing — it takes the zero-delta path and pushes no
+   * history entry — and the menu simply opens over it.
+   */
+  private armLongPress(e: PointerEvent): void {
+    this.cancelLongPress();
+    if (
+      this.insertKind !== null ||
+      this.cropSession !== null ||
+      this.paintSnapshot !== null ||
+      this.editingElementId !== null
+    ) {
+      return;
+    }
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const clear = (): void => {
+      this.cancelLongPress();
+      document.removeEventListener('pointermove', onMove, true);
+      document.removeEventListener('pointerup', clear, true);
+      document.removeEventListener('pointercancel', clear, true);
+      this.longPressCleanup = null;
+    };
+    const onMove = (ev: Event): void => {
+      const pev = ev as PointerEvent;
+      const moved = Math.hypot(pev.clientX - startX, pev.clientY - startY);
+      if (moved < LONG_PRESS_TOLERANCE_PX) return;
+      clear();
+    };
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', clear, true);
+    document.addEventListener('pointercancel', clear, true);
+    this.longPressCleanup = clear;
+    this.longPressTimer = setTimeout(() => {
+      clear();
+      this.openContextMenuAt(startX, startY);
+    }, LONG_PRESS_DELAY_MS);
+  }
+
+  private cancelLongPress(): void {
+    if (this.longPressTimer !== null) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+  }
+
+  openContextMenuAt(clientX: number, clientY: number): void {
+    this.lastContextX = clientX;
+    this.lastContextY = clientY;
     const slide = this.currentSlide();
     if (!slide) return;
-    const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+    const { x, y } = this.clientToLogical(clientX, clientY);
     const hitResult = this.hitTestAt(slide, x, y);
     if (hitResult === null) {
       // Guide hit takes precedence over the empty-canvas menu when the
@@ -2968,12 +3056,12 @@ class SlidesEditorImpl implements SlidesEditor {
         showContextMenu(
           document.body,
           this.guideContextItems(guide.id, guide.axis),
-          e.clientX,
-          e.clientY,
+          clientX,
+          clientY,
         );
         return;
       }
-      showContextMenu(document.body, this.canvasContextItems(x, y), e.clientX, e.clientY);
+      showContextMenu(document.body, this.canvasContextItems(x, y), clientX, clientY);
       return;
     }
     // Route the right-click through the same drill-in state machine as
@@ -2987,7 +3075,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
     }
     const items = this.elementContextItems(slide.id);
-    showContextMenu(document.body, items, e.clientX, e.clientY);
+    showContextMenu(document.body, items, clientX, clientY);
   }
 
   private elementContextItems(slideId: string): ContextMenuItem[] {
@@ -3594,6 +3682,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // itself, and the interaction suite is built out of them.
     const pe = e as PointerEvent;
     if (pe.pointerType === 'touch' && pe.isPrimary === false) return;
+    if (pe.pointerType === 'touch') this.armLongPress(pe);
 
     // Clear any pending hover highlight when the user starts interacting.
     // This suppresses the outline during drag/resize/connector operations.

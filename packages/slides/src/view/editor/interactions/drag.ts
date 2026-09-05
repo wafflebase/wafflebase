@@ -71,6 +71,20 @@ export function allowsSlowDoubleClick(pointerType?: string): boolean {
   return pointerType !== 'touch';
 }
 
+/**
+ * Touch long-press → context menu. A finger has no second button, and
+ * the browser event that would stand in for one is not dependable: iOS
+ * withholds `contextmenu` wherever `-webkit-touch-callout: none` is set
+ * — which the mobile slides shell sets deliberately, to stop the system
+ * callout appearing over the editor's own menu. So the press is timed
+ * here rather than delegated.
+ *
+ * Both numbers match `use-mobile-sheet-gestures`, so the same press
+ * opens a menu in a spreadsheet and on a slide.
+ */
+export const LONG_PRESS_DELAY_MS = 500;
+export const LONG_PRESS_TOLERANCE_PX = 10;
+
 export const SLOW_DOUBLE_CLICK_MAX_DURATION_MS = 350;
 /**
  * Maximum gap (ms) between two consecutive pointer-downs on the same

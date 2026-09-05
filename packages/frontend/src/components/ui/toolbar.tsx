@@ -7,6 +7,16 @@ import { cn } from "@/lib/utils";
  * Root container for a horizontal toolbar strip.
  * Provides consistent height, spacing, scroll and border styling
  * shared across the Sheets and Docs formatting toolbars.
+ *
+ * On a coarse pointer every control inside grows to a 44px floor. The
+ * toolbars are built from 28–32px buttons — correct for a cursor, and
+ * roughly half of what a fingertip can hit reliably, which on a strip
+ * of adjacent single-purpose buttons means the neighbour is as likely
+ * as the target. It is applied here, on the shared root, rather than
+ * per button: `min-h`/`min-w` are floors, so nothing shrinks and
+ * nothing needs to opt in, and the rule lands on Sheets, Docs, Slides
+ * and Board at once. Controls rendered into a portal (a dropdown's
+ * contents) are outside this subtree and set their own.
  */
 function Toolbar({
   className,
@@ -17,6 +27,8 @@ function Toolbar({
     <div
       className={cn(
         "flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap",
+        "pointer-coarse:gap-1 pointer-coarse:py-1.5",
+        "pointer-coarse:[&_button]:min-h-11 pointer-coarse:[&_button]:min-w-11",
         className,
       )}
       {...props}

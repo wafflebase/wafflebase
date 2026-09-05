@@ -14,7 +14,12 @@ import {
 function makeHost(options: { content?: (x: number, y: number) => boolean } = {}) {
   let viewport: Viewport = { panX: 0, panY: 0, zoom: 1 };
   const emptyTaps = vi.fn();
+  const longPresses = vi.fn();
   const zoomChanges: number[] = [];
+  // Hand-driven clock: `fireTimers()` runs whatever is still pending,
+  // which is exactly the question every long-press test asks — was the
+  // timer still armed when the delay elapsed?
+  let pending: (() => void)[] = [];
   const host: BoardGestureHost = {
     getViewport: () => viewport,
     commit: (next) => {
@@ -24,12 +29,25 @@ function makeHost(options: { content?: (x: number, y: number) => boolean } = {})
     // Identity: the fake canvas sits at the viewport origin.
     toCanvasPoint: (x, y) => ({ x, y }),
     onEmptyTap: emptyTaps,
+    onLongPress: longPresses,
     onZoomChange: (z) => zoomChanges.push(z),
+    setTimer: (fn) => {
+      pending.push(fn);
+      return () => {
+        pending = pending.filter((p) => p !== fn);
+      };
+    },
   };
   return {
     host,
     emptyTaps,
+    longPresses,
     zoomChanges,
+    fireTimers: () => {
+      const due = pending;
+      pending = [];
+      for (const fn of due) fn();
+    },
     get viewport() {
       return viewport;
     },
@@ -160,6 +178,66 @@ describe("board touch gestures — tap", () => {
     const g = createBoardTouchGestures(t.host);
     g.down(at(1, 100, 100, 0));
     g.cancel(at(1, 100, 100, 50));
+    expect(t.emptyTaps).not.toHaveBeenCalled();
+  });
+});
+
+describe("board touch gestures — long press", () => {
+  it("opens the menu at the press point when held still", () => {
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 120, 80, 0));
+    t.fireTimers();
+    expect(t.longPresses).toHaveBeenCalledWith(120, 80);
+  });
+
+  it("does not fire once the press became a pan", () => {
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 120, 80, 0));
+    g.move(at(1, 120 + TOUCH_PAN_THRESHOLD_PX, 80, 100));
+    t.fireTimers();
+    expect(t.longPresses).not.toHaveBeenCalled();
+  });
+
+  it("does not fire after the finger lifts", () => {
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 120, 80, 0));
+    g.up(at(1, 120, 80, 100));
+    t.fireTimers();
+    expect(t.longPresses).not.toHaveBeenCalled();
+  });
+
+  it("does not fire once a second finger lands", () => {
+    // Two fingers is a pinch. A menu opening under one of them would
+    // swallow the gesture.
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 120, 80, 0));
+    g.down(at(2, 220, 80, 30));
+    t.fireTimers();
+    expect(t.longPresses).not.toHaveBeenCalled();
+  });
+
+  it("is not armed for a press the editor owns", () => {
+    // The editor times its own long-press for those, and two menus
+    // racing on one press is worse than either.
+    const t = makeHost({ content: () => true });
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 120, 80, 0));
+    t.fireTimers();
+    expect(t.longPresses).not.toHaveBeenCalled();
+  });
+
+  it("does not also report a tap", () => {
+    // A press held past the long-press delay is past the tap window
+    // too, so the selection must not clear out from under the menu.
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 120, 80, 0));
+    t.fireTimers();
+    g.up(at(1, 120, 80, 600));
     expect(t.emptyTaps).not.toHaveBeenCalled();
   });
 });
