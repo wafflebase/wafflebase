@@ -978,6 +978,13 @@ class SlidesEditorImpl implements SlidesEditor {
    * See `abortCanvasGesture`.
    */
   private canvasGestureAbort: (() => void) | null = null;
+  /**
+   * Input device of the press that started the current gesture. The
+   * drag loops read the device off their own live move events, but a
+   * gesture that produces no move has none to read — so this carries it
+   * from the pointerdown that opened the gesture.
+   */
+  private activePointerType: string | undefined;
   /** Listeners for crop-session state changes (enter + exit). */
   private cropListeners = new Set<() => void>();
   /** Listeners for table cell-range selection state changes. */
@@ -3020,9 +3027,15 @@ class SlidesEditorImpl implements SlidesEditor {
    * (modal), a live format-painter pick, and text editing (the caret
    * and the platform's own text menu own the gesture there).
    *
-   * Also skipped on a selection handle: that press starts a resize or a
-   * rotate, gestures whose whole purpose is to travel, and a menu is not
-   * what a user grabbing a handle is asking for.
+   * Also skipped on a selection handle and on an alignment guide. Both
+   * presses start gestures whose whole purpose is to travel, and a menu
+   * is not what a user grabbing one is asking for. The guide case is
+   * additionally the loop this editor does not own — `startGuideMove`
+   * discards its own cleanup at the call site — so declining to arm is
+   * the only way to keep a guide from moving under an open menu. The
+   * cost is that the guide menu (Delete guide / Delete all guides) has
+   * no touch entry point; guides are a ruler feature and the ruler is
+   * not mounted on the mobile shell at all.
    *
    * The press has, by the time the timer fires, already started the
    * canvas gesture it landed on — a move drag, or a lasso. Opening a
@@ -3043,7 +3056,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.cropSession !== null ||
       this.paintSnapshot !== null ||
       this.editingElementId !== null ||
-      this.handleAtClient(e.clientX, e.clientY) !== null
+      this.handleAtClient(e.clientX, e.clientY) !== null ||
+      this.guideAtClient(e.clientX, e.clientY)
     ) {
       return;
     }
@@ -3093,6 +3107,15 @@ class SlidesEditorImpl implements SlidesEditor {
     const abort = this.canvasGestureAbort;
     this.canvasGestureAbort = null;
     abort?.();
+  }
+
+  /**
+   * Whether an alignment guide sits under this viewport point, in the
+   * same 4-px hit zone `onPointerDown` uses to start a guide move.
+   */
+  private guideAtClient(clientX: number, clientY: number): boolean {
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    return hitTestGuide(this.options.store.read().guides, { x, y }) !== null;
   }
 
   private cancelLongPress(): void {
@@ -3744,6 +3767,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // interaction suite is built out of.
     const pe = e as PointerEvent;
     if (pe.pointerType === 'touch' && pe.isPrimary === false) return;
+    this.activePointerType = pe.pointerType;
     if (pe.pointerType === 'touch') this.armLongPress(pe);
 
     // Clear any pending hover highlight when the user starts interacting.
@@ -4681,6 +4705,7 @@ class SlidesEditorImpl implements SlidesEditor {
       document.removeEventListener('pointerup', onUp, true);
       document.removeEventListener('pointercancel', onCancel, true);
       document.body.style.cursor = '';
+      this.canvasGestureAbort = null;
       const pending = this.pendingTableResize;
       this.pendingTableResize = null;
       if (commit && pending !== null) {
@@ -4718,6 +4743,11 @@ class SlidesEditorImpl implements SlidesEditor {
     };
     const onUp = (): void => finish(true);
     const onCancel = (): void => finish(false);
+    // A border drag writes column widths to the store, so a long-press
+    // that fires on top of it must be able to call it off — otherwise
+    // the release commits a resize under the open menu. `finish(false)`
+    // already is that operation; this just makes it reachable.
+    this.canvasGestureAbort = onCancel;
     document.addEventListener('pointermove', onMove, true);
     document.addEventListener('pointerup', onUp, true);
     document.addEventListener('pointercancel', onCancel, true);
@@ -6763,8 +6793,12 @@ class SlidesEditorImpl implements SlidesEditor {
     // non-zero before the pointer has moved at all.
     let peakClientDist = 0;
     // The device is only knowable from a live event; `onUp` needs it too
-    // (its own event is not passed through), so the last move records it.
-    let devicePointerType: string | undefined;
+    // (its own event is not passed through), so the last move records
+    // it. Seeded from the press, because a gesture with NO move at all
+    // would otherwise resolve as `undefined` — which reads as "not
+    // touch" and lets a still tap on a handle commit a value-identical
+    // frame, and with it a real undo entry.
+    let devicePointerType: string | undefined = this.activePointerType;
     const onMove = (ev: MouseEvent) => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
@@ -6941,7 +6975,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // See the single-resize path: neither correction may engage until
     // the gesture is a drag rather than a click.
     let peakClientDist = 0;
-    let devicePointerType: string | undefined;
+    let devicePointerType: string | undefined = this.activePointerType;
     const onMove = (ev: MouseEvent): void => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
@@ -7023,6 +7057,17 @@ class SlidesEditorImpl implements SlidesEditor {
         (frames.size === 0 && connectorEndpoints.size === 0) ||
         !commitsAsDrag(peakClientDist, devicePointerType)
       ) {
+        // The canvas needs the repaint, not just the overlay. The
+        // original arm was reachable only when no move had run, so
+        // nothing had been painted; the travel gate is reachable only
+        // in the opposite case — every move ran `paintMultiResizeLive`,
+        // which forces a ghost render and leaves the renderer clean, so
+        // the RAF loop's `render()` short-circuits and the translucent
+        // preview would sit there at the jittered size until an
+        // unrelated edit re-dirtied it. The move and single-resize
+        // paths already do this in the same situation.
+        this.renderer.markDirty();
+        this.render();
         this.repaintOverlay();
         return;
       }

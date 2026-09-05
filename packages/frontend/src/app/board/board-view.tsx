@@ -763,7 +763,14 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // selection AND pops any group drill-in. `setSelection([])` would
       // only do the first half, leaving a scope no finger could ever
       // exit — and a group whose frame was never refit on the way out.
-      onEmptyTap: () => editor.clearSelectionAndScope(),
+      onEmptyTap: () => {
+        // The editor commits an open text box on a press outside it,
+        // from the same handler our claim intercepted — so the host has
+        // to replay that too, or a tap on empty canvas would leave the
+        // caret live in a sticky the user has visibly left.
+        if (editor.isTextEditing()) editor.exitTextEditing();
+        editor.clearSelectionAndScope();
+      },
       // The board's canvas menu carries Paste, the insert entries and
       // "Snap to grid" — a finger has no other way to reach any of them.
       // Suppressed on a read-only mount, where every entry it would open

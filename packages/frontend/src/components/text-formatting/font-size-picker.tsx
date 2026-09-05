@@ -143,7 +143,7 @@ export function FontSizePicker({
        */}
       <div
         data-text-edit-keepalive
-        className="inline-flex h-7 pointer-coarse:h-11 items-center rounded-md border border-transparent hover:border-border"
+        className="inline-flex h-7 pointer-coarse:h-[46px] items-center rounded-md border border-transparent hover:border-border"
       >
         <button
           type="button"

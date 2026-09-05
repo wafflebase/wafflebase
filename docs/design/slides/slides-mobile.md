@@ -360,10 +360,33 @@ What that changed:
   exceed the clamp's idea of the screen.
 
 - **Toolbar controls at a 44px floor**, applied on the shared `Toolbar`
-  root as `pointer-coarse:` `min-h`/`min-w`. Floors, so nothing shrinks
-  and no call site opts in; Sheets, Docs, Slides and Board are covered
-  at once. Controls rendered into a portal are outside that subtree and
-  set their own.
+  root as `pointer-coarse:` `min-h` / `min-w` / `shrink-0`; Sheets,
+  Docs, Slides and Board are covered at once with no call site opting
+  in.
+
+  `shrink-0` is load-bearing and was missing at first. A flex item's
+  default `min-width: auto` resolves to min-content, and that is what
+  made these strips overflow-and-scroll rather than compress. Replacing
+  it with a hard 44px hands every button its content width as shrink
+  budget — and the descendant selector also outranks the
+  `min-w-[112px]` that `FontFamilyPicker`, `TextStyleGroup` and
+  `ZoomControl` declare for themselves. Measured under real coarse
+  emulation, the font picker fell to 64.9px with a truncated label and
+  the Docs "Page number" label spilled out over its neighbour.
+
+  Two containers also had to grow, because a fixed height *clips* a
+  floor rather than growing to it: the mobile slides strip
+  (`h-10` → `h-auto` + `min-h-14`; a flat `h-14` leaves 43px of content
+  box after the border and padding) and the font-size picker's bordered
+  pill (44px border-box leaves 42px inside for 44px children).
+
+  **Remaining gap:** the rule reaches this subtree only, and `Sheet`,
+  `Popover`, `DropdownMenu` and `Tooltip` all portal. On the mobile
+  slides surface that means the ~6 strip buttons grow while everything
+  inside `FormatSheet` / `TextFormatSheet` / `InsertSheet` stays at
+  28px, as does every `ColorSwatch` (20px) across Docs, Sheets and
+  Slides. Closing that is a pass over the shared controls themselves,
+  not another root rule.
 
 - **Presentation mode navigates both ways.** Click-to-advance already
   worked under a finger, but every route *back* was a key, so a deck

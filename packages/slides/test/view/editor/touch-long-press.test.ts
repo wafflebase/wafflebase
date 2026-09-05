@@ -245,3 +245,17 @@ describe('touch commit gating', () => {
     expect(menu()).toBeNull();
   });
 });
+
+describe('long-press exclusions', () => {
+  it('is not armed over an alignment guide', () => {
+    // That press starts a guide move, in the one loop this editor does
+    // not own — `startGuideMove` discards its own cleanup — so a menu
+    // opening over it could not call the move off.
+    const { canvas, store } = mount();
+    store.batch(() => store.addGuide('x', 480));
+    // 480 logical → 480 client at hostWidth 1920 / SLIDE_WIDTH 1920.
+    canvas.dispatchEvent(touch('pointerdown', 480, 300));
+    vi.advanceTimersByTime(LONG_PRESS_DELAY_MS);
+    expect(menu()).toBeNull();
+  });
+});

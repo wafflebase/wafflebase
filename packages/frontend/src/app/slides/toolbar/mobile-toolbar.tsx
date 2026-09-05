@@ -112,7 +112,10 @@ function IdleMobileBar({
   onToggleBackgroundPanel,
 }: MobileSlidesToolbarProps) {
   return (
-    <Toolbar className="flex h-10 pointer-coarse:h-14 items-center gap-1 border-b px-2">
+    <Toolbar
+      touchTargets="fit"
+      className="flex h-10 pointer-coarse:h-auto pointer-coarse:min-h-14 items-center gap-1 border-b px-2"
+    >
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <InsertSheet editor={editor} onImagePick={onImagePick} />
@@ -168,7 +171,10 @@ function ObjectMobileBar({
   }, [editor]);
 
   return (
-    <Toolbar className="flex h-10 pointer-coarse:h-14 items-center gap-1 border-b px-2">
+    <Toolbar
+      touchTargets="fit"
+      className="flex h-10 pointer-coarse:h-auto pointer-coarse:min-h-14 items-center gap-1 border-b px-2"
+    >
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <FormatSheet
@@ -244,7 +250,10 @@ function TextEditMobileBar({
   }, [textEditor]);
 
   return (
-    <Toolbar className="flex h-10 pointer-coarse:h-14 items-center gap-1 border-b px-2">
+    <Toolbar
+      touchTargets="fit"
+      className="flex h-10 pointer-coarse:h-auto pointer-coarse:min-h-14 items-center gap-1 border-b px-2"
+    >
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <Toggle
