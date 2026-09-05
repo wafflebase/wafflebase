@@ -118,6 +118,41 @@ rule has to hold in many places, putting it *upstream of all of them* is
 both smaller and safer than putting it in each, because a future loop
 cannot forget to opt in.
 
+## A fix in one layer can starve another layer's bookkeeping
+
+The worst defect on this branch was not in the original work. It was
+created by a fix: the editor's foreign-pointer guard stops a second
+touch's `pointerup` at `document` capture, and the board's gesture layer
+listened on `container` — downstream in the capture phase — so it never
+saw that release. The pointer stayed in its `active` set, and since a
+board gesture ends only when that set drains, one two-finger press on an
+element left the board unable to pan for the life of the mount.
+
+Nothing about either piece is wrong in isolation. The damage lives in
+the *ordering* between two components that never mention each other,
+and it took a reviewer walking the propagation path end to end to find
+it. The fix — bind on `window`, which the capture phase reaches before
+`document` — is three lines, and unfindable without that walk.
+
+**Rule:** stopping an event is not a local act. When one layer suppresses
+events, enumerate every other layer that listens for the same event and
+ask what it now fails to learn. "Who else is downstream of me" is a
+question with an answer, and it is worth writing down at the point of
+suppression.
+
+## Prove a regression test is not vacuous
+
+Three tests on this branch were checked by reverting the fix and
+confirming the test failed. One of them was nearly worthless before that
+check: it dispatched its probe event on `document`, which only the fixed
+binding could receive, so it would have passed for the wrong reason and
+kept passing if the fix were undone in a different way. Moving the
+dispatch to the element made the test isolate the actual defect.
+
+**Rule:** a regression test that has never been seen to fail is a
+hypothesis, not a test. Reverting the fix takes a minute and is the only
+thing that distinguishes the two.
+
 ## What the review was worth
 
 Three rounds — five parallel reviewers over the branch diff, two more

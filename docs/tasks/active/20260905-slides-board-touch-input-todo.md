@@ -141,6 +141,21 @@ over the first round's fixes.
       by Part 9's seed; the exact zero-move handle tap is now pinned,
       and verified to fail without the seed
 
+Second pass, after those fixes landed:
+
+- [x] The editor's foreign-pointer guard starved the board's
+      bookkeeping. It stops a second touch's `pointerup` at `document`
+      capture; the board listened on `container`, downstream in the
+      capture phase, so that pointer never left `active` — and since a
+      board gesture ends only when `active` drains, one two-finger
+      press on an element left the board unable to pan for the life of
+      the mount. Now bound on `window`, which the capture phase reaches
+      first; it also stops a pan freezing when the finger leaves the
+      container
+- [x] A pointer swallowed by menu mode went untracked, so the
+      initiating finger's release reset the gesture with another finger
+      still down
+
 ## Verification
 
 - [x] `pnpm verify:fast`
