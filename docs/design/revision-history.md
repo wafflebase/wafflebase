@@ -1,6 +1,6 @@
 ---
 title: revision-history
-target-version: 0.7.0
+target-version: 0.6.9
 ---
 
 # Revision History

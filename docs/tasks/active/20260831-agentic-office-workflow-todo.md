@@ -69,7 +69,8 @@ before treating this as a roadmap.
 
 ## Step 4: Decide the A′ question (7 items)
 
-Closed — see [20260903-api-v1-folders-copy-todo.md](./20260903-api-v1-folders-copy-todo.md).
+Closed — see [20260903-api-v1-folders-copy-todo.md](../archive/2026/09/20260903-api-v1-folders-copy-todo.md),
+archived during the v0.6.9 cut.
 
 - [x] Answer open question 3 — **an API key**. A session expires and belongs to
       a person, so a bench that needs one cannot run unattended

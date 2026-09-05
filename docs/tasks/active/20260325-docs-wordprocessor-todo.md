@@ -40,7 +40,16 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs/docs-wordprocessor
 
 - [x] 5.1 Comments — text anchors, threads, resolve / reopen
 - [ ] 5.2 Suggestion Mode — change tracking, accept / reject
-- [ ] 5.3 Version History — snapshot list, preview, restore
+- [x] 5.3 Version History — snapshot list, preview, restore. Shipped
+      across #1010 (the panel on every CRDT type) and #1017 (the docs
+      snapshot converter that made *preview* work for this type
+      specifically). `components/history/history-panel.tsx` is the list
+      with "Name current version" and per-entry Preview / Restore;
+      `docs-detail.tsx:30,304` mounts it behind a "Show version history"
+      toggle; `snapshot-adapters.ts` hydrates the preview through the
+      docs-specific `docsTreeToDocument`. Ticked 2026-09-05 during the
+      v0.6.9 audit — `docs/design/docs/docs-wordprocessor-roadmap.md`
+      still describes 5.3 as an unbuilt phase and is stale.
 
 ## Phase 6: Advanced Features
 

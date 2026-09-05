@@ -165,44 +165,117 @@ Everything the workspace tier can skip *because* its audience is bounded.
 `public` stays refused with a `400` until all of it exists — this phase is not
 a flag flip.
 
+**Phase 3 shipped in #1009 and #1026.** The boxes below were ticked on
+2026-09-05 during the v0.6.9 archive audit, each verified against source
+rather than against either PR's commit message. Where the code differs
+from the box's wording, the note says so — the code is right and the box
+was written before the decision.
+
 ### 3a. Review pipeline
 
-- [ ] Requesting `public` sets `status: 'pending'` and lists nothing
-- [ ] `POST /templates/:id/review { decision, reason? }` gated on
+- [x] Requesting `public` sets `status: 'pending'` and lists nothing —
+      `TemplateService.submit()` writes `status: 'pending'` and leaves
+      `visibility` untouched (`template.service.ts:541`), and `browse()`
+      constrains `scope=public` to `status = 'listed'`. That separation is
+      what makes submitting observable to nobody.
+- [x] `POST /templates/:id/review { decision, reason? }` gated on
       `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` (configuration, not a new admin console)
-- [ ] `template_reviewed` notification on both outcomes; the rejection reason is
+      — `template.controller.ts:161` stacks
+      `@UseGuards(JwtAuthGuard, TemplateReviewerGuard)`; the guard is
+      `packages/backend/src/template/template-reviewer.guard.ts`.
+- [x] `template_reviewed` notification on both outcomes; the rejection reason is
       the notification `preview` — a submission that disappears silently is the
-      failure mode CapCut's help pages are mostly about
-- [ ] Reviewer queue view (pending listings + reports)
+      failure mode CapCut's help pages are mostly about.
 
-### 3b. Frozen-copy promotion
+      Shipped as **three** types, not one: `notification.service.ts:57-59`
+      maps `approve → template_approved`, `reject → template_rejected`,
+      `takedown → template_removed`. That is a deliberate improvement on
+      the box, because rejection and takedown are different events — one
+      leaves the listing working at its existing tier, the other says the
+      content may not be served at all.
+- [x] Reviewer queue view (pending listings + reports) —
+      `app/templates/template-review-queue.tsx`, routed at
+      `/admin/templates` (`App.tsx:151`); reports reach it through
+      `GET /admin/templates/reports` (`template.controller.ts:189`).
+
+### 3b. Frozen-copy promotion — **dropped, not pending**
+
+Promotion was **deferred in favour of re-review-on-change**, and that
+decision is recorded in the Review of
+`20260902-template-gallery-public-tier-todo.md`. An approved listing is
+returned to review when its document's card fields change, which solves
+the same problem — an approved template silently becoming something else
+— without a system workspace, a second copy of every public document, or
+a deletion path for superseded copies.
+
+The four boxes are left unticked **on purpose**: they describe work
+nobody intends to do, and ticking them would claim it shipped. They are
+the reason this task cannot archive, and the honest close is to strike
+them in a follow-up rather than to build them. `originId` survives as a
+schema column (`schema.prisma:364`) with no writer, which is the residue
+of the dropped design.
 
 - [ ] `WAFFLEBASE_TEMPLATE_WORKSPACE_ID` system workspace, seeded once
+      — **dropped.** Zero occurrences in `packages/backend/src`.
 - [ ] Approval copies into it and re-points `documentId`, recording the
-      publisher's original in `originId`
+      publisher's original in `originId` — **dropped.**
 - [ ] Republish → new frozen copy → re-review; the superseded copy is deleted
-      once the listing points at its replacement
+      once the listing points at its replacement — **dropped.**
 - [ ] Re-host the frozen copy's embedded images into listing-owned keys
       (reuse the Miro importer's re-hosting shape), so a publisher deleting an
-      image cannot break an approved listing
+      image cannot break an approved listing — **dropped as a promotion
+      step**, though the generic walker it would have used did ship
+      elsewhere: `document-copy.service.ts`'s `rehostImages` with its
+      `MAX_REHOSTED_IMAGES` ceiling, on the copy engine rather than on a
+      promotion path that does not exist.
 
 ### 3c. Public browse
 
-- [ ] `/templates` page outside `PrivateRoute`, reading 2a with `scope=public`
-- [ ] Document-type and category facets, popular/recent sort
-- [ ] Search: `ILIKE` over title/description + tag containment; `pg_trgm` index
-      only if it gets slow — Postgres only, no new infrastructure
+- [x] `/templates` page outside `PrivateRoute`, reading 2a with `scope=public`
+      — `App.tsx:120` mounts `<Route path="/templates" element={<PublicTemplates />} />`
+      outside the `PrivateRoute` block; `public-templates.tsx` passes
+      `scope="public"`.
+- [x] Document-type and category facets, popular/recent sort — facets in
+      `template-gallery.tsx`; the sort is an `orderBy` on `publishedAt`
+      vs `useCount` in `template.service.ts`.
+- [x] Search: `ILIKE` over title/description + tag containment; `pg_trgm` index
+      only if it gets slow — Postgres only, no new infrastructure.
+      `template.service.ts:1103-1105` is
+      `{ contains, mode: 'insensitive' }` over title and description plus
+      `{ tags: { has: asTag } }`. **No `pg_trgm` index**, which is the box
+      satisfied rather than skipped: it was conditional on being measured
+      slow, and it has not been measured slow.
 
 ### 3d. Trust and safety
 
 - [ ] License grant required to submit (`licensedAt`); grant text as a docs page
-- [ ] Attribution (author) on the listing and the card
-- [ ] `TemplateReport` model + `POST /templates/:id/report { reason }`,
-      authenticated and throttled
-- [ ] Takedown sets `status: 'rejected'` + visibility back to `unlisted`; never
-      touches the document, and copies already made stay
-- [ ] Ranking guards: a publisher's own use does not increment `useCount`;
-      per-user throttle on `use`
+      — **half open.** The *grant* shipped: `submit()` refuses without
+      `dto.acceptLicense` (`template.service.ts:507`), writes `licensedAt`
+      (`:543`), and the Share dialog states the grant in a sentence
+      (`template-share-section.tsx:342`). The **docs page** does not
+      exist anywhere under `docs/` or on the docs site. Left unticked for
+      the missing half.
+- [x] Attribution (author) on the listing and the card — the publisher's
+      username and avatar render on the public card.
+- [x] `TemplateReport` model + `POST /templates/:id/report { reason }`,
+      authenticated and throttled — `schema.prisma:387` `model TemplateReport`
+      (unique per listing + reporter, so re-filing updates rather than
+      duplicates); route at `template.controller.ts:177` under
+      `@UseGuards(JwtAuthGuard, UserThrottlerGuard)`.
+- [x] Takedown sets `status: 'rejected'` + visibility back to `unlisted`; never
+      touches the document, and copies already made stay.
+
+      Shipped as `status: 'removed'`, not `'rejected'`
+      (`template.service.ts:661`). The box's wording is stale, not the
+      code: the public-tier task split rejection from takedown, so
+      `rejected` now means "missed the bar, keep serving at your existing
+      tier" and `removed` means "may not be served at all". Collapsing
+      them into one status, as this box asked, is the thing that was
+      deliberately not done.
+- [x] Ranking guards: a publisher's own use does not increment `useCount`;
+      per-user throttle on `use` — `template.service.ts:1009-1017` skips
+      the publisher's own use and treats the increment as best-effort;
+      `template.controller.ts:217` throttles `/use` per user.
 
 ## Still Non-Goals at every phase
 

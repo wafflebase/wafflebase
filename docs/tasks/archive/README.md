@@ -6,16 +6,20 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 581
+Total archived tasks: 585
 
-## 2026/09 (6 tasks)
+## 2026/09 (10 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | loading indicator unification (2026-09-04) | [20260904-loading-indicator-unification-todo.md](./2026/09/20260904-loading-indicator-unification-todo.md) | [20260904-loading-indicator-unification-lessons.md](./2026/09/20260904-loading-indicator-unification-lessons.md) |
+| template gallery seed (2026-09-04) | [20260904-template-gallery-seed-todo.md](./2026/09/20260904-template-gallery-seed-todo.md) | [20260904-template-gallery-seed-lessons.md](./2026/09/20260904-template-gallery-seed-lessons.md) |
+| templates gallery marketing skin (2026-09-04) | [20260904-templates-gallery-marketing-skin-todo.md](./2026/09/20260904-templates-gallery-marketing-skin-todo.md) | [20260904-templates-gallery-marketing-skin-lessons.md](./2026/09/20260904-templates-gallery-marketing-skin-lessons.md) |
+| api v1 folders copy (2026-09-03) | [20260903-api-v1-folders-copy-todo.md](./2026/09/20260903-api-v1-folders-copy-todo.md) | [20260903-api-v1-folders-copy-lessons.md](./2026/09/20260903-api-v1-folders-copy-lessons.md) |
 | homepage docs audit (2026-09-03) | [20260903-homepage-docs-audit-todo.md](./2026/09/20260903-homepage-docs-audit-todo.md) | [20260903-homepage-docs-audit-lessons.md](./2026/09/20260903-homepage-docs-audit-lessons.md) |
 | image viewer folder return (2026-09-03) | [20260903-image-viewer-folder-return-todo.md](./2026/09/20260903-image-viewer-folder-return-todo.md) | [20260903-image-viewer-folder-return-lessons.md](./2026/09/20260903-image-viewer-folder-return-lessons.md) |
 | notification links (2026-09-03) | [20260903-notification-links-todo.md](./2026/09/20260903-notification-links-todo.md) | - |
+| release v0.6.8 (2026-09-02) | [20260902-release-v0.6.8-todo.md](./2026/09/20260902-release-v0.6.8-todo.md) | [20260902-release-v0.6.8-lessons.md](./2026/09/20260902-release-v0.6.8-lessons.md) |
 | sidebar nav drift (2026-09-01) | [20260901-sidebar-nav-drift-todo.md](./2026/09/20260901-sidebar-nav-drift-todo.md) | [20260901-sidebar-nav-drift-lessons.md](./2026/09/20260901-sidebar-nav-drift-lessons.md) |
 | template thumbnails (2026-09-01) | [20260901-template-thumbnails-todo.md](./2026/09/20260901-template-thumbnails-todo.md) | [20260901-template-thumbnails-lessons.md](./2026/09/20260901-template-thumbnails-lessons.md) |
 
