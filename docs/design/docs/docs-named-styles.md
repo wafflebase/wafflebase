@@ -44,14 +44,17 @@ Roadmap item: Phase **6.5 Named Styles** in
 - Arbitrary user-named custom styles (Word model). Out of scope by design.
 - Character-level cascade for *direct* formatting tracking (Google Docs'
   "clear formatting reverts to style") beyond what already exists.
-- Changing the **Normal** text body defaults (line spacing 1.5, space-after
-  8 px) — kept as-is to avoid reflowing every existing document, and because
-  `normal`'s block values were once required to stay identical to `DEFAULT_BLOCK_STYLE`'s; that invariant is now carried by the `namedStyleSpacing` opt-in instead for
-  the spacing resolution below to be a no-op for slides/board. **Two** documented
-  deviations from Google Docs, which uses 1.15 line spacing and space-after 0.
-  The second is what makes list items need the contextual rule below: in
-  Google Docs there is no inter-item gap to remove, because a paragraph has no
-  space-after at all.
+- ~~Changing the **Normal** text body defaults.~~ **No longer a Non-Goal.** It
+  was one while `normal`'s block values had to stay identical to
+  `DEFAULT_BLOCK_STYLE`'s for the spacing resolution to be a no-op for
+  slides/board. That invariant is now carried by the `namedStyleSpacing`
+  opt-in instead, so `normal` matches Google (1.15 leading, space-after 0) and
+  the catalog has no documented deviation left. The cost is real and accepted:
+  every existing document's body reflows on first open, and its PDF page count
+  can change. A consequence worth stating — with Google's space-after of 0
+  there is no inter-item gap to remove, so the contextual list rule below is
+  dormant in the shipped catalog and becomes observable only when a document
+  redefines `normal`.
 - A "list" named style, or any user control over list spacing. The inter-item
   rhythm is contextual (below), not a style, and is not redefinable. (The
   `ListParagraph` style the DOCX exporter writes is not a counter-example: it
@@ -106,12 +109,22 @@ resolveStyleInline(id, docStyles) = { ...BUILTIN_STYLES[id].inline, ...docStyles
 resolveStyleBlock(id, docStyles)  = { ...BUILTIN_STYLES[id].block,  ...docStyles?.[id]?.block }
 ```
 
-An entry in `docStyles` therefore means "the document decided this", and the
-inverse direction has a guard of its own: `omitBuiltinStyleDefaults(id, def)`
+An entry in `docStyles` therefore means "the document decided this".
+
+#### "Update to match" must not capture defaults
+
+The inverse direction has a guard of its own: `omitBuiltinStyleDefaults(id, def)`
 drops from a *captured* definition every property that already equals the
 built-in, so "Update to match" cannot fill the registry with defaults nobody
-chose. See
-["Update to match" must not capture defaults](#update-to-match-must-not-capture-defaults).
+chose.
+
+This is load-bearing for the dark surface. "Update to match" captures the
+*computed* style, so a Heading 3 whose author only toggled Bold still hands over
+the built-in's grey, its size and its leading — and because a stored override
+wins over `inlineDark`, storing the captured `#434343` would repaint every
+Heading 3 at 1.4:1 on the dark page, undoing the two-layer design on one click.
+Capturing on the light surface is necessary but not sufficient; the prune is
+what makes it safe.
 
 `Document` gains an optional `styles?: DocStyles` field, beside `pageSetup`.
 
@@ -157,6 +170,19 @@ theme default, not a stored black. See
 > passed for two months. A test that encodes a belief about another product
 > instead of measuring it will defend the error it was written to prevent.
 
+#### Theme-aware colors: the light / dark surfaces
+
+`inline.color` is the light-surface value — Google Docs parity, and what
+PDF/DOCX export emits — and `inlineDark.color` the value the same style resolves
+to when laid out for the `#2b2b2b` dark page. A single shared grey is not merely
+undesirable but *impossible*: AA (4.5:1) on white needs relative luminance
+≤ 0.1833 and AA on `#2b2b2b` needs ≥ 0.2837, and those intervals are disjoint.
+`resolveStyleInline` therefore takes a `surface` argument that **defaults to
+light**, so export paths and the document-describing readers stay mode-blind by
+omission rather than by remembering to opt out. `inlineDark` is `Pick<>`-limited
+to color keys: a dark-surface metric would change the painted glyphs without
+changing the measured line, and page count would stop agreeing with the screen.
+
 **Leading is uniform 1.15, matching Google Docs.** An earlier revision of this
 document argued the opposite — that a constant multiplier was wrong because
 "held at 1.5, a 26 pt Title gets a 52 px line box around 34.7 px of glyph and
@@ -197,6 +223,111 @@ catalog's value, document-wide, on one click. Applying a style still clears the
 `authoredLineHeight` marker (that is Google's "clear direct paragraph
 formatting", and the only way back to the style's leading); a registry
 operation passes `keepAuthoredLeading` and does not.
+
+#### Exporting the list rhythm is a style problem, not a spacing one
+
+On screen the rule keys on block *type* adjacency: a `list-item` next to a
+`list-item` opens no gap. Word has no such notion. `w:contextualSpacing`
+("Ignore Spacing Above and Below When Using Identical Styles") compares
+paragraph **styles**, and every paragraph the exporter used to write was the
+default `Normal` — so Word applied it across the bullet/paragraph boundary too
+and ate the gap after the *last* item of a list. The two predicates are not the
+same, and conflating them shipped a bug.
+
+`export/docx-style-map.ts` reconciles them by giving list items their own
+`ListParagraph` paragraph style (defined in `export/docx-templates.ts`). That
+makes Word's "identical styles" test mean exactly what the editor's
+"the neighbour is also a bullet" test means. It lives only in the exported
+file; `STYLE_IDS` is unchanged, and nothing in the product gains a list style.
+
+### Cascade resolution model
+
+Two distinct paths, mirroring the existing architecture:
+
+- **Inline (font / size / bold / italic / color) — lazy, registry-driven.**
+  `resolveBlockInlines(block, docStyles?)` uses
+  `resolveStyleInline(blockStyleId(block), docStyles)` as the base layer under
+  each inline's explicit style (replaces the hardcoded
+  `getHeadingDefaults` / `TITLE_DEFAULTS` / `SUBTITLE_DEFAULTS` constants).
+  Threaded through `computeLayout(..., docStyles?)` → `layoutBlock(..., docStyles?)`.
+  Default (no arg) = built-in resolution, so slides text-box editor, PDF
+  exporter, and CLI keep working unchanged; the docs editor and PDF exporter
+  pass `document.styles`. Result: "Update to match" reflows every block of the
+  style instantly with **no block rewrites**.
+
+- **Block spacing (marginTop / marginBottom / lineHeight) — eager, materialized.**
+  `block.style` stays full-value and authoritative for layout (no layout
+  change for spacing). The style's block defaults are written into
+  `block.style` at the moment of:
+  - **apply** (`setBlockType`) — when the *previous* and *next* `StyleId`
+    differ, re-materialize spacing (paragraph↔list-item, both `normal`, is a
+    no-op, so a bullet toggle never disturbs spacing);
+  - **update** (`updateStyleDefinition`) — re-materialize spacing for every
+    block whose `blockStyleId === styleId`;
+  - **reset** — re-materialize to built-in spacing.
+
+  Direct per-paragraph spacing edits remain on `block.style` and are treated as
+  direct formatting (Google Docs parity).
+
+### Store API (`DocStore`)
+
+```ts
+getDocStyles(): DocStyles;
+setDocStyles(styles: DocStyles): void;
+updateStyleDefinition(styleId: StyleId, def: NamedStyleDef): void; // "Update to match"
+resetStyle(styleId: StyleId): void;                                // "Reset this style"
+resetAllStyles(): void;                                            // "Reset styles"
+```
+
+`updateStyleDefinition` / `resetStyle` / `resetAllStyles` each run as one
+batched undo unit and re-materialize block spacing for affected blocks.
+Implemented in `MemStore` (plain `this.doc.styles`) and `YorkieDocStore`.
+Unlike `pageSetup`, which is a nested CRDT object, the registry is stored at
+the Yorkie root as a single serialized JSON string (`root.stylesJson`): it is
+tiny and rarely concurrently edited, so whole-blob LWW is acceptable, and a
+scalar string sidesteps Yorkie proxy double-encoding and the variable /
+`StoredColor` key shapes inside a style definition. `readDocStyles`
+(`packages/frontend/src/app/docs/yorkie-doc-store.ts`) therefore `JSON.parse`s
+`root.stylesJson` rather than proxy-unwrapping. Backend
+`packages/backend/src/yorkie/docs-tree.ts` mirrors this with a
+`stylesJson?: string` field on `DocsYorkieRoot` (`JSON.stringify` on write,
+`delete` on omission).
+
+### Per-user default styles (backend)
+
+New Prisma model + migration:
+
+```prisma
+model UserDocStyles {
+  userId    Int      @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  styles    Json
+  updatedAt DateTime @updatedAt
+}
+```
+
+Endpoints (JWT, `@CurrentUser`-style like `auth.controller.ts` `getMe`):
+
+| Method | Route | Description |
+| --- | --- | --- |
+| `GET` | `/auth/me/doc-styles` | Return `{ styles }` — the saved `DocStyles` (or `{}`) wrapped |
+| `PUT` | `/auth/me/doc-styles` | Upsert the current user's `DocStyles`; returns `{ styles }` |
+
+Frontend wires these into the Styles dropdown "Options" submenu:
+- **Save as my default styles** → `PUT` current `getDocStyles()`.
+- **Use my default styles** → `GET`, then `setDocStyles(...)`.
+
+### UI (`text-style-group.tsx` / `text-style-options.ts`)
+
+- Add **Heading 4 / 5 / 6** rows (shortcuts ⌥4–⌥6).
+- Each style row gains a hover submenu (▸): *Apply* /
+  *Update '<style>' to match* (reads the caret block's effective formatting via
+  the same resolution used by the toolbar) / *Reset '<style>'*.
+- Bottom **Options** entry: *Save as my default styles* / *Use my default
+  styles* / *Reset styles* — mirrors Google Docs' Format → Paragraph styles.
+
+The docs formatting toolbar (`docs-formatting-toolbar.tsx`) wires the new
+callbacks to `EditorAPI` primitives that call the store methods above.
 
 ## Risks and Mitigation
 

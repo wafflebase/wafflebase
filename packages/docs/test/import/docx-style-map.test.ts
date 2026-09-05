@@ -275,3 +275,33 @@ describe('mapHighlightColor', () => {
     expect(mapHighlightColor('green')).toBe('#00FF00');
   });
 });
+
+describe('w:lineRule decides whether the leading is authored', () => {
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const pPr = (spacing: string) =>
+    new DOMParser().parseFromString(
+      `<w:pPr xmlns:w="${W}"><w:spacing ${spacing}/></w:pPr>`, 'text/xml',
+    ).documentElement;
+
+  it('marks an auto (multiplier) rule as authored', () => {
+    // Word's "1.5 line spacing" preset. Without the marker this lands on the
+    // sentinel and reads back as "inherit", so the pick would not survive.
+    for (const s of ['w:line="360"', 'w:line="360" w:lineRule="auto"']) {
+      const r = mapParagraphProperties(pPr(s));
+      expect(r.blockStyle?.lineHeight).toBe(1.5);
+      expect(r.blockStyle?.authoredLineHeight).toBe(true);
+    }
+  });
+
+  it('leaves exact / atLeast unmarked, because the value is misread', () => {
+    // Under these rules `w:line` is absolute twips, which this model cannot
+    // express. The value is still imported so round-tripping documents do not
+    // regress, but pinning a misreading as the user's intent would stop the
+    // named style from supplying leading it can actually get right.
+    for (const rule of ['exact', 'atLeast']) {
+      const r = mapParagraphProperties(pPr(`w:line="240" w:lineRule="${rule}"`));
+      expect(r.blockStyle?.lineHeight).toBe(1);
+      expect(r.blockStyle?.authoredLineHeight).toBeUndefined();
+    }
+  });
+});

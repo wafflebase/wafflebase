@@ -131,15 +131,25 @@ export function mapParagraphProperties(pPr: Element): {
       blockStyle.authoredMarginBottom = true;
     }
     const lineVal = parseInt(getWAttr(spacing, 'line') ?? '', 10);
-    // line value of 240 = single spacing (1.0). `w:line="360"` is Word's "1.5
-    // line spacing" preset and lands on exactly the multiplier that used to
-    // read back as "inherit"; the marker is what makes it survive.
-    // (`w:lineRule="exact"|"atLeast"` measures `w:line` in twips rather than
-    // 240ths and is still not honoured here — a separate pre-existing bug,
-    // guarded downstream by `layout.ts`'s clamp.)
+    const lineRule = getWAttr(spacing, 'lineRule');
+    // `w:line` is a multiple of 240 only under `lineRule="auto"` (the default
+    // when the attribute is absent). Under `exact` / `atLeast` it is an
+    // absolute twips measurement, which this model has no way to express —
+    // a pre-existing gap, and reading those as 240ths is simply wrong
+    // (`w:line="240" w:lineRule="exact"` is 12 pt of leading, not 1.0×).
+    //
+    // So the value is still imported for those rules — dropping it would
+    // regress documents that round-trip today — but it is deliberately NOT
+    // marked authored. An unmarked value falls to the sentinel, so a heading
+    // whose leading we know we misread can still take its named style's,
+    // instead of having the misreading pinned as the user's intent.
+    const lineIsMultiplier = lineRule == null || lineRule === 'auto';
     if (Number.isFinite(lineVal) && lineVal > 0) {
       blockStyle.lineHeight = lineVal / 240;
-      blockStyle.authoredLineHeight = true;
+      // `w:line="360"` is Word's "1.5 line spacing" preset and lands on
+      // exactly the multiplier that reads back as "inherit"; the marker is
+      // what makes a deliberate 1.5 survive.
+      if (lineIsMultiplier) blockStyle.authoredLineHeight = true;
     }
   }
 
