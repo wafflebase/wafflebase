@@ -125,6 +125,17 @@ export function TemplateShareSection({
    */
   const [publishVisibility, setPublishVisibility] =
     useState<TemplateVisibility>("workspace");
+  /**
+   * Also chosen before publishing, and for a blunter reason than visibility:
+   * until this field existed there was no way to set a description at all.
+   * The column, the DTO and the frontend API type all carried one, the gallery
+   * card and `/t/:id` both render it, and no control anywhere sent it — so
+   * every listing ever published through the product had `description: null`.
+   *
+   * A plain `Input`, not a textarea: the card clamps to two lines, so a taller
+   * control would only invite text nobody sees.
+   */
+  const [publishDescription, setPublishDescription] = useState("");
 
   useEffect(() => {
     setLoaded(false);
@@ -178,6 +189,12 @@ export function TemplateShareSection({
       // picture of content the server just declined to share.
       const published = await publishTemplate(documentId, {
         visibility: publishVisibility,
+        // Omitted rather than sent empty, so publishing without typing one
+        // leaves `description` null instead of storing a blank string that
+        // every reader then has to treat as absent.
+        ...(publishDescription.trim()
+          ? { description: publishDescription.trim() }
+          : {}),
       });
       setListing(published);
       await attachThumbnail(published, setListing);
@@ -359,6 +376,18 @@ export function TemplateShareSection({
           </>
         ) : (
           <>
+            <div className="grid gap-1.5">
+              <Label htmlFor="template-publish-description" className="text-xs">
+                Description
+              </Label>
+              <Input
+                id="template-publish-description"
+                value={publishDescription}
+                onChange={(e) => setPublishDescription(e.target.value)}
+                placeholder="What is this template for?"
+                disabled={!canManage}
+              />
+            </div>
             <div className="flex items-center gap-2">
               <Select
                 value={publishVisibility}
@@ -424,6 +453,7 @@ function TemplateMetaEditor({
   );
   const [category, setCategory] = useState(listing.category ?? NO_CATEGORY);
   const [tags, setTags] = useState(listing.tags.join(", "));
+  const [description, setDescription] = useState(listing.description ?? "");
   const [saving, setSaving] = useState(false);
   const [capturing, setCapturing] = useState(false);
 
@@ -456,14 +486,18 @@ function TemplateMetaEditor({
   const dirty =
     visibility !== listing.visibility ||
     (category === NO_CATEGORY ? null : category) !== listing.category ||
-    tags !== listing.tags.join(", ");
+    tags !== listing.tags.join(", ") ||
+    description.trim() !== (listing.description ?? "");
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const saved = await updateTemplate(listing.id, {
         visibility,
-        // Explicit null clears it; undefined would mean "leave alone".
+        // Explicit null clears it; undefined would mean "leave alone". Same
+        // reason the description below is nulled rather than sent empty:
+        // clearing the field has to actually clear the column.
+        description: description.trim() || null,
         category: category === NO_CATEGORY ? null : category,
         // Split on commas and let the backend normalize — it is the enforcing
         // copy of the rule (trim / lowercase / de-duplicate / cap at 10).
@@ -514,6 +548,17 @@ function TemplateMetaEditor({
             {capturing ? "Capturing..." : "Update preview"}
           </Button>
         )}
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor="template-description" className="text-xs">
+          Description
+        </Label>
+        <Input
+          id="template-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What is this template for?"
+        />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="grid gap-1.5">

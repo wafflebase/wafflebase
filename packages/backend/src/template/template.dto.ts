@@ -58,18 +58,30 @@ export class PublishTemplateDto {
   @Length(1, MAX_TITLE)
   title?: string;
 
+  /**
+   * `null` clears it on update; omitting the field leaves it unchanged.
+   *
+   * Typed nullable because that is what the route already accepts and what
+   * `update()` already writes: `@IsOptional()` *skips* validation for `null`
+   * rather than rejecting it. The declared type said `string` while the Share
+   * dialog cleared the field with `null`, so the contract and the behaviour
+   * disagreed — in the direction where the type is the wrong one.
+   */
   @IsOptional()
   @IsString()
   @Length(0, MAX_DESCRIPTION)
-  description?: string;
+  description?: string | null;
 
   /**
    * One of the closed `TEMPLATE_CATEGORIES`. Closed rather than freeform so
    * the gallery's category facet means something — see template-taxonomy.ts.
+   *
+   * Nullable for the same reason as `description` above: the listing form has
+   * always sent `null` to clear it.
    */
   @IsOptional()
   @IsIn(TEMPLATE_CATEGORIES)
-  category?: string;
+  category?: string | null;
 
   /**
    * Freeform, but normalized on write (`normalizeTags`) — the service is what

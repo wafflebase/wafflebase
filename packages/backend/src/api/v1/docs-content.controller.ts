@@ -278,7 +278,7 @@ function sniffBodyShape(body: unknown): ContentType | null {
  * A note payload is minimal: `{ content: string }`. The whole markdown doc
  * lives in one string, so there is nothing else to validate.
  */
-function assertValidNoteBody(body: unknown): asserts body is NoteDocument {
+export function assertValidNoteBody(body: unknown): asserts body is NoteDocument {
   if (!body || typeof body !== 'object') {
     throw new BadRequestException(
       'Invalid note content payload: not an object',
@@ -291,7 +291,7 @@ function assertValidNoteBody(body: unknown): asserts body is NoteDocument {
   }
 }
 
-function assertValidDocsBody(body: unknown): asserts body is DocsDocument {
+export function assertValidDocsBody(body: unknown): asserts body is DocsDocument {
   if (!body || typeof body !== 'object') {
     throw new BadRequestException('Invalid docs content payload: not an object');
   }
@@ -498,7 +498,7 @@ function assertValidBlock(block: unknown, path: string): void {
  * each slide) so a clearly malformed payload returns a 400 instead of a
  * 500 from inside the Yorkie assignment.
  */
-function assertValidSlidesBody(body: unknown): asserts body is SlidesDocument {
+export function assertValidSlidesBody(body: unknown): asserts body is SlidesDocument {
   if (!body || typeof body !== 'object') {
     throw new BadRequestException(
       'Invalid slides content payload: not an object',

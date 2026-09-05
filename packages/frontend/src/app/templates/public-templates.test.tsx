@@ -7,6 +7,7 @@ import App from "@/App";
 import PublicTemplates from "./public-templates";
 import { browseTemplates } from "@/api/templates";
 import { fetchMe, fetchMeOptional } from "@/api/auth";
+import { fetchWorkspaces } from "@/api/workspaces";
 
 vi.mock("@/api/templates", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/templates")>()),
@@ -17,6 +18,13 @@ vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),
   fetchMeOptional: vi.fn(),
   fetchMe: vi.fn(),
+}));
+
+// The page now wears the landing page's chrome, whose nav resolves the
+// visitor's first workspace to decide its CTA.
+vi.mock("@/api/workspaces", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/workspaces")>()),
+  fetchWorkspaces: vi.fn(),
 }));
 
 const CARD = {
@@ -74,6 +82,7 @@ describe("PublicTemplates", () => {
       items: [CARD],
       nextCursor: null,
     });
+    vi.mocked(fetchWorkspaces).mockResolvedValue([]);
   });
 
   it("renders at /templates without a session, outside PrivateRoute", async () => {
@@ -105,26 +114,31 @@ describe("PublicTemplates", () => {
     ).toBeUndefined();
   });
 
-  it("renders for a signed-out visitor and offers sign in", async () => {
+  it("renders for a signed-out visitor and offers sign in, carrying returnTo", async () => {
     vi.mocked(fetchMeOptional).mockResolvedValue(null);
     renderPage();
     await waitFor(() => expect(screen.getByText("Weekly Report")).toBeTruthy());
     // A link, not a button: it navigates, so middle-click and open-in-new-tab
-    // have to work.
-    const signIn = screen.getByRole("link", { name: /sign in/i });
-    expect(signIn.getAttribute("href")).toBe(
-      "/login?returnTo=%2Ftemplates",
-    );
+    // have to work. `returnTo` is the property worth pinning — signing in from
+    // the gallery has to come back to the gallery, not drop the visitor at a
+    // workspace root. The CTA moved into the shared nav; that must not lose it.
+    const signIn = screen.getAllByRole("link", { name: /get started/i })[0];
+    expect(signIn.getAttribute("href")).toBe("/login?returnTo=%2Ftemplates");
   });
 
-  it("offers documents instead once signed in", async () => {
+  it("offers the workspace instead once signed in", async () => {
     vi.mocked(fetchMeOptional).mockResolvedValue({
       id: 7,
       username: "author",
     } as never);
+    vi.mocked(fetchWorkspaces).mockResolvedValue([
+      { id: "ws-1", slug: "acme", name: "Acme" },
+    ] as never);
     renderPage();
     await waitFor(() =>
-      expect(screen.getByRole("link", { name: /my documents/i })).toBeTruthy(),
+      expect(
+        screen.getAllByRole("link", { name: /go to workspace/i })[0],
+      ).toBeTruthy(),
     );
   });
 

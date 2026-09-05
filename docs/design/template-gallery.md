@@ -965,6 +965,48 @@ one, so the retry path renders it and the canvas stays tainted. Capture answers
 `null` and the card falls back to its document-type icon, as it does for any
 other failure.
 
+### Seeding a deployment's gallery
+
+A new deployment's gallery is empty, and there is no way to fill it from
+outside a browser: publishing is JWT-only and the CLI has no `templates`
+namespace. Two operator commands close that, and the split between them falls
+out of the thumbnail rule above.
+
+`pnpm backend seed:templates` creates the documents and writes their content,
+using the writers the v1 content endpoints already use. It **does not publish
+them**. `pnpm backend register:templates` drives the real Share dialog with
+Playwright — publish, category, tags, submit — and then the reviewer queue.
+
+Registering through the UI rather than through `TemplateService` is not
+ceremony. The picture is taken by whichever editor is mounted at publish time,
+so a headless publish produces a listing with no thumbnail; and the ordering
+the UI happens to take is the *only* one the review rules permit, because
+`thumbnailId` is a `CARD_FIELD`:
+
+| When the thumbnail is attached | What happens |
+| --- | --- |
+| after approval (`public` + `listed`) | `cardReviewReset` returns it to review — out of the gallery |
+| while `pending` | `assertCardEditable` refuses it outright |
+| after publish, before submit | accepted; neither guard applies |
+
+Keeping a service-level publish path beside the UI one was rejected for the
+reason `publish()` itself gives: it would be a second, unguarded way to swap an
+approved gallery card.
+
+The catalogue lives in `packages/backend/src/template/seed/catalog/` as
+TypeScript rather than JSON or binaries, so it typechecks against the real
+document models and can reference `BUILT_IN_LAYOUTS` / `DEFAULT_MASTER` instead
+of duplicating a theme catalogue into a fixture. Everything in it is authored
+for this repository: template galleries such as Canva's, Slidesgo's and Google
+Slides' are free to *use* and not free to *redistribute*, so nothing derived
+from them may be seeded.
+
+Operational preconditions, and the one ordering trap, are in
+[`packages/backend/README.md`](../../packages/backend/README.md) — in
+particular that `register:templates` requires the Yorkie auth webhook to be
+enforced while `seed:templates` writes with a tokenless Yorkie client, so the
+documents must be seeded before those webhook methods are registered.
+
 ### Returning a visitor after login
 
 A template link is handed to people who may not have an account, so "sign in"
@@ -995,6 +1037,34 @@ a same-origin path or `null`, rejecting rather than sanitizing:
   the browser saw different strings.
 
 Query and fragment survive, because `/t/abc?use=1` is a legitimate target.
+
+### What the Share dialog can actually set
+
+The listing's card metadata is `title`, `description`, `category`, `tags` and
+`thumbnailId`. Four of the five are set from the Share dialog's Template
+section; `title` seeds from the document's own title and is not separately
+editable, on the grounds that a template named differently from the document it
+came from is a second name to keep in sync.
+
+`description` was reachable by **nothing** until it was noticed while
+reproducing this flow end to end. The column, the DTO, the frontend API type,
+the gallery card and `/t/:id` all carried it, and no control anywhere sent it —
+so every listing published through the product had `description: null` and
+every card rendered without one. It is now a field on both the publish block
+and the listing form.
+
+Two consequences worth stating, because they are shared with the other card
+fields rather than special:
+
+- Clearing it sends `null`, not `''`. `@IsOptional()` skips validation for
+  `null` rather than rejecting it, so the value reaches `update()` and clears
+  the column; `''` would store a present-but-empty description that every
+  reader then has to treat as absent. The DTO is typed `string | null` to say
+  so — it previously said `string` while the dialog sent `null`.
+- Editing it on an approved public listing returns that listing to review, via
+  the same `cardReviewReset` path as the title, category and thumbnail. The
+  dialog sends the field on every Save, so `isSame()` is what keeps an
+  *unchanged* description from knocking a live card out of the gallery.
 
 ### Taxonomy
 
