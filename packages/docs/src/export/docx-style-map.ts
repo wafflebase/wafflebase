@@ -1,7 +1,9 @@
+import { DEFAULT_BLOCK_STYLE } from '../model/types.js';
 import type { InlineStyle, BlockStyle } from '../model/types.js';
 import { defaultColorResolver, toRgbHexColor } from '../model/color.js';
 import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
 import { isKoreanCapableFamily } from '../view/fonts.js';
+import { LIST_PARAGRAPH_STYLE_ID } from './docx-templates.js';
 
 /**
  * Default Latin face the docs view paints unstyled runs with — kept in
@@ -149,12 +151,41 @@ function toHeadingStyleId(headingLevel: number | undefined): string | undefined 
 export function buildParagraphPropertiesXml(
   style: BlockStyle,
   headingLevel?: number,
+  opts?: {
+    /**
+     * This paragraph is a `list-item`. Emits `<w:pStyle w:val="ListParagraph"/>`
+     * **and** `<w:contextualSpacing/>` — the pair, never one without the other.
+     *
+     * `<w:contextualSpacing/>` is Word's "Don't add space between paragraphs of
+     * the same style", and it is how the editor's contextual list rhythm
+     * survives an export: Word applies the rule natively, so the list keeps the
+     * space around it and loses none of it between the bullets, and a bullet
+     * inserted or deleted *in Word* re-resolves without a stale baked-in number.
+     *
+     * The style is what makes the rule mean the right thing. ECMA-376 §17.3.1.9
+     * scopes it to paragraphs of the *same style*, and this exporter gives body
+     * paragraphs no `<w:pStyle>` at all — so on the plain `Normal` everything
+     * used to be, a list item's `<w:contextualSpacing/>` also suppressed its
+     * space-after against the paragraph *following the list*: 8 px on screen, 0
+     * in Word. A distinct style id is the whole fix; `ListParagraph` is defined
+     * in `docx-templates.ts` with no metrics of its own, so it costs nothing but
+     * the identity.
+     *
+     * A `list-item` never carries a `headingLevel` (`Block.type` is one or the
+     * other), but if a corrupt document produced both, the heading style wins
+     * below — two `<w:pStyle>` elements in one `<w:pPr>` is schema-invalid and
+     * Word rejects the file, which is a worse failure than a mis-spaced bullet.
+     */
+    listItem?: boolean;
+  },
 ): string {
   const parts: string[] = [];
 
   const headingStyleId = toHeadingStyleId(headingLevel);
   if (headingStyleId) {
     parts.push(`<w:pStyle w:val="${headingStyleId}"/>`);
+  } else if (opts?.listItem) {
+    parts.push(`<w:pStyle w:val="${LIST_PARAGRAPH_STYLE_ID}"/>`);
   }
 
   // `BlockStyle.alignment` is typed, but the value reaching an exporter is
@@ -168,16 +199,66 @@ export function buildParagraphPropertiesXml(
     parts.push(`<w:jc w:val="${align}"/>`);
   }
 
+  // Deliberately raw `block.style`, *not* the named-style-resolved spacing the
+  // screen now lays out with (`effectiveBlockSpacing`). A heading already
+  // carries `<w:pStyle w:val="HeadingN"/>` above, so Word applies its own
+  // Heading N space-before; emitting ours on top of it would double the gap
+  // for every heading in every exported file. What direct `<w:spacing>` means
+  // here stays "spacing this paragraph overrode", which is Word's own model.
+  // Each field is emitted when the paragraph *authored* it, or — for a block
+  // with no marker — when the value differs from what a style-unaware writer
+  // would have produced, which is the same value sentinel
+  // `effectiveBlockSpacing` falls back to. The two conditions mean the same
+  // thing by construction rather than by coincidence.
+  //
+  // Carrying the marker here is not optional garnish: without it an authored
+  // `lineHeight: 1.5` on a Heading 1 exports to nothing (1.5 *is*
+  // `DEFAULT_BLOCK_STYLE.lineHeight`) and re-imports as the style's 1.2, and an
+  // authored `marginTop: 0` exports to nothing and re-imports as 27 — one
+  // export→import cycle would destroy exactly the distinction the marker
+  // exists to record. ECMA-376 can express both: `CT_Spacing/@w:before` is a
+  // `ST_TwipsMeasure` for which `0` is a valid explicit value, and direct
+  // paragraph formatting outranks the paragraph style.
+  //
+  // `||` rather than `??` on purpose: a *cleared* marker (`false`, written by
+  // `materializeBlockSpacing`) still falls through to the value check, so a
+  // materialized Heading 1 keeps exporting the `w:before="405"` it exports
+  // today. That output is arguably wrong — it lands on top of Word's own
+  // Heading 1 space-before and doubles the gap — but it is pre-existing, it
+  // changes every heading in every exported file, and it deserves its own
+  // baselines rather than riding in as a side effect. `||` keeps this change a
+  // pure superset of what was emitted before: it only adds the authored-zero
+  // and authored-default cases. The principled rule the marker unlocks
+  // ("emit direct `<w:spacing>` only when the paragraph authored it", i.e.
+  // `??`) is the follow-up.
   const spacingParts: string[] = [];
-  if (style.marginTop > 0) spacingParts.push(`w:before="${pxToTwips(style.marginTop)}"`);
-  if (style.marginBottom > 0) spacingParts.push(`w:after="${pxToTwips(style.marginBottom)}"`);
-  if (style.lineHeight !== 1.5) spacingParts.push(`w:line="${Math.round(style.lineHeight * 240)}"`);
+  if (style.authoredMarginTop || style.marginTop > 0) {
+    spacingParts.push(`w:before="${pxToTwips(style.marginTop)}"`);
+  }
+  if (style.authoredMarginBottom || style.marginBottom > 0) {
+    spacingParts.push(`w:after="${pxToTwips(style.marginBottom)}"`);
+  }
+  if (style.authoredLineHeight || style.lineHeight !== DEFAULT_BLOCK_STYLE.lineHeight) {
+    // `w:lineRule` is written explicitly even though `auto` is ECMA-376's
+    // default for the attribute: `w:line` now goes out in strictly more cases,
+    // Word itself always writes the rule, and the importer's `w:line / 240`
+    // only makes sense under `auto`.
+    spacingParts.push(`w:line="${Math.round(style.lineHeight * 240)}" w:lineRule="auto"`);
+  }
   if (spacingParts.length > 0) parts.push(`<w:spacing ${spacingParts.join(' ')}/>`);
 
   const indParts: string[] = [];
   if (style.textIndent > 0) indParts.push(`w:firstLine="${pxToTwips(style.textIndent)}"`);
   if (style.marginLeft > 0) indParts.push(`w:left="${pxToTwips(style.marginLeft)}"`);
   if (indParts.length > 0) parts.push(`<w:ind ${indParts.join(' ')}/>`);
+
+  // After `<w:ind>`, which is where `CT_PPr`'s element sequence puts it
+  // (…`w:spacing`, `w:ind`, `w:contextualSpacing`, …). `<w:jc>` above is
+  // out of sequence for the same schema — it belongs after this element — but
+  // that ordering is what every file this exporter has already shipped
+  // carries, so straightening it is a separate change with its own baselines.
+  // A newly added element gets its correct slot rather than inheriting that.
+  if (opts?.listItem) parts.push('<w:contextualSpacing/>');
 
   if (parts.length === 0) return '';
   return `<w:pPr>${parts.join('')}</w:pPr>`;

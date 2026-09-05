@@ -171,6 +171,34 @@ describe('getPageYOffset', () => {
   });
 });
 
+describe('resolved block spacing', () => {
+  // `computeLayout` publishes the named-style-resolved spacing on each
+  // `LayoutBlock`; pagination must accumulate from that, not from
+  // `block.style`, or a legacy heading would lay out with a 27px space-before
+  // on the canvas and be paginated as if it had none.
+  it('prefers LayoutBlock.spacing over the raw block style', () => {
+    const first = mockBlock('b1', [mockLine(24)]);
+    const second = mockBlock('b2', [mockLine(24)], 0, 8);
+    second.spacing = { marginTop: 27, marginBottom: 8, lineHeight: 1.2 };
+    const layout: DocumentLayout = {
+      blocks: [first, second], totalHeight: 100, blockParentMap: new Map(),
+    };
+    const lines = paginateLayout(layout, DEFAULT_PAGE_SETUP).pages[0].lines;
+    // 96 (top margin) + 24 (b1) + 8 (b1 marginBottom) + 27 (resolved marginTop)
+    expect(lines[1].y).toBe(96 + 24 + 8 + 27);
+  });
+
+  it('falls back to the block style when spacing is absent', () => {
+    const first = mockBlock('b1', [mockLine(24)]);
+    const second = mockBlock('b2', [mockLine(24)], 12, 8);
+    const layout: DocumentLayout = {
+      blocks: [first, second], totalHeight: 100, blockParentMap: new Map(),
+    };
+    const lines = paginateLayout(layout, DEFAULT_PAGE_SETUP).pages[0].lines;
+    expect(lines[1].y).toBe(96 + 24 + 8 + 12);
+  });
+});
+
 describe('getTotalHeight', () => {
   it('accounts for all pages and gaps', () => {
     const layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };

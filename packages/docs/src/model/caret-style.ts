@@ -36,6 +36,19 @@ export function caretStyleDefaults(
   // header/footer or cell block resolves too (a body-only lookup returned {}).
   const block = doc.findBlock(position.blockId);
   if (!block) return {};
+  // Deliberately resolved on the *light* surface (no third argument) even when
+  // the editor is in dark mode. This module describes the document — what the
+  // toolbar reports and what "Update <style> to match" captures — not what is
+  // on screen. Passing the dark surface here would persist `#B0B0B0` into the
+  // CRDT registry as if the user had chosen it, which would then paint in light
+  // mode and in every export. See `resolveStyleInline`.
+  //
+  // What this does *not* do is decide what gets stored. The capture is the
+  // computed style, so it carries the built-in's own grey for a run that never
+  // set a color; `omitBuiltinStyleDefaults` (called by `updateStyleToMatch`) is
+  // what drops it again. Reading the light surface here and storing the result
+  // verbatim was the shipped bug: it froze `#434343` onto Heading 3 whenever
+  // anyone updated the style to match, killing the dark layer.
   return resolveStyleInline(blockStyleId(block), doc.document.styles);
 }
 
@@ -50,6 +63,8 @@ export function caretInlineStyle(
 ): Partial<InlineStyle> {
   const block = doc.findBlock(position.blockId);
   if (!block) return {};
+  // Light surface on purpose — same invariant, and same caveat, as
+  // `caretStyleDefaults` above.
   const defaults = withStyleDefaults
     ? resolveStyleInline(blockStyleId(block), doc.document.styles)
     : undefined;

@@ -114,6 +114,36 @@ export interface BlockStyle {
   marginBottom: number;
   textIndent: number;
   marginLeft: number;
+
+  // ── Direct-formatting markers for the three style-owned spacing fields ────
+  //
+  // `lineHeight` / `marginTop` / `marginBottom` are the fields a named style
+  // owns (`model/named-styles.ts`). Because they are *required* numbers that
+  // every writer seeds from `DEFAULT_BLOCK_STYLE`, the value alone cannot say
+  // whether a paragraph authored it or merely inherited the default — which is
+  // why `effectiveBlockSpacing` originally keyed on the value and why a Word
+  // paragraph carrying `w:before="0"` or `w:line="360"` (exactly 1.5) had its
+  // author's choice silently replaced by the named style's.
+  //
+  // These three booleans are that missing signal, one per field so a control
+  // that writes only `lineHeight` cannot accidentally claim authorship of the
+  // margins:
+  //   true      — this paragraph authored the value; honour it literally, 0 and
+  //               1.5 included.
+  //   false     — this paragraph authored nothing; the named style supplies it.
+  //               Written by `materializeBlockSpacing`, which is how applying a
+  //               style *clears* direct paragraph formatting.
+  //   undefined — no information (a legacy block, or one that came through a
+  //               writer predating the marker); fall back to the value
+  //               sentinel, which is what repairs already-persisted documents
+  //               with no migration.
+  //
+  // They are optional so absence stays meaningful, and flat so every existing
+  // `{ ...block.style, ...patch }` merge carries them correctly without a
+  // bespoke union helper at each call site.
+  authoredMarginTop?: boolean;
+  authoredMarginBottom?: boolean;
+  authoredLineHeight?: boolean;
 }
 
 /**

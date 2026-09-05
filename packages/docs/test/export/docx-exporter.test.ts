@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { DocxExporter } from '../../src/export/docx-exporter.js';
 import { DocxImporter } from '../../src/import/docx-importer.js';
 import type { Document } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '../../src/model/types.js';
+import { setThemeMode } from '../../src/view/theme.js';
 
 // jsdom's Blob shim lacks arrayBuffer(); polyfill via FileReader.
 if (typeof Blob.prototype.arrayBuffer !== 'function') {
@@ -681,5 +682,146 @@ describe('DocxExporter — unusable stored page setup', () => {
     const blob = await DocxExporter.export(docWith(nanSetup));
     const reimported = await DocxImporter.import(await blob.arrayBuffer());
     expect(reimported.blocks[0].inlines[0].text).toBe('Hello');
+  });
+});
+
+describe('DocxExporter and the named-style greys', () => {
+  afterEach(() => {
+    setThemeMode('light');
+  });
+
+  // DOCX export serializes `block.inlines` raw and emits a `w:pStyle` for
+  // headings — it never calls `resolveStyleInline`, so the catalog's greys
+  // (light or dark) do not reach the file at all and Word applies its own
+  // Heading N color. That is a pre-existing fidelity gap, unaffected by the
+  // dark-surface work; this pins that the theme mode cannot leak into it.
+  const heading3Doc = (): Document => ({
+    blocks: [{
+      id: generateBlockId(),
+      type: 'heading',
+      headingLevel: 3,
+      inlines: [{ text: 'Heading three', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+  });
+
+  it('carries no named-style color into the run, in either theme mode', async () => {
+    setThemeMode('dark');
+    const dark = await DocxImporter.import(await (await DocxExporter.export(heading3Doc())).arrayBuffer());
+    setThemeMode('light');
+    const light = await DocxImporter.import(await (await DocxExporter.export(heading3Doc())).arrayBuffer());
+
+    for (const imported of [dark, light]) {
+      const color = imported.blocks[0].inlines[0]?.style.color;
+      expect(color).not.toBe('#B0B0B0');
+      expect(color).not.toBe('#434343');
+    }
+    expect(dark.blocks[0].inlines[0]?.style.color)
+      .toEqual(light.blocks[0].inlines[0]?.style.color);
+  });
+});
+
+describe('DocxExporter and the contextual list rhythm', () => {
+  // The editor's rule (`effectiveBlockSpacing` + `contextualListSpacing`) zeroes
+  // the gap only *between adjacent* `list-item` blocks; the last bullet keeps
+  // its 8 px against whatever follows the list.
+  //
+  // Word's rule is not "between bullets" — ECMA-376 §17.3.1.9 scopes
+  // `<w:contextualSpacing/>` to paragraphs of the **same style**. Since this
+  // exporter emits no `<w:pStyle>` for body paragraphs, every `<w:p>` in an
+  // exported file used to be the default `Normal`, so the element also
+  // suppressed the last bullet's space-after against the paragraph following
+  // the list. 8 px on screen, 0 in Word — the two rules disagreed.
+  //
+  // These assert the export in the terms of Word's rule rather than ours: what
+  // each paragraph's *effective style* is, and which pairs the element can
+  // therefore reach.
+  const doc = (): Document => ({
+    blocks: [
+      {
+        id: generateBlockId(), type: 'paragraph',
+        inlines: [{ text: 'Intro', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+      {
+        id: generateBlockId(), type: 'list-item', listKind: 'unordered', listLevel: 0,
+        inlines: [{ text: 'First', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+      {
+        id: generateBlockId(), type: 'list-item', listKind: 'unordered', listLevel: 0,
+        inlines: [{ text: 'Second', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+      {
+        id: generateBlockId(), type: 'paragraph',
+        inlines: [{ text: 'Outro', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+    ],
+  });
+
+  /** Each `<w:p>` as `{ style, contextual }` — Word's view of the body. */
+  async function paragraphs(): Promise<Array<{ style: string; contextual: boolean }>> {
+    const blob = await DocxExporter.export(doc());
+    const zip = await (await import('jszip')).default.loadAsync(await blob.arrayBuffer());
+    const xml = await zip.file('word/document.xml')!.async('string');
+    return [...xml.matchAll(/<w:p>([\s\S]*?)<\/w:p>/g)].map((m) => ({
+      // No `w:pStyle` means the default style, which `styles.xml` marks
+      // `w:default="1"` on `Normal` — that fallback is the whole bug.
+      style: /<w:pStyle w:val="([^"]*)"\/>/.exec(m[1])?.[1] ?? 'Normal',
+      contextual: m[1].includes('<w:contextualSpacing/>'),
+    }));
+  }
+
+  it('gives list items a style body paragraphs do not share', async () => {
+    const ps = await paragraphs();
+    expect(ps.map((p) => p.style)).toEqual([
+      'Normal', 'ListParagraph', 'ListParagraph', 'Normal',
+    ]);
+    expect(ps.map((p) => p.contextual)).toEqual([false, true, true, false]);
+  });
+
+  it('never lets contextual spacing reach a paragraph outside the list', async () => {
+    const ps = await paragraphs();
+    // Word suppresses the gap between i and i+1 exactly when one of them
+    // carries the element AND both resolve to the same style. Encode that and
+    // compare against what the editor paints for the same four blocks.
+    const suppressed = ps.slice(0, -1).map((p, i) => {
+      const next = ps[i + 1];
+      return (p.contextual || next.contextual) && p.style === next.style;
+    });
+    // paragraph|bullet: kept. bullet|bullet: suppressed. bullet|paragraph: kept.
+    expect(suppressed).toEqual([false, true, false]);
+  });
+
+  it('still emits the space-after every paragraph carries', async () => {
+    // The suppression above must come from the style scoping, not from the
+    // exporter having dropped `w:after` on list items — otherwise the gap after
+    // the list would be gone for a different reason.
+    const blob = await DocxExporter.export(doc());
+    const zip = await (await import('jszip')).default.loadAsync(await blob.arrayBuffer());
+    const xml = await zip.file('word/document.xml')!.async('string');
+    expect(xml.match(/w:after="120"/g)).toHaveLength(4);
+  });
+
+  it('defines ListParagraph in the package it references it from', async () => {
+    // A dangling `w:pStyle` resolves to the default style, which would silently
+    // put all four paragraphs back on `Normal` and restore the defect.
+    const blob = await DocxExporter.export(doc());
+    const zip = await (await import('jszip')).default.loadAsync(await blob.arrayBuffer());
+    const styles = await zip.file('word/styles.xml')!.async('string');
+    expect(styles).toContain('w:styleId="ListParagraph"');
+  });
+
+  it('re-imports the list paragraphs as readable text', async () => {
+    // `ListParagraph` must not be mistaken for a heading id by the importer's
+    // `pStyle` matcher (`/^(?:Heading|heading)(\d)$/`, plus the bare-digit
+    // Korean case), and the round-trip must not lose the text.
+    const blob = await DocxExporter.export(doc());
+    const reimported = await DocxImporter.import(await blob.arrayBuffer());
+    expect(reimported.blocks.map((b) => b.inlines[0]?.text))
+      .toEqual(['Intro', 'First', 'Second', 'Outro']);
+    expect(reimported.blocks.every((b) => b.type !== 'heading')).toBe(true);
   });
 });

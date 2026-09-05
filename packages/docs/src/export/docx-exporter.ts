@@ -211,6 +211,7 @@ ${bodyXml}
     const pPr = buildParagraphPropertiesXml(
       block.style,
       block.type === 'heading' ? block.headingLevel : undefined,
+      { listItem: block.type === 'list-item' },
     );
     const runs = block.inlines.map((inline) => DocxExporter.inlineToXml(inline, imageEntries)).join('');
     return `    <w:p>${pPr}${runs}</w:p>`;

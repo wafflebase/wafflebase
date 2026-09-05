@@ -146,6 +146,64 @@ describe('mapParagraphProperties', () => {
     const result = mapParagraphProperties(el);
     expect(result.blockStyle.marginTop).toBeCloseTo(8, 0);
     expect(result.blockStyle.marginBottom).toBeCloseTo(16, 0);
+    // Present in the source → authored by the paragraph, so it outranks the
+    // named style (OOXML's own formatting hierarchy).
+    expect(result.blockStyle.authoredMarginTop).toBe(true);
+    expect(result.blockStyle.authoredMarginBottom).toBe(true);
+  });
+
+  it('keeps an explicit w:before="0" / w:after="0"', () => {
+    // What Word's one-click "Remove Space Before Paragraph" writes. `0` is a
+    // valid explicit `ST_TwipsMeasure`, not an absence — and the old guard
+    // `if (before)` did not even drop it (`Boolean("0") === true`), it imported
+    // the zero and then let the named style's 27 px silently replace it,
+    // because nothing recorded that the author had chosen it.
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:before="0" w:after="0"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.marginTop).toBe(0);
+    expect(result.blockStyle.marginBottom).toBe(0);
+    expect(result.blockStyle.authoredMarginTop).toBe(true);
+    expect(result.blockStyle.authoredMarginBottom).toBe(true);
+  });
+
+  it('keeps Word\'s 1.5 line spacing (w:line="360")', () => {
+    // 360/240 = exactly 1.5, which is `DEFAULT_BLOCK_STYLE.lineHeight` — the
+    // value the resolver's legacy fallback reads as "inherit". On a Heading 1
+    // that turned Word's 1.5 into the style's 1.2 with nothing to show for it.
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:line="360" w:lineRule="auto"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.lineHeight).toBe(1.5);
+    expect(result.blockStyle.authoredLineHeight).toBe(true);
+  });
+
+  it('marks nothing when the paragraph specifies no spacing', () => {
+    // Absence must stay absence, so a paragraph that overrode nothing keeps
+    // inheriting its named style's spacing.
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:jc w:val="center"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.authoredMarginTop).toBeUndefined();
+    expect(result.blockStyle.authoredMarginBottom).toBeUndefined();
+    expect(result.blockStyle.authoredLineHeight).toBeUndefined();
+  });
+
+  it('marks only the fields the w:spacing element carries', () => {
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:before="120"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.authoredMarginTop).toBe(true);
+    expect(result.blockStyle.authoredMarginBottom).toBeUndefined();
+    expect(result.blockStyle.authoredLineHeight).toBeUndefined();
+  });
+
+  it('ignores w:line="0" rather than dividing by 240', () => {
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:line="0"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.lineHeight).toBe(1.5);
+    expect(result.blockStyle.authoredLineHeight).toBeUndefined();
   });
 });
 

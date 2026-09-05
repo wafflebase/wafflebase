@@ -102,6 +102,8 @@ export {
 export {
   BLOCK_ALIGNMENTS,
   BLOCK_STYLE_NUMERIC_FIELDS,
+  AUTHORED_SPACING_ATTRS,
+  AUTHORED_SPACING_FIELDS,
   isBlockAlignment,
   serializeBlockStyleAttrs,
   parseBlockStyleAttrs,
@@ -118,13 +120,18 @@ export {
   treeNodeToBlock,
 } from './model/crdt-tree.js';
 export type { DocsTreeNode } from './model/crdt-tree.js';
-export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
+export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,
   STYLE_IDS,
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  effectiveBlockSpacing,
+  STYLE_OWNED_SPACING_DEFAULTS,
+  STYLE_OWNED_SPACING_MARKERS,
+  markAuthoredSpacing,
+  clearAuthoredSpacing,
   materializeBlockSpacing,
   rematerializeDocSpacing,
 } from './model/named-styles.js';
@@ -169,11 +176,12 @@ export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 // the Node entry. Adding a new symbol here requires the same DOM-free
 // audit as anything else in this file.
 export type { TextMeasurer, ResolvedFont } from './view/measurer.js';
-export { computeLayout } from './view/layout.js';
+export { computeLayout, DOCS_LAYOUT_OPTIONS } from './view/layout.js';
 export type {
   DocumentLayout,
   LayoutBlock,
   LayoutLine,
+  LayoutOptions,
   LayoutRun,
 } from './view/layout.js';
 export { paginateLayout } from './view/pagination.js';

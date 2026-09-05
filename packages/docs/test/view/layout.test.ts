@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLayout, computeListCounters } from '../../src/view/layout.js';
+import { computeLayout, computeListCounters, DOCS_LAYOUT_OPTIONS } from '../../src/view/layout.js';
 import { createBlock } from '../../src/model/types.js';
 import { ptToPx } from '../../src/view/theme.js';
 import { StubMeasurer, stubMeasurer } from './_stub-measurer.js';
@@ -43,6 +43,154 @@ describe('heading layout', () => {
     para.inlines = [{ text: 'Paragraph', style: {} }];
     const { layout } = computeLayout([h1, para], stubMeasurer(), 600);
     expect(layout.blocks[0].height).toBeGreaterThan(layout.blocks[1].height);
+    // Exact, not merely "greater": the styles now carry their own leading
+    // (H1 20pt × 1.2 = 32px, body 11pt × 1.5 = 22px), and a future edit to
+    // either multiplier should fail here loudly rather than quietly narrowing
+    // the hierarchy down to nothing.
+    expect(layout.blocks[0].height).toBeCloseTo(ptToPx(20) * 1.15, 5);
+    expect(layout.blocks[1].height).toBeCloseTo(ptToPx(11) * 1.5, 5);
+  });
+
+  it('leads a heading from its named style, not from the block sentinel', () => {
+    // Every block ever written carries `lineHeight: 1.5`; a heading that never
+    // went through the store's materialize seam must still be leaded at 1.2.
+    const h1 = createBlock('heading', { headingLevel: 1 });
+    h1.inlines = [{ text: 'Heading', style: {} }];
+    expect(h1.style.lineHeight).toBe(1.5);
+    const { layout } = computeLayout([h1], stubMeasurer(), 600);
+    expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 1.15, 5);
+  });
+
+  it('honours a document style override of the leading', () => {
+    const h1 = createBlock('heading', { headingLevel: 1 });
+    h1.inlines = [{ text: 'Heading', style: {} }];
+    const { layout } = computeLayout(
+      [h1], stubMeasurer(), 600, undefined, undefined, undefined,
+      { 'heading-1': { block: { lineHeight: 2 } } },
+    );
+    expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 2, 5);
+  });
+});
+
+describe('block spacing resolution', () => {
+  const para = () => {
+    const b = createBlock('paragraph');
+    b.inlines = [{ text: 'Paragraph', style: {} }];
+    return b;
+  };
+  const h1 = () => {
+    const b = createBlock('heading', { headingLevel: 1 });
+    b.inlines = [{ text: 'Heading', style: {} }];
+    return b;
+  };
+
+  it('applies the named style space-before to a block that never went through materialize', () => {
+    const [p, h] = [para(), h1()];
+    const { layout } = computeLayout([p, h], stubMeasurer(), 600);
+    expect(layout.blocks[1].spacing).toEqual({ marginTop: 27, marginBottom: 8, lineHeight: 1.15 });
+    // The heading's top sits marginBottom(8) + marginTop(27) below the
+    // paragraph's bottom — the 2.5–3:1 above/below ratio a heading needs to
+    // read as belonging to the content beneath it.
+    const paraBottom = layout.blocks[0].y + layout.blocks[0].height;
+    expect(layout.blocks[1].y - paraBottom).toBe(8 + 27);
+  });
+
+  it('honours a document style override of the spacing', () => {
+    const { layout } = computeLayout(
+      [para(), h1()], stubMeasurer(), 600, undefined, undefined, undefined,
+      { 'heading-1': { block: { marginTop: 50 } } },
+    );
+    expect(layout.blocks[1].spacing!.marginTop).toBe(50);
+  });
+
+  it('keeps an authored spacing value', () => {
+    const h = h1();
+    h.style.marginTop = 3;
+    const { layout } = computeLayout([para(), h], stubMeasurer(), 600);
+    expect(layout.blocks[1].spacing!.marginTop).toBe(3);
+  });
+
+  it('leaves a run of paragraphs exactly where it was (regression floor)', () => {
+    const blocks = [para(), para(), para()];
+    const { layout } = computeLayout(blocks, stubMeasurer(), 600);
+    for (const lb of layout.blocks) {
+      expect(lb.spacing).toEqual({ marginTop: 0, marginBottom: 8, lineHeight: 1.5 });
+    }
+    expect(layout.blocks[1].y).toBe(layout.blocks[0].height + 8);
+  });
+
+  it('closes the gap inside a list run and keeps it around the run', () => {
+    // Space belongs around a list, not between every bullet: the run reads as
+    // one block of content the way Word's <w:contextualSpacing/> makes it.
+    const mk = (text: string) => {
+      const b = createBlock('list-item');
+      b.inlines = [{ text, style: {} }];
+      return b;
+    };
+    const blocks = [mk('one'), mk('two'), mk('three'), para()];
+    // `normal` is redefined here on purpose. The shipped catalog matches
+    // Google, whose Normal has NO space after, so every list item's gap is
+    // already 0 and the contextual rule has nothing to close — it is dormant
+    // by default and only observable once a document gives `normal` a
+    // space-after, which is exactly what this override does.
+    const styles = { normal: { block: { marginBottom: 8 } } };
+    const { layout } = computeLayout(
+      blocks, stubMeasurer(), 600, undefined, undefined, undefined, styles,
+      DOCS_LAYOUT_OPTIONS,
+    );
+    const lineH = layout.blocks[0].height;
+    expect(layout.blocks[0].y).toBe(0);
+    expect(layout.blocks[1].y).toBe(lineH);
+    expect(layout.blocks[2].y).toBe(lineH * 2);
+    // The last item keeps its 8px, so the paragraph after the list is not
+    // glued to it.
+    expect(layout.blocks[3].y).toBe(lineH * 3 + 8);
+  });
+
+  it('leaves a one-item list and two lists split by a paragraph alone', () => {
+    const item = () => {
+      const b = createBlock('list-item');
+      b.inlines = [{ text: 'x', style: {} }];
+      return b;
+    };
+    const blocks = [item(), para(), item()];
+    // Same reason as above: give `normal` a space-after so "the rule did not
+    // fire" is distinguishable from "there was no gap to begin with".
+    const styles = { normal: { block: { marginBottom: 8 } } };
+    const { layout } = computeLayout(
+      blocks, stubMeasurer(), 600, undefined, undefined, undefined, styles,
+      DOCS_LAYOUT_OPTIONS,
+    );
+    for (const lb of layout.blocks) expect(lb.spacing!.marginBottom).toBe(8);
+  });
+
+  it('reproduces today\u2019s spacing exactly with the flag off (slides guard)', () => {
+    // Slides/board text bodies run through this same `computeLayout` and pass
+    // no options; a bulleted slide must not move.
+    const item = () => {
+      const b = createBlock('list-item');
+      b.inlines = [{ text: 'x', style: {} }];
+      return b;
+    };
+    const blocks = [item(), item(), item()];
+    const { layout } = computeLayout(blocks, stubMeasurer(), 600);
+    const lineH = layout.blocks[0].height;
+    expect(layout.blocks[1].y).toBe(lineH + 8);
+    expect(layout.blocks[2].y).toBe((lineH + 8) * 2);
+  });
+
+  it('is a no-op for registry-less callers (slides / board parity)', () => {
+    // Slides normalises to `DEFAULT_BLOCK_STYLE` on mount but the PPTX
+    // importer writes 0/0; both must lay out exactly as they do today, since
+    // slides passes no `DocStyles`.
+    const imported = para();
+    imported.style.marginTop = 0;
+    imported.style.marginBottom = 0;
+    const normalised = para();
+    const { layout } = computeLayout([imported, normalised], stubMeasurer(), 600);
+    expect(layout.blocks[0].spacing).toEqual({ marginTop: 0, marginBottom: 0, lineHeight: 1.5 });
+    expect(layout.blocks[1].spacing).toEqual({ marginTop: 0, marginBottom: 8, lineHeight: 1.5 });
+    expect(layout.blocks[1].y).toBe(layout.blocks[0].height);
   });
 });
 

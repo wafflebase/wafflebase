@@ -109,15 +109,37 @@ export function mapParagraphProperties(pPr: Element): {
 
   const spacing = getW(pPr, 'spacing');
   if (spacing) {
-    const before = getWAttr(spacing, 'before');
-    if (before) blockStyle.marginTop = twipsToPx(parseInt(before, 10));
-    const after = getWAttr(spacing, 'after');
-    if (after) blockStyle.marginBottom = twipsToPx(parseInt(after, 10));
-    const line = getWAttr(spacing, 'line');
-    if (line) {
-      const lineVal = parseInt(line, 10);
-      // line value of 240 = single spacing (1.0)
-      if (lineVal > 0) blockStyle.lineHeight = lineVal / 240;
+    // `w:before="0"` is a *value*, not an absence: it is what Word's one-click
+    // "Remove Space Before Paragraph" writes, and in the OOXML formatting
+    // hierarchy direct paragraph formatting outranks the paragraph style. So
+    // the guard is finiteness, not truthiness — `if (before)` rejected the
+    // string `"0"`… except it did not, since `Boolean("0") === true` in
+    // JavaScript, so the zero was in fact imported and then silently replaced
+    // by the named style's space-before because nothing recorded that the
+    // author had chosen it. Both halves are fixed here: parse first, then
+    // stamp `authoredMarginTop` so `effectiveBlockSpacing` honours the zero.
+    // `parseInt('')` is `NaN`, so this is also robust to a DOM that returns
+    // `''` rather than `null` for a missing attribute.
+    const before = parseInt(getWAttr(spacing, 'before') ?? '', 10);
+    if (Number.isFinite(before)) {
+      blockStyle.marginTop = twipsToPx(before);
+      blockStyle.authoredMarginTop = true;
+    }
+    const after = parseInt(getWAttr(spacing, 'after') ?? '', 10);
+    if (Number.isFinite(after)) {
+      blockStyle.marginBottom = twipsToPx(after);
+      blockStyle.authoredMarginBottom = true;
+    }
+    const lineVal = parseInt(getWAttr(spacing, 'line') ?? '', 10);
+    // line value of 240 = single spacing (1.0). `w:line="360"` is Word's "1.5
+    // line spacing" preset and lands on exactly the multiplier that used to
+    // read back as "inherit"; the marker is what makes it survive.
+    // (`w:lineRule="exact"|"atLeast"` measures `w:line` in twips rather than
+    // 240ths and is still not honoured here — a separate pre-existing bug,
+    // guarded downstream by `layout.ts`'s clamp.)
+    if (Number.isFinite(lineVal) && lineVal > 0) {
+      blockStyle.lineHeight = lineVal / 240;
+      blockStyle.authoredLineHeight = true;
     }
   }
 

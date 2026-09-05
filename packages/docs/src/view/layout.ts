@@ -7,8 +7,12 @@ import {
 } from '../model/types.js';
 import {
   blockStyleId,
+  effectiveBlockSpacing,
   resolveStyleInline,
+  type BlockSpacing,
+  type BlockSpacingContext,
   type DocStyles,
+  type StyleSurface,
 } from '../model/named-styles.js';
 import { Theme, ptToPx } from './theme.js';
 import type { ResolvedFont, TextMeasurer } from './measurer.js';
@@ -145,9 +149,19 @@ export function resolveInlineFont(style: InlineStyle): ResolvedFont {
  * comes from the document `docStyles` registry (falling back to the built-in
  * defaults), so a redefined style reflows every block using it without any
  * stored-inline rewrite.
+ *
+ * `surface` selects the dark-page variant of the catalog's grayscale colors
+ * (see `resolveStyleInline`); it defaults to the light surface, which is what
+ * keeps PDF export and every non-editor caller mode-blind. Note that only the
+ * *defaults* layer is ever remapped — a run carrying an explicitly authored
+ * `#666666` spreads last and keeps it on both surfaces.
  */
-export function resolveBlockInlines(block: Block, docStyles?: DocStyles): Inline[] {
-  const defaults = resolveStyleInline(blockStyleId(block), docStyles);
+export function resolveBlockInlines(
+  block: Block,
+  docStyles?: DocStyles,
+  surface?: StyleSurface,
+): Inline[] {
+  const defaults = resolveStyleInline(blockStyleId(block), docStyles, surface);
   if (Object.keys(defaults).length === 0) {
     return block.inlines;
   }
@@ -220,6 +234,22 @@ export interface LayoutBlock {
   height: number;
   lines: LayoutLine[];
   layoutTable?: LayoutTable;
+
+  /**
+   * The block's *resolved* vertical spacing — `block.style` layered over its
+   * named style, plus the contextual list rule (`effectiveBlockSpacing`).
+   * Published here so `paginateLayout` — which has no `DocStyles` in scope and
+   * no way to get one without a signature change every one of its ~35 call
+   * sites would have to remember —
+   * reproduces exactly the `y` accumulation `computeLayout` used. The two
+   * duplicate the same walk; letting them read different inputs would let them
+   * silently disagree.
+   *
+   * Optional only because a handful of tests hand-build `LayoutBlock` literals;
+   * `computeLayout` always sets it. Consumers must read
+   * `lb.spacing?.marginTop ?? lb.block.style.marginTop`.
+   */
+  spacing?: BlockSpacing;
 }
 
 /**
@@ -352,6 +382,53 @@ interface MeasuredSegment {
 }
 
 /**
+ * Per-call layout behaviour that is not derived from the blocks themselves.
+ *
+ * Separate from `docStyles` because these are host decisions, not document
+ * data: the docs editor, the PDF exporter and the CLI paginator must agree on
+ * the *metric* ones (they lay out the same document three ways and any
+ * disagreement is a page break in the wrong place), while slides/board
+ * deliberately do not.
+ *
+ * `surface` is the deliberate exception — a paint-only decision the three docs
+ * hosts must NOT share, since only one of them paints on a dark page. It is
+ * therefore absent from `DOCS_LAYOUT_OPTIONS` and set by the editor alone.
+ */
+export interface LayoutOptions {
+  /** See `BlockSpacingContext.contextualListSpacing`. Docs-only, opt-in. */
+  contextualListSpacing?: boolean;
+  /** See `BlockSpacingContext.normalStyleSpacing`. Docs-only, opt-in. */
+  normalStyleSpacing?: boolean;
+  /**
+   * Which surface the named styles' inline color defaults resolve for (see
+   * `resolveStyleInline`). Omitted means the light surface, and every export
+   * path relies on that: `DOCS_LAYOUT_OPTIONS` carries no `surface` key, so
+   * PDF export resolves light even when the editor that triggered it is in
+   * dark mode. Affects colors only — never metrics — so pagination and page
+   * count are identical on both surfaces.
+   */
+  surface?: StyleSurface;
+}
+
+/**
+ * The options every *docs* host lays out with. A single frozen constant rather
+ * than an object literal at each call site: the editor, the PDF
+ * exporter and the CLI paginator paginate the same document independently, so
+ * one of them missing a flag would show up as a page break that moves when you
+ * export — the hardest kind of discrepancy to notice. Slides/board pass
+ * nothing and keep today's behaviour exactly.
+ *
+ * **Never add `surface` here.** It is the one option that must differ between
+ * the screen and the exporters; the editor spreads this constant and adds its
+ * own (`{ ...DOCS_LAYOUT_OPTIONS, surface }`), which is what keeps a PDF
+ * exported from a dark-mode editor black-on-white.
+ */
+export const DOCS_LAYOUT_OPTIONS: LayoutOptions = Object.freeze({
+  contextualListSpacing: true,
+  normalStyleSpacing: true,
+});
+
+/**
  * Compute the full document layout.
  *
  * When `dirtyBlockIds` and `cache` are provided, only blocks whose IDs
@@ -366,9 +443,16 @@ export function computeLayout(
   cache?: LayoutCache,
   composingContext?: ComposingContext,
   docStyles?: DocStyles,
+  opts?: LayoutOptions,
 ): { layout: DocumentLayout; cache: LayoutCache } {
   const availableWidth = contentWidth;
-  const docStylesKey = JSON.stringify(docStyles ?? {});
+  const surface = opts?.surface;
+  // The surface joins the cache key because a cached `LayoutRun.inline` holds
+  // the *merged* style — style defaults already folded into each run — so
+  // reusing lines across a theme toggle would repaint the previous surface's
+  // grey. (`EditorAPI.setTheme` also drops the cache outright; this is the
+  // belt that protects any other caller keeping a cache across a toggle.)
+  const docStylesKey = `${surface ?? 'light'}|${JSON.stringify(docStyles ?? {})}`;
   const canUseCache = cache != null
     && dirtyBlockIds != null
     && cache.contentWidth === contentWidth
@@ -379,8 +463,30 @@ export function computeLayout(
   const blockParentMap = new Map<string, BlockCellInfo>();
   let y = 0;
 
-  for (const block of blocks) {
-    y += block.style.marginTop;
+  // Indexed rather than `for…of` because the contextual list rule needs each
+  // block's neighbours — see `BlockSpacingContext`.
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    // Spacing is resolved against the named-style registry once per block and
+    // published on the `LayoutBlock` below, so pagination reads the same
+    // numbers this loop accumulated. Safe with the incremental cache: a fresh
+    // `lb` is built on every pass even for a cache hit (only `lines` is
+    // reused), and `docStylesKey` already invalidates on a registry change.
+    //
+    // Resolving here rather than inside the cache-hit branch also keeps the
+    // *neighbour*-dependent half correct: turning the paragraph after a list
+    // into a bullet does not dirty the bullet above it, but it does change
+    // that bullet's space-after. Margins are recomputed every pass regardless
+    // of the cache, so that can never go stale. (The cached half — `lines`,
+    // whose heights depend on `lineHeight` — is neighbour-independent.)
+    const ctx: BlockSpacingContext = {
+      prev: blocks[i - 1],
+      next: blocks[i + 1],
+      contextualListSpacing: opts?.contextualListSpacing,
+      normalStyleSpacing: opts?.normalStyleSpacing,
+    };
+    const spacing = effectiveBlockSpacing(block, docStyles, ctx);
+    y += spacing.marginTop;
 
     // Apply list indent for list items
     let effectiveBlock = block;
@@ -399,7 +505,8 @@ export function computeLayout(
 
     if (block.type === 'table' && block.tableData) {
       const tableLayout = computeTableLayout(
-        block.tableData, block.id, measurer, availableWidth, composingContext, docStyles,
+        block.tableData, block.id, measurer, availableWidth, composingContext, docStyles, surface,
+        { normalStyleSpacing: opts?.normalStyleSpacing },
       );
       // Merge per-table blockParentMap into document-level map
       for (const [k, v] of tableLayout.blockParentMap) {
@@ -414,10 +521,11 @@ export function computeLayout(
         height: tableLayout.totalHeight,
         lines,
         layoutTable: tableLayout,
+        spacing,
       };
       layoutBlocks.push(lb);
       newCacheBlocks.set(block.id, lb);
-      y += tableLayout.totalHeight + block.style.marginBottom;
+      y += tableLayout.totalHeight + spacing.marginBottom;
       continue;
     }
 
@@ -427,8 +535,10 @@ export function computeLayout(
     } else if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
-      lines = layoutBlock(effectiveBlock, measurer, availableWidth, composingContext, docStyles);
-      assignLineHeights(lines, effectiveBlock, docStyles);
+      lines = layoutBlock(effectiveBlock, measurer, availableWidth, composingContext, docStyles, surface);
+      // Hand over the already-resolved spacing so the leading is not resolved
+      // a second time (and cannot drift from the one this loop accumulated).
+      assignLineHeights(lines, effectiveBlock, docStyles, spacing);
 
       const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
       for (let li = 0; li < lines.length; li++) {
@@ -444,11 +554,12 @@ export function computeLayout(
       width: availableWidth,
       height: blockHeight,
       lines,
+      spacing,
     };
 
     layoutBlocks.push(lb);
     newCacheBlocks.set(block.id, lb);
-    y += blockHeight + block.style.marginBottom;
+    y += blockHeight + spacing.marginBottom;
   }
 
   return {
@@ -527,9 +638,10 @@ export function layoutBlock(
   maxWidth: number,
   composingContext?: ComposingContext,
   docStyles?: DocStyles,
+  surface?: StyleSurface,
 ): LayoutLine[] {
   // Resolve named-style inline defaults into inlines before measurement
-  const resolved = resolveBlockInlines(block, docStyles);
+  const resolved = resolveBlockInlines(block, docStyles, surface);
   // Splice in view-local IME composing text for this block, if any, so it
   // reflows like real text without being written to the document model.
   // `composingIndex` is the index of the injected inline within `inlines`;
@@ -732,13 +844,31 @@ export function layoutBlock(
  *
  * Body paragraphs and cell paragraphs both use this so wrapped-line
  * heights are computed identically.
+ *
+ * Pass `spacing` when the caller has already resolved it (`computeLayout`
+ * has); otherwise the leading is resolved here, which is what gives a heading
+ * inside a table cell the same tighter leading as one in the body
+ * (`table-layout.ts` is the caller that omits it).
  */
-export function assignLineHeights(lines: LayoutLine[], block: Block, docStyles?: DocStyles): void {
+export function assignLineHeights(
+  lines: LayoutLine[],
+  block: Block,
+  docStyles?: DocStyles,
+  spacing?: BlockSpacing,
+  spacingCtx?: BlockSpacingContext,
+): void {
+  // The multiplier is *style-owned*: a block still carrying the sentinel 1.5
+  // takes its leading from its named style, so a 26 pt Title gets 1.1 rather
+  // than the body's 1.5. Reading `block.style.lineHeight` raw here was the
+  // second half of the "no vertical rhythm" defect — every block ever written
+  // carries 1.5, so display type and body text were leaded identically.
+  //
   // Floor at 1.0: a sub-1.0 multiplier collapses the line below the font's
   // own pixel height, so characters from adjacent lines overlap. The DOCX
   // import path can plant such values when <w:spacing w:line="N"
   // w:lineRule="exact|atLeast"/> is read as a 240ths-of-a-line multiplier.
-  const lineHeightMultiplier = Math.max(1, block.style.lineHeight ?? 1.5);
+  const resolved = spacing ?? effectiveBlockSpacing(block, docStyles, spacingCtx);
+  const lineHeightMultiplier = Math.max(1, resolved.lineHeight);
   let blockY = 0;
   for (const line of lines) {
     const maxFontSize = getLineMaxFontSizePx(line, block, docStyles);
@@ -930,6 +1060,11 @@ function getLineMaxFontSizePx(line: LayoutLine, block: Block, docStyles?: DocSty
 
   // For empty lines, resolve font size from the block's named-style default,
   // overridden by an explicit size on the (empty) first inline.
+  //
+  // Deliberately surface-blind (no `surface` argument): this is a *metric*,
+  // and metrics must be identical on both surfaces or the screen and the PDF
+  // would paginate differently. `NamedStyleDef.inlineDark` is typed to color
+  // keys only precisely so this call can stay unaware of the surface.
   let fallbackSize = resolveStyleInline(blockStyleId(block), docStyles).fontSize;
   if (block.inlines.length > 0 && block.inlines[0].style.fontSize) {
     fallbackSize = block.inlines[0].style.fontSize;

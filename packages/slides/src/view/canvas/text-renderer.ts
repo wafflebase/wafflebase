@@ -75,7 +75,9 @@ export function makeColorResolver(theme: Theme): ColorResolver {
  *
  * Block styles are normalised before layout because slides may persist
  * blocks with sparse `style: {}` (e.g. via `buildInsertElement`) and
- * `computeLayout` does `y += block.style.marginTop` without a fallback
+ * `computeLayout` accumulates `y` from `block.style.marginTop` (now via
+ * `effectiveBlockSpacing`, which passes a non-default value straight
+ * through and so is equally undefined-hostile) with no fallback
  * — `undefined` would NaN-out the cumulative y and the text would paint
  * at the top edge of the frame instead of where the editor (which
  * normalises through `MemDocStore.setDocument` on mount) drew it.

@@ -60,6 +60,8 @@ export {
 export {
   BLOCK_ALIGNMENTS,
   BLOCK_STYLE_NUMERIC_FIELDS,
+  AUTHORED_SPACING_ATTRS,
+  AUTHORED_SPACING_FIELDS,
   isBlockAlignment,
   serializeBlockStyleAttrs,
   parseBlockStyleAttrs,
@@ -72,13 +74,19 @@ export {
   treeNodeToBlock,
 } from './model/crdt-tree.js';
 export type { DocsTreeNode } from './model/crdt-tree.js';
-export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
+export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext, StyleSurface } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,
   STYLE_IDS,
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  omitBuiltinStyleDefaults,
+  effectiveBlockSpacing,
+  STYLE_OWNED_SPACING_DEFAULTS,
+  STYLE_OWNED_SPACING_MARKERS,
+  markAuthoredSpacing,
+  clearAuthoredSpacing,
   materializeBlockSpacing,
   rematerializeDocSpacing,
 } from './model/named-styles.js';
@@ -124,11 +132,12 @@ export {
 export { paintLayout, type PaintLayoutOpts } from './view/paint-layout.js';
 export { findPositionAtPixel, type PixelPosition } from './view/find-position-at-pixel.js';
 export type { TableMergeContext } from './view/table-merge-context.js';
-export { computeLayout, computeListCounters, clearMeasureCache, disposeMeasureCache } from './view/layout.js';
+export { computeLayout, computeListCounters, clearMeasureCache, disposeMeasureCache, DOCS_LAYOUT_OPTIONS } from './view/layout.js';
 export type {
   DocumentLayout,
   LayoutBlock,
   LayoutLine,
+  LayoutOptions,
   LayoutRun,
 } from './view/layout.js';
 export {
@@ -144,7 +153,10 @@ export type {
   LayoutPage,
   PaginatedLayout,
 } from './view/pagination.js';
-export { Theme, buildFont, ptToPx, setThemeMode, getTheme } from './view/theme.js';
+// `getThemeMode` is exported here but deliberately NOT from `node.ts`: the
+// CLI/export surface must have no way to reach the editor's theme mode at all
+// (see `resolveStyleInline`).
+export { Theme, buildFont, ptToPx, setThemeMode, getTheme, getThemeMode } from './view/theme.js';
 export type { ThemeMode, DocTheme } from './view/theme.js';
 export type { TextMeasurer, ResolvedFont } from './view/measurer.js';
 export { CanvasTextMeasurer } from './view/canvas-measurer.js';

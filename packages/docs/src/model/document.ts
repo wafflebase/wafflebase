@@ -29,7 +29,7 @@ import {
 import { normalizeInlines } from '../store/block-helpers.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
-import { blockStyleId, resolveStyleInline } from './named-styles.js';
+import { blockStyleId, markAuthoredSpacing, resolveStyleInline } from './named-styles.js';
 import { visitCellRectangleSlices, visitRangeSlices } from './range-slices.js';
 
 /**
@@ -629,9 +629,21 @@ export class Doc {
 
   /**
    * Apply block-level style to a paragraph.
+   *
+   * Every interactive block-style write funnels through here — the toolbar's
+   * line-spacing picker and alignment buttons, `indent`/`outdent`, the slides
+   * text-box editor — so this is where a patch is stamped with the
+   * authored-spacing markers it implies (`markAuthoredSpacing`). Doing it here
+   * rather than in each control is deliberate: a per-control marker is one the
+   * next control can forget, and forgetting silently returns the field to
+   * "inherit from the named style", which is the bug the marker exists to fix
+   * (picking 1.5 on a Heading 1 used to be a no-op).
+   *
+   * Patches with no spacing field in them — alignment, `marginLeft` from
+   * indent/outdent — are passed through untouched and claim nothing.
    */
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
-    this.store.applyBlockStyle(blockId, style);
+    this.store.applyBlockStyle(blockId, markAuthoredSpacing(style));
     this.refresh();
   }
 

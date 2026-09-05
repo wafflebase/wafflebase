@@ -1,6 +1,6 @@
 import type { TableData, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
-import type { DocStyles } from '../model/named-styles.js';
+import type { BlockSpacingContext, DocStyles, StyleSurface } from '../model/named-styles.js';
 import type { ComposingContext, LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
 import { ptToPx, Theme } from './theme.js';
@@ -42,6 +42,8 @@ function layoutCellBlocks(
   blockParentMap?: Map<string, BlockCellInfo>,
   composingContext?: ComposingContext,
   docStyles?: DocStyles,
+  surface?: StyleSurface,
+  spacingCtx?: BlockSpacingContext,
 ): { lines: LayoutLine[]; blockBoundaries: number[] } {
   if (blocks.length === 0) {
     const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
@@ -65,6 +67,11 @@ function layoutCellBlocks(
         maxWidth,
         composingContext,
         docStyles,
+        // Recursion carries the surface too: without it a heading nested two
+        // tables deep would keep the light grey while its siblings in the body
+        // switched, which reads as a different bug rather than a partial fix.
+        surface,
+        spacingCtx,
       );
       if (blockParentMap) {
         for (const [k, v] of nestedLayout.blockParentMap) {
@@ -95,8 +102,11 @@ function layoutCellBlocks(
           },
         };
 
-    const blockLines = layoutBlock(effectiveBlock, measurer, maxWidth, composingContext, docStyles);
-    assignLineHeights(blockLines, effectiveBlock, docStyles);
+    const blockLines = layoutBlock(effectiveBlock, measurer, maxWidth, composingContext, docStyles, surface);
+    // A cell paragraph resolves its leading the same way a body paragraph
+    // does. Without the context it would decline `normal`'s catalog spacing
+    // and lay out at 1.5 while the body around the table ran at 1.15.
+    assignLineHeights(blockLines, effectiveBlock, docStyles, undefined, spacingCtx);
 
     const alignWidth = maxWidth - (effectiveBlock.style.marginLeft ?? 0);
     const alignment = effectiveBlock.style.alignment ?? 'left';
@@ -131,6 +141,8 @@ export function computeTableLayout(
   contentWidth: number,
   composingContext?: ComposingContext,
   docStyles?: DocStyles,
+  surface?: StyleSurface,
+  spacingCtx?: BlockSpacingContext,
 ): LayoutTable {
   const { rows, columnWidths } = tableData;
   const numCols = columnWidths.length;
@@ -173,7 +185,8 @@ export function computeTableLayout(
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
       const { lines, blockBoundaries } = layoutCellBlocks(
-        cell?.blocks ?? [], measurer, innerWidth, blockParentMap, composingContext, docStyles,
+        cell?.blocks ?? [], measurer, innerWidth, blockParentMap, composingContext, docStyles, surface,
+        spacingCtx,
       );
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
+import * as zlib from 'node:zlib';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PDFDocument, PDFName, PDFDict, PDFArray } from 'pdf-lib';
@@ -8,6 +9,7 @@ import { PdfExporter } from '../../src/export/pdf-exporter.js';
 import { PdfFonts, type PdfFontKey } from '../../src/export/pdf-fonts.js';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '../../src/model/types.js';
 import type { Document } from '../../src/model/types.js';
+import { setThemeMode } from '../../src/view/theme.js';
 
 // jsdom Blob shim — older jsdom builds lack arrayBuffer()
 if (typeof Blob.prototype.arrayBuffer !== 'function') {
@@ -726,5 +728,85 @@ describe('PdfExporter — unusable stored page setup', () => {
     const { width, height } = page.getSize();
     expect(Number.isFinite(width) && width > 0).toBe(true);
     expect(Number.isFinite(height) && height > 0).toBe(true);
+  });
+});
+
+describe('PdfExporter (named-style colors are always the light surface)', () => {
+  // The single most important test of the dark-mode named-style work.
+  //
+  // PDF export runs *client-side*, in the same module instance where the docs
+  // editor has already called `setThemeMode('dark')`. The exporter resolves the
+  // named styles on the light surface only because it omits `surface` from the
+  // `LayoutOptions` it passes (`DOCS_LAYOUT_OPTIONS` carries no such key), so
+  // this asserts the actual bytes rather than the intent: a heading 3 exported
+  // from a dark-mode editor must still be painted `#434343` on white paper, not
+  // the dark page's `#B0B0B0`.
+  afterEach(() => {
+    // `setThemeMode` mutates a module-level global shared with the slides
+    // text-box suites — never leave it dark.
+    setThemeMode('light');
+  });
+
+  /** The `r g b rg` fill-color operators in page 0's content stream. */
+  async function fillColorOps(blob: Blob): Promise<string[]> {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const loaded = await PDFDocument.load(bytes);
+    const contents = loaded.getPage(0).node.Contents()!;
+    const refs = contents instanceof PDFArray ? contents.asArray() : [contents];
+    let text = '';
+    for (const ref of refs) {
+      // pdf-lib Flate-compresses content streams on save(); a future version
+      // that stops would still be read correctly by the raw fallback.
+      const stream = loaded.context.lookup(ref) as { contents?: Uint8Array };
+      const raw = Buffer.from(stream.contents ?? new Uint8Array());
+      try {
+        text += zlib.inflateSync(raw).toString('latin1');
+      } catch {
+        text += raw.toString('latin1');
+      }
+    }
+    return text.match(/[-\d.]+ [-\d.]+ [-\d.]+ rg/g) ?? [];
+  }
+
+  const GREY = (hex: string) => {
+    const c = (i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    return `${c(0)} ${c(1)} ${c(2)} rg`;
+  };
+
+  function greyDoc(): Document {
+    return {
+      blocks: [
+        {
+          id: generateBlockId(),
+          type: 'heading',
+          headingLevel: 3,
+          inlines: [{ text: 'Heading three', style: {} }],
+          style: { ...DEFAULT_BLOCK_STYLE },
+        },
+        {
+          id: generateBlockId(),
+          type: 'subtitle',
+          inlines: [{ text: 'A subtitle', style: {} }],
+          style: { ...DEFAULT_BLOCK_STYLE },
+        },
+      ],
+    };
+  }
+
+  it('exports the light greys even when the editor is in dark mode', async () => {
+    setThemeMode('dark');
+    const ops = await fillColorOps(await PdfExporter.export(greyDoc(), exportOpts()));
+    expect(ops).toContain(GREY('#434343'));
+    expect(ops).toContain(GREY('#666666'));
+    expect(ops).not.toContain(GREY('#B0B0B0'));
+    expect(ops).not.toContain(GREY('#999999'));
+  });
+
+  it('produces byte-identical color output in both theme modes', async () => {
+    setThemeMode('light');
+    const light = await fillColorOps(await PdfExporter.export(greyDoc(), exportOpts()));
+    setThemeMode('dark');
+    const dark = await fillColorOps(await PdfExporter.export(greyDoc(), exportOpts()));
+    expect(dark).toEqual(light);
   });
 });

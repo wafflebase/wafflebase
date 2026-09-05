@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { lineBaselineY, ptToPx } from '../../src/view/theme';
+import { describe, it, expect, afterEach } from 'vitest';
+import { getTheme, getThemeMode, lineBaselineY, ptToPx, setThemeMode } from '../../src/view/theme';
 
 describe('lineBaselineY', () => {
   it('centers the baseline using the line max font size', () => {
@@ -20,5 +20,22 @@ describe('lineBaselineY', () => {
     expect(lineBaselineY(0, 72, ptToPx(36))).toBeGreaterThan(
       lineBaselineY(0, 72, ptToPx(11)),
     );
+  });
+});
+
+describe('getThemeMode', () => {
+  afterEach(() => {
+    // Module-level global shared with the slides text-box suites.
+    setThemeMode('light');
+  });
+
+  it('starts light and tracks setThemeMode', () => {
+    expect(getThemeMode()).toBe('light');
+    setThemeMode('dark');
+    expect(getThemeMode()).toBe('dark');
+    expect(getTheme().pageBackground).toBe('#2b2b2b');
+    setThemeMode('light');
+    expect(getThemeMode()).toBe('light');
+    expect(getTheme().pageBackground).toBe('#ffffff');
   });
 });

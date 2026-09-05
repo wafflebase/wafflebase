@@ -27,6 +27,12 @@ const SEARCH_STEPS = 8;
  *   doubles to 72 px so the bullet → text gap matches PowerPoint at
  *   the deck's actual physical resolution.
  */
+// Note on the docs named-style seam: this scales `block.style.margin*`
+// *before* `computeLayout` resolves it through `effectiveBlockSpacing`. Inert
+// today because slides passes no `DocStyles`, so every block maps to `normal`
+// and resolves to itself; if slides ever grows its own style registry the
+// scale would land on the pre-resolution value and would have to move after
+// resolution instead.
 export function scaleBlocks(blocks: Block[], scale: number): Block[] {
   if (scale === 1) return blocks;
   return blocks.map((b) => ({

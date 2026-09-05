@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorAPI, EditContext } from "@wafflebase/docs";
-import { DEFAULT_INLINE_STYLE } from "@wafflebase/docs";
+import { DEFAULT_BLOCK_STYLE, DEFAULT_INLINE_STYLE } from "@wafflebase/docs";
 import { Toolbar, ToolbarButton, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
@@ -426,7 +426,13 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
   // with the presence broadcaster registered in docs-view.tsx).
   type RangeSummary = ReturnType<NonNullable<typeof editor>["getRangeStyleSummary"]>;
   const [summary, setSummary] = useState<Partial<RangeSummary>>({});
-  const [lineHeight, setLineHeight] = useState<number>(1.5);
+  // Seeded from the model default rather than a literal 1.5: `getBlockStyle()`
+  // returns the *named-style-resolved* leading (a Title reads 1.1), so the only
+  // place a bare number belongs is the pre-editor initial state, and even that
+  // should name where it comes from.
+  const [lineHeight, setLineHeight] = useState<number>(
+    DEFAULT_BLOCK_STYLE.lineHeight,
+  );
 
   useEffect(() => {
     if (!editor) return;
@@ -436,7 +442,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
     const refresh = () => {
       setSummary(editor.getRangeStyleSummary());
       const bs = editor.getBlockStyle();
-      setLineHeight(typeof bs.lineHeight === "number" ? bs.lineHeight : 1.5);
+      setLineHeight(
+        typeof bs.lineHeight === "number"
+          ? bs.lineHeight
+          : DEFAULT_BLOCK_STYLE.lineHeight,
+      );
     };
     refresh();
     const unsubscribe = editor.onCursorMove(refresh);
