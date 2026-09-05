@@ -1,7 +1,7 @@
-import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { fetchMeOptional } from "@/api/auth";
-import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
+import { MarketingPage } from "@/app/home/marketing-page";
+import { SectionHead } from "@/app/home/primitives/section-head";
+import { RulerBackdrop } from "@/app/home/primitives/ruler-backdrop";
 import { TemplateGallery } from "@/app/templates/template-gallery";
 
 /**
@@ -26,53 +26,33 @@ import { TemplateGallery } from "@/app/templates/template-gallery";
 export function PublicTemplates() {
   const navigate = useNavigate();
 
-  // Optional: the page renders either way. It only decides which button the
-  // header offers, so a failure is not worth surfacing.
-  const me = useQuery({
-    queryKey: ["me-optional"],
-    queryFn: fetchMeOptional,
-    retry: false,
-  });
-
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Link
-            to="/"
-            className="text-muted-foreground text-sm no-underline hover:underline"
-          >
-            ← Wafflebase
-          </Link>
-          <h1 className="mt-2 text-2xl font-semibold">Templates</h1>
-          <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
-            Documents people have published for anyone to start from. Using one
-            gives you your own copy — the original is never changed.
-          </p>
-        </div>
-        {/* Real links, not buttons with an onClick: these navigate, so
-            middle-click and open-in-new-tab have to work and assistive tech
-            has to hear a link. Signing in carries `returnTo` so a visitor
-            comes back to the gallery rather than being dropped at a workspace
-            root — the same thing `/t/:id` does. */}
-        <Button asChild variant={me.data ? "outline" : "default"}>
-          {me.data ? (
-            <Link to="/documents">My documents</Link>
-          ) : (
-            <Link to={`/login?returnTo=${encodeURIComponent("/templates")}`}>
-              Sign in
-            </Link>
-          )}
-        </Button>
-      </header>
+    // The nav's signed-out CTA carries `returnTo` so a visitor who signs in
+    // from the gallery comes back to the gallery rather than being dropped at
+    // a workspace root — the same thing `/t/:id` does. It is also the page's
+    // only CTA now: the header used to carry a second one beside the nav's.
+    <MarketingPage
+      signInTo={`/login?returnTo=${encodeURIComponent("/templates")}`}
+    >
+      <section className="relative px-6 pt-14 pb-16 md:px-8 md:pt-20 md:pb-20">
+        <RulerBackdrop />
+        <div className="relative z-10 mx-auto max-w-[1200px]">
+          <SectionHead
+            kicker="Template gallery"
+            title="Start from something someone already built."
+            sub="Documents people have published for anyone to start from. Using one gives you your own copy — the original is never changed."
+          />
 
-      <TemplateGallery
-        scope="public"
-        selectLabel="View"
-        onSelect={(card) => navigate(`/t/${card.id}`)}
-        emptyHint="No templates have been published to the public gallery yet."
-      />
-    </main>
+          <TemplateGallery
+            scope="public"
+            skin="marketing"
+            selectLabel="View"
+            onSelect={(card) => navigate(`/t/${card.id}`)}
+            emptyHint="No templates have been published to the public gallery yet."
+          />
+        </div>
+      </section>
+    </MarketingPage>
   );
 }
 

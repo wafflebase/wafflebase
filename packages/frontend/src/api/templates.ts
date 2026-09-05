@@ -110,7 +110,12 @@ export async function browseTemplates(
 
 export type PublishTemplateInput = {
   title?: string;
-  description?: string;
+  /**
+   * `null` clears it on update; omitting the field leaves it unchanged.
+   * `@IsOptional()` skips validation for null, so it reaches the service —
+   * the same route `category` below already relies on.
+   */
+  description?: string | null;
   /** `null` clears it; omitting the field leaves it unchanged. */
   category?: string | null;
   tags?: string[];

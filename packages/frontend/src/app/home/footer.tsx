@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { scrollToHashTarget } from "./hash-scroll";
 import { WaffleLogo } from "./primitives/waffle-logo";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
@@ -6,7 +8,12 @@ const columns = [
   {
     title: "Product",
     links: [
-      { label: "Features", href: "#features" },
+      // `route: true` renders a router `Link`. This footer also mounts on
+      // `/templates` and `/t/:id`, where a bare `#features` fragment points at
+      // nothing on the page — and the router carries a `basename`, so a plain
+      // `<a href="/#features">` would miss it. Everything else here is a real
+      // anchor: `/docs` is a separate VitePress site and the rest is GitHub.
+      { label: "Features", href: "/#features", route: true },
       { label: "Documentation", href: "/docs" },
       { label: "REST API", href: "/docs/developers/rest-api" },
       { label: "CLI", href: "/docs/developers/cli" },
@@ -75,15 +82,29 @@ export function Footer() {
                 <ul className="space-y-2 list-none p-0 m-0">
                   {col.links.map((link) => (
                     <li key={link.label}>
-                      <a
-                        href={link.href}
-                        {...("external" in link && link.external
-                          ? { target: "_blank", rel: "noopener noreferrer" }
-                          : {})}
-                        className="text-[14px] text-[color:var(--wb-sub)] no-underline hover:text-[color:var(--wb-ink)] transition-colors"
-                      >
-                        {link.label}
-                      </a>
+                      {"route" in link && link.route ? (
+                        <Link
+                          to={link.href}
+                          // See `hash-scroll.ts`: `Link` alone does not scroll
+                          // when the hash is already the current one.
+                          onClick={() =>
+                            scrollToHashTarget(link.href.split("#")[1])
+                          }
+                          className="text-[14px] text-[color:var(--wb-sub)] no-underline hover:text-[color:var(--wb-ink)] transition-colors"
+                        >
+                          {link.label}
+                        </Link>
+                      ) : (
+                        <a
+                          href={link.href}
+                          {...("external" in link && link.external
+                            ? { target: "_blank", rel: "noopener noreferrer" }
+                            : {})}
+                          className="text-[14px] text-[color:var(--wb-sub)] no-underline hover:text-[color:var(--wb-ink)] transition-colors"
+                        >
+                          {link.label}
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ul>
