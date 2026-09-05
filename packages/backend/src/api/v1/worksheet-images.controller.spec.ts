@@ -95,6 +95,22 @@ describe('ApiV1WorksheetImagesController', () => {
       expect(Object.keys(root.sheets[TAB].images ?? {})).toEqual(['img-1']);
     });
 
+    it('refuses a prototype-shaped tab id instead of writing to Object.prototype', async () => {
+      // Express URL-decodes, so `%5F%5Fproto%5F%5F` arrives here as
+      // `__proto__`; on a plain object that lookup answers `Object.prototype`,
+      // which is truthy — the tab guard would pass and `ws.images = {}` would
+      // land on every object in the process.
+      for (const tabId of ['__proto__', 'constructor', 'prototype']) {
+        await expect(
+          controller.setImages(WS, DOC, tabId, { images: [image()] }),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      }
+      expect(
+        ({} as Record<string, unknown>).images,
+      ).toBeUndefined();
+      expect(Object.prototype).not.toHaveProperty('images');
+    });
+
     it('400s a malformed payload before opening Yorkie', async () => {
       await expect(
         controller.setImages(WS, DOC, TAB, { images: [{ id: 'x' }] }),

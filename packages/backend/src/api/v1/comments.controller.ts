@@ -699,6 +699,14 @@ function parsePdfAnchor(input: Record<string, unknown>): AnyAnchor {
  * The stored anchor is axis ids, which are stable but unreadable; the `ref` is
  * derived, and `null` once the row or column it pointed at is deleted — which
  * is exactly how the editor tells an orphaned thread from a live one.
+ *
+ * The axis orders are detached with `Array.from` before they are handed over,
+ * the same way both editor call sites do it
+ * (`document-detail.tsx:276` / `:763`). `cellAnchorToSref` resolves the anchor
+ * with `rowOrder.indexOf(...)`, and a Yorkie array proxy is not an array — it
+ * traps `get`, so the `Array.prototype` method reached through it is not the
+ * lookup the engine expects. `Array.from` reads the proxy through its
+ * iterator, which is the interface it does support.
  */
 function withSref(thread: AnyThread, worksheet: Worksheet): AnyThread {
   const anchor = thread.anchor;
@@ -706,8 +714,8 @@ function withSref(thread: AnyThread, worksheet: Worksheet): AnyThread {
   const ref = cellAnchorToSref(
     { rowId: String(anchor.rowId), colId: String(anchor.colId) },
     {
-      rowOrder: worksheet.rowOrder ?? [],
-      colOrder: worksheet.colOrder ?? [],
+      rowOrder: Array.from(worksheet.rowOrder ?? []) as string[],
+      colOrder: Array.from(worksheet.colOrder ?? []) as string[],
     },
   );
   return { ...thread, anchor: { ...anchor, ref } };

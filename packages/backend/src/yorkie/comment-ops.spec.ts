@@ -280,4 +280,46 @@ describe('copyThread anchor detachment', () => {
     });
     expect(copy.anchor.rect).not.toBe(rect);
   });
+
+  it('detaches an anchor array through the proxy toJSON, not a hand walk', () => {
+    // A Yorkie *array* proxy answers `Array.isArray` false, so a hand walk
+    // reads it as an object and yields `{createdAt, movedAt}` CRDT metadata.
+    // Two live anchor shapes carry arrays — `docs-range.posRange` and
+    // `pdf-text.rects` — so this is what every comment read on a doc or PDF
+    // document returned.
+    const posRange = [{ offset: 3 }, { offset: 9 }];
+    const fakeArrayProxy = {
+      length: posRange.length,
+      0: posRange[0],
+      1: posRange[1],
+      createdAt: 'crdt-ts',
+      movedAt: 'crdt-ts',
+      [Symbol.iterator]: () => posRange[Symbol.iterator](),
+    };
+    const anchorProxy = {
+      kind: 'docs-range',
+      blockId: 'b1',
+      posRange: fakeArrayProxy,
+      quotedText: 'hi',
+      toJSON: () =>
+        JSON.stringify({
+          kind: 'docs-range',
+          blockId: 'b1',
+          posRange,
+          quotedText: 'hi',
+        }),
+    };
+
+    const copy = copyThread({
+      id: 't1',
+      anchor: anchorProxy as never,
+      comments: [],
+      resolved: false,
+      createdAt: 1,
+    });
+
+    expect(copy.anchor.kind).toBe('docs-range');
+    expect(copy.anchor.posRange).toEqual([{ offset: 3 }, { offset: 9 }]);
+    expect(copy.anchor).not.toHaveProperty('toJSON');
+  });
 });

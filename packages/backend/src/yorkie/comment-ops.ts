@@ -12,7 +12,7 @@ import type {
   CommentAuthor,
   Thread,
 } from '@wafflebase/sheets';
-import { detachYorkieValue } from './yorkie-json';
+import { detachYorkieValue, unwrapJson } from './yorkie-json';
 
 /**
  * Comment-thread operations over the map a document stores its threads in.
@@ -82,21 +82,50 @@ function copyComment(c: Comment): Comment {
 }
 
 /**
+ * Detach a thread anchor into plain JSON.
+ *
+ * A spread copies only the top level, so the *nested* values of the anchor
+ * shapes that have them — a PDF region's `rect`, a PDF text anchor's `rects`,
+ * a docs range's `posRange` — would stay live Yorkie proxies and reach
+ * `res.json()`, which is exactly the bug `pdf-comment-store.ts`'s
+ * field-by-field `copyAnchor` exists to prevent.
+ *
+ * **Not {@link detachYorkieValue} alone**, for the reason its own docblock
+ * gives: it branches on `Array.isArray`, which is false for a Yorkie *array*
+ * proxy, so it walks one as an object and yields `{createdAt, movedAt}` CRDT
+ * metadata. Two of the three live anchor shapes carry arrays — `pdf-text`'s
+ * `rects` and `docs-range`'s `posRange` — so every comment read on a PDF or
+ * word-processor document would answer 200 with a garbage anchor. The proxy's
+ * own `toJSON` is the path that serializes nested arrays correctly (the same
+ * one `worksheet-charts.controller.ts#readCharts` uses), so it is tried first;
+ * the hand walk stays as the fallback for a plain object (a unit test, or an
+ * anchor already detached by an outer `copyThread`), which has no `toJSON`.
+ */
+function detachAnchor(anchor: unknown): AnyAnchor {
+  if (!anchor || typeof anchor !== 'object') return {} as AnyAnchor;
+  if (typeof (anchor as { toJSON?: unknown }).toJSON === 'function') {
+    try {
+      const parsed = unwrapJson<AnyAnchor>(anchor);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // A snapshot string the repaired parse still cannot read. Fall through
+      // to the hand walk rather than 500 on a read: a partially-detached
+      // anchor still carries the `kind` every caller here reads.
+    }
+  }
+  return (detachYorkieValue(anchor) ?? {}) as AnyAnchor;
+}
+
+/**
  * Detach a thread from the Yorkie proxy into a plain object, converting the
  * `Long` timestamps back to numbers so the JSON response carries real dates.
- *
- * The anchor goes through {@link detachYorkieValue} rather than a spread. A
- * spread copies only the top level, so the *nested* values of the anchor
- * shapes that have them — a PDF region's `rect`, a docs range's `posRange` —
- * would stay live Yorkie proxies and reach `res.json()`, which is exactly the
- * bug `pdf-comment-store.ts`'s field-by-field `copyAnchor` exists to prevent.
- * A recursive walk covers all three anchor shapes without this module having
- * to know any of them.
+ * The anchor goes through {@link detachAnchor}, which covers all three anchor
+ * shapes without this module having to know any of them.
  */
 export function copyThread(t: AnyThread): AnyThread {
   const copy: AnyThread = {
     id: t.id,
-    anchor: (detachYorkieValue(t.anchor) ?? {}) as AnyAnchor,
+    anchor: detachAnchor(t.anchor),
     comments: Array.from(t.comments ?? []).map(copyComment),
     resolved: !!t.resolved,
     createdAt: fromYorkieMs(t.createdAt),

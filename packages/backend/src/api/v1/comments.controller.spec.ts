@@ -166,6 +166,34 @@ describe('ApiV1CommentsController on a sheet', () => {
     expect(threads[0].createdAt).toEqual(expect.any(Number));
   });
 
+  it('resolves the ref when the axis orders are Yorkie array proxies', async () => {
+    // A Yorkie array proxy is iterable and has a numeric `length`, but it is
+    // not an array — handing one straight to `cellAnchorToSref`, which does
+    // `rowOrder.indexOf(...)`, is not the lookup the engine expects. Both
+    // editor call sites detach with `Array.from` first; so does `withSref`.
+    const root = sheetRoot();
+    const { controller } = harness('sheet', root as never);
+    await controller.createThread(
+      WS,
+      DOC,
+      { body: 'one', tabId: 'tab-1', ref: 'B2' },
+      REQ,
+    );
+    const arrayProxy = (items: string[]) => ({
+      length: items.length,
+      ...Object.fromEntries(items.map((v, i) => [i, v])),
+      [Symbol.iterator]: () => items[Symbol.iterator](),
+    });
+    for (const tabId of root.tabOrder) {
+      const ws = root.sheets[tabId];
+      ws.rowOrder = arrayProxy(['r1', 'r2']) as never;
+      ws.colOrder = arrayProxy(['c1', 'c2']) as never;
+    }
+
+    const { threads } = await controller.list(WS, DOC);
+    expect(threads.map((t) => t.anchor.ref)).toEqual(['B2']);
+  });
+
   it('finds a thread on a non-first tab by id alone', async () => {
     // `tabIdOfThread` is what makes the tab absent from the route path; a
     // single-tab fixture would pass whether or not it walked past tab one.

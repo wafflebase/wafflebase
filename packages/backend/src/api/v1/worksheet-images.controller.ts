@@ -29,6 +29,31 @@ import { unwrapJson } from '../../yorkie/yorkie-json';
  * same replace rule `charts` follows — an image missing from the payload is
  * deleted.
  */
+/**
+ * Object keys that are never a tab id and that a lookup on a *plain* object
+ * answers with something inherited rather than `undefined`.
+ *
+ * `:tabId` reaches this controller straight off the URL (Express URL-decodes,
+ * so `%5F%5Fproto%5F%5F` arrives as `__proto__`) and is then used both as the
+ * existence check and as the key that is written to. On a plain object —
+ * which the root is in a unit test, and which `sheets` is on any path that has
+ * not been wrapped by a Yorkie proxy — `sheets['__proto__']` answers
+ * `Object.prototype`: truthy, so the NotFound guard passes and `ws.images = {}`
+ * lands on the prototype instead of on a worksheet. Refusing the key outright
+ * is the check that holds regardless of which side of the proxy boundary the
+ * root is on (`hasOwnProperty` does not: a Yorkie object proxy traps `get`,
+ * not `getOwnPropertyDescriptor`, so an own-property test would reject every
+ * real tab).
+ *
+ * The answer is 404, not 400: no tab has these ids, so "not found" is the
+ * truthful one.
+ */
+const UNSAFE_TAB_IDS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function assertPlainTabId(tabId: string): void {
+  if (UNSAFE_TAB_IDS.has(tabId)) throw new NotFoundException('Tab not found');
+}
+
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1WorksheetImagesController {
@@ -54,6 +79,7 @@ export class ApiV1WorksheetImagesController {
     root: { sheets?: Record<string, unknown> },
     tabId: string,
   ) {
+    assertPlainTabId(tabId);
     const worksheet = root.sheets?.[tabId];
     if (!worksheet) throw new NotFoundException('Tab not found');
     return worksheet as Record<string, unknown>;
@@ -66,6 +92,7 @@ export class ApiV1WorksheetImagesController {
     @Param('tabId') tabId: string,
   ) {
     await this.assertSheetDocument(documentId, workspaceId);
+    assertPlainTabId(tabId);
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {

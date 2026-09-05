@@ -210,4 +210,42 @@ describe('duplicateTab', () => {
     expect(root.sheets[copy.id].comments).toEqual({});
     expect(root.sheets['tab-1'].comments).toHaveProperty('t1');
   });
+
+  it('repoints a self-sourced chart at the copy, leaving foreign ones alone', () => {
+    const root = baseDoc();
+    const other = createTab(root, { name: 'Data' });
+    root.sheets['tab-1'].charts = {
+      own: { id: 'own', sourceTabId: 'tab-1', sourceRange: 'A1:B2' } as never,
+      foreign: {
+        id: 'foreign',
+        sourceTabId: other.id,
+        sourceRange: 'A1:B2',
+      } as never,
+    };
+
+    const copy = duplicateTab(root, 'tab-1', root.sheets['tab-1']);
+
+    expect(root.sheets[copy.id].charts!.own.sourceTabId).toBe(copy.id);
+    expect(root.sheets[copy.id].charts!.foreign.sourceTabId).toBe(other.id);
+    // The source tab is untouched.
+    expect(root.sheets['tab-1'].charts!.own.sourceTabId).toBe('tab-1');
+  });
+
+  it('drops the pivot definition (and kind) so the copy is a plain snapshot', () => {
+    const root = baseDoc();
+    const output = createTab(root, { name: 'Pivot' });
+    root.tabs[output.id].kind = 'pivot';
+    root.sheets[output.id].pivotTable = { sourceTabId: 'tab-1' } as never;
+
+    const copy = duplicateTab(root, output.id, root.sheets[output.id]);
+
+    expect(root.sheets[copy.id].pivotTable).toBeUndefined();
+    expect(root.tabs[copy.id].kind).toBeUndefined();
+    // ...so the copy is not a second dependent on the pivot's source tab.
+    expect(resolveDelete(root, 'tab-1')).toEqual({
+      ok: false,
+      reason: 'pivot_dependents',
+      dependents: [output.id],
+    });
+  });
 });
