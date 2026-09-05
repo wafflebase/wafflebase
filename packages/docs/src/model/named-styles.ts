@@ -465,7 +465,7 @@ export interface BlockSpacingContext {
    * would silently reflow every deck, its autofit scale and its auto-grown
    * table rows. Only `DOCS_LAYOUT_OPTIONS` turns it on.
    */
-  normalStyleSpacing?: boolean;
+  namedStyleSpacing?: boolean;
 }
 
 /**
@@ -516,14 +516,26 @@ export function markAuthoredSpacing(
  * Explicit `false` rather than deleted keys because the markers travel as CRDT
  * Tree attributes and `Tree.styleByPath` merges: see `crdt-attrs.ts`.
  */
-export function clearAuthoredSpacing(): Pick<
+export function clearAuthoredSpacing(
+  opts?: { keepAuthoredLeading?: boolean },
+): Partial<Pick<
   BlockStyle,
   'authoredMarginTop' | 'authoredMarginBottom' | 'authoredLineHeight'
-> {
+>> {
+  // Applying a named style is Google Docs' "clear direct paragraph
+  // formatting", so all three markers go — including leading, which is the
+  // only affordance a user has for returning line spacing to its style.
+  //
+  // A *registry* operation is different and must keep it. `resetStyle` /
+  // `resetAllStyles` / "Update Normal to match" run `rematerializeDocSpacing`
+  // over every block in the document; clearing leading there replaced a
+  // paragraph the user had set to 2.0 with the catalog's value, document-wide,
+  // on one click. Google Docs' "Reset styles" resets style *definitions*, not
+  // direct paragraph formatting.
   return {
     authoredMarginTop: false,
     authoredMarginBottom: false,
-    authoredLineHeight: false,
+    ...(opts?.keepAuthoredLeading ? {} : { authoredLineHeight: false }),
   };
 }
 
@@ -592,18 +604,19 @@ export function effectiveBlockSpacing(
   docStyles?: DocStyles,
   ctx?: BlockSpacingContext,
 ): BlockSpacing {
-  const styleId = blockStyleId(block);
-  // `normal` is the one style a host can decline. See
-  // `BlockSpacingContext.normalStyleSpacing`: its catalog values are Google's
-  // body rhythm, which is right for a document and wrong for a slide, and
-  // slides/board reach this function through the same `computeLayout`.
-  // Declining yields exactly `DEFAULT_BLOCK_STYLE`'s numbers, so an opted-out
-  // host resolves every unauthored field back to the value it already had —
-  // the identity that kept `effectiveBlockSpacing` a no-op for them.
-  const styleBlock =
-    styleId === 'normal' && !ctx?.normalStyleSpacing
-      ? STYLE_OWNED_SPACING_DEFAULTS
-      : resolveStyleBlock(styleId, docStyles);
+  // A host that declines the catalog gets its block's own numbers back,
+  // verbatim — which is exactly what layout read before this whole seam
+  // existed. Gating the *whole* catalog rather than just `normal` is
+  // load-bearing and was originally got wrong: `normal` is not the only style
+  // slides reaches. The shared `TextEditor` every slides text box mounts binds
+  // Cmd/Ctrl+Alt+1–6 and the `# ` markdown auto-convert to `setBlockType`
+  // (`view/text-editor.ts`), so slide text bodies really do contain `heading`
+  // blocks, and gating only `normal` left them resolving `heading-1`'s catalog
+  // leading: a 20 pt slide heading's line box went 40.0 px → 30.67 px, moving
+  // every baseline under it, `computeAutofitScale`, and auto-grown table rows.
+  const styleBlock = ctx?.namedStyleSpacing
+    ? resolveStyleBlock(blockStyleId(block), docStyles)
+    : undefined;
 
   // Per field: is the value inherited from the style (→ the style supplies it)
   // or authored by this paragraph (→ it wins)? Tracked, not just resolved,
@@ -618,13 +631,13 @@ export function effectiveBlockSpacing(
     ?? block.style.lineHeight !== STYLE_OWNED_SPACING_DEFAULTS.lineHeight);
 
   let marginTop = inheritedTop
-    ? styleBlock.marginTop ?? STYLE_OWNED_SPACING_DEFAULTS.marginTop
+    ? styleBlock?.marginTop ?? authoredOr(block.style.marginTop, STYLE_OWNED_SPACING_DEFAULTS.marginTop)
     : authoredOr(block.style.marginTop, STYLE_OWNED_SPACING_DEFAULTS.marginTop);
   let marginBottom = inheritedBottom
-    ? styleBlock.marginBottom ?? STYLE_OWNED_SPACING_DEFAULTS.marginBottom
+    ? styleBlock?.marginBottom ?? authoredOr(block.style.marginBottom, STYLE_OWNED_SPACING_DEFAULTS.marginBottom)
     : authoredOr(block.style.marginBottom, STYLE_OWNED_SPACING_DEFAULTS.marginBottom);
   const lineHeight = inheritedLine
-    ? styleBlock.lineHeight ?? STYLE_OWNED_SPACING_DEFAULTS.lineHeight
+    ? styleBlock?.lineHeight ?? authoredOr(block.style.lineHeight, STYLE_OWNED_SPACING_DEFAULTS.lineHeight)
     : authoredOr(block.style.lineHeight, STYLE_OWNED_SPACING_DEFAULTS.lineHeight);
 
   // Contextual list spacing: a bullet with a bullet above it opens no gap, and
@@ -686,11 +699,32 @@ export function effectiveBlockSpacing(
 export function materializeBlockSpacing(
   block: Block,
   docStyles?: DocStyles,
+  opts?: { keepAuthoredLeading?: boolean },
 ): BlockStyle {
+  // **`lineHeight` is deliberately not written here.** It is the one
+  // style-owned field that stays purely resolved, for two reasons found by
+  // review:
+  //
+  //  - Registry-level resets (`resetStyle` / `resetAllStyles` /
+  //    "Update Normal to match") run this over *every* block in the document.
+  //    Writing the catalog's leading there, and clearing the marker with it,
+  //    silently replaced a paragraph the user had set to 2.0 with 1.15 —
+  //    Google Docs' "Reset styles" resets style *definitions*, never direct
+  //    paragraph formatting.
+  //  - Slides reaches this through `MemDocStore.setBlockType`, and the eager
+  //    write is host-blind. Leaving leading out keeps the bytes this function
+  //    produces identical to what it produced before the catalog gained a
+  //    `lineHeight` column, so no deck's stored spacing moves.
+  //
+  // The margins stay eager because non-layout readers — the DOCX exporter,
+  // the backend docs-tree reader, `/api/v1` content GET — see `block.style`
+  // and have no registry in scope.
+  const { lineHeight: _styleLeading, ...styleMargins } =
+    resolveStyleBlock(blockStyleId(block), docStyles);
   return {
     ...block.style,
-    ...resolveStyleBlock(blockStyleId(block), docStyles),
-    ...clearAuthoredSpacing(),
+    ...styleMargins,
+    ...clearAuthoredSpacing(opts),
   };
 }
 
@@ -708,7 +742,7 @@ export function rematerializeDocSpacing(doc: Document, styleId?: StyleId): void 
   const apply = (blocks: Block[]) => {
     for (const block of blocks) {
       if (!styleId || blockStyleId(block) === styleId) {
-        block.style = materializeBlockSpacing(block, doc.styles);
+        block.style = materializeBlockSpacing(block, doc.styles, { keepAuthoredLeading: true });
       }
       if (block.tableData) {
         for (const row of block.tableData.rows) {

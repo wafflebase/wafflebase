@@ -427,7 +427,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
   type RangeSummary = ReturnType<NonNullable<typeof editor>["getRangeStyleSummary"]>;
   const [summary, setSummary] = useState<Partial<RangeSummary>>({});
   // Seeded from the model default rather than a literal 1.5: `getBlockStyle()`
-  // returns the *named-style-resolved* leading (a Title reads 1.1), so the only
+  // returns the *named-style-resolved* leading (a Title reads 1.15), so the only
   // place a bare number belongs is the pre-editor initial state, and even that
   // should name where it comes from.
   const [lineHeight, setLineHeight] = useState<number>(

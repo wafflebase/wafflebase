@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeTableLayout } from '../../src/view/table-layout.js';
+import { DOCS_LAYOUT_OPTIONS } from '../../src/view/layout.js';
 import { computeMergedCellLineLayouts } from '../../src/view/table-renderer.js';
 import { createTableBlock, DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 import { stubMeasurer } from './_stub-measurer.js';
@@ -183,7 +184,8 @@ describe('computeTableLayout', () => {
   it('applies heading defaults to font size inside cell', () => {
     const baseBlock = createTableBlock(1, 1);
     baseBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'Heading', style: {} }];
-    const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 400)
+    const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 400,
+      undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS)
       .cells[0][0].lines[0].height;
 
     const headingBlock = createTableBlock(1, 1);
@@ -191,7 +193,8 @@ describe('computeTableLayout', () => {
     headingCell.type = 'heading';
     headingCell.headingLevel = 1;
     headingCell.inlines = [{ text: 'Heading', style: {} }];
-    const headingHeight = computeTableLayout(headingBlock.tableData!, 'tbl', stubCtx(), 400)
+    const headingHeight = computeTableLayout(headingBlock.tableData!, 'tbl', stubCtx(), 400,
+      undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS)
       .cells[0][0].lines[0].height;
 
     expect(headingHeight).toBeGreaterThan(baseHeight);

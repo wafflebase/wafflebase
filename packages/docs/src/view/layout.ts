@@ -397,8 +397,8 @@ interface MeasuredSegment {
 export interface LayoutOptions {
   /** See `BlockSpacingContext.contextualListSpacing`. Docs-only, opt-in. */
   contextualListSpacing?: boolean;
-  /** See `BlockSpacingContext.normalStyleSpacing`. Docs-only, opt-in. */
-  normalStyleSpacing?: boolean;
+  /** See `BlockSpacingContext.namedStyleSpacing`. Docs-only, opt-in. */
+  namedStyleSpacing?: boolean;
   /**
    * Which surface the named styles' inline color defaults resolve for (see
    * `resolveStyleInline`). Omitted means the light surface, and every export
@@ -425,7 +425,7 @@ export interface LayoutOptions {
  */
 export const DOCS_LAYOUT_OPTIONS: LayoutOptions = Object.freeze({
   contextualListSpacing: true,
-  normalStyleSpacing: true,
+  namedStyleSpacing: true,
 });
 
 /**
@@ -483,7 +483,7 @@ export function computeLayout(
       prev: blocks[i - 1],
       next: blocks[i + 1],
       contextualListSpacing: opts?.contextualListSpacing,
-      normalStyleSpacing: opts?.normalStyleSpacing,
+      namedStyleSpacing: opts?.namedStyleSpacing,
     };
     const spacing = effectiveBlockSpacing(block, docStyles, ctx);
     y += spacing.marginTop;
@@ -506,7 +506,7 @@ export function computeLayout(
     if (block.type === 'table' && block.tableData) {
       const tableLayout = computeTableLayout(
         block.tableData, block.id, measurer, availableWidth, composingContext, docStyles, surface,
-        { normalStyleSpacing: opts?.normalStyleSpacing },
+        { namedStyleSpacing: opts?.namedStyleSpacing },
       );
       // Merge per-table blockParentMap into document-level map
       for (const [k, v] of tableLayout.blockParentMap) {
@@ -858,7 +858,7 @@ export function assignLineHeights(
   spacingCtx?: BlockSpacingContext,
 ): void {
   // The multiplier is *style-owned*: a block still carrying the sentinel 1.5
-  // takes its leading from its named style, so a 26 pt Title gets 1.1 rather
+  // takes its leading from its named style, so a 26 pt Title and 11 pt body share Google's 1.15 rather
   // than the body's 1.5. Reading `block.style.lineHeight` raw here was the
   // second half of the "no vertical rhythm" defect — every block ever written
   // carries 1.5, so display type and body text were leaded identically.

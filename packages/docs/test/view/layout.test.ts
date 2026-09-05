@@ -41,23 +41,24 @@ describe('heading layout', () => {
     h1.inlines = [{ text: 'Heading', style: {} }];
     const para = createBlock('paragraph');
     para.inlines = [{ text: 'Paragraph', style: {} }];
-    const { layout } = computeLayout([h1, para], stubMeasurer(), 600);
+    const { layout } = computeLayout([h1, para], stubMeasurer(), 600,
+      undefined, undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS);
     expect(layout.blocks[0].height).toBeGreaterThan(layout.blocks[1].height);
-    // Exact, not merely "greater": the styles now carry their own leading
-    // (H1 20pt × 1.2 = 32px, body 11pt × 1.5 = 22px), and a future edit to
-    // either multiplier should fail here loudly rather than quietly narrowing
-    // the hierarchy down to nothing.
+    // Exact, not merely "greater": leading is Google's uniform 1.15, so the
+    // hierarchy here is carried by size alone (H1 20pt vs body 11pt). A future
+    // edit that narrowed it should fail loudly rather than quietly.
     expect(layout.blocks[0].height).toBeCloseTo(ptToPx(20) * 1.15, 5);
-    expect(layout.blocks[1].height).toBeCloseTo(ptToPx(11) * 1.5, 5);
+    expect(layout.blocks[1].height).toBeCloseTo(ptToPx(11) * 1.15, 5);
   });
 
   it('leads a heading from its named style, not from the block sentinel', () => {
     // Every block ever written carries `lineHeight: 1.5`; a heading that never
-    // went through the store's materialize seam must still be leaded at 1.2.
+    // went through the store's materialize seam must still be leaded at 1.15.
     const h1 = createBlock('heading', { headingLevel: 1 });
     h1.inlines = [{ text: 'Heading', style: {} }];
     expect(h1.style.lineHeight).toBe(1.5);
-    const { layout } = computeLayout([h1], stubMeasurer(), 600);
+    const { layout } = computeLayout([h1], stubMeasurer(), 600,
+      undefined, undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS);
     expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 1.15, 5);
   });
 
@@ -66,7 +67,7 @@ describe('heading layout', () => {
     h1.inlines = [{ text: 'Heading', style: {} }];
     const { layout } = computeLayout(
       [h1], stubMeasurer(), 600, undefined, undefined, undefined,
-      { 'heading-1': { block: { lineHeight: 2 } } },
+      { 'heading-1': { block: { lineHeight: 2 } } }, DOCS_LAYOUT_OPTIONS,
     );
     expect(layout.blocks[0].lines[0].height).toBeCloseTo(ptToPx(20) * 2, 5);
   });
@@ -86,19 +87,21 @@ describe('block spacing resolution', () => {
 
   it('applies the named style space-before to a block that never went through materialize', () => {
     const [p, h] = [para(), h1()];
-    const { layout } = computeLayout([p, h], stubMeasurer(), 600);
+    const { layout } = computeLayout([p, h], stubMeasurer(), 600,
+      undefined, undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS);
     expect(layout.blocks[1].spacing).toEqual({ marginTop: 27, marginBottom: 8, lineHeight: 1.15 });
-    // The heading's top sits marginBottom(8) + marginTop(27) below the
-    // paragraph's bottom — the 2.5–3:1 above/below ratio a heading needs to
-    // read as belonging to the content beneath it.
+    // The heading's top sits its own marginTop(27) below the paragraph's
+    // bottom — Google's Normal has no space-after, so the whole gap above a
+    // heading is the heading's, which is the asymmetry that makes it read as
+    // belonging to the content beneath it.
     const paraBottom = layout.blocks[0].y + layout.blocks[0].height;
-    expect(layout.blocks[1].y - paraBottom).toBe(8 + 27);
+    expect(layout.blocks[1].y - paraBottom).toBeCloseTo(27, 5);
   });
 
   it('honours a document style override of the spacing', () => {
     const { layout } = computeLayout(
       [para(), h1()], stubMeasurer(), 600, undefined, undefined, undefined,
-      { 'heading-1': { block: { marginTop: 50 } } },
+      { 'heading-1': { block: { marginTop: 50 } } }, DOCS_LAYOUT_OPTIONS,
     );
     expect(layout.blocks[1].spacing!.marginTop).toBe(50);
   });

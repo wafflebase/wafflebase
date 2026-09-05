@@ -111,7 +111,7 @@ describe('built-in style values (Google Docs defaults)', () => {
     });
     // And it is now *unlike* `DEFAULT_BLOCK_STYLE`, which used to be the
     // mechanism protecting slides/board. That protection moved to the
-    // `normalStyleSpacing` opt-in — asserted directly below rather than
+    // `namedStyleSpacing` opt-in — asserted directly below rather than
     // inferred from the values being equal.
     expect(BUILTIN_STYLES['normal'].block.lineHeight)
       .not.toBe(DEFAULT_BLOCK_STYLE.lineHeight);
@@ -317,6 +317,14 @@ describe('named-style greys meet WCAG AA on both surfaces', () => {
   });
 });
 
+/**
+ * The docs host context. `effectiveBlockSpacing` consults the catalog only
+ * when a host opts in, so a test that asserts catalog values must say which
+ * host it is speaking for — a bare call is the slides/board path and
+ * deliberately returns the block's own numbers.
+ */
+const DOCS = { namedStyleSpacing: true } as const;
+
 describe('effectiveBlockSpacing', () => {
   it('gives a legacy heading its style space-before', () => {
     // `createBlock` seeds `DEFAULT_BLOCK_STYLE` (0 / 8) — exactly what every
@@ -324,37 +332,37 @@ describe('effectiveBlockSpacing', () => {
     // produces, and the state the reported document was in.
     const h1 = createBlock('heading', { headingLevel: 1 });
     expect(h1.style.marginTop).toBe(0);
-    expect(effectiveBlockSpacing(h1)).toEqual({ marginTop: 27, marginBottom: 8, lineHeight: 1.15 });
+    expect(effectiveBlockSpacing(h1, undefined, DOCS)).toEqual({ marginTop: 27, marginBottom: 8, lineHeight: 1.15 });
   });
 
   it('leaves a paragraph at the defaults', () => {
-    expect(effectiveBlockSpacing(createBlock('paragraph')))
-      .toEqual({ marginTop: 0, marginBottom: 8, lineHeight: 1.5 });
+    expect(effectiveBlockSpacing(createBlock('paragraph'), undefined, DOCS))
+      .toEqual({ marginTop: 0, marginBottom: 0, lineHeight: 1.15 });
   });
 
   it('resolves each built-in style to its own catalog values', () => {
     const title = createBlock('title');
-    expect(effectiveBlockSpacing(title)).toEqual({ marginTop: 0, marginBottom: 4, lineHeight: 1.15 });
+    expect(effectiveBlockSpacing(title, undefined, DOCS)).toEqual({ marginTop: 0, marginBottom: 4, lineHeight: 1.15 });
     const sub = createBlock('subtitle');
-    expect(effectiveBlockSpacing(sub)).toEqual({ marginTop: 0, marginBottom: 21, lineHeight: 1.15 });
+    expect(effectiveBlockSpacing(sub, undefined, DOCS)).toEqual({ marginTop: 0, marginBottom: 21, lineHeight: 1.15 });
     const h3 = createBlock('heading', { headingLevel: 3 });
-    expect(effectiveBlockSpacing(h3)).toEqual({ marginTop: 21, marginBottom: 5, lineHeight: 1.15 });
+    expect(effectiveBlockSpacing(h3, undefined, DOCS)).toEqual({ marginTop: 21, marginBottom: 5, lineHeight: 1.15 });
   });
 
   it('lets an authored value win over the style', () => {
     const h1 = createBlock('heading', { headingLevel: 1 });
     h1.style.marginTop = 40;
-    expect(effectiveBlockSpacing(h1).marginTop).toBe(40);
+    expect(effectiveBlockSpacing(h1, undefined, DOCS).marginTop).toBe(40);
     // A non-default 0 bottom margin (what the PPTX importer writes) is
     // authored, so it must survive rather than snapping back to the style's 8.
     h1.style.marginBottom = 0;
-    expect(effectiveBlockSpacing(h1).marginBottom).toBe(0);
+    expect(effectiveBlockSpacing(h1, undefined, DOCS).marginBottom).toBe(0);
   });
 
   it('lets an authored leading win over the style leading', () => {
     const title = createBlock('title');
     title.style.lineHeight = 2;
-    expect(effectiveBlockSpacing(title).lineHeight).toBe(2);
+    expect(effectiveBlockSpacing(title, undefined, DOCS).lineHeight).toBe(2);
   });
 
   it('expresses an authored leading that equals the default multiplier', () => {
@@ -368,14 +376,14 @@ describe('effectiveBlockSpacing', () => {
     const title = createBlock('title');
     title.style.lineHeight = 1.5;
     title.style.authoredLineHeight = true;
-    expect(effectiveBlockSpacing(title).lineHeight).toBe(1.5);
+    expect(effectiveBlockSpacing(title, undefined, DOCS).lineHeight).toBe(1.5);
 
     // …and the same on the styles where 1.5 is also the inherited value, where
     // it was never observable either way.
     const para = createBlock('paragraph');
     para.style.lineHeight = 1.5;
     para.style.authoredLineHeight = true;
-    expect(effectiveBlockSpacing(para).lineHeight).toBe(1.5);
+    expect(effectiveBlockSpacing(para, undefined, DOCS).lineHeight).toBe(1.5);
   });
 
   it('expresses an authored zero space-before (Word\'s "Remove Space Before")', () => {
@@ -386,12 +394,12 @@ describe('effectiveBlockSpacing', () => {
     const h1 = createBlock('heading', { headingLevel: 1 });
     h1.style.marginTop = 0;
     h1.style.authoredMarginTop = true;
-    expect(effectiveBlockSpacing(h1).marginTop).toBe(0);
+    expect(effectiveBlockSpacing(h1, undefined, DOCS).marginTop).toBe(0);
 
     // Same for `w:after="0"` against Heading 1's 8 px space-after.
     h1.style.marginBottom = 8;
     h1.style.authoredMarginBottom = true;
-    expect(effectiveBlockSpacing(h1).marginBottom).toBe(8);
+    expect(effectiveBlockSpacing(h1, undefined, DOCS).marginBottom).toBe(8);
   });
 
   it('marks each field independently', () => {
@@ -402,7 +410,7 @@ describe('effectiveBlockSpacing', () => {
     const h1 = createBlock('heading', { headingLevel: 1 });
     h1.style.lineHeight = 1.5;
     h1.style.authoredLineHeight = true;
-    expect(effectiveBlockSpacing(h1)).toEqual({
+    expect(effectiveBlockSpacing(h1, undefined, DOCS)).toEqual({
       marginTop: 27, marginBottom: 8, lineHeight: 1.5,
     });
   });
@@ -418,8 +426,8 @@ describe('effectiveBlockSpacing', () => {
     h1.style.lineHeight = 3;
     h1.style.authoredMarginTop = false;
     h1.style.authoredLineHeight = false;
-    expect(effectiveBlockSpacing(h1).marginTop).toBe(27);
-    expect(effectiveBlockSpacing(h1).lineHeight).toBe(1.15);
+    expect(effectiveBlockSpacing(h1, undefined, DOCS).marginTop).toBe(27);
+    expect(effectiveBlockSpacing(h1, undefined, DOCS).lineHeight).toBe(1.15);
   });
 
   it('falls back to the value sentinel when no marker is present', () => {
@@ -428,20 +436,20 @@ describe('effectiveBlockSpacing', () => {
     // is what repairs them at the next repaint with zero CRDT writes.
     const legacy = createBlock('heading', { headingLevel: 1 });
     expect(legacy.style.authoredMarginTop).toBeUndefined();
-    expect(effectiveBlockSpacing(legacy)).toEqual({
+    expect(effectiveBlockSpacing(legacy, undefined, DOCS)).toEqual({
       marginTop: 27, marginBottom: 8, lineHeight: 1.15,
     });
     legacy.style.marginTop = 40;
-    expect(effectiveBlockSpacing(legacy).marginTop).toBe(40);
+    expect(effectiveBlockSpacing(legacy, undefined, DOCS).marginTop).toBe(40);
   });
 
   it('follows a document-level style override', () => {
     const h1 = createBlock('heading', { headingLevel: 1 });
     const docStyles: DocStyles = { 'heading-1': { block: { marginTop: 44 } } };
-    expect(effectiveBlockSpacing(h1, docStyles).marginTop).toBe(44);
+    expect(effectiveBlockSpacing(h1, docStyles, DOCS).marginTop).toBe(44);
     // Including an override *back to* the sentinel value: the lazy path reads
     // the same registry the eager one writes from, so they cannot disagree.
-    expect(effectiveBlockSpacing(h1, { 'heading-1': { block: { marginTop: 0 } } }).marginTop)
+    expect(effectiveBlockSpacing(h1, { 'heading-1': { block: { marginTop: 0 } } }, DOCS).marginTop)
       .toBe(0);
   });
 
@@ -453,10 +461,13 @@ describe('effectiveBlockSpacing', () => {
     // `blockStyleId` clamps to heading-6, but assert the `??` guard directly
     // by resolving a style whose block sub-key is missing entirely.
     expect(resolveStyleBlock('heading-9' as never)).toEqual({});
+    // And the block-value fallback itself. A host that declines the catalog
+    // resolves every field straight off the block, which is also what the `??`
+    // guard produces if a style entry is ever missing one.
     const orphan = createBlock('paragraph');
-    orphan.style.marginTop = 0;
-    expect(effectiveBlockSpacing(orphan, { 'normal': { block: {} } }))
-      .toEqual({ marginTop: 0, marginBottom: 8, lineHeight: 1.5 });
+    orphan.style.marginTop = 3;
+    expect(effectiveBlockSpacing(orphan))
+      .toEqual({ marginTop: 3, marginBottom: 8, lineHeight: 1.5 });
   });
 
   it('agrees with the eager materialize path for every built-in style', () => {
@@ -473,11 +484,15 @@ describe('effectiveBlockSpacing', () => {
       const eager = materializeBlockSpacing(block);
       // The docs context, because `materializeBlockSpacing` reads the catalog
       // unconditionally and only a docs host resolves `normal` from it.
-      const lazy = effectiveBlockSpacing(block, undefined, { normalStyleSpacing: true });
-      expect(lazy).toEqual({
+      const lazy = effectiveBlockSpacing(block, undefined, DOCS);
+      // Margins only: `materializeBlockSpacing` deliberately stopped writing
+      // `lineHeight`, so there is no eager leading left to agree with. That is
+      // the point — a registry reset must not overwrite a paragraph's authored
+      // line spacing, and slides must not have catalog leading written into
+      // its CRDT by `setBlockType`.
+      expect({ marginTop: lazy.marginTop, marginBottom: lazy.marginBottom }).toEqual({
         marginTop: eager.marginTop,
         marginBottom: eager.marginBottom,
-        lineHeight: eager.lineHeight,
       });
     }
   });
@@ -491,7 +506,7 @@ describe('effectiveBlockSpacing', () => {
     // Assert the property itself rather than the mechanism that delivers it:
     // a registry-less, context-less resolve must return exactly the numbers
     // the block already carries. This survives a future refactor of *how*
-    // `normalStyleSpacing` is plumbed, which the previous version of this test
+    // `namedStyleSpacing` is plumbed, which the previous version of this test
     // — an equality check between `resolveStyleBlock('normal')` and the
     // sentinel — did not.
     for (const type of ['paragraph', 'list-item'] as const) {
@@ -515,36 +530,42 @@ describe('effectiveBlockSpacing — contextual list spacing', () => {
   const item = () => createBlock('list-item');
   const para = () => createBlock('paragraph');
   const on = (prev?: ReturnType<typeof para>, next?: ReturnType<typeof para>) =>
-    ({ prev, next, contextualListSpacing: true });
+    ({ prev, next, contextualListSpacing: true, ...DOCS });
+  // The shipped catalog matches Google, whose Normal has NO space after, so a
+  // list item's gap is already 0 and the contextual rule has nothing to close
+  // — it is dormant by default and only observable once a document gives
+  // `normal` a space-after. These tests supply one, so "the rule did not fire"
+  // stays distinguishable from "there was no gap to begin with".
+  const spaced: DocStyles = { normal: { block: { marginBottom: 8 } } };
 
   it('closes the gap between adjacent items and keeps it around the run', () => {
     const [a, b, c] = [item(), item(), item()];
     // First item: paragraph above, bullet below → keeps its space-before,
     // drops its space-after.
-    expect(effectiveBlockSpacing(a, undefined, on(para(), b)))
+    expect(effectiveBlockSpacing(a, spaced, on(para(), b)))
       .toMatchObject({ marginTop: 0, marginBottom: 0 });
     // Middle: both gaps closed.
-    expect(effectiveBlockSpacing(b, undefined, on(a, c)))
+    expect(effectiveBlockSpacing(b, spaced, on(a, c)))
       .toMatchObject({ marginTop: 0, marginBottom: 0 });
     // Last: bullet above, paragraph below → keeps the 8px after the list.
-    expect(effectiveBlockSpacing(c, undefined, on(b, para())))
+    expect(effectiveBlockSpacing(c, spaced, on(b, para())))
       .toMatchObject({ marginTop: 0, marginBottom: 8 });
   });
 
   it('leaves a one-item list alone', () => {
-    expect(effectiveBlockSpacing(item(), undefined, on(para(), para())))
+    expect(effectiveBlockSpacing(item(), spaced, on(para(), para())))
       .toMatchObject({ marginTop: 0, marginBottom: 8 });
   });
 
   it('separates two lists split by a paragraph', () => {
     // The last item of the first list and the first of the second each keep
     // their outer gap, so the intervening paragraph is not glued to either.
-    expect(effectiveBlockSpacing(item(), undefined, on(item(), para())).marginBottom).toBe(8);
-    expect(effectiveBlockSpacing(item(), undefined, on(para(), item())).marginBottom).toBe(0);
+    expect(effectiveBlockSpacing(item(), spaced, on(item(), para())).marginBottom).toBe(8);
+    expect(effectiveBlockSpacing(item(), spaced, on(para(), item())).marginBottom).toBe(0);
   });
 
   it('never touches a paragraph, even between two list items', () => {
-    expect(effectiveBlockSpacing(para(), undefined, on(item(), item())))
+    expect(effectiveBlockSpacing(para(), spaced, on(item(), item())))
       .toMatchObject({ marginTop: 0, marginBottom: 8 });
   });
 
@@ -553,7 +574,7 @@ describe('effectiveBlockSpacing — contextual list spacing', () => {
     // that carry custom spacing into a list would silently flatten them.
     const b = item();
     b.style.marginBottom = 20;
-    expect(effectiveBlockSpacing(b, undefined, on(item(), item())).marginBottom).toBe(20);
+    expect(effectiveBlockSpacing(b, spaced, on(item(), item())).marginBottom).toBe(20);
   });
 
   it('is inert with the flag off (the slides / board path)', () => {
@@ -609,12 +630,28 @@ describe('materializeBlockSpacing clears the authored markers', () => {
     h1.style.authoredLineHeight = true;
     const materialized = materializeBlockSpacing(h1);
     expect(materialized).toMatchObject({
-      marginTop: 27, marginBottom: 8, lineHeight: 1.15,
+      marginTop: 27, marginBottom: 8,
       ...clearAuthoredSpacing(),
     });
+    // The *value* is never written — leading stays a purely resolved field, so
+    // a slides `setBlockType` cannot put catalog leading into a deck's CRDT.
+    expect(materialized.lineHeight).toBe(2);
+    // Its marker still clears, because applying a style is "clear direct
+    // paragraph formatting" and this is the only way back to the style's
+    // leading.
+    expect(materialized.authoredLineHeight).toBe(false);
     expect(clearAuthoredSpacing()).toEqual({
       authoredMarginTop: false, authoredMarginBottom: false, authoredLineHeight: false,
     });
+    // A registry operation is the exception: `resetStyle` / `resetAllStyles` /
+    // "Update Normal to match" run over every block at once, and must not
+    // rewrite direct paragraph formatting document-wide.
+    expect(clearAuthoredSpacing({ keepAuthoredLeading: true })).toEqual({
+      authoredMarginTop: false, authoredMarginBottom: false,
+    });
+    const kept = materializeBlockSpacing(h1, undefined, { keepAuthoredLeading: true });
+    expect(kept.lineHeight).toBe(2);
+    expect(kept.authoredLineHeight).toBe(true);
   });
 
   it('leaves a materialized block tracking a later redefinition', () => {
@@ -623,7 +660,7 @@ describe('materializeBlockSpacing clears the authored markers', () => {
     const h1 = createBlock('heading', { headingLevel: 1 });
     h1.style = materializeBlockSpacing(h1);
     const redefined: DocStyles = { 'heading-1': { block: { marginTop: 40 } } };
-    expect(effectiveBlockSpacing(h1, redefined).marginTop).toBe(40);
+    expect(effectiveBlockSpacing(h1, redefined, DOCS).marginTop).toBe(40);
   });
 
   it('is what rematerializeDocSpacing writes', () => {
@@ -646,7 +683,7 @@ describe('the style registry never carries an authored marker', () => {
     const h1 = createBlock('heading', { headingLevel: 1 });
     h1.style.lineHeight = 1.5;
     h1.style.authoredLineHeight = true;
-    expect(Object.keys(effectiveBlockSpacing(h1)).sort())
+    expect(Object.keys(effectiveBlockSpacing(h1, undefined, DOCS)).sort())
       .toEqual(['lineHeight', 'marginBottom', 'marginTop']);
   });
 
@@ -708,13 +745,19 @@ describe('effectiveBlockSpacing is a no-op without a registry (slides / board)',
   });
 
   it('the one divergent branch, `false`, is unreachable without a registry', () => {
-    // `false` is written by exactly one function — `materializeBlockSpacing` —
-    // which slides/board never call: no `setBlockType` on a slides text body,
-    // no named-style registry, no `rematerializeDocSpacing`. Asserted here so
-    // the exception is documented rather than merely absent from the matrix.
+    // `false` is written by `materializeBlockSpacing`, which slides DOES
+    // reach — via `MemDocStore.setBlockType`, which the shared `TextEditor`
+    // binds to Cmd/Ctrl+Alt+1-6 and the `# ` markdown auto-convert. An earlier
+    // version of this comment claimed slides never called it, and that false
+    // claim is what let a deck-reflow regression through review.
+    //
+    // It is still a no-op, but for the real reason: a host that declines the
+    // catalog reads the field straight off the block, marker or not. So a
+    // materialized 0 resolves to 0 — exactly what layout read before this
+    // seam existed — rather than snapping back to the sentinel's 8.
     const b = createBlock('paragraph');
     b.style.marginBottom = 0;
     b.style.authoredMarginBottom = false;
-    expect(effectiveBlockSpacing(b).marginBottom).toBe(DEFAULT_BLOCK_STYLE.marginBottom);
+    expect(effectiveBlockSpacing(b).marginBottom).toBe(0);
   });
 });

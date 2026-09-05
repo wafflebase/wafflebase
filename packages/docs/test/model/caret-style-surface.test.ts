@@ -65,13 +65,16 @@ describe('caret style is resolved on the light surface, whatever the theme', () 
     const s = caretInlineStyle(doc, { blockId: 'h3', offset: 1 }, true);
     const captured = {
       inline: { fontSize: s.fontSize, color: s.color, italic: true },
-      block: effectiveBlockSpacing(doc.findBlock('h3')!, doc.document.styles),
+      block: effectiveBlockSpacing(doc.findBlock('h3')!, doc.document.styles, { namedStyleSpacing: true }),
     };
     expect(captured.inline.color).toBe('#434343');
     expect(captured.inline.fontSize).toBe(14);
 
     const def = omitBuiltinStyleDefaults('heading-3', captured);
     expect(def.inline).toEqual({ italic: true });
+    // `block` prunes to empty only if the captured spacing equals the
+    // built-in's. It does — the capture is taken through the same docs
+    // resolution the renderer uses.
     expect(def.block).toEqual({});
   });
 });

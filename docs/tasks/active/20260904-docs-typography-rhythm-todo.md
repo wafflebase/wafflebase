@@ -110,8 +110,25 @@ visible today.
       summaries) simply omit it, so a PDF exported from a dark-mode
       editor is still black-on-white and "Update to match" still
       persists `#434343`.
-- [ ] `pnpm verify:fast` green; update `docs/design/docs/docs-named-styles.md`
-      for the resolution-order change.
+- [x] `pnpm verify:fast` green; `docs/design/docs/docs-named-styles.md` updated
+      for the resolution-order change, the corrected catalog, and the
+      `namedStyleSpacing` opt-in.
+- [x] **Google Docs parity pass.** Read the factory catalog out of a Google
+      document's own `word/styles.xml` right after `Format -> Paragraph styles
+      -> Options -> Reset styles` (the account had saved custom default styles,
+      so a fresh blank document was NOT factory). Three catalog errors fell out:
+      Heading 2 and Heading 3 are bold, Subtitle is italic, and Subtitle's
+      space-after was the raw point number in a pixel field. Measured against
+      the same document, the remaining difference was all in the body —
+      13.1px per paragraph, 23% of the document's height — so `normal` moved to
+      Google's 1.15 / 0 and the per-style leading ladder was retired. Final
+      delta: 1.33px over a 457px document, all of it pt->px rounding.
+- [x] **Code review round.** Two Critical findings, both confirmed
+      empirically before fixing: gating only `normal` let slides *headings*
+      resolve catalog leading (20pt slide heading line box 40.0 -> 30.67px),
+      and `scaleBlocks` was silently discarded on materialized blocks, breaking
+      autofit. Fixed by gating the whole catalog behind `namedStyleSpacing` and
+      by keeping `lineHeight` out of the eager write.
 - [ ] Research (separate, no code): heading weight contrast, the 96-char
       measure, and the irregular type scale — parity-with-Google-Docs vs
       differentiate. Findings land in the lessons file / a design doc.

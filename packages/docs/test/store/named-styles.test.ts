@@ -28,7 +28,9 @@ describe('MemDocStore named styles', () => {
     // Leading is style-owned too, so applying a style resets line spacing —
     // Google Docs' behaviour, and what keeps this eager write in agreement
     // with the lazy `effectiveBlockSpacing` the renderer resolves through.
-    expect(block.style.lineHeight).toBe(BUILTIN_STYLES['heading-1'].block.lineHeight);
+    // Leading is NOT materialized — it stays a purely resolved field, so the
+    // block keeps whatever it had. See `materializeBlockSpacing`.
+    expect(block.style.lineHeight).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
   });
 
   it('setBlockType back to paragraph resets heading spacing', () => {
@@ -38,7 +40,7 @@ describe('MemDocStore named styles', () => {
     const block = store.getBlock('a')!;
     expect(block.style.marginTop).toBe(BUILTIN_STYLES['normal'].block.marginTop);
     expect(block.style.marginBottom).toBe(BUILTIN_STYLES['normal'].block.marginBottom);
-    expect(block.style.lineHeight).toBe(BUILTIN_STYLES['normal'].block.lineHeight);
+    expect(block.style.lineHeight).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
   });
 
   it('a bullet toggle (paragraph↔list-item) does not disturb custom spacing', () => {
@@ -130,15 +132,15 @@ describe('the interactive line-spacing pick sticks (Doc.applyBlockStyle funnel)'
     const { doc, store } = titleDoc();
     doc.applyBlockStyle('t', { lineHeight: 1.5 });
     expect(store.getBlock('t')!.style.authoredLineHeight).toBe(true);
-    expect(effectiveBlockSpacing(store.getBlock('t')!).lineHeight).toBe(1.5);
+    expect(effectiveBlockSpacing(store.getBlock('t')!, undefined, { namedStyleSpacing: true }).lineHeight).toBe(1.5);
   });
 
   it('1.5 from an authored 2.0 lands on 1.5, not on the style leading', () => {
     const { doc, store } = titleDoc();
     doc.applyBlockStyle('t', { lineHeight: 2 });
-    expect(effectiveBlockSpacing(store.getBlock('t')!).lineHeight).toBe(2);
+    expect(effectiveBlockSpacing(store.getBlock('t')!, undefined, { namedStyleSpacing: true }).lineHeight).toBe(2);
     doc.applyBlockStyle('t', { lineHeight: 1.5 });
-    expect(effectiveBlockSpacing(store.getBlock('t')!).lineHeight).toBe(1.5);
+    expect(effectiveBlockSpacing(store.getBlock('t')!, undefined, { namedStyleSpacing: true }).lineHeight).toBe(1.5);
   });
 
   it('claims only the leading, leaving the style\'s space-before intact', () => {
@@ -146,7 +148,7 @@ describe('the interactive line-spacing pick sticks (Doc.applyBlockStyle funnel)'
     h1.id = 'h';
     const store = new MemDocStore(docWith(h1 as Block));
     new Doc(store).applyBlockStyle('h', { lineHeight: 1.5 });
-    expect(effectiveBlockSpacing(store.getBlock('h')!)).toEqual({
+    expect(effectiveBlockSpacing(store.getBlock('h')!, undefined, { namedStyleSpacing: true })).toEqual({
       marginTop: 27, marginBottom: 8, lineHeight: 1.5,
     });
   });
@@ -160,7 +162,7 @@ describe('the interactive line-spacing pick sticks (Doc.applyBlockStyle funnel)'
     expect(style.authoredMarginTop).toBeUndefined();
     expect(style.authoredMarginBottom).toBeUndefined();
     // …so the Title still leads at its own 1.1.
-    expect(effectiveBlockSpacing(store.getBlock('t')!).lineHeight)
+    expect(effectiveBlockSpacing(store.getBlock('t')!, undefined, { namedStyleSpacing: true }).lineHeight)
       .toBe(BUILTIN_STYLES['title'].block.lineHeight);
   });
 
@@ -173,7 +175,7 @@ describe('the interactive line-spacing pick sticks (Doc.applyBlockStyle funnel)'
     doc.setBlockType('t', 'paragraph');
     doc.setBlockType('t', 'title');
     expect(store.getBlock('t')!.style.authoredLineHeight).toBe(false);
-    expect(effectiveBlockSpacing(store.getBlock('t')!).lineHeight)
+    expect(effectiveBlockSpacing(store.getBlock('t')!, undefined, { namedStyleSpacing: true }).lineHeight)
       .toBe(BUILTIN_STYLES['title'].block.lineHeight);
   });
 });

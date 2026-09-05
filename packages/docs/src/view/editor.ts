@@ -3425,9 +3425,9 @@ export function initialize(
       // Report the *effective* style, not the raw one, for the same reason
       // `updateStyleToMatch` captures the resolved value: every block ever
       // written carries `DEFAULT_BLOCK_STYLE`'s spacing, so the toolbar's line
-      // spacing control would read 1.5 on a Title the page actually paints at
-      // 1.1. A control that disagrees with the page is worse than one that is
-      // merely limited.
+      // spacing control would read 1.5 on a paragraph the page actually paints
+      // at Google's 1.15. A control that disagrees with the page is worse than
+      // one that is merely limited.
       //
       // The contextual list zeroes are deliberately NOT folded in: a middle
       // bullet's resolved space-after is 0 only *because of its neighbours*,
