@@ -483,3 +483,108 @@ describe("board touch gestures — the menu ends the gesture", () => {
     expect(t.viewport.panX).toBe(100);
   });
 });
+
+describe("board touch gestures — bookkeeping across the editor's guard", () => {
+  function makeDom() {
+    const container = document.createElement("div");
+    const canvas = document.createElement("canvas");
+    container.append(canvas);
+    document.body.append(container);
+    return { container, canvas };
+  }
+
+  const press = (el: Element, id: number) =>
+    el.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        pointerId: id,
+        clientX: 10,
+        clientY: 10,
+        pointerType: "touch",
+        bubbles: true,
+      }),
+    );
+  const release = (el: Element, id: number) =>
+    el.dispatchEvent(
+      new PointerEvent("pointerup", {
+        pointerId: id,
+        clientX: 10,
+        clientY: 10,
+        pointerType: "touch",
+        bubbles: true,
+      }),
+    );
+
+  it("still sees a release the editor stops at document capture", () => {
+    // The editor drops a foreign touch's `pointerup` at `document`
+    // capture so a second finger cannot drive the first one's gesture.
+    // This layer binds on `window`, which the capture phase reaches
+    // first — otherwise that pointer would never leave `active`, and a
+    // gesture only ends when `active` drains, so the board would accept
+    // no further pan for the life of the mount.
+    const t = makeHost({ content: () => true }); // press is conceded
+    const { container, canvas } = makeDom();
+    const editorGuard = (e: Event) => {
+      if ((e as PointerEvent).pointerId !== 1) e.stopPropagation();
+    };
+    document.addEventListener("pointerup", editorGuard, true);
+    const detach = attachBoardTouchGestures(container, t.host, {
+      isSceneSurface: () => true,
+    });
+
+    press(canvas, 1); // conceded to the editor
+    press(canvas, 2); // second finger
+    release(canvas, 2); // the editor stops this at document capture
+    release(canvas, 1);
+
+    // The gesture drained, so a fresh press on empty canvas is claimed.
+    t.host.hasContentAt = () => false;
+    expect(t.host.getViewport()).toEqual({ panX: 0, panY: 0, zoom: 1 });
+    press(canvas, 3);
+    canvas.dispatchEvent(
+      new PointerEvent("pointermove", {
+        pointerId: 3,
+        clientX: 200,
+        clientY: 10,
+        pointerType: "touch",
+        bubbles: true,
+      }),
+    );
+    expect(t.viewport.panX).toBeGreaterThan(0);
+
+    document.removeEventListener("pointerup", editorGuard, true);
+    detach();
+  });
+});
+
+describe("board touch gestures — extra fingers while the menu is open", () => {
+  it("does not reset the gesture while another finger is still down", () => {
+    // A pointer swallowed by menu mode is still a pointer that is down.
+    // Untracked, the initiating finger's release drains `pointers` to
+    // empty and resets — after which a further press starts fresh and
+    // pans behind the open menu.
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 100, 100, 0));
+    t.fireTimers();
+    g.down(at(2, 200, 100, 600));
+    g.up(at(1, 100, 100, 700));
+    // A third finger must not start a pan: the gesture is still the
+    // menu's until every finger lifts.
+    g.down(at(3, 300, 100, 800));
+    g.move(at(3, 500, 100, 900));
+    expect(t.viewport).toEqual({ panX: 0, panY: 0, zoom: 1 });
+  });
+
+  it("frees the gesture once the last finger lifts", () => {
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 100, 100, 0));
+    t.fireTimers();
+    g.down(at(2, 200, 100, 600));
+    g.up(at(1, 100, 100, 700));
+    g.up(at(2, 200, 100, 800));
+    g.down(at(1, 100, 100, 900));
+    g.move(at(1, 200, 100, 1000));
+    expect(t.viewport.panX).toBe(100);
+  });
+});

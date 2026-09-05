@@ -209,12 +209,17 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
       return true;
     }
     if (!owned) return false;
+    // Tracked BEFORE the menu-mode return: a pointer we swallow is
+    // still a pointer that is down. Skipping it here would let the
+    // initiating finger's release drain `pointers` to empty and reset
+    // the gesture while another finger is still on the glass — after
+    // which a further press starts fresh and pans behind the open menu.
+    pointers.set(p.id, { x: p.clientX, y: p.clientY });
     // A second finger while a menu is open is still the menu's gesture:
     // swallow it so it neither pinches nor reaches the editor.
     if (mode === "menu") return true;
     // Otherwise a second finger is a pinch, not a menu.
     disarmLongPress();
-    pointers.set(p.id, { x: p.clientX, y: p.clientY });
     if (pointers.size >= 2) beginPinch();
     return true;
   };
@@ -409,10 +414,27 @@ export function attachBoardTouchGestures(
   };
 
   const opts = { capture: true } as const;
+  // The press is bound to `container`, because deciding whether it is
+  // ours needs to know it landed on the scene surface.
   container.addEventListener("pointerdown", onDown as EventListener, opts);
-  container.addEventListener("pointermove", onMove as EventListener, opts);
-  container.addEventListener("pointerup", onUp as EventListener, opts);
-  container.addEventListener("pointercancel", onCancel as EventListener, opts);
+  // The rest of the stream is bound to `window`, for two reasons.
+  //
+  // A gesture must survive the finger leaving the container — dragging
+  // to the edge of the plane and releasing outside it is an ordinary
+  // pan, and container-bound listeners would freeze it there and never
+  // see the release.
+  //
+  // And `window` is the FIRST target of the capture phase, ahead of
+  // `document`. That ordering is load-bearing: the slides editor stops
+  // a foreign touch's `pointerup` at `document` capture, so that a
+  // second finger cannot drive the gesture the first one started — on a
+  // container-bound listener this layer would never learn that pointer
+  // lifted. It would sit in `active` forever, and since a gesture ends
+  // only when `active` drains, the board would accept no further pan
+  // for the life of the mount.
+  window.addEventListener("pointermove", onMove as EventListener, opts);
+  window.addEventListener("pointerup", onUp as EventListener, opts);
+  window.addEventListener("pointercancel", onCancel as EventListener, opts);
 
   return () => {
     // Before the listeners, and load-bearing: a press still being timed
@@ -421,9 +443,9 @@ export function attachBoardTouchGestures(
     // store, and `onLongPress` reads both.
     gestures.reset();
     container.removeEventListener("pointerdown", onDown as EventListener, opts);
-    container.removeEventListener("pointermove", onMove as EventListener, opts);
-    container.removeEventListener("pointerup", onUp as EventListener, opts);
-    container.removeEventListener(
+    window.removeEventListener("pointermove", onMove as EventListener, opts);
+    window.removeEventListener("pointerup", onUp as EventListener, opts);
+    window.removeEventListener(
       "pointercancel",
       onCancel as EventListener,
       opts,
