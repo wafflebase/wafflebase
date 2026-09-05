@@ -338,7 +338,10 @@ export function BoardToolbar({
                 key={c.value}
                 aria-label={c.name}
                 title={c.name}
-                className="h-6 w-6 rounded border border-black/10 p-0"
+                // Rendered into a portal, so the toolbar root's coarse
+                // rule does not reach it — and a 24px swatch in a row
+                // of six is the smallest target in the whole strip.
+                className="h-6 w-6 rounded border border-black/10 p-0 pointer-coarse:h-11 pointer-coarse:w-11"
                 style={{ backgroundColor: c.value }}
                 onSelect={() => {
                   // Defer the actual insert to onCloseAutoFocus; onSelect just

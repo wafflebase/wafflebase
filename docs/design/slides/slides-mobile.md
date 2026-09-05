@@ -253,6 +253,172 @@ drag and long-press-callout were both blocked by the items above.
 Gate decision: option (B), proceed with the Pointer Events migration as
 Task 1a prerequisite.
 
+#### Touch beyond the mobile shell
+
+The strategy above holds, with one premise that turned out to be wrong:
+that "mobile" and "touch" name the same set of sessions. `useIsMobile()`
+answers *is this viewport narrow* (< 768px). A tablet, an Android
+tablet, and a phone in landscape all sit above that line and take the
+**desktop** mount — with no handle tolerance, no `touch-action`, and no
+callout suppression. The accommodations listed in the table above were
+therefore reaching a strict subset of the devices that need them.
+
+The axis is the input device, `(pointer: coarse)`. Imperative mounts
+read it through `isCoarsePointer()` in `@/hooks/use-coarse-pointer`;
+components express it as Tailwind's `pointer-coarse:` variant, which is
+the same media query evaluated by the browser with no re-render, so no
+React hook exists for it. `useIsMobile()` keeps its job — choosing the mobile *shell*, which is a layout question — and the
+touch accommodations key on the pointer instead.
+
+What that changed:
+
+- **Handle tolerance** (`TOUCH_HANDLE_TOLERANCE`, 22px) now also applies
+  on the desktop slides mount and on the board. The constant moved
+  beside the hook so the three mounts cannot drift.
+
+- **`touch-action: none` on the desktop slide canvas.** With none set,
+  the browser claimed every touch drag as a scroll of `scrollHost` and
+  cancelled the editor's pointer stream mid-gesture: on a tablet,
+  dragging a shape scrolled the page.
+
+  A first attempt conceded scrolling past Fit, where the canvas outgrows
+  its host and there genuinely is somewhere to scroll to, applying
+  `pan-x pan-y` there. That is worse than it reads. The press still
+  reaches the editor and starts a drag or a resize, and only *then* does
+  the browser take the gesture and fire `pointercancel`. The move and
+  lasso loops now abort on that; the handle loops (resize, rotate,
+  adjust, bend) still do not, so a stolen handle drag would leave
+  document listeners installed and let the next release anywhere commit
+  a resize the user had abandoned.
+
+  So it is `none` throughout on coarse input, and the cost is worth
+  stating plainly: past Fit a finger cannot scroll the slide, and the
+  way back is the zoom control. That is the trade every touch mount here
+  already makes — never concede a gesture the editor may be running.
+
+- **Drag thresholds per device** (`dragThresholdFor`), and — the part
+  that actually mattered — **a commit gate** (`commitsAsDrag`). 3px is a
+  mouse number: a mouse that has not moved reports no movement. A
+  fingertip reports 5–10px across a press the user experienced as
+  stationary, as the contact patch shifts and the browser re-centroids
+  it, so every tap nudged what it landed on and pushed an undo entry.
+
+  Raising the threshold does not by itself fix that, and assuming it did
+  was the substantive error in the first draft of this work. The
+  threshold fed only the snap corrections. The move commit keys on
+  `liveDx`/`liveDy`, assigned on every move with no threshold at all,
+  and the single- and multi-resize commits key on nothing — they write
+  `live.worldFrame` unconditionally. The gate now sits in all three
+  `onUp` paths.
+
+  It is **touch-only**, deliberately: a mouse reporting 1px of travel
+  was moved 1px on purpose, and slides has always committed that; two
+  existing tests pin it. `pen` stays on the mouse rules throughout,
+  being as precise.
+
+- **Slow double-click withheld from touch** (`allowsSlowDoubleClick`).
+  Its window is 3px over 350ms — inside that same jitter, so it could
+  not tell a deliberate second click from a tap held still. Widening it
+  would open the keyboard on every held tap. `dblclick` (double-tap) is
+  the touch route and was already wired.
+
+- **Non-primary touch pointers ignored** in `onPointerDown`, so a second
+  finger cannot re-enter select/drag/lasso on top of an in-flight
+  gesture. Scoped to `pointerType === 'touch'` rather than testing
+  `isPrimary` alone, because `PointerEventInit.isPrimary` **defaults to
+  false** — an `isPrimary`-only test silently rejects every synthetic
+  `PointerEvent`, which is what the editor dispatches internally and
+  what the whole interaction suite is built from.
+
+- **Long-press → context menu**, timed by the editor
+  (`LONG_PRESS_DELAY_MS` / `LONG_PRESS_TOLERANCE_PX`, matching
+  `use-mobile-sheet-gestures`). The table above notes that the iOS
+  callout is not a `contextmenu` event; the corollary it did not draw is
+  that suppressing the callout with `-webkit-touch-callout: none` also
+  costs the *real* `contextmenu`, so the menu had no touch entry point
+  at all. Disarmed by movement past the tolerance, by release, or by a
+  `pointercancel`, and skipped while an insert, crop, format-paint or
+  text-edit session owns the press — and on a selection handle, whose
+  press starts a gesture built to travel.
+
+  Firing also **aborts** the move-drag or lasso the press had already
+  started (`abortCanvasGesture`). Opening a menu over a live gesture is
+  not enough: "hold, then drag" is a natural grab, and the drag would go
+  on committing under a stale menu. Those two loops gained a
+  `pointercancel` listener through the same seam, which they had never
+  had — a gesture the platform revoked used to leave its document
+  listeners installed and let the next release anywhere commit.
+
+  `openContextMenuAt` is public so a host that intercepts a press first
+  can still offer the menu.
+
+- **Menu rows at ~44px** on coarse input (`context-menu.ts`), plus a
+  larger type size. The `max-height` + scroll that goes with it applies
+  to every pointer, since a long menu could always outgrow a short
+  window; it is sized from `window.innerHeight` rather than `100vh`,
+  which on mobile browsers is the *large* viewport and would let the cap
+  exceed the clamp's idea of the screen.
+
+- **Toolbar controls at a 44px floor**, applied on the shared `Toolbar`
+  root as `pointer-coarse:` `min-h` / `min-w` / `shrink-0`; Sheets,
+  Docs, Slides and Board are covered at once with no call site opting
+  in.
+
+  Getting this right took three measured rounds, and none of the
+  corrections were visible from the source.
+
+  `shrink-0` is load-bearing. A flex item's default `min-width: auto`
+  resolves to min-content, and that is what made these strips
+  overflow-and-scroll rather than compress. Replacing it with a hard
+  44px hands every button its content width as shrink budget: the font
+  picker fell to 64.9px with a truncated label, and the Docs "Page
+  number" label spilled out over its neighbour.
+
+  The width floor **skips buttons that declare a `min-w-[…]` arbitrary
+  value**, because a descendant selector outranks the `min-w-[112px]`
+  that `FontFamilyPicker`, `TextStyleGroup` and `ZoomControl` each set —
+  and replacing a stability floor with a smaller one made those triggers
+  resize as their label changed. The discriminator is the *bracket*, not
+  the prefix: excluding every `min-w-` also excluded `Toggle`
+  (`min-w-8`/`9`/`10`) and the Shape and Line pickers, which are the most
+  common controls in these strips and would have quietly lost the floor.
+  An arbitrary value is a deliberate width; a scale value is a
+  primitive's own minimum.
+
+  `Toolbar` takes a **`touchTargets`** prop for the same reason the
+  above needed care. `"scroll"` (default) is for strips built to
+  overflow. `"fit"` is for one that must fit its viewport: the mobile
+  slides bars pin Done / ⋮ right with a `flex-1` spacer, which collapses
+  to zero the moment the row overflows — with the width floor on, that
+  row measured 428px against a 390px iPhone and pushed Done off-screen.
+  `"fit"` takes the height floor only, so icon buttons there are 28px
+  wide and 44px tall. At 320px that bar still overflows, but it is
+  *narrower* on coarse (336px) than on fine (343px), so the constraint
+  predates this work; fixing it means fewer controls or a wrapping
+  layout.
+
+  Two containers also had to grow, because a fixed height *clips* a
+  floor rather than growing to it: the mobile slides strip
+  (`h-10` → `h-auto` + `min-h-14`; a flat `h-14` leaves 43px of content
+  box after the border and padding) and the font-size picker's bordered
+  pill (44px border-box leaves 42px inside for 44px children).
+
+  **Remaining gap:** the rule reaches this subtree only, and `Sheet`,
+  `Popover`, `DropdownMenu` and `Tooltip` all portal. On the mobile
+  slides surface that means the ~6 strip buttons grow while everything
+  inside `FormatSheet` / `TextFormatSheet` / `InsertSheet` stays at
+  28px, as does every `ColorSwatch` (20px) across Docs, Sheets and
+  Slides. Closing that is a pass over the shared controls themselves,
+  not another root rule.
+
+- **Presentation mode navigates both ways.** Click-to-advance already
+  worked under a finger, but every route *back* was a key, so a deck
+  presented from a tablet was one-directional. Swipe moves both ways
+  (50px, 600ms, horizontal-dominant) and a tap in the left third goes
+  back. The zones are touch-only — a mouse keeps click-anywhere — and a
+  flag stops the synthetic click that follows a touch from advancing a
+  second time.
+
 #### Mobile text formatting
 
 Text formatting shipped as `MobileSlidesToolbar`

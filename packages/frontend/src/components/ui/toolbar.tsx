@@ -7,16 +7,82 @@ import { cn } from "@/lib/utils";
  * Root container for a horizontal toolbar strip.
  * Provides consistent height, spacing, scroll and border styling
  * shared across the Sheets and Docs formatting toolbars.
+ *
+ * On a coarse pointer every `button` inside takes a 44px height floor.
+ * The toolbars are built from 28–32px buttons — correct for a cursor,
+ * and roughly half of what a fingertip can hit reliably, which on a
+ * strip of adjacent single-purpose buttons means the neighbour is as
+ * likely as the target. Applied here, on the shared root, so Sheets,
+ * Docs, Slides and Board are covered at once.
+ *
+ * Width is the harder half, and it is what `touchTargets` selects
+ * between. Both modes were measured under real coarse emulation.
+ *
+ * `"scroll"` (default) is for the strips that already overflow and
+ * scroll. They get a width floor too, plus `shrink-0` — which is not
+ * decoration. A flex item's default `min-width: auto` resolves to its
+ * min-content size, and *that* is what made these strips overflow
+ * rather than compress. Replacing it with a hard 44px hands every
+ * button its content width as shrink budget; the measured result was
+ * a font picker at 64.9px with a truncated label and a Docs "Page
+ * number" label spilling out over its neighbour.
+ *
+ * The width floor skips buttons that set a `min-w-[…]` **arbitrary**
+ * value. A descendant selector outranks the `min-w-[112px]` that
+ * `FontFamilyPicker`, `TextStyleGroup` and `ZoomControl` each declare,
+ * and silently replacing a stability floor with a smaller one made
+ * those triggers resize as their label changed — the zoom trigger
+ * shifting everything to its right on every zoom change.
+ *
+ * The discriminator is the bracket, not the prefix, and that precision
+ * is the whole point: excluding every `min-w-` would also exclude
+ * `Toggle`, whose size variants carry `min-w-8` / `min-w-9` / `min-w-10`
+ * — and Toggles are the most common control in these strips (Bold,
+ * Italic, the Board tool picker), which would have quietly lost the
+ * floor. An arbitrary value is a deliberate width; a scale value is a
+ * primitive's own minimum. Chromium keeps the selector (it re-serializes
+ * it with the quotes Tailwind dropped) and a `min-w-8` Toggle measures
+ * 44×44 while a `min-w-[64px]` trigger stays 64.
+ *
+ * `"fit"` is for a strip that must fit its viewport rather than scroll:
+ * the mobile slides bars pin Done / ⋮ to the right with a `flex-1`
+ * spacer, and a spacer collapses to zero the moment the row overflows.
+ * With the width floor on, that row measured 428px against a 390px
+ * iPhone and pushed Done 30px off-screen. So `"fit"` takes the height
+ * floor only, leaving icon buttons 28px wide and 44px tall. That is a
+ * real compromise, and the better half of one: a fingertip on a
+ * horizontal strip is bounded by height far more often than by width.
+ *
+ * At 320px the text-edit bar still overflows (336px of content) and
+ * Done loses ~8px off the right edge. That is not this rule's doing —
+ * the same bar is 343px wide on a fine pointer, so coarse is the
+ * narrower of the two — and fixing it means fewer controls or a
+ * wrapping layout, not a sizing tweak.
+ *
+ * Controls rendered into a portal — everything inside a dropdown, a
+ * popover or a bottom sheet — are outside this subtree and keep their
+ * own sizing. That is a real remaining gap on the mobile slides
+ * surface, where most controls live in sheets; see
+ * docs/design/slides/slides-mobile.md.
  */
 function Toolbar({
   className,
   children,
+  touchTargets = "scroll",
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & {
+  touchTargets?: "scroll" | "fit";
+}) {
   return (
     <div
       className={cn(
         "flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap",
+        "pointer-coarse:gap-1 pointer-coarse:py-1.5",
+        "pointer-coarse:[&_button]:min-h-11",
+        touchTargets === "scroll" && [
+          "pointer-coarse:[&_button:not([class*='min-w-['])]:min-w-11",
+          "pointer-coarse:[&_button]:shrink-0",
+        ],
         className,
       )}
       {...props}
