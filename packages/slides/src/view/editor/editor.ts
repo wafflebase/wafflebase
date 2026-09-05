@@ -757,6 +757,7 @@ interface ListenerEntry<E extends Event = Event> {
   target: EventTarget;
   type: string;
   handler: (e: E) => void;
+  capture?: boolean;
 }
 
 class SlidesEditorImpl implements SlidesEditor {
@@ -985,6 +986,12 @@ class SlidesEditorImpl implements SlidesEditor {
    * from the pointerdown that opened the gesture.
    */
   private activePointerType: string | undefined;
+  /**
+   * `pointerId` of the press that started the current gesture, so a
+   * second finger's move and release can be told apart from the first
+   * finger's. Null outside a gesture. See `dropForeignPointer`.
+   */
+  private activePointerId: number | null = null;
   /** Listeners for crop-session state changes (enter + exit). */
   private cropListeners = new Set<() => void>();
   /** Listeners for table cell-range selection state changes. */
@@ -2852,8 +2859,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.rotateTooltipEl.remove();
       this.rotateTooltipEl = null;
     }
-    for (const { target, type, handler } of this.listeners) {
-      target.removeEventListener(type, handler as EventListener);
+    for (const { target, type, handler, capture } of this.listeners) {
+      target.removeEventListener(type, handler as EventListener, capture);
     }
     this.listeners.length = 0;
     this.ruler?.dispose();
@@ -2861,12 +2868,52 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /** Internal helper used by interaction modules in T3-T7. */
-  on<E extends Event>(target: EventTarget, type: string, handler: (e: E) => void): void {
-    target.addEventListener(type, handler as EventListener);
-    this.listeners.push({ target, type, handler: handler as (e: Event) => void });
+  on<E extends Event>(
+    target: EventTarget,
+    type: string,
+    handler: (e: E) => void,
+    capture = false,
+  ): void {
+    target.addEventListener(type, handler as EventListener, capture);
+    this.listeners.push({
+      target,
+      type,
+      handler: handler as (e: Event) => void,
+      capture,
+    });
   }
 
   private attachInteractions(): void {
+    // Multi-touch, second half. The guard in `onPointerDown` stops a
+    // second finger STARTING a gesture; this stops it driving the one
+    // already running. Every drag loop below listens on `document` for
+    // `pointermove` / `pointerup` and none filters by `pointerId`, so
+    // without this a second finger's move would drag the first finger's
+    // selection, and its release would commit — the first finger never
+    // having moved.
+    //
+    // One capture-phase listener rather than a `pointerId` check
+    // threaded through sixteen loops: it drops the foreign event before
+    // the propagation path reaches any of them, so the loops stay
+    // unaware and no future loop can forget to opt in. Registered here,
+    // at construction, so it precedes the per-gesture `onAnyUp` that
+    // `onPointerDown` installs on the same target and phase — a foreign
+    // release must not clear `pointerInteractionActive` either.
+    //
+    // Inert outside a live gesture, and inert for mouse and pen, which
+    // cannot produce a second pointer to begin with.
+    const dropForeignPointer = (e: Event): void => {
+      if (!this.pointerInteractionActive) return;
+      if (this.activePointerId === null) return;
+      const pe = e as PointerEvent;
+      if (pe.pointerType !== 'touch') return;
+      if (pe.pointerId === this.activePointerId) return;
+      pe.stopPropagation();
+    };
+    for (const type of ['pointermove', 'pointerup', 'pointercancel']) {
+      this.on(document, type, dropForeignPointer, true);
+    }
+
     // Mousedown listens on BOTH the canvas (for clicks on the slide
     // surface) AND the overlay (for clicks on resize/rotate handles).
     // The overlay div has `pointer-events: none` so empty-area clicks
@@ -3768,6 +3815,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const pe = e as PointerEvent;
     if (pe.pointerType === 'touch' && pe.isPrimary === false) return;
     this.activePointerType = pe.pointerType;
+    this.activePointerId = pe.pointerId ?? null;
     if (pe.pointerType === 'touch') this.armLongPress(pe);
 
     // Clear any pending hover highlight when the user starts interacting.
@@ -3785,6 +3833,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.pointerInteractionActive = true;
     const onAnyUp = (): void => {
       this.pointerInteractionActive = false;
+      this.activePointerId = null;
       document.removeEventListener('pointerup', onAnyUp, true);
       document.removeEventListener('pointercancel', onAnyUp, true);
     };

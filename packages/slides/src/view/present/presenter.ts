@@ -675,6 +675,14 @@ export function startPresenter(options: PresenterOptions): Presenter {
   // is letterboxed, and a tap on the bar beside it is still a tap on
   // the presentation.
   let touchStart: { id: number; x: number; y: number; t: number } | null = null;
+  /**
+   * A second finger joined this gesture. Ignoring it is not enough: the
+   * anchored finger is still tracked, so releasing it would read as a
+   * tap or a swipe and change slide — turning a pinch, or any two-finger
+   * rest, into navigation. The flag survives until the anchor lifts,
+   * including when the second finger is the one released first.
+   */
+  let multiTouch = false;
 
   function onTouchDown(e: PointerEvent): void {
     if (disposed) return;
@@ -689,7 +697,11 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (e.pointerType !== 'touch') return;
     // Ignore a second finger — a pinch is not navigation, and letting
     // it overwrite the anchor would turn the gesture into nonsense.
-    if (touchStart !== null) return;
+    if (touchStart !== null) {
+      multiTouch = true;
+      return;
+    }
+    multiTouch = false;
     touchStart = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp };
   }
 
@@ -700,6 +712,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
     touchStart = null;
     if (disposed) return;
     touchHandledClick = true;
+    if (multiTouch) {
+      multiTouch = false;
+      return;
+    }
 
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
@@ -734,7 +750,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
 
   function onTouchCancel(e: PointerEvent): void {
     if (e.pointerType !== 'touch') return;
-    if (touchStart !== null && touchStart.id === e.pointerId) touchStart = null;
+    if (touchStart !== null && touchStart.id === e.pointerId) {
+      touchStart = null;
+      multiTouch = false;
+    }
   }
 
   container.addEventListener('pointerdown', onTouchDown);

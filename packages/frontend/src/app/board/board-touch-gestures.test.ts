@@ -12,7 +12,13 @@ import {
  * Host double. `content` is the set of client-x coordinates that count
  * as "an element is here"; everything else is empty canvas.
  */
-function makeHost(options: { content?: (x: number, y: number) => boolean } = {}) {
+function makeHost(
+  options: {
+    content?: (x: number, y: number) => boolean;
+    /** false models a read-only mount, which has no menu to open. */
+    menuOpens?: boolean;
+  } = {},
+) {
   let viewport: Viewport = { panX: 0, panY: 0, zoom: 1 };
   const emptyTaps = vi.fn();
   const longPresses = vi.fn();
@@ -30,7 +36,10 @@ function makeHost(options: { content?: (x: number, y: number) => boolean } = {})
     // Identity: the fake canvas sits at the viewport origin.
     toCanvasPoint: (x, y) => ({ x, y }),
     onEmptyTap: emptyTaps,
-    onLongPress: longPresses,
+    onLongPress: (x: number, y: number) => {
+      longPresses(x, y);
+      return options.menuOpens ?? true;
+    },
     onZoomChange: (z) => zoomChanges.push(z),
     setTimer: (fn) => {
       pending.push(fn);
@@ -427,5 +436,50 @@ describe("board touch gestures — attach", () => {
     detach();
     t.fireTimers();
     expect(t.longPresses).not.toHaveBeenCalled();
+  });
+});
+
+describe("board touch gestures — the menu ends the gesture", () => {
+  it("does not pan after the menu opened", () => {
+    // Hold-then-drag is a natural grab. Without a terminal mode the
+    // plane would slide behind the open menu.
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 100, 100, 0));
+    t.fireTimers();
+    g.move(at(1, 400, 100, 600));
+    expect(t.viewport).toEqual({ panX: 0, panY: 0, zoom: 1 });
+  });
+
+  it("does not pinch after the menu opened", () => {
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 100, 100, 0));
+    t.fireTimers();
+    g.down(at(2, 200, 100, 600));
+    g.move(at(2, 400, 100, 700));
+    expect(t.viewport.zoom).toBe(1);
+  });
+
+  it("still pans when no menu opened", () => {
+    // A read-only mount offers no menu, so the press stays a press —
+    // a viewer must not be stranded by holding still for half a second.
+    const t = makeHost({ menuOpens: false });
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 100, 100, 0));
+    t.fireTimers();
+    g.move(at(1, 200, 100, 600));
+    expect(t.viewport.panX).toBe(100);
+  });
+
+  it("frees the gesture once every finger lifts", () => {
+    const t = makeHost();
+    const g = createBoardTouchGestures(t.host);
+    g.down(at(1, 100, 100, 0));
+    t.fireTimers();
+    g.up(at(1, 100, 100, 700));
+    g.down(at(1, 100, 100, 800));
+    g.move(at(1, 200, 100, 900));
+    expect(t.viewport.panX).toBe(100);
   });
 });

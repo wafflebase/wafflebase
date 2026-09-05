@@ -364,15 +364,38 @@ What that changed:
   Docs, Slides and Board are covered at once with no call site opting
   in.
 
-  `shrink-0` is load-bearing and was missing at first. A flex item's
-  default `min-width: auto` resolves to min-content, and that is what
-  made these strips overflow-and-scroll rather than compress. Replacing
-  it with a hard 44px hands every button its content width as shrink
-  budget — and the descendant selector also outranks the
-  `min-w-[112px]` that `FontFamilyPicker`, `TextStyleGroup` and
-  `ZoomControl` declare for themselves. Measured under real coarse
-  emulation, the font picker fell to 64.9px with a truncated label and
-  the Docs "Page number" label spilled out over its neighbour.
+  Getting this right took three measured rounds, and none of the
+  corrections were visible from the source.
+
+  `shrink-0` is load-bearing. A flex item's default `min-width: auto`
+  resolves to min-content, and that is what made these strips
+  overflow-and-scroll rather than compress. Replacing it with a hard
+  44px hands every button its content width as shrink budget: the font
+  picker fell to 64.9px with a truncated label, and the Docs "Page
+  number" label spilled out over its neighbour.
+
+  The width floor **skips buttons that declare a `min-w-[…]` arbitrary
+  value**, because a descendant selector outranks the `min-w-[112px]`
+  that `FontFamilyPicker`, `TextStyleGroup` and `ZoomControl` each set —
+  and replacing a stability floor with a smaller one made those triggers
+  resize as their label changed. The discriminator is the *bracket*, not
+  the prefix: excluding every `min-w-` also excluded `Toggle`
+  (`min-w-8`/`9`/`10`) and the Shape and Line pickers, which are the most
+  common controls in these strips and would have quietly lost the floor.
+  An arbitrary value is a deliberate width; a scale value is a
+  primitive's own minimum.
+
+  `Toolbar` takes a **`touchTargets`** prop for the same reason the
+  above needed care. `"scroll"` (default) is for strips built to
+  overflow. `"fit"` is for one that must fit its viewport: the mobile
+  slides bars pin Done / ⋮ right with a `flex-1` spacer, which collapses
+  to zero the moment the row overflows — with the width floor on, that
+  row measured 428px against a 390px iPhone and pushed Done off-screen.
+  `"fit"` takes the height floor only, so icon buttons there are 28px
+  wide and 44px tall. At 320px that bar still overflows, but it is
+  *narrower* on coarse (336px) than on fine (343px), so the constraint
+  predates this work; fixing it means fewer controls or a wrapping
+  layout.
 
   Two containers also had to grow, because a fixed height *clips* a
   floor rather than growing to it: the mobile slides strip

@@ -259,3 +259,60 @@ describe('long-press exclusions', () => {
     expect(menu()).toBeNull();
   });
 });
+
+describe('multi-touch does not drive the first finger gesture', () => {
+  const second = (type: string, x: number, y: number) =>
+    new PointerEvent(type, {
+      clientX: x,
+      clientY: y,
+      pointerId: 2,
+      pointerType: 'touch',
+      isPrimary: false,
+      bubbles: true,
+    });
+
+  it("a second finger's move does not drag the selection", () => {
+    // `onPointerDown`'s guard only stops a second finger STARTING a
+    // gesture. Every drag loop listens on `document` without filtering
+    // `pointerId`, so without the capture-phase drop the second finger
+    // would move the first finger's selection.
+    const { canvas, store } = mount();
+    const before = { ...store.read().slides[0].elements[0].frame };
+    canvas.dispatchEvent(touch('pointerdown', 50, 50, { pointerId: 1 }));
+    document.dispatchEvent(second('pointermove', 400, 300));
+    document.dispatchEvent(second('pointerup', 400, 300));
+    const after = store.read().slides[0].elements[0].frame;
+    expect(after.x).toBe(before.x);
+    expect(after.y).toBe(before.y);
+  });
+
+  it('the first finger still drives its own gesture', () => {
+    const { canvas, store } = mount();
+    const before = { ...store.read().slides[0].elements[0].frame };
+    canvas.dispatchEvent(touch('pointerdown', 50, 50, { pointerId: 1 }));
+    document.dispatchEvent(second('pointermove', 400, 300));
+    document.dispatchEvent(touch('pointermove', 150, 50, { pointerId: 1 }));
+    document.dispatchEvent(touch('pointerup', 150, 50, { pointerId: 1 }));
+    const after = store.read().slides[0].elements[0].frame;
+    expect(after.x).toBeGreaterThan(before.x);
+  });
+
+  it('leaves a mouse gesture alone', () => {
+    // A mouse cannot produce a second pointer, so the guard must never
+    // engage there — and synthetic mouse events carry no pointerId.
+    const { canvas, store } = mount();
+    const before = { ...store.read().slides[0].elements[0].frame };
+    const mouse = (type: string, x: number, y: number) =>
+      new PointerEvent(type, {
+        clientX: x,
+        clientY: y,
+        pointerType: 'mouse',
+        isPrimary: true,
+        bubbles: true,
+      });
+    canvas.dispatchEvent(mouse('pointerdown', 50, 50));
+    document.dispatchEvent(mouse('pointermove', 150, 50));
+    document.dispatchEvent(mouse('pointerup', 150, 50));
+    expect(store.read().slides[0].elements[0].frame.x).toBeGreaterThan(before.x);
+  });
+});

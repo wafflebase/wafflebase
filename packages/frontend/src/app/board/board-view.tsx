@@ -775,9 +775,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // "Snap to grid" — a finger has no other way to reach any of them.
       // Suppressed on a read-only mount, where every entry it would open
       // is either a mutation or disabled.
+      // Returns whether a menu opened: on a read-only mount none does,
+      // and the press must stay eligible to become a pan rather than
+      // ending in a mode that blocks navigation for a viewer.
       onLongPress: readOnly
-        ? () => undefined
-        : (x, y) => editor.openContextMenuAt(x, y),
+        ? () => false
+        : (x, y) => {
+            editor.openContextMenuAt(x, y);
+            return true;
+          },
       onZoomChange: (z) => zoom.reportViewportZoom(z),
     }, {
       // The minimap is a child of `container` too, and its own

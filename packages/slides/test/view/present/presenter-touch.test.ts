@@ -257,3 +257,75 @@ describe('presenter touch navigation', () => {
     }
   });
 });
+
+describe('presenter multi-touch', () => {
+  it('does not navigate when a second finger joined the gesture', () => {
+    // Ignoring the second finger is not enough: the anchor stays live,
+    // so releasing it read as a tap and changed slide — turning a pinch
+    // into navigation.
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[1],
+      onExit: vi.fn(),
+    });
+    try {
+      container.dispatchEvent(touch('pointerdown', 700, { pointerId: 1 }));
+      container.dispatchEvent(
+        touch('pointerdown', 200, { pointerId: 2, isPrimary: false }),
+      );
+      container.dispatchEvent(touch('pointerup', 700, { pointerId: 1 }));
+      expect(presenter.getCurrentSlideId()).toBe(ids[1]);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('does not navigate when the second finger is released first', () => {
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[1],
+      onExit: vi.fn(),
+    });
+    try {
+      container.dispatchEvent(touch('pointerdown', 700, { pointerId: 1 }));
+      container.dispatchEvent(
+        touch('pointerdown', 200, { pointerId: 2, isPrimary: false }),
+      );
+      container.dispatchEvent(
+        touch('pointerup', 200, { pointerId: 2, isPrimary: false }),
+      );
+      container.dispatchEvent(touch('pointerup', 700, { pointerId: 1 }));
+      expect(presenter.getCurrentSlideId()).toBe(ids[1]);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('navigates again on the next single-finger gesture', () => {
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    try {
+      container.dispatchEvent(touch('pointerdown', 700, { pointerId: 1 }));
+      container.dispatchEvent(
+        touch('pointerdown', 200, { pointerId: 2, isPrimary: false }),
+      );
+      container.dispatchEvent(touch('pointerup', 700, { pointerId: 1 }));
+      gesture(container, 700, 700);
+      expect(presenter.getCurrentSlideId()).toBe(ids[1]);
+    } finally {
+      presenter.dispose();
+    }
+  });
+});

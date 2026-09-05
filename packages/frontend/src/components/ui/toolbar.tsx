@@ -27,12 +27,22 @@ import { cn } from "@/lib/utils";
  * a font picker at 64.9px with a truncated label and a Docs "Page
  * number" label spilling out over its neighbour.
  *
- * The width floor also skips any button that declares a `min-w-` of its
- * own. A descendant selector outranks the `min-w-[112px]` that
- * `FontFamilyPicker`, `TextStyleGroup` and `ZoomControl` each set, and
- * silently replacing a stability floor with a smaller one made those
- * triggers resize as their label changed — the zoom trigger shifting
- * everything to its right on every zoom change.
+ * The width floor skips buttons that set a `min-w-[…]` **arbitrary**
+ * value. A descendant selector outranks the `min-w-[112px]` that
+ * `FontFamilyPicker`, `TextStyleGroup` and `ZoomControl` each declare,
+ * and silently replacing a stability floor with a smaller one made
+ * those triggers resize as their label changed — the zoom trigger
+ * shifting everything to its right on every zoom change.
+ *
+ * The discriminator is the bracket, not the prefix, and that precision
+ * is the whole point: excluding every `min-w-` would also exclude
+ * `Toggle`, whose size variants carry `min-w-8` / `min-w-9` / `min-w-10`
+ * — and Toggles are the most common control in these strips (Bold,
+ * Italic, the Board tool picker), which would have quietly lost the
+ * floor. An arbitrary value is a deliberate width; a scale value is a
+ * primitive's own minimum. Chromium keeps the selector (it re-serializes
+ * it with the quotes Tailwind dropped) and a `min-w-8` Toggle measures
+ * 44×44 while a `min-w-[64px]` trigger stays 64.
  *
  * `"fit"` is for a strip that must fit its viewport rather than scroll:
  * the mobile slides bars pin Done / ⋮ to the right with a `flex-1`
@@ -42,6 +52,12 @@ import { cn } from "@/lib/utils";
  * floor only, leaving icon buttons 28px wide and 44px tall. That is a
  * real compromise, and the better half of one: a fingertip on a
  * horizontal strip is bounded by height far more often than by width.
+ *
+ * At 320px the text-edit bar still overflows (336px of content) and
+ * Done loses ~8px off the right edge. That is not this rule's doing —
+ * the same bar is 343px wide on a fine pointer, so coarse is the
+ * narrower of the two — and fixing it means fewer controls or a
+ * wrapping layout, not a sizing tweak.
  *
  * Controls rendered into a portal — everything inside a dropdown, a
  * popover or a bottom sheet — are outside this subtree and keep their
@@ -64,7 +80,7 @@ function Toolbar({
         "pointer-coarse:gap-1 pointer-coarse:py-1.5",
         "pointer-coarse:[&_button]:min-h-11",
         touchTargets === "scroll" && [
-          "pointer-coarse:[&_button:not([class*='min-w-'])]:min-w-11",
+          "pointer-coarse:[&_button:not([class*='min-w-['])]:min-w-11",
           "pointer-coarse:[&_button]:shrink-0",
         ],
         className,

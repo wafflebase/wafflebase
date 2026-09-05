@@ -47,8 +47,13 @@ export interface BoardGestureHost {
    * long-press, but never sees these — we claimed them — so the board
    * has to open the canvas menu itself or it becomes unreachable by
    * finger.
+   *
+   * Returns whether a menu actually opened. When one did, the gesture
+   * is over: further movement must not pan the plane behind it. When
+   * one did not — a read-only mount has no menu to offer — the press
+   * stays a press and can still become a pan.
    */
-  onLongPress(clientX: number, clientY: number): void;
+  onLongPress(clientX: number, clientY: number): boolean;
   /** Zoom changed; the toolbar readout follows. Not called on a pure pan. */
   onZoomChange(zoom: number): void;
   /**
@@ -58,7 +63,14 @@ export interface BoardGestureHost {
   setTimer?(fn: () => void, ms: number): () => void;
 }
 
-type Mode = "idle" | "pending" | "pan" | "pinch";
+/**
+ * `menu` is terminal for the gesture: the press became a context menu,
+ * so nothing it does afterwards may move the plane. Without it, holding
+ * still for 500ms and then dragging would pan the board behind the open
+ * menu — the same defect the editor's `abortCanvasGesture` closes on
+ * the slides side.
+ */
+type Mode = "idle" | "pending" | "pan" | "pinch" | "menu";
 
 interface Tracked {
   x: number;
@@ -188,12 +200,19 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
         // `pending` exactly when the finger has stayed inside the pan
         // threshold, which is the same "held still" the editor's own
         // long-press requires.
-        if (mode === "pending") host.onLongPress(startX, startY);
+        if (mode !== "pending") return;
+        // Only a menu that actually opened ends the gesture. A
+        // read-only mount has none to offer, so its press stays live
+        // and can still become a pan.
+        if (host.onLongPress(startX, startY)) mode = "menu";
       }, LONG_PRESS_DELAY_MS);
       return true;
     }
     if (!owned) return false;
-    // A second finger is a pinch, not a menu.
+    // A second finger while a menu is open is still the menu's gesture:
+    // swallow it so it neither pinches nor reaches the editor.
+    if (mode === "menu") return true;
+    // Otherwise a second finger is a pinch, not a menu.
     disarmLongPress();
     pointers.set(p.id, { x: p.clientX, y: p.clientY });
     if (pointers.size >= 2) beginPinch();
@@ -201,7 +220,7 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
   };
 
   const move = (p: GesturePointer): void => {
-    if (!owned) return;
+    if (!owned || mode === "menu") return;
     const tracked = pointers.get(p.id);
     if (!tracked) return;
     tracked.x = p.clientX;
@@ -280,6 +299,7 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
     }
 
     if (pointers.size === 1) {
+      if (mode === "menu") return;
       // A pinch losing one finger continues as a pan under the finger
       // still down, rather than freezing until the user lifts and
       // presses again.
@@ -306,6 +326,7 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
     // away (a system edge swipe, the page being scrolled by a parent).
     if (pointers.size === 0) reset();
     else if (pointers.size === 1) {
+      if (mode === "menu") return;
       const [remaining] = pointers.values();
       mode = "pan";
       lastX = remaining.x;
