@@ -18,12 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.9 (2026-09-05) | [20260905-release-v0.6.9-todo.md](./active/20260905-release-v0.6.9-todo.md) | [20260905-release-v0.6.9-lessons.md](./active/20260905-release-v0.6.9-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
 | dependabot 28 alerts (2026-09-04) | [20260904-dependabot-28-alerts-todo.md](./active/20260904-dependabot-28-alerts-todo.md) | - |
-| api v1 folders copy (2026-09-03) | [20260903-api-v1-folders-copy-todo.md](./active/20260903-api-v1-folders-copy-todo.md) | [20260903-api-v1-folders-copy-lessons.md](./active/20260903-api-v1-folders-copy-lessons.md) |
 | board nested doc update (2026-09-03) | [20260903-board-nested-doc-update-todo.md](./active/20260903-board-nested-doc-update-todo.md) | [20260903-board-nested-doc-update-lessons.md](./active/20260903-board-nested-doc-update-lessons.md) |
 | yorkie 0719 docs revision preview (2026-09-03) | [20260903-yorkie-0719-docs-revision-preview-todo.md](./active/20260903-yorkie-0719-docs-revision-preview-todo.md) | [20260903-yorkie-0719-docs-revision-preview-lessons.md](./active/20260903-yorkie-0719-docs-revision-preview-lessons.md) |
-| release v0.6.8 (2026-09-02) | [20260902-release-v0.6.8-todo.md](./active/20260902-release-v0.6.8-todo.md) | [20260902-release-v0.6.8-lessons.md](./active/20260902-release-v0.6.8-lessons.md) |
 | revision history (2026-09-02) | [20260902-revision-history-todo.md](./active/20260902-revision-history-todo.md) | [20260902-revision-history-lessons.md](./active/20260902-revision-history-lessons.md) |
 | template gallery public tier (2026-09-02) | [20260902-template-gallery-public-tier-todo.md](./active/20260902-template-gallery-public-tier-todo.md) | [20260902-template-gallery-public-tier-lessons.md](./active/20260902-template-gallery-public-tier-lessons.md) |
 | pdf text layer ocr (2026-09-01) | [20260901-pdf-text-layer-ocr-todo.md](./active/20260901-pdf-text-layer-ocr-todo.md) | [20260901-pdf-text-layer-ocr-lessons.md](./active/20260901-pdf-text-layer-ocr-lessons.md) |
@@ -48,7 +47,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 581
+- Archived task count: 585
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: audit followup code defects (2026-09-04)
+Latest active task: release v0.6.9 (2026-09-05)

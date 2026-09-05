@@ -53,8 +53,15 @@ registration against the enum and accepts all four names.
       automatic revisions can show an author), and a revision retention
       policy + delete RPC. **No issues filed** — no `yorkie-team/yorkie`
       issue links exist to add here yet.
-- [ ] `yorkie-team/yorkie`: replace `preprocessYSON`'s regex chain with a
-      string-aware scanner. Two independent defects, both measured against
+- [x] `yorkie-team/yorkie`: replace `preprocessYSON`'s regex chain with a
+      string-aware scanner. **Landed upstream and consumed here** —
+      shipped in `@yorkie-js/sdk@0.7.19`, which #1017 bumped across
+      frontend, backend and notes. The trailing "Latest SDK is `0.7.18`,
+      so there is no version to bump to" below is what this box read when
+      it was written; it is stale, and the bump it says cannot happen
+      has happened. Ticked 2026-09-05.
+
+      Two independent defects, both measured against
       the running server with real documents:
       (a) nesting depth is hard-coded at three levels per type, so
       `YSON.parse` throws `Unexpected token 'T'` on **every** wafflebase
@@ -136,15 +143,26 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
       are canvas. An unparseable snapshot renders an error, never an empty
       document.
 
-### PR 3 — docs preview (blocked on the YSON tokenizer)
+### PR 3 — docs preview (was blocked on the YSON tokenizer; unblocked by 0.7.19)
 
-- [ ] Extract `treeNodeToBlock` from `packages/backend/src/yorkie/docs-tree.ts`
+- [x] Extract `treeNodeToBlock` from `packages/backend/src/yorkie/docs-tree.ts`
       into `@wafflebase/docs` (that file's own header already proposes the
       extraction), add `parseDocsSnapshot`, extend the preview type union.
-      Not started — still blocked on the upstream `YSON.parse` tokenizer.
-      `docs-detail.tsx` mounts `HistoryPanel` with no `onPreview`, so its
-      Preview button renders disabled with a reason rather than a dead
-      click (fixed during Task 11's review round).
+
+      **Shipped in #1017**, once the upstream tokenizer fix landed in
+      `@yorkie-js/sdk@0.7.19` and unblocked it. `docsTreeToDocument` now
+      lives in `packages/docs/src/model/crdt-tree.ts`, exported from the
+      package index and consumed by *both* the frontend adapter and the
+      backend's `yorkie/docs-tree.ts` — which was the point of the
+      extraction: a parsed snapshot node and a live Yorkie proxy node
+      disagree on the attribute key and on whether values stay
+      JSON-encoded, silently, so one shared converter is the only way
+      both readers stay correct. `parseDocsSnapshot` and
+      `normalizeYsonTreeNode` are in
+      `components/history/snapshot-adapters.ts`; `DocsPreview` is mounted
+      in `revision-preview.tsx`. The paragraph below ("Not started —
+      still blocked…", and the disabled Preview button) described the
+      state before #1017 and no longer holds. Ticked 2026-09-05.
 
 ### PR 4 — retention and polish
 
