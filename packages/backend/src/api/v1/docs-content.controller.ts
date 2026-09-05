@@ -35,6 +35,7 @@ import type {
 } from '../../yorkie/yorkie.types';
 
 import {
+  AUTHORED_SPACING_FIELDS,
   BLOCK_ALIGNMENTS,
   BLOCK_STYLE_NUMERIC_FIELDS,
   isBlockAlignment,
@@ -357,6 +358,25 @@ function assertValidBlockStyle(
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new BadRequestException(
         `Invalid block at ${path}: 'style.${field}' must be a finite number`,
+      );
+    }
+  }
+  // The authored-spacing markers say whether the paragraph itself chose its
+  // space-before / space-after / leading, or whether its named style supplies
+  // it (see `BlockStyle` in `@wafflebase/docs`). They have to be accepted here
+  // for the documented `GET` → edit → `PUT` identity to hold: `GET` emits them,
+  // so rejecting them would make a round-trip of an untouched body a 400. Only
+  // booleans are accepted — anything else would ride the codec into layout as
+  // a truthy non-boolean — and absence is preserved as "no information" rather
+  // than defaulted, which is what keeps older bodies falling back to the value
+  // sentinel. Note this same function validates slides text-body blocks, where
+  // the markers are inert but equally harmless.
+  for (const field of AUTHORED_SPACING_FIELDS) {
+    const value = style[field as string];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'boolean') {
+      throw new BadRequestException(
+        `Invalid block at ${path}: 'style.${field}' must be a boolean`,
       );
     }
   }

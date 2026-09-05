@@ -16,7 +16,7 @@ import {
   type FontUsage,
   type PdfFontResolver,
 } from './pdf-fonts.js';
-import { computeLayout, computeListCounters } from '../view/layout.js';
+import { computeLayout, computeListCounters, DOCS_LAYOUT_OPTIONS } from '../view/layout.js';
 import { paginateLayout } from '../view/pagination.js';
 import type { TextMeasurer } from '../view/measurer.js';
 import { PdfPainter } from './pdf-painter.js';
@@ -97,7 +97,14 @@ export class PdfExporter {
     const { width: wPx } = getEffectiveDimensions(setup);
     const contentWidth = wPx - setup.margins.left - setup.margins.right;
     const measurer = opts.measurer;
-    const { layout } = computeLayout(doc.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles);
+    // `DOCS_LAYOUT_OPTIONS` carries no `surface`, and that omission is
+    // load-bearing rather than incidental: this exporter runs *in the browser*,
+    // in the same module instance where the editor may have already called
+    // `setThemeMode('dark')`. Resolving the named styles on the light surface
+    // is what keeps a PDF exported from a dark-mode editor black-on-white
+    // instead of baking `#B0B0B0` headings onto white paper. Never pass the
+    // editor's options object here (see `LayoutOptions.surface`).
+    const { layout } = computeLayout(doc.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles, DOCS_LAYOUT_OPTIONS);
     const pagination = paginateLayout(layout, setup);
 
     // Header/footer block lists are independent of body pagination —
@@ -105,10 +112,10 @@ export class PdfExporter {
     // headers/footers appear identically across the document (with only
     // `pageNumber` substituted per page in the painter).
     const headerLayout = doc.header && doc.header.blocks.length > 0
-      ? computeLayout(doc.header.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles).layout
+      ? computeLayout(doc.header.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles, DOCS_LAYOUT_OPTIONS).layout
       : null;
     const footerLayout = doc.footer && doc.footer.blocks.length > 0
-      ? computeLayout(doc.footer.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles).layout
+      ? computeLayout(doc.footer.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles, DOCS_LAYOUT_OPTIONS).layout
       : null;
 
     // 3. Ordered list counters: computed once over the body block list

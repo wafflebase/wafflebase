@@ -47,6 +47,32 @@ export const BLOCK_STYLE_NUMERIC_FIELDS = [
 ] as const;
 
 /**
+ * The three style-owned spacing fields and the boolean attribute that records
+ * whether the paragraph authored each one (see `BlockStyle`). Key and attribute
+ * name are deliberately identical, so the model field and the wire attribute
+ * cannot drift apart.
+ *
+ * **Three attributes rather than one packed key.** `Tree.styleByPath` is
+ * per-attribute LWW, so a single `authoredSpacing="marginTop,lineHeight"` would
+ * lose one peer's marker when two peers author different fields on the same
+ * paragraph concurrently. One key would be defensible today — the docs UI has
+ * no space-before/space-after control, so only `lineHeight` is ever authored
+ * interactively — but "that case is unreachable from the UI" is exactly the
+ * argument that produced the bug this marker exists to fix. Three keys need no
+ * such argument and the codec derives them from this one table.
+ */
+export const AUTHORED_SPACING_ATTRS = {
+  marginTop: 'authoredMarginTop',
+  marginBottom: 'authoredMarginBottom',
+  lineHeight: 'authoredLineHeight',
+} as const;
+
+/** The `BlockStyle` marker keys, in the order of the fields they describe. */
+export const AUTHORED_SPACING_FIELDS = Object.values(
+  AUTHORED_SPACING_ATTRS,
+) as ReadonlyArray<'authoredMarginTop' | 'authoredMarginBottom' | 'authoredLineHeight'>;
+
+/**
  * Encode a block style as Tree attributes.
  *
  * `BlockStyle` is a full shape in the model but a *partial* on the wire: the
@@ -69,6 +95,23 @@ export function serializeBlockStyleAttrs(
     if (raw === undefined || raw === null) continue;
     const value = Number(raw);
     if (Number.isFinite(value)) attrs[field] = String(value);
+  }
+  // Authored-spacing markers. An absent marker emits nothing — absence is the
+  // legacy "no information" state and must stay distinguishable from `false`.
+  //
+  // `false` is emitted as the literal `"0"` rather than by *omitting* the
+  // attribute, because `Tree.styleByPath` merges and does not replace: a clear
+  // that worked by omission would need a matching `removeStyleByPath` at every
+  // CRDT write site (three today — `setBlockType`'s `toRemove`,
+  // `writeStylesAndRematerialize`'s `edits`, and `splitBlock`'s `afterAttrs` —
+  // and every future one), and a writer that forgot would silently resurrect
+  // the marker. Riding this serializer, which every writer already calls, makes
+  // the clear impossible to forget. Cost: a materialized block carries three
+  // redundant `"0"` attributes.
+  for (const field of AUTHORED_SPACING_FIELDS) {
+    const raw = style?.[field];
+    if (raw === undefined || raw === null) continue;
+    attrs[field] = raw ? '1' : '0';
   }
   return attrs;
 }
@@ -93,6 +136,16 @@ export function parseBlockStyleAttrs(
     if (!(field in attrs)) continue;
     const value = Number(attrs[field]);
     if (Number.isFinite(value)) partial[field] = value;
+  }
+  // An absent marker attribute stays `undefined` on the model (the legacy "no
+  // information" state); anything present is read as a boolean, so a
+  // hand-edited `"true"`/`""` degrades to `false` — "the style supplies it" —
+  // rather than reaching layout as a non-boolean. `normalizeBlockStyle` is a
+  // bare spread over `DEFAULT_BLOCK_STYLE`, which carries no marker keys, so a
+  // parsed `false` survives and an absent one stays absent.
+  for (const field of AUTHORED_SPACING_FIELDS) {
+    if (!(field in attrs)) continue;
+    partial[field] = attrs[field] === '1';
   }
   return normalizeBlockStyle(partial);
 }

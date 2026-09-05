@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { computeTableLayout } from '../../src/view/table-layout.js';
+import { DOCS_LAYOUT_OPTIONS } from '../../src/view/layout.js';
 import { computeMergedCellLineLayouts } from '../../src/view/table-renderer.js';
 import { createTableBlock, DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 import { stubMeasurer } from './_stub-measurer.js';
+import { ptToPx } from '../../src/view/theme.js';
 
 const stubCtx = () => stubMeasurer(7);
 
@@ -182,7 +184,8 @@ describe('computeTableLayout', () => {
   it('applies heading defaults to font size inside cell', () => {
     const baseBlock = createTableBlock(1, 1);
     baseBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'Heading', style: {} }];
-    const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 400)
+    const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 400,
+      undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS)
       .cells[0][0].lines[0].height;
 
     const headingBlock = createTableBlock(1, 1);
@@ -190,9 +193,15 @@ describe('computeTableLayout', () => {
     headingCell.type = 'heading';
     headingCell.headingLevel = 1;
     headingCell.inlines = [{ text: 'Heading', style: {} }];
-    const headingHeight = computeTableLayout(headingBlock.tableData!, 'tbl', stubCtx(), 400)
+    const headingHeight = computeTableLayout(headingBlock.tableData!, 'tbl', stubCtx(), 400,
+      undefined, undefined, undefined, DOCS_LAYOUT_OPTIONS)
       .cells[0][0].lines[0].height;
 
     expect(headingHeight).toBeGreaterThan(baseHeight);
+    // And the *leading* resolves from the style too, not from the block's
+    // sentinel 1.5 — `table-layout.ts` is the one `assignLineHeights` caller
+    // that does not hand it a pre-resolved `BlockSpacing`, so this is the
+    // regression guard for that branch. 20pt -> 26.67px, x1.2 = 32px.
+    expect(headingHeight).toBeCloseTo(ptToPx(20) * 1.15, 5);
   });
 });

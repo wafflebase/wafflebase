@@ -54,6 +54,10 @@ export function visitStyledRunsInRange(
   const visitSlice = (blockId: string, from: number, to: number): void => {
     const block = doc.findBlock(blockId);
     if (!block) return;
+    // Light surface (no `surface` argument): a range summary reports the
+    // document's canonical style — what a copy, an export or a style
+    // redefinition would carry — not the grey currently painted on a dark
+    // page. Same invariant as `model/caret-style.ts`.
     const defaults = resolveStyleInline(blockStyleId(block), doc.document.styles);
     let pos = 0;
     for (const inline of block.inlines) {

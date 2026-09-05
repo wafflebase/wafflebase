@@ -1,5 +1,6 @@
 import {
   computeLayout,
+  DOCS_LAYOUT_OPTIONS,
   paginateLayout,
   resolvePageSetup,
   getEffectiveDimensions,
@@ -29,6 +30,7 @@ export function paginateForCli(
     paperWidth - pageSetup.margins.left - pageSetup.margins.right;
   const { layout } = computeLayout(
     doc.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles,
+    DOCS_LAYOUT_OPTIONS,
   );
   return paginateLayout(layout, pageSetup);
 }

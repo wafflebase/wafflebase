@@ -536,6 +536,51 @@ describe('ApiV1DocsContentController', () => {
         );
       });
 
+      it('rejects a non-boolean authored-spacing marker', async () => {
+        // The markers say whether the paragraph itself chose its space-before /
+        // space-after / leading, or whether its named style supplies it. A
+        // truthy string would ride the CRDT codec into layout as a marker that
+        // is neither `true` nor `false`.
+        await expectReject(
+          {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'paragraph',
+                style: { authoredLineHeight: 'yes' },
+                inlines: [],
+              },
+            ],
+          },
+          /blocks\[0\].*'style\.authoredLineHeight'/,
+        );
+      });
+
+      it('accepts boolean and null authored-spacing markers', async () => {
+        // `GET` emits the markers, so a round-trip of an untouched body must
+        // not 400 — and `null` is how JSON spells "no value", which the CRDT
+        // codec already skips.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        await expect(
+          putContent('ws-1', 'd1', {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'paragraph',
+                style: {
+                  authoredLineHeight: true,
+                  authoredMarginTop: false,
+                  authoredMarginBottom: null,
+                },
+                inlines: [],
+              },
+            ],
+          } as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
       it('rejects a malformed inline', async () => {
         await expectReject(
           {

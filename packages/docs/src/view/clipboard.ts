@@ -187,6 +187,19 @@ function sanitizeBlockStyle(value: unknown): BlockStyle {
     const n = asNumber(value[key]);
     if (n !== undefined) style[key] = n;
   }
+  // Authored-spacing markers ride the internal docs→docs payload too. Without
+  // them, copying a paragraph whose leading was deliberately set to 1.5 (or a
+  // Word-imported heading with `w:before="0"`) and pasting it elsewhere would
+  // drop the marker, and the paste would silently revert to the named style's
+  // value — the same defect the marker exists to fix, reintroduced by the
+  // clipboard. Absent stays absent: a payload written by an older client
+  // carries no marker and must keep falling back to the value sentinel.
+  const markerKeys = [
+    'authoredLineHeight', 'authoredMarginTop', 'authoredMarginBottom',
+  ] as const;
+  for (const key of markerKeys) {
+    if (typeof value[key] === 'boolean') style[key] = value[key] as boolean;
+  }
   return style;
 }
 

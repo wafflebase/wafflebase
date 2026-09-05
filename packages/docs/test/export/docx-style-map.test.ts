@@ -4,6 +4,7 @@ import {
   buildParagraphPropertiesXml,
   toDocxHexColor,
 } from '../../src/export/docx-style-map.js';
+import { LIST_PARAGRAPH_STYLE_ID, STYLES } from '../../src/export/docx-templates.js';
 
 describe('buildRunPropertiesXml', () => {
   it('should generate bold tag', () => {
@@ -169,6 +170,132 @@ describe('buildParagraphPropertiesXml', () => {
       lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0,
     });
     expect(xml).not.toContain('<w:jc');
+  });
+
+  it('omits w:line for the inherit sentinel and emits it for an authored leading', () => {
+    // "Omit" here means the same thing `effectiveBlockSpacing` means by it:
+    // the paragraph overrode nothing, so Word applies its own style leading —
+    // which is the .docx analogue of resolving through the named style.
+    const at = (lineHeight: number) => buildParagraphPropertiesXml({
+      alignment: 'left', lineHeight, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0,
+    });
+    expect(at(1.5)).not.toContain('w:line');
+    expect(at(2)).toContain('w:line="480"');
+    // `w:lineRule` is written explicitly: `auto` is ECMA-376's default for the
+    // attribute, but Word always writes it and the importer's `w:line / 240`
+    // only makes sense under `auto`.
+    expect(at(2)).toContain('w:lineRule="auto"');
+  });
+
+  it('round-trips an authored value that equals the default', () => {
+    // Without the marker, an authored `lineHeight: 1.5` on a Heading 1 exports
+    // to nothing (1.5 *is* `DEFAULT_BLOCK_STYLE.lineHeight`) and re-imports as
+    // the style's 1.2, and an authored `marginTop: 0` exports to nothing and
+    // re-imports as 27 — one export→import cycle would destroy the very
+    // distinction the marker exists to record.
+    const xml = buildParagraphPropertiesXml({
+      alignment: 'left', lineHeight: 1.5, marginTop: 0, marginBottom: 8,
+      textIndent: 0, marginLeft: 0,
+      authoredLineHeight: true, authoredMarginTop: true, authoredMarginBottom: true,
+    });
+    expect(xml).toContain('w:line="360"');
+    expect(xml).toContain('w:before="0"');
+    expect(xml).toContain('w:after="120"');
+  });
+
+  it('a cleared marker still exports today\'s value-based output', () => {
+    // `||`, not `??`: a materialized Heading 1 (`authored* === false`,
+    // `marginTop: 27`) keeps exporting the `w:before="405"` it exports today.
+    // That output is arguably wrong — it doubles Word's own Heading 1
+    // space-before — but it is pre-existing and changing it touches every
+    // heading in every exported file, so it is a follow-up with its own
+    // baselines rather than a side effect of the marker.
+    const xml = buildParagraphPropertiesXml({
+      alignment: 'left', lineHeight: 1.2, marginTop: 27, marginBottom: 8,
+      textIndent: 0, marginLeft: 0,
+      authoredLineHeight: false, authoredMarginTop: false, authoredMarginBottom: false,
+    });
+    expect(xml).toContain('w:before="405"');
+    expect(xml).toContain('w:line="288"');
+  });
+
+  it('emits <w:contextualSpacing/> only for a list item', () => {
+    // Word's own "Don't add space between paragraphs of the same style" — how
+    // the editor's contextual list rhythm survives an export. The computed
+    // zero is deliberately not exported instead: it depends on the block's
+    // neighbours, so a bullet inserted or removed *in Word* would re-resolve
+    // against a stale baked-in number.
+    expect(buildParagraphPropertiesXml(BODY_STYLE, undefined, { listItem: true }))
+      .toContain('<w:contextualSpacing/>');
+    expect(buildParagraphPropertiesXml(BODY_STYLE)).not.toContain('<w:contextualSpacing/>');
+    expect(buildParagraphPropertiesXml(BODY_STYLE, undefined, { listItem: false }))
+      .not.toContain('<w:contextualSpacing/>');
+  });
+
+  it('pairs <w:contextualSpacing/> with the ListParagraph style', () => {
+    // The defect this pins: ECMA-376 §17.3.1.9 scopes `w:contextualSpacing` to
+    // paragraphs "of the same style", and this exporter gives body paragraphs
+    // no `w:pStyle` at all. Emitting the element on an otherwise-unstyled
+    // paragraph therefore suppressed the space after the LAST bullet too,
+    // against the plain paragraph that follows the list — the editor paints
+    // 8 px there, Word rendered 0. A distinct paragraph style is the fix, so
+    // the two elements must always travel together.
+    const xml = buildParagraphPropertiesXml(BODY_STYLE, undefined, { listItem: true });
+    expect(xml).toContain('<w:pStyle w:val="ListParagraph"/>');
+    expect(xml).toContain('<w:contextualSpacing/>');
+    // …and a body paragraph must stay style-less, which is the other half of
+    // "different style": giving both the same id would restore the bug.
+    expect(buildParagraphPropertiesXml(BODY_STYLE)).not.toContain('<w:pStyle');
+  });
+
+  it('never emits two <w:pStyle> elements in one <w:pPr>', () => {
+    // `Block.type` is either `heading` or `list-item`, never both, so this is
+    // defensive — but two `w:pStyle` children violate `CT_PPr` and Word
+    // refuses the file outright, which is a worse failure than a mis-spaced
+    // bullet. The heading style wins.
+    const xml = buildParagraphPropertiesXml(BODY_STYLE, 2, { listItem: true });
+    expect(xml.match(/<w:pStyle /g)).toHaveLength(1);
+    expect(xml).toContain('<w:pStyle w:val="Heading2"/>');
+  });
+
+  it('places <w:contextualSpacing/> after <w:ind>, per CT_PPr', () => {
+    // `CT_PPr` sequences …`w:spacing`, `w:ind`, `w:contextualSpacing`… A newly
+    // added element gets its schema slot; `w:jc`'s pre-existing early position
+    // is left alone because every file this exporter has already shipped
+    // carries it.
+    const xml = buildParagraphPropertiesXml(
+      { ...BODY_STYLE, marginLeft: 36 },
+      undefined,
+      { listItem: true },
+    );
+    expect(xml.indexOf('<w:ind ')).toBeLessThan(xml.indexOf('<w:contextualSpacing/>'));
+  });
+});
+
+describe('styles.xml defines every style a paragraph references', () => {
+  // A `w:pStyle` naming a style `styles.xml` does not define resolves to the
+  // default style. For `ListParagraph` that is not a cosmetic loss: it makes
+  // every exported list item `Normal` again, which is precisely the state in
+  // which `w:contextualSpacing` eats the gap after the last bullet. Word would
+  // also fill the gap from its own built-in "List Paragraph" gallery entry —
+  // including its `w:ind w:left="720"` — indenting items the editor painted
+  // flush. Both failures are silent in the file, so assert the definition.
+  it('defines ListParagraph, based on Normal, with no metrics of its own', () => {
+    expect(STYLES).toContain('w:styleId="ListParagraph"');
+    expect(STYLES).toContain('<w:name w:val="List Paragraph"/>');
+    expect(STYLES).toContain('<w:basedOn w:val="Normal"/>');
+    // No indent, no spacing: the style exists to be a distinct *identity*, not
+    // to move anything.
+    const listStyle = STYLES.slice(STYLES.indexOf('w:styleId="ListParagraph"'));
+    expect(listStyle).not.toContain('<w:ind');
+    expect(listStyle).not.toContain('<w:spacing');
+  });
+
+  it('uses the same style id the paragraph writer references', () => {
+    expect(LIST_PARAGRAPH_STYLE_ID).toBe('ListParagraph');
+    expect(STYLES).toContain(`w:styleId="${LIST_PARAGRAPH_STYLE_ID}"`);
+    expect(buildParagraphPropertiesXml(BODY_STYLE, undefined, { listItem: true }))
+      .toContain(`<w:pStyle w:val="${LIST_PARAGRAPH_STYLE_ID}"/>`);
   });
 });
 

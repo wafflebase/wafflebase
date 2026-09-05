@@ -166,6 +166,58 @@ describe('clipboard JSON serialization', () => {
     expect(style.href).toBe('https://example.com');
     expect(parsed[0].style.alignment).toBe('center');
   });
+
+  it('round-trips the authored-spacing markers', () => {
+    // A paragraph whose leading was deliberately set to 1.5, or a Word-imported
+    // heading carrying `w:before="0"`, must paste as what its author chose.
+    // Dropping the marker here would silently revert the paste to the named
+    // style's value — the very defect the marker exists to fix, reintroduced by
+    // the clipboard.
+    const blocks = [
+      {
+        id: 'b1',
+        type: 'heading' as const,
+        headingLevel: 1 as const,
+        inlines: [{ text: 'Decisions', style: {} }],
+        style: {
+          alignment: 'left' as const,
+          lineHeight: 1.5, marginTop: 0, marginBottom: 8,
+          textIndent: 0, marginLeft: 0,
+          authoredLineHeight: true,
+          authoredMarginTop: true,
+          authoredMarginBottom: false,
+        },
+      },
+    ];
+    const style = deserializeBlocks(serializeBlocks(blocks))[0].style;
+    expect(style.authoredLineHeight).toBe(true);
+    expect(style.authoredMarginTop).toBe(true);
+    // `false` is a value, not an absence — it says the style supplies this one.
+    expect(style.authoredMarginBottom).toBe(false);
+  });
+
+  it('leaves a marker-free payload marker-free, and rejects a non-boolean', () => {
+    // Absence must survive: a payload written by an older client carries no
+    // marker and has to keep falling back to the value sentinel. And the
+    // payload is untrusted input, so a truthy string must not become a marker.
+    const base = {
+      id: 'b1',
+      type: 'paragraph' as const,
+      inlines: [{ text: 'x', style: {} }],
+      style: {
+        alignment: 'left' as const,
+        lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0,
+      },
+    };
+    expect(deserializeBlocks(serializeBlocks([base]))[0].style.authoredLineHeight)
+      .toBeUndefined();
+
+    const hostile = JSON.stringify({
+      version: 1,
+      blocks: [{ ...base, style: { ...base.style, authoredLineHeight: 'yes' } }],
+    });
+    expect(deserializeBlocks(hostile)[0].style.authoredLineHeight).toBeUndefined();
+  });
 });
 
 /**

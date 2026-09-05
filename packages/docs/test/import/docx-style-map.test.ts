@@ -146,6 +146,64 @@ describe('mapParagraphProperties', () => {
     const result = mapParagraphProperties(el);
     expect(result.blockStyle.marginTop).toBeCloseTo(8, 0);
     expect(result.blockStyle.marginBottom).toBeCloseTo(16, 0);
+    // Present in the source → authored by the paragraph, so it outranks the
+    // named style (OOXML's own formatting hierarchy).
+    expect(result.blockStyle.authoredMarginTop).toBe(true);
+    expect(result.blockStyle.authoredMarginBottom).toBe(true);
+  });
+
+  it('keeps an explicit w:before="0" / w:after="0"', () => {
+    // What Word's one-click "Remove Space Before Paragraph" writes. `0` is a
+    // valid explicit `ST_TwipsMeasure`, not an absence — and the old guard
+    // `if (before)` did not even drop it (`Boolean("0") === true`), it imported
+    // the zero and then let the named style's 27 px silently replace it,
+    // because nothing recorded that the author had chosen it.
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:before="0" w:after="0"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.marginTop).toBe(0);
+    expect(result.blockStyle.marginBottom).toBe(0);
+    expect(result.blockStyle.authoredMarginTop).toBe(true);
+    expect(result.blockStyle.authoredMarginBottom).toBe(true);
+  });
+
+  it('keeps Word\'s 1.5 line spacing (w:line="360")', () => {
+    // 360/240 = exactly 1.5, which is `DEFAULT_BLOCK_STYLE.lineHeight` — the
+    // value the resolver's legacy fallback reads as "inherit". On a Heading 1
+    // that turned Word's 1.5 into the style's 1.2 with nothing to show for it.
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:line="360" w:lineRule="auto"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.lineHeight).toBe(1.5);
+    expect(result.blockStyle.authoredLineHeight).toBe(true);
+  });
+
+  it('marks nothing when the paragraph specifies no spacing', () => {
+    // Absence must stay absence, so a paragraph that overrode nothing keeps
+    // inheriting its named style's spacing.
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:jc w:val="center"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.authoredMarginTop).toBeUndefined();
+    expect(result.blockStyle.authoredMarginBottom).toBeUndefined();
+    expect(result.blockStyle.authoredLineHeight).toBeUndefined();
+  });
+
+  it('marks only the fields the w:spacing element carries', () => {
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:before="120"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.authoredMarginTop).toBe(true);
+    expect(result.blockStyle.authoredMarginBottom).toBeUndefined();
+    expect(result.blockStyle.authoredLineHeight).toBeUndefined();
+  });
+
+  it('ignores w:line="0" rather than dividing by 240', () => {
+    const xml = '<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:spacing w:line="0"/></w:pPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapParagraphProperties(el);
+    expect(result.blockStyle.lineHeight).toBe(1.5);
+    expect(result.blockStyle.authoredLineHeight).toBeUndefined();
   });
 });
 
@@ -215,5 +273,35 @@ describe('mapHighlightColor', () => {
     expect(mapHighlightColor('yellow')).toBe('#FFFF00');
     expect(mapHighlightColor('red')).toBe('#FF0000');
     expect(mapHighlightColor('green')).toBe('#00FF00');
+  });
+});
+
+describe('w:lineRule decides whether the leading is authored', () => {
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const pPr = (spacing: string) =>
+    new DOMParser().parseFromString(
+      `<w:pPr xmlns:w="${W}"><w:spacing ${spacing}/></w:pPr>`, 'text/xml',
+    ).documentElement;
+
+  it('marks an auto (multiplier) rule as authored', () => {
+    // Word's "1.5 line spacing" preset. Without the marker this lands on the
+    // sentinel and reads back as "inherit", so the pick would not survive.
+    for (const s of ['w:line="360"', 'w:line="360" w:lineRule="auto"']) {
+      const r = mapParagraphProperties(pPr(s));
+      expect(r.blockStyle?.lineHeight).toBe(1.5);
+      expect(r.blockStyle?.authoredLineHeight).toBe(true);
+    }
+  });
+
+  it('leaves exact / atLeast unmarked, because the value is misread', () => {
+    // Under these rules `w:line` is absolute twips, which this model cannot
+    // express. The value is still imported so round-tripping documents do not
+    // regress, but pinning a misreading as the user's intent would stop the
+    // named style from supplying leading it can actually get right.
+    for (const rule of ['exact', 'atLeast']) {
+      const r = mapParagraphProperties(pPr(`w:line="240" w:lineRule="${rule}"`));
+      expect(r.blockStyle?.lineHeight).toBe(1);
+      expect(r.blockStyle?.authoredLineHeight).toBeUndefined();
+    }
   });
 });

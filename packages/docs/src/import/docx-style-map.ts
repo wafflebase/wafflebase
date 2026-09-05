@@ -109,15 +109,47 @@ export function mapParagraphProperties(pPr: Element): {
 
   const spacing = getW(pPr, 'spacing');
   if (spacing) {
-    const before = getWAttr(spacing, 'before');
-    if (before) blockStyle.marginTop = twipsToPx(parseInt(before, 10));
-    const after = getWAttr(spacing, 'after');
-    if (after) blockStyle.marginBottom = twipsToPx(parseInt(after, 10));
-    const line = getWAttr(spacing, 'line');
-    if (line) {
-      const lineVal = parseInt(line, 10);
-      // line value of 240 = single spacing (1.0)
-      if (lineVal > 0) blockStyle.lineHeight = lineVal / 240;
+    // `w:before="0"` is a *value*, not an absence: it is what Word's one-click
+    // "Remove Space Before Paragraph" writes, and in the OOXML formatting
+    // hierarchy direct paragraph formatting outranks the paragraph style. So
+    // the guard is finiteness, not truthiness — `if (before)` rejected the
+    // string `"0"`… except it did not, since `Boolean("0") === true` in
+    // JavaScript, so the zero was in fact imported and then silently replaced
+    // by the named style's space-before because nothing recorded that the
+    // author had chosen it. Both halves are fixed here: parse first, then
+    // stamp `authoredMarginTop` so `effectiveBlockSpacing` honours the zero.
+    // `parseInt('')` is `NaN`, so this is also robust to a DOM that returns
+    // `''` rather than `null` for a missing attribute.
+    const before = parseInt(getWAttr(spacing, 'before') ?? '', 10);
+    if (Number.isFinite(before)) {
+      blockStyle.marginTop = twipsToPx(before);
+      blockStyle.authoredMarginTop = true;
+    }
+    const after = parseInt(getWAttr(spacing, 'after') ?? '', 10);
+    if (Number.isFinite(after)) {
+      blockStyle.marginBottom = twipsToPx(after);
+      blockStyle.authoredMarginBottom = true;
+    }
+    const lineVal = parseInt(getWAttr(spacing, 'line') ?? '', 10);
+    const lineRule = getWAttr(spacing, 'lineRule');
+    // `w:line` is a multiple of 240 only under `lineRule="auto"` (the default
+    // when the attribute is absent). Under `exact` / `atLeast` it is an
+    // absolute twips measurement, which this model has no way to express —
+    // a pre-existing gap, and reading those as 240ths is simply wrong
+    // (`w:line="240" w:lineRule="exact"` is 12 pt of leading, not 1.0×).
+    //
+    // So the value is still imported for those rules — dropping it would
+    // regress documents that round-trip today — but it is deliberately NOT
+    // marked authored. An unmarked value falls to the sentinel, so a heading
+    // whose leading we know we misread can still take its named style's,
+    // instead of having the misreading pinned as the user's intent.
+    const lineIsMultiplier = lineRule == null || lineRule === 'auto';
+    if (Number.isFinite(lineVal) && lineVal > 0) {
+      blockStyle.lineHeight = lineVal / 240;
+      // `w:line="360"` is Word's "1.5 line spacing" preset and lands on
+      // exactly the multiplier that reads back as "inherit"; the marker is
+      // what makes a deliberate 1.5 survive.
+      if (lineIsMultiplier) blockStyle.authoredLineHeight = true;
     }
   }
 

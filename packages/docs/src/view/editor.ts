@@ -4,12 +4,13 @@ import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMat
 import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE, MIN_CONTENT_PX } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
+import { effectiveBlockSpacing, omitBuiltinStyleDefaults } from '../model/named-styles.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
 import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, caretOffsetX, clearMeasureCache, disposeMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
+import { computeLayout, DOCS_LAYOUT_OPTIONS, caretOffsetX, clearMeasureCache, disposeMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutOptions, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, getBlockIndex, getBlockYExtent, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
@@ -17,7 +18,7 @@ import type { DocPosition, DocRange, HeaderFooter } from '../model/types.js';
 import { findMarkerAt, type CommentMarker, type HighlightRect } from './comment-markers.js';
 import { Ruler, RULER_SIZE } from './ruler/index.js';
 import { computeScaleFactor } from './scale.js';
-import { Theme, setThemeMode, type ThemeMode } from './theme.js';
+import { Theme, setThemeMode, getThemeMode, type ThemeMode } from './theme.js';
 import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
@@ -1510,6 +1511,14 @@ export function initialize(
     const pageSetup = resolvePageSetup(doc.document.pageSetup);
     const dims = getEffectiveDimensions(pageSetup);
     const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
+    // The ONE read of the global theme mode in the whole named-style colour
+    // feature. It is turned into an explicit `surface` here, at the top of the
+    // screen's layout pass, and threaded down from there — so the exporters
+    // (which run in this same module instance, with dark mode possibly active)
+    // resolve the light Google-Docs greys by simply not passing it. See
+    // `resolveStyleInline`'s comment for why this must never move into the
+    // resolver itself.
+    const layoutOpts: LayoutOptions = { ...DOCS_LAYOUT_OPTIONS, surface: getThemeMode() };
     const result = computeLayout(
       doc.document.blocks,
       measurer,
@@ -1518,6 +1527,7 @@ export function initialize(
       layoutCache,
       composingContext ?? undefined,
       doc.document.styles,
+      layoutOpts,
     );
     layout = result.layout;
     layoutCache = result.cache;
@@ -1534,6 +1544,7 @@ export function initialize(
         undefined,
         composingContext ?? undefined,
         doc.document.styles,
+        layoutOpts,
       ).layout;
     } else {
       headerLayout = null;
@@ -1547,6 +1558,7 @@ export function initialize(
         undefined,
         composingContext ?? undefined,
         doc.document.styles,
+        layoutOpts,
       ).layout;
     } else {
       footerLayout = null;
@@ -3409,7 +3421,25 @@ export function initialize(
     },
     getBlockStyle: () => {
       const block = doc.findBlock(cursor.position.blockId);
-      return block ? { ...block.style } : {};
+      if (!block) return {};
+      // Report the *effective* style, not the raw one, for the same reason
+      // `updateStyleToMatch` captures the resolved value: every block ever
+      // written carries `DEFAULT_BLOCK_STYLE`'s spacing, so the toolbar's line
+      // spacing control would read 1.5 on a paragraph the page actually paints
+      // at Google's 1.15. A control that disagrees with the page is worse than
+      // one that is merely limited.
+      //
+      // The contextual list zeroes are deliberately NOT folded in: a middle
+      // bullet's resolved space-after is 0 only *because of its neighbours*,
+      // and showing 0 in a picker would invite the user to write 0 as direct
+      // formatting, which then survives the bullet being moved out of the run.
+      // Same context the layout uses, or the line-spacing picker would report
+      // `normal`'s 1.5 while the page paints 1.15 — and "Update to match"
+      // would freeze the number nobody is looking at.
+      return {
+        ...block.style,
+        ...effectiveBlockSpacing(block, docStore.getDocStyles(), DOCS_LAYOUT_OPTIONS),
+      };
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
       docStore.snapshot();
@@ -3437,7 +3467,17 @@ export function initialize(
       // below, so structural inline kinds (href / pageNumber / image) never
       // leak into a paragraph style.
       const s = getSelectionStyleImpl(true);
-      const def: NamedStyleDef = {
+      // ...then keep only what this document actually redefined. Every property
+      // the run did not set comes back out of the capture carrying the
+      // *built-in's* value, and storing those turns nine inherited defaults into
+      // authored overrides on behalf of a user who changed one thing. That is
+      // not tidiness: `resolveStyleInline` spreads a document override last and
+      // unconditionally on both surfaces, so freezing the captured `#434343`
+      // repainted every Heading 3 at 1.43:1 on the dark page after a Bold
+      // toggle — the exact inverted hierarchy `inlineDark` exists to remove.
+      // Pruning is against the built-in only, so the 30 pt above survives; see
+      // `omitBuiltinStyleDefaults`.
+      const def: NamedStyleDef = omitBuiltinStyleDefaults(styleId, {
         inline: {
           bold: s.bold,
           italic: s.italic,
@@ -3450,8 +3490,15 @@ export function initialize(
           superscript: s.superscript,
           subscript: s.subscript,
         },
-        block: { marginTop: block.style.marginTop, marginBottom: block.style.marginBottom },
-      };
+        // Spacing must be the *resolved* value, not the raw one, for the same
+        // reason the inline half above is computed rather than read: a block
+        // that never went through the store's materialize seam still carries
+        // `DEFAULT_BLOCK_STYLE`'s 0 / 8 / 1.5. Reading that raw would redefine
+        // Heading 1's space-before to 0 and its leading back to 1.5 across the
+        // whole document — a CRDT write the lazy resolution can no longer
+        // undo, so "Update to match" would be an undo button for this very fix.
+        block: effectiveBlockSpacing(block, docStore.getDocStyles(), DOCS_LAYOUT_OPTIONS),
+      });
       withNamedStyleChange(() => docStore.updateStyleDefinition(styleId, def));
     },
     resetNamedStyle(styleId: StyleId) {

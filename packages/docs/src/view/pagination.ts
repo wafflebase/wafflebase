@@ -76,9 +76,17 @@ export function paginateLayout(
     const lb = layout.blocks[bi];
     const block = lb.block;
 
+    // Spacing comes off the `LayoutBlock`, not off `block.style`: it is the
+    // named-style-resolved value `computeLayout` already accumulated with, and
+    // this loop must not disagree with it. The `??` fallback covers only the
+    // hand-built `LayoutBlock` literals in tests — `computeLayout` always
+    // publishes `spacing`.
+    const marginTop = lb.spacing?.marginTop ?? block.style.marginTop;
+    const marginBottom = lb.spacing?.marginBottom ?? block.style.marginBottom;
+
     // Apply marginTop (skip at page top)
     if (!isPageTop) {
-      currentY += block.style.marginTop;
+      currentY += marginTop;
     }
 
     if (lb.block.type === 'table' && lb.layoutTable) {
@@ -139,7 +147,7 @@ export function paginateLayout(
       }
 
       if (tl.rowHeights.length > 0) {
-        currentY += block.style.marginBottom;
+        currentY += marginBottom;
       }
     } else {
       for (let li = 0; li < lb.lines.length; li++) {
@@ -172,7 +180,7 @@ export function paginateLayout(
       // When a block splits across pages, startNewPage() resets currentY,
       // so marginBottom is naturally applied only on the final page.
       if (lb.lines.length > 0 && block.type !== 'page-break') {
-        currentY += block.style.marginBottom;
+        currentY += marginBottom;
       }
     }
   }

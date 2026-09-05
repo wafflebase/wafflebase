@@ -111,6 +111,13 @@ const DarkTheme: DocTheme = {
 let activeTheme: DocTheme = LightTheme;
 
 /**
+ * The mode `activeTheme` was selected from. Tracked separately because
+ * `DocTheme` carries no discriminant and identity-comparing it against
+ * `DarkTheme` would silently break the day a third theme is added.
+ */
+let activeMode: ThemeMode = 'light';
+
+/**
  * Get the current active theme.
  */
 export function getTheme(): DocTheme {
@@ -118,10 +125,26 @@ export function getTheme(): DocTheme {
 }
 
 /**
+ * The current theme mode.
+ *
+ * Deliberately narrow in reach: the *only* production caller is the editor's
+ * `recomputeLayout`, which turns it into the `surface` argument threaded
+ * through the layout chain (see `resolveStyleInline`). Nothing under
+ * `src/export/` may call it — PDF export runs client-side in this same module
+ * instance, where the editor has already switched the mode to `dark`, so an
+ * exporter that consulted the global would bake dark-mode greys into a
+ * white-paper PDF. That is also why this is not re-exported from `node.ts`.
+ */
+export function getThemeMode(): ThemeMode {
+  return activeMode;
+}
+
+/**
  * Switch the active theme mode.
  */
 export function setThemeMode(mode: ThemeMode): void {
-  activeTheme = mode === 'dark' ? DarkTheme : LightTheme;
+  activeMode = mode === 'dark' ? 'dark' : 'light';
+  activeTheme = activeMode === 'dark' ? DarkTheme : LightTheme;
 }
 
 /**
