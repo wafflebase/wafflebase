@@ -253,6 +253,91 @@ drag and long-press-callout were both blocked by the items above.
 Gate decision: option (B), proceed with the Pointer Events migration as
 Task 1a prerequisite.
 
+#### Touch beyond the mobile shell
+
+The strategy above holds, with one premise that turned out to be wrong:
+that "mobile" and "touch" name the same set of sessions. `useIsMobile()`
+answers *is this viewport narrow* (< 768px). A tablet, an Android
+tablet, and a phone in landscape all sit above that line and take the
+**desktop** mount — with no handle tolerance, no `touch-action`, and no
+callout suppression. The accommodations listed in the table above were
+therefore reaching a strict subset of the devices that need them.
+
+The axis is the input device, `(pointer: coarse)`, read through
+`@/hooks/use-coarse-pointer` (`isCoarsePointer()` for the imperative
+mounts, `useCoarsePointer()` for components). `useIsMobile()` keeps its
+job — choosing the mobile *shell*, which is a layout question — and the
+touch accommodations key on the pointer instead.
+
+What that changed:
+
+- **Handle tolerance** (`TOUCH_HANDLE_TOLERANCE`, 22px) now also applies
+  on the desktop slides mount and on the board. The constant moved
+  beside the hook so the three mounts cannot drift.
+
+- **`touch-action` on the desktop slide canvas.** With none set, the
+  browser claimed every touch drag as a scroll of `scrollHost` and
+  cancelled the editor's pointer stream mid-gesture: on a tablet,
+  dragging a shape scrolled the page. It is now `none` **while the
+  canvas fits its scroll host** — the state a deck opens in and spends
+  nearly all its time in — and `pan-x pan-y` past Fit, where `none`
+  would strand the off-screen part of an over-sized slide with no way
+  to reach it. Re-evaluated on every refit. The consequence is honest
+  and worth stating: past Fit, a finger scrolls and cannot drag. A
+  two-finger scroll gesture would lift that, but it needs a way to
+  retract a press the editor's drag loop already owns, which the editor
+  has no API for today.
+
+- **Drag thresholds per device** (`dragThresholdFor`). 3px is a mouse
+  number: a mouse that has not moved reports no movement. A fingertip
+  reports 5–10px across a press the user experienced as stationary, as
+  the contact patch shifts and the browser re-centroids it, so every
+  tap nudged what it landed on and pushed an undo entry. Touch gets
+  10px; `pen` stays on the precise number, being as accurate as a mouse.
+
+- **Slow double-click withheld from touch** (`allowsSlowDoubleClick`).
+  Its window is 3px over 350ms — inside that same jitter, so it could
+  not tell a deliberate second click from a tap held still. Widening it
+  would open the keyboard on every held tap. `dblclick` (double-tap) is
+  the touch route and was already wired.
+
+- **Non-primary touch pointers ignored** in `onPointerDown`, so a second
+  finger cannot re-enter select/drag/lasso on top of an in-flight
+  gesture. Scoped to `pointerType === 'touch'` rather than testing
+  `isPrimary` alone, because `PointerEventInit.isPrimary` **defaults to
+  false** — an `isPrimary`-only test silently rejects every synthetic
+  `PointerEvent`, which is what the editor dispatches internally and
+  what the whole interaction suite is built from.
+
+- **Long-press → context menu**, timed by the editor
+  (`LONG_PRESS_DELAY_MS` / `LONG_PRESS_TOLERANCE_PX`, matching
+  `use-mobile-sheet-gestures`). The table above notes that the iOS
+  callout is not a `contextmenu` event; the corollary it did not draw is
+  that suppressing the callout with `-webkit-touch-callout: none` also
+  costs the *real* `contextmenu`, so the menu had no touch entry point
+  at all. Disarmed by movement past the tolerance, by release, or by a
+  `pointercancel`, and skipped while an insert, crop, format-paint or
+  text-edit session owns the press. `openContextMenuAt` is public so a
+  host that intercepts a press first can still offer the menu.
+
+- **Menu rows at ~44px** on coarse input (`context-menu.ts`), plus a
+  larger type size and a `max-height` + scroll, since the table menu at
+  touch row height is taller than a phone.
+
+- **Toolbar controls at a 44px floor**, applied on the shared `Toolbar`
+  root as `pointer-coarse:` `min-h`/`min-w`. Floors, so nothing shrinks
+  and no call site opts in; Sheets, Docs, Slides and Board are covered
+  at once. Controls rendered into a portal are outside that subtree and
+  set their own.
+
+- **Presentation mode navigates both ways.** Click-to-advance already
+  worked under a finger, but every route *back* was a key, so a deck
+  presented from a tablet was one-directional. Swipe moves both ways
+  (50px, 600ms, horizontal-dominant) and a tap in the left third goes
+  back. The zones are touch-only — a mouse keeps click-anywhere — and a
+  flag stops the synthetic click that follows a touch from advancing a
+  second time.
+
 #### Mobile text formatting
 
 Text formatting shipped as `MobileSlidesToolbar`
