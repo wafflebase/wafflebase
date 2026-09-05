@@ -84,13 +84,53 @@ The mobile slides toolbar pins `h-10`, and `overflow-x-auto` makes
 worse targets, not better. A blanket descendant rule needs a survey of
 every consumer, and the survey is what the review found.
 
+## Measurement found what reading could not
+
+The third round ran a headless Chromium harness over the real built CSS
+instead of reasoning about selectors, and it found two things no amount
+of reading would have:
+
+- `min-w-11` on a flex item replaces `min-width: auto` — i.e. min-content
+  — which is what made these toolbars *overflow* rather than compress.
+  Adding a floor took a floor away.
+- The fix for that, `shrink-0`, then broke the mobile bars in the
+  opposite direction, because their right-pinned controls hang off a
+  `flex-1` spacer that collapses to zero the moment the row overflows.
+
+Both were invisible in the diff and obvious in a measurement. The same
+harness also caught that narrowing an exclusion to `min-w-` disarmed
+every `Toggle` — the most common control in those strips — which is the
+kind of second-order damage a "safer" fix does quietly.
+
+**Rule:** when a change is expressed in CSS, verify it in a browser. The
+emitted stylesheet is not the question; the computed box is.
+
+## Two guards are not one guard
+
+`isPrimary` on `pointerdown` stops a second finger *starting* a gesture.
+It does nothing about the one already running, because the drag loops
+listen on `document` and filter nothing. Both halves were needed, and
+shipping the first read as "multi-touch handled".
+
+The second half is one capture-phase listener rather than a `pointerId`
+check in sixteen loops — worth noting as a shape: when a cross-cutting
+rule has to hold in many places, putting it *upstream of all of them* is
+both smaller and safer than putting it in each, because a future loop
+cannot forget to opt in.
+
 ## What the review was worth
 
-Five parallel reviewers over the branch diff found 4 real defects the
-author's own testing had not (minimap, menu dismissal, teardown leak,
-presenter flag latch), plus the threshold error above and the toolbar
-regressions. The two most valuable lenses were the ones with no access
-to the author's reasoning: the git-history reviewer, which found the
-drill-out regression by reading the commit that fixed it for the mouse,
-and the cross-surface reviewer, which found the toolbar clipping by
-enumerating consumers of a shared component.
+Three rounds — five parallel reviewers over the branch diff, two more
+over the fixes, then CodeRabbit on the PR — surfaced 21 real defects.
+None of the rounds was redundant: the second found defects *in the first
+round's fixes*, and the third found two that the first two missed
+entirely (the board long-press leaving its gesture live, and the
+presenter navigating on a pinch).
+
+The most valuable lenses were the ones with no access to the author's
+reasoning: the git-history reviewer, which found the drill-out
+regression by reading the commit that fixed it for the mouse; the
+cross-surface reviewer, which found the toolbar damage by enumerating
+consumers of a shared component and then measuring them; and CodeRabbit,
+which asked the plain question "what happens after the menu opens" that
+the author had answered for slides and never asked again for board.
