@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  NotFoundException,
-  Param,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { initialSpreadsheetDocument } from '@wafflebase/sheets';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
@@ -19,6 +11,7 @@ import {
   parseHidden,
   parseMerges,
 } from '../../yorkie/worksheet-settings';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 /**
  * Worksheet-level settings for a spreadsheet tab: freeze panes, hidden
@@ -43,12 +36,6 @@ export class ApiV1WorksheetController {
     );
   }
 
-  private worksheetOrThrow(root: { sheets?: Record<string, unknown> }, tabId: string) {
-    const worksheet = root.sheets?.[tabId];
-    if (!worksheet) throw new NotFoundException('Tab not found');
-    return worksheet as Record<string, unknown>;
-  }
-
   // Freeze panes
   @Get('freeze')
   async getFreeze(
@@ -60,9 +47,10 @@ export class ApiV1WorksheetController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { frozenRows?: number; frozenCols?: number }
-          | undefined;
+        const ws = findWorksheet<{
+          frozenRows?: number;
+          frozenCols?: number;
+        }>(doc.getRoot(), tabId);
         return { rows: ws?.frozenRows ?? 0, cols: ws?.frozenCols ?? 0 };
       },
       { syncMode: 'readonly' },
@@ -82,7 +70,7 @@ export class ApiV1WorksheetController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow(root, tabId);
           ws.frozenRows = rows;
           ws.frozenCols = cols;
         });
@@ -103,9 +91,10 @@ export class ApiV1WorksheetController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { hiddenRows?: number[]; hiddenColumns?: number[] }
-          | undefined;
+        const ws = findWorksheet<{
+          hiddenRows?: number[];
+          hiddenColumns?: number[];
+        }>(doc.getRoot(), tabId);
         return {
           rows: ws?.hiddenRows ? [...ws.hiddenRows] : [],
           columns: ws?.hiddenColumns ? [...ws.hiddenColumns] : [],
@@ -128,7 +117,7 @@ export class ApiV1WorksheetController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow(root, tabId);
           ws.hiddenRows = rows;
           ws.hiddenColumns = columns;
         });
@@ -149,9 +138,9 @@ export class ApiV1WorksheetController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { merges?: Record<string, { rs: number; cs: number }> }
-          | undefined;
+        const ws = findWorksheet<{
+          merges?: Record<string, { rs: number; cs: number }>;
+        }>(doc.getRoot(), tabId);
         const merges: Record<string, { rs: number; cs: number }> = {};
         for (const [ref, span] of Object.entries(ws?.merges ?? {})) {
           merges[ref] = { ...span };
@@ -175,7 +164,7 @@ export class ApiV1WorksheetController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow(root, tabId);
           ws.merges = merges;
         });
         return { merges };

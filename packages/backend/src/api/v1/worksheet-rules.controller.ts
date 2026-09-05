@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  NotFoundException,
-  Param,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import {
   initialSpreadsheetDocument,
   normalizeConditionalFormatRule,
@@ -26,6 +18,7 @@ import {
   parseConditionalFormats,
   parseDataValidations,
 } from '../../yorkie/worksheet-rules';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 /**
  * Worksheet-level rules for a spreadsheet tab: conditional formats and data
@@ -52,15 +45,6 @@ export class ApiV1WorksheetRulesController {
     );
   }
 
-  private worksheetOrThrow(
-    root: { sheets?: Record<string, unknown> },
-    tabId: string,
-  ) {
-    const worksheet = root.sheets?.[tabId];
-    if (!worksheet) throw new NotFoundException('Tab not found');
-    return worksheet as Record<string, unknown>;
-  }
-
   @Get('conditional-formats')
   async getConditionalFormats(
     @Param('workspaceId') workspaceId: string,
@@ -71,9 +55,9 @@ export class ApiV1WorksheetRulesController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { conditionalFormats?: ConditionalFormatRule[] }
-          | undefined;
+        const ws = findWorksheet<{
+          conditionalFormats?: ConditionalFormatRule[];
+        }>(doc.getRoot(), tabId);
         const rules = (ws?.conditionalFormats ?? [])
           .map((r) => normalizeConditionalFormatRule(r))
           .filter((r): r is ConditionalFormatRule => Boolean(r));
@@ -96,7 +80,7 @@ export class ApiV1WorksheetRulesController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          this.worksheetOrThrow(root, tabId).conditionalFormats = rules;
+          worksheetOrThrow(root, tabId).conditionalFormats = rules;
         });
         return { rules };
       },
@@ -114,9 +98,9 @@ export class ApiV1WorksheetRulesController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { dataValidations?: DataValidationRule[] }
-          | undefined;
+        const ws = findWorksheet<{
+          dataValidations?: DataValidationRule[];
+        }>(doc.getRoot(), tabId);
         const rules = (ws?.dataValidations ?? [])
           .map((r) => normalizeDataValidationRule(r))
           .filter((r): r is DataValidationRule => Boolean(r));
@@ -139,7 +123,7 @@ export class ApiV1WorksheetRulesController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          this.worksheetOrThrow(root, tabId).dataValidations = rules;
+          worksheetOrThrow(root, tabId).dataValidations = rules;
         });
         return { rules };
       },

@@ -117,6 +117,22 @@ describe('ApiV1CommentsController on a sheet', () => {
     ]);
   });
 
+  it('refuses a body-supplied tabId that is not one of the document’s tabs', async () => {
+    const root = sheetRoot();
+    const { controller } = harness('sheet', root as never);
+
+    // `tabId` comes out of the request body here, not `tabOrder`. A
+    // truthiness check on `sheets[tabId]` passes for the inherited names on a
+    // plain root and for the proxy's `toJSON`/`getID` functions on a live one,
+    // and the thread write would then land on that object.
+    for (const tabId of ['__proto__', 'constructor', 'toJSON', 'getID']) {
+      await expect(
+        controller.createThread(WS, DOC, { body: 'x', tabId, ref: 'A1' }, REQ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    }
+    expect(Object.prototype).not.toHaveProperty('comments');
+  });
+
   it('refuses a cell whose row or column has no id yet', async () => {
     const { controller } = harness('sheet', sheetRoot() as never);
     await expect(

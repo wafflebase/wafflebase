@@ -28,7 +28,11 @@ import {
 } from '../../yorkie/tab-ops';
 import { unwrapJson } from '../../yorkie/yorkie-json';
 import { assertSheetDocument } from './sheet-document.util';
-import { initialSpreadsheetDocument } from '@wafflebase/sheets';
+import { findWorksheet } from './worksheet-lookup.util';
+import {
+  initialSpreadsheetDocument,
+  safeWorksheetRecordKeys,
+} from '@wafflebase/sheets';
 import type { Worksheet } from '@wafflebase/sheets';
 
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs')
@@ -248,11 +252,17 @@ export class ApiV1TabsController {
       documentId,
       (doc) => {
         const root = doc.getRoot();
-        if (!root.tabs?.[tabId]) throw new NotFoundException('Tab not found');
+        // Resolved against the record's real keys, not by truthiness: on a
+        // plain root `tabs['__proto__']` is `Object.prototype` and on a live
+        // Yorkie proxy `tabs['toJSON']` is a function — both truthy, and the
+        // duplicate below would then be keyed off a non-tab.
+        if (!safeWorksheetRecordKeys(root.tabs).includes(tabId)) {
+          throw new NotFoundException('Tab not found');
+        }
         // Detach the source worksheet from the CRDT proxy before it is
         // written back as a new entry: assigning a proxy into another key
         // would store Yorkie's own `toJSON` string rather than a grid.
-        const worksheet = unwrapJson<Worksheet>(root.sheets?.[tabId]);
+        const worksheet = unwrapJson<Worksheet>(findWorksheet(root, tabId));
         if (!worksheet) {
           throw new BadRequestException(
             `Tab "${tabId}" has no worksheet to duplicate; only sheet tabs ` +

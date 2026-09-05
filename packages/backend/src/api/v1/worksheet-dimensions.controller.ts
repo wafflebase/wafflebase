@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  NotFoundException,
-  Param,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { initialSpreadsheetDocument } from '@wafflebase/sheets';
 import type { CellStyle } from '@wafflebase/sheets';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
@@ -21,6 +13,7 @@ import {
   type SizeEntries,
   type StyleEntries,
 } from '../../yorkie/worksheet-dimensions';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 type IndexStyleMap = { [index: string]: CellStyle };
 type IndexSizeMap = { [index: string]: number };
@@ -48,15 +41,6 @@ export class ApiV1WorksheetDimensionsController {
       documentId,
       workspaceId,
     );
-  }
-
-  private worksheetOrThrow(
-    root: { sheets?: Record<string, unknown> },
-    tabId: string,
-  ) {
-    const worksheet = root.sheets?.[tabId];
-    if (!worksheet) throw new NotFoundException('Tab not found');
-    return worksheet as Record<string, unknown>;
   }
 
   private readStyleMap(source: unknown): IndexStyleMap {
@@ -111,9 +95,7 @@ export class ApiV1WorksheetDimensionsController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { colStyles?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ colStyles?: unknown }>(doc.getRoot(), tabId);
         return { columnStyles: this.readStyleMap(ws?.colStyles) };
       },
       { syncMode: 'readonly' },
@@ -133,13 +115,13 @@ export class ApiV1WorksheetDimensionsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId) as {
+          const ws = worksheetOrThrow<{
             colStyles?: Record<string, CellStyle>;
-          };
+          }>(root, tabId);
           ws.colStyles ??= {};
           this.applyStyleEntries(ws.colStyles, entries);
         });
-        const ws = doc.getRoot().sheets?.[tabId] as { colStyles?: unknown };
+        const ws = findWorksheet<{ colStyles?: unknown }>(doc.getRoot(), tabId);
         return { columnStyles: this.readStyleMap(ws?.colStyles) };
       },
       { initialRoot: initialSpreadsheetDocument() },
@@ -156,9 +138,7 @@ export class ApiV1WorksheetDimensionsController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { rowStyles?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ rowStyles?: unknown }>(doc.getRoot(), tabId);
         return { rowStyles: this.readStyleMap(ws?.rowStyles) };
       },
       { syncMode: 'readonly' },
@@ -178,13 +158,13 @@ export class ApiV1WorksheetDimensionsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId) as {
+          const ws = worksheetOrThrow<{
             rowStyles?: Record<string, CellStyle>;
-          };
+          }>(root, tabId);
           ws.rowStyles ??= {};
           this.applyStyleEntries(ws.rowStyles, entries);
         });
-        const ws = doc.getRoot().sheets?.[tabId] as { rowStyles?: unknown };
+        const ws = findWorksheet<{ rowStyles?: unknown }>(doc.getRoot(), tabId);
         return { rowStyles: this.readStyleMap(ws?.rowStyles) };
       },
       { initialRoot: initialSpreadsheetDocument() },
@@ -201,9 +181,7 @@ export class ApiV1WorksheetDimensionsController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { colWidths?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ colWidths?: unknown }>(doc.getRoot(), tabId);
         return { columnWidths: this.readSizeMap(ws?.colWidths) };
       },
       { syncMode: 'readonly' },
@@ -223,13 +201,13 @@ export class ApiV1WorksheetDimensionsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId) as {
+          const ws = worksheetOrThrow<{
             colWidths?: Record<string, number>;
-          };
+          }>(root, tabId);
           ws.colWidths ??= {};
           this.applySizeEntries(ws.colWidths, entries);
         });
-        const ws = doc.getRoot().sheets?.[tabId] as { colWidths?: unknown };
+        const ws = findWorksheet<{ colWidths?: unknown }>(doc.getRoot(), tabId);
         return { columnWidths: this.readSizeMap(ws?.colWidths) };
       },
       { initialRoot: initialSpreadsheetDocument() },
@@ -246,9 +224,7 @@ export class ApiV1WorksheetDimensionsController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { rowHeights?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ rowHeights?: unknown }>(doc.getRoot(), tabId);
         return { rowHeights: this.readSizeMap(ws?.rowHeights) };
       },
       { syncMode: 'readonly' },
@@ -268,13 +244,13 @@ export class ApiV1WorksheetDimensionsController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId) as {
+          const ws = worksheetOrThrow<{
             rowHeights?: Record<string, number>;
-          };
+          }>(root, tabId);
           ws.rowHeights ??= {};
           this.applySizeEntries(ws.rowHeights, entries);
         });
-        const ws = doc.getRoot().sheets?.[tabId] as { rowHeights?: unknown };
+        const ws = findWorksheet<{ rowHeights?: unknown }>(doc.getRoot(), tabId);
         return { rowHeights: this.readSizeMap(ws?.rowHeights) };
       },
       { initialRoot: initialSpreadsheetDocument() },

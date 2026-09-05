@@ -55,6 +55,7 @@ import type {
   Worksheet,
 } from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '../../yorkie/yorkie.types';
+import { worksheetOrThrow } from './worksheet-lookup.util';
 
 /** The document types that store comment threads. */
 const COMMENTABLE = ['sheet', 'doc', 'pdf'] as const;
@@ -320,14 +321,16 @@ export class ApiV1CommentsController {
     >(
       documentId,
       (doc) => {
-        const worksheet = doc.getRoot().sheets?.[tabId] as
-          | Worksheet
-          | undefined;
-        if (!worksheet) throw new NotFoundException('Tab not found');
+        // `tabId` is caller-supplied here (request body, not `tabOrder`), so
+        // it is resolved against the document's real tab keys — a truthiness
+        // test on `sheets[tabId]` passes for `__proto__` on a plain root and
+        // for the proxy's `toJSON`/`getID` functions on a live one, and the
+        // write below would then land on that object.
+        const worksheet = worksheetOrThrow<Worksheet>(doc.getRoot(), tabId);
         const anchor = sheetCellAnchor(worksheet, tabId, ref);
         const thread = buildThread({ anchor, body: text, author, now });
         doc.update((root) => {
-          const ws = root.sheets[tabId];
+          const ws = worksheetOrThrow<Worksheet>(root, tabId);
           if (!ws.comments) ws.comments = {};
           applyAddThread(ws.comments as ThreadMap, thread);
         });

@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Get,
-  NotFoundException,
   Param,
   Put,
   UseGuards,
@@ -17,6 +16,7 @@ import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
 import { parseImages } from '../../yorkie/worksheet-images';
 import { unwrapJson } from '../../yorkie/yorkie-json';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 /**
  * Floating images on a spreadsheet tab.
@@ -29,31 +29,6 @@ import { unwrapJson } from '../../yorkie/yorkie-json';
  * same replace rule `charts` follows — an image missing from the payload is
  * deleted.
  */
-/**
- * Object keys that are never a tab id and that a lookup on a *plain* object
- * answers with something inherited rather than `undefined`.
- *
- * `:tabId` reaches this controller straight off the URL (Express URL-decodes,
- * so `%5F%5Fproto%5F%5F` arrives as `__proto__`) and is then used both as the
- * existence check and as the key that is written to. On a plain object —
- * which the root is in a unit test, and which `sheets` is on any path that has
- * not been wrapped by a Yorkie proxy — `sheets['__proto__']` answers
- * `Object.prototype`: truthy, so the NotFound guard passes and `ws.images = {}`
- * lands on the prototype instead of on a worksheet. Refusing the key outright
- * is the check that holds regardless of which side of the proxy boundary the
- * root is on (`hasOwnProperty` does not: a Yorkie object proxy traps `get`,
- * not `getOwnPropertyDescriptor`, so an own-property test would reject every
- * real tab).
- *
- * The answer is 404, not 400: no tab has these ids, so "not found" is the
- * truthful one.
- */
-const UNSAFE_TAB_IDS = new Set(['__proto__', 'prototype', 'constructor']);
-
-function assertPlainTabId(tabId: string): void {
-  if (UNSAFE_TAB_IDS.has(tabId)) throw new NotFoundException('Tab not found');
-}
-
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1WorksheetImagesController {
@@ -75,16 +50,6 @@ export class ApiV1WorksheetImagesController {
     return doc;
   }
 
-  private worksheetOrThrow(
-    root: { sheets?: Record<string, unknown> },
-    tabId: string,
-  ) {
-    assertPlainTabId(tabId);
-    const worksheet = root.sheets?.[tabId];
-    if (!worksheet) throw new NotFoundException('Tab not found');
-    return worksheet as Record<string, unknown>;
-  }
-
   @Get('images')
   async getImages(
     @Param('workspaceId') workspaceId: string,
@@ -92,13 +57,10 @@ export class ApiV1WorksheetImagesController {
     @Param('tabId') tabId: string,
   ) {
     await this.assertSheetDocument(documentId, workspaceId);
-    assertPlainTabId(tabId);
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { images?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ images?: unknown }>(doc.getRoot(), tabId);
         const out: SheetImage[] = [];
         if (ws?.images && typeof ws.images === 'object') {
           for (const value of Object.values(ws.images)) {
@@ -130,11 +92,11 @@ export class ApiV1WorksheetImagesController {
         // Checked *before* `doc.update` rather than inside it: throwing from
         // within the update leaves an aborted change on a document this
         // request should not have touched at all.
-        this.worksheetOrThrow(doc.getRoot(), tabId);
+        worksheetOrThrow(doc.getRoot(), tabId);
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId) as {
+          const ws = worksheetOrThrow<{
             images?: Record<string, SheetImage>;
-          };
+          }>(root, tabId);
           ws.images = {};
           for (const image of images) ws.images[image.id] = image;
         });

@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  NotFoundException,
-  Param,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { initialSpreadsheetDocument } from '@wafflebase/sheets';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
@@ -16,6 +8,7 @@ import { DocumentService } from '../../document/document.service';
 import { assertSheetDocument } from './sheet-document.util';
 import { unwrapJson } from '../../yorkie/yorkie-json';
 import { parseFilter, parsePivot } from '../../yorkie/worksheet-filter-pivot';
+import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 /**
  * Worksheet-level filter and pivot for a spreadsheet tab. Each is a single
@@ -40,15 +33,6 @@ export class ApiV1WorksheetFilterPivotController {
     );
   }
 
-  private worksheetOrThrow(
-    root: { sheets?: Record<string, unknown> },
-    tabId: string,
-  ) {
-    const worksheet = root.sheets?.[tabId];
-    if (!worksheet) throw new NotFoundException('Tab not found');
-    return worksheet as Record<string, unknown>;
-  }
-
   @Get('filter')
   async getFilter(
     @Param('workspaceId') workspaceId: string,
@@ -59,9 +43,7 @@ export class ApiV1WorksheetFilterPivotController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { filter?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ filter?: unknown }>(doc.getRoot(), tabId);
         // `unwrapJson`, not `detachYorkieValue`: the object proxy's own
         // `toJSON` walks the CRDT and detaches every nested value, arrays
         // included. `detachYorkieValue` branches on `Array.isArray`, which is
@@ -87,7 +69,7 @@ export class ApiV1WorksheetFilterPivotController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow(root, tabId);
           if (filter === null) delete ws.filter;
           else ws.filter = filter;
         });
@@ -107,9 +89,10 @@ export class ApiV1WorksheetFilterPivotController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
-        const ws = doc.getRoot().sheets?.[tabId] as
-          | { pivotTable?: unknown }
-          | undefined;
+        const ws = findWorksheet<{ pivotTable?: unknown }>(
+          doc.getRoot(),
+          tabId,
+        );
         // `unwrapJson`, not `detachYorkieValue` — see `getFilter`. Here it is
         // the four field arrays (`rowFields` / `columnFields` / `valueFields`
         // / `filterFields`) that a proxy walk would flatten into CRDT
@@ -133,7 +116,7 @@ export class ApiV1WorksheetFilterPivotController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = this.worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow(root, tabId);
           if (pivot === null) delete ws.pivotTable;
           else ws.pivotTable = pivot;
         });
