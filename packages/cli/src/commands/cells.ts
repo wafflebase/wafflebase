@@ -8,6 +8,7 @@ import {
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
+import { isPlainObject, unwrap } from './payload.js';
 
 export function registerCellsCommand(parent: Command) {
   const cell = parent
@@ -136,7 +137,7 @@ export function registerCellsCommand(parent: Command) {
       // `runCli` would envelope an uncaught `SyntaxError` anyway, but
       // as a bare "Unexpected token …" with no mention of `--data` or
       // stdin, and it has to be caught here to add that.
-      let cells: Record<string, unknown>;
+      let parsed: unknown;
       try {
         let raw: string;
         if (dataStr) {
@@ -149,7 +150,7 @@ export function registerCellsCommand(parent: Command) {
           }
           raw = Buffer.concat(chunks).toString('utf-8');
         }
-        cells = JSON.parse(raw) as Record<string, unknown>;
+        parsed = JSON.parse(raw);
       } catch (e) {
         outputError(
           new Error(
@@ -159,6 +160,33 @@ export function registerCellsCommand(parent: Command) {
           ),
           this,
         );
+        return;
+      }
+
+      // Shape, not syntax: `null`, `[…]` and `5` all parse fine.
+      const shapeError = () =>
+        outputError(
+          new Error(
+            `Cell data${dataStr ? ' in --data' : ' on stdin'} must be a JSON ` +
+              'object mapping A1 references to cell data',
+          ),
+          this,
+        );
+      if (!isPlainObject(parsed)) {
+        shapeError();
+        return;
+      }
+
+      // `--data`/stdin takes the bare map and `batchCells()` adds the
+      // `{"cells": …}` envelope the REST body documents, so a payload copied
+      // from those docs was wrapped twice (#1030). Unwrap only when `cells`
+      // is the *sole* key: next to real refs it is one more key in a bare
+      // map, and the server's `Invalid cell reference "cells"` is the
+      // truthful answer — unwrapping would drop the siblings silently.
+      const cells =
+        Object.keys(parsed).length === 1 ? unwrap(parsed, 'cells') : parsed;
+      if (!isPlainObject(cells)) {
+        shapeError();
         return;
       }
 

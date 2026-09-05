@@ -96,5 +96,63 @@ describe('cells batch', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(0);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body).toEqual({ cells: { A1: { value: '1' } } });
+  });
+
+  // docs/design/rest-api.md §5.3 shows the raw REST body as
+  // `{"cells": {...}}`. Passing that same shape into `--data` used to
+  // double-wrap it into `{"cells":{"cells":{...}}}`, which the backend
+  // read as a single bad ref named "cells" and 500'd on.
+  it('unwraps an already-enveloped {cells: {...}} --data payload', async () => {
+    await run([
+      'sheets',
+      'cells',
+      'batch',
+      'doc-1',
+      '--data',
+      '{"cells":{"A1":{"value":"1"}}}',
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body).toEqual({ cells: { A1: { value: '1' } } });
+  });
+
+  // `cells` alongside real refs is not an envelope. Unwrapping it would drop
+  // the siblings silently; the server's reference error is the honest answer.
+  it('does not unwrap when the payload holds more than the cells key', async () => {
+    await run([
+      'sheets',
+      'cells',
+      'batch',
+      'doc-1',
+      '--data',
+      '{"cells":{"A1":{"value":"1"}},"B2":{"value":"2"}}',
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body).toEqual({
+      cells: { cells: { A1: { value: '1' } }, B2: { value: '2' } },
+    });
+  });
+
+  // Valid JSON of the wrong shape. Reporting these through the parse catch
+  // would send the caller looking for a syntax error that isn't there.
+  it.each([
+    ['null', 'null'],
+    ['a number', '5'],
+    ['an array', '[{"value":"1"}]'],
+    ['an enveloped array', '{"cells":[{"value":"1"}]}'],
+  ])('rejects %s as a shape error, not a JSON error', async (_label, data) => {
+    await run(['sheets', 'cells', 'batch', 'doc-1', '--data', data]);
+
+    const body = JSON.parse(lastStderr());
+    expect(body.error.message).toBe(
+      'Cell data in --data must be a JSON object mapping A1 references to cell data',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
   });
 });

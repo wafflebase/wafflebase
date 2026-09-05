@@ -431,6 +431,12 @@ echo '{"A1": {"value": "1"}, "A2": {"value": "2"}}' | \
   wafflebase sheets cells batch <doc-id>
 ```
 
+`--data`/stdin takes the bare cell map; the command adds the `{"cells": …}`
+envelope the REST body needs. Passing that envelope in anyway — a lone `cells`
+key — is accepted rather than wrapped twice, so a body copied out of the API
+reference works unchanged. Anything that is not a JSON object — `null`, a
+number, an array — is refused locally, before any request.
+
 ### sheets import
 
 Import CSV or JSON data into a spreadsheet tab.
