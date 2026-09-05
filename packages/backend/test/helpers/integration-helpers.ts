@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 
@@ -36,12 +37,18 @@ export async function clearDatabase(prisma: PrismaService) {
   await prisma.user.deleteMany();
 }
 
+// Two workspaces created in the same millisecond would collide on the unique
+// slug, which several suites do in one `beforeEach`. Uniqueness has to come
+// from something finer than the clock.
+let workspaceSeq = 0;
+
 export async function createWorkspace(
   prisma: PrismaService,
   userId: number,
   name = 'test-workspace',
 ) {
-  const slug = `${name}-${Date.now()}`;
+  workspaceSeq += 1;
+  const slug = `${name}-${Date.now()}-${workspaceSeq}-${randomUUID().slice(0, 8)}`;
   const workspace = await prisma.workspace.create({
     data: { name, slug },
   });
