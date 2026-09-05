@@ -316,3 +316,33 @@ describe('multi-touch does not drive the first finger gesture', () => {
     expect(store.read().slides[0].elements[0].frame.x).toBeGreaterThan(before.x);
   });
 });
+
+describe('a handle tap that never moves', () => {
+  it('commits no resize and pushes no history entry', () => {
+    // The resize commit reads the device off `pointermove`, so a press
+    // that produces none had nothing to read: `commitsAsDrag(0,
+    // undefined)` answers "not touch" and the unchanged frame was
+    // written in a batch, costing a real undo step for a still tap.
+    // Seeding the device from the pointerdown is what closes it.
+    const { canvas, store } = mount();
+    canvas.dispatchEvent(touch('pointerdown', 50, 50));
+    document.dispatchEvent(touch('pointerup', 50, 50));
+    const handle = document.querySelector<HTMLElement>('[data-handle]')!;
+    const rect = handle.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+
+    const before = { ...store.read().slides[0].elements[0].frame };
+    const commits = vi.fn();
+    const off = store.onChange(commits);
+    // Down and up on the handle with no move in between at all.
+    canvas.dispatchEvent(touch('pointerdown', x, y));
+    document.dispatchEvent(touch('pointerup', x, y));
+    off();
+
+    const after = store.read().slides[0].elements[0].frame;
+    expect(after.w).toBe(before.w);
+    expect(after.h).toBe(before.h);
+    expect(commits).not.toHaveBeenCalled();
+  });
+});
