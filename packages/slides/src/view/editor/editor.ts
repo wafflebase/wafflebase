@@ -77,6 +77,7 @@ import { commitBend } from './interactions/bend-drag';
 import { dragEndpoint } from './interactions/connector-endpoint-drag';
 import {
   allowsSlowDoubleClick,
+  commitsAsDrag,
   commitTranslate,
   dragThresholdFor,
   isSlowDoubleClick,
@@ -696,8 +697,10 @@ export interface SlidesEditor {
 
   /**
    * Whether a pointer at this viewport coordinate would land on
-   * something the editor acts on — an element (descending into groups
-   * at the current selection scope) or a selection handle.
+   * something the editor acts on — an element (descending into groups)
+   * or a selection handle. A boolean only: WHICH element the press
+   * resolves to does depend on the drill-in scope, but whether anything
+   * is there does not.
    *
    * Exists for hosts that layer their own gesture on the same surface
    * and have to decide, before the editor sees the event, whether this
@@ -706,8 +709,9 @@ export interface SlidesEditor {
    * when it starts on one, which is the Miro/FigJam convention and is
    * not expressible in `touch-action`. Answering it here rather than
    * re-implementing a hit-test in the host keeps one definition of
-   * "what is under the pointer" — the host has no access to the
-   * selection scope a group drill-in establishes.
+   * "what is under the pointer": the hit-test runs against the
+   * editor's own scratch context, tolerance and canvas transform, none
+   * of which the host holds.
    */
   hasContentAt(clientX: number, clientY: number): boolean;
 
@@ -720,6 +724,21 @@ export interface SlidesEditor {
    * that its pan gesture claims.
    */
   openContextMenuAt(clientX: number, clientY: number): void;
+
+  /**
+   * What a press on empty canvas does to the selection: drop the
+   * selected ids AND pop any group drill-in scope, refitting each group
+   * popped on the way out.
+   *
+   * `setSelection([])` is not this. It reaches `Selection.set` only, so
+   * the scope survives — and a stale scope is not merely cosmetic: a
+   * group whose frame was never refit after drill-out is re-selected at
+   * the wrong bounds later (the bug 08bb636ec fixed for the mouse
+   * path). Exposed for hosts that intercept the press themselves; the
+   * board's touch pan claims empty-canvas presses, so this is the only
+   * way drill-out stays reachable by finger there.
+   */
+  clearSelectionAndScope(): void;
 
   /**
    * Preview the current slide's animations on the editor canvas.
@@ -954,6 +973,11 @@ class SlidesEditorImpl implements SlidesEditor {
    * teardown mid-gesture never sees its own pointerup.
    */
   private longPressCleanup: (() => void) | null = null;
+  /**
+   * Teardown for the in-flight move-drag or lasso, discarding its work.
+   * See `abortCanvasGesture`.
+   */
+  private canvasGestureAbort: (() => void) | null = null;
   /** Listeners for crop-session state changes (enter + exit). */
   private cropListeners = new Set<() => void>();
   /** Listeners for table cell-range selection state changes. */
@@ -2789,6 +2813,9 @@ class SlidesEditorImpl implements SlidesEditor {
     // the editor that installed them.
     this.longPressCleanup?.();
     this.cancelLongPress();
+    // An in-flight move-drag or lasso holds document-level listeners
+    // that would outlive this editor.
+    this.abortCanvasGesture();
     // Drop any active crop session, its in-flight drag listeners, and its
     // capture-phase key listener so a SlidesView remount starts clean.
     this.cropDragCleanup?.();
@@ -2993,18 +3020,30 @@ class SlidesEditorImpl implements SlidesEditor {
    * (modal), a live format-painter pick, and text editing (the caret
    * and the platform's own text menu own the gesture there).
    *
-   * The press may already have started an element drag by the time the
-   * timer fires. That drag has moved less than the tolerance, so its
-   * `onUp` commits nothing — it takes the zero-delta path and pushes no
-   * history entry — and the menu simply opens over it.
+   * Also skipped on a selection handle: that press starts a resize or a
+   * rotate, gestures whose whole purpose is to travel, and a menu is not
+   * what a user grabbing a handle is asking for.
+   *
+   * The press has, by the time the timer fires, already started the
+   * canvas gesture it landed on — a move drag, or a lasso. Opening a
+   * menu over a live gesture is not enough: "hold, then drag" is a
+   * natural grab, and the drag would go on committing underneath a
+   * stale menu. So firing ABORTS that gesture (`abortCanvasGesture`),
+   * which is also what the user means — the press became a menu, not a
+   * drag.
    */
   private armLongPress(e: PointerEvent): void {
+    // Not `cancelLongPress()`: that stops the timer but leaves the
+    // previous press's document listeners installed. Every early return
+    // below has to drop those too.
+    this.longPressCleanup?.();
     this.cancelLongPress();
     if (
       this.insertKind !== null ||
       this.cropSession !== null ||
       this.paintSnapshot !== null ||
-      this.editingElementId !== null
+      this.editingElementId !== null ||
+      this.handleAtClient(e.clientX, e.clientY) !== null
     ) {
       return;
     }
@@ -3029,8 +3068,31 @@ class SlidesEditorImpl implements SlidesEditor {
     this.longPressCleanup = clear;
     this.longPressTimer = setTimeout(() => {
       clear();
+      this.abortCanvasGesture();
       this.openContextMenuAt(startX, startY);
     }, LONG_PRESS_DELAY_MS);
+  }
+
+  /**
+   * Tear down the move-drag or lasso this press started, discarding
+   * whatever it had accumulated, and repaint. Registered by those two
+   * loops for exactly two callers: the long-press timer, which converts
+   * the press into a menu, and `pointercancel`, which is the platform
+   * taking the gesture away — a scroll container claiming a touch drag,
+   * a system edge swipe. Before this, neither loop listened for
+   * `pointercancel` at all, so a stolen gesture left its document-level
+   * listeners installed and let the next `pointerup` ANYWHERE commit a
+   * translate the user had abandoned.
+   *
+   * Deliberately not wired into the handle gestures (resize / rotate /
+   * adjust / bend / connector-endpoint): a handle press cannot become a
+   * long-press (see `armLongPress`), and their `pointercancel` exposure
+   * is unchanged by this work. Widening it there is its own change.
+   */
+  private abortCanvasGesture(): void {
+    const abort = this.canvasGestureAbort;
+    this.canvasGestureAbort = null;
+    abort?.();
   }
 
   private cancelLongPress(): void {
@@ -3678,8 +3740,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // reasons that agree. Multi-pointer input is what the rule is about,
     // and a mouse cannot produce it. And `PointerEventInit.isPrimary`
     // defaults to FALSE, so an `isPrimary`-only test would silently
-    // reject every synthetic `PointerEvent` — the editor dispatches some
-    // itself, and the interaction suite is built out of them.
+    // reject every synthetic `PointerEvent` — which is what the whole
+    // interaction suite is built out of.
     const pe = e as PointerEvent;
     if (pe.pointerType === 'touch' && pe.isPrimary === false) return;
     if (pe.pointerType === 'touch') this.armLongPress(pe);
@@ -3972,11 +4034,15 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
+    this.clearSelectionAndScope();
+  }
+
+  clearSelectionAndScope(): void {
     const slide = this.currentSlide();
     if (!slide) return;
     const beforeScope = this.selection.getScope();
     // `selection.click(null, {})` clears ids + pops scope in one notify,
-    // matching the empty-canvas branch above.
+    // matching the empty-canvas branch in `onPointerDown`.
     this.selection.click(null, {});
     this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
   }
@@ -5362,10 +5428,20 @@ class SlidesEditorImpl implements SlidesEditor {
       rectEl.style.width = `${rect.w * scale}px`;
       rectEl.style.height = `${rect.h * scale}px`;
     };
-    const onUp = (ev: MouseEvent) => {
+    const teardown = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', abort);
+      this.canvasGestureAbort = null;
       rectEl.remove();
+    };
+    // Drop the marquee and change nothing. The selection the user had
+    // before the press survives — which is what both callers want: a
+    // long-press converting into a menu that acts on that selection, and
+    // the platform revoking the gesture.
+    const abort = (): void => teardown();
+    const onUp = (ev: MouseEvent) => {
+      teardown();
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rect = normalizeRect(start.x, start.y, cur.x, cur.y);
       const slide = this.currentSlide();
@@ -5377,8 +5453,10 @@ class SlidesEditorImpl implements SlidesEditor {
       }
       this.selection.set(selectInRect(slide, rect));
     };
+    this.canvasGestureAbort = abort;
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', abort);
   }
 
   private startDrag(
@@ -5544,9 +5622,27 @@ class SlidesEditorImpl implements SlidesEditor {
 
       this.paintGhostPreview(ghosts, handleElements, guides);
     };
-    const onUp = (ev: MouseEvent) => {
+    const teardown = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', abort);
+      this.canvasGestureAbort = null;
+    };
+    // Discard the accumulated translation and repaint the committed
+    // slide. `liveDx`/`liveDy` are zeroed rather than merely left
+    // unread: nothing else re-enters this closure, but a future caller
+    // that aborts and then somehow reaches `onUp` must not commit a
+    // delta the user abandoned.
+    const abort = (): void => {
+      teardown();
+      liveDx = 0;
+      liveDy = 0;
+      this.renderer.markDirty();
+      this.render();
+      this.repaintOverlay();
+    };
+    const onUp = (ev: MouseEvent) => {
+      teardown();
       // P1.5 slow double-click: a second pointer-down → up cycle on an
       // already-selected single text-capable element, finishing inside
       // its text region within the tight time + distance window, enters
@@ -5577,11 +5673,26 @@ class SlidesEditorImpl implements SlidesEditor {
         this.repaintOverlay();
         return;
       }
-      // Skip the batch when the pointer never moved past snap noise:
-      // an empty `store.batch` still pushes an undo snapshot and clears
-      // the redo stack. A pure click-without-drag must be a no-op
-      // against history.
-      if (liveDx === 0 && liveDy === 0) {
+      // Skip the batch when the gesture was a click, not a drag: an
+      // empty `store.batch` still pushes an undo snapshot and clears the
+      // redo stack, so a click-without-drag must be a no-op against
+      // history.
+      //
+      // The zero-delta test alone is not that check. `liveDx`/`liveDy`
+      // are assigned on EVERY move, with no threshold, so a fingertip's
+      // own jitter — 5-10px across a press the user experienced as
+      // stationary — produces a small non-zero delta, commits it, and
+      // pushes an undo entry for a move nobody asked for. The travel
+      // measure `peakRawClientDist` already exists here (it gates
+      // slow-double-click below), so the second test costs nothing.
+      //
+      // `commitsAsDrag` is touch-only by design: a mouse reporting 1px
+      // of travel was moved 1px on purpose, and slides has always
+      // committed that.
+      if (
+        (liveDx === 0 && liveDy === 0) ||
+        !commitsAsDrag(peakRawClientDist, pointerTypeOf(ev))
+      ) {
         this.renderer.markDirty();
         this.render();
         this.repaintOverlay();
@@ -5612,8 +5723,10 @@ class SlidesEditorImpl implements SlidesEditor {
       // Clear lingering snap-guide nodes from the last `paintGhostPreview`.
       this.repaintOverlay();
     };
+    this.canvasGestureAbort = abort;
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', abort);
   }
 
   /**
@@ -6649,10 +6762,14 @@ class SlidesEditorImpl implements SlidesEditor {
     // which for an element that already nearly matches one is also
     // non-zero before the pointer has moved at all.
     let peakClientDist = 0;
+    // The device is only knowable from a live event; `onUp` needs it too
+    // (its own event is not passed through), so the last move records it.
+    let devicePointerType: string | undefined;
     const onMove = (ev: MouseEvent) => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
-      const isDrag = peakClientDist >= dragThresholdFor(pointerTypeOf(ev));
+      devicePointerType = pointerTypeOf(ev);
+      const isDrag = peakClientDist >= dragThresholdFor(devicePointerType);
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
@@ -6694,6 +6811,20 @@ class SlidesEditorImpl implements SlidesEditor {
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // A touch that never travelled far enough to be a drag must not
+      // resize. Unlike the move path there is no zero-delta shortcut
+      // here — `live.worldFrame` is committed unconditionally — so a
+      // fingertip's jitter would otherwise permanently resize the
+      // element and push an undo entry, and the 22px handle tolerance
+      // touch mounts pass means a finger lands on a handle far more
+      // often than a cursor does. Mouse behaviour is untouched; see
+      // `commitsAsDrag`.
+      if (!commitsAsDrag(peakClientDist, devicePointerType)) {
+        this.renderer.markDirty();
+        this.render();
+        this.repaintOverlay();
+        return;
+      }
       // Convert world frame back to scope-local before committing.
       const localFrame = fromWorldFrame(live.worldFrame, scope, startSlide);
       this.options.store.batch(() => {
@@ -6810,10 +6941,12 @@ class SlidesEditorImpl implements SlidesEditor {
     // See the single-resize path: neither correction may engage until
     // the gesture is a drag rather than a click.
     let peakClientDist = 0;
+    let devicePointerType: string | undefined;
     const onMove = (ev: MouseEvent): void => {
       const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
       if (dist > peakClientDist) peakClientDist = dist;
-      const isDrag = peakClientDist >= dragThresholdFor(pointerTypeOf(ev));
+      devicePointerType = pointerTypeOf(ev);
+      const isDrag = peakClientDist >= dragThresholdFor(devicePointerType);
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
@@ -6883,7 +7016,13 @@ class SlidesEditorImpl implements SlidesEditor {
       // empty undo step. The initial `live.result` holds empty Maps, so a
       // genuinely no-op gesture sees `frames.size === 0` here. (Move-drag
       // takes the same shortcut, see ~line 4406.)
-      if (frames.size === 0 && connectorEndpoints.size === 0) {
+      // Same travel gate as the single-resize path: `frames.size === 0`
+      // only catches a gesture with no move event at all, and finger
+      // jitter produces plenty of those with a small correction in them.
+      if (
+        (frames.size === 0 && connectorEndpoints.size === 0) ||
+        !commitsAsDrag(peakClientDist, devicePointerType)
+      ) {
         this.repaintOverlay();
         return;
       }

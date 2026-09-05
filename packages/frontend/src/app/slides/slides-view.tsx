@@ -577,27 +577,33 @@ export function SlidesView({
     scrollHost.style.alignItems = "safe center";
 
     /**
-     * Decide who owns a one-finger drag on the slide surface.
+     * Hand one-finger drags on the slide surface to the editor.
      *
      * With no `touch-action` at all — the state before this — the
      * browser claimed every touch drag as a scroll of `scrollHost` and
      * cancelled the editor's pointer stream mid-gesture, so on a tablet
      * dragging a shape scrolled the page instead of moving the shape.
      *
-     * `none` hands the gesture to the editor, but it also removes the
-     * only way to reach the parts of an over-sized slide that are off
-     * screen. So it is applied exactly when there is nothing to scroll:
-     * at Fit — the state a deck opens in and spends almost all its time
-     * in — the canvas is no larger than its host. Past Fit, scrolling
-     * wins and dragging by finger is unavailable until the user returns
-     * to Fit. Re-evaluated on every refit because zoom changes which
-     * side of that line the canvas is on.
+     * An earlier version of this rule conceded scrolling past Fit (where
+     * the canvas outgrows its host and there is genuinely something to
+     * scroll to), applying `pan-x pan-y` there. That is worse than it
+     * looks: the press still reaches the editor and starts a drag or a
+     * resize, and only THEN does the browser take the gesture and fire
+     * `pointercancel`. The move and lasso loops now abort on that
+     * (`abortCanvasGesture`), but the handle loops — resize, rotate,
+     * adjust, bend — still do not, so a stolen handle drag would leave
+     * document listeners installed and let the next release anywhere
+     * commit a resize the user abandoned.
+     *
+     * So: `none` throughout on coarse input. The cost is that past Fit a
+     * finger cannot scroll the slide, and the way back is the zoom
+     * control. It is the same trade the mobile shell already makes, and
+     * the same one every touch mount here makes: never concede a
+     * gesture the editor may already be running.
      */
-    const applyCanvasTouchAction = (w: number, h: number): void => {
+    const applyCanvasTouchAction = (): void => {
       if (!coarsePointer) return;
-      const fits =
-        w <= scrollHost.clientWidth && h <= scrollHost.clientHeight;
-      canvasWrap.style.touchAction = fits ? "none" : "pan-x pan-y";
+      canvasWrap.style.touchAction = "none";
     };
 
     scrollHost.appendChild(canvasWrap);
@@ -666,9 +672,7 @@ export function SlidesView({
 
     layout.appendChild(right);
     container.appendChild(layout);
-    // Seed the rule now that `scrollHost` has a measurable size. The
-    // ResizeObserver-driven refit below re-evaluates it from here on.
-    applyCanvasTouchAction(canvasFullW, canvasFullH);
+    applyCanvasTouchAction();
 
     // Inject pointer-events for handles (overlay-level CSS). The
     // overlay itself uses pointer-events: none so empty-area clicks
@@ -875,10 +879,6 @@ export function SlidesView({
       // ruler tick origin lags behind the actual viewport until the
       // next user scroll.
       editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
-      // Before the early return: a resize that leaves the canvas alone
-      // can still change whether it fits (the notes pane growing, the
-      // thumbnail panel widening), which is the whole input to the rule.
-      applyCanvasTouchAction(nextCanvasW, nextCanvasH);
       if (sameSlide && sameCanvas) return;
       hostW = nextW;
       hostH = nextH;

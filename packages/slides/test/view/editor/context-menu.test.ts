@@ -294,6 +294,13 @@ describe('showContextMenu — touch sizing', () => {
   it('scrolls rather than overflowing the viewport when long', () => {
     // Touch rows make the table menu taller than a phone; without a cap
     // the clamp would push its last entries off-screen.
+    //
+    // The cap is measured from `window.innerHeight` — the SAME source
+    // the clamp below it reads — and not from `100vh`, which on mobile
+    // Safari and Chrome is the large viewport (URL bar retracted) and
+    // would let the cap exceed the clamp's idea of the screen by the
+    // height of that bar. A `position: fixed` element cannot be
+    // scrolled to, so those rows would be unreachable.
     setPointer(true);
     showContextMenu(
       document.body,
@@ -308,6 +315,6 @@ describe('showContextMenu — touch sizing', () => {
       '.wfb-slides-context-menu',
     )!;
     expect(menu.style.overflowY).toBe('auto');
-    expect(menu.style.maxHeight).toBe('calc(100vh - 32px)');
+    expect(menu.style.maxHeight).toBe(`${window.innerHeight - 16}px`);
   });
 });

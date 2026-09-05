@@ -22,6 +22,13 @@ export interface ContextMenuItem {
   /** Use a horizontal divider when label is the literal string '---'. */
 }
 
+/**
+ * Gap kept between the menu and the viewport edge. Shared by the
+ * max-height cap and the clamp below it so the two cannot disagree
+ * about how much room there is.
+ */
+const MENU_VIEWPORT_MARGIN = 8;
+
 let activeMenu: HTMLUListElement | null = null;
 let activeCleanup: (() => void) | null = null;
 
@@ -67,7 +74,16 @@ export function showContextMenu(
   // A long menu (the table one runs past a dozen entries) at touch row
   // height can be taller than a phone. Cap it and let it scroll rather
   // than letting the viewport clamp below push entries off-screen.
-  menu.style.maxHeight = 'calc(100vh - 32px)';
+  //
+  // Sized from `window.innerHeight`, NOT `100vh`, and set before the
+  // measurement below reads it back. On mobile Safari and Chrome `100vh`
+  // is the LARGE viewport — the height with the URL bar retracted —
+  // while `innerHeight` shrinks when the bar is showing. Mixing the two
+  // lets the cap exceed the clamp's idea of the screen by ~80px, so the
+  // last rows land below the fold, and a `position: fixed` element
+  // cannot be scrolled to. That is exactly the platform the cap exists
+  // for.
+  menu.style.maxHeight = `${Math.max(0, window.innerHeight - 2 * MENU_VIEWPORT_MARGIN)}px`;
   menu.style.overflowY = 'auto';
   menu.style.color = '#ddd';
   menu.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.5)';
@@ -124,7 +140,7 @@ export function showContextMenu(
   // and the menu would be clipped, so flip it to open up/left of the
   // anchor; if it still spills (menu taller/wider than the available
   // space), clamp it to the opposite edge.
-  const margin = 8;
+  const margin = MENU_VIEWPORT_MARGIN;
   const rect = menu.getBoundingClientRect();
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;

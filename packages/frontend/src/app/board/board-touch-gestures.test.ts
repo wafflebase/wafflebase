@@ -3,6 +3,7 @@ import type { Viewport } from "@wafflebase/board";
 import {
   TAP_MAX_DURATION_MS,
   TOUCH_PAN_THRESHOLD_PX,
+  attachBoardTouchGestures,
   createBoardTouchGestures,
   type BoardGestureHost,
 } from "./board-touch-gestures";
@@ -334,5 +335,97 @@ describe("board touch gestures — pinch", () => {
     g.move(at(2, 3000, 0));
     expect(t.viewport.zoom).toBe(clamped);
     expect(t.zoomChanges).toEqual([]);
+  });
+});
+
+describe("board touch gestures — attach", () => {
+  /** A container with a scene surface and a piece of chrome inside it. */
+  function makeDom() {
+    const container = document.createElement("div");
+    const canvas = document.createElement("canvas");
+    const chrome = document.createElement("div"); // stands in for the minimap
+    container.append(canvas, chrome);
+    document.body.append(container);
+    return { container, canvas, chrome };
+  }
+
+  const press = (el: Element) =>
+    el.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        clientX: 10,
+        clientY: 10,
+        pointerType: "touch",
+        isPrimary: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+  it("claims a press on the scene surface", () => {
+    const t = makeHost();
+    const { container, canvas } = makeDom();
+    const seen: Event[] = [];
+    container.addEventListener("pointerdown", (e) => seen.push(e));
+    const detach = attachBoardTouchGestures(container, t.host, {
+      isSceneSurface: (target) => target === canvas,
+    });
+    press(canvas);
+    // Stopped in capture, so the bubble listener on the container never
+    // sees it — which is how the editor is kept out of the gesture.
+    expect(seen).toHaveLength(0);
+    detach();
+  });
+
+  it("leaves chrome inside the container alone", () => {
+    // The minimap lives under the same container and drives its own
+    // bubble-phase drag. `hasContentAt` hit-tests the SCENE, so a press
+    // over the minimap reads as empty canvas and would otherwise be
+    // claimed — taking away the one pan path touch already had.
+    const t = makeHost();
+    const { container, canvas, chrome } = makeDom();
+    const seen: Event[] = [];
+    container.addEventListener("pointerdown", (e) => seen.push(e));
+    const detach = attachBoardTouchGestures(container, t.host, {
+      isSceneSurface: (target) => target === canvas,
+    });
+    press(chrome);
+    expect(seen).toHaveLength(1);
+    detach();
+  });
+
+  it("ignores a mouse press entirely", () => {
+    const t = makeHost();
+    const { container, canvas } = makeDom();
+    const seen: Event[] = [];
+    container.addEventListener("pointerdown", (e) => seen.push(e));
+    const detach = attachBoardTouchGestures(container, t.host, {
+      isSceneSurface: () => true,
+    });
+    canvas.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        clientX: 10,
+        clientY: 10,
+        pointerType: "mouse",
+        isPrimary: true,
+        bubbles: true,
+      }),
+    );
+    expect(seen).toHaveLength(1);
+    detach();
+  });
+
+  it("disarms a pending long press on teardown", () => {
+    // The board passes no timer injection in production, so this would
+    // be a live setTimeout firing `onLongPress` into a detached editor
+    // over a disposed store.
+    const t = makeHost();
+    const { container, canvas } = makeDom();
+    const detach = attachBoardTouchGestures(container, t.host, {
+      isSceneSurface: () => true,
+    });
+    press(canvas);
+    detach();
+    t.fireTimers();
+    expect(t.longPresses).not.toHaveBeenCalled();
   });
 });

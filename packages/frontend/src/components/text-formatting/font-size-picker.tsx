@@ -143,7 +143,7 @@ export function FontSizePicker({
        */}
       <div
         data-text-edit-keepalive
-        className="inline-flex h-7 items-center rounded-md border border-transparent hover:border-border"
+        className="inline-flex h-7 pointer-coarse:h-11 items-center rounded-md border border-transparent hover:border-border"
       >
         <button
           type="button"
@@ -151,7 +151,7 @@ export function FontSizePicker({
           disabled={disabled}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => step(-1)}
-          className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
+          className="inline-flex h-7 w-5 pointer-coarse:h-11 pointer-coarse:w-11 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
         >
           <IconMinus size={12} />
         </button>
@@ -176,7 +176,13 @@ export function FontSizePicker({
             // runs first via `composeEventHandlers`, so focusing here
             // does not race Radix.
             onPointerDown={(e) => e.currentTarget.focus()}
-            className="h-7 w-8 bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+            // The input is the real target here — the steppers only
+            // nudge — so it grows with them on coarse input rather than
+            // staying a 28px sliver between two 44px buttons. The
+            // toolbar root's blanket rule reaches `button` only, which
+            // is exactly the gap: this control is a bordered pill whose
+            // middle is not a button.
+            className="h-7 w-8 pointer-coarse:h-11 pointer-coarse:w-12 pointer-coarse:text-sm bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
           />
         </DropdownMenuTrigger>
         <button
@@ -185,7 +191,7 @@ export function FontSizePicker({
           disabled={disabled}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => step(1)}
-          className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
+          className="inline-flex h-7 w-5 pointer-coarse:h-11 pointer-coarse:w-11 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
         >
           <IconPlus size={12} />
         </button>

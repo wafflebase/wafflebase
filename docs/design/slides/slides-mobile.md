@@ -263,10 +263,11 @@ tablet, and a phone in landscape all sit above that line and take the
 callout suppression. The accommodations listed in the table above were
 therefore reaching a strict subset of the devices that need them.
 
-The axis is the input device, `(pointer: coarse)`, read through
-`@/hooks/use-coarse-pointer` (`isCoarsePointer()` for the imperative
-mounts, `useCoarsePointer()` for components). `useIsMobile()` keeps its
-job — choosing the mobile *shell*, which is a layout question — and the
+The axis is the input device, `(pointer: coarse)`. Imperative mounts
+read it through `isCoarsePointer()` in `@/hooks/use-coarse-pointer`;
+components express it as Tailwind's `pointer-coarse:` variant, which is
+the same media query evaluated by the browser with no re-render, so no
+React hook exists for it. `useIsMobile()` keeps its job — choosing the mobile *shell*, which is a layout question — and the
 touch accommodations key on the pointer instead.
 
 What that changed:
@@ -275,25 +276,45 @@ What that changed:
   on the desktop slides mount and on the board. The constant moved
   beside the hook so the three mounts cannot drift.
 
-- **`touch-action` on the desktop slide canvas.** With none set, the
-  browser claimed every touch drag as a scroll of `scrollHost` and
+- **`touch-action: none` on the desktop slide canvas.** With none set,
+  the browser claimed every touch drag as a scroll of `scrollHost` and
   cancelled the editor's pointer stream mid-gesture: on a tablet,
-  dragging a shape scrolled the page. It is now `none` **while the
-  canvas fits its scroll host** — the state a deck opens in and spends
-  nearly all its time in — and `pan-x pan-y` past Fit, where `none`
-  would strand the off-screen part of an over-sized slide with no way
-  to reach it. Re-evaluated on every refit. The consequence is honest
-  and worth stating: past Fit, a finger scrolls and cannot drag. A
-  two-finger scroll gesture would lift that, but it needs a way to
-  retract a press the editor's drag loop already owns, which the editor
-  has no API for today.
+  dragging a shape scrolled the page.
 
-- **Drag thresholds per device** (`dragThresholdFor`). 3px is a mouse
-  number: a mouse that has not moved reports no movement. A fingertip
-  reports 5–10px across a press the user experienced as stationary, as
-  the contact patch shifts and the browser re-centroids it, so every
-  tap nudged what it landed on and pushed an undo entry. Touch gets
-  10px; `pen` stays on the precise number, being as accurate as a mouse.
+  A first attempt conceded scrolling past Fit, where the canvas outgrows
+  its host and there genuinely is somewhere to scroll to, applying
+  `pan-x pan-y` there. That is worse than it reads. The press still
+  reaches the editor and starts a drag or a resize, and only *then* does
+  the browser take the gesture and fire `pointercancel`. The move and
+  lasso loops now abort on that; the handle loops (resize, rotate,
+  adjust, bend) still do not, so a stolen handle drag would leave
+  document listeners installed and let the next release anywhere commit
+  a resize the user had abandoned.
+
+  So it is `none` throughout on coarse input, and the cost is worth
+  stating plainly: past Fit a finger cannot scroll the slide, and the
+  way back is the zoom control. That is the trade every touch mount here
+  already makes — never concede a gesture the editor may be running.
+
+- **Drag thresholds per device** (`dragThresholdFor`), and — the part
+  that actually mattered — **a commit gate** (`commitsAsDrag`). 3px is a
+  mouse number: a mouse that has not moved reports no movement. A
+  fingertip reports 5–10px across a press the user experienced as
+  stationary, as the contact patch shifts and the browser re-centroids
+  it, so every tap nudged what it landed on and pushed an undo entry.
+
+  Raising the threshold does not by itself fix that, and assuming it did
+  was the substantive error in the first draft of this work. The
+  threshold fed only the snap corrections. The move commit keys on
+  `liveDx`/`liveDy`, assigned on every move with no threshold at all,
+  and the single- and multi-resize commits key on nothing — they write
+  `live.worldFrame` unconditionally. The gate now sits in all three
+  `onUp` paths.
+
+  It is **touch-only**, deliberately: a mouse reporting 1px of travel
+  was moved 1px on purpose, and slides has always committed that; two
+  existing tests pin it. `pen` stays on the mouse rules throughout,
+  being as precise.
 
 - **Slow double-click withheld from touch** (`allowsSlowDoubleClick`).
   Its window is 3px over 350ms — inside that same jitter, so it could
@@ -317,12 +338,26 @@ What that changed:
   costs the *real* `contextmenu`, so the menu had no touch entry point
   at all. Disarmed by movement past the tolerance, by release, or by a
   `pointercancel`, and skipped while an insert, crop, format-paint or
-  text-edit session owns the press. `openContextMenuAt` is public so a
-  host that intercepts a press first can still offer the menu.
+  text-edit session owns the press — and on a selection handle, whose
+  press starts a gesture built to travel.
+
+  Firing also **aborts** the move-drag or lasso the press had already
+  started (`abortCanvasGesture`). Opening a menu over a live gesture is
+  not enough: "hold, then drag" is a natural grab, and the drag would go
+  on committing under a stale menu. Those two loops gained a
+  `pointercancel` listener through the same seam, which they had never
+  had — a gesture the platform revoked used to leave its document
+  listeners installed and let the next release anywhere commit.
+
+  `openContextMenuAt` is public so a host that intercepts a press first
+  can still offer the menu.
 
 - **Menu rows at ~44px** on coarse input (`context-menu.ts`), plus a
-  larger type size and a `max-height` + scroll, since the table menu at
-  touch row height is taller than a phone.
+  larger type size. The `max-height` + scroll that goes with it applies
+  to every pointer, since a long menu could always outgrow a short
+  window; it is sized from `window.innerHeight` rather than `100vh`,
+  which on mobile browsers is the *large* viewport and would let the cap
+  exceed the clamp's idea of the screen.
 
 - **Toolbar controls at a 44px floor**, applied on the shared `Toolbar`
   root as `pointer-coarse:` `min-h`/`min-w`. Floors, so nothing shrinks

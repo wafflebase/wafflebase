@@ -242,12 +242,36 @@ A read-only mount answers `hasContentAt` with "nothing, anywhere": it
 binds no pointer handlers, so conceding a press over an element would
 hand it to nobody and leave a viewer stuck wherever their finger landed.
 
-Two callbacks close gaps the claim itself opens. `onEmptyTap` clears the
-selection, which the editor would otherwise have done through the
-empty-canvas lasso path we intercepted. `onLongPress` opens the canvas
-context menu — the editor times its own long-press, but never sees these
-presses, and Paste, the insert entries and Snap to grid live nowhere
-else on a touch screen. It is suppressed on a read-only mount.
+The claim is scoped to the drawing surface — the canvas and the
+selection overlay — not to everything under `container`. The minimap is
+a child of that same element with its own bubble-phase drag, and
+`hasContentAt` hit-tests the *scene*, so a press over the minimap reads
+as empty canvas. Claiming it would have panned the plane instead of
+navigating, cleared the selection on a tap, and opened the canvas menu
+on top of the minimap — and the outcome would have depended on whatever
+the minimap happened to be covering. Taking away the one pan path touch
+already had would have been a poor trade for adding one.
+
+Two callbacks close gaps the claim itself opens.
+
+`onEmptyTap` runs `editor.clearSelectionAndScope()` — not
+`setSelection([])`, which reaches `Selection.set` only. A press on empty
+canvas drops the selected ids **and** pops any group drill-in, refitting
+each group popped on the way out; the mouse path has done both since
+08bb636ec, and a scope no finger could exit would also change who owns
+every subsequent press, since `hasContentAt` resolves at the current
+scope.
+
+`onLongPress` opens the canvas context menu — the editor times its own
+long-press, but never sees these presses, and Paste, the insert entries
+and Snap to grid live nowhere else on a touch screen. It is suppressed
+on a read-only mount.
+
+Claiming a press also dismisses any open context menu. `stopPropagation`
+in the capture phase halts the event before it reaches the descendants
+*and* before it bubbles back to `document`, where the menu's own
+outside-press dismissal listens — so on a device with no Escape key a
+tap meant to close the menu would have left it open.
 
 Handle tolerance comes from the same `(pointer: coarse)` test the slides
 mounts use; see `docs/design/slides/slides-mobile.md` § "Touch beyond

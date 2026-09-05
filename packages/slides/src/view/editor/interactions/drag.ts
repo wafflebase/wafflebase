@@ -58,6 +58,33 @@ export function pointerTypeOf(ev: MouseEvent): string | undefined {
 }
 
 /**
+ * Whether a gesture that travelled `peakClientDist` client px should be
+ * committed as a drag, or discarded as a press that never meant to move
+ * anything.
+ *
+ * Only touch has a floor here, and the asymmetry is the point. A mouse
+ * that reports 1px of travel *was moved* 1px, deliberately, and slides
+ * has always committed that; raising its floor would change a
+ * long-standing behaviour to fix a problem it does not have. A fingertip
+ * reports the same 1-10px across a press the user held still, so
+ * without a floor every tap on an element nudges it and pushes an undo
+ * entry.
+ *
+ * This is a stricter question than {@link dragThresholdFor}, which asks
+ * whether snapping should engage. Both had to be answered before this
+ * threshold did anything at all: it used to gate only the snap
+ * corrections, never the commit, so raising it for touch changed when
+ * the grid engaged and nothing else.
+ */
+export function commitsAsDrag(
+  peakClientDist: number,
+  pointerType?: string,
+): boolean {
+  if (pointerType !== 'touch') return true;
+  return peakClientDist >= TOUCH_DRAG_THRESHOLD_PX;
+}
+
+/**
  * Whether the slow-double-click text-entry route is available to this
  * input device. Its window is 3px over 350ms — inside a fingertip's own
  * jitter (see {@link TOUCH_DRAG_THRESHOLD_PX}), so on touch the rule

@@ -675,7 +675,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
 
     const onPointerDown = (e: PointerEvent) => {
       const isMiddleButton = e.button === 1;
-      const isSpaceDrag = spaceDown && e.button === 0;
+      // `spaceDown` is keyboard state, not part of the pointer stream,
+      // and a touch `pointerdown` reports `button === 0` — so on a
+      // tablet with a keyboard folio, Space held plus a finger down
+      // would satisfy this branch AND the touch gesture below. Both
+      // would pan (its `stopPropagation` does not stop a listener on
+      // the same node), doubling the travel. Space-drag is a
+      // mouse gesture; scope it to one.
+      const isSpaceDrag =
+        spaceDown && e.button === 0 && e.pointerType !== "touch";
       if (!isMiddleButton && !isSpaceDrag) return;
       e.preventDefault();
       // Registered on `container` (an ancestor of both the reused
@@ -751,9 +759,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         y: y - canvasRect.top,
       }),
       // The empty-canvas press was intercepted before the editor could
-      // run its lasso path, which is where a tap on nothing normally
-      // clears the selection.
-      onEmptyTap: () => editor.setSelection([]),
+      // run its own path, which is where a click on nothing clears the
+      // selection AND pops any group drill-in. `setSelection([])` would
+      // only do the first half, leaving a scope no finger could ever
+      // exit — and a group whose frame was never refit on the way out.
+      onEmptyTap: () => editor.clearSelectionAndScope(),
       // The board's canvas menu carries Paste, the insert entries and
       // "Snap to grid" — a finger has no other way to reach any of them.
       // Suppressed on a read-only mount, where every entry it would open
@@ -762,6 +772,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         ? () => undefined
         : (x, y) => editor.openContextMenuAt(x, y),
       onZoomChange: (z) => zoom.reportViewportZoom(z),
+    }, {
+      // The minimap is a child of `container` too, and its own
+      // drag-to-navigate is a plain bubble-phase listener that a claim
+      // here would swallow. A selection handle (a child of `overlay`)
+      // is excluded for the same reason, though `hasContentAt` would
+      // also have conceded it.
+      isSceneSurface: (target) => target === canvas || target === overlay,
     });
 
     // RAF loop so async asset loads (e.g. the image cache backing image

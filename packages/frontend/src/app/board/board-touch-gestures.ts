@@ -1,4 +1,5 @@
 import { panBy, zoomAt, type Viewport } from "@wafflebase/board";
+import { dismissContextMenu } from "@wafflebase/slides";
 
 /**
  * Client-px travel above which a one-finger press stops being a tap and
@@ -317,6 +318,17 @@ export function createBoardTouchGestures(host: BoardGestureHost) {
 
 export type BoardTouchGestures = ReturnType<typeof createBoardTouchGestures>;
 
+export interface BoardTouchAttachOptions {
+  /**
+   * Whether an event target is part of the board's drawing surface —
+   * the canvas or the selection overlay — as opposed to the chrome the
+   * host also parents under the same container (the minimap and its
+   * toggle). Only presses on the surface are candidates for the
+   * gesture; everything else keeps its own handlers.
+   */
+  isSceneSurface(target: EventTarget | null): boolean;
+}
+
 /**
  * DOM adapter for {@link createBoardTouchGestures}. Everything is bound
  * in the CAPTURE phase on `container`, an ancestor of both the editor's
@@ -329,6 +341,7 @@ export type BoardTouchGestures = ReturnType<typeof createBoardTouchGestures>;
 export function attachBoardTouchGestures(
   container: HTMLElement,
   host: BoardGestureHost,
+  options: BoardTouchAttachOptions,
 ): () => void {
   const gestures = createBoardTouchGestures(host);
 
@@ -344,7 +357,22 @@ export function attachBoardTouchGestures(
     // space/middle-drag pan, lasso select, element drag. This layer is
     // only about the input that had no way to navigate at all.
     if (e.pointerType !== "touch") return;
-    if (gestures.down(read(e))) e.stopPropagation();
+    // `container` holds more than the scene: the minimap and its toggle
+    // are children of it too. Ownership is otherwise decided by
+    // `hasContentAt`, which hit-tests the SCENE and knows nothing about
+    // DOM chrome floating above it — so a press on the minimap, where
+    // no element happens to sit behind it, would read as empty canvas,
+    // be claimed, and pan the board instead of navigating. Worse, the
+    // outcome would depend on what the minimap happens to be covering.
+    if (!options.isSceneSurface(e.target)) return;
+    if (!gestures.down(read(e))) return;
+    // Claiming means `stopPropagation`, which halts the event before it
+    // reaches the descendants AND before it bubbles back to `document`
+    // — where the context menu's own outside-press dismissal listens.
+    // So a tap meant to close an open menu would leave it open, on a
+    // device with no Escape key. Close it here instead.
+    dismissContextMenu();
+    e.stopPropagation();
   };
   const onMove = (e: PointerEvent): void => {
     if (e.pointerType !== "touch") return;
@@ -366,6 +394,11 @@ export function attachBoardTouchGestures(
   container.addEventListener("pointercancel", onCancel as EventListener, opts);
 
   return () => {
+    // Before the listeners, and load-bearing: a press still being timed
+    // for a long-press holds a live `setTimeout`. Left armed, it fires
+    // after the mount effect has torn the editor down and disposed the
+    // store, and `onLongPress` reads both.
+    gestures.reset();
     container.removeEventListener("pointerdown", onDown as EventListener, opts);
     container.removeEventListener("pointermove", onMove as EventListener, opts);
     container.removeEventListener("pointerup", onUp as EventListener, opts);

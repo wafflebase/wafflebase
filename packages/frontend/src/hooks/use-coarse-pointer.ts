@@ -1,5 +1,3 @@
-import * as React from "react";
-
 /**
  * Media query for "the primary pointer is imprecise" — a finger rather
  * than a mouse or trackpad. This is the axis touch accommodations
@@ -23,28 +21,12 @@ export function isCoarsePointer(): boolean {
   return window.matchMedia(COARSE_POINTER_QUERY).matches;
 }
 
-/**
- * React hook form of {@link isCoarsePointer}, kept live so a device
- * that switches primary pointer mid-session (a tablet with a keyboard
- * folio attached or detached, a Surface flipping modes) re-renders the
- * components whose sizing depends on it.
- */
-export function useCoarsePointer(): boolean {
-  const [coarse, setCoarse] = React.useState(isCoarsePointer);
-
-  React.useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mql = window.matchMedia(COARSE_POINTER_QUERY);
-    const onChange = () => setCoarse(mql.matches);
-    // Re-read on mount: the initial `useState` ran during render, which
-    // on a hydrated page can precede the media query settling.
-    onChange();
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
-
-  return coarse;
-}
+// There is deliberately no React hook here. Every component-level
+// accommodation in this pass is a size, and sizes go through Tailwind's
+// `pointer-coarse:` variant — which is a media query the browser
+// re-evaluates on its own, with no re-render and no listener. A hook
+// would only be needed by a component that has to *branch* on the
+// pointer, and none does.
 
 /**
  * Hit slack handed to the slides editor on coarse input. 22px expands

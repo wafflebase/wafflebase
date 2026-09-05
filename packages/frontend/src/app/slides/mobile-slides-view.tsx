@@ -83,10 +83,6 @@ interface MobileSlidesViewProps {
   onEditorReady?: (editor: SlidesEditor | null) => void;
 }
 
-// Touch hit slack passed to the editor in `edit` mode. Shared with the
-// desktop slides mount and the board so the three cannot drift apart —
-// see `@/hooks/use-coarse-pointer`.
-
 /**
  * Mobile shell for the slides deck. Mounted by `slides-detail.tsx`'s
  * `SlidesLayout` when `useIsMobile()` is true, replacing the full

@@ -32,10 +32,14 @@ every touch accommodation.
 `DRAG_THRESHOLD_PX = 3` is a mouse number. Finger jitter is 5–10px, so
 a tap becomes a drag and nudges the element.
 
-- [x] Per-pointer-type threshold (mouse 3, touch/pen 10)
-- [x] Slow-double-click text entry disabled for non-mouse pointers
-      (its 3px/350ms window is unreachable by finger; `dblclick` is the
-      touch path)
+- [x] Per-pointer-type threshold (mouse/pen 3, touch 10)
+- [x] Slow-double-click text entry disabled for touch (its 3px/350ms
+      window is unreachable by finger; `dblclick` is the touch path)
+- [x] **A commit gate** (`commitsAsDrag`) in the move, resize and
+      multi-resize `onUp` paths. Raising the threshold alone changed
+      only when snapping engaged — none of the three commits consulted
+      it, so the tap still nudged. Touch-only: a mouse's 1px is
+      deliberate and two existing tests pin that.
 
 ### Part 3 — Multi-touch guard
 
@@ -68,11 +72,45 @@ The headline defect: a board cannot be panned or zoomed by touch.
 - [x] Coarse-pointer sizing for the toolbar controls (32px/24px/20px
       controls today)
 
+### Part 8 — Review findings
+
+Five parallel reviewers over the branch diff. Everything below was a
+confirmed defect, not a style note.
+
+- [x] Board claim swallowed the minimap (a child of the same container
+      with its own bubble-phase drag) — scoped the claim to the canvas
+      and overlay
+- [x] Board claim swallowed the context menu's `document`-level
+      outside-press dismissal — dismiss it explicitly on claim
+- [x] `attachBoardTouchGestures` teardown left a live long-press timer
+      that fired into a detached editor over a disposed store
+- [x] `onEmptyTap` used `setSelection([])`, which pops no group scope —
+      new `editor.clearSelectionAndScope()`
+- [x] Long-press opened over a live drag that kept committing under it —
+      `abortCanvasGesture`, plus `pointercancel` on those two loops
+- [x] Long-press armed on selection handles
+- [x] Space-drag pan matched a touch press (`button === 0`), so both
+      layers panned on a tablet with a keyboard folio
+- [x] Presenter `touchHandledClick` latched and swallowed a later mouse
+      click; presenter had no `touch-action`, so the swipe could be
+      taken as a scroll
+- [x] Context menu cap mixed `100vh` with `window.innerHeight`
+- [x] `[&_button]` 44px floor clipped the mobile slides toolbar (`h-10`)
+      and burst the font-size picker's bordered pill
+- [x] `touch-action: pan-x pan-y` past Fit conceded gestures to loops
+      that do not handle `pointercancel` — now `none` throughout
+- [x] Dead `useCoarsePointer` hook removed; three inaccurate comments
+      corrected
+
 ## Verification
 
 - [x] `pnpm verify:fast`
-- [x] Unit tests per part
-- [ ] Manual smoke on a coarse-pointer emulation
+- [x] Unit tests per part (70 new cases)
+- [ ] Manual smoke on a coarse-pointer emulation, plus real iOS Safari
+      and Android Chrome. **Not yet done, and it is the only evidence
+      the touch path works end to end** — jsdom has no `matchMedia`, so
+      `isCoarsePointer()` is `false` in every test and the
+      `pointer-coarse:` CSS is never exercised.
 
 ## Non-goals (called out, not silently dropped)
 

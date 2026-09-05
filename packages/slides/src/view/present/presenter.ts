@@ -147,6 +147,13 @@ export function startPresenter(options: PresenterOptions): Presenter {
   container.style.display = 'flex';
   container.style.alignItems = 'center';
   container.style.justifyContent = 'center';
+  // Swipe navigation owns horizontal touch here. Without this the
+  // browser claims the drag as a scroll and fires `pointercancel`,
+  // which `onTouchCancel` swallows silently — so the swipe would simply
+  // not work, most reliably in the non-fullscreen overlay fallback
+  // where the page behind is genuinely scrollable. `prevCssText` is
+  // restored on dispose, so this reverts with everything else.
+  container.style.touchAction = 'none';
 
   const canvas = document.createElement('canvas');
   container.appendChild(canvas);
@@ -670,7 +677,16 @@ export function startPresenter(options: PresenterOptions): Presenter {
   let touchStart: { id: number; x: number; y: number; t: number } | null = null;
 
   function onTouchDown(e: PointerEvent): void {
-    if (disposed || e.pointerType !== 'touch') return;
+    if (disposed) return;
+    // Any fresh press proves the click owed by the previous one is not
+    // coming, so the suppression flag can never outlive one gesture.
+    // It latches otherwise, in two routine ways: a swipe travels past
+    // the browser's tap slop and emits no compatibility click at all,
+    // and a tap on the letterbox bar emits one on `container` rather
+    // than on `canvas`, where the only reset lives. Either leaves the
+    // next genuine MOUSE click swallowed on a hybrid device.
+    touchHandledClick = false;
+    if (e.pointerType !== 'touch') return;
     // Ignore a second finger — a pinch is not navigation, and letting
     // it overwrite the anchor would turn the gesture into nonsense.
     if (touchStart !== null) return;
