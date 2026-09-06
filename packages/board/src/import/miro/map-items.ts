@@ -5,6 +5,7 @@ import {
   type Frame,
   type ArrowheadKind,
   type ArrowheadStyle,
+  type ShapeKind,
   type Stroke,
   type ThemeColor,
 } from '@wafflebase/slides';
@@ -281,8 +282,8 @@ function arrowheadOf(
  */
 function captionInit(
   caption: MiroConnectorCaptionLike,
-  ends: { frame: Frame; siteIndex: number } | undefined,
-  otherEnds: { frame: Frame; siteIndex: number } | undefined,
+  ends: { frame: Frame; siteIndex: number; kind: ShapeKind | undefined } | undefined,
+  otherEnds: { frame: Frame; siteIndex: number; kind: ShapeKind | undefined } | undefined,
   style: Record<string, unknown>,
 ): (ElementInit & { __id: string }) | undefined {
   if (!ends || !otherEnds) return undefined;
@@ -297,8 +298,8 @@ function captionInit(
   // Miro measures the caption's position from the START of the line; a missing
   // or unparseable value means the midpoint, which is also its own default.
   const along = (parsePercent(caption.position) ?? 50) / 100;
-  const from = siteAnchor(ends.frame, ends.siteIndex);
-  const to = siteAnchor(otherEnds.frame, otherEnds.siteIndex);
+  const from = siteAnchor(ends.frame, ends.siteIndex, ends.kind);
+  const to = siteAnchor(otherEnds.frame, otherEnds.siteIndex, otherEnds.kind);
   const cx = from.x + (to.x - from.x) * along;
   const cy = from.y + (to.y - from.y) * along;
 
@@ -313,6 +314,31 @@ function captionInit(
     // rather than hanging off one corner of a guessed box.
     data: { blocks, verticalAnchor: 'middle' },
   } as ElementInit & { __id: string };
+}
+
+/**
+ * The `ShapeKind` an item will be emitted as, or `undefined` when it does not
+ * become a shape at all.
+ *
+ * Connector endpoints need this: a site INDEX only means something against the
+ * target's own site list, and that list is chosen by kind. It has to be
+ * derivable in pass 1, before the elements exist, which is why it mirrors the
+ * `kind` each branch of pass 2 writes rather than being read back off them.
+ */
+function elementKindOf(item: MiroItemLike): ShapeKind | undefined {
+  switch (item.type) {
+    case 'sticky_note':
+    case 'card':
+    case 'app_card':
+      return 'roundRect';
+    case 'frame':
+      return 'rect';
+    case 'shape':
+      return miroShapeKind(str((item.data ?? {}).shape)).kind;
+    default:
+      // `text` and `image` are not shapes; they get the cardinal site list.
+      return undefined;
+  }
 }
 
 /** Miro connector `shape` → the board's connector routing. */
@@ -370,6 +396,7 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
   // --- pass 1: id map + frames ---
   const idMap = new Map<string, string>();
   const frames = new Map<string, Frame>();
+  const kinds = new Map<string, ShapeKind | undefined>();
   const mappable: MiroItemLike[] = [];
 
   for (const item of input.items) {
@@ -390,6 +417,7 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     const elementId = generateId();
     idMap.set(item.id, elementId);
     frames.set(item.id, absolute.get(item.id)!);
+    kinds.set(item.id, elementKindOf(item));
     // Counted here, not in `resolveMiroFrames`: `approximated` reports what
     // reached the document in a degraded form, and an item that was skipped
     // above never reaches it at all.
@@ -580,15 +608,17 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     // sweeping over the board. See `pickConnectorSite` for the precedence.
     const startFrame = startId ? frames.get(startId) : undefined;
     const endFrame = endId ? frames.get(endId) : undefined;
+    const startKind = startId ? kinds.get(startId) : undefined;
+    const endKind = endId ? kinds.get(endId) : undefined;
     const start: Endpoint = {
       kind: 'attached',
       elementId: startElement,
-      siteIndex: pickConnectorSite(connector.startItem, startFrame, endFrame),
+      siteIndex: pickConnectorSite(connector.startItem, startFrame, endFrame, startKind),
     };
     const end: Endpoint = {
       kind: 'attached',
       elementId: endElement,
-      siteIndex: pickConnectorSite(connector.endItem, endFrame, startFrame),
+      siteIndex: pickConnectorSite(connector.endItem, endFrame, startFrame, endKind),
     };
 
     const style = connector.style ?? {};
@@ -613,8 +643,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     for (const caption of connector.captions ?? []) {
       const init = captionInit(
         caption,
-        startFrame ? { frame: startFrame, siteIndex: start.siteIndex! } : undefined,
-        endFrame ? { frame: endFrame, siteIndex: end.siteIndex! } : undefined,
+        startFrame ? { frame: startFrame, siteIndex: start.siteIndex!, kind: startKind } : undefined,
+        endFrame ? { frame: endFrame, siteIndex: end.siteIndex!, kind: endKind } : undefined,
         style,
       );
       if (init) {

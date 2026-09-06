@@ -1,4 +1,4 @@
-import type { Element, Frame } from '../../../model/element';
+import type { Element, Frame, ShapeKind } from '../../../model/element';
 import type { ConnectionSite } from '../../../model/connection-site';
 import { fourCardinal } from './defaults';
 import { CONNECTION_SITES } from './overrides';
@@ -14,11 +14,28 @@ import { CONNECTION_SITES } from './overrides';
  * `cxnLst → waffle` index table before they can ship.
  */
 export function getConnectionSites(el: Element): readonly ConnectionSite[] {
-  if (el.type === 'shape') {
-    const override = CONNECTION_SITES.get(el.data.kind);
-    if (override) return override;
-  }
-  return fourCardinal();
+  return connectionSitesForKind(el.type === 'shape' ? el.data.kind : undefined);
+}
+
+/**
+ * The same site list, addressed by shape KIND rather than by a built element.
+ *
+ * Importers choose a `siteIndex` while assembling `ElementInit`s, before any
+ * `Element` exists to pass to {@link getConnectionSites}. Without this they
+ * have to assume the four-cardinal list, and that assumption is wrong for
+ * every kind in `CONNECTION_SITES` — most damagingly `ellipse`, whose eight
+ * sites put NW at index 1 where the cardinal list has E, so a connector meant
+ * for a circle's right-hand side attaches to its top-left and bows away along
+ * that outward normal.
+ *
+ * `undefined` (a non-shape element: text, image, table, chart, or a connector)
+ * gets the cardinal set, matching `getConnectionSites`.
+ */
+export function connectionSitesForKind(
+  kind: ShapeKind | undefined,
+): readonly ConnectionSite[] {
+  const override = kind ? CONNECTION_SITES.get(kind) : undefined;
+  return override ?? fourCardinal();
 }
 
 /**

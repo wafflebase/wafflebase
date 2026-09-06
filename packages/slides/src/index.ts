@@ -139,6 +139,15 @@ export {
   CURVE_BEND_MAX,
   CURVE_BEND_MIN,
 } from './view/canvas/routing';
+// Importers pick a `siteIndex` while building `ElementInit`s, before any
+// `Element` exists — so they need the site list by shape kind, and the same
+// world-space resolution the renderer uses. Assuming the four-cardinal list
+// instead is wrong for every kind with an override.
+export type { ConnectionSite } from './model/connection-site';
+export {
+  connectionSitesForKind,
+  siteWorldPos,
+} from './view/canvas/connection-sites';
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
