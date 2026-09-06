@@ -3,6 +3,7 @@ import {
   type ElementInit,
   type Endpoint,
   type Frame,
+  type Stroke,
   type ThemeColor,
 } from '@wafflebase/slides';
 import { resolveMiroFrames } from './geometry';
@@ -79,6 +80,69 @@ function miroShapeFill(style: Record<string, unknown>): ThemeColor | undefined {
     ? { kind: 'srgb', value: color, alpha: opacity }
     : { kind: 'srgb', value: color };
 }
+
+/**
+ * Miro's line style → the board's `Stroke.dash`.
+ *
+ * Shapes call the field `borderStyle` and connectors call it `strokeStyle`,
+ * but the vocabulary is the same one. `'normal'` is Miro's solid, and anything
+ * unrecognised (API drift) is left undefined so the renderer's own solid
+ * default applies rather than a guess.
+ */
+function miroDash(name: string | undefined): 'dashed' | 'dotted' | undefined {
+  if (name === 'dashed') return 'dashed';
+  if (name === 'dotted') return 'dotted';
+  return undefined;
+}
+
+/**
+ * Build a `Stroke` from a Miro `style` block, or `undefined` when the line is
+ * not drawn.
+ *
+ * Shared by shapes (`borderWidth`/`borderColor`/`borderStyle`/`borderOpacity`)
+ * and connectors (`stroke*`), because the only difference between the two is
+ * the field-name prefix — the semantics, including the string-typed numbers,
+ * are identical.
+ *
+ * A width of 0 means "no border" in Miro, so it yields `undefined` rather than
+ * a zero-width stroke the renderer would still set up state for. Opacity rides
+ * on `ThemeColor.alpha` exactly as the fill's does; a fully transparent border
+ * is no border.
+ */
+function miroStroke(
+  style: Record<string, unknown>,
+  keys: { width: string; color: string; style: string; opacity: string },
+  defaultColor: string,
+): Stroke | undefined {
+  const width = num(style[keys.width]);
+  if (width === undefined || width <= 0) return undefined;
+
+  const opacity = num(style[keys.opacity]);
+  if (opacity !== undefined && opacity <= 0) return undefined;
+
+  const value = str(style[keys.color]) ?? defaultColor;
+  const color: ThemeColor =
+    opacity !== undefined && opacity < 1
+      ? { kind: 'srgb', value, alpha: opacity }
+      : { kind: 'srgb', value };
+
+  const dash = miroDash(str(style[keys.style]));
+  return { color, width, ...(dash ? { dash } : {}) };
+}
+
+const SHAPE_STROKE_KEYS = {
+  width: 'borderWidth',
+  color: 'borderColor',
+  style: 'borderStyle',
+  opacity: 'borderOpacity',
+} as const;
+
+const CONNECTOR_STROKE_KEYS = {
+  width: 'strokeWidth',
+  color: 'strokeColor',
+  style: 'strokeStyle',
+  opacity: 'strokeOpacity',
+} as const;
 
 /** Miro connector `shape` → the board's connector routing. */
 function routingOf(shape: string | undefined): 'straight' | 'elbow' | 'curved' {
@@ -203,8 +267,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       const { kind, known } = miroShapeKind(str(data.shape));
       // The shape IS imported — as a rect. That is a degradation, not a skip.
       if (!known) approx('shape-kind');
-      const borderWidth = num(style.borderWidth);
       const fill = miroShapeFill(style);
+      const stroke = miroStroke(style, SHAPE_STROKE_KEYS, '#1a1a1a');
       inits.push({
         __id,
         type: 'shape',
@@ -212,9 +276,7 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
         data: {
           kind,
           ...(fill ? { fill } : {}),
-          ...(borderWidth && borderWidth > 0
-            ? { stroke: { color: str(style.borderColor) ?? '#1a1a1a', width: borderWidth } }
-            : {}),
+          ...(stroke ? { stroke } : {}),
           text: {
             blocks: miroHtmlToBlocks(str(data.content)),
             verticalAnchor: 'middle',
@@ -323,7 +385,7 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     };
 
     const style = connector.style ?? {};
-    const strokeWidth = num(style.strokeWidth);
+    const stroke = miroStroke(style, CONNECTOR_STROKE_KEYS, '#000000');
     inits.push({
       __id: generateId(),
       type: 'connector',
@@ -339,9 +401,7 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
           ? { end: { kind: 'triangle', size: 'md' } }
           : {}),
       },
-      ...(strokeWidth
-        ? { stroke: { color: str(style.strokeColor) ?? '#000000', width: strokeWidth } }
-        : {}),
+      ...(stroke ? { stroke } : {}),
     } as ElementInit & { __id: string });
   }
 

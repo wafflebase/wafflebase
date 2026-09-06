@@ -55,7 +55,10 @@ describe('mapMiroItems', () => {
       connectors: [],
       resolveImageUrl: identity,
     });
-    expect(((inits[0] as any).data).stroke).toMatchObject({ color: '#1a1a1a', width: 2 });
+    expect(((inits[0] as any).data).stroke).toMatchObject({
+      color: { kind: 'srgb', value: '#1a1a1a' },
+      width: 2,
+    });
   });
 
   it('reads a connector stroke width that arrived as a string', () => {
@@ -72,7 +75,70 @@ describe('mapMiroItems', () => {
       resolveImageUrl: identity,
     });
     const connector = inits.find((i) => i.type === 'connector') as any;
-    expect(connector.stroke).toEqual({ color: '#f24726', width: 4 });
+    expect(connector.stroke).toEqual({ color: { kind: 'srgb', value: '#f24726' }, width: 4 });
+  });
+
+  it('carries dashed and dotted line styles onto the stroke', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        {
+          id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' },
+          style: { borderWidth: '2.0', borderStyle: 'dashed' },
+        },
+        {
+          id: 'b', type: 'shape', ...at(500, 0), data: { shape: 'rectangle' },
+          style: { borderWidth: '2.0', borderStyle: 'dotted' },
+        },
+      ],
+      connectors: [{
+        id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' },
+        style: { strokeWidth: '1.0', strokeStyle: 'dashed' },
+      }],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).stroke.dash).toBe('dashed');
+    expect(((inits[1] as any).data).stroke.dash).toBe('dotted');
+    expect((inits.find((i) => i.type === 'connector') as any).stroke.dash).toBe('dashed');
+  });
+
+  it("leaves dash undefined for Miro's solid, so the renderer default applies", () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' },
+        style: { borderWidth: '2.0', borderStyle: 'normal' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).stroke).not.toHaveProperty('dash');
+  });
+
+  it('carries border opacity onto the stroke color, and drops an invisible border', () => {
+    const partial = mapMiroItems({
+      items: [{
+        id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' },
+        style: { borderWidth: '2.0', borderColor: '#1a1a1a', borderOpacity: '0.5' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((partial.inits[0] as any).data).stroke.color)
+      .toEqual({ kind: 'srgb', value: '#1a1a1a', alpha: 0.5 });
+
+    // A zero-width or fully transparent border is no border at all; writing a
+    // stroke for it would make the renderer set up state it then draws nothing
+    // with.
+    for (const style of [
+      { borderWidth: '0.0', borderColor: '#1a1a1a' },
+      { borderWidth: '2.0', borderColor: '#1a1a1a', borderOpacity: '0.0' },
+    ]) {
+      const { inits } = mapMiroItems({
+        items: [{ id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' }, style }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).stroke).toBeUndefined();
+    }
   });
 
   // Transparent is the NORM on a real board (81% of the reference board's
