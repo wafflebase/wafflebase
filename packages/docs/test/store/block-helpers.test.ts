@@ -504,3 +504,52 @@ describe('normalizeInlines — structural inlines never merge', () => {
     expect(inlines[0].text).toBe('ABCD');
   });
 });
+
+describe('applyInsertText — structural inlines never absorb text', () => {
+  const IMG: ImageData = { src: 'img.png', width: 100, height: 80 };
+
+  it('splits typed text out of a page-number inline', () => {
+    // A page number is a '#' placeholder carrying `pageNumber`, and the
+    // renderer replaces such a run WHOLE with the page's number. Text merged
+    // into it is therefore text that can never be drawn: the caret advances
+    // over characters that are in the model and absent from the screen (#871).
+    const block = makeBlock({ text: '#', style: { pageNumber: true } });
+    const result = applyInsertText(block, 1, 'abc');
+
+    expect(result.inlines).toHaveLength(2);
+    expect(result.inlines[0]).toEqual({ text: '#', style: { pageNumber: true } });
+    expect(result.inlines[1].text).toBe('abc');
+    expect(result.inlines[1].style.pageNumber).toBeUndefined();
+  });
+
+  it('splits typed text out of a page-number inline when typed before it', () => {
+    const block = makeBlock({ text: '#', style: { pageNumber: true } });
+    const result = applyInsertText(block, 0, 'abc');
+
+    expect(result.inlines).toHaveLength(2);
+    expect(result.inlines[0].text).toBe('abc');
+    expect(result.inlines[0].style.pageNumber).toBeUndefined();
+    expect(result.inlines[1]).toEqual({ text: '#', style: { pageNumber: true } });
+  });
+
+  it('carries the text styles of a page number onto the typed text', () => {
+    // Only the structural flag is dropped. A bold page number is bold text
+    // plus a page number, and typing next to it continues the bold text.
+    const block = makeBlock({ text: '#', style: { pageNumber: true, bold: true } });
+    const result = applyInsertText(block, 1, 'abc');
+
+    expect(result.inlines[1].style).toEqual({ bold: true });
+  });
+
+  it('splits typed text out of an image inline', () => {
+    // The image half of the same rule, pinned here because the fix for #871
+    // rewrites this branch: widening it must not change what images do.
+    const block = makeBlock({ text: '￼', style: { image: IMG } });
+    const result = applyInsertText(block, 1, 'abc');
+
+    expect(result.inlines).toHaveLength(2);
+    expect(result.inlines[0]).toEqual({ text: '￼', style: { image: IMG } });
+    expect(result.inlines[1].text).toBe('abc');
+    expect(result.inlines[1].style.image).toBeUndefined();
+  });
+});

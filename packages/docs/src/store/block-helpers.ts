@@ -119,10 +119,16 @@ export function applyInsertText(block: Block, offset: number, text: string): Blo
   const { inlineIndex, charOffset } = resolveOffset(newBlock, offset);
   const inline = newBlock.inlines[inlineIndex];
 
-  // Image inlines must not absorb regular text — split at the insertion
-  // point and place the new text in its own inline without image style.
-  if (inline.style.image) {
-    const { image: _img, ...plainStyle } = inline.style;
+  // Structural inlines must not absorb regular text — split at the insertion
+  // point and place the new text in its own inline, without the structural
+  // style. One such inline describes exactly one object and the renderer
+  // draws it from the style, not from the text: an image run is painted from
+  // `style.image`, and a page-number run is replaced whole by the page's
+  // number. Text merged into either is text that can never be drawn, while
+  // the offsets keep counting it — the caret advances over characters that
+  // are in the model and absent from the screen (#871).
+  if (isStructuralInline(inline)) {
+    const { image: _img, pageNumber: _pn, ...plainStyle } = inline.style;
     const before = inline.text.slice(0, charOffset);
     const after = inline.text.slice(charOffset);
     const spliced: Inline[] = [];

@@ -82,6 +82,7 @@ export {
   getBlockText,
   getBlockTextLength,
   inlineStylesEqual,
+  isStructuralInline,
   normalizeStyleClears,
   normalizeCellStyleClears,
   resolvePageSetup,

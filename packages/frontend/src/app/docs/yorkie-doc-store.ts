@@ -28,6 +28,7 @@ import {
   normalizeBlockStyle,
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
+  isStructuralInline,
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
@@ -1714,8 +1715,11 @@ export class YorkieDocStore implements DocStore {
       // If the block has no inline children (e.g. empty block left after
       // a split or concurrent edit), insert a new inline node with the text.
       if (!hasInlineChildren) {
-        const { image: _, ...style } = targetInline?.style ?? {};
-        void _;
+        // Drop the structural styles: a new text node must not inherit
+        // `image` or `pageNumber` from the inline the caret resolved to.
+        const style = { ...(targetInline?.style ?? {}) };
+        delete style.image;
+        delete style.pageNumber;
         tree.editByPath(
           [...blockPath, 0],
           [...blockPath, 0],
@@ -1727,9 +1731,14 @@ export class YorkieDocStore implements DocStore {
       // Resolve offset from the actual Yorkie tree structure
       const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
 
-      if (targetInline.style.image) {
-        const { image: _, ...plainStyle } = targetInline.style;
-        void _;
+      // Structural inlines must not absorb typed text — the new text goes in
+      // its own inline node beside this one. Mirrors `applyInsertText`, which
+      // updates the cache below: the two must agree, or the screen (cache)
+      // and what is stored and synced (tree) disagree until the next reload.
+      if (isStructuralInline(targetInline)) {
+        const plainStyle = { ...targetInline.style };
+        delete plainStyle.image;
+        delete plainStyle.pageNumber;
         const newNode = buildInlineNode({ text, style: plainStyle });
         if (charOffset === 0) {
           tree.editByPath(
