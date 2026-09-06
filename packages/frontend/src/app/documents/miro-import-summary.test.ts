@@ -184,7 +184,10 @@ describe("truncation reporting", () => {
 
 describe("describeSkip", () => {
   // A connector Miro itself left dangling and one whose target we did not
-  // import are different facts, and only the second is worth re-importing for.
+  // import are different facts. Neither wording promises a remedy: the second
+  // has two causes (unsupported type / past the ceiling) and only one of them
+  // is recoverable, so it names the cause and leaves the truncation note to
+  // say whether the ceiling was involved.
   it("tells the two connector drop reasons apart", () => {
     const free = describeSkip("connector-free-end", 915)!;
     const unmapped = describeSkip("connector", 229)!;

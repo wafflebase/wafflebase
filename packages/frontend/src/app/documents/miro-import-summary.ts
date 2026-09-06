@@ -25,8 +25,15 @@ export function pluralizeSkipLabel(type: string, count: number): string {
  * The connector keys are the only ones like this, and they exist because the
  * two reasons call for different reactions. A connector with a dangling end
  * was already dangling in Miro and nothing could have saved it; a connector
- * whose target we did not map is ours — an unsupported type, or one past the
- * import ceiling — and re-importing a smaller board would fix it.
+ * whose target we did not map is ours to explain.
+ *
+ * Note that the second is not one remedy either. Its target was either an
+ * unsupported type or an item past the import ceiling, and only the ceiling
+ * case comes back from importing the board in smaller pieces — an unsupported
+ * type stays unmappable however small the import is. The user-facing wording
+ * therefore names the CAUSE ("their target was not imported") and does not
+ * prescribe a fix it cannot promise; the truncation note, which leads the
+ * summary, is what tells the user whether the ceiling was involved at all.
  *
  * Each returns a COMPLETE clause, "skipped" included, because these do not
  * survive being grouped with the item types: the caller joins those into one
