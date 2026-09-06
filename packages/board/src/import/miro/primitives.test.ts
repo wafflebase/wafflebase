@@ -155,12 +155,14 @@ describe('resolveMiroFrames', () => {
   });
 
   it('resolves a chain as long as the import ceiling without exhausting the stack', () => {
-    // `MiroService.MAX_ITEMS` is 5000, so a payload can carry a parent chain
+    // `MiroService.MAX_ITEMS` is 10000, so a payload can carry a parent chain
     // that long. A recursive walk overflowed near this depth — in the browser,
-    // where the limit is lower still — and took the whole import with it.
+    // where the limit is lower still — and took the whole import with it. The
+    // length tracks the ceiling deliberately: raising the ceiling without
+    // re-checking the walk is how that regression would return.
     const items = [
       { id: 'root', position: { x: 1000, y: 0 }, geometry: { width: 0, height: 0 } },
-      ...Array.from({ length: 5000 }, (_, i) => ({
+      ...Array.from({ length: 10000 }, (_, i) => ({
         id: `n${i}`,
         position: { x: 1, y: 0 },
         geometry: { width: 0, height: 0 },
@@ -169,7 +171,7 @@ describe('resolveMiroFrames', () => {
     ];
     const { frames, orphans } = resolveMiroFrames(items);
     expect(orphans.size).toBe(0);
-    expect(frames.get('n4999')).toMatchObject({ x: 6000, y: 0 });
+    expect(frames.get('n9999')).toMatchObject({ x: 11000, y: 0 });
   });
 
   it('resolves a chain the same way whichever end of it arrives first', () => {

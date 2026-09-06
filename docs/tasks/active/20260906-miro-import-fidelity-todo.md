@@ -137,10 +137,18 @@ survive through one shared `miroStroke`; arrowheads map by shape rather than
 all collapsing to a filled triangle; connector captions become placed text
 elements, counted as a degradation.
 
-**Not fixed, deliberately.** `MAX_ITEMS` is still 5,000. Whether that is the
-right ceiling costs backend memory, response size and CRDT document size to
-answer, and none of it is measured — the reporting change makes the
-consequence visible without pretending to settle the number. Font *family* is
+**Ceiling raised to 10,000** (was 5,000). The reporting change came first and
+deliberately did not settle the number; it is settled now, because 5,000 sat
+below an ordinary board — the 8,888-item reference board lost 44% of itself to
+a limit meant for pathological cases. Memory, which the ceiling was named for,
+barely moves (~8 MB of JSON). Wall clock is what doubles: Miro caps `limit` at
+50 and paginates by cursor, so 10,000 items is 200 sequential round trips at a
+measured ~2.4 s each — near 8 minutes for the items feed alone. Survivable only
+because the response is a progress stream. Wall clock, not memory, is what
+bounds the next increase, and it should come with an overall paging deadline
+rather than a bigger number.
+
+**Not fixed, deliberately.** Font *family* is
 still dropped (Miro's `open_sans` needs a mapping into the slides catalogue,
 and a wrong guess falls back worse than the uniform default). `table` /
 `table_text` (282 items) are still skipped though slides has a real

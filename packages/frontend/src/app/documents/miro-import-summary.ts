@@ -64,7 +64,7 @@ export function describeNote(note: MiroImportNote): string {
       // `image-failed` because the user's next step is different.
       return `${note.count} image(s) skipped — the board exceeds the per-import image limit`;
     case "truncated":
-      // The fraction is the whole point. "truncated at 5000" reads the same
+      // The fraction is the whole point. "truncated at 10000" reads the same
       // whether the board lost two items or half of itself, and a board that
       // lost half is one the user has to know about before they start working
       // in the copy.

@@ -62,7 +62,7 @@ export interface MiroImportNote {
   /**
    * The size of the whole population this note is a fraction of, when the
    * upstream told us. Only `truncated` sets it, and only because Miro's feed
-   * pages report a board-wide `total`: "truncated at 5000" alone gave no way
+   * pages report a board-wide `total`: "truncated at 10000" alone gave no way
    * to tell a board that lost two items from one that lost half of itself.
    */
   total?: number;

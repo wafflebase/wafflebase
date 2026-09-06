@@ -100,9 +100,9 @@ function isParentRelative(item: MiroFramedLike): boolean {
  * rather than misplacing them silently.
  *
  * The walk is iterative, not recursive: `MiroService.MAX_ITEMS` allows a
- * 5,000-long parent chain, which is within a browser's stack limit, and this
- * runs in the browser. Each chain is resolved top-down and memoised, so an
- * item is converted once however deep it sits.
+ * 10,000-long parent chain, which is past what a browser's stack would take,
+ * and this runs in the browser. Each chain is resolved top-down and memoised,
+ * so an item is converted once however deep it sits.
  */
 export function resolveMiroFrames(items: MiroFramedLike[]): {
   frames: Map<string, Frame>;

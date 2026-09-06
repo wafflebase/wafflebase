@@ -113,7 +113,7 @@ describe('MiroService.importBoard', () => {
     );
   });
 
-  // "truncated at 5000" reads the same whether the board lost two items or
+  // "truncated at 10000" reads the same whether the board lost two items or
   // half of itself. Miro puts a board-wide count on every page, so the note
   // can carry the denominator.
   it('carries the feed total so the truncation says how much was lost', async () => {

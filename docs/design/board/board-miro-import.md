@@ -332,8 +332,8 @@ Frames cannot be rotated in Miro, so a parent contributes a pure translation
 with no rotation to compose.
 
 The walk is **iterative and memoised**, not recursive: `MAX_ITEMS` admits a
-5,000-long parent chain, that is inside a browser's stack limit, and the
-mapper runs in the browser. It is also cycle-guarded, and never dereferences
+10,000-long parent chain, which is past what a browser's stack would take, and
+the mapper runs in the browser. It is also cycle-guarded, and never dereferences
 `parent.id` on the strength of `relativeTo` alone — the payload is untrusted,
 and `mapMiroItems` converts the whole board in one call, so anything that
 throws on a single malformed item costs the entire import.
@@ -556,20 +556,39 @@ clears `docId` off the row so dismissing it cannot delete the same id twice.
   spatial index stays deferred, consistent with SP1/SP2.
 
   "Reported" needs two properties the first cut did not have, because an
-  ordinary board (8,888 items) already sits well past the 5,000 ceiling. The
+  ordinary board (8,888 items) sat well past the original 5,000 ceiling. The
   note must **lead** the summary — everything else in it says "one detail of
   something you have came across wrong", while this says "you do not have all
   of it", and buried behind a hundred characters of detail it read as a
   footnote — and it must carry the **denominator**. Miro puts a board-wide
   `total` on every feed page, so `MiroImportNote.total` lets the summary say
-  "only 5000 of 8888"; a bare count reads identically whether two items were
+  "only 10000 of 24000"; a bare count reads identically whether two items were
   lost or half the board. `stalled` is treated the same way, being the same
   kind of fact.
 
-  Whether **5,000 is the right ceiling** for boards people actually import is
-  a separate, open question: raising it costs backend memory, response size,
-  and CRDT document size, and none of those have been measured. The reporting
-  change makes the consequence visible; it does not settle the number.
+  **The ceiling is 10,000**, raised from 5,000 for exactly that reason: a
+  limit an ordinary board trips is not protecting anyone from a pathological
+  one, it is losing content. The cost is not the one the ceiling was named
+  for. Memory barely moves — a Miro item is ~800 bytes of JSON, so 10,000 of
+  them is ~8 MB on one request, the same order as the body limit the process
+  already accepts. **Wall clock is what doubles.** Miro caps `limit` at 50 and
+  paginates by cursor, so pages must be fetched in sequence: a full 10,000
+  items is 200 round trips at a measured ~2.4 s each, putting the items feed
+  alone near 8 minutes before connectors or image re-hosting. That is
+  survivable only because the response is a progress stream — an idle
+  connection that long would be cut by a proxy in the path — which is one more
+  reason the NDJSON design above is not optional.
+
+  The **CRDT document** doubles in element count too, since `applyBoardElements`
+  writes the whole import as one batched Yorkie change. That is a real cost and
+  it is not measured here; it is accepted on the same ground as the rest — a
+  board the user actually has is worth more than a ceiling tuned for one they
+  do not — and it is the second thing to measure if imports start feeling
+  heavy in the editor rather than during the fetch.
+
+  So **wall clock, not memory, bounds the next increase**, and raising this
+  again should come with an overall deadline on the paging phase, reported like
+  any other truncation, rather than a bigger number on its own.
 - **Rate limits.** `GET /items` is a Level 2 endpoint (100 credits/call,
   1000 req/min). *Mitigation:* `limit=50` (the API max) minimizes calls, and a
   `429` surfaces as a clear retryable error rather than a partial import.

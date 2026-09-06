@@ -73,7 +73,9 @@ const MAX_IMAGE_BYTES = MAX_IMAGE_UPLOAD_BYTES;
  * Node's `fetch` applies NO overall request deadline: a host that accepts the
  * connection and then stalls holds a Nest request worker until the client
  * gives up. `fetchPaged` makes that worse — it can issue up to `MAX_ITEMS + 1`
- * sequential page requests, so one stalled hop stalls the whole import.
+ * sequential page requests, so one stalled hop stalls the whole import. This
+ * is a per-PAGE deadline and there is still no overall one, which is the thing
+ * to add before the item ceiling rises again; see {@link MiroService.MAX_ITEMS}.
  *
  * The JSON deadline is per PAGE, not per import, which is the right unit: a
  * healthy page answers in well under a second, and a large board is allowed to
@@ -87,9 +89,11 @@ const IMAGE_TIMEOUT_MS = 30_000;
  * Aggregate ceilings on the image re-hosting phase.
  *
  * `MAX_IMAGE_BYTES` bounds ONE image; it says nothing about the total. With
- * `MAX_ITEMS = 5000` an image-heavy board could otherwise drive 5000
- * sequential downloads of up to 10 MB each on a single request — tens of GB of
- * transfer and buffer churn, and a request that never finishes.
+ * `MAX_ITEMS = 10000` an image-heavy board could otherwise drive 10,000
+ * downloads of up to 10 MB each on a single request — tens of GB of transfer
+ * and buffer churn, and a request that never finishes. These ceilings are what
+ * keep the phase bounded independently of the item ceiling, so raising that
+ * one does not widen this one.
  *
  * So the phase is also bounded as a whole: at most `MAX_REHOSTED_IMAGES`
  * downloads, and at most `MAX_TOTAL_IMAGE_BYTES` in aggregate. 100 images /
@@ -139,8 +143,33 @@ export class MiroService {
   /**
    * Hard ceiling on imported items. A board larger than this is truncated and
    * the truncation is reported — bounded memory beats a silent partial import.
+   *
+   * 10,000 rather than the original 5,000, because 5,000 turned out to sit
+   * below an ORDINARY board: the reference board this importer was measured
+   * against holds 8,888 items, so nearly half of it never arrived. A ceiling
+   * that a typical board trips is not protecting anyone from a pathological
+   * one, it is just losing content.
+   *
+   * What the higher number costs:
+   *
+   * - **Memory** is the part this ceiling was named for, and it is the part
+   *   that barely moves. A Miro item is roughly 800 bytes of JSON, so 10,000
+   *   of them is ~8 MB held on one request — the same order as the 25 MB body
+   *   limit the process already accepts.
+   * - **Wall clock** is the real cost, and it doubles. Miro caps `limit` at 50
+   *   and paginates by cursor, so the pages MUST be fetched in sequence: a
+   *   full 10,000 items is 200 round trips, and a measured page takes ~2.4 s,
+   *   putting the items feed alone near 8 minutes before connectors or image
+   *   re-hosting. That is survivable only because the response is a progress
+   *   stream — an idle connection that long would be cut by any proxy in the
+   *   path — which is exactly why {@link runImport} emits per-page progress.
+   *
+   * The wall clock, not memory, is therefore what bounds the next increase.
+   * Raising this again should come with an overall deadline on the paging
+   * phase (reported like any other truncation), rather than with a bigger
+   * number on its own.
    */
-  static readonly MAX_ITEMS = 5000;
+  static readonly MAX_ITEMS = 10000;
 
   /** Aggregate image ceilings, exposed so the tests assert the real numbers. */
   static readonly MAX_REHOSTED_IMAGES = MAX_REHOSTED_IMAGES;
@@ -558,7 +587,7 @@ export class MiroService {
     let cursor: string | undefined;
     let seeded = first;
     // Miro reports a board-wide count on every page. Kept so a truncation can
-    // say how much was left behind: "truncated at 5000" alone reads the same
+    // say how much was left behind: "truncated at 10000" alone reads the same
     // whether the board lost two items or, as the reference board does, 44%
     // of itself.
     let feedTotal: number | undefined;
