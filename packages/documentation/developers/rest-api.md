@@ -530,7 +530,9 @@ Update multiple cells in a single request.
 
 `cells` is required, and required to be an object: omitting it, or sending `null`, a string, a number or an array, is a `400`.
 
-Every reference and every supplied `style` is validated **before** any write, so one bad entry fails the whole request with a `400` rather than leaving a partial update.
+An entry may also be a bare string or number instead of an object — `{"A1": "Name"}` means `{"A1": {"value": "Name"}}`, and a leading `=` makes it a formula, so `{"E2": "=SUM(B2:B100)"}` means `{"E2": {"formula": "=SUM(B2:B100)"}}`. That is the shorthand the CLI recipes pass; it used to be accepted and stored as an *empty* cell. An entry that is anything else — `true`, an array — is a `400`.
+
+Every reference, every entry and every supplied `style` is validated **before** any write, so one bad entry fails the whole request with a `400` rather than leaving a partial update.
 
 ```bash
 curl -X PATCH \

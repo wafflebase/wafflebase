@@ -733,6 +733,15 @@ object is a `400` as well. Both used to reach Nest's default filter as a
 opened, so a bad one in a batch rejects the whole batch rather than
 leaving it half applied.
 
+A batch **entry** may be the object above, `null` (delete), or the bare
+value every CLI recipe passes: `{"A1": "Name"}` is `{"A1": {"value":
+"Name"}}`, and a leading `=` makes it a formula, the rule `toCellPatch`
+already applies to an imported CSV cell. That shorthand used to reach the
+write loop unread — `"Name".value` is `undefined` — so the documented
+happy path wrote an **empty** cell and reported it as updated. An entry
+that is neither (a boolean, an array) is a `400` rather than the same
+quiet blanking.
+
 #### Rows and columns
 
 | Method | Route | Description |

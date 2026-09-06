@@ -34,3 +34,15 @@ Two independent bugs found while using the CLI to fill a sheet:
 - `comments.controller.ts` already turned the same `parseRef` failure into
   the same 400, so `parseCellRef` is shared between the two controllers
   rather than written twice.
+- **A bare cell value was stored as an empty cell.** `{"A1": "Name"}` — the
+  form `packages/cli/skills/sheets-write-cells.md`, `docs-manage.md`,
+  `packages/cli/README.md` and `docs/design/cli.md` all teach — reached the
+  write loop unread, where `"Name".value` is `undefined`, so every reference
+  those recipes named was written empty and counted in `{"updated": n}`. The
+  first attempt at this was a guard that 400'd them, which is why the PR
+  description first listed it as out of scope; accepting the shorthand is
+  what actually makes the documented path work. A leading `=` makes it a
+  formula, matching `toCellPatch` (`packages/cli/src/util/csv-parse.ts`) and
+  `inferInput` (`@wafflebase/sheets`). Entries that are neither an object, a
+  bare value nor `null` — a boolean, an array — 400 rather than blanking the
+  cell in the same silence.

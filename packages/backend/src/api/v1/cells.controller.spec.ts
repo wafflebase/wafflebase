@@ -153,6 +153,52 @@ describe('ApiV1CellsController initialRoot', () => {
     expect(getWorksheetCell(root.sheets['tab-1'], parseRef('A1'))).toBeUndefined();
   });
 
+  // The shorthand every CLI recipe passes. `"Name".value` is `undefined`, so
+  // these used to write an EMPTY cell and answer `{"updated": n}` — the
+  // documented happy path stored nothing and said it had.
+  it('batchUpdate stores a bare string entry as the cell value', async () => {
+    const res = await controller.batchUpdate(WS, DOC, 'tab-1', {
+      cells: { A1: 'Name', B1: 'Score' },
+    });
+
+    expect(res).toEqual({ updated: 2 });
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('A1'))?.v).toBe('Name');
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('B1'))?.v).toBe('Score');
+  });
+
+  it('batchUpdate stores a bare string starting with = as a formula', async () => {
+    // `docs/design/cli.md` pipes exactly this. `f` and `v` are different
+    // fields, and a formula stored as a value is never evaluated — the same
+    // rule `toCellPatch` applies to an imported CSV cell.
+    await controller.batchUpdate(WS, DOC, 'tab-1', {
+      cells: { E2: '=SUM(B2:B100)' },
+    });
+
+    const cell = getWorksheetCell(root.sheets['tab-1'], parseRef('E2'));
+    expect(cell?.f).toBe('=SUM(B2:B100)');
+    expect(cell?.v).toBe('');
+  });
+
+  it('batchUpdate stores a bare number entry as its digits', async () => {
+    await controller.batchUpdate(WS, DOC, 'tab-1', { cells: { C1: 95 } });
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('C1'))?.v).toBe('95');
+  });
+
+  // Neither a cell nor a value any recipe writes — and blanking the cell
+  // quietly is what this whole change is against.
+  it.each([
+    ['a boolean', true],
+    ['an array', ['x']],
+  ])('batchUpdate rejects an entry that is %s, writing nothing', async (_l, entry) => {
+    await expect(
+      controller.batchUpdate(WS, DOC, 'tab-1', {
+        cells: { A1: { value: '1' }, B1: entry },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(withDocument).not.toHaveBeenCalled();
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('A1'))).toBeUndefined();
+  });
+
   it('batchUpdate applies per-cell style', async () => {
     await controller.batchUpdate(WS, DOC, 'tab-1', {
       cells: { A1: { value: '1', style: { i: true } } },

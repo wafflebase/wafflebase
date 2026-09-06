@@ -211,12 +211,9 @@ export class ApiV1CellsController {
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
     @Body()
-    body: {
-      cells: Record<
-        string,
-        { value?: string; formula?: string; style?: unknown } | null
-      >;
-    },
+    // Each entry is a `BatchCell`, `null` (delete), or the bare-value
+    // shorthand `parseBatchCell` resolves — so `unknown`, checked below.
+    body: { cells: Record<string, unknown> },
   ) {
     await this.assertSheetWrite(documentId, workspaceId);
     // The parameter type is a claim about client JSON, not a guarantee, and
@@ -228,18 +225,16 @@ export class ApiV1CellsController {
         "'cells' must be an object mapping A1 references to cell data",
       );
     }
-    const entries = Object.entries(
-      cells as Record<
-        string,
-        { value?: string; formula?: string; style?: unknown } | null
-      >,
-    );
-    // Validate every ref and style up front so a bad one 400s before any
-    // write, rather than aborting a partially-applied doc.update.
+    const rawEntries = Object.entries(cells as Record<string, unknown>);
+    // Validate every ref, entry and style up front so a bad one 400s before
+    // any write, rather than aborting a partially-applied doc.update.
     const parsedRefs: Record<string, Ref> = {};
     const styles: Record<string, ReturnType<typeof parseCellStyle>> = {};
-    for (const [ref, cellData] of entries) {
+    const entries: Array<[string, BatchCell | null]> = [];
+    for (const [ref, raw] of rawEntries) {
       parsedRefs[ref] = parseCellRef(ref);
+      const cellData = parseBatchCell(ref, raw);
+      entries.push([ref, cellData]);
       if (cellData && cellData.style !== undefined) {
         styles[ref] = parseCellStyle(cellData.style);
       }
@@ -271,6 +266,47 @@ export class ApiV1CellsController {
       { initialRoot: initialSpreadsheetDocument() },
     );
   }
+}
+
+/** One entry of a batch body, after the bare-value shorthand is resolved. */
+type BatchCell = { value?: string; formula?: string; style?: unknown };
+
+/**
+ * Resolve one batch entry, accepting the bare value the CLI's own recipes
+ * pass — `{"A1": "Name"}` beside `{"A1": {"value": "Name"}}`.
+ *
+ * That shorthand is what `packages/cli/skills/sheets-write-cells.md`,
+ * `packages/cli/skills/docs-manage.md`, `packages/cli/README.md` and
+ * `docs/design/cli.md` all teach, and it used to reach the write loop
+ * unexamined: `"Name".value` is `undefined`, so every cell those recipes
+ * named was written **empty** and the response still counted it as updated.
+ * Silently storing nothing is worse than refusing, so this reads the value
+ * rather than rejecting it — refusing would 400 five published recipes.
+ *
+ * A leading `=` makes it a formula, the same rule `toCellPatch`
+ * (`packages/cli/src/util/csv-parse.ts`) and `inferInput`
+ * (`@wafflebase/sheets`) already apply: the two live in different fields
+ * (`f` vs `v`), and a formula stored as a value is never evaluated.
+ *
+ * Anything else — `true`, `[…]` — is neither a cell nor a value any recipe
+ * writes, and used to blank the cell just as quietly. Those are a 400.
+ */
+function parseBatchCell(ref: string, raw: unknown): BatchCell | null {
+  if (raw === null) return null;
+  if (typeof raw === 'string') {
+    return raw.startsWith('=') ? { formula: raw } : { value: raw };
+  }
+  // JSON numbers: an agent writing `{"B2": 95}` means the number 95. `v` is
+  // a string in the model, which is what the editor stores for typed digits.
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return { value: String(raw) };
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new BadRequestException(
+      `'cells.${ref}' must be an object, a string, a number, or null`,
+    );
+  }
+  return raw as BatchCell;
 }
 
 /**
