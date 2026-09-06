@@ -3,6 +3,8 @@ import {
   type ElementInit,
   type Endpoint,
   type Frame,
+  type ArrowheadKind,
+  type ArrowheadStyle,
   type Stroke,
   type ThemeColor,
 } from '@wafflebase/slides';
@@ -180,6 +182,65 @@ function verticalAnchorOf(
   const value = str(style.textAlignVertical);
   if (value === 'top' || value === 'middle' || value === 'bottom') return value;
   return fallback;
+}
+
+/**
+ * Miro's stroke-cap vocabulary → the board's arrowhead kinds.
+ *
+ * Every cap used to collapse to a filled `triangle`, so an open arrow, a
+ * diamond and a circle all arrived as the same solid head. The board models
+ * filled and open variants of triangle / diamond / circle, which covers all
+ * but Miro's ERD crow's-foot notation.
+ *
+ * Own-property lookup only: the name arrives verbatim from externally supplied
+ * JSON, and a bare index would resolve inherited `Object.prototype` keys.
+ */
+const ARROWHEAD_KIND: Record<string, ArrowheadKind> = {
+  stealth: 'triangle',
+  rounded_stealth: 'triangle',
+  filled_triangle: 'triangle',
+  arrow: 'triangle-open',
+  unfilled_triangle: 'triangle-open',
+  filled_diamond: 'diamond',
+  unfilled_diamond: 'diamond-open',
+  filled_oval: 'circle',
+  filled_circle: 'circle',
+  unfilled_oval: 'circle-open',
+  unfilled_circle: 'circle-open',
+};
+
+/**
+ * Miro's own defaults for a connector that carries no `style` at all:
+ * undecorated at the start, arrowhead at the end.
+ *
+ * These are stated rather than implied. The two ends previously read their cap
+ * through visibly different expressions — the start required a defined value,
+ * the end did not — which produced exactly this behaviour by accident and read
+ * as a bug in the end branch.
+ */
+const DEFAULT_START_CAP = 'none';
+const DEFAULT_END_CAP = 'stealth';
+
+/**
+ * Resolve one end's arrowhead, or `undefined` for an undecorated end.
+ *
+ * An unrecognised cap — Miro's ERD crow's-foot family, or API drift — degrades
+ * to a filled triangle rather than disappearing: the connector genuinely has a
+ * decoration there, and dropping it silently would misreport the diagram.
+ * `onApproximate` lets the caller account for that as a degradation.
+ */
+function arrowheadOf(
+  cap: string | undefined,
+  fallback: string,
+  onApproximate: () => void,
+): ArrowheadStyle | undefined {
+  const name = cap ?? fallback;
+  if (name === 'none') return undefined;
+  if (Object.prototype.hasOwnProperty.call(ARROWHEAD_KIND, name)) {
+    return { kind: ARROWHEAD_KIND[name], size: 'md' };
+  }
+  onApproximate();
+  return { kind: 'triangle', size: 'md' };
 }
 
 /** Miro connector `shape` → the board's connector routing. */
@@ -442,6 +503,9 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
 
     const style = connector.style ?? {};
     const stroke = miroStroke(style, CONNECTOR_STROKE_KEYS, '#000000');
+    const bumpArrowhead = () => approx('arrowhead-kind');
+    const startArrow = arrowheadOf(str(style.startStrokeCap), DEFAULT_START_CAP, bumpArrowhead);
+    const endArrow = arrowheadOf(str(style.endStrokeCap), DEFAULT_END_CAP, bumpArrowhead);
     inits.push({
       __id: generateId(),
       type: 'connector',
@@ -450,12 +514,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       start,
       end,
       arrowheads: {
-        ...(str(style.startStrokeCap) && str(style.startStrokeCap) !== 'none'
-          ? { start: { kind: 'triangle', size: 'md' } }
-          : {}),
-        ...(str(style.endStrokeCap) !== 'none'
-          ? { end: { kind: 'triangle', size: 'md' } }
-          : {}),
+        ...(startArrow ? { start: startArrow } : {}),
+        ...(endArrow ? { end: endArrow } : {}),
       },
       ...(stroke ? { stroke } : {}),
     } as ElementInit & { __id: string });

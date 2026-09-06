@@ -78,6 +78,58 @@ describe('mapMiroItems', () => {
     expect(connector.stroke).toEqual({ color: { kind: 'srgb', value: '#f24726' }, width: 4 });
   });
 
+  describe('connector arrowheads', () => {
+    const withCaps = (style: Record<string, unknown>) =>
+      mapMiroItems({
+        items: [
+          { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+          { id: 'b', type: 'shape', ...at(500, 0), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' }, style }],
+        resolveImageUrl: identity,
+      });
+    const heads = (style: Record<string, unknown>) =>
+      (withCaps(style).inits.find((i) => i.type === 'connector') as any).arrowheads;
+
+    it('distinguishes the filled, open, diamond and circle caps', () => {
+      expect(heads({ startStrokeCap: 'filled_diamond', endStrokeCap: 'arrow' })).toEqual({
+        start: { kind: 'diamond', size: 'md' },
+        end: { kind: 'triangle-open', size: 'md' },
+      });
+      expect(heads({ startStrokeCap: 'unfilled_oval', endStrokeCap: 'rounded_stealth' })).toEqual({
+        start: { kind: 'circle-open', size: 'md' },
+        end: { kind: 'triangle', size: 'md' },
+      });
+    });
+
+    it("honours 'none' on either end", () => {
+      expect(heads({ startStrokeCap: 'none', endStrokeCap: 'none' })).toEqual({});
+      expect(heads({ startStrokeCap: 'none', endStrokeCap: 'stealth' }))
+        .toEqual({ end: { kind: 'triangle', size: 'md' } });
+    });
+
+    // Miro's own defaults for a connector carrying no style: bare at the
+    // start, arrowhead at the end. The two ends read asymmetrically before,
+    // which produced this by accident and looked like a bug.
+    it("applies Miro's own per-end defaults when a cap is absent", () => {
+      expect(heads({})).toEqual({ end: { kind: 'triangle', size: 'md' } });
+    });
+
+    // Crow's-foot notation has no counterpart in the board's four kinds. The
+    // connector really is decorated there, so it degrades rather than vanishes
+    // — and says so.
+    it('degrades an unmodelled cap to a triangle and reports it', () => {
+      const { inits, approximated } = withCaps({
+        startStrokeCap: 'erd_many', endStrokeCap: 'erd_one',
+      });
+      expect((inits.find((i) => i.type === 'connector') as any).arrowheads).toEqual({
+        start: { kind: 'triangle', size: 'md' },
+        end: { kind: 'triangle', size: 'md' },
+      });
+      expect(approximated['arrowhead-kind']).toBe(2);
+    });
+  });
+
   it('carries dashed and dotted line styles onto the stroke', () => {
     const { inits } = mapMiroItems({
       items: [
