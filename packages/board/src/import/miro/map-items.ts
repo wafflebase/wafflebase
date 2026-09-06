@@ -1,4 +1,10 @@
-import { generateId, type ElementInit, type Endpoint, type Frame } from '@wafflebase/slides';
+import {
+  generateId,
+  type ElementInit,
+  type Endpoint,
+  type Frame,
+  type ThemeColor,
+} from '@wafflebase/slides';
 import { resolveMiroFrames } from './geometry';
 import { pickConnectorSite } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
@@ -34,6 +40,44 @@ function num(v: unknown): number | undefined {
   if (typeof v !== 'string' || v.trim() === '') return undefined;
   const parsed = Number(v);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Resolve a Miro shape's body fill, or `undefined` when the shape is not
+ * painted at all.
+ *
+ * Miro reports fill as a colour PLUS a separate `fillOpacity`, and on real
+ * boards transparent is the norm rather than the exception — 7,242 of the
+ * reference board's 8,888 items carry `fillOpacity: "0.0"`. Ignoring that and
+ * always writing a solid fill did two visible kinds of damage:
+ *
+ * - a transparent shape whose only visible feature was its border became a
+ *   blank white box, invisible against the canvas; and
+ * - being opaque, it also PAINTED OVER whatever was emitted before it, hiding
+ *   content that had imported correctly.
+ *
+ * `ShapeElement.data.fill` documents "absent ⇒ the shape is not painted", so
+ * fully transparent maps to omitting the field. Partial opacity (0 < a < 1,
+ * ~240 items on the same board) maps to `ThemeColor.alpha`, which the model
+ * already carries.
+ *
+ * The `'transparent'` literal is checked as well as the numeric opacity: Miro
+ * uses it for shapes created before `fillOpacity` existed, and it is not a
+ * colour any renderer can resolve.
+ */
+function miroShapeFill(style: Record<string, unknown>): ThemeColor | undefined {
+  const value = str(style.fillColor);
+  if (value === 'transparent') return undefined;
+
+  const opacity = num(style.fillOpacity);
+  if (opacity !== undefined && opacity <= 0) return undefined;
+
+  // A shape with no `fillColor` at all is still a filled shape in Miro; white
+  // is its default, and this is the pre-existing behaviour for that case.
+  const color = value ?? '#ffffff';
+  return opacity !== undefined && opacity < 1
+    ? { kind: 'srgb', value: color, alpha: opacity }
+    : { kind: 'srgb', value: color };
 }
 
 /** Miro connector `shape` → the board's connector routing. */
@@ -160,13 +204,14 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       // The shape IS imported — as a rect. That is a degradation, not a skip.
       if (!known) approx('shape-kind');
       const borderWidth = num(style.borderWidth);
+      const fill = miroShapeFill(style);
       inits.push({
         __id,
         type: 'shape',
         frame,
         data: {
           kind,
-          fill: { kind: 'srgb', value: str(style.fillColor) ?? '#ffffff' },
+          ...(fill ? { fill } : {}),
           ...(borderWidth && borderWidth > 0
             ? { stroke: { color: str(style.borderColor) ?? '#1a1a1a', width: borderWidth } }
             : {}),

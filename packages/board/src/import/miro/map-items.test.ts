@@ -75,6 +75,50 @@ describe('mapMiroItems', () => {
     expect(connector.stroke).toEqual({ color: '#f24726', width: 4 });
   });
 
+  // Transparent is the NORM on a real board (81% of the reference board's
+  // items), so importing it as opaque white both hid the shape and painted
+  // over whatever was behind it.
+  it('omits the fill for a shape Miro reports as transparent', () => {
+    for (const style of [
+      { fillColor: '#ffffff', fillOpacity: '0.0' },
+      { fillColor: 'transparent' },
+    ]) {
+      const { inits } = mapMiroItems({
+        items: [{ id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' }, style }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).fill).toBeUndefined();
+    }
+  });
+
+  it('carries a partial fill opacity onto the color alpha', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 'sh1', type: 'shape', ...at(0, 0),
+        data: { shape: 'rectangle' },
+        style: { fillColor: '#2d9bf0', fillOpacity: '0.3' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).fill).toEqual({ kind: 'srgb', value: '#2d9bf0', alpha: 0.3 });
+  });
+
+  it('still fills an opaque shape, and one that reports no opacity at all', () => {
+    for (const style of [
+      { fillColor: '#8fd14f', fillOpacity: '1.0' },
+      { fillColor: '#8fd14f' },
+    ]) {
+      const { inits } = mapMiroItems({
+        items: [{ id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' }, style }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).fill).toEqual({ kind: 'srgb', value: '#8fd14f' });
+    }
+  });
+
   // `Number('')` is 0, so a blank/absent value must be rejected BEFORE the
   // conversion — otherwise a missing border width becomes a real zero.
   it('treats a blank or unparseable border width as absent, not as zero', () => {
