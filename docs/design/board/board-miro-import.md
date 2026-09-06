@@ -204,6 +204,17 @@ directly. `total` appears only for `images`, the one phase whose size is known
 up front. The `images` stage is announced even when it is empty (`done: 0,
 total: 0`) so the label moves off "reading" for every board.
 
+**The progress lines are small; the result line is the whole board.** That
+asymmetry is the one thing a reader of this stream has to be built for. The
+terminal `result` is a single NDJSON line carrying every item and connector —
+~15 MiB at the item ceiling — so `createNdjsonLineReader` scans only the newly
+arrived text for a newline and never re-splits what it has already buffered.
+Splitting the accumulated buffer per chunk is the obvious implementation and is
+quadratic in line length: measured 87 ms at 4 MiB, 310 ms at 7.6 MiB and
+1,255 ms at 15 MiB, all of it blocking the main thread, against 4 / 7 / 14 ms
+for the tail-only scan. `ndjson.test.ts` pins the linearity as a ratio rather
+than a wall-clock budget, so it holds on CI hardware too.
+
 **Why streaming and not a job id + polling.** The credential must be sent
 **exactly once**. A job design would have to either park the token server-side
 between requests — which this whole feature exists to avoid — or make the

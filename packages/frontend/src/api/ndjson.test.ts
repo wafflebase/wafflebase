@@ -114,4 +114,35 @@ describe("createNdjsonLineReader", () => {
 
     expect(lines).toEqual([a, b]);
   });
+
+  // The Miro import's terminal `result` line carries the whole board as ONE
+  // line — megabytes of it. Splitting the accumulated buffer on every chunk
+  // rescanned every byte already seen, which is quadratic in the line length
+  // and blocked the main thread for over a second at the 10,000-item ceiling.
+  //
+  // Asserted as a RATIO rather than a wall-clock budget: absolute timings are
+  // machine- and CI-dependent, but quadratic growth is not. Doubling the line
+  // costs ~4x when it regresses and ~2x when it does not, so 3x separates them
+  // with room to spare.
+  it("stays linear in the length of one very long line", () => {
+    const time = (megabytes: number) => {
+      const line = encoder.encode(`${"x".repeat(megabytes * 1024 * 1024)}\n`);
+      const reader = createNdjsonLineReader();
+      const chunk = 16 * 1024;
+      const started = performance.now();
+      let count = 0;
+      for (let i = 0; i < line.length; i += chunk) {
+        count += reader.push(line.subarray(i, i + chunk)).length;
+      }
+      expect(count).toBe(1);
+      return performance.now() - started;
+    };
+
+    // Warm the JIT so the first measurement is not paying for compilation.
+    time(1);
+    const small = time(4);
+    const large = time(8);
+
+    expect(large).toBeLessThan(Math.max(small, 1) * 3);
+  });
 });
