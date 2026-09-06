@@ -45,7 +45,6 @@ import {
 import {
   cellAnchorToSref,
   initialSpreadsheetDocument,
-  parseRef,
   planCommentNotifications,
 } from '@wafflebase/sheets';
 import type {
@@ -56,6 +55,7 @@ import type {
 } from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '../../yorkie/yorkie.types';
 import { worksheetOrThrow } from './worksheet-lookup.util';
+import { parseCellRef } from './cell-ref.util';
 
 /** The document types that store comment threads. */
 const COMMENTABLE = ['sheet', 'doc', 'pdf'] as const;
@@ -647,12 +647,7 @@ function sheetCellAnchor(
   tabId: string,
   ref: string,
 ): AnyAnchor {
-  let parsed: { r: number; c: number };
-  try {
-    parsed = parseRef(ref);
-  } catch {
-    throw new BadRequestException(`Invalid cell reference "${ref}"`);
-  }
+  const parsed = parseCellRef(ref);
   const rowId = worksheet.rowOrder?.[parsed.r - 1];
   const colId = worksheet.colOrder?.[parsed.c - 1];
   if (!rowId || !colId) {

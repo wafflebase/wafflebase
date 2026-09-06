@@ -1790,7 +1790,10 @@ is the agent interface. This approach has key advantages:
 | --------------------------------------------------- | ---- | ------------------- | ------------------------------------------------------------------ |
 | Unsupported `--format` value (any command)          | 1    | INVALID_FORMAT      | "Invalid --format \"<input>\". Use one of: <that command's list>." |
 | `ctx list` / `ctx switch` without a session         | 1    | NOT_LOGGED_IN       | "Not logged in. Run `wafflebase login`."                           |
-| Malformed `--data` / stdin JSON (`sheets cells batch`) | 1  | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
+| Malformed `--data` JSON (`sheets cells batch`)      | 1    | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
+| Malformed stdin JSON (`sheets cells batch`)        | 1    | ERROR               | "Invalid JSON cell data on stdin: <parser message>"                |
+| Non-object `--data` JSON (`sheets cells batch`)    | 1    | ERROR               | "Cell data in --data must be a JSON object mapping A1 references to cell data" |
+| Non-object stdin JSON (`sheets cells batch`)       | 1    | ERROR               | "Cell data on stdin must be a JSON object mapping A1 references to cell data" |
 | `docs.content` on sheet document                    | 1    | TYPE_MISMATCH       | "Use `sheets cells get` for spreadsheet documents"                 |
 | `sheets.cells.get` on doc                           | 1    | TYPE_MISMATCH       | "Use `docs content` for document files"                            |
 | Malformed `--pages`                                 | 1    | INVALID_RANGE       | "Invalid page range: <input>"                                      |

@@ -3,6 +3,7 @@ import {
   createSpreadsheetDocument,
   getWorksheetCell,
   parseRef,
+  writeWorksheetCell,
 } from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import { ApiV1CellsController } from './cells.controller';
@@ -64,6 +65,26 @@ describe('ApiV1CellsController initialRoot', () => {
     expect(lastInitialRoot()?.tabOrder).toEqual(['tab-1']);
   });
 
+  // The read path's own body: every other `getCell` case in this file (and in
+  // sheet-document.util.spec.ts) refuses before the attach, so without this one
+  // the ref hoisted out of the Yorkie callback is never actually used to read.
+  it('getCell reads the stored cell through the hoisted ref', async () => {
+    writeWorksheetCell(root.sheets['tab-1'], parseRef('B2'), {
+      v: '42',
+      f: '=A1+1',
+      s: { b: true },
+    });
+
+    await expect(controller.getCell(WS, DOC, 'tab-1', 'B2')).resolves.toEqual({
+      ref: 'B2',
+      value: '42',
+      formula: '=A1+1',
+      style: { b: true },
+    });
+    expect(lastOptions()?.syncMode).toBe('readonly');
+    expect(lastOptions()?.initialRoot).toBeUndefined();
+  });
+
   it('getCells (read) is readonly and does NOT seed', async () => {
     await controller.getCells(WS, DOC, 'tab-1', undefined);
     expect(lastOptions()?.initialRoot).toBeUndefined();
@@ -85,6 +106,97 @@ describe('ApiV1CellsController initialRoot', () => {
       controller.setCell(WS, DOC, 'tab-1', 'A1', { style: { al: 'middle' } }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(withDocument).not.toHaveBeenCalled();
+  });
+
+  // #1030: parseRef throws a bare Error on a malformed ref, which used to
+  // fall through Nest's default filter as a 500 instead of a 400.
+  it.each(['setCell', 'deleteCell', 'batchUpdate', 'getCell'] as const)(
+    '%s rejects a malformed ref with 400 before opening the doc',
+    async (op) => {
+      const call = {
+        setCell: () =>
+          controller.setCell(WS, DOC, 'tab-1', 'notaref', { value: '5' }),
+        deleteCell: () => controller.deleteCell(WS, DOC, 'tab-1', 'notaref'),
+        batchUpdate: () =>
+          controller.batchUpdate(WS, DOC, 'tab-1', {
+            cells: { notaref: { value: '5' } },
+          }),
+        getCell: () => controller.getCell(WS, DOC, 'tab-1', 'notaref'),
+      }[op];
+
+      await expect(call()).rejects.toBeInstanceOf(BadRequestException);
+      expect(withDocument).not.toHaveBeenCalled();
+    },
+  );
+
+  // A missing or null `cells` used to reach `Object.entries` and 500.
+  it.each([
+    ['missing', {}],
+    ['null', { cells: null }],
+    ['a string', { cells: 'nope' }],
+    ['a number', { cells: 123 }],
+    ['an array', { cells: [{ value: 'x' }] }],
+  ])('batchUpdate rejects a cells payload that is %s', async (_label, body) => {
+    await expect(
+      controller.batchUpdate(WS, DOC, 'tab-1', body as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(withDocument).not.toHaveBeenCalled();
+  });
+
+  it('batchUpdate rejects the whole batch if any one ref is malformed, writing nothing', async () => {
+    await expect(
+      controller.batchUpdate(WS, DOC, 'tab-1', {
+        cells: { A1: { value: '1' }, notaref: { value: '2' } },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(withDocument).not.toHaveBeenCalled();
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('A1'))).toBeUndefined();
+  });
+
+  // The shorthand every CLI recipe passes. `"Name".value` is `undefined`, so
+  // these used to write an EMPTY cell and answer `{"updated": n}` — the
+  // documented happy path stored nothing and said it had.
+  it('batchUpdate stores a bare string entry as the cell value', async () => {
+    const res = await controller.batchUpdate(WS, DOC, 'tab-1', {
+      cells: { A1: 'Name', B1: 'Score' },
+    });
+
+    expect(res).toEqual({ updated: 2 });
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('A1'))?.v).toBe('Name');
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('B1'))?.v).toBe('Score');
+  });
+
+  it('batchUpdate stores a bare string starting with = as a formula', async () => {
+    // `docs/design/cli.md` pipes exactly this. `f` and `v` are different
+    // fields, and a formula stored as a value is never evaluated — the same
+    // rule `toCellPatch` applies to an imported CSV cell.
+    await controller.batchUpdate(WS, DOC, 'tab-1', {
+      cells: { E2: '=SUM(B2:B100)' },
+    });
+
+    const cell = getWorksheetCell(root.sheets['tab-1'], parseRef('E2'));
+    expect(cell?.f).toBe('=SUM(B2:B100)');
+    expect(cell?.v).toBe('');
+  });
+
+  it('batchUpdate stores a bare number entry as its digits', async () => {
+    await controller.batchUpdate(WS, DOC, 'tab-1', { cells: { C1: 95 } });
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('C1'))?.v).toBe('95');
+  });
+
+  // Neither a cell nor a value any recipe writes — and blanking the cell
+  // quietly is what this whole change is against.
+  it.each([
+    ['a boolean', true],
+    ['an array', ['x']],
+  ])('batchUpdate rejects an entry that is %s, writing nothing', async (_l, entry) => {
+    await expect(
+      controller.batchUpdate(WS, DOC, 'tab-1', {
+        cells: { A1: { value: '1' }, B1: entry },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(withDocument).not.toHaveBeenCalled();
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('A1'))).toBeUndefined();
   });
 
   it('batchUpdate applies per-cell style', async () => {

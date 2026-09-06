@@ -431,6 +431,23 @@ echo '{"A1": {"value": "1"}, "A2": {"value": "2"}}' | \
   wafflebase sheets cells batch <doc-id>
 ```
 
+`--data`/stdin takes the bare cell map; the command adds the `{"cells": …}`
+envelope the REST body needs. Passing that envelope in anyway — a lone `cells`
+key — is accepted rather than wrapped twice, so a body copied out of the API
+reference works unchanged. Anything that is not a JSON object — `null`, a
+number, an array — is refused locally, before any request.
+
+A cell may be written as a bare value instead of an object:
+
+```bash
+wafflebase sheets cells batch <doc-id> --data '{"A1":"Name","B1":"Score"}'
+echo '{"E1":"Total","E2":"=SUM(B2:B100)"}' | wafflebase sheets cells batch <doc-id>
+```
+
+A leading `=` makes it a formula, as it does for an imported CSV cell. This
+is the form the CLI skills teach, and until #1030 it stored an **empty**
+cell in every reference it named while still reporting them as updated.
+
 ### sheets import
 
 Import CSV or JSON data into a spreadsheet tab.
