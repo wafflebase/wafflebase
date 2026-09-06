@@ -246,6 +246,13 @@ Setting a cell to `null` deletes it. All mutations within a single
 batch request are applied in one Yorkie `doc.update()` call for
 atomicity.
 
+That envelope is the **wire** body. `wafflebase sheets cells batch` takes
+the bare map on `--data`/stdin and adds the envelope itself, so copying
+the JSON above into `--data` wrapped it twice and the backend read
+`"cells"` as a cell reference (#1030). The command now unwraps a lone
+`cells` key, but the two shapes remain distinct: the CLI's input is the
+map, this section's is the request.
+
 #### 5.4 Rows and columns (spreadsheets only)
 
 ```

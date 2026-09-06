@@ -726,6 +726,13 @@ stored, so a rejected value costs no upload.
 | `DELETE` | `.../tabs/:tid/cells/:sref` | Delete single cell |
 | `PATCH` | `.../tabs/:tid/cells` | Batch update (`{ cells: { "A1": {...}, "B2": null } }`) |
 
+A reference the engine cannot parse is a `400` naming it, on every verb
+that takes one, and a `cells` body that is missing, `null` or not an
+object is a `400` as well. Both used to reach Nest's default filter as a
+`500` (#1030). References are validated before the Yorkie document is
+opened, so a bad one in a batch rejects the whole batch rather than
+leaving it half applied.
+
 #### Rows and columns
 
 | Method | Route | Description |
