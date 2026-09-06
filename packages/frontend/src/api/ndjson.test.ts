@@ -114,4 +114,34 @@ describe("createNdjsonLineReader", () => {
 
     expect(lines).toEqual([a, b]);
   });
+
+  // The Miro import's terminal `result` line carries the whole board as ONE
+  // line — megabytes of it. Splitting the accumulated buffer on every chunk
+  // rescanned every byte already seen, which is quadratic in the line length
+  // and blocked the main thread for over a second at the 10,000-item ceiling.
+  //
+  // Sized for a wide margin rather than a tight one, because a timing test
+  // that flakes is worse than no test: on this shape the linear reader takes
+  // ~10 ms and the quadratic one ~740 ms, so the budget below sits ~30x above
+  // the former and well under the latter. `Math.min` over three runs is what
+  // makes it robust to a loaded machine — scheduling noise only ever ADDS
+  // time, so the fastest run is the honest one.
+  it("stays linear in the length of one very long line", () => {
+    const run = () => {
+      const line = encoder.encode(`${"x".repeat(12 * 1024 * 1024)}\n`);
+      const reader = createNdjsonLineReader();
+      const chunk = 16 * 1024;
+      const started = performance.now();
+      let count = 0;
+      for (let i = 0; i < line.length; i += chunk) {
+        count += reader.push(line.subarray(i, i + chunk)).length;
+      }
+      const elapsed = performance.now() - started;
+      expect(count).toBe(1);
+      return elapsed;
+    };
+
+    const best = Math.min(run(), run(), run());
+    expect(best).toBeLessThan(300);
+  });
 });

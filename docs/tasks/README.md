@@ -18,9 +18,13 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| miro import fidelity (2026-09-06) | [20260906-miro-import-fidelity-todo.md](./active/20260906-miro-import-fidelity-todo.md) | [20260906-miro-import-fidelity-lessons.md](./active/20260906-miro-import-fidelity-lessons.md) |
 | release v0.6.9 (2026-09-05) | [20260905-release-v0.6.9-todo.md](./active/20260905-release-v0.6.9-todo.md) | [20260905-release-v0.6.9-lessons.md](./active/20260905-release-v0.6.9-lessons.md) |
+| slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./active/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./active/20260905-slides-board-touch-input-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
+| class b backend endpoints (2026-09-04) | [20260904-class-b-backend-endpoints-todo.md](./active/20260904-class-b-backend-endpoints-todo.md) | [20260904-class-b-backend-endpoints-lessons.md](./active/20260904-class-b-backend-endpoints-lessons.md) |
 | dependabot 28 alerts (2026-09-04) | [20260904-dependabot-28-alerts-todo.md](./active/20260904-dependabot-28-alerts-todo.md) | - |
+| docs typography rhythm (2026-09-04) | [20260904-docs-typography-rhythm-todo.md](./active/20260904-docs-typography-rhythm-todo.md) | - |
 | board nested doc update (2026-09-03) | [20260903-board-nested-doc-update-todo.md](./active/20260903-board-nested-doc-update-todo.md) | [20260903-board-nested-doc-update-lessons.md](./active/20260903-board-nested-doc-update-lessons.md) |
 | yorkie 0719 docs revision preview (2026-09-03) | [20260903-yorkie-0719-docs-revision-preview-todo.md](./active/20260903-yorkie-0719-docs-revision-preview-todo.md) | [20260903-yorkie-0719-docs-revision-preview-lessons.md](./active/20260903-yorkie-0719-docs-revision-preview-lessons.md) |
 | revision history (2026-09-02) | [20260902-revision-history-todo.md](./active/20260902-revision-history-todo.md) | [20260902-revision-history-lessons.md](./active/20260902-revision-history-lessons.md) |
@@ -50,4 +54,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 585
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.6.9 (2026-09-05)
+Latest active task: miro import fidelity (2026-09-06)

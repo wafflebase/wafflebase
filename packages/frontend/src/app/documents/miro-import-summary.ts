@@ -19,6 +19,39 @@ export function pluralizeSkipLabel(type: string, count: number): string {
 }
 
 /**
+ * Wording for a `skipped` key that names a REASON rather than a Miro item
+ * type, or null when the key is an ordinary type.
+ *
+ * The connector keys are the only ones like this, and they exist because the
+ * two reasons call for different reactions. A connector with a dangling end
+ * was already dangling in Miro and nothing could have saved it; a connector
+ * whose target we did not map is ours to explain.
+ *
+ * Note that the second is not one remedy either. Its target was either an
+ * unsupported type or an item past the import ceiling, and only the ceiling
+ * case comes back from importing the board in smaller pieces — an unsupported
+ * type stays unmappable however small the import is. The user-facing wording
+ * therefore names the CAUSE ("their target was not imported") and does not
+ * prescribe a fix it cannot promise; the truncation note, which leads the
+ * summary, is what tells the user whether the ceiling was involved at all.
+ *
+ * Each returns a COMPLETE clause, "skipped" included, because these do not
+ * survive being grouped with the item types: the caller joins those into one
+ * list and appends a single trailing "skipped", which would have produced
+ * "…whose target was not imported skipped".
+ */
+export function describeSkip(type: string, count: number): string | null {
+  switch (type) {
+    case "connector-free-end":
+      return `${pluralizeSkipLabel("connector", count)} skipped — not attached at both ends in Miro`;
+    case "connector":
+      return `${pluralizeSkipLabel("connector", count)} skipped — their target was not imported`;
+    default:
+      return null;
+  }
+}
+
+/**
  * Human wording for a backend import note.
  *
  * The `default` arm is the important one. `MiroImportNote.reason` is a plain
@@ -38,7 +71,13 @@ export function describeNote(note: MiroImportNote): string {
       // `image-failed` because the user's next step is different.
       return `${note.count} image(s) skipped — the board exceeds the per-import image limit`;
     case "truncated":
-      return `${what} truncated at the import limit (${note.count})`;
+      // The fraction is the whole point. "truncated at 10000" reads the same
+      // whether the board lost two items or half of itself, and a board that
+      // lost half is one the user has to know about before they start working
+      // in the copy.
+      return note.total !== undefined && note.total > note.count
+        ? `only ${note.count} of ${note.total} ${what} were imported — the board is over the import limit`
+        : `${what} truncated at the import limit (${note.count})`;
     case "stalled":
       return `${what} may be incomplete — Miro stopped returning results after ${note.count}`;
     default:
@@ -66,13 +105,25 @@ export function describeApproximation(kind: string, count: number): string {
       // anything descended from either land here too, with the frame itself
       // present. So the wording names the unresolved frame, not a missing one.
       return `${count} item(s) may be misplaced — their Miro frame could not be resolved`;
+    case "arrowhead-kind":
+      // Miro's ERD crow's-foot notation has no counterpart among the board's
+      // arrowhead kinds, so the line keeps a head but not the right one.
+      return `${count} connector end(s) with an unsupported Miro arrowhead imported as plain arrows`;
+    case "connector-caption":
+      // The board has no caption model, so the words survive as an ordinary
+      // text element — which will not follow the connector when it moves.
+      return `${count} connector label(s) imported as separate text boxes`;
     default:
       return `${count} ${kind} approximated`;
   }
 }
 
 export interface ImportSummaryInput {
-  /** Mapper skips, keyed by Miro item type — absent from the document. */
+  /**
+   * Mapper skips — everything absent from the document. Keyed by Miro item
+   * type, except for the two connector keys (`connector-free-end` and
+   * `connector`), which name a drop REASON instead; see {@link describeSkip}.
+   */
   skipped: Record<string, number>;
   /** Mapper approximations, keyed by degradation — present but degraded. */
   approximated?: Record<string, number>;
@@ -97,14 +148,29 @@ export function summarizeImport(input: ImportSummaryInput): string | null {
   const { skipped, approximated = {}, droppedConnectors = 0, notes } = input;
   const parts: string[] = [];
 
-  const skippedTotal = Object.values(skipped).reduce((a, b) => a + b, 0);
-  if (skippedTotal) {
-    parts.push(
-      Object.entries(skipped)
-        .map(([type, count]) => pluralizeSkipLabel(type, count))
-        .join(", ") + " skipped",
-    );
+  // Wholesale incompleteness leads. Everything else in this summary is
+  // "one detail of something you have came across wrong"; these two say "you
+  // do not have all of it", which changes what the user does next. Buried at
+  // the end of a semicolon-joined list — where the notes used to go, after
+  // every skip and approximation — a 44% truncation read as a footnote.
+  for (const note of notes) {
+    if (note.reason === "truncated" || note.reason === "stalled") {
+      parts.push(describeNote(note));
+    }
   }
+
+  // Item types group into one list with a single trailing "skipped"; the
+  // reason-shaped keys carry their own wording and stand alone.
+  const types: string[] = [];
+  const reasons: string[] = [];
+  for (const [type, count] of Object.entries(skipped)) {
+    if (count <= 0) continue;
+    const reason = describeSkip(type, count);
+    if (reason) reasons.push(reason);
+    else types.push(pluralizeSkipLabel(type, count));
+  }
+  if (types.length) parts.push(`${types.join(", ")} skipped`);
+  parts.push(...reasons);
   for (const [kind, count] of Object.entries(approximated)) {
     if (count > 0) parts.push(describeApproximation(kind, count));
   }
@@ -114,6 +180,7 @@ export function summarizeImport(input: ImportSummaryInput): string | null {
     );
   }
   for (const note of notes) {
+    if (note.reason === "truncated" || note.reason === "stalled") continue;
     parts.push(describeNote(note));
   }
 
