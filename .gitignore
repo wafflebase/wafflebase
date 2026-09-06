@@ -205,3 +205,8 @@ packages/documentation/.vitepress/cache
 # here — screenshots included — so this is runtime output, not source. A report
 # that is worth keeping becomes an issue or a PR, not a commit.
 .wb-reports/
+
+# Scratch credential files. The Miro importer is exercised by hand with a live
+# access token pasted into the working tree; one `git add -A` is all it takes
+# to publish it. Ignored by name so that mistake is not available.
+tokens.txt
