@@ -10,7 +10,7 @@ import { resolveMiroFrames } from './geometry';
 import { pickConnectorSite } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
-import { miroHtmlToBlocks } from './text';
+import { miroAlignment, miroFontSizePt, miroHtmlToBlocks, type MiroTextStyle } from './text';
 import type { MiroImportInput, MiroItemLike, MiroMapResult } from './types';
 
 const SUPPORTED = new Set(['sticky_note', 'shape', 'text', 'image', 'frame', 'card', 'app_card']);
@@ -144,6 +144,38 @@ const CONNECTOR_STROKE_KEYS = {
   opacity: 'strokeOpacity',
 } as const;
 
+/**
+ * The item-level typography Miro keeps on `style`, in the units the docs text
+ * model uses. `data.content` carries only the inline markup, so without this
+ * every imported label collapsed to the 11pt black default.
+ */
+function textStyleOf(style: Record<string, unknown>): MiroTextStyle {
+  const fontSize = miroFontSizePt(num(style.fontSize));
+  const color = str(style.color);
+  const alignment = miroAlignment(str(style.textAlign));
+  return {
+    ...(fontSize !== undefined ? { fontSize } : {}),
+    ...(color !== undefined ? { color } : {}),
+    ...(alignment !== undefined ? { alignment } : {}),
+  };
+}
+
+/**
+ * Miro `textAlignVertical` → the board's `TextBody.verticalAnchor`.
+ *
+ * Shapes defaulted to `'middle'` unconditionally, which is Miro's own default
+ * but wrong for the items that say otherwise — a label pinned to the bottom of
+ * a tall container drifted to its centre.
+ */
+function verticalAnchorOf(
+  style: Record<string, unknown>,
+  fallback: 'top' | 'middle' | 'bottom',
+): 'top' | 'middle' | 'bottom' {
+  const value = str(style.textAlignVertical);
+  if (value === 'top' || value === 'middle' || value === 'bottom') return value;
+  return fallback;
+}
+
 /** Miro connector `shape` → the board's connector routing. */
 function routingOf(shape: string | undefined): 'straight' | 'elbow' | 'curved' {
   if (shape === 'straight') return 'straight';
@@ -254,8 +286,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
           kind: 'roundRect',
           fill: { kind: 'srgb', value: stickyHex(str(style.fillColor)) },
           text: {
-            blocks: miroHtmlToBlocks(str(data.content)),
-            verticalAnchor: 'middle',
+            blocks: miroHtmlToBlocks(str(data.content), textStyleOf(style)),
+            verticalAnchor: verticalAnchorOf(style, 'middle'),
             autofit: 'shrink',
           },
         },
@@ -278,8 +310,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
           ...(fill ? { fill } : {}),
           ...(stroke ? { stroke } : {}),
           text: {
-            blocks: miroHtmlToBlocks(str(data.content)),
-            verticalAnchor: 'middle',
+            blocks: miroHtmlToBlocks(str(data.content), textStyleOf(style)),
+            verticalAnchor: verticalAnchorOf(style, 'middle'),
             autofit: 'shrink',
           },
         },
@@ -292,7 +324,7 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
         __id,
         type: 'text',
         frame,
-        data: { blocks: miroHtmlToBlocks(str(data.content)) },
+        data: { blocks: miroHtmlToBlocks(str(data.content), textStyleOf(style)) },
       } as ElementInit & { __id: string });
       continue;
     }

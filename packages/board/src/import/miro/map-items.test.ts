@@ -141,6 +141,39 @@ describe('mapMiroItems', () => {
     }
   });
 
+  it("carries an item's typography from `style` onto its text", () => {
+    const { inits } = mapMiroItems({
+      items: [
+        {
+          id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle', content: '<p>A</p>' },
+          style: { fontSize: '36', color: '#ffffff', textAlign: 'right', textAlignVertical: 'bottom' },
+        },
+        {
+          id: 't1', type: 'text', ...at(0, 0), data: { content: '<p>B</p>' },
+          style: { fontSize: '14', color: '#808080' },
+        },
+      ],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    const shapeText = ((inits[0] as any).data).text;
+    expect(shapeText.blocks[0].inlines[0].style).toMatchObject({ fontSize: 27, color: '#ffffff' });
+    expect(shapeText.blocks[0].style.alignment).toBe('right');
+    expect(shapeText.verticalAnchor).toBe('bottom');
+
+    const textBlocks = ((inits[1] as any).data).blocks;
+    expect(textBlocks[0].inlines[0].style).toMatchObject({ fontSize: 10.5, color: '#808080' });
+  });
+
+  it("keeps Miro's middle default when a shape names no vertical alignment", () => {
+    const { inits } = mapMiroItems({
+      items: [{ id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).text.verticalAnchor).toBe('middle');
+  });
+
   // Transparent is the NORM on a real board (81% of the reference board's
   // items), so importing it as opaque white both hid the shape and painted
   // over whatever was behind it.
