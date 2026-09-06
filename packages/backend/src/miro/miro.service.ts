@@ -153,9 +153,12 @@ export class MiroService {
    * What the higher number costs:
    *
    * - **Memory** is the part this ceiling was named for, and it is the part
-   *   that barely moves. A Miro item is roughly 800 bytes of JSON, so 10,000
-   *   of them is ~8 MB held on one request — the same order as the 25 MB body
-   *   limit the process already accepts.
+   *   that moves least. Note it applies to EACH feed: items and connectors
+   *   are paged separately and both stop here, so the bound is 10,000 of
+   *   each. Measured against the reference board, an item serializes to 863
+   *   bytes and a connector to 701, so a maxed-out result is ~15 MiB on the
+   *   wire and ~20 MiB as parsed objects on the heap. Real, but bounded and
+   *   an order below what would threaten the process.
    * - **Wall clock** is the real cost, and it doubles. Miro caps `limit` at 50
    *   and paginates by cursor, so the pages MUST be fetched in sequence: a
    *   full 10,000 items is 200 round trips, and a measured page takes ~2.4 s,

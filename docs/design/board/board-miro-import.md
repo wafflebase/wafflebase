@@ -569,9 +569,12 @@ clears `docId` off the row so dismissing it cannot delete the same id twice.
   **The ceiling is 10,000**, raised from 5,000 for exactly that reason: a
   limit an ordinary board trips is not protecting anyone from a pathological
   one, it is losing content. The cost is not the one the ceiling was named
-  for. Memory barely moves — a Miro item is ~800 bytes of JSON, so 10,000 of
-  them is ~8 MB on one request, the same order as the body limit the process
-  already accepts. **Wall clock is what doubles.** Miro caps `limit` at 50 and
+  for. Memory moves least — and note the ceiling applies to EACH feed, since
+  items and connectors are paged separately and both stop at it. Measured
+  against the reference board an item serializes to 863 bytes and a connector
+  to 701, so a maxed-out import is ~15 MiB on the wire and ~20 MiB as parsed
+  objects: real, bounded, and an order below what would threaten the process.
+  **Wall clock is what doubles.** Miro caps `limit` at 50 and
   paginates by cursor, so pages must be fetched in sequence: a full 10,000
   items is 200 round trips at a measured ~2.4 s each, putting the items feed
   alone near 8 minutes before connectors or image re-hosting. That is
