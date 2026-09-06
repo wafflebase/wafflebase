@@ -386,6 +386,34 @@ describe('mapMiroItems', () => {
     expect(height('<p>Big</p>', '36')).toBeGreaterThan(height('<p>Big</p>', '14'));
   });
 
+  // The corrected height has to reach the frame table connectors resolve
+  // against, not just the emitted element — otherwise anything anchored to a
+  // text item's top or bottom edge uses the discarded 100-unit placeholder.
+  it('resolves a connector against the text item it actually emitted', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        {
+          id: 'label', type: 'text',
+          position: { x: 0, y: 0 }, geometry: { width: 200 },
+          data: { content: '<p>x</p>' }, style: { fontSize: '14' },
+        },
+        // Directly below, so both ends resolve to the vertical (N/S) sites.
+        { id: 'box', type: 'shape', ...at(0, 1000, 100, 100), data: { shape: 'rectangle' } },
+      ],
+      connectors: [{
+        id: 'c1', startItem: { id: 'label' }, endItem: { id: 'box' },
+        captions: [{ content: '<p>y</p>', position: '0%' }],
+      } as any],
+      resolveImageUrl: identity,
+    });
+    // The label is 21 tall about y=0, so its south edge is 10.5 — not the
+    // placeholder box's 50.
+    const caption = inits.find(
+      (i) => i.type === 'text' && ((i as any).data).blocks[0].inlines[0].text === 'y',
+    )!;
+    expect(caption.frame.y + caption.frame.h / 2).toBe(10.5);
+  });
+
   it('trusts a height Miro DID report rather than estimating over it', () => {
     const { inits } = mapMiroItems({
       items: [{

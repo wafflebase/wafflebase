@@ -470,6 +470,12 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
         item.geometry?.height === undefined
           ? resizeAboutCentre(frame, estimateTextHeight(blocks, num(style.fontSize)))
           : frame;
+      // Publish the corrected frame, not just the emitted element. `frames` is
+      // what connector endpoints and caption anchors are resolved against, and
+      // leaving the 100-unit placeholder there put anything anchored to a text
+      // item's TOP or BOTTOM edge tens of units off a 21-unit-tall label —
+      // exactly the vertical flow diagrams where captions live.
+      frames.set(item.id, sized);
       inits.push({
         __id,
         type: 'text',
