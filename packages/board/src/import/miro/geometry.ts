@@ -48,6 +48,18 @@ export function miroFrame(
 }
 
 /**
+ * Swap a frame's height while keeping its CENTRE fixed.
+ *
+ * Miro positions every item by its centre, so replacing a guessed height has
+ * to preserve that centre — assigning `h` alone would anchor the item by its
+ * top-left and move it by half the difference. Used for text items, whose
+ * height Miro does not report at all.
+ */
+export function resizeAboutCentre(frame: Frame, h: number): Frame {
+  return { ...frame, y: frame.y + frame.h / 2 - h / 2, h };
+}
+
+/**
  * Whether Miro expressed this position against the PARENT'S TOP-LEFT rather
  * than the canvas centre.
  *

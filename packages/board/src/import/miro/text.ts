@@ -23,6 +23,40 @@ export interface MiroTextStyle {
   alignment?: BlockStyle['alignment'];
 }
 
+/**
+ * Miro's default text size, in pixels — used only to estimate a height for an
+ * item that reports neither a size nor a height.
+ */
+const DEFAULT_FONT_PX = 14;
+
+/**
+ * Estimate the laid-out height, in board units, of already-parsed blocks.
+ *
+ * Miro OMITS `geometry.height` on text items — the box auto-sizes to its
+ * content, so only the width is authoritative — and 3,821 of the reference
+ * board's items are text. The importer's generic 100px fallback therefore
+ * applied to 43% of the board.
+ *
+ * This estimates against OUR layout rather than Miro's, because it is our
+ * renderer that has to be matched: `ptToPx` is exactly the inverse of
+ * {@link miroFontSizePt}, so a Miro pixel is a board unit, and the docs
+ * default line height (1.5) and paragraph spacing (8) are what the layout
+ * engine will actually apply.
+ *
+ * It is an estimate and nothing more — WRAPPING cannot be known without
+ * measuring glyphs, which a pure mapper has no canvas for, so a long line that
+ * wraps is under-counted. That is why the caller anchors the text in the
+ * MIDDLE of the frame: a symmetric error leaves the block centred on the point
+ * Miro centred it on, whatever the estimate got wrong, and nothing clips.
+ */
+export function estimateTextHeight(blocks: Block[], fontSizePx?: number): number {
+  const size = fontSizePx && fontSizePx > 0 ? fontSizePx : DEFAULT_FONT_PX;
+  const lineHeight = DEFAULT_BLOCK_STYLE.lineHeight;
+  const spacing = DEFAULT_BLOCK_STYLE.marginTop + DEFAULT_BLOCK_STYLE.marginBottom;
+  const lines = Math.max(blocks.length, 1);
+  return lines * size * lineHeight + (lines - 1) * spacing;
+}
+
 /** Miro `textAlign` → the docs block alignment. Unknown values fall through. */
 export function miroAlignment(align: string | undefined): BlockStyle['alignment'] | undefined {
   if (align === 'left' || align === 'center' || align === 'right') return align;

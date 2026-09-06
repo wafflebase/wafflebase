@@ -165,6 +165,60 @@ describe('mapMiroItems', () => {
     expect(textBlocks[0].inlines[0].style).toMatchObject({ fontSize: 10.5, color: '#808080' });
   });
 
+  // Miro omits `geometry.height` on text (the box auto-sizes to its content),
+  // and it positions by CENTRE — so the old generic 100px fallback pushed 43%
+  // of a real board's items ~50px above where they belonged.
+  it('sizes a height-less text item from its content, about the same centre', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 't1', type: 'text',
+        position: { x: 94, y: 91 }, geometry: { width: 77 },
+        data: { content: '<p>CodeMirror</p>' },
+        style: { fontSize: '14' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    const { frame } = inits[0];
+    // One 14px line at the docs default 1.5 line height.
+    expect(frame.h).toBe(21);
+    expect(frame.w).toBe(77);
+    // The centre Miro gave is preserved, which the 100px box did not do.
+    expect(frame.y + frame.h / 2).toBe(91);
+    expect(frame.y).toBe(80.5);
+    // The estimate cannot know about wrapping, so the residual error is spread
+    // symmetrically rather than pushed downward.
+    expect(((inits[0] as any).data).verticalAnchor).toBe('middle');
+  });
+
+  it('grows the estimate with the paragraph count and the font size', () => {
+    const height = (content: string, fontSize: string) =>
+      mapMiroItems({
+        items: [{
+          id: 't1', type: 'text',
+          position: { x: 0, y: 0 }, geometry: { width: 200 },
+          data: { content }, style: { fontSize },
+        }],
+        connectors: [],
+        resolveImageUrl: identity,
+      }).inits[0].frame.h;
+
+    expect(height('<p>Two</p><p>Lines</p>', '14')).toBeGreaterThan(height('<p>One</p>', '14'));
+    expect(height('<p>Big</p>', '36')).toBeGreaterThan(height('<p>Big</p>', '14'));
+  });
+
+  it('trusts a height Miro DID report rather than estimating over it', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 't1', type: 'text', ...at(0, 0, 200, 400),
+        data: { content: '<p>Sized</p>' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(inits[0].frame).toMatchObject({ h: 400, y: -200 });
+  });
+
   it("keeps Miro's middle default when a shape names no vertical alignment", () => {
     const { inits } = mapMiroItems({
       items: [{ id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } }],

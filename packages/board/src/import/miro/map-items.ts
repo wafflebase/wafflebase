@@ -6,11 +6,17 @@ import {
   type Stroke,
   type ThemeColor,
 } from '@wafflebase/slides';
-import { resolveMiroFrames } from './geometry';
+import { resolveMiroFrames, resizeAboutCentre } from './geometry';
 import { pickConnectorSite } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
-import { miroAlignment, miroFontSizePt, miroHtmlToBlocks, type MiroTextStyle } from './text';
+import {
+  estimateTextHeight,
+  miroAlignment,
+  miroFontSizePt,
+  miroHtmlToBlocks,
+  type MiroTextStyle,
+} from './text';
 import type { MiroImportInput, MiroItemLike, MiroMapResult } from './types';
 
 const SUPPORTED = new Set(['sticky_note', 'shape', 'text', 'image', 'frame', 'card', 'app_card']);
@@ -320,11 +326,29 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     }
 
     if (item.type === 'text') {
+      const textStyle = textStyleOf(style);
+      const blocks = miroHtmlToBlocks(str(data.content), textStyle);
+      // Miro omits `geometry.height` on a text item — its box auto-sizes to
+      // its content, so only the width is authoritative — and `miroFrame`'s
+      // generic 100px fallback then applied to 43% of a real board. Since Miro
+      // positions by CENTRE, that fallback also pushed every label ~50px above
+      // where it belonged.
+      const sized =
+        item.geometry?.height === undefined
+          ? resizeAboutCentre(frame, estimateTextHeight(blocks, num(style.fontSize)))
+          : frame;
       inits.push({
         __id,
         type: 'text',
-        frame,
-        data: { blocks: miroHtmlToBlocks(str(data.content), textStyleOf(style)) },
+        frame: sized,
+        data: {
+          blocks,
+          // Middle, not the model's `'top'` default. The height above is an
+          // estimate that cannot account for wrapping, and anchoring in the
+          // middle spreads that error symmetrically about the point Miro
+          // centred the text on instead of letting it all push downward.
+          verticalAnchor: 'middle',
+        },
       } as ElementInit & { __id: string });
       continue;
     }
