@@ -491,6 +491,11 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
           fill: { kind: 'srgb', value: '#FFFFFF' },
           stroke: { color: '#B0B7C3', width: 1 },
           text: {
+            // NOT escaped, unlike the card branch below. Miro delivers a frame
+            // title ALREADY HTML-escaped ("Creating Document &amp; Auth
+            // Webhook"), so parsing it is what decodes it; escaping it first
+            // would put the literal entity on the canvas. 35 of the reference
+            // board's 145 frame titles contain one.
             blocks: miroHtmlToBlocks(str(data.title)),
             verticalAnchor: 'top',
           },
