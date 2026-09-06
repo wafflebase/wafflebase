@@ -248,3 +248,73 @@ describe('showContextMenu — selected indicator', () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 });
+
+describe('showContextMenu — touch sizing', () => {
+  const setPointer = (coarse: boolean) => {
+    // jsdom ships no `matchMedia`; the menu treats its absence as a
+    // precise pointer, so the mouse case needs a stub too.
+    window.matchMedia = ((query: string) => ({
+      matches: coarse && query === '(pointer: coarse)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+  };
+
+  afterEach(() => {
+    dismiss();
+    // @ts-expect-error — restoring jsdom's own (absent) matchMedia
+    delete window.matchMedia;
+  });
+
+  it('keeps mouse-sized rows for a precise pointer', () => {
+    setPointer(false);
+    showContextMenu(document.body, [{ label: 'Copy', run: vi.fn() }], 0, 0);
+    const li = document.body.querySelector<HTMLLIElement>(
+      '.wfb-slides-context-menu li',
+    )!;
+    expect(li.style.padding).toBe('6px 16px');
+  });
+
+  it('grows the rows to a touch target for a coarse pointer', () => {
+    // 13px above and below a 15px line is ~44px — the smallest target
+    // every touch platform's guidance accepts. At the mouse size, two
+    // adjacent entries are within one fingertip of each other, which on
+    // this menu means Delete sits a hair from Duplicate.
+    setPointer(true);
+    showContextMenu(document.body, [{ label: 'Copy', run: vi.fn() }], 0, 0);
+    const menu = document.body.querySelector<HTMLUListElement>(
+      '.wfb-slides-context-menu',
+    )!;
+    const li = menu.querySelector<HTMLLIElement>('li')!;
+    expect(li.style.padding).toBe('13px 16px');
+    expect(menu.style.fontSize).toBe('15px');
+  });
+
+  it('scrolls rather than overflowing the viewport when long', () => {
+    // Touch rows make the table menu taller than a phone; without a cap
+    // the clamp would push its last entries off-screen.
+    //
+    // The cap is measured from `window.innerHeight` — the SAME source
+    // the clamp below it reads — and not from `100vh`, which on mobile
+    // Safari and Chrome is the large viewport (URL bar retracted) and
+    // would let the cap exceed the clamp's idea of the screen by the
+    // height of that bar. A `position: fixed` element cannot be
+    // scrolled to, so those rows would be unreachable.
+    setPointer(true);
+    showContextMenu(
+      document.body,
+      Array.from({ length: 20 }, (_, i) => ({
+        label: `Item ${i}`,
+        run: vi.fn(),
+      })),
+      0,
+      0,
+    );
+    const menu = document.body.querySelector<HTMLUListElement>(
+      '.wfb-slides-context-menu',
+    )!;
+    expect(menu.style.overflowY).toBe('auto');
+    expect(menu.style.maxHeight).toBe(`${window.innerHeight - 16}px`);
+  });
+});

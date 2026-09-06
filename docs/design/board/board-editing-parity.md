@@ -72,7 +72,9 @@ all content, and see collaborators' cursors move in real time — with
 ### Non-Goals (SP4)
 
 - **Mobile board toolbar.** Slides has `MobileSlidesToolbar`; the board
-  stays desktop-only this pass.
+  stays desktop-only this pass. (Touch *navigation* is no longer in this
+  list — see "Touch navigation" below — but a board-shaped mobile shell
+  still is.)
 - **Comments, PNG/PDF export, CLI support.** Cross-cutting parity work,
   deferred to SP5.
 - **A board theme concept or theme switcher.** The color pickers surface
@@ -192,6 +194,89 @@ actions it drives, and Fit is an ACTION rather than a value transition:
 Zoom stays session-local view state: it never touches the CRDT document
 or presence, matching both SP1's viewport rule and the slides zoom
 contract.
+
+### Touch navigation
+
+Every pan path SP1 shipped needs hardware a touch screen does not have:
+a keyboard for the Space-drag, a third mouse button for the middle-drag,
+a wheel for the scroll. And `container`'s `touch-action: none` — set so
+the browser cannot steal a drag — denied the browser its own pan on top
+of that. The result was a board that a finger could not move at all,
+past whatever happened to be on screen when it opened. Dragging the
+minimap was the only way, which is not an answer on an unbounded plane.
+
+`app/board/board-touch-gestures.ts` adds one-finger pan and two-finger
+pinch zoom. Both commit through `commitViewport`, the same chokepoint
+the wheel, the minimap and the zoom binding use, so the grid, the
+minimap rect and the renderer stay in step for free.
+
+**Ownership is decided at press time by what is under the finger**, and
+that is the whole design:
+
+- Empty canvas → ours. The press is stopped in the capture phase on
+  `container` (the same placement, and for the same reason, as the
+  Space/middle-drag handler), so a pan never also draws a lasso.
+- An element or a selection handle → the editor's, untouched. The finger
+  moves or resizes it exactly as a mouse would.
+
+`touch-action` cannot express that distinction — it is a static
+declaration and this is a per-press question — which is why the gesture
+is coded rather than configured. The editor answers the question through
+a new `hasContentAt(clientX, clientY)`, not a hit-test copied into the
+host: the answer depends on the selection scope a group drill-in
+establishes, which is editor state.
+
+Two consequences, both deliberate:
+
+- **A pinch that begins with a finger on an element is not a pinch.**
+  That press is already an element drag, and there is no way to retract
+  it once the editor's drag loop owns the pointer stream. Lifting and
+  pinching on empty canvas zooms. The alternative — delaying every touch
+  drag by a pinch-detection window — taxes the common gesture to serve
+  the rare one.
+- **Lasso multi-select is not reachable by finger**, since one finger on
+  empty canvas pans. This matches Miro, and tap-to-select plus
+  shift-less single selection still works.
+
+A read-only mount answers `hasContentAt` with "nothing, anywhere": it
+binds no pointer handlers, so conceding a press over an element would
+hand it to nobody and leave a viewer stuck wherever their finger landed.
+
+The claim is scoped to the drawing surface — the canvas and the
+selection overlay — not to everything under `container`. The minimap is
+a child of that same element with its own bubble-phase drag, and
+`hasContentAt` hit-tests the *scene*, so a press over the minimap reads
+as empty canvas. Claiming it would have panned the plane instead of
+navigating, cleared the selection on a tap, and opened the canvas menu
+on top of the minimap — and the outcome would have depended on whatever
+the minimap happened to be covering. Taking away the one pan path touch
+already had would have been a poor trade for adding one.
+
+Two callbacks close gaps the claim itself opens.
+
+`onEmptyTap` runs `editor.clearSelectionAndScope()` — not
+`setSelection([])`, which reaches `Selection.set` only. A press on empty
+canvas drops the selected ids **and** pops any group drill-in, refitting
+each group popped on the way out; the mouse path has done both since
+08bb636ec, and a scope no finger could exit would also change who owns
+every subsequent press, since `hasContentAt` resolves at the current
+scope.
+
+`onLongPress` opens the canvas context menu — the editor times its own
+long-press, but never sees these presses, and Paste, the insert entries
+and Snap to grid live nowhere else on a touch screen. It is suppressed
+on a read-only mount.
+
+Claiming a press also dismisses any open context menu. `stopPropagation`
+in the capture phase halts the event before it reaches the descendants
+*and* before it bubbles back to `document`, where the menu's own
+outside-press dismissal listens — so on a device with no Escape key a
+tap meant to close the menu would have left it open.
+
+Handle tolerance comes from the same `(pointer: coarse)` test the slides
+mounts use; see `docs/design/slides/slides-mobile.md` § "Touch beyond
+the mobile shell" for the rest of the shared touch work (drag
+thresholds, the multi-touch guard, menu and toolbar sizing).
 
 ### Canvas context menu
 

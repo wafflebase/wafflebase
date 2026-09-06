@@ -22,8 +22,30 @@ export interface ContextMenuItem {
   /** Use a horizontal divider when label is the literal string '---'. */
 }
 
+/**
+ * Gap kept between the menu and the viewport edge. Shared by the
+ * max-height cap and the clamp below it so the two cannot disagree
+ * about how much room there is.
+ */
+const MENU_VIEWPORT_MARGIN = 8;
+
 let activeMenu: HTMLUListElement | null = null;
 let activeCleanup: (() => void) | null = null;
+
+/**
+ * Whether the primary input is a fingertip. The menu is the one piece
+ * of editor chrome a finger has to hit precisely, and its mouse-sized
+ * rows (6px of vertical padding, ~28px tall) are well under the ~44px
+ * every touch platform's guidance asks for — small enough that picking
+ * "Delete" and picking "Duplicate" are the same gesture.
+ *
+ * Read per call rather than once at module load: a tablet gains and
+ * loses its keyboard folio without reloading the page.
+ */
+function isCoarsePointer(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(pointer: coarse)').matches;
+}
 
 export function showContextMenu(
   host: HTMLElement,
@@ -33,6 +55,8 @@ export function showContextMenu(
 ): void {
   // Close any existing menu — only one can be open at a time.
   dismiss();
+
+  const coarse = isCoarsePointer();
 
   const menu = document.createElement('ul');
   menu.className = 'wfb-slides-context-menu';
@@ -44,9 +68,23 @@ export function showContextMenu(
   menu.style.margin = '0';
   menu.style.listStyle = 'none';
   menu.style.zIndex = '9999';
-  menu.style.minWidth = '180px';
+  menu.style.minWidth = coarse ? '220px' : '180px';
   menu.style.fontFamily = 'system-ui, sans-serif';
-  menu.style.fontSize = '13px';
+  menu.style.fontSize = coarse ? '15px' : '13px';
+  // A long menu (the table one runs past a dozen entries) at touch row
+  // height can be taller than a phone. Cap it and let it scroll rather
+  // than letting the viewport clamp below push entries off-screen.
+  //
+  // Sized from `window.innerHeight`, NOT `100vh`, and set before the
+  // measurement below reads it back. On mobile Safari and Chrome `100vh`
+  // is the LARGE viewport — the height with the URL bar retracted —
+  // while `innerHeight` shrinks when the bar is showing. Mixing the two
+  // lets the cap exceed the clamp's idea of the screen by ~80px, so the
+  // last rows land below the fold, and a `position: fixed` element
+  // cannot be scrolled to. That is exactly the platform the cap exists
+  // for.
+  menu.style.maxHeight = `${Math.max(0, window.innerHeight - 2 * MENU_VIEWPORT_MARGIN)}px`;
+  menu.style.overflowY = 'auto';
   menu.style.color = '#ddd';
   menu.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.5)';
 
@@ -68,7 +106,10 @@ export function showContextMenu(
       : item.selected
         ? `✓ ${item.label}`
         : `   ${item.label}`;
-    li.style.padding = '6px 16px';
+    // 13px padding around a 15px line lands the row at ~44px without a
+    // `min-height` + flex centering pass, which would change how the
+    // radio-column prefix (`'✓ '` / `'   '`) lays out.
+    li.style.padding = coarse ? '13px 16px' : '6px 16px';
     li.style.cursor = item.disabled ? 'default' : 'pointer';
     if (item.disabled) {
       li.style.opacity = '0.5';
@@ -99,7 +140,7 @@ export function showContextMenu(
   // and the menu would be clipped, so flip it to open up/left of the
   // anchor; if it still spills (menu taller/wider than the available
   // space), clamp it to the opposite edge.
-  const margin = 8;
+  const margin = MENU_VIEWPORT_MARGIN;
   const rect = menu.getBoundingClientRect();
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;

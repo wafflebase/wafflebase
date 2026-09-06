@@ -18,10 +18,15 @@ import { useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
 import { isAuthExpiredError } from "@/api/auth";
 import { Loader } from "@/components/loader";
+import {
+  isCoarsePointer,
+  TOUCH_HANDLE_TOLERANCE,
+} from "@/hooks/use-coarse-pointer";
 import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
+import { attachBoardTouchGestures } from "./board-touch-gestures";
 import { createCursorPublisher } from "./board-cursor-publish";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
@@ -300,6 +305,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // editor still paints (including remote peer edits) but accepts
       // no pointer/keyboard input.
       readOnly,
+      // Fingertip-sized hit slack for the 8px selection handles. Keyed
+      // on the pointer being coarse rather than on viewport width: a
+      // tablet, and a phone in landscape, are both wide enough to take
+      // this mount and are both driven by a finger.
+      touchHandleTolerance: isCoarsePointer()
+        ? TOUCH_HANDLE_TOLERANCE
+        : undefined,
       // "Fit to content" in the empty-canvas context menu. Wrapped in an
       // arrow because the zoom binding is created below (it needs the
       // minimap) — the call only ever happens after mount, so the
@@ -663,7 +675,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
 
     const onPointerDown = (e: PointerEvent) => {
       const isMiddleButton = e.button === 1;
-      const isSpaceDrag = spaceDown && e.button === 0;
+      // `spaceDown` is keyboard state, not part of the pointer stream,
+      // and a touch `pointerdown` reports `button === 0` — so on a
+      // tablet with a keyboard folio, Space held plus a finger down
+      // would satisfy this branch AND the touch gesture below. Both
+      // would pan (its `stopPropagation` does not stop a listener on
+      // the same node), doubling the travel. Space-drag is a
+      // mouse gesture; scope it to one.
+      const isSpaceDrag =
+        spaceDown && e.button === 0 && e.pointerType !== "touch";
       if (!isMiddleButton && !isSpaceDrag) return;
       e.preventDefault();
       // Registered on `container` (an ancestor of both the reused
@@ -711,6 +731,69 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
 
+    // --- touch: one-finger pan, two-finger pinch zoom ---
+    //
+    // Every pan path above needs hardware touch cannot produce — a
+    // keyboard for Space, a third button for the middle-drag, a wheel —
+    // and `container`'s `touch-action: none` denies the browser its own
+    // pan on top of that. So until this, a board was unreachable by
+    // finger past whatever happened to be on screen at open.
+    //
+    // Registered AFTER the space/middle handler above, on the same
+    // element and phase, so the two run in registration order. They
+    // cannot both claim: that one returns unless a middle button or
+    // Space is involved, neither of which exists in a touch stream.
+    const detachTouch = attachBoardTouchGestures(container, {
+      getViewport: () => vp.current,
+      commit: commitViewport,
+      // The editor answers "is anything under this point" — it owns the
+      // hit-test and the group drill-in scope the answer depends on.
+      //
+      // A read-only mount answers "nothing, anywhere": it binds no
+      // pointer handlers at all, so conceding a press over an element
+      // would hand it to nobody and leave a viewer unable to pan off
+      // whatever their finger happened to land on.
+      hasContentAt: readOnly ? () => false : (x, y) => editor.hasContentAt(x, y),
+      toCanvasPoint: (x, y) => ({
+        x: x - canvasRect.left,
+        y: y - canvasRect.top,
+      }),
+      // The empty-canvas press was intercepted before the editor could
+      // run its own path, which is where a click on nothing clears the
+      // selection AND pops any group drill-in. `setSelection([])` would
+      // only do the first half, leaving a scope no finger could ever
+      // exit — and a group whose frame was never refit on the way out.
+      onEmptyTap: () => {
+        // The editor commits an open text box on a press outside it,
+        // from the same handler our claim intercepted — so the host has
+        // to replay that too, or a tap on empty canvas would leave the
+        // caret live in a sticky the user has visibly left.
+        if (editor.isTextEditing()) editor.exitTextEditing();
+        editor.clearSelectionAndScope();
+      },
+      // The board's canvas menu carries Paste, the insert entries and
+      // "Snap to grid" — a finger has no other way to reach any of them.
+      // Suppressed on a read-only mount, where every entry it would open
+      // is either a mutation or disabled.
+      // Returns whether a menu opened: on a read-only mount none does,
+      // and the press must stay eligible to become a pan rather than
+      // ending in a mode that blocks navigation for a viewer.
+      onLongPress: readOnly
+        ? () => false
+        : (x, y) => {
+            editor.openContextMenuAt(x, y);
+            return true;
+          },
+      onZoomChange: (z) => zoom.reportViewportZoom(z),
+    }, {
+      // The minimap is a child of `container` too, and its own
+      // drag-to-navigate is a plain bubble-phase listener that a claim
+      // here would swallow. A selection handle (a child of `overlay`)
+      // is excluded for the same reason, though `hasContentAt` would
+      // also have conceded it.
+      isSceneSurface: (target) => target === canvas || target === overlay,
+    });
+
     // RAF loop so async asset loads (e.g. the image cache backing image
     // elements) repaint — mirrors SlidesView's render loop.
     //
@@ -739,6 +822,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
+      detachTouch();
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);

@@ -22,6 +22,96 @@ export const SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX = 3;
  * knowing both.
  */
 export const DRAG_THRESHOLD_PX = SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX;
+/**
+ * The same threshold for a fingertip. 3px is a mouse number: a mouse
+ * that has not moved reports no movement at all, so anything above
+ * noise is intent. A finger reports 5–10px of travel across the span of
+ * a tap that the user experienced as stationary — the contact patch
+ * shifts as pressure changes and the browser re-centroids it. At 3px
+ * that jitter reads as a drag, so every tap nudges the element it
+ * landed on and pushes an undo entry for a move nobody asked for.
+ *
+ * A stylus is not in this bucket: `pen` input is as precise as a mouse,
+ * and widening its threshold would only make it feel sluggish.
+ */
+export const TOUCH_DRAG_THRESHOLD_PX = 10;
+
+/**
+ * Pick the drag threshold matching the input device. `undefined` (a
+ * synthetic `MouseEvent`, or a test double) takes the precise number,
+ * which keeps the mouse path — and every existing test — unchanged.
+ */
+export function dragThresholdFor(pointerType?: string): number {
+  return pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD_PX : DRAG_THRESHOLD_PX;
+}
+
+/**
+ * Read the input device off an event the editor's drag loops type as
+ * `MouseEvent`. Every listener behind them is registered for
+ * `pointermove` / `pointerup`, so the value is present at runtime; the
+ * `MouseEvent` typing is a leftover of the Pointer Events migration and
+ * the cast keeps that migration from having to finish here. `undefined`
+ * for a synthetic mouse event or a test double.
+ */
+export function pointerTypeOf(ev: MouseEvent): string | undefined {
+  return (ev as PointerEvent).pointerType;
+}
+
+/**
+ * Whether a gesture that travelled `peakClientDist` client px should be
+ * committed as a drag, or discarded as a press that never meant to move
+ * anything.
+ *
+ * Only touch has a floor here, and the asymmetry is the point. A mouse
+ * that reports 1px of travel *was moved* 1px, deliberately, and slides
+ * has always committed that; raising its floor would change a
+ * long-standing behaviour to fix a problem it does not have. A fingertip
+ * reports the same 1-10px across a press the user held still, so
+ * without a floor every tap on an element nudges it and pushes an undo
+ * entry.
+ *
+ * This is a stricter question than {@link dragThresholdFor}, which asks
+ * whether snapping should engage. Both had to be answered before this
+ * threshold did anything at all: it used to gate only the snap
+ * corrections, never the commit, so raising it for touch changed when
+ * the grid engaged and nothing else.
+ */
+export function commitsAsDrag(
+  peakClientDist: number,
+  pointerType?: string,
+): boolean {
+  if (pointerType !== 'touch') return true;
+  return peakClientDist >= TOUCH_DRAG_THRESHOLD_PX;
+}
+
+/**
+ * Whether the slow-double-click text-entry route is available to this
+ * input device. Its window is 3px over 350ms — inside a fingertip's own
+ * jitter (see {@link TOUCH_DRAG_THRESHOLD_PX}), so on touch the rule
+ * cannot distinguish "clicked the same element twice, deliberately"
+ * from "tapped once and held still". Widening the window instead would
+ * make every held tap open the keyboard. Touch keeps the browser's
+ * `dblclick` (double-tap) route, which is the platform convention and
+ * is already wired.
+ */
+export function allowsSlowDoubleClick(pointerType?: string): boolean {
+  return pointerType !== 'touch';
+}
+
+/**
+ * Touch long-press → context menu. A finger has no second button, and
+ * the browser event that would stand in for one is not dependable: iOS
+ * withholds `contextmenu` wherever `-webkit-touch-callout: none` is set
+ * — which the mobile slides shell sets deliberately, to stop the system
+ * callout appearing over the editor's own menu. So the press is timed
+ * here rather than delegated.
+ *
+ * Both numbers match `use-mobile-sheet-gestures`, so the same press
+ * opens a menu in a spreadsheet and on a slide.
+ */
+export const LONG_PRESS_DELAY_MS = 500;
+export const LONG_PRESS_TOLERANCE_PX = 10;
+
 export const SLOW_DOUBLE_CLICK_MAX_DURATION_MS = 350;
 /**
  * Maximum gap (ms) between two consecutive pointer-downs on the same
