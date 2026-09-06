@@ -119,17 +119,24 @@ export function applyInsertText(block: Block, offset: number, text: string): Blo
   const { inlineIndex, charOffset } = resolveOffset(newBlock, offset);
   const inline = newBlock.inlines[inlineIndex];
 
-  // Image inlines must not absorb regular text — split at the insertion
-  // point and place the new text in its own inline without image style.
-  if (inline.style.image) {
-    const { image: _img, ...plainStyle } = inline.style;
-    const before = inline.text.slice(0, charOffset);
-    const after = inline.text.slice(charOffset);
-    const spliced: Inline[] = [];
-    if (before.length > 0) spliced.push({ text: before, style: { ...inline.style } });
-    spliced.push({ text, style: plainStyle });
-    if (after.length > 0) spliced.push({ text: after, style: { ...inline.style } });
-    newBlock.inlines.splice(inlineIndex, 1, ...spliced);
+  // Structural inlines must not absorb regular text — split at the insertion
+  // point and place the new text in its own inline, without the structural
+  // style. One such inline describes exactly one object and the renderer
+  // draws it from the style, not from the text: an image run is painted from
+  // `style.image`, and a page-number run is replaced whole by the page's
+  // number. Text merged into either is text that can never be drawn, while
+  // the offsets keep counting it — the caret advances over characters that
+  // are in the model and absent from the screen (#871).
+  // The structural run itself is never cut in two: it describes exactly one
+  // object, so two copies of it paint the image — or the page number — twice.
+  // A well-formed one holds a single character and there is nothing to cut,
+  // but one that absorbed text before this rule existed does not, and the
+  // Yorkie tree path in `YorkieDocStore.insertText` puts the new node wholly
+  // before or after the run either way. The two must not disagree.
+  if (isStructuralInline(inline)) {
+    const { image: _img, pageNumber: _pn, ...plainStyle } = inline.style;
+    const at = charOffset === 0 ? inlineIndex : inlineIndex + 1;
+    newBlock.inlines.splice(at, 0, { text, style: plainStyle });
     newBlock.inlines = normalizeInlines(newBlock.inlines);
     return newBlock;
   }

@@ -3237,4 +3237,136 @@ describe('YorkieDocStore', () => {
     });
   });
 
+
+  describe('insertText next to a structural inline (#871)', () => {
+    // The cache and the Yorkie tree carry the same edit through two separate
+    // code paths. Only the tree crosses the network and survives a reload, so
+    // a guard applied to the cache alone still stores the defect: the text is
+    // absorbed into the page-number run, which the renderer replaces whole
+    // with the page's number. These assert the tree, and that both agree.
+    type TreeInline = {
+      type: string;
+      attributes?: Record<string, string>;
+      children?: Array<{ type: string; value?: string }>;
+    };
+
+    function treeInlinesAt(...path: number[]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let node: any = doc.getRoot().content.getRootTreeNode();
+      for (const index of path) node = node.children[index];
+      return ((node.children ?? []) as TreeInline[])
+        .filter((c) => c.type === 'inline')
+        .map((i) => ({
+          text: (i.children ?? [])
+            .filter((c) => c.type === 'text')
+            .map((t) => t.value)
+            .join(''),
+          attrs: (i.attributes ?? {}) as Record<string, string>,
+        }));
+    }
+
+    const treeInlines = (blockIndex: number) => treeInlinesAt(blockIndex);
+
+    function blockWith(inlines: Inline[]): Block {
+      return {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines,
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+    }
+
+    it('keeps text typed after a page number out of its inline', () => {
+      const block = blockWith([{ text: '#', style: { pageNumber: true } }]);
+      store.setDocument({ blocks: [block] });
+
+      store.insertText(block.id, 1, 'abc');
+
+      const inlines = treeInlines(0);
+      expect(inlines.length, 'page number and typed text are separate runs').toBe(2);
+      expect(inlines[0].text).toBe('#');
+      expect(inlines[0].attrs.pageNumber).toBe('true');
+      expect(inlines[1].text).toBe('abc');
+      expect(
+        inlines[1].attrs.pageNumber,
+        'typed text must not carry pageNumber',
+      ).toBeUndefined();
+    });
+
+    it('leaves the cache and the tree with the same run structure', () => {
+      // Fixing one path and not the other is worse than fixing neither: the
+      // screen reads the cache and looks correct until the next reload
+      // rebuilds it from the tree.
+      const block = blockWith([{ text: '#', style: { pageNumber: true } }]);
+      store.setDocument({ blocks: [block] });
+
+      store.insertText(block.id, 1, 'abc');
+
+      const cache = store.getDocument().blocks[0].inlines.map((i) => i.text);
+      const tree = treeInlines(0).map((i) => i.text);
+      expect(tree, 'cache and tree must describe the same runs').toEqual(cache);
+    });
+
+    it('keeps text typed after an image out of its inline', () => {
+      // The image half of the same rule: pinned because the fix rewrites the
+      // branch it already took.
+      const block = blockWith([
+        { text: '\uFFFC', style: { image: { src: 'x.png', width: 10, height: 10 } } },
+      ]);
+      store.setDocument({ blocks: [block] });
+
+      store.insertText(block.id, 1, 'abc');
+
+      const inlines = treeInlines(0);
+      expect(inlines.length).toBe(2);
+      expect(inlines[1].text).toBe('abc');
+      expect(
+        Object.keys(inlines[1].attrs).filter((k) => k.startsWith('image.')),
+      ).toEqual([]);
+    });
+
+    it('keeps text typed after a page number in a HEADER out of its inline', () => {
+      // The region the bug was reported in, and the only one a page number
+      // can be inserted into at all: `insertPageNumber` refuses outside a
+      // header or footer. A header block reaches the tree down a different
+      // path than a body block, so the body cases above cannot stand in.
+      const headerBlock = blockWith([{ text: '#', style: { pageNumber: true } }]);
+      store.setDocument({
+        blocks: [blockWith([{ text: 'body', style: {} }])],
+        header: { blocks: [headerBlock], marginFromEdge: 48 },
+      });
+
+      store.insertText(headerBlock.id, 1, 'abc');
+
+      const inlines = treeInlinesAt(0, 0);
+      expect(inlines.length, 'page number and typed text are separate runs').toBe(2);
+      expect(inlines[0].text).toBe('#');
+      expect(inlines[0].attrs.pageNumber).toBe('true');
+      expect(inlines[1].text).toBe('abc');
+      expect(inlines[1].attrs.pageNumber).toBeUndefined();
+
+      const cache = store.getDocument().header!.blocks[0].inlines.map((i) => i.text);
+      expect(inlines.map((i) => i.text), 'cache and tree agree').toEqual(cache);
+    });
+
+    it('never cuts a page-number run that already absorbed text into two', () => {
+      // A document edited before this rule existed holds runs like this one.
+      // The tree puts the typed text after the whole run; the cache must not
+      // cut through it, or one page number becomes two on screen and the two
+      // paths stop describing the same document.
+      const block = blockWith([{ text: '#abc', style: { pageNumber: true } }]);
+      store.setDocument({ blocks: [block] });
+
+      store.insertText(block.id, 2, 'X');
+
+      const inlines = treeInlines(0);
+      expect(inlines.filter((i) => i.attrs.pageNumber === 'true')).toHaveLength(1);
+      expect(inlines.map((i) => i.text)).toEqual(['#abc', 'X']);
+      expect(
+        store.getDocument().blocks[0].inlines.map((i) => i.text),
+        'cache and tree must describe the same runs',
+      ).toEqual(['#abc', 'X']);
+    });
+  });
+
 });
