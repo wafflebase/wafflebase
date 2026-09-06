@@ -144,6 +144,19 @@ export {
 // world-space resolution the renderer uses. Assuming the four-cardinal list
 // instead is wrong for every kind with an override.
 export type { ConnectionSite } from './model/connection-site';
+// The direction constants travel with them: a consumer choosing a site has to
+// name a direction in the same convention the sites are stored in, and a
+// private copy of `DIR_N = -π/2` would drift silently if that ever changed.
+export {
+  DIR_E,
+  DIR_N,
+  DIR_NE,
+  DIR_NW,
+  DIR_S,
+  DIR_SE,
+  DIR_SW,
+  DIR_W,
+} from './model/connection-site';
 export {
   connectionSitesForKind,
   siteWorldPos,

@@ -1,20 +1,24 @@
 import {
   connectionSitesForKind,
   siteWorldPos,
+  DIR_E,
+  DIR_N,
+  DIR_S,
+  DIR_W,
   type Frame,
   type ShapeKind,
 } from '@wafflebase/slides';
 import type { MiroConnectorEndLike, MiroRelativeOffsetLike } from './types';
 
 /**
- * The cardinal an endpoint should face, as the outward-normal angle the
- * slides connection-site model uses (x east, y south, radians).
+ * An endpoint is chosen as a DIRECTION — an outward-normal angle in the slides
+ * connection-site convention (x east, y south, radians) — and only then
+ * resolved to an index.
  *
- * These are DIRECTIONS, not indices. The index a direction lands on depends on
- * the target's `ShapeKind`: the default four-cardinal list is `[N, E, S, W]`,
- * but `ellipse` has eight sites where index 1 is NW, and `parallelogram`
- * shifts its N and S anchors along the skew. Choosing a direction and then
- * resolving it against the real site list is what keeps this correct as the
+ * The index a direction lands on depends on the target's `ShapeKind`: the
+ * default four-cardinal list is `[N, E, S, W]`, but `ellipse` has eight sites
+ * where index 1 is NW, and `parallelogram` shifts its N and S anchors along
+ * the skew. Resolving against the real list is what keeps this correct as the
  * slides package adds overrides.
  *
  * The outward normal matters as much as the position: the curved and elbow
@@ -22,11 +26,11 @@ import type { MiroConnectorEndLike, MiroRelativeOffsetLike } from './types';
  * Every connector was once emitted with `siteIndex: 0`, so two shapes side by
  * side were joined by an arrow that left the top of one, arced north, and came
  * down onto the top of the other.
+ *
+ * The constants come from the slides model rather than being redeclared here,
+ * so a direction can never disagree with the angles the sites are stored with.
  */
-export const DIR_E = 0;
-export const DIR_S = Math.PI / 2;
-export const DIR_W = Math.PI;
-export const DIR_N = -Math.PI / 2;
+export { DIR_E, DIR_N, DIR_S, DIR_W };
 
 /** Fallback when geometry cannot decide (unknown frames, coincident centres). */
 const DIR_FALLBACK = DIR_E;
@@ -97,9 +101,15 @@ export function parsePercent(value: unknown): number | undefined {
 }
 
 /**
- * Nearest cardinal edge for an explicit relative offset, or undefined when the
+ * The direction an explicit relative offset points, or undefined when the
  * offset carries no usable signal (either axis unparseable, or the offset is
- * exactly the centre — which names no edge, so geometry should decide).
+ * exactly the centre — which names no direction, so geometry should decide).
+ *
+ * The TRUE angle, not a cardinal. Miro's offset is a continuous point the user
+ * dragged the end to, and `siteIndexFor` snaps it to whatever the target
+ * actually offers — four sides on a rect, but eight on an ellipse, whose
+ * diagonals no cardinal could ever reach. Collapsing to a cardinal here would
+ * throw that away before the shape got a say.
  */
 function directionFromPosition(position: MiroRelativeOffsetLike | undefined): number | undefined {
   if (!position) return undefined;
@@ -109,7 +119,7 @@ function directionFromPosition(position: MiroRelativeOffsetLike | undefined): nu
   const dx = x - 50;
   const dy = y - 50;
   if (dx === 0 && dy === 0) return undefined;
-  return dominantAxisDirection(dx, dy);
+  return Math.atan2(dy, dx);
 }
 
 /** `snapTo` → cardinal. `'auto'` (and anything unrecognised) yields undefined. */

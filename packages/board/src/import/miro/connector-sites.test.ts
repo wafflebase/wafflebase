@@ -193,3 +193,18 @@ describe('siteAnchor', () => {
     expect(siteAnchor(circle, 6, 'ellipse')).toEqual({ x: 100, y: 0 });
   });
 });
+
+describe('an explicit offset reaches a diagonal site when the shape has one', () => {
+  // Miro's `position` is a continuous point the user dragged the end to. A
+  // circle's top-right really is one of its eight sites, so collapsing the
+  // offset to a cardinal first threw away a site the shape offers.
+  it('sends a top-right offset to an ellipse NE site', () => {
+    expect(pickConnectorSite({ position: { x: '100%', y: '0%' } }, left, right, 'ellipse'))
+      .toBe(7); // NE
+  });
+
+  it('still snaps to a cardinal on a shape with only four sites', () => {
+    expect(pickConnectorSite({ position: { x: '100%', y: '0%' } }, left, right, 'rect'))
+      .toBe(SITE_N);
+  });
+});
