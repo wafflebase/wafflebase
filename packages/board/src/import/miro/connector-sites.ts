@@ -31,7 +31,7 @@ const SITE_FALLBACK = SITE_E;
  * `Infinity`) by returning undefined so the caller can fall through to the
  * next rule instead of anchoring at a garbage edge.
  */
-function parsePercent(value: unknown): number | undefined {
+export function parsePercent(value: unknown): number | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
   if (typeof value !== 'string') return undefined;
   const match = /^\s*(-?\d+(?:\.\d+)?)\s*%?\s*$/.exec(value);

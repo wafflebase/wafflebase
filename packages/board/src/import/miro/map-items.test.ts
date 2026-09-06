@@ -78,6 +78,66 @@ describe('mapMiroItems', () => {
     expect(connector.stroke).toEqual({ color: { kind: 'srgb', value: '#f24726' }, width: 4 });
   });
 
+  // The board has no caption model, and captions were dropped without even
+  // being counted — on a process diagram that loses the step labels.
+  describe('connector captions', () => {
+    const mapped = (captions: unknown[]) =>
+      mapMiroItems({
+        items: [
+          { id: 'a', type: 'shape', ...at(0, 0, 100, 100), data: { shape: 'rectangle' } },
+          { id: 'b', type: 'shape', ...at(400, 200, 100, 100), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' }, captions } as any],
+        resolveImageUrl: identity,
+      });
+
+    it('places a caption along the line and reports it as a degradation', () => {
+      const { inits, approximated } = mapped([
+        { content: '<p>(1) create doc</p>', position: '50%' },
+      ]);
+      const label = inits.filter((i) => i.type === 'text');
+      expect(label).toHaveLength(1);
+      expect(((label[0] as any).data).blocks[0].inlines.map((i: any) => i.text).join(''))
+        .toBe('(1) create doc');
+      // Midway between the two shape centres, and centred on that point.
+      expect(label[0].frame.x + label[0].frame.w / 2).toBe(200);
+      expect(label[0].frame.y + label[0].frame.h / 2).toBe(100);
+      // A detached label does not follow the connector, so it is not a clean
+      // import and must not be reported as one.
+      expect(approximated['connector-caption']).toBe(1);
+    });
+
+    it("honours the caption's own position along the line", () => {
+      const { inits } = mapped([{ content: '<p>x</p>', position: '25%' }]);
+      const label = inits.find((i) => i.type === 'text')!;
+      expect(label.frame.x + label.frame.w / 2).toBe(100);
+      expect(label.frame.y + label.frame.h / 2).toBe(50);
+    });
+
+    it('falls back to the midpoint when the position is missing or junk', () => {
+      for (const position of [undefined, 'halfway', '']) {
+        const { inits } = mapped([{ content: '<p>x</p>', position }]);
+        const label = inits.find((i) => i.type === 'text')!;
+        expect(label.frame.x + label.frame.w / 2).toBe(200);
+      }
+    });
+
+    it('emits nothing for a caption with no words in it', () => {
+      const { inits, approximated } = mapped([{ content: '<p><br /></p>' }, { content: '' }]);
+      expect(inits.some((i) => i.type === 'text')).toBe(false);
+      expect(approximated['connector-caption']).toBeUndefined();
+    });
+
+    it('emits one label per caption', () => {
+      const { inits, approximated } = mapped([
+        { content: '<p>one</p>', position: '20%' },
+        { content: '<p>two</p>', position: '80%' },
+      ]);
+      expect(inits.filter((i) => i.type === 'text')).toHaveLength(2);
+      expect(approximated['connector-caption']).toBe(2);
+    });
+  });
+
   describe('connector arrowheads', () => {
     const withCaps = (style: Record<string, unknown>) =>
       mapMiroItems({

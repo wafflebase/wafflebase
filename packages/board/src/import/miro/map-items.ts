@@ -9,17 +9,23 @@ import {
   type ThemeColor,
 } from '@wafflebase/slides';
 import { resolveMiroFrames, resizeAboutCentre } from './geometry';
-import { pickConnectorSite } from './connector-sites';
+import { parsePercent, pickConnectorSite } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
 import {
   estimateTextHeight,
+  estimateTextWidth,
   miroAlignment,
   miroFontSizePt,
   miroHtmlToBlocks,
   type MiroTextStyle,
 } from './text';
-import type { MiroImportInput, MiroItemLike, MiroMapResult } from './types';
+import type {
+  MiroConnectorCaptionLike,
+  MiroImportInput,
+  MiroItemLike,
+  MiroMapResult,
+} from './types';
 
 const SUPPORTED = new Set(['sticky_note', 'shape', 'text', 'image', 'frame', 'card', 'app_card']);
 
@@ -241,6 +247,54 @@ function arrowheadOf(
   }
   onApproximate();
   return { kind: 'triangle', size: 'md' };
+}
+
+/**
+ * Turn one Miro connector caption — the text drawn ON the line — into a
+ * free-standing text element placed along it, or `undefined` when there is
+ * nothing to place.
+ *
+ * The board has no caption model, and 378 of the reference board's connectors
+ * carried one. They were dropped without being counted, which on a process
+ * diagram loses the step labels that make it readable at all.
+ *
+ * A detached label is a real degradation and the caller reports it as one: it
+ * will not follow the connector when either endpoint moves. Placement is a
+ * linear interpolation between the two endpoint frame CENTRES by the caption's
+ * own percentage along the line, which is exact for a straight connector and
+ * approximate for a curved or elbowed one — those bow away from the chord.
+ * Sitting slightly off a curve is a far smaller loss than not existing.
+ */
+function captionInit(
+  caption: MiroConnectorCaptionLike,
+  startFrame: Frame | undefined,
+  endFrame: Frame | undefined,
+): (ElementInit & { __id: string }) | undefined {
+  if (!startFrame || !endFrame) return undefined;
+
+  const blocks = miroHtmlToBlocks(caption.content, { alignment: 'center' });
+  if (!blocks.some((b) => b.inlines.some((i) => i.text.trim() !== ''))) return undefined;
+
+  // Miro measures the caption's position from the START of the line; a missing
+  // or unparseable value means the midpoint, which is also its own default.
+  const along = (parsePercent(caption.position) ?? 50) / 100;
+  const cx =
+    startFrame.x + startFrame.w / 2 +
+    (endFrame.x + endFrame.w / 2 - (startFrame.x + startFrame.w / 2)) * along;
+  const cy =
+    startFrame.y + startFrame.h / 2 +
+    (endFrame.y + endFrame.h / 2 - (startFrame.y + startFrame.h / 2)) * along;
+
+  const w = estimateTextWidth(blocks);
+  const h = estimateTextHeight(blocks);
+  return {
+    __id: generateId(),
+    type: 'text',
+    frame: { x: cx - w / 2, y: cy - h / 2, w, h, rotation: 0 },
+    // Centred both ways, so the label straddles the line the way Miro draws it
+    // rather than hanging off one corner of a guessed box.
+    data: { blocks, verticalAnchor: 'middle' },
+  } as ElementInit & { __id: string };
 }
 
 /** Miro connector `shape` → the board's connector routing. */
@@ -519,6 +573,14 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       },
       ...(stroke ? { stroke } : {}),
     } as ElementInit & { __id: string });
+
+    for (const caption of connector.captions ?? []) {
+      const init = captionInit(caption, startFrame, endFrame);
+      if (init) {
+        inits.push(init);
+        approx('connector-caption');
+      }
+    }
   }
 
   return { inits, skipped, approximated };

@@ -57,6 +57,25 @@ export function estimateTextHeight(blocks: Block[], fontSizePx?: number): number
   return lines * size * lineHeight + (lines - 1) * spacing;
 }
 
+/**
+ * Estimate the laid-out WIDTH, in board units, of already-parsed blocks.
+ *
+ * Only used where Miro reports no width at all — a connector caption, which is
+ * sized by its own content. It is a heuristic and openly so: 0.55em is a
+ * reasonable average advance for a proportional face, which is the best a
+ * mapper with no canvas can do. Erring wide is the safe direction, because an
+ * over-wide box only means the text does not wrap, while an under-wide one
+ * wraps a label that should have been one line.
+ */
+export function estimateTextWidth(blocks: Block[], fontSizePx?: number): number {
+  const size = fontSizePx && fontSizePx > 0 ? fontSizePx : DEFAULT_FONT_PX;
+  const longest = blocks.reduce(
+    (max, block) => Math.max(max, block.inlines.reduce((n, i) => n + i.text.length, 0)),
+    0,
+  );
+  return Math.max(longest, 1) * size * 0.55;
+}
+
 /** Miro `textAlign` → the docs block alignment. Unknown values fall through. */
 export function miroAlignment(align: string | undefined): BlockStyle['alignment'] | undefined {
   if (align === 'left' || align === 'center' || align === 'right') return align;

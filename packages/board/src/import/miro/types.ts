@@ -41,12 +41,25 @@ export interface MiroConnectorEndLike {
   position?: MiroRelativeOffsetLike;
 }
 
+/**
+ * A label Miro draws ON the connector line. `position` is how far along the
+ * line it sits, as a percentage string ('49.5%'); `content` is an HTML
+ * fragment like any other Miro text.
+ */
+export interface MiroConnectorCaptionLike {
+  content?: string;
+  position?: string | number;
+  textAlignVertical?: string;
+}
+
 export interface MiroConnectorLike {
   id: string;
   shape?: string;
   startItem?: MiroConnectorEndLike;
   endItem?: MiroConnectorEndLike;
   style?: Record<string, unknown>;
+  /** Labels drawn along the line. See {@link MiroConnectorCaptionLike}. */
+  captions?: MiroConnectorCaptionLike[];
 }
 
 export interface MiroImportInput {
