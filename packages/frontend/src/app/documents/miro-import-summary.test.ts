@@ -123,6 +123,50 @@ describe("describeApproximation", () => {
   });
 });
 
+describe("truncation reporting", () => {
+  // "truncated at 5000" reads identically whether two items were lost or half
+  // the board was, and only one of those is worth telling someone about.
+  it("names the fraction that was left behind", () => {
+    const text = describeNote({
+      reason: "truncated", itemType: "items", count: 5000, total: 8888,
+    });
+    expect(text).toContain("5000");
+    expect(text).toContain("8888");
+  });
+
+  it("keeps the old wording when Miro reported no total", () => {
+    const text = describeNote({ reason: "truncated", itemType: "items", count: 5000 });
+    expect(text).toContain("5000");
+    expect(text).toMatch(/limit/);
+  });
+
+  // Everything else in the summary says "one detail came across wrong". These
+  // say "you do not have all of it", so they must not be buried behind a
+  // hundred characters of detail notes.
+  it("leads the summary with an incomplete import, ahead of every detail", () => {
+    const summary = summarizeImport({
+      skipped: { "connector-free-end": 915, table: 32 },
+      approximated: { "shape-kind": 51 },
+      notes: [
+        { reason: "image-failed", itemType: "image", count: 2 },
+        { reason: "truncated", itemType: "items", count: 5000, total: 8888 },
+      ],
+    })!;
+    expect(summary.indexOf("8888")).toBeLessThan(summary.indexOf("915"));
+    expect(summary.indexOf("8888")).toBeLessThan(summary.indexOf("image(s) failed"));
+    // ...and it is still reported exactly once.
+    expect(summary.match(/8888/g)).toHaveLength(1);
+  });
+
+  it("leads with a stalled feed for the same reason", () => {
+    const summary = summarizeImport({
+      skipped: { embed: 4 },
+      notes: [{ reason: "stalled", itemType: "items", count: 120 }],
+    })!;
+    expect(summary.indexOf("stopped returning")).toBeLessThan(summary.indexOf("4 embeds"));
+  });
+});
+
 describe("describeSkip", () => {
   // A connector Miro itself left dangling and one whose target we did not
   // import are different facts, and only the second is worth re-importing for.

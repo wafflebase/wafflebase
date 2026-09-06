@@ -61,7 +61,13 @@ export function describeNote(note: MiroImportNote): string {
       // `image-failed` because the user's next step is different.
       return `${note.count} image(s) skipped — the board exceeds the per-import image limit`;
     case "truncated":
-      return `${what} truncated at the import limit (${note.count})`;
+      // The fraction is the whole point. "truncated at 5000" reads the same
+      // whether the board lost two items or half of itself, and a board that
+      // lost half is one the user has to know about before they start working
+      // in the copy.
+      return note.total !== undefined && note.total > note.count
+        ? `only ${note.count} of ${note.total} ${what} were imported — the board is over the import limit`
+        : `${what} truncated at the import limit (${note.count})`;
     case "stalled":
       return `${what} may be incomplete — Miro stopped returning results after ${note.count}`;
     default:
@@ -128,6 +134,17 @@ export function summarizeImport(input: ImportSummaryInput): string | null {
   const { skipped, approximated = {}, droppedConnectors = 0, notes } = input;
   const parts: string[] = [];
 
+  // Wholesale incompleteness leads. Everything else in this summary is
+  // "one detail of something you have came across wrong"; these two say "you
+  // do not have all of it", which changes what the user does next. Buried at
+  // the end of a semicolon-joined list — where the notes used to go, after
+  // every skip and approximation — a 44% truncation read as a footnote.
+  for (const note of notes) {
+    if (note.reason === "truncated" || note.reason === "stalled") {
+      parts.push(describeNote(note));
+    }
+  }
+
   const skippedTotal = Object.values(skipped).reduce((a, b) => a + b, 0);
   if (skippedTotal) {
     parts.push(
@@ -145,6 +162,7 @@ export function summarizeImport(input: ImportSummaryInput): string | null {
     );
   }
   for (const note of notes) {
+    if (note.reason === "truncated" || note.reason === "stalled") continue;
     parts.push(describeNote(note));
   }
 

@@ -557,6 +557,11 @@ export class MiroService {
     const out: T[] = [];
     let cursor: string | undefined;
     let seeded = first;
+    // Miro reports a board-wide count on every page. Kept so a truncation can
+    // say how much was left behind: "truncated at 5000" alone reads the same
+    // whether the board lost two items or, as the reference board does, 44%
+    // of itself.
+    let feedTotal: number | undefined;
 
     for (;;) {
       let page: MiroPage<T>;
@@ -569,6 +574,9 @@ export class MiroService {
           token,
         );
       }
+      if (typeof page.total === 'number' && Number.isFinite(page.total)) {
+        feedTotal = page.total;
+      }
       const batch = page.data ?? [];
       out.push(...batch);
       onPage(Math.min(out.length, MiroService.MAX_ITEMS));
@@ -579,6 +587,7 @@ export class MiroService {
           reason: 'truncated',
           itemType: label,
           count: MiroService.MAX_ITEMS,
+          ...(feedTotal !== undefined ? { total: feedTotal } : {}),
         });
         return out;
       }

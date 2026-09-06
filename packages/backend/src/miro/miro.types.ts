@@ -59,6 +59,13 @@ export interface MiroImportNote {
   itemType?: string;
   /** How many items this note covers. */
   count: number;
+  /**
+   * The size of the whole population this note is a fraction of, when the
+   * upstream told us. Only `truncated` sets it, and only because Miro's feed
+   * pages report a board-wide `total`: "truncated at 5000" alone gave no way
+   * to tell a board that lost two items from one that lost half of itself.
+   */
+  total?: number;
 }
 
 /** What the backend proxy returns to the frontend. Contains NO token. */
@@ -140,4 +147,11 @@ export interface MiroImportSession {
 export interface MiroPage<T> {
   data?: T[];
   cursor?: string;
+  /**
+   * Board-wide count of everything the feed would return, which Miro reports
+   * on every page. Read only to tell the user how much a truncated import left
+   * behind; it is never used to drive the pagination itself, since the cursor
+   * is what actually terminates the walk.
+   */
+  total?: number;
 }
