@@ -179,6 +179,17 @@ and bowing them along the wrong normal. Fixed by choosing a *direction* and
 resolving it against the target's real site list, via two new
 `@wafflebase/slides` exports rather than a local copy of the site geometry.
 
+*Round 4*, after the ceiling raise (`d426f041d`, `fea8fd3cd`, `f2e68c2b7`) —
+found the one thing the raise actually broke. The terminal `result` line
+carries the whole board as a single NDJSON line, and the reader split its
+accumulated buffer per chunk: quadratic in line length, so doubling the ceiling
+quadrupled the cost into a ~1.3 s main-thread freeze. Fixed to scan only the
+newly arrived text (87/310/1255 ms → 4/7/14 ms at 4/7.6/15 MiB). Also corrected
+the ceiling's memory figure, which quoted items-only serialized bytes (~8 MB)
+when both feeds cap independently and the real numbers are ~15 MiB on the wire
+and ~20 MiB parsed. CodeRabbit separately caught the `connector` drop reason
+promising a remedy that only applies to one of its two causes (`6de0745a7`).
+
 *Round 3* (`45866b38f`) — clean on the substance; closed the two gaps it named
 (an explicit Miro offset can now reach an ellipse's diagonal sites, and the
 board no longer keeps its own copy of the `DIR_*` angles).

@@ -87,6 +87,36 @@ Three review passes ran over this branch. Rounds 1 and 2 each found real
 defects *in code the branch had just added*, including one that the first round
 introduced. Reviewing once is not the same as reviewing until it is clean.
 
+## Raising a limit is a load test of everything downstream of it
+
+Raising `MAX_ITEMS` from 5,000 to 10,000 changed one constant and no logic, and
+it still broke something. The import's terminal `result` line carries the whole
+board as a SINGLE NDJSON line, and the reader split its accumulated buffer on
+every chunk — quadratic in line length. That was invisible while the line was
+capped at ~7.5 MiB and a ~1.3 s main-thread freeze at ~15 MiB, because
+quadratic cost grows four times faster than the thing being doubled.
+
+The reader's own comment said its buffer was "bounded in practice by one line",
+which was **true and misleading**: it bounded the buffer without bounding the
+cost, because nobody had asked how big one line gets. So when raising a limit,
+enumerate what is sized *against* it — not just what stores it — and check the
+complexity of each, not only the capacity.
+
+## A flaky test is worse than no test, and ratios are not safer than budgets
+
+The first version of the linearity guard compared two timed runs and required
+the larger to be under 3x the smaller. That looks more portable than an
+absolute budget and is not: both measurements carry scheduling noise, so under
+load the *small* run inflates and the bound collapses. It failed on the very
+push that introduced it.
+
+The fix was to stop measuring a ratio and start exploiting the margin. One
+shape separated the two implementations by ~70x, which is wide enough for a
+plain budget — and `Math.min` over three runs makes it robust, because
+scheduling noise only ever adds time, so the fastest run is the honest one.
+Then verify **both** directions: that it fails against the old implementation,
+and that it passes under deliberate CPU contention.
+
 ## The verify gate is ~4 minutes; budget for it
 
 `pnpm verify:fast` runs on every commit via the pre-commit hook and takes
