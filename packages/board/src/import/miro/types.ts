@@ -49,7 +49,6 @@ export interface MiroConnectorEndLike {
 export interface MiroConnectorCaptionLike {
   content?: string;
   position?: string | number;
-  textAlignVertical?: string;
 }
 
 export interface MiroConnectorLike {

@@ -51,6 +51,21 @@ describe("summarizeImport", () => {
     expect(summary).not.toMatch(/failed/i);
   });
 
+  // The reason clauses used to be joined into the item-type list, which
+  // appends one trailing "skipped" — yielding "…was not imported skipped".
+  it("reads grammatically when item types and drop reasons are both present", () => {
+    const summary = summarizeImport({
+      skipped: { table: 32, "connector-free-end": 915, connector: 229 },
+      notes: [],
+    })!;
+    expect(summary).toBe(
+      "32 tables skipped; " +
+        "915 connectors skipped — not attached at both ends in Miro; " +
+        "229 connectors skipped — their target was not imported",
+    );
+    expect(summary).not.toMatch(/imported skipped/);
+  });
+
   it("combines mapper skips with backend notes", () => {
     const summary = summarizeImport({ skipped: { connector: 3, embed: 1 }, notes: [
       { reason: "image-failed", itemType: "image", count: 2 },
@@ -58,7 +73,7 @@ describe("summarizeImport", () => {
     ] });
 
     expect(summary).toContain("3 connectors");
-    expect(summary).toContain("whose target was not imported");
+    expect(summary).toContain("their target was not imported");
     expect(summary).toContain("1 embed");
     expect(summary).toContain("2 image(s) failed");
     expect(summary).toMatch(/truncated/i);
@@ -171,8 +186,8 @@ describe("describeSkip", () => {
   // A connector Miro itself left dangling and one whose target we did not
   // import are different facts, and only the second is worth re-importing for.
   it("tells the two connector drop reasons apart", () => {
-    const free = describeSkip("connector-free-end", 915);
-    const unmapped = describeSkip("connector", 229);
+    const free = describeSkip("connector-free-end", 915)!;
+    const unmapped = describeSkip("connector", 229)!;
     expect(free).toContain("915 connectors");
     expect(free).toMatch(/Miro/);
     expect(unmapped).toContain("229 connectors");
@@ -180,8 +195,14 @@ describe("describeSkip", () => {
     expect(free).not.toBe(unmapped);
   });
 
-  it("leaves an ordinary item type as a bare plural", () => {
-    expect(describeSkip("embed", 3)).toBe("3 embeds");
+  // These carry their own "skipped" because they cannot be grouped with the
+  // item types, which share one trailing "skipped" between them.
+  it("returns a complete clause for a reason key", () => {
+    expect(describeSkip("connector-free-end", 2)).toMatch(/ skipped /);
+  });
+
+  it("declines an ordinary item type, leaving it to the grouped list", () => {
+    expect(describeSkip("embed", 3)).toBeNull();
   });
 });
 

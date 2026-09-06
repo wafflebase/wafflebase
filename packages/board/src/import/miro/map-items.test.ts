@@ -128,10 +128,56 @@ describe('mapMiroItems', () => {
       expect(approximated['connector-caption']).toBe(1);
     });
 
+    // The connector runs mid-edge to mid-edge, so a chord between the frame
+    // CENTRES is not on it — it diverges by half the size difference of the
+    // two shapes. The reference board routinely joins a 1452-wide shape to a
+    // 77-wide label, which put captions inside the larger shape.
+    it('places a caption on the connector, not on the centre-to-centre chord', () => {
+      const { inits } = mapMiroItems({
+        items: [
+          { id: 'big', type: 'shape', ...at(500, 500, 1000, 1000), data: { shape: 'rectangle' } },
+          { id: 'small', type: 'shape', ...at(1250, 450, 100, 100), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{
+          id: 'c1', shape: 'straight',
+          startItem: { id: 'big' }, endItem: { id: 'small' },
+          captions: [{ content: '<p>step 1</p>', position: '50%' }],
+        } as any],
+        resolveImageUrl: identity,
+      });
+      const label = inits.find((i) => i.type === 'text')!;
+      // East edge of `big` is (1000, 500); west edge of `small` is (1200, 450).
+      expect(label.frame.x + label.frame.w / 2).toBe(1100);
+      expect(label.frame.y + label.frame.h / 2).toBe(475);
+      // The centre-to-centre midpoint would have been x=875 — inside `big`.
+      expect(label.frame.x + label.frame.w / 2).not.toBe(875);
+    });
+
+    it("styles a caption from the connector's own font size and colour", () => {
+      const { inits } = mapMiroItems({
+        items: [
+          { id: 'a', type: 'shape', ...at(0, 0, 100, 100), data: { shape: 'rectangle' } },
+          { id: 'b', type: 'shape', ...at(400, 0, 100, 100), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{
+          id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' },
+          // Miro puts the caption's typography on the CONNECTOR's style,
+          // beside the stroke fields.
+          style: { strokeColor: '#000000', fontSize: '24', color: '#f24726' },
+          captions: [{ content: '<p>label</p>' }],
+        } as any],
+        resolveImageUrl: identity,
+      });
+      const label = inits.find((i) => i.type === 'text')!;
+      expect(((label as any).data).blocks[0].inlines[0].style)
+        .toMatchObject({ fontSize: 18, color: '#f24726' });
+    });
+
     it("honours the caption's own position along the line", () => {
       const { inits } = mapped([{ content: '<p>x</p>', position: '25%' }]);
       const label = inits.find((i) => i.type === 'text')!;
-      expect(label.frame.x + label.frame.w / 2).toBe(100);
+      // East edge of `a` is (50, 0); west edge of `b` is (350, 200).
+      expect(label.frame.x + label.frame.w / 2).toBe(125);
       expect(label.frame.y + label.frame.h / 2).toBe(50);
     });
 
@@ -376,6 +422,23 @@ describe('mapMiroItems', () => {
       });
       expect(((inits[0] as any).data).fill).toBeUndefined();
     }
+  });
+
+  // Miro flags some items `isSupported: false` and sends them with no `style`
+  // block at all. Inventing a white fill for those puts an invisible box on
+  // the canvas that also hides whatever it is drawn over — the exact damage
+  // the transparency handling above exists to stop.
+  it('invents no fill for a shape that reports no fill information', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0) },
+        { id: 'b', type: 'shape', ...at(0, 0), style: { borderWidth: '2.0' } },
+      ],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).fill).toBeUndefined();
+    expect(((inits[1] as any).data).fill).toBeUndefined();
   });
 
   it('carries a partial fill opacity onto the color alpha', () => {

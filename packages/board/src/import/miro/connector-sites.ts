@@ -83,6 +83,28 @@ function centreOf(frame: Frame): { x: number; y: number } {
 }
 
 /**
+ * Where on a frame a given connection site sits, in board coordinates.
+ *
+ * This is the point a connector actually leaves from or arrives at — the
+ * mid-edge anchors `FOUR_CARDINAL` defines, NOT the frame's centre. Anything
+ * positioning itself along a connector has to interpolate between these, since
+ * a centre-to-centre chord diverges from the drawn line as soon as the two
+ * shapes differ in size.
+ *
+ * Rotation is not applied: the routers anchor on the unrotated frame too, so
+ * matching them is what keeps the two in step.
+ */
+export function siteAnchor(frame: Frame, siteIndex: number): { x: number; y: number } {
+  switch (siteIndex) {
+    case SITE_N: return { x: frame.x + frame.w / 2, y: frame.y };
+    case SITE_E: return { x: frame.x + frame.w, y: frame.y + frame.h / 2 };
+    case SITE_S: return { x: frame.x + frame.w / 2, y: frame.y + frame.h };
+    case SITE_W: return { x: frame.x, y: frame.y + frame.h / 2 };
+    default: return centreOf(frame);
+  }
+}
+
+/**
  * Choose the connection site ONE end of a Miro connector should attach to.
  *
  * Precedence, highest first:

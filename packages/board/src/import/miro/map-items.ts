@@ -9,7 +9,7 @@ import {
   type ThemeColor,
 } from '@wafflebase/slides';
 import { resolveMiroFrames, resizeAboutCentre } from './geometry';
-import { parsePercent, pickConnectorSite } from './connector-sites';
+import { parsePercent, pickConnectorSite, siteAnchor } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
 import {
@@ -87,8 +87,14 @@ function miroShapeFill(style: Record<string, unknown>): ThemeColor | undefined {
   const opacity = num(style.fillOpacity);
   if (opacity !== undefined && opacity <= 0) return undefined;
 
-  // A shape with no `fillColor` at all is still a filled shape in Miro; white
-  // is its default, and this is the pre-existing behaviour for that case.
+  // No colour and no opacity is no INFORMATION, not a white shape. Miro sends
+  // a `fillColor` with every real shape; the items that arrive without one are
+  // the ones it flags `isSupported: false`, which carry no `style` block at
+  // all — 51 of them on the reference board. Defaulting those to opaque white
+  // reintroduced exactly the damage above: an invisible box that also hides
+  // whatever it happens to be emitted over.
+  if (value === undefined && opacity === undefined) return undefined;
+
   const color = value ?? '#ffffff';
   return opacity !== undefined && opacity < 1
     ? { kind: 'srgb', value: color, alpha: opacity }
@@ -259,34 +265,46 @@ function arrowheadOf(
  * diagram loses the step labels that make it readable at all.
  *
  * A detached label is a real degradation and the caller reports it as one: it
- * will not follow the connector when either endpoint moves. Placement is a
- * linear interpolation between the two endpoint frame CENTRES by the caption's
- * own percentage along the line, which is exact for a straight connector and
- * approximate for a curved or elbowed one — those bow away from the chord.
- * Sitting slightly off a curve is a far smaller loss than not existing.
+ * will not follow the connector when either endpoint moves.
+ *
+ * Placement interpolates between the two resolved CONNECTION SITES by the
+ * caption's own percentage along the line — not between the frame centres. The
+ * centres are not on the connector: a connector runs mid-edge to mid-edge, so
+ * a chord between centres diverges from the drawn line by half the size
+ * difference of the two shapes. On the reference board, which routinely joins
+ * a 1452-wide shape to a 77-wide label, that put captions hundreds of units
+ * up-line and often inside the larger shape.
+ *
+ * Site-to-site is exact for a straight connector and approximate for a curved
+ * or elbowed one, which bows away from the chord. Sitting slightly off a curve
+ * is a far smaller loss than not existing.
  */
 function captionInit(
   caption: MiroConnectorCaptionLike,
-  startFrame: Frame | undefined,
-  endFrame: Frame | undefined,
+  ends: { frame: Frame; siteIndex: number } | undefined,
+  otherEnds: { frame: Frame; siteIndex: number } | undefined,
+  style: Record<string, unknown>,
 ): (ElementInit & { __id: string }) | undefined {
-  if (!startFrame || !endFrame) return undefined;
+  if (!ends || !otherEnds) return undefined;
 
-  const blocks = miroHtmlToBlocks(caption.content, { alignment: 'center' });
+  // A connector's caption typography lives on the CONNECTOR's style, beside
+  // the stroke fields — `fontSize` and `color` sit right next to `strokeColor`
+  // — which is why it goes through the same `textStyleOf` an item's does.
+  const textStyle = textStyleOf(style);
+  const blocks = miroHtmlToBlocks(caption.content, { ...textStyle, alignment: 'center' });
   if (!blocks.some((b) => b.inlines.some((i) => i.text.trim() !== ''))) return undefined;
 
   // Miro measures the caption's position from the START of the line; a missing
   // or unparseable value means the midpoint, which is also its own default.
   const along = (parsePercent(caption.position) ?? 50) / 100;
-  const cx =
-    startFrame.x + startFrame.w / 2 +
-    (endFrame.x + endFrame.w / 2 - (startFrame.x + startFrame.w / 2)) * along;
-  const cy =
-    startFrame.y + startFrame.h / 2 +
-    (endFrame.y + endFrame.h / 2 - (startFrame.y + startFrame.h / 2)) * along;
+  const from = siteAnchor(ends.frame, ends.siteIndex);
+  const to = siteAnchor(otherEnds.frame, otherEnds.siteIndex);
+  const cx = from.x + (to.x - from.x) * along;
+  const cy = from.y + (to.y - from.y) * along;
 
-  const w = estimateTextWidth(blocks);
-  const h = estimateTextHeight(blocks);
+  const fontSizePx = num(style.fontSize);
+  const w = estimateTextWidth(blocks, fontSizePx);
+  const h = estimateTextHeight(blocks, fontSizePx);
   return {
     __id: generateId(),
     type: 'text',
@@ -587,7 +605,12 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     } as ElementInit & { __id: string });
 
     for (const caption of connector.captions ?? []) {
-      const init = captionInit(caption, startFrame, endFrame);
+      const init = captionInit(
+        caption,
+        startFrame ? { frame: startFrame, siteIndex: start.siteIndex! } : undefined,
+        endFrame ? { frame: endFrame, siteIndex: end.siteIndex! } : undefined,
+        style,
+      );
       if (init) {
         inits.push(init);
         approx('connector-caption');

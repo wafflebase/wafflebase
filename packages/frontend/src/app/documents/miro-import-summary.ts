@@ -19,25 +19,28 @@ export function pluralizeSkipLabel(type: string, count: number): string {
 }
 
 /**
- * Wording for one `skipped` entry.
+ * Wording for a `skipped` key that names a REASON rather than a Miro item
+ * type, or null when the key is an ordinary type.
  *
- * Most keys really are Miro item types and read fine as a bare plural. The
- * connector keys are not: they name WHY a connector was dropped, and the two
- * reasons call for different reactions from the user. A connector with a
- * dangling end was already dangling in Miro and nothing could have saved it;
- * a connector whose target we did not map is ours — the item was an
- * unsupported type or fell past the import ceiling — and re-importing a
- * smaller board would fix it. Rendered as a bare plural they were
- * indistinguishable.
+ * The connector keys are the only ones like this, and they exist because the
+ * two reasons call for different reactions. A connector with a dangling end
+ * was already dangling in Miro and nothing could have saved it; a connector
+ * whose target we did not map is ours — an unsupported type, or one past the
+ * import ceiling — and re-importing a smaller board would fix it.
+ *
+ * Each returns a COMPLETE clause, "skipped" included, because these do not
+ * survive being grouped with the item types: the caller joins those into one
+ * list and appends a single trailing "skipped", which would have produced
+ * "…whose target was not imported skipped".
  */
-export function describeSkip(type: string, count: number): string {
+export function describeSkip(type: string, count: number): string | null {
   switch (type) {
     case "connector-free-end":
-      return `${pluralizeSkipLabel("connector", count)} not attached at both ends in Miro`;
+      return `${pluralizeSkipLabel("connector", count)} skipped — not attached at both ends in Miro`;
     case "connector":
-      return `${pluralizeSkipLabel("connector", count)} whose target was not imported`;
+      return `${pluralizeSkipLabel("connector", count)} skipped — their target was not imported`;
     default:
-      return pluralizeSkipLabel(type, count);
+      return null;
   }
 }
 
@@ -109,7 +112,11 @@ export function describeApproximation(kind: string, count: number): string {
 }
 
 export interface ImportSummaryInput {
-  /** Mapper skips, keyed by Miro item type — absent from the document. */
+  /**
+   * Mapper skips — everything absent from the document. Keyed by Miro item
+   * type, except for the two connector keys (`connector-free-end` and
+   * `connector`), which name a drop REASON instead; see {@link describeSkip}.
+   */
   skipped: Record<string, number>;
   /** Mapper approximations, keyed by degradation — present but degraded. */
   approximated?: Record<string, number>;
@@ -145,14 +152,18 @@ export function summarizeImport(input: ImportSummaryInput): string | null {
     }
   }
 
-  const skippedTotal = Object.values(skipped).reduce((a, b) => a + b, 0);
-  if (skippedTotal) {
-    parts.push(
-      Object.entries(skipped)
-        .map(([type, count]) => describeSkip(type, count))
-        .join(", ") + " skipped",
-    );
+  // Item types group into one list with a single trailing "skipped"; the
+  // reason-shaped keys carry their own wording and stand alone.
+  const types: string[] = [];
+  const reasons: string[] = [];
+  for (const [type, count] of Object.entries(skipped)) {
+    if (count <= 0) continue;
+    const reason = describeSkip(type, count);
+    if (reason) reasons.push(reason);
+    else types.push(pluralizeSkipLabel(type, count));
   }
+  if (types.length) parts.push(`${types.join(", ")} skipped`);
+  parts.push(...reasons);
   for (const [kind, count] of Object.entries(approximated)) {
     if (count > 0) parts.push(describeApproximation(kind, count));
   }
