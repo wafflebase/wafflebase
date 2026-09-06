@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -20,12 +21,13 @@ import {
   getWorksheetCell,
   getWorksheetEntries,
   initialSpreadsheetDocument,
-  parseRef,
   updateWorksheetCell,
   writeWorksheetCell,
+  type Ref,
 } from '@wafflebase/sheets';
 import { parseCellStyle } from '../../yorkie/cell-style';
 import { assertSheetDocument } from './sheet-document.util';
+import { parseCellRef } from './cell-ref.util';
 import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
 
 @Controller(
@@ -119,13 +121,14 @@ export class ApiV1CellsController {
     @Param('sref') sref: string,
   ) {
     await this.assertSheetRead(documentId, workspaceId);
+    const ref = parseCellRef(sref);
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
         const worksheet = findWorksheet<Worksheet>(doc.getRoot(), tabId);
         if (!worksheet) throw new NotFoundException('Tab not found');
 
-        const cell = getWorksheetCell(worksheet, parseRef(sref));
+        const cell = getWorksheetCell(worksheet, ref);
         return {
           ref: sref,
           value: cell?.v ?? null,
@@ -148,7 +151,10 @@ export class ApiV1CellsController {
     @Body() body: { value?: string; formula?: string; style?: unknown },
   ) {
     await this.assertSheetWrite(documentId, workspaceId);
-    // Validate the style before attaching so a bad payload 400s cheaply.
+    // Validate the ref and style before attaching so a bad payload 400s
+    // cheaply, rather than opening a Yorkie document for a write that was
+    // always going to fail.
+    const ref = parseCellRef(sref);
     const style =
       body.style === undefined ? undefined : parseCellStyle(body.style);
     return this.yorkieService.withDocument(
@@ -157,7 +163,6 @@ export class ApiV1CellsController {
         doc.update((root) => {
           const worksheet = worksheetOrThrow<Worksheet>(root, tabId);
 
-          const ref = parseRef(sref);
           updateWorksheetCell(worksheet, ref, (existing) => ({
             ...(existing ?? {}),
             v: body.value ?? existing?.v ?? '',
@@ -185,12 +190,13 @@ export class ApiV1CellsController {
     @Param('sref') sref: string,
   ) {
     await this.assertSheetWrite(documentId, workspaceId);
+    const ref = parseCellRef(sref);
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
         doc.update((root) => {
           const worksheet = worksheetOrThrow<Worksheet>(root, tabId);
-          writeWorksheetCell(worksheet, parseRef(sref), undefined);
+          writeWorksheetCell(worksheet, ref, undefined);
         });
 
         return { ref: sref, deleted: true };
@@ -213,10 +219,27 @@ export class ApiV1CellsController {
     },
   ) {
     await this.assertSheetWrite(documentId, workspaceId);
-    // Validate every provided style up front so one bad style 400s before any
+    // The parameter type is a claim about client JSON, not a guarantee, and
+    // nothing validates it: `Object.entries` throws a TypeError on a missing
+    // or null `cells`, which Nest's default filter turns into a 500 (#1030).
+    const cells: unknown = body?.cells;
+    if (typeof cells !== 'object' || cells === null || Array.isArray(cells)) {
+      throw new BadRequestException(
+        "'cells' must be an object mapping A1 references to cell data",
+      );
+    }
+    const entries = Object.entries(
+      cells as Record<
+        string,
+        { value?: string; formula?: string; style?: unknown } | null
+      >,
+    );
+    // Validate every ref and style up front so a bad one 400s before any
     // write, rather than aborting a partially-applied doc.update.
+    const parsedRefs: Record<string, Ref> = {};
     const styles: Record<string, ReturnType<typeof parseCellStyle>> = {};
-    for (const [ref, cellData] of Object.entries(body.cells)) {
+    for (const [ref, cellData] of entries) {
+      parsedRefs[ref] = parseCellRef(ref);
       if (cellData && cellData.style !== undefined) {
         styles[ref] = parseCellStyle(cellData.style);
       }
@@ -227,8 +250,8 @@ export class ApiV1CellsController {
         doc.update((root) => {
           const worksheet = worksheetOrThrow<Worksheet>(root, tabId);
 
-          for (const [ref, cellData] of Object.entries(body.cells)) {
-            const parsedRef = parseRef(ref);
+          for (const [ref, cellData] of entries) {
+            const parsedRef = parsedRefs[ref];
             if (cellData === null) {
               writeWorksheetCell(worksheet, parsedRef, undefined);
             } else {
@@ -243,7 +266,7 @@ export class ApiV1CellsController {
           }
         });
 
-        return { updated: Object.keys(body.cells).length };
+        return { updated: entries.length };
       },
       { initialRoot: initialSpreadsheetDocument() },
     );

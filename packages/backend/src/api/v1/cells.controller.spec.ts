@@ -87,6 +87,51 @@ describe('ApiV1CellsController initialRoot', () => {
     expect(withDocument).not.toHaveBeenCalled();
   });
 
+  // #1030: parseRef throws a bare Error on a malformed ref, which used to
+  // fall through Nest's default filter as a 500 instead of a 400.
+  it.each(['setCell', 'deleteCell', 'batchUpdate', 'getCell'] as const)(
+    '%s rejects a malformed ref with 400 before opening the doc',
+    async (op) => {
+      const call = {
+        setCell: () =>
+          controller.setCell(WS, DOC, 'tab-1', 'notaref', { value: '5' }),
+        deleteCell: () => controller.deleteCell(WS, DOC, 'tab-1', 'notaref'),
+        batchUpdate: () =>
+          controller.batchUpdate(WS, DOC, 'tab-1', {
+            cells: { notaref: { value: '5' } },
+          }),
+        getCell: () => controller.getCell(WS, DOC, 'tab-1', 'notaref'),
+      }[op];
+
+      await expect(call()).rejects.toBeInstanceOf(BadRequestException);
+      expect(withDocument).not.toHaveBeenCalled();
+    },
+  );
+
+  // A missing or null `cells` used to reach `Object.entries` and 500.
+  it.each([
+    ['missing', {}],
+    ['null', { cells: null }],
+    ['a string', { cells: 'nope' }],
+    ['a number', { cells: 123 }],
+    ['an array', { cells: [{ value: 'x' }] }],
+  ])('batchUpdate rejects a cells payload that is %s', async (_label, body) => {
+    await expect(
+      controller.batchUpdate(WS, DOC, 'tab-1', body as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(withDocument).not.toHaveBeenCalled();
+  });
+
+  it('batchUpdate rejects the whole batch if any one ref is malformed, writing nothing', async () => {
+    await expect(
+      controller.batchUpdate(WS, DOC, 'tab-1', {
+        cells: { A1: { value: '1' }, notaref: { value: '2' } },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(withDocument).not.toHaveBeenCalled();
+    expect(getWorksheetCell(root.sheets['tab-1'], parseRef('A1'))).toBeUndefined();
+  });
+
   it('batchUpdate applies per-cell style', async () => {
     await controller.batchUpdate(WS, DOC, 'tab-1', {
       cells: { A1: { value: '1', style: { i: true } } },
