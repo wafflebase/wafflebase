@@ -8,6 +8,8 @@ export interface MiroImportNote {
   reason: string;
   itemType?: string;
   count: number;
+  /** Size of the whole population `count` is a fraction of, when known. */
+  total?: number;
 }
 
 export interface MiroImportResult {

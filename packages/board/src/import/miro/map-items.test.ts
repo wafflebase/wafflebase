@@ -42,6 +42,476 @@ describe('mapMiroItems', () => {
     expect(inits[0].frame).toMatchObject({ x: -10, y: 0, w: 40, h: 20 });
   });
 
+  // The API sends every `style` number as a string. Asserted verbatim rather
+  // than as a tidied fixture, because the tidied fixture above is exactly what
+  // hid this: a real board's borders were all being thrown away.
+  it('reads a border width that arrived as a string, as the API sends it', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 'sh1', type: 'shape', ...at(0, 0),
+        data: { shape: 'rectangle' },
+        style: { fillColor: '#ffffff', borderColor: '#1a1a1a', borderWidth: '2.0' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).stroke).toMatchObject({
+      color: { kind: 'srgb', value: '#1a1a1a' },
+      width: 2,
+    });
+  });
+
+  it('reads a connector stroke width that arrived as a string', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'b', type: 'shape', ...at(500, 0), data: { shape: 'rectangle' } },
+      ],
+      connectors: [{
+        id: 'c1', shape: 'straight',
+        startItem: { id: 'a' }, endItem: { id: 'b' },
+        style: { strokeWidth: '4.0', strokeColor: '#f24726' },
+      }],
+      resolveImageUrl: identity,
+    });
+    const connector = inits.find((i) => i.type === 'connector') as any;
+    expect(connector.stroke).toEqual({ color: { kind: 'srgb', value: '#f24726' }, width: 4 });
+  });
+
+  // The board has no caption model, and captions were dropped without even
+  // being counted — on a process diagram that loses the step labels.
+  // Both are dropped connectors, but only one of them is something the user
+  // could act on by re-importing, so they are counted apart.
+  it('separates a Miro-dangling connector from one whose target we did not map', () => {
+    const { skipped } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'e', type: 'embed', ...at(200, 0) },
+      ],
+      connectors: [
+        // Dangling in Miro itself — no id on either end.
+        { id: 'c1', startItem: { id: 'a' }, endItem: {} },
+        { id: 'c2', endItem: { id: 'a' } },
+        // Points at an item we skipped.
+        { id: 'c3', startItem: { id: 'a' }, endItem: { id: 'e' } },
+      ],
+      resolveImageUrl: identity,
+    });
+    expect(skipped['connector-free-end']).toBe(2);
+    expect(skipped['connector']).toBe(1);
+  });
+
+  describe('connector captions', () => {
+    const mapped = (captions: unknown[]) =>
+      mapMiroItems({
+        items: [
+          { id: 'a', type: 'shape', ...at(0, 0, 100, 100), data: { shape: 'rectangle' } },
+          { id: 'b', type: 'shape', ...at(400, 200, 100, 100), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' }, captions } as any],
+        resolveImageUrl: identity,
+      });
+
+    it('places a caption along the line and reports it as a degradation', () => {
+      const { inits, approximated } = mapped([
+        { content: '<p>(1) create doc</p>', position: '50%' },
+      ]);
+      const label = inits.filter((i) => i.type === 'text');
+      expect(label).toHaveLength(1);
+      expect(((label[0] as any).data).blocks[0].inlines.map((i: any) => i.text).join(''))
+        .toBe('(1) create doc');
+      // Midway between the two shape centres, and centred on that point.
+      expect(label[0].frame.x + label[0].frame.w / 2).toBe(200);
+      expect(label[0].frame.y + label[0].frame.h / 2).toBe(100);
+      // A detached label does not follow the connector, so it is not a clean
+      // import and must not be reported as one.
+      expect(approximated['connector-caption']).toBe(1);
+    });
+
+    // The connector runs mid-edge to mid-edge, so a chord between the frame
+    // CENTRES is not on it — it diverges by half the size difference of the
+    // two shapes. The reference board routinely joins a 1452-wide shape to a
+    // 77-wide label, which put captions inside the larger shape.
+    it('places a caption on the connector, not on the centre-to-centre chord', () => {
+      const { inits } = mapMiroItems({
+        items: [
+          { id: 'big', type: 'shape', ...at(500, 500, 1000, 1000), data: { shape: 'rectangle' } },
+          { id: 'small', type: 'shape', ...at(1250, 450, 100, 100), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{
+          id: 'c1', shape: 'straight',
+          startItem: { id: 'big' }, endItem: { id: 'small' },
+          captions: [{ content: '<p>step 1</p>', position: '50%' }],
+        } as any],
+        resolveImageUrl: identity,
+      });
+      const label = inits.find((i) => i.type === 'text')!;
+      // East edge of `big` is (1000, 500); west edge of `small` is (1200, 450).
+      expect(label.frame.x + label.frame.w / 2).toBe(1100);
+      expect(label.frame.y + label.frame.h / 2).toBe(475);
+      // The centre-to-centre midpoint would have been x=875 — inside `big`.
+      expect(label.frame.x + label.frame.w / 2).not.toBe(875);
+    });
+
+    it("styles a caption from the connector's own font size and colour", () => {
+      const { inits } = mapMiroItems({
+        items: [
+          { id: 'a', type: 'shape', ...at(0, 0, 100, 100), data: { shape: 'rectangle' } },
+          { id: 'b', type: 'shape', ...at(400, 0, 100, 100), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{
+          id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' },
+          // Miro puts the caption's typography on the CONNECTOR's style,
+          // beside the stroke fields.
+          style: { strokeColor: '#000000', fontSize: '24', color: '#f24726' },
+          captions: [{ content: '<p>label</p>' }],
+        } as any],
+        resolveImageUrl: identity,
+      });
+      const label = inits.find((i) => i.type === 'text')!;
+      expect(((label as any).data).blocks[0].inlines[0].style)
+        .toMatchObject({ fontSize: 18, color: '#f24726' });
+    });
+
+    it("honours the caption's own position along the line", () => {
+      const { inits } = mapped([{ content: '<p>x</p>', position: '25%' }]);
+      const label = inits.find((i) => i.type === 'text')!;
+      // East edge of `a` is (50, 0); west edge of `b` is (350, 200).
+      expect(label.frame.x + label.frame.w / 2).toBe(125);
+      expect(label.frame.y + label.frame.h / 2).toBe(50);
+    });
+
+    it('falls back to the midpoint when the position is missing or junk', () => {
+      for (const position of [undefined, 'halfway', '']) {
+        const { inits } = mapped([{ content: '<p>x</p>', position }]);
+        const label = inits.find((i) => i.type === 'text')!;
+        expect(label.frame.x + label.frame.w / 2).toBe(200);
+      }
+    });
+
+    it('emits nothing for a caption with no words in it', () => {
+      const { inits, approximated } = mapped([{ content: '<p><br /></p>' }, { content: '' }]);
+      expect(inits.some((i) => i.type === 'text')).toBe(false);
+      expect(approximated['connector-caption']).toBeUndefined();
+    });
+
+    it('emits one label per caption', () => {
+      const { inits, approximated } = mapped([
+        { content: '<p>one</p>', position: '20%' },
+        { content: '<p>two</p>', position: '80%' },
+      ]);
+      expect(inits.filter((i) => i.type === 'text')).toHaveLength(2);
+      expect(approximated['connector-caption']).toBe(2);
+    });
+  });
+
+  describe('connector arrowheads', () => {
+    const withCaps = (style: Record<string, unknown>) =>
+      mapMiroItems({
+        items: [
+          { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+          { id: 'b', type: 'shape', ...at(500, 0), data: { shape: 'rectangle' } },
+        ],
+        connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' }, style }],
+        resolveImageUrl: identity,
+      });
+    const heads = (style: Record<string, unknown>) =>
+      (withCaps(style).inits.find((i) => i.type === 'connector') as any).arrowheads;
+
+    it('distinguishes the filled, open, diamond and circle caps', () => {
+      expect(heads({ startStrokeCap: 'filled_diamond', endStrokeCap: 'arrow' })).toEqual({
+        start: { kind: 'diamond', size: 'md' },
+        end: { kind: 'triangle-open', size: 'md' },
+      });
+      expect(heads({ startStrokeCap: 'unfilled_oval', endStrokeCap: 'rounded_stealth' })).toEqual({
+        start: { kind: 'circle-open', size: 'md' },
+        end: { kind: 'triangle', size: 'md' },
+      });
+    });
+
+    it("honours 'none' on either end", () => {
+      expect(heads({ startStrokeCap: 'none', endStrokeCap: 'none' })).toEqual({});
+      expect(heads({ startStrokeCap: 'none', endStrokeCap: 'stealth' }))
+        .toEqual({ end: { kind: 'triangle', size: 'md' } });
+    });
+
+    // Miro's own defaults for a connector carrying no style: bare at the
+    // start, arrowhead at the end. The two ends read asymmetrically before,
+    // which produced this by accident and looked like a bug.
+    it("applies Miro's own per-end defaults when a cap is absent", () => {
+      expect(heads({})).toEqual({ end: { kind: 'triangle', size: 'md' } });
+    });
+
+    // Crow's-foot notation has no counterpart in the board's four kinds. The
+    // connector really is decorated there, so it degrades rather than vanishes
+    // — and says so.
+    it('degrades an unmodelled cap to a triangle and reports it', () => {
+      const { inits, approximated } = withCaps({
+        startStrokeCap: 'erd_many', endStrokeCap: 'erd_one',
+      });
+      expect((inits.find((i) => i.type === 'connector') as any).arrowheads).toEqual({
+        start: { kind: 'triangle', size: 'md' },
+        end: { kind: 'triangle', size: 'md' },
+      });
+      expect(approximated['arrowhead-kind']).toBe(2);
+    });
+  });
+
+  it('carries dashed and dotted line styles onto the stroke', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        {
+          id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' },
+          style: { borderWidth: '2.0', borderStyle: 'dashed' },
+        },
+        {
+          id: 'b', type: 'shape', ...at(500, 0), data: { shape: 'rectangle' },
+          style: { borderWidth: '2.0', borderStyle: 'dotted' },
+        },
+      ],
+      connectors: [{
+        id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' },
+        style: { strokeWidth: '1.0', strokeStyle: 'dashed' },
+      }],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).stroke.dash).toBe('dashed');
+    expect(((inits[1] as any).data).stroke.dash).toBe('dotted');
+    expect((inits.find((i) => i.type === 'connector') as any).stroke.dash).toBe('dashed');
+  });
+
+  it("leaves dash undefined for Miro's solid, so the renderer default applies", () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' },
+        style: { borderWidth: '2.0', borderStyle: 'normal' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).stroke).not.toHaveProperty('dash');
+  });
+
+  it('carries border opacity onto the stroke color, and drops an invisible border', () => {
+    const partial = mapMiroItems({
+      items: [{
+        id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' },
+        style: { borderWidth: '2.0', borderColor: '#1a1a1a', borderOpacity: '0.5' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((partial.inits[0] as any).data).stroke.color)
+      .toEqual({ kind: 'srgb', value: '#1a1a1a', alpha: 0.5 });
+
+    // A zero-width or fully transparent border is no border at all; writing a
+    // stroke for it would make the renderer set up state it then draws nothing
+    // with.
+    for (const style of [
+      { borderWidth: '0.0', borderColor: '#1a1a1a' },
+      { borderWidth: '2.0', borderColor: '#1a1a1a', borderOpacity: '0.0' },
+    ]) {
+      const { inits } = mapMiroItems({
+        items: [{ id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' }, style }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).stroke).toBeUndefined();
+    }
+  });
+
+  it("carries an item's typography from `style` onto its text", () => {
+    const { inits } = mapMiroItems({
+      items: [
+        {
+          id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle', content: '<p>A</p>' },
+          style: { fontSize: '36', color: '#ffffff', textAlign: 'right', textAlignVertical: 'bottom' },
+        },
+        {
+          id: 't1', type: 'text', ...at(0, 0), data: { content: '<p>B</p>' },
+          style: { fontSize: '14', color: '#808080' },
+        },
+      ],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    const shapeText = ((inits[0] as any).data).text;
+    expect(shapeText.blocks[0].inlines[0].style).toMatchObject({ fontSize: 27, color: '#ffffff' });
+    expect(shapeText.blocks[0].style.alignment).toBe('right');
+    expect(shapeText.verticalAnchor).toBe('bottom');
+
+    const textBlocks = ((inits[1] as any).data).blocks;
+    expect(textBlocks[0].inlines[0].style).toMatchObject({ fontSize: 10.5, color: '#808080' });
+  });
+
+  // Miro omits `geometry.height` on text (the box auto-sizes to its content),
+  // and it positions by CENTRE — so the old generic 100px fallback pushed 43%
+  // of a real board's items ~50px above where they belonged.
+  it('sizes a height-less text item from its content, about the same centre', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 't1', type: 'text',
+        position: { x: 94, y: 91 }, geometry: { width: 77 },
+        data: { content: '<p>CodeMirror</p>' },
+        style: { fontSize: '14' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    const { frame } = inits[0];
+    // One 14px line at the docs default 1.5 line height.
+    expect(frame.h).toBe(21);
+    expect(frame.w).toBe(77);
+    // The centre Miro gave is preserved, which the 100px box did not do.
+    expect(frame.y + frame.h / 2).toBe(91);
+    expect(frame.y).toBe(80.5);
+    // The estimate cannot know about wrapping, so the residual error is spread
+    // symmetrically rather than pushed downward.
+    expect(((inits[0] as any).data).verticalAnchor).toBe('middle');
+  });
+
+  it('grows the estimate with the paragraph count and the font size', () => {
+    const height = (content: string, fontSize: string) =>
+      mapMiroItems({
+        items: [{
+          id: 't1', type: 'text',
+          position: { x: 0, y: 0 }, geometry: { width: 200 },
+          data: { content }, style: { fontSize },
+        }],
+        connectors: [],
+        resolveImageUrl: identity,
+      }).inits[0].frame.h;
+
+    expect(height('<p>Two</p><p>Lines</p>', '14')).toBeGreaterThan(height('<p>One</p>', '14'));
+    expect(height('<p>Big</p>', '36')).toBeGreaterThan(height('<p>Big</p>', '14'));
+  });
+
+  // The corrected height has to reach the frame table connectors resolve
+  // against, not just the emitted element — otherwise anything anchored to a
+  // text item's top or bottom edge uses the discarded 100-unit placeholder.
+  it('resolves a connector against the text item it actually emitted', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        {
+          id: 'label', type: 'text',
+          position: { x: 0, y: 0 }, geometry: { width: 200 },
+          data: { content: '<p>x</p>' }, style: { fontSize: '14' },
+        },
+        // Directly below, so both ends resolve to the vertical (N/S) sites.
+        { id: 'box', type: 'shape', ...at(0, 1000, 100, 100), data: { shape: 'rectangle' } },
+      ],
+      connectors: [{
+        id: 'c1', startItem: { id: 'label' }, endItem: { id: 'box' },
+        captions: [{ content: '<p>y</p>', position: '0%' }],
+      } as any],
+      resolveImageUrl: identity,
+    });
+    // The label is 21 tall about y=0, so its south edge is 10.5 — not the
+    // placeholder box's 50.
+    const caption = inits.find(
+      (i) => i.type === 'text' && ((i as any).data).blocks[0].inlines[0].text === 'y',
+    )!;
+    expect(caption.frame.y + caption.frame.h / 2).toBe(10.5);
+  });
+
+  it('trusts a height Miro DID report rather than estimating over it', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 't1', type: 'text', ...at(0, 0, 200, 400),
+        data: { content: '<p>Sized</p>' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(inits[0].frame).toMatchObject({ h: 400, y: -200 });
+  });
+
+  it("keeps Miro's middle default when a shape names no vertical alignment", () => {
+    const { inits } = mapMiroItems({
+      items: [{ id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).text.verticalAnchor).toBe('middle');
+  });
+
+  // Transparent is the NORM on a real board (81% of the reference board's
+  // items), so importing it as opaque white both hid the shape and painted
+  // over whatever was behind it.
+  it('omits the fill for a shape Miro reports as transparent', () => {
+    for (const style of [
+      { fillColor: '#ffffff', fillOpacity: '0.0' },
+      { fillColor: 'transparent' },
+    ]) {
+      const { inits } = mapMiroItems({
+        items: [{ id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' }, style }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).fill).toBeUndefined();
+    }
+  });
+
+  // Miro flags some items `isSupported: false` and sends them with no `style`
+  // block at all. Inventing a white fill for those puts an invisible box on
+  // the canvas that also hides whatever it is drawn over — the exact damage
+  // the transparency handling above exists to stop.
+  it('invents no fill for a shape that reports no fill information', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0) },
+        { id: 'b', type: 'shape', ...at(0, 0), style: { borderWidth: '2.0' } },
+      ],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).fill).toBeUndefined();
+    expect(((inits[1] as any).data).fill).toBeUndefined();
+  });
+
+  it('carries a partial fill opacity onto the color alpha', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 'sh1', type: 'shape', ...at(0, 0),
+        data: { shape: 'rectangle' },
+        style: { fillColor: '#2d9bf0', fillOpacity: '0.3' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).fill).toEqual({ kind: 'srgb', value: '#2d9bf0', alpha: 0.3 });
+  });
+
+  it('still fills an opaque shape, and one that reports no opacity at all', () => {
+    for (const style of [
+      { fillColor: '#8fd14f', fillOpacity: '1.0' },
+      { fillColor: '#8fd14f' },
+    ]) {
+      const { inits } = mapMiroItems({
+        items: [{ id: 'sh1', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' }, style }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).fill).toEqual({ kind: 'srgb', value: '#8fd14f' });
+    }
+  });
+
+  // `Number('')` is 0, so a blank/absent value must be rejected BEFORE the
+  // conversion — otherwise a missing border width becomes a real zero.
+  it('treats a blank or unparseable border width as absent, not as zero', () => {
+    for (const borderWidth of ['', '   ', 'thick', null, []]) {
+      const { inits } = mapMiroItems({
+        items: [{
+          id: 'sh1', type: 'shape', ...at(0, 0),
+          data: { shape: 'rectangle' }, style: { borderWidth },
+        }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).stroke).toBeUndefined();
+    }
+  });
+
   it('maps a text item to a text element', () => {
     const { inits } = mapMiroItems({
       items: [{ id: 't1', type: 'text', ...at(0, 0), data: { content: '<p>Words</p>' } }],

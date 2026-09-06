@@ -48,6 +48,18 @@ export function miroFrame(
 }
 
 /**
+ * Swap a frame's height while keeping its CENTRE fixed.
+ *
+ * Miro positions every item by its centre, so replacing a guessed height has
+ * to preserve that centre — assigning `h` alone would anchor the item by its
+ * top-left and move it by half the difference. Used for text items, whose
+ * height Miro does not report at all.
+ */
+export function resizeAboutCentre(frame: Frame, h: number): Frame {
+  return { ...frame, y: frame.y + frame.h / 2 - h / 2, h };
+}
+
+/**
  * Whether Miro expressed this position against the PARENT'S TOP-LEFT rather
  * than the canvas centre.
  *
@@ -88,9 +100,9 @@ function isParentRelative(item: MiroFramedLike): boolean {
  * rather than misplacing them silently.
  *
  * The walk is iterative, not recursive: `MiroService.MAX_ITEMS` allows a
- * 5,000-long parent chain, which is within a browser's stack limit, and this
- * runs in the browser. Each chain is resolved top-down and memoised, so an
- * item is converted once however deep it sits.
+ * 10,000-long parent chain, which is past what a browser's stack would take,
+ * and this runs in the browser. Each chain is resolved top-down and memoised,
+ * so an item is converted once however deep it sits.
  */
 export function resolveMiroFrames(items: MiroFramedLike[]): {
   frames: Map<string, Frame>;

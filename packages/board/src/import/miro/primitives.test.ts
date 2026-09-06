@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { miroFrame, resolveMiroFrames } from './geometry';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
-import { miroHtmlToBlocks } from './text';
+import { miroAlignment, miroFontSizePt, miroHtmlToBlocks } from './text';
 
 describe('miroFrame', () => {
   it('converts a center position + degrees into a top-left frame in radians', () => {
@@ -155,12 +155,14 @@ describe('resolveMiroFrames', () => {
   });
 
   it('resolves a chain as long as the import ceiling without exhausting the stack', () => {
-    // `MiroService.MAX_ITEMS` is 5000, so a payload can carry a parent chain
+    // `MiroService.MAX_ITEMS` is 10000, so a payload can carry a parent chain
     // that long. A recursive walk overflowed near this depth — in the browser,
-    // where the limit is lower still — and took the whole import with it.
+    // where the limit is lower still — and took the whole import with it. The
+    // length tracks the ceiling deliberately: raising the ceiling without
+    // re-checking the walk is how that regression would return.
     const items = [
       { id: 'root', position: { x: 1000, y: 0 }, geometry: { width: 0, height: 0 } },
-      ...Array.from({ length: 5000 }, (_, i) => ({
+      ...Array.from({ length: 10000 }, (_, i) => ({
         id: `n${i}`,
         position: { x: 1, y: 0 },
         geometry: { width: 0, height: 0 },
@@ -169,7 +171,7 @@ describe('resolveMiroFrames', () => {
     ];
     const { frames, orphans } = resolveMiroFrames(items);
     expect(orphans.size).toBe(0);
-    expect(frames.get('n4999')).toMatchObject({ x: 6000, y: 0 });
+    expect(frames.get('n9999')).toMatchObject({ x: 11000, y: 0 });
   });
 
   it('resolves a chain the same way whichever end of it arrives first', () => {
@@ -255,5 +257,64 @@ describe('miroHtmlToBlocks', () => {
   it('returns a single empty paragraph for empty or missing content', () => {
     expect(miroHtmlToBlocks(undefined)).toHaveLength(1);
     expect(miroHtmlToBlocks('')).toHaveLength(1);
+  });
+
+  it('applies the item-level size, color and alignment Miro keeps outside the HTML', () => {
+    const blocks = miroHtmlToBlocks('<p>Hello</p>', {
+      fontSize: 10.5,
+      color: '#808080',
+      alignment: 'center',
+    });
+    expect(blocks[0].style.alignment).toBe('center');
+    expect(blocks[0].inlines[0].style).toMatchObject({ fontSize: 10.5, color: '#808080' });
+  });
+
+  it('lets inline markup win over the item-level base on the axis it names', () => {
+    const blocks = miroHtmlToBlocks('<p>a<strong>b</strong></p>', { fontSize: 18, color: '#f00' });
+    const bold = blocks[0].inlines.find((i) => i.text === 'b');
+    expect(bold?.style.bold).toBe(true);
+    // ...and inherits the axes it says nothing about.
+    expect(bold?.style).toMatchObject({ fontSize: 18, color: '#f00' });
+  });
+
+  // An explicit `undefined` reads as "clear this axis" to the docs style
+  // merge, so an unstyled import must omit the keys rather than write them.
+  it('omits unset axes rather than writing them as undefined', () => {
+    const blocks = miroHtmlToBlocks('<p>Hello</p>');
+    expect(blocks[0].inlines[0].style).not.toHaveProperty('fontSize');
+    expect(blocks[0].inlines[0].style).not.toHaveProperty('color');
+  });
+
+  it('carries the base onto an empty item too, so its caret is styled', () => {
+    const blocks = miroHtmlToBlocks('', { fontSize: 27, color: '#123456' });
+    expect(blocks[0].inlines[0].style).toMatchObject({ fontSize: 27, color: '#123456' });
+  });
+});
+
+describe('miroFontSizePt', () => {
+  // Miro reports CSS pixels; `InlineStyle.fontSize` is points.
+  it('converts pixels to points', () => {
+    expect(miroFontSizePt(14)).toBe(10.5);
+    expect(miroFontSizePt(36)).toBe(27);
+  });
+
+  it('rejects a missing or non-positive size rather than inventing one', () => {
+    expect(miroFontSizePt(undefined)).toBeUndefined();
+    expect(miroFontSizePt(0)).toBeUndefined();
+    expect(miroFontSizePt(-1)).toBeUndefined();
+  });
+});
+
+describe('miroAlignment', () => {
+  it('passes through the alignments the docs model shares with Miro', () => {
+    expect(miroAlignment('left')).toBe('left');
+    expect(miroAlignment('center')).toBe('center');
+    expect(miroAlignment('right')).toBe('right');
+    expect(miroAlignment('justify')).toBe('justify');
+  });
+
+  it('yields undefined for anything else, so the block default applies', () => {
+    expect(miroAlignment(undefined)).toBeUndefined();
+    expect(miroAlignment('middle')).toBeUndefined();
   });
 });

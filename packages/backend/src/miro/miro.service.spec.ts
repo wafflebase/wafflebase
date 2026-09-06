@@ -113,6 +113,54 @@ describe('MiroService.importBoard', () => {
     );
   });
 
+  // "truncated at 10000" reads the same whether the board lost two items or
+  // half of itself. Miro puts a board-wide count on every page, so the note
+  // can carry the denominator.
+  it('carries the feed total so the truncation says how much was lost', async () => {
+    const page = {
+      data: Array.from({ length: 50 }, (_, i) => ({ id: `i${i}`, type: 'shape' })),
+      cursor: 'MORE',
+      total: 8888,
+    };
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(page)) as unknown as typeof fetch;
+
+    const { service } = makeService();
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({
+        reason: 'truncated',
+        itemType: 'items',
+        count: MiroService.MAX_ITEMS,
+        total: 8888,
+      }),
+    );
+  });
+
+  // The denominator is a nicety, not a contract — an upstream that stops
+  // sending it must degrade to the old wording, not to `total: NaN`.
+  it('omits the total when Miro does not report one', async () => {
+    const page = {
+      data: Array.from({ length: 50 }, (_, i) => ({ id: `i${i}`, type: 'shape' })),
+      cursor: 'MORE',
+      total: 'lots',
+    };
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(page)) as unknown as typeof fetch;
+
+    const { service } = makeService();
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    const note = result.notes.find(
+      (n) => n.reason === 'truncated' && n.itemType === 'items',
+    );
+    expect(note).toBeDefined();
+    expect(note).not.toHaveProperty('total');
+  });
+
   it('stops when a page is empty but still advertises a cursor', async () => {
     // A stuck cursor: every page claims there is more but delivers nothing.
     // Without a no-forward-progress guard the item ceiling never trips

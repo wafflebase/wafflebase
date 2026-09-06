@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   describeApproximation,
   describeNote,
+  describeSkip,
   pluralizeSkipLabel,
   summarizeImport,
 } from "./miro-import-summary";
@@ -50,6 +51,21 @@ describe("summarizeImport", () => {
     expect(summary).not.toMatch(/failed/i);
   });
 
+  // The reason clauses used to be joined into the item-type list, which
+  // appends one trailing "skipped" — yielding "…was not imported skipped".
+  it("reads grammatically when item types and drop reasons are both present", () => {
+    const summary = summarizeImport({
+      skipped: { table: 32, "connector-free-end": 915, connector: 229 },
+      notes: [],
+    })!;
+    expect(summary).toBe(
+      "32 tables skipped; " +
+        "915 connectors skipped — not attached at both ends in Miro; " +
+        "229 connectors skipped — their target was not imported",
+    );
+    expect(summary).not.toMatch(/imported skipped/);
+  });
+
   it("combines mapper skips with backend notes", () => {
     const summary = summarizeImport({ skipped: { connector: 3, embed: 1 }, notes: [
       { reason: "image-failed", itemType: "image", count: 2 },
@@ -57,13 +73,14 @@ describe("summarizeImport", () => {
     ] });
 
     expect(summary).toContain("3 connectors");
+    expect(summary).toContain("their target was not imported");
     expect(summary).toContain("1 embed");
     expect(summary).toContain("2 image(s) failed");
     expect(summary).toMatch(/truncated/i);
   });
 
   it("still warns when only mapper skips are present", () => {
-    expect(summarizeImport({ skipped: { connector: 2 }, notes: [] })).toBe("2 connectors skipped");
+    expect(summarizeImport({ skipped: { embed: 2 }, notes: [] })).toBe("2 embeds skipped");
   });
 
   it("words an approximation as imported-but-degraded, not as a skip", () => {
@@ -108,10 +125,87 @@ describe("describeApproximation", () => {
     expect(text).not.toContain("skipped");
   });
 
+  it("words the connector degradations as imported-but-detached", () => {
+    expect(describeApproximation("connector-caption", 5)).toMatch(/text box/i);
+    expect(describeApproximation("connector-caption", 5)).not.toContain("skipped");
+    expect(describeApproximation("arrowhead-kind", 2)).toMatch(/arrow/i);
+  });
+
   it("falls back to a generic wording for an unknown degradation kind", () => {
     expect(describeApproximation("some-future-kind", 3)).toContain(
       "some-future-kind",
     );
+  });
+});
+
+describe("truncation reporting", () => {
+  // "truncated at 5000" reads identically whether two items were lost or half
+  // the board was, and only one of those is worth telling someone about.
+  it("names the fraction that was left behind", () => {
+    const text = describeNote({
+      reason: "truncated", itemType: "items", count: 5000, total: 8888,
+    });
+    expect(text).toContain("5000");
+    expect(text).toContain("8888");
+  });
+
+  it("keeps the old wording when Miro reported no total", () => {
+    const text = describeNote({ reason: "truncated", itemType: "items", count: 5000 });
+    expect(text).toContain("5000");
+    expect(text).toMatch(/limit/);
+  });
+
+  // Everything else in the summary says "one detail came across wrong". These
+  // say "you do not have all of it", so they must not be buried behind a
+  // hundred characters of detail notes.
+  it("leads the summary with an incomplete import, ahead of every detail", () => {
+    const summary = summarizeImport({
+      skipped: { "connector-free-end": 915, table: 32 },
+      approximated: { "shape-kind": 51 },
+      notes: [
+        { reason: "image-failed", itemType: "image", count: 2 },
+        { reason: "truncated", itemType: "items", count: 5000, total: 8888 },
+      ],
+    })!;
+    expect(summary.indexOf("8888")).toBeLessThan(summary.indexOf("915"));
+    expect(summary.indexOf("8888")).toBeLessThan(summary.indexOf("image(s) failed"));
+    // ...and it is still reported exactly once.
+    expect(summary.match(/8888/g)).toHaveLength(1);
+  });
+
+  it("leads with a stalled feed for the same reason", () => {
+    const summary = summarizeImport({
+      skipped: { embed: 4 },
+      notes: [{ reason: "stalled", itemType: "items", count: 120 }],
+    })!;
+    expect(summary.indexOf("stopped returning")).toBeLessThan(summary.indexOf("4 embeds"));
+  });
+});
+
+describe("describeSkip", () => {
+  // A connector Miro itself left dangling and one whose target we did not
+  // import are different facts. Neither wording promises a remedy: the second
+  // has two causes (unsupported type / past the ceiling) and only one of them
+  // is recoverable, so it names the cause and leaves the truncation note to
+  // say whether the ceiling was involved.
+  it("tells the two connector drop reasons apart", () => {
+    const free = describeSkip("connector-free-end", 915)!;
+    const unmapped = describeSkip("connector", 229)!;
+    expect(free).toContain("915 connectors");
+    expect(free).toMatch(/Miro/);
+    expect(unmapped).toContain("229 connectors");
+    expect(unmapped).toMatch(/not imported/);
+    expect(free).not.toBe(unmapped);
+  });
+
+  // These carry their own "skipped" because they cannot be grouped with the
+  // item types, which share one trailing "skipped" between them.
+  it("returns a complete clause for a reason key", () => {
+    expect(describeSkip("connector-free-end", 2)).toMatch(/ skipped /);
+  });
+
+  it("declines an ordinary item type, leaving it to the grouped list", () => {
+    expect(describeSkip("embed", 3)).toBeNull();
   });
 });
 
