@@ -9,7 +9,32 @@ import type { MiroImportInput, MiroItemLike, MiroMapResult } from './types';
 const SUPPORTED = new Set(['sticky_note', 'shape', 'text', 'image', 'frame', 'card', 'app_card']);
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
-const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+
+/**
+ * Read a number that Miro may have sent as a string.
+ *
+ * The REST API serialises every numeric field under `style` as a STRING —
+ * `borderWidth: "2.0"`, `strokeWidth: "1.0"`, `fontSize: "21"`,
+ * `fillOpacity: "0.0"` — even though the sibling `geometry` and `position`
+ * objects really do carry numbers. A `typeof v === 'number'` guard therefore
+ * discarded every style number a real board has: `borderWidth && borderWidth > 0`
+ * never fired, so on the reference board 4,383 shapes imported with no outline
+ * at all. Combined with an opaque default fill that made them blank boxes.
+ *
+ * It went unnoticed because the unit fixtures hand-wrote `borderWidth: 3` as a
+ * number, a shape the API never actually produces.
+ *
+ * Bare `Number()` is not enough on its own: it maps `''`, `'  '`, `null` and
+ * `[]` to 0, which would turn an ABSENT width into a real zero and an absent
+ * opacity into "fully transparent". So only a non-blank string is converted,
+ * and only a finite result is returned.
+ */
+function num(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  if (typeof v !== 'string' || v.trim() === '') return undefined;
+  const parsed = Number(v);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 /** Miro connector `shape` → the board's connector routing. */
 function routingOf(shape: string | undefined): 'straight' | 'elbow' | 'curved' {

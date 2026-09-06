@@ -42,6 +42,55 @@ describe('mapMiroItems', () => {
     expect(inits[0].frame).toMatchObject({ x: -10, y: 0, w: 40, h: 20 });
   });
 
+  // The API sends every `style` number as a string. Asserted verbatim rather
+  // than as a tidied fixture, because the tidied fixture above is exactly what
+  // hid this: a real board's borders were all being thrown away.
+  it('reads a border width that arrived as a string, as the API sends it', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 'sh1', type: 'shape', ...at(0, 0),
+        data: { shape: 'rectangle' },
+        style: { fillColor: '#ffffff', borderColor: '#1a1a1a', borderWidth: '2.0' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(((inits[0] as any).data).stroke).toMatchObject({ color: '#1a1a1a', width: 2 });
+  });
+
+  it('reads a connector stroke width that arrived as a string', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'b', type: 'shape', ...at(500, 0), data: { shape: 'rectangle' } },
+      ],
+      connectors: [{
+        id: 'c1', shape: 'straight',
+        startItem: { id: 'a' }, endItem: { id: 'b' },
+        style: { strokeWidth: '4.0', strokeColor: '#f24726' },
+      }],
+      resolveImageUrl: identity,
+    });
+    const connector = inits.find((i) => i.type === 'connector') as any;
+    expect(connector.stroke).toEqual({ color: '#f24726', width: 4 });
+  });
+
+  // `Number('')` is 0, so a blank/absent value must be rejected BEFORE the
+  // conversion — otherwise a missing border width becomes a real zero.
+  it('treats a blank or unparseable border width as absent, not as zero', () => {
+    for (const borderWidth of ['', '   ', 'thick', null, []]) {
+      const { inits } = mapMiroItems({
+        items: [{
+          id: 'sh1', type: 'shape', ...at(0, 0),
+          data: { shape: 'rectangle' }, style: { borderWidth },
+        }],
+        connectors: [],
+        resolveImageUrl: identity,
+      });
+      expect(((inits[0] as any).data).stroke).toBeUndefined();
+    }
+  });
+
   it('maps a text item to a text element', () => {
     const { inits } = mapMiroItems({
       items: [{ id: 't1', type: 'text', ...at(0, 0), data: { content: '<p>Words</p>' } }],
