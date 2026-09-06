@@ -80,6 +80,27 @@ describe('mapMiroItems', () => {
 
   // The board has no caption model, and captions were dropped without even
   // being counted — on a process diagram that loses the step labels.
+  // Both are dropped connectors, but only one of them is something the user
+  // could act on by re-importing, so they are counted apart.
+  it('separates a Miro-dangling connector from one whose target we did not map', () => {
+    const { skipped } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'e', type: 'embed', ...at(200, 0) },
+      ],
+      connectors: [
+        // Dangling in Miro itself — no id on either end.
+        { id: 'c1', startItem: { id: 'a' }, endItem: {} },
+        { id: 'c2', endItem: { id: 'a' } },
+        // Points at an item we skipped.
+        { id: 'c3', startItem: { id: 'a' }, endItem: { id: 'e' } },
+      ],
+      resolveImageUrl: identity,
+    });
+    expect(skipped['connector-free-end']).toBe(2);
+    expect(skipped['connector']).toBe(1);
+  });
+
   describe('connector captions', () => {
     const mapped = (captions: unknown[]) =>
       mapMiroItems({

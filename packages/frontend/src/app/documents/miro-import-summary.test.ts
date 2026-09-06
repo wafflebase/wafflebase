@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   describeApproximation,
   describeNote,
+  describeSkip,
   pluralizeSkipLabel,
   summarizeImport,
 } from "./miro-import-summary";
@@ -57,13 +58,14 @@ describe("summarizeImport", () => {
     ] });
 
     expect(summary).toContain("3 connectors");
+    expect(summary).toContain("whose target was not imported");
     expect(summary).toContain("1 embed");
     expect(summary).toContain("2 image(s) failed");
     expect(summary).toMatch(/truncated/i);
   });
 
   it("still warns when only mapper skips are present", () => {
-    expect(summarizeImport({ skipped: { connector: 2 }, notes: [] })).toBe("2 connectors skipped");
+    expect(summarizeImport({ skipped: { embed: 2 }, notes: [] })).toBe("2 embeds skipped");
   });
 
   it("words an approximation as imported-but-degraded, not as a skip", () => {
@@ -108,10 +110,34 @@ describe("describeApproximation", () => {
     expect(text).not.toContain("skipped");
   });
 
+  it("words the connector degradations as imported-but-detached", () => {
+    expect(describeApproximation("connector-caption", 5)).toMatch(/text box/i);
+    expect(describeApproximation("connector-caption", 5)).not.toContain("skipped");
+    expect(describeApproximation("arrowhead-kind", 2)).toMatch(/arrow/i);
+  });
+
   it("falls back to a generic wording for an unknown degradation kind", () => {
     expect(describeApproximation("some-future-kind", 3)).toContain(
       "some-future-kind",
     );
+  });
+});
+
+describe("describeSkip", () => {
+  // A connector Miro itself left dangling and one whose target we did not
+  // import are different facts, and only the second is worth re-importing for.
+  it("tells the two connector drop reasons apart", () => {
+    const free = describeSkip("connector-free-end", 915);
+    const unmapped = describeSkip("connector", 229);
+    expect(free).toContain("915 connectors");
+    expect(free).toMatch(/Miro/);
+    expect(unmapped).toContain("229 connectors");
+    expect(unmapped).toMatch(/not imported/);
+    expect(free).not.toBe(unmapped);
+  });
+
+  it("leaves an ordinary item type as a bare plural", () => {
+    expect(describeSkip("embed", 3)).toBe("3 embeds");
   });
 });
 

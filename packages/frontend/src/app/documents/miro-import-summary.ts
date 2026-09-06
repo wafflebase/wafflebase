@@ -19,6 +19,29 @@ export function pluralizeSkipLabel(type: string, count: number): string {
 }
 
 /**
+ * Wording for one `skipped` entry.
+ *
+ * Most keys really are Miro item types and read fine as a bare plural. The
+ * connector keys are not: they name WHY a connector was dropped, and the two
+ * reasons call for different reactions from the user. A connector with a
+ * dangling end was already dangling in Miro and nothing could have saved it;
+ * a connector whose target we did not map is ours — the item was an
+ * unsupported type or fell past the import ceiling — and re-importing a
+ * smaller board would fix it. Rendered as a bare plural they were
+ * indistinguishable.
+ */
+export function describeSkip(type: string, count: number): string {
+  switch (type) {
+    case "connector-free-end":
+      return `${pluralizeSkipLabel("connector", count)} not attached at both ends in Miro`;
+    case "connector":
+      return `${pluralizeSkipLabel("connector", count)} whose target was not imported`;
+    default:
+      return pluralizeSkipLabel(type, count);
+  }
+}
+
+/**
  * Human wording for a backend import note.
  *
  * The `default` arm is the important one. `MiroImportNote.reason` is a plain
@@ -66,6 +89,14 @@ export function describeApproximation(kind: string, count: number): string {
       // anything descended from either land here too, with the frame itself
       // present. So the wording names the unresolved frame, not a missing one.
       return `${count} item(s) may be misplaced — their Miro frame could not be resolved`;
+    case "arrowhead-kind":
+      // Miro's ERD crow's-foot notation has no counterpart among the board's
+      // arrowhead kinds, so the line keeps a head but not the right one.
+      return `${count} connector end(s) with an unsupported Miro arrowhead imported as plain arrows`;
+    case "connector-caption":
+      // The board has no caption model, so the words survive as an ordinary
+      // text element — which will not follow the connector when it moves.
+      return `${count} connector label(s) imported as separate text boxes`;
     default:
       return `${count} ${kind} approximated`;
   }
@@ -101,7 +132,7 @@ export function summarizeImport(input: ImportSummaryInput): string | null {
   if (skippedTotal) {
     parts.push(
       Object.entries(skipped)
-        .map(([type, count]) => pluralizeSkipLabel(type, count))
+        .map(([type, count]) => describeSkip(type, count))
         .join(", ") + " skipped",
     );
   }

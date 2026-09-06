@@ -531,8 +531,15 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     // be guessed — and the guess lands at the world origin, which for a board
     // sitting far from (0, 0) draws a long stray line across the import.
     // Reporting the connector is honest; inventing a position is not.
+    //
+    // The two ways that happens are different facts about the import and are
+    // counted apart. An end with NO item id is dangling in Miro itself — 915
+    // of the reference board's 1,994 connectors, and nothing on our side could
+    // have kept them. An end that names an item we did not map is ours: the
+    // item was an unsupported type, or fell past the import's item ceiling.
+    // Folding them together made a truncated import look like a Miro problem.
     if (!startElement || !endElement) {
-      bump('connector');
+      bump(!startId || !endId ? 'connector-free-end' : 'connector');
       continue;
     }
 
