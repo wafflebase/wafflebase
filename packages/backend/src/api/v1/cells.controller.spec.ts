@@ -3,6 +3,7 @@ import {
   createSpreadsheetDocument,
   getWorksheetCell,
   parseRef,
+  writeWorksheetCell,
 } from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import { ApiV1CellsController } from './cells.controller';
@@ -62,6 +63,26 @@ describe('ApiV1CellsController initialRoot', () => {
       cells: { A1: { value: '1' } },
     });
     expect(lastInitialRoot()?.tabOrder).toEqual(['tab-1']);
+  });
+
+  // The read path's own body: every other `getCell` case in this file (and in
+  // sheet-document.util.spec.ts) refuses before the attach, so without this one
+  // the ref hoisted out of the Yorkie callback is never actually used to read.
+  it('getCell reads the stored cell through the hoisted ref', async () => {
+    writeWorksheetCell(root.sheets['tab-1'], parseRef('B2'), {
+      v: '42',
+      f: '=A1+1',
+      s: { b: true },
+    });
+
+    await expect(controller.getCell(WS, DOC, 'tab-1', 'B2')).resolves.toEqual({
+      ref: 'B2',
+      value: '42',
+      formula: '=A1+1',
+      style: { b: true },
+    });
+    expect(lastOptions()?.syncMode).toBe('readonly');
+    expect(lastOptions()?.initialRoot).toBeUndefined();
   });
 
   it('getCells (read) is readonly and does NOT seed', async () => {

@@ -138,6 +138,47 @@ describe('cells batch', () => {
     });
   });
 
+  // stdin is the input the issue reproduced with, and the only one that says
+  // "on stdin" rather than "in --data". Both were untested.
+  function withStdin(payload: string): () => void {
+    const original = Object.getOwnPropertyDescriptor(process, 'stdin')!;
+    Object.defineProperty(process, 'stdin', {
+      configurable: true,
+      value: (async function* () {
+        yield Buffer.from(payload);
+      })(),
+    });
+    return () => Object.defineProperty(process, 'stdin', original);
+  }
+
+  it('unwraps an already-enveloped payload read from stdin', async () => {
+    const restore = withStdin('{"cells":{"A1":{"value":"1"}}}');
+    try {
+      await run(['sheets', 'cells', 'batch', 'doc-1']);
+    } finally {
+      restore();
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body).toEqual({ cells: { A1: { value: '1' } } });
+  });
+
+  it('names stdin, not --data, when the stdin payload is not an object', async () => {
+    const restore = withStdin('null');
+    try {
+      await run(['sheets', 'cells', 'batch', 'doc-1']);
+    } finally {
+      restore();
+    }
+
+    expect(JSON.parse(lastStderr()).error.message).toBe(
+      'Cell data on stdin must be a JSON object mapping A1 references to cell data',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
   // Valid JSON of the wrong shape. Reporting these through the parse catch
   // would send the caller looking for a syntax error that isn't there.
   it.each([
