@@ -75,12 +75,18 @@ alignment) apply normally.
 Because the *whole run* is replaced, a page-number inline must describe exactly
 one page number and nothing else. That makes it a **structural inline**, the
 same category as an image (`isStructuralInline` in `model/types.ts`), and it
-carries that category's insertion rule: **typing next to one splits the run**,
-so the typed text lands in its own inline without the structural style rather
-than being absorbed into it. Absorbed text is text the renderer can never draw
-— the run is replaced by the page's number regardless of how many characters
-it holds — while the offsets keep counting it, so the caret advances over
-characters that are absent from the screen.
+carries that category's insertion rule: **typed text lands beside the run,
+never inside it** — in its own inline, without the structural style. Absorbed
+text is text the renderer can never draw — the run is replaced by the page's
+number regardless of how many characters it holds — while the offsets keep
+counting it, so the caret advances over characters that are absent from the
+screen.
+
+Beside, and the run itself is never cut in two: two runs carrying `pageNumber`
+paint the page number twice. A well-formed one holds a single `"#"` and there
+is nothing to cut, but a document edited before this rule existed holds runs
+that absorbed text, and those are exactly the documents the rule has to be
+right about. The typed text goes wholly before or after such a run.
 
 The rule is enforced twice, because an edit is carried through two separate
 code paths: `applyInsertText` (`store/block-helpers.ts`) updates the cache the

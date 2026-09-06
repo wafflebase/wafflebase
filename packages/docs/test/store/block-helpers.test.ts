@@ -552,4 +552,21 @@ describe('applyInsertText — structural inlines never absorb text', () => {
     expect(result.inlines[1].text).toBe('abc');
     expect(result.inlines[1].style.image).toBeUndefined();
   });
+
+  it('never cuts a page-number run that already absorbed text into two', () => {
+    // Every document edited before this rule existed holds runs like this
+    // one, which is the population the fix is for. Cutting it at the caret
+    // would leave TWO runs carrying `pageNumber`, and the renderer replaces
+    // each of them whole with the page's number — so one page number would
+    // become two on screen. It also disagrees with the Yorkie tree, which
+    // inserts the new node after the run rather than through it.
+    const block = makeBlock({ text: '#abc', style: { pageNumber: true } });
+    const result = applyInsertText(block, 2, 'X');
+
+    expect(result.inlines.filter((i) => i.style.pageNumber)).toHaveLength(1);
+    expect(result.inlines).toEqual([
+      { text: '#abc', style: { pageNumber: true } },
+      { text: 'X', style: {} },
+    ]);
+  });
 });
