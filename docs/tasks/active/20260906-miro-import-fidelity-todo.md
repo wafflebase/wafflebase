@@ -120,7 +120,7 @@ loudly.
 
 ## Review
 
-Landed as 13 commits on `fix/miro-import-fidelity`, one per finding, each with
+Landed as 17 commits on `fix/miro-import-fidelity`, one per finding, each with
 `pnpm verify:fast` green.
 
 **Blocking (1–3).** `num()` now parses numeric strings; a transparent Miro
@@ -151,9 +151,26 @@ not regressions.
 `applyBoardElements` writes every non-connector before every connector and
 z-order is array order. Documented in `docs/design/board/board-miro-import.md`.
 
-**Self-review round.** A review of the branch found five defects in the new
-code — captions placed on the centre-to-centre chord rather than the real
-site-to-site line, captions ignoring the typography Miro puts on the connector
-style, a style-less shape still becoming an opaque white box, an ungrammatical
-"…their target was not imported skipped", and two comments the branch had made
-false. All five fixed in `c57133683`.
+**Self-review rounds.** Three passes over the branch diff, each finding real
+defects in the new code.
+
+*Round 1* (`c57133683`) — captions placed on the centre-to-centre chord rather
+than the real site-to-site line; captions ignoring the typography Miro puts on
+the connector style; a style-less shape still becoming an opaque white box; an
+ungrammatical "…their target was not imported skipped"; two comments the branch
+had made false.
+
+*Round 2* (`7e1eca4a4`, `e62a1b3a2`) — the corrected text height never reached the
+`frames` table connectors resolve against, so anything meeting a text item from
+above or below used the discarded 100-unit placeholder. And, following that
+thread, a **pre-existing** defect the branch was about to import into new code:
+`pickConnectorSite` returned a bare cardinal index, which is only correct for
+the default four-site list. An `ellipse` has eight sites whose index 1 is NW —
+so all 722 of the board's circles were attaching connectors to the wrong side
+and bowing them along the wrong normal. Fixed by choosing a *direction* and
+resolving it against the target's real site list, via two new
+`@wafflebase/slides` exports rather than a local copy of the site geometry.
+
+*Round 3* (`45866b38f`) — clean on the substance; closed the two gaps it named
+(an explicit Miro offset can now reach an ellipse's diagonal sites, and the
+board no longer keeps its own copy of the `DIR_*` angles).

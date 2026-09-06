@@ -66,10 +66,31 @@ user what to do next.** The corollary bit on the way out — a key that names a
 *reason* rather than a *type* stops composing with wording built for types, and
 produced "…their target was not imported skipped" until the review caught it.
 
+## An index into someone else's list is a coupling, not a value
+
+`pickConnectorSite` returned `0 | 1 | 2 | 3` and called them N/E/S/W. That is
+true of the *default* connection-site list and of nothing else: an `ellipse`
+has eight sites whose index 1 is NW. Every Miro circle — 722 of them — had its
+connectors attached to the wrong side and bowed along the wrong outward normal,
+and the rect family hid it completely, because there a cardinal and its index
+happen to coincide.
+
+The shape of the bug is worth remembering: **a bare index is meaningless
+without the list it indexes**, so passing one across a module boundary silently
+hard-codes the callee's current shape. The fix was to move up one level of
+abstraction — choose a *direction*, resolve it against the real list — and to
+import the resolution from the package that owns it rather than reimplementing
+it. The local reimplementation had also quietly lost frame rotation, which the
+renderer applies and a comment in this repo confidently claimed it did not.
+
+Three review passes ran over this branch. Rounds 1 and 2 each found real
+defects *in code the branch had just added*, including one that the first round
+introduced. Reviewing once is not the same as reviewing until it is clean.
+
 ## The verify gate is ~4 minutes; budget for it
 
 `pnpm verify:fast` runs on every commit via the pre-commit hook and takes
-around four minutes, so a 13-commit branch spends the best part of an hour in
+around four minutes, so a 17-commit branch spends the best part of an hour in
 verification alone. Run the affected package's tests directly while iterating
 (`pnpm --filter @wafflebase/board exec vitest --run src/import/miro/`), and use
 a generous command timeout for the commit itself — a two-minute default kills
