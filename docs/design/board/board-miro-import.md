@@ -270,19 +270,26 @@ Pure, two-pass, mirroring `parseSpTree`'s structure:
 | Miro item | → board element |
 | --- | --- |
 | `sticky_note` | SP2's sticky: `roundRect` shape, Miro **named** `style.fillColor` (`yellow`, `light_green`, …) → hex via a lookup table, `data.content` as the text, middle-anchored |
-| `shape` | `ShapeElement` — Miro `shape` name → `ShapeKind` (`rectangle`→`rect`, `circle`→`ellipse`, `triangle`, `round_rectangle`→`roundRect`, `rhombus`→`diamond`, …; unknown → `rect`, counted under `approximated`, not `skipped` — the shape IS imported), fill / border color / border width, inline text |
-| `text` | `TextElement` with a docs `Block[]` body |
-| `connector` (separate feed) | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; **both ends must resolve**, otherwise the connector is skipped + reported (Miro exposes no absolute coordinate for an unmapped end, so no honest fallback position exists — anchoring it anywhere would either strand the line at the world origin or invent geometry); `shape` (`straight`/`elbowed`/`curved`) → `routing`; arrowheads from `style.startStrokeCap`/`endStrokeCap` |
+| `shape` | `ShapeElement` — Miro `shape` name → `ShapeKind` (`rectangle`→`rect`, `circle`→`ellipse`, `triangle`, `round_rectangle`→`roundRect`, `rhombus`→`diamond`, …; unknown → `rect`, counted under `approximated`, not `skipped` — the shape IS imported), fill, border, inline text. **Fill is omitted entirely when Miro reports the shape transparent** (`fillOpacity: "0.0"`, or the `'transparent'` literal) and carries `alpha` when partially so — `data.fill` documents "absent ⇒ not painted", and on real boards transparent is the norm, not the exception. Border goes through the shared `miroStroke` with `dash` and colour `alpha` |
+| `text` | `TextElement` with a docs `Block[]` body. Miro omits `geometry.height` here — the box auto-sizes to its content — so the height is **estimated from the parsed blocks** and the frame resized about its centre; the text is anchored `middle` so the estimate's unavoidable wrapping error stays symmetric about the point Miro placed |
+| `connector` (separate feed) | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; **both ends must resolve**, otherwise the connector is skipped + reported (Miro exposes no absolute coordinate for an unmapped end, so no honest fallback position exists — anchoring it anywhere would either strand the line at the world origin or invent geometry). The two ways that happens are counted **apart**: `connector-free-end` is an end with no item id at all — dangling in Miro itself, unrecoverable by anything on our side — while `connector` is an end naming an item we did not map, which is ours (an unsupported type, or one past the item ceiling) and is what re-importing a smaller board would fix. Folded together, a truncated import read as a Miro problem; `shape` (`straight`/`elbowed`/`curved`) → `routing`; arrowheads from `style.startStrokeCap`/`endStrokeCap`, mapped by shape (filled/open triangle, diamond, circle) with Miro's ERD crow's-foot family degrading to a triangle under `approximated`. Stroke shares `miroStroke` with shapes. Each `captions[]` entry becomes a **free-standing text element** interpolated along the chord between the two endpoint centres |
 | `image` | `ImageElement` whose `data.src` is the re-hosted URL passed through the **injected `resolveImageUrl`**. The backend's URL is root-relative (`/api/v1/workspaces/:wid/images/:id`) and the SPA and API sit on different origins in every environment, so a relative src persisted into the CRDT 404s forever. The resolver is injected (and required, not defaulted) to keep this package free of env concerns while making the omission a compile error — the native upload path applies the same function |
 | `frame` | `rect` shape (light fill, visible border) + the frame title as its text — a labelled region, not a container. **Emitted before every other element** so it sits behind them: it is an opaque rectangle and z-order is array order, so a frame arriving late in `/items` would paint over the items it delimits |
 | `card` / `app_card` | `roundRect` shape whose text body is the title plus the description, each **HTML-escaped** before being wrapped in `<p>` (they arrive as plain text; interpolated raw, a `<` or a literal `</p><p>` reparses as markup and silently restructures the content) |
 | everything else | skipped, counted by type in `skipped` |
 
+**Every `style` number arrives as a STRING.** `borderWidth: "2.0"`, `strokeWidth: "1.0"`, `fontSize: "21"`, `fillOpacity: "0.0"` — even though the sibling `geometry` and `position` objects carry real numbers. Read them through the mapper's `num()`, which parses both forms and rejects a blank string rather than letting `Number('')` turn an absent value into a real `0`. A `typeof v === 'number'` guard silently discards the entire style layer of a real board.
+
+**Typography lives on `style`, not in the HTML.** `data.content` carries only inline markup (`<p>`, `<strong>`, …); size, colour and alignment sit beside it on the item. `miroHtmlToBlocks` takes them as a base the markup layers over. Miro reports size in CSS **pixels** and the docs model stores **points**, and `ptToPx` is the exact inverse — so a Miro pixel is a board unit, which is also what makes the text-height estimate above expressible.
+
 Two report channels, deliberately distinct: `skipped` counts what is **absent**
 from the document, `approximated` counts what is **present but degraded**
-(`shape-kind`, an unrecognized Miro shape imported as a `rect`, and
+(`shape-kind`, an unrecognized Miro shape imported as a `rect`;
 `parent-position`, an item whose frame-relative coordinate could not be
-resolved — see **Coordinate space** below).
+resolved — see **Coordinate space** below; `arrowhead-kind`, a Miro cap with no
+counterpart among the board's four arrowhead shapes; and `connector-caption`,
+a connector label that survives as an ordinary text element and so will not
+follow the line when an endpoint moves).
 Folding the second into the first told the user content was missing when it
 was not, under a Miro item type that does not exist.
 
@@ -525,6 +532,22 @@ clears `docId` off the row so dismissing it cannot delete the same id twice.
   **reported, never silent**; the board renderer already culls off-screen
   elements (SP1), and the minimap (SP2) makes a large import navigable. A
   spatial index stays deferred, consistent with SP1/SP2.
+
+  "Reported" needs two properties the first cut did not have, because an
+  ordinary board (8,888 items) already sits well past the 5,000 ceiling. The
+  note must **lead** the summary — everything else in it says "one detail of
+  something you have came across wrong", while this says "you do not have all
+  of it", and buried behind a hundred characters of detail it read as a
+  footnote — and it must carry the **denominator**. Miro puts a board-wide
+  `total` on every feed page, so `MiroImportNote.total` lets the summary say
+  "only 5000 of 8888"; a bare count reads identically whether two items were
+  lost or half the board. `stalled` is treated the same way, being the same
+  kind of fact.
+
+  Whether **5,000 is the right ceiling** for boards people actually import is
+  a separate, open question: raising it costs backend memory, response size,
+  and CRDT document size, and none of those have been measured. The reporting
+  change makes the consequence visible; it does not settle the number.
 - **Rate limits.** `GET /items` is a Level 2 endpoint (100 credits/call,
   1000 req/min). *Mitigation:* `limit=50` (the API max) minimizes calls, and a
   `429` surfaces as a clear retryable error rather than a partial import.
