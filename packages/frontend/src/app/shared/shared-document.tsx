@@ -32,7 +32,7 @@ import { UserPresence } from "@/components/user-presence";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewAnalytics } from "@/hooks/use-view-analytics";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
-import { NotesView } from "@/app/notes/notes-view";
+import { SharedNotesLayout } from "@/app/shared/shared-notes-layout";
 import {
   PdfCollabProvider,
   PdfHeaderActions,
@@ -371,51 +371,10 @@ function SharedDocsLayout({
   );
 }
 
-function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
-  const readOnly = resolved.role === "viewer";
-
-  useEffect(() => {
-    document.title = resolved.title
-      ? `${resolved.title} — Wafflebase`
-      : "Wafflebase";
-  }, [resolved.title]);
-
-  return (
-    <div className="flex h-screen w-full flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
-          <h1 className="text-base font-medium">{resolved.title}</h1>
-          <SharedHeaderStatus readOnly={readOnly} />
-        </div>
-        <UserPresence />
-      </header>
-      <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        {/*
-          No `showAuthors`: this surface has no view menu, so `NotesView` falls
-          back to the visitor's own stored preference. Passing it from here
-          would mean importing `notes-settings` into this route too, which
-          makes Rollup hoist it — and the notes engine with it — into a shared
-          chunk well past the chunk-size gate.
-        */}
-        {/*
-          `both` on a phone is a fixed 50/50 split, so ~187px per pane — bad,
-          and deliberately kept. This surface mounts no toolbar, so the split
-          is the only thing that renders a preview at all here; demoting it to
-          `edit` on narrow screens would trade a cramped preview for no
-          preview, with nothing to switch back with. Fixing it properly means
-          giving this route its own mode control, which is more than a layout
-          change. See docs/design/notes/notes.md.
-        */}
-        <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
-      </div>
-    </div>
-  );
-}
-
 /**
  * Shared board layout — simplest of the shared layouts: no per-type
- * toolbar/panel machinery, mirroring `SharedNotesLayout`'s header + content
- * shape. `BoardView`'s `readOnly` prop forwards straight into
+ * toolbar/panel machinery, mirroring the header + content shape every other
+ * shared layout uses. `BoardView`'s `readOnly` prop forwards straight into
  * `initializeEditor({ readOnly })` (same mechanism `SlidesView` uses), so a
  * viewer-role share link gets a canvas that paints (including remote peer
  * edits) but accepts no pointer/keyboard input — matching the "View only"
@@ -1040,7 +999,7 @@ function SharedDocumentInner({
           }}
           enableDevtools={import.meta.env.DEV}
         >
-          <SharedNotesLayout resolved={resolved} />
+          <SharedNotesLayout resolved={resolved} token={token} />
         </DocumentProvider>
       ) : resolved.type === "board" ? (
         <DocumentProvider<Partial<YorkieBoardRoot>>

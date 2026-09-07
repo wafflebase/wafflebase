@@ -235,11 +235,43 @@ are frontend-only — the `@wafflebase/notes` engine has no viewport branch.
   A mode picked *on* a phone is session-local for the same reason: persisting
   it would destroy a stored `both` the phone could not have offered.
 
-`SharedNotesLayout` is deliberately **not** demoted, though it is the same
-cramped split. That route mounts no toolbar, so the split is the only thing
-that renders a preview there at all — demoting it would trade a cramped
-preview for none, with no control to switch back. Making it good needs a
-mode control on that surface, which is a feature rather than a layout fix.
+`SharedNotesLayout` gets the same demotion. It used to be the exception, and
+the reason was real: that route mounted no toolbar, so the split was the only
+thing rendering a preview there at all, and demoting it would have traded a
+cramped preview for none with no control to switch back. Issue #1044 removed
+the premise instead of the conclusion — the share-link route now mounts
+`NotesToolbar` too (see **Share-link parity** below), so the demotion is
+reversible from the view menu and the two entry paths finally agree.
+
+### Share-link parity
+
+Notes was the only editable document type whose share-link route differed from
+its workspace route: sheets and board keep their toolbar because it lives
+*inside* the view, docs and slides mount theirs explicitly on both paths, and
+notes mounted none. `app/shared/shared-notes-layout.tsx` (split out of
+`shared-document.tsx` so it can hold state and be tested without importing
+every engine) now mounts `NotesToolbar` lazily — the `SlidesToolbar`
+precedent — and owns the `viewMode` / `keymap` / `showAuthors` trio the
+workspace route owns.
+
+Two deliberate differences from the workspace route:
+
+- **It reads the per-browser preferences, and never writes them.** A visitor's
+  own vim keymap and blame-gutter setting still apply on arrival, because
+  ignoring them would be its own bug; but nothing an anonymous share-link
+  visitor changes is persisted back over a preference they may not own. Same
+  reasoning as the phone's session-local mode above, applied to the whole trio.
+- **A viewer keeps the toolbar.** `canFormat = !readOnly && mode !== "view"`
+  drops the formatting group by itself, which leaves exactly the view menu — so
+  a read-only visitor gains a preview/source switch and loses nothing. The
+  "View only" badge still comes from `SharedHeaderStatus`.
+
+The **divider** was fixed in the engine rather than per route, since it helps
+both: `padding` widens its hit area from 7px to 25px around the same 1px
+hairline (`background-clip: content-box` means the padding is pure hit area),
+and `touch-action: none` stops the browser claiming a horizontal drag on it as
+a scroll gesture — without which the split panes could not be resized by
+finger at all.
 
 ### Risks and Mitigation
 
@@ -343,10 +375,18 @@ When the payload carries no image the handlers decline the event rather than
 
 The engine never imports the frontend: `initialize()` takes an optional
 `uploadImage` in its options bag, and a read-only mount never receives one, so
-the extension is simply absent rather than guarded per event. **Known
-limitation:** the same rule disables image upload behind an editable share
-link, because an anonymous share-link editor has no workspace membership and
-the image endpoint requires an authenticated caller.
+the extension is simply absent rather than guarded per event.
+
+An **editable share link** uploads too (issue #1044). It was recorded here as a
+known limitation on the grounds that an anonymous share-link editor has no
+workspace membership, which was already out of date: `shareTokenImageUploader`
+(added for the docs share surface) posts to the workspace image spine with the
+share token, the backend derives the workspace from the token and refuses a
+viewer-role one, and the *read* half — the notes engine's share-token image-URL
+resolver — was already installed for this mount by `shared-document.tsx`. So
+`SharedNotesLayout` passes the token-scoped uploader and the paste/drop/pick
+path behaves as it does for a member. An authenticated caller was never the
+requirement; an authorized one was.
 
 **CLI (shipped).** A `notes` namespace (alias `note`) in `@wafflebase/cli`
 brings notes to parity with the `docs`/`slides` namespaces:

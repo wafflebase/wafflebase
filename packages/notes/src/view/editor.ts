@@ -273,13 +273,25 @@ export function initialize(
   const divider = document.createElement('div');
   divider.dataset.role = 'note-divider';
   divider.style.flex = '0 0 auto';
-  divider.style.width = '7px';
+  // The painted band is the *content* box (`background-clip: content-box`), so
+  // the padding is pure hit area: 25px total around a 1px hairline. It used to
+  // be 7px, which is a fingernail on a phone — and combined with the missing
+  // `touch-action` below made the split read as fixed there. `box-sizing` is
+  // stated rather than inherited because the host app's CSS reset decides it
+  // otherwise (Tailwind's preflight sets `border-box` on everything), and that
+  // is what turns these numbers into a hairline instead of a 7px band.
+  divider.style.boxSizing = 'border-box';
+  divider.style.width = '25px';
   divider.style.cursor = 'col-resize';
   divider.style.alignSelf = 'stretch';
   divider.style.background = 'var(--border, rgba(0,0,0,0.08))';
   divider.style.backgroundClip = 'content-box';
-  divider.style.padding = '0 3px';
+  divider.style.padding = '0 12px';
   divider.style.userSelect = 'none';
+  // Without this the browser claims a horizontal drag on the divider as a pan
+  // /scroll gesture, so `pointermove` never reaches the resize handler on
+  // touch — the pane widths could not be adjusted with a finger at all.
+  divider.style.touchAction = 'none';
   divider.setAttribute('role', 'separator');
   divider.setAttribute('aria-orientation', 'vertical');
 
