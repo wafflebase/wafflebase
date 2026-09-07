@@ -169,9 +169,14 @@ export function DocsView({
   const storeRef = useRef<YorkieDocStore | null>(null);
   // Read through a ref by `onImageFileDrop`, which is registered once in the
   // editor's mount effect: re-mounting the whole editor because an uploader
-  // identity changed would tear down the Yorkie store with it.
+  // identity changed would tear down the Yorkie store with it. Kept current in
+  // an effect rather than during render — a ref written in render can be set by
+  // a render React then abandons — and the handler only reads it when a drop
+  // actually happens, long after effects have flushed.
   const uploadImageRef = useRef(uploadImage);
-  uploadImageRef.current = uploadImage;
+  useEffect(() => {
+    uploadImageRef.current = uploadImage;
+  }, [uploadImage]);
   const [mountedEditor, setMountedEditor] = useState<EditorAPI | null>(null);
   const [didMount, setDidMount] = useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);

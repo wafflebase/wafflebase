@@ -82,13 +82,48 @@ export function loadImageDimensions(
 }
 
 /**
+ * Measure a local image file's intrinsic size from a `blob:` URL, without
+ * touching the network.
+ *
+ * Probing the *uploaded* URL instead cannot work on the share-link path: that
+ * URL is workspace-scoped and readable only with the visitor's `?token=`
+ * appended, which the stored URL deliberately does not carry — so a plain
+ * `<img>` on it is a 403, and the insert would fail after a successful
+ * upload. The bytes are the same either way (nothing here downscales), so the
+ * local measurement is the same number one round trip earlier. Mirrors what
+ * `spreadsheet/image-upload.ts` already does for the other engines.
+ */
+function loadFileDimensions(
+  file: File,
+): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      } else {
+        reject(new Error("Image has zero dimensions"));
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to read image"));
+    };
+    img.src = url;
+  });
+}
+
+/**
  * Upload a local image file, probe its natural size, and insert it at
  * the editor's current caret. Shows a toast on any failure. Wrapped
  * here so both the toolbar upload path and the drag/paste path go
  * through the same error-handling and insert flow.
  *
  * `upload` defaults to the authenticated owner path; a shared-link mount
- * passes {@link shareTokenImageUploader} instead.
+ * passes {@link shareTokenImageUploader} instead. The size is read off the
+ * local file rather than the uploaded URL — see {@link loadFileDimensions}.
  */
 export async function insertImageFromFile(
   editor: EditorAPI,
@@ -97,8 +132,8 @@ export async function insertImageFromFile(
   upload: DocsImageUpload = uploadImageFile,
 ): Promise<void> {
   try {
+    const { width, height } = await loadFileDimensions(file);
     const url = await upload(file);
-    const { width, height } = await loadImageDimensions(url);
     editor.insertImage(url, width, height, {
       originalWidth: width,
       originalHeight: height,

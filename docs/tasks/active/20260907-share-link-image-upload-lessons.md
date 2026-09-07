@@ -30,6 +30,28 @@ seam: without `setImageUrlResolver` in the docs image cache, an anonymously
 inserted image 403s for its own author, and the failure is silent (a blank
 rectangle on the canvas, no console error the user will read).
 
+## The insert path read the image twice, and only one read had a token
+
+The defect self-review caught. `insertImageFromFile` uploaded, then probed the
+*uploaded URL* through a bare `<img>` to learn its pixel size. On the owner
+spine that URL is unauthenticated, so it worked and nobody noticed the second
+read existed. On the workspace spine it needs the visitor's `?token=` — which
+the stored URL deliberately does not carry — so the probe 403'd and the insert
+failed **after** a successful upload, with the bytes already in the bucket and
+a toast blaming the upload.
+
+The lesson is not "remember to token the probe". It is that a URL which is
+only readable through a per-viewer resolver has exactly one legitimate reader:
+the renderer that applies the resolver. Any *other* code that loads the same
+URL is a second, untokened path waiting to fail. Here the second read was also
+unnecessary — the file is in hand, so measure it locally
+(`URL.createObjectURL`), which is what the other three engines already do.
+
+The regression guard is a test that asserts which `src` values are assigned
+during an insert (`blob:local` and nothing else), rather than one that checks
+the insert succeeded — the bug was an extra request, so the request list is
+the thing to assert on.
+
 ## Where the workspace id comes from decides the whole design
 
 The obvious shape — reuse `POST /api/v1/workspaces/:workspaceId/images` with

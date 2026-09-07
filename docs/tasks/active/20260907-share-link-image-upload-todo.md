@@ -58,6 +58,12 @@ they were editing.
 - [x] The token is never baked into the stored `src`; it is appended per-viewer
       at render time by `appendShareTokenToImageUrl`, whose origin gate is
       reused as-is.
+- [x] Measure the inserted image's pixel size from the local file, not by
+      re-fetching the uploaded URL — that second read carries no token and
+      403s, losing the insert after a successful upload (found in self-review).
+- [x] Frontend spec `app/docs/image-insert.test.ts`: the share route + token
+      encoding, never `fetchWithAuth`, the server's message in the thrown
+      error, and a guard that only `blob:` is ever probed during an insert.
 
 ## Deliberately out of scope
 
