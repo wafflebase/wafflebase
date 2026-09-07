@@ -5,6 +5,7 @@ import {
   EditorSelection,
   EditorState,
   Prec,
+  Transaction,
   type Extension,
 } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
@@ -332,6 +333,11 @@ export function initialize(
   // the store's depth changed, and the resulting transaction may land before
   // the pop is visible, so we don't rely on the docChanged listener alone.
   const runHistory = (kind: 'undo' | 'redo') => {
+    // Undo/redo write to the store *directly*, not through a CodeMirror
+    // transaction, so the read-only change filter below never sees them. A
+    // read-only mount has no write permission and nothing local to revert, so
+    // refuse here — this is the one API method whose write bypasses the view.
+    if (readOnly) return;
     // The store applies the reverted text synchronously through the remote
     // subscription (noteSync) before returning; the returned selection is the
     // caret to restore, which that text transaction did not carry.
@@ -422,6 +428,33 @@ export function initialize(
     noteCheckboxInput,
     themeCompartment.of(themeExt(mode)),
     EditorView.lineWrapping,
+    // `EditorView.editable` only drops `contenteditable`, so it stops typing
+    // and nothing else: a command, a toolbar call, or any other programmatic
+    // `view.dispatch` still produces a document change, and `noteSync` forwards
+    // any non-remote change straight to `store.editText()` — a CRDT write. On a
+    // viewer-role share link that is the whole authorization gap, since the
+    // Yorkie auth webhook ships in shadow (allow-all) mode by default and so
+    // may not refuse the write either.
+    //
+    // So a read-only mount is enforced twice more, at the state:
+    // `EditorState.readOnly` is the facet every CodeMirror command consults
+    // (`@codemirror/commands`, autocomplete, the vim keymap) and is what makes
+    // them decline rather than mutate...
+    EditorState.readOnly.of(readOnly),
+    // ...and the change filter is the chokepoint the store hangs off, the
+    // engine's equivalent of the docs package's read-only store wrapper. A
+    // change that never becomes a transaction never reaches `noteSync`, so
+    // every local write path — the exported `NoteEditorAPI` formatting
+    // commands, paste, drop, an image upload, a preview checkbox — is inert on
+    // a viewer mount by construction rather than by each caller remembering to
+    // check. Remote changes carry `Transaction.remote` and must still apply:
+    // they are peers' edits arriving from the CRDT, which is exactly what a
+    // viewer is here to read.
+    readOnly
+      ? EditorState.changeFilter.of((tr) =>
+          Boolean(tr.annotation(Transaction.remote)),
+        )
+      : [],
     EditorView.editable.of(!readOnly),
     // Fill the wrapper's full height (so an empty note starts full-height, not
     // collapsed to one line) and let the internal scroller handle overflow.
@@ -625,8 +658,10 @@ export function initialize(
       runHistory('redo');
       view.focus();
     },
-    canUndo: () => store.canUndo(),
-    canRedo: () => store.canRedo(),
+    // A read-only mount refuses `undo`/`redo`, so report nothing to revert
+    // rather than offering a host a control that would do nothing.
+    canUndo: () => !readOnly && store.canUndo(),
+    canRedo: () => !readOnly && store.canRedo(),
     getActiveFormats: () => computeActiveFormats(view.state),
     onSelectionChange: (cb) => {
       selectionCb = cb;

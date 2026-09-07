@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
 import { MemNoteStore } from '../store/memory.js';
+import type { NoteRemoteChange } from '../store/store.js';
 import { initialize } from './editor.js';
 import { NotePreview } from './preview.js';
 
@@ -28,6 +29,57 @@ describe('initialize', () => {
     document.body.appendChild(container);
     const api = initialize(container, new MemNoteStore('x'), 'light', true);
     expect(container.querySelector('.cm-content')?.getAttribute('contenteditable')).toBe('false');
+    api.dispose();
+    container.remove();
+  });
+
+  it('lets no write reach the store on a read-only mount', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('hello');
+    const editText = vi.spyOn(store, 'editText');
+    const undo = vi.spyOn(store, 'undo');
+    const api = initialize(container, store, 'light', true, 'edit');
+
+    // `EditorView.editable` only drops contenteditable; every path below is
+    // programmatic and would otherwise dispatch a document change that
+    // `noteSync` forwards to the CRDT.
+    api.toggleBold();
+    api.toggleTaskList();
+    api.insertTable(2, 2);
+    api.insertCodeBlock();
+    api.undo();
+    api.redo();
+
+    expect(api.getText()).toBe('hello');
+    expect(store.getText()).toBe('hello');
+    expect(editText).not.toHaveBeenCalled();
+    expect(undo).not.toHaveBeenCalled();
+    expect(api.canUndo()).toBe(false);
+    expect(api.canRedo()).toBe(false);
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('still applies remote changes on a read-only mount', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('hello');
+    let emit: ((change: NoteRemoteChange) => void) | null = null;
+    const subscribe = store.subscribeRemote.bind(store);
+    vi.spyOn(store, 'subscribeRemote').mockImplementation((listener) => {
+      emit = listener;
+      return subscribe(listener);
+    });
+    const api = initialize(container, store, 'light', true, 'edit');
+
+    // A peer's edit arrives through the store's remote subscription; the
+    // read-only filter must let it through — that is what the viewer is reading.
+    emit!({ type: 'edits', changes: [{ from: 5, to: 5, insert: ' world' }] });
+
+    expect(api.getText()).toBe('hello world');
+
     api.dispose();
     container.remove();
   });

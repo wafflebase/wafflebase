@@ -266,6 +266,31 @@ Two deliberate differences from the workspace route:
   a read-only visitor gains a preview/source switch and loses nothing. The
   "View only" badge still comes from `SharedHeaderStatus`.
 
+**A read-only mount is enforced at the state, not at the DOM.** Mounting the
+toolbar for a viewer hands them the same live `NoteEditorAPI` an editor gets,
+and `EditorView.editable` only removes `contenteditable` — it stops typing and
+nothing else, so any programmatic `view.dispatch` (a toolbar command, a paste
+handler, a preview checkbox) still produced a document change, and `noteSync`
+forwards **any** non-remote change to `store.editText()`, which is a CRDT write.
+Nothing else would have refused it: the Yorkie auth webhook ships in shadow
+(allow-all) mode by default. So `initialize()` adds two state-level gates when
+`readOnly`:
+
+- `EditorState.readOnly` — the facet every CodeMirror command consults
+  (`@codemirror/commands`, autocomplete, the vim keymap), so they decline
+  instead of mutating.
+- An `EditorState.changeFilter` that admits only transactions annotated
+  `Transaction.remote`. This is the chokepoint the store hangs off — the
+  engine's equivalent of the docs package's read-only store wrapper
+  (`packages/docs/src/store/read-only.ts`). A local change never becomes a
+  transaction, so it never reaches `noteSync`, and every write path is inert
+  by construction rather than by each caller remembering to check. Remote
+  changes still apply, which is what the viewer is there to read.
+
+`undo`/`redo` are the one exception the filter cannot cover: they call
+`store.undo()` **directly**, never through a transaction, so `runHistory()`
+refuses on a read-only mount and `canUndo()`/`canRedo()` report `false`.
+
 The **divider** was fixed in the engine rather than per route, since it helps
 both: `padding` widens its hit area from 7px to 25px around the same 1px
 hairline (`background-clip: content-box` means the padding is pure hit area),
