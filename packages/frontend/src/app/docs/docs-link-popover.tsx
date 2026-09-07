@@ -43,6 +43,24 @@ export function DocsLinkPopover({
   const [visible, setVisible] = useState(false);
   const [mode, setMode] = useState<Mode>("view");
   const [editUrl, setEditUrl] = useState("");
+  /**
+   * The href edit mode was entered on, or `null` when it was entered on a
+   * caret with no link (⌘K over a selection or an empty caret).
+   *
+   * The popover deliberately stays open when the caret leaves the link, so
+   * Apply after clicking into the body used to insert the URL as plain text
+   * at the new caret instead of editing anything (#1038). The *href* is
+   * kept rather than a boolean because the caret can also have moved into a
+   * different hyperlink, where `insertLink` would rewrite that one — a
+   * silent edit to a link the user never opened.
+   */
+  const [editingHref, setEditingHref] = useState<string | null>(null);
+  /**
+   * Set when Apply refused because the caret is no longer on the link this
+   * popover was opened for. Shown rather than swallowed: the typed URL is
+   * the user's work, so the popover stays open holding it.
+   */
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [editPosition, setEditPosition] = useState<{
     x: number;
     y: number;
@@ -77,6 +95,10 @@ export function DocsLinkPopover({
   useEffect(() => {
     if (!editRequest) return;
     setEditUrl(editRequest.initialUrl);
+    // A prefilled URL means ⌘K/toolbar found a link at the caret — and it
+    // is that link's own href, which is what Apply has to re-check against.
+    setEditingHref(editRequest.initialUrl || null);
+    setApplyError(null);
     setEditPosition(editRequest.position);
     setMode("edit");
     setVisible(true);
@@ -108,6 +130,8 @@ export function DocsLinkPopover({
     setVisible(false);
     setLinkInfo(undefined);
     setMode("view");
+    setEditingHref(null);
+    setApplyError(null);
   }, []);
 
   // --- View mode handlers ---
@@ -115,6 +139,8 @@ export function DocsLinkPopover({
   const handleEdit = useCallback(() => {
     if (!linkInfo) return;
     setEditUrl(linkInfo.href);
+    setEditingHref(linkInfo.href);
+    setApplyError(null);
     setEditPosition({
       x: linkInfo.rect.x,
       y: linkInfo.rect.y,
@@ -136,10 +162,18 @@ export function DocsLinkPopover({
     if (!editor || !editUrl.trim()) return;
     const url = normalizeLinkUrl(editUrl);
     if (!url) return;
+    // The caret has since left the link this popover was editing — applying
+    // would insert the URL as text wherever the caret went, or, if the
+    // caret landed in *another* hyperlink, quietly rewrite that one
+    // instead (#1038). Keep the typed URL and say so rather than close.
+    if (editingHref !== null && editor.getLinkAtCursor() !== editingHref) {
+      setApplyError("The cursor left this link. Click it again to edit it.");
+      return;
+    }
     editor.insertLink(url);
     editor.focus();
     close();
-  }, [editor, editUrl, close]);
+  }, [editor, editUrl, editingHref, close]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -216,25 +250,35 @@ export function DocsLinkPopover({
           )}
         </>
       ) : mode === "edit" ? (
-        <>
-          <input
-            ref={inputRef}
-            type="url"
-            aria-label="Link URL"
-            className="h-7 flex-1 rounded border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
-            placeholder="Enter URL"
-            value={editUrl}
-            onChange={(e) => setEditUrl(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-          <button
-            className="inline-flex h-7 shrink-0 cursor-pointer items-center justify-center rounded bg-primary px-3 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            onClick={handleApply}
-            disabled={!editUrl.trim()}
-          >
-            Apply
-          </button>
-        </>
+        <div className="flex flex-1 flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <input
+              ref={inputRef}
+              type="url"
+              aria-label="Link URL"
+              className="h-7 flex-1 rounded border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+              placeholder="Enter URL"
+              value={editUrl}
+              onChange={(e) => {
+                setEditUrl(e.target.value);
+                setApplyError(null);
+              }}
+              onKeyDown={handleKeyDown}
+            />
+            <button
+              className="inline-flex h-7 shrink-0 cursor-pointer items-center justify-center rounded bg-primary px-3 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              onClick={handleApply}
+              disabled={!editUrl.trim()}
+            >
+              Apply
+            </button>
+          </div>
+          {applyError && (
+            <span role="alert" className="px-0.5 text-[11px] text-destructive">
+              {applyError}
+            </span>
+          )}
+        </div>
       ) : null}
     </div>,
     document.body,

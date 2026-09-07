@@ -188,4 +188,45 @@ describe('docs table cells — hyperlink recognition & trailing-edge exit', () =
     const otherCell = editor.getDoc().document.blocks[0].tableData!.rows[1].cells[1].blocks;
     expect(hrefsIn(otherCell).every((h) => !h)).toBe(true);
   });
+
+  it('a URL-derived label inside a cell follows the new URL (#1038)', () => {
+    // The cell-block variant of Part A: the in-place branch resolves the
+    // cell block through Doc.getBlock and marks the parent table dirty.
+    const { editor, table } = setup();
+    const c00 = cellBlockId(table, 0, 0);
+    editor.restoreLocalCursor({ blockId: c00, offset: 0 }, null);
+    editor.insertLink('https://example.com');
+    editor.restoreLocalCursor({ blockId: c00, offset: 3 }, null);
+
+    editor.insertLink('https://www.google.com');
+
+    const inlines = firstCellBlocks(editor).flatMap((b) => b.inlines);
+    expect(inlines.map((i) => i.text).join('')).toBe('https://www.google.com');
+    expect(
+      inlines.every((i) => !i.text || i.style.href === 'https://www.google.com'),
+    ).toBe(true);
+    // A different cell is untouched.
+    const otherCell = editor.getDoc().document.blocks[0].tableData!.rows[1].cells[1].blocks;
+    expect(hrefsIn(otherCell).every((h) => !h)).toBe(true);
+  });
+
+  it('a customised in-cell label survives an href edit (#1038)', () => {
+    const { editor, table } = setup();
+    const c00 = cellBlockId(table, 0, 0);
+    editor.restoreLocalCursor({ blockId: c00, offset: 0 }, null);
+    type('clickme');
+    editor._setSelectionForTest({
+      anchor: { blockId: c00, offset: 0 },
+      focus: { blockId: c00, offset: 'clickme'.length },
+    });
+    editor.insertLink('https://example.com');
+    editor._setSelectionForTest(null);
+    editor.restoreLocalCursor({ blockId: c00, offset: 3 }, null);
+
+    editor.insertLink('https://example.org');
+
+    const inlines = firstCellBlocks(editor).flatMap((b) => b.inlines);
+    expect(inlines.map((i) => i.text).join('')).toBe('clickme');
+    expect(inlines.every((i) => !i.text || i.style.href === 'https://example.org')).toBe(true);
+  });
 });

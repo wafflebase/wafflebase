@@ -33,7 +33,7 @@ import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import { createPendingStyle } from './pending-style.js';
-import { findLinkRunAt } from './link-run.js';
+import { findLinkRunAt, rewriteLinkHrefInPlace } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { caretInlineStyle } from '../model/caret-style.js';
 import {
@@ -1199,14 +1199,17 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         const block = doc.findBlock(pos.blockId);
         const link = block ? findLinkRunAt(block, pos.offset) : undefined;
         if (block && link) {
-          docStore.snapshot();
-          doc.applyInlineStyle(
-            {
-              anchor: { blockId: block.id, offset: link.start },
-              focus: { blockId: block.id, offset: link.end },
-            },
-            { href: url },
+          // A display text that is the old URL was never customised, so it
+          // follows the new one; a custom label survives (#494/#580). The
+          // snapshot goes inside the batch — see rewriteLinkHrefInPlace.
+          const caretOffset = rewriteLinkHrefInPlace(doc, block, link, url, () =>
+            docStore.snapshot(),
           );
+          // Not optional: the caret can otherwise sit past the end of a
+          // run the replacement shortened.
+          if (caretOffset !== undefined) {
+            cursor.moveTo({ blockId: block.id, offset: caretOffset });
+          }
           layoutCache = undefined;
           requestRender();
           notifyStyleApplied();

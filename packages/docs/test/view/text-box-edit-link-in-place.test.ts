@@ -92,6 +92,12 @@ describe('initializeTextBox — edit link in place (#494)', () => {
     }
   }
 
+  function selectAll(): void {
+    textarea().dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+  }
+
   /** Flush the final onCommit and return the committed blocks. */
   function commitBlocks(): Block[] {
     api.detach();
@@ -99,12 +105,14 @@ describe('initializeTextBox — edit link in place (#494)', () => {
     return committed;
   }
 
+  // The insert path writes the URL as its own text, so these two links
+  // have a URL-derived label and it follows the new URL (#1038 Part A).
   it('caret at the trailing edge of a link + insertLink updates it in place', () => {
     api.insertLink('https://example.com');
     api.insertLink('https://example.org');
 
     const inlines = commitBlocks()[0].inlines;
-    expect(inlines.map((i) => i.text).join('')).toBe('https://example.com');
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.org');
     expect(inlines.every((i) => i.style.href === 'https://example.org')).toBe(true);
   });
 
@@ -114,7 +122,19 @@ describe('initializeTextBox — edit link in place (#494)', () => {
     api.insertLink('https://example.org');
 
     const inlines = commitBlocks()[0].inlines;
-    expect(inlines.map((i) => i.text).join('')).toBe('https://example.com');
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.org');
+    expect(inlines.every((i) => i.style.href === 'https://example.org')).toBe(true);
+  });
+
+  it('a customised display text is preserved on an href edit (#1038)', () => {
+    api.insertText('click me');
+    selectAll();
+    api.insertLink('https://example.com');
+    pressArrowLeft(3);
+    api.insertLink('https://example.org');
+
+    const inlines = commitBlocks()[0].inlines;
+    expect(inlines.map((i) => i.text).join('')).toBe('click me');
     expect(inlines.every((i) => i.style.href === 'https://example.org')).toBe(true);
   });
 
