@@ -50,9 +50,10 @@ export interface PaintLayoutOpts {
    * When DocCanvas calls `paintLayout` it has already painted inline
    * run backgrounds in its own pre-pass (so peer / search / local
    * selection layers can sit on top of them). Setting this true skips
-   * the inline-background pass inside `paintLayout` and tells
-   * `renderRun` to skip its own per-run bg fillRect — exactly mirroring
-   * the existing DocCanvas pipeline.
+   * the inline-background pass inside `paintLayout`, leaving DocCanvas's
+   * own pass as the only painter of them. Either way `paintLayout`'s
+   * runs are drawn with `skipBackground: true` — exactly one pass paints
+   * the highlight, as a coalesced band per line.
    */
   skipRunBackgrounds?: boolean;
 
@@ -131,7 +132,12 @@ export function paintLayout(
   // 3. Per-block content — runs, list markers, list counters.
   const listCounters = computeListCounters(layout.blocks.map((b) => b.block));
   for (const lb of layout.blocks) {
-    paintBlock(ctx, lb, originX, originY, listCounters, theme, skipRunBackgrounds, opts.requestRender, resolveColor);
+    // `renderRun` always skips its own fill here: either the caller
+    // painted the backgrounds (skipRunBackgrounds) or step 1 above just
+    // did, over exactly the same blocks. Letting it repaint per-run
+    // rects on top of a coalesced band would re-band a translucent
+    // highlight (words painted twice, inter-word gaps once).
+    paintBlock(ctx, lb, originX, originY, listCounters, theme, opts.requestRender, resolveColor);
   }
 
   // 4. Cursor caret — drawn last so it sits on top of every run.
@@ -158,7 +164,6 @@ function paintBlock(
   originY: number,
   listCounters: Map<string, string>,
   theme: DocTheme,
-  skipRunBackgrounds: boolean,
   requestRender: (() => void) | undefined,
   resolveColor: ColorResolver,
 ): void {
@@ -181,7 +186,7 @@ function paintBlock(
     for (const run of line.runs) {
       renderRun(ctx, run, lineX, lineY, line.height, line.maxFontSizePx, {
         theme,
-        skipBackground: skipRunBackgrounds,
+        skipBackground: true,
         requestRender,
         colorResolver: resolveColor,
       });
@@ -199,6 +204,77 @@ function paintBlock(
       renderListMarker(ctx, block, lineY, line.height, line.maxFontSizePx, markerX, marker, theme, resolveColor);
     }
   }
+}
+
+/**
+ * Paint the inline `style.backgroundColor` of one line's runs as
+ * coalesced bands — the single source of inline-highlight geometry for
+ * every call site (docs body pages, slides / board text boxes, table
+ * cells).
+ *
+ * Consecutive runs resolving to the same colour are merged into ONE
+ * rect spanning `round(first.x)` → `round(last.x + last.width)`. That
+ * closes both ways a highlight used to break apart at word boundaries
+ * (issue #1036), because layout splits every inline into one run per
+ * word:
+ *
+ * - **Sub-pixel seam.** Rounding only the left edge and passing the raw
+ *   float `run.width` left rect `i` ending at `round(X) + w` while rect
+ *   `i+1` started at `round(X + w)` — a gap of up to ~0.5 logical px on
+ *   roughly half of all boundaries, amplified by dpr and zoom. Rounding
+ *   BOTH edges makes them provably contiguous: run `i+1`'s left
+ *   expression is run `i`'s right expression.
+ * - **Justify.** `applyAlignment('justify')` shifts `run.x` without
+ *   growing `run.width`, so per-run rects left real multi-pixel gaps.
+ *   A band bridges them, matching the selection rect over the same text.
+ *
+ * A run with no background, an unresolvable colour, a different colour,
+ * or an image (an opaque picture, never given a fill) ends the current
+ * band. Zero-width `'\n'` runs — emitted by `layoutBlock` to keep cursor
+ * offsets continuous across a forced wrap — are skipped entirely so they
+ * neither extend nor split a band, mirroring `renderRun`'s early return.
+ */
+export function drawInlineRunBackgroundsForLine(
+  ctx: CanvasRenderingContext2D,
+  runs: ReadonlyArray<LayoutRun>,
+  lineX: number,
+  lineY: number,
+  lineHeight: number,
+  resolveColor: ColorResolver = defaultColorResolver,
+): void {
+  let color: string | undefined;
+  let left = 0;
+  let right = 0;
+
+  const flush = () => {
+    if (color === undefined) return;
+    const x0 = Math.round(left);
+    const x1 = Math.round(right);
+    if (x1 > x0) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x0, lineY, x1 - x0, lineHeight);
+    }
+    color = undefined;
+  };
+
+  for (const run of runs) {
+    if (run.text === '\n') continue;
+    const style = run.inline.style;
+    const bg = style.image || !style.backgroundColor
+      ? undefined
+      : (resolveColor(style.backgroundColor) || undefined);
+    if (!bg) {
+      flush();
+      continue;
+    }
+    if (bg !== color) {
+      flush();
+      color = bg;
+      left = lineX + run.x;
+    }
+    right = lineX + run.x + run.width;
+  }
+  flush();
 }
 
 /**
@@ -227,20 +303,9 @@ function drawInlineRunBackgroundsForLayout(
     const blockX = originX + lb.x;
     const blockY = originY + lb.y;
     for (const line of lb.lines) {
-      const lineY = blockY + line.y;
-      for (const run of line.runs) {
-        const style = run.inline.style;
-        if (style.image || !style.backgroundColor) continue;
-        const bg = resolveColor(style.backgroundColor);
-        if (!bg) continue;
-        ctx.fillStyle = bg;
-        ctx.fillRect(
-          Math.round(blockX + run.x),
-          lineY,
-          run.width,
-          line.height,
-        );
-      }
+      drawInlineRunBackgroundsForLine(
+        ctx, line.runs, blockX, blockY + line.y, line.height, resolveColor,
+      );
     }
   }
 }
@@ -281,21 +346,9 @@ export function drawInlineRunBackgroundsForPage(
         continue;
       }
     }
-    for (const run of pl.line.runs) {
-      const style = run.inline.style;
-      // Image runs are opaque pictures, not text — they never had a
-      // bg fill in the old single-pass path either.
-      if (style.image || !style.backgroundColor) continue;
-      const bg = resolveColor(style.backgroundColor);
-      if (!bg) continue;
-      ctx.fillStyle = bg;
-      ctx.fillRect(
-        Math.round(pageX + pl.x + run.x),
-        pageY + pl.y,
-        run.width,
-        pl.line.height,
-      );
-    }
+    drawInlineRunBackgroundsForLine(
+      ctx, pl.line.runs, pageX + pl.x, pageY + pl.y, pl.line.height, resolveColor,
+    );
   }
 }
 
@@ -428,9 +481,15 @@ export function renderRun(
   if (style.backgroundColor && !skipBackground) {
     const bg = resolveColor(style.backgroundColor);
     if (bg) {
+      // Both edges rounded, so this run's right edge is exactly the
+      // expression the next run's left edge rounds — no sub-pixel seam
+      // between words (issue #1036). Callers that walk a whole line
+      // (`drawInlineRunBackgroundsForLine`) get bands instead; this
+      // per-run path is what the header/footer painter still uses.
+      const bgRight = Math.round(lineX + run.x + run.width);
       ctx.save();
       ctx.fillStyle = bg;
-      ctx.fillRect(x, lineY, run.width, lineHeight);
+      ctx.fillRect(x, lineY, bgRight - x, lineHeight);
       ctx.restore();
       ctx.fillStyle = textColor;
     }
