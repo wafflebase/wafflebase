@@ -34,6 +34,7 @@ import {
 } from '@wafflebase/docs';
 import type { AutofitMode, Element, Frame, VerticalAnchorMode } from '../../model/element';
 import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
+import { resizeFrameToSize } from './interactions/resize';
 
 /**
  * Logical-px inset applied to a text-capable element's frame when
@@ -491,6 +492,18 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
           const targetH = Math.max(1, h);
           const cssH = Math.max(1, Math.round(targetH * scale));
           container.style.height = `${cssH}px`;
+          if (isGrow) {
+            // The container rotates about its own centre, so growing it
+            // with `left`/`top` pinned moves the painted centre of a
+            // rotated box — away from the frame the grow commit writes,
+            // which anchors the unrotated top-left (#1039). Track that
+            // same anchor live so the editing surface, the canvas
+            // underlay and the committed render agree. No-op at
+            // rotation 0.
+            const fit = resizeFrameToSize(frame, frame.w, targetH);
+            container.style.left = `${fit.x * scale + panX}px`;
+            container.style.top = `${fit.y * scale + panY}px`;
+          }
           canvas.style.height = `${cssH}px`;
           canvas.height = Math.max(1, Math.round(cssH * dpr));
           api.setContentHeight(targetH);

@@ -104,6 +104,7 @@ import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { isEmptyPlaceholder } from './interactions/select';
 import {
+  resizeFrameToSize,
   resizeFrameWorld,
   resizeMultiFrames,
   type ElementSnapshot,
@@ -4417,7 +4418,22 @@ class SlidesEditorImpl implements SlidesEditor {
                 if (h !== null && !ancestorHasTransform) {
                   const targetH = Math.max(MIN_TEXT_BOX_H, h);
                   if (targetH !== enterFrameH) {
-                    this.options.store.updateElementFrame(slideId, elementId, { h: targetH });
+                    // `frame.x/y` is the top-left of the UNROTATED box
+                    // while rotation pivots on the centre, so patching
+                    // `h` alone would move a rotated box's painted
+                    // centre and make it jump on commit (#1039). Anchor
+                    // the unrotated top-left the way a south-east drag
+                    // does; identity on x/y at rotation 0, so unrotated
+                    // autofit-grow is unchanged. Local space is the
+                    // right basis here: `ancestorHasTransform` above
+                    // already restricts this to elements whose ancestors
+                    // only translate.
+                    const fit = resizeFrameToSize(localFrame, localFrame.w, targetH);
+                    this.options.store.updateElementFrame(slideId, elementId, {
+                      x: fit.x,
+                      y: fit.y,
+                      h: targetH,
+                    });
                   }
                 }
               } else if (target!.kind === 'cell' && target!.cell) {
@@ -7414,10 +7430,20 @@ export function maskEditingElement(
         // `placeholderRef` too: with empty blocks the renderer would
         // otherwise paint the placeholder ghost hint behind the active
         // editor. Grow the frame to the live editor height when supplied
-        // so the box decoration tracks an auto-growing box.
+        // so the box decoration tracks an auto-growing box — anchored
+        // through `resizeFrameToSize` so the live underlay lands on the
+        // SAME geometry the autofit-grow commit writes (#1039). Growing
+        // `h` with `x`/`y` held fixed moves a rotated box's painted
+        // centre, so a size-only clone here would drift away from the
+        // committed frame and jump at commit. Identity on `x`/`y` at
+        // rotation 0, so unrotated boxes are unchanged.
         const frame =
           liveHeight !== null
-            ? { ...el.frame, h: Math.max(MIN_TEXT_BOX_H, liveHeight) }
+            ? resizeFrameToSize(
+                el.frame,
+                el.frame.w,
+                Math.max(MIN_TEXT_BOX_H, liveHeight),
+              )
             : el.frame;
         out.push({
           ...el,

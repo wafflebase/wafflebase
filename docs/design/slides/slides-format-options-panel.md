@@ -209,6 +209,58 @@ file holds only the slot manager + header + empty-state hint.
   the docs/sheets precise-input pattern).
 - `Escape` reverts the draft to the displayed value and blurs.
 
+#### W/H on a rotated element
+
+`frame.x/y` is the top-left of the **unrotated** box, but rotation pivots
+on the centre `(x + w/2, y + h/2)`. So a size-only patch moves that centre
+and a rotated element translates across the slide instead of resizing in
+place — a ~153 px jump for a 45°, 400→800 px width change (#1039).
+
+Every W/H commit therefore goes through `anchoredFramePatch`
+(`format-panel/frame-patch.ts`), which widens the patch with the
+compensated `x`/`y` from `resizeFrameToSize` in `@wafflebase/slides`:
+
+```text
+c_new = c_old + R(θ)·(Δw/2, Δh/2)
+x     = c_new.x − w_new/2        y = c_new.y − h_new/2
+```
+
+That is the **anchor-preserving** rule — the unrotated box's top-left
+corner stays fixed in world space, which is exactly what
+`resizeFrameWorld(frame, 'se', …)` produces, so a panel edit and a drag
+resize agree. It is the identity on `x`/`y` at θ = 0, so unrotated
+behaviour is unchanged. `resizeFrameToSize` shares the anchor math with
+`resizeFrameWorld` (both call the private `frameAtAnchor`) rather than
+keeping a second copy of the trigonometry.
+
+A strictly centre-preserving rule (`c_new = c_old`) would match "resize
+about the transform origin" more literally, but it would also make an
+unrotated W change grow symmetrically — inconsistent with every other
+size-changing path in the editor.
+
+Compensation is computed **per element**: each carries its own rotation,
+so a multi-select W commit writes a different `x`/`y` per element inside
+the one batch. It applies to the aspect-locked path as well.
+
+The rule is **not panel-local**. Any writer that changes `w`/`h` on a
+possibly-rotated frame has the same jump, so the one other such caller —
+the text autofit-grow commit in `view/editor/editor.ts`, which fits a
+text box's height to its content when text edit ends — routes through
+`resizeFrameToSize` too instead of patching `h` alone. Its basis is the
+element's **local** frame, which is sound because the surrounding
+`ancestorHasTransform` gate already restricts that path to elements
+whose ancestors only translate. Drag resize (`resizeFrameWorld`), crop
+commit and multi-resize already write whole frames, so they were never
+affected.
+
+`Frame.rotation` is typed as required, but a legacy or imported document
+can store a frame without it, and `Math.cos(undefined)` is `NaN` — which
+a size-only patch was immune to and the compensated one is not. So
+`frameAtAnchor`, `resizeFrame` and `resizeFrameWorld` all read a missing
+rotation as `0`, and `anchoredFramePatch` additionally drops back to the
+plain size-only patch if the computed `x`/`y` come out non-finite for any
+other reason.
+
 #### Multi-select mixed-value handling
 
 ```ts

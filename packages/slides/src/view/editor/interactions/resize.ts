@@ -68,7 +68,10 @@ export function resizeFrame(
   return {
     x: left, y: top,
     w: r - left, h: b - top,
-    rotation: start.rotation,
+    // A frame with no stored rotation (legacy / imported document) is
+    // unrotated; normalize so downstream trigonometry never sees
+    // `undefined`.
+    rotation: start.rotation ?? 0,
   };
 }
 
@@ -88,13 +91,17 @@ export function resizeFrameWorld(
   worldDy: number,
   shift: boolean,
 ): Frame {
-  if (start.rotation === 0) {
+  // `rotation` is typed as required but legacy / imported documents can
+  // omit it (see `import/pptx/shape.ts`'s own `?? 0`), and
+  // `Math.cos(undefined)` is NaN — which would silently corrupt x/y.
+  const rotation = start.rotation ?? 0;
+  if (rotation === 0) {
     return resizeFrame(start, handle, worldDx, worldDy, shift);
   }
 
   // Project world delta into the frame's local axes by rotating by -θ.
-  const cosInv = Math.cos(-start.rotation);
-  const sinInv = Math.sin(-start.rotation);
+  const cosInv = Math.cos(-rotation);
+  const sinInv = Math.sin(-rotation);
   const localDx = worldDx * cosInv - worldDy * sinInv;
   const localDy = worldDx * sinInv + worldDy * cosInv;
 
@@ -102,18 +109,52 @@ export function resizeFrameWorld(
   const localStart: Frame = { x: 0, y: 0, w: start.w, h: start.h, rotation: 0 };
   const local = resizeFrame(localStart, handle, localDx, localDy, shift);
 
-  // Anchor = opposite corner / edge midpoint. It must stay in the same
-  // WORLD position before and after the resize. anchorBefore is its
-  // position in start's local coords; anchorAfter is its position in
-  // the new (resized) local coords.
+  return frameAtAnchor(start, handle, local.w, local.h);
+}
+
+/**
+ * Resize a (possibly rotated) frame to explicit dimensions, keeping the
+ * unrotated box's top-left corner fixed in world space — the same anchor
+ * `resizeFrameWorld(frame, 'se', …)` produces, so a panel W/H edit and a
+ * south-east drag agree. At `rotation === 0` this leaves `x` / `y`
+ * untouched.
+ *
+ * `x`/`y` are the top-left of the UNROTATED box while rotation pivots on
+ * the centre, so holding `x`/`y` fixed across a size change moves every
+ * painted point. Callers that write `w`/`h` on a rotated frame must go
+ * through this (or `resizeFrameWorld`) rather than patching size alone.
+ */
+export function resizeFrameToSize(start: Frame, w: number, h: number): Frame {
+  // Spread `start` first so flip flags survive; frameAtAnchor only
+  // returns the geometry it computes.
+  return { ...start, ...frameAtAnchor(start, 'se', w, h) };
+}
+
+/**
+ * Place a frame of size `w` × `h` so that the anchor of `handle` (the
+ * corner / edge midpoint OPPOSITE to it) stays at the same world
+ * position it occupies on `start`.
+ */
+function frameAtAnchor(
+  start: Frame,
+  handle: ResizeHandle,
+  w: number,
+  h: number,
+): Frame {
+  // anchorBefore is the anchor's position in start's local coords;
+  // anchorAfter is its position in the new (resized) local coords.
   const anchorBefore = anchorLocal(handle, start.w, start.h);
-  const anchorAfter  = anchorLocal(handle, local.w,  local.h);
+  const anchorAfter  = anchorLocal(handle, w,       h);
 
   // World position of anchorBefore = startCentre + R(rot) * (anchorBefore - startLocalCentre).
   const startCx = start.x + start.w / 2;
   const startCy = start.y + start.h / 2;
-  const cosF = Math.cos(start.rotation);
-  const sinF = Math.sin(start.rotation);
+  // A frame with no stored `rotation` (legacy / imported document) must
+  // read as unrotated; `Math.cos(undefined)` is NaN and would poison
+  // both x and y.
+  const rotation = start.rotation ?? 0;
+  const cosF = Math.cos(rotation);
+  const sinF = Math.sin(rotation);
   const dxL = anchorBefore.x - start.w / 2;
   const dyL = anchorBefore.y - start.h / 2;
   const anchorWorldX = startCx + cosF * dxL - sinF * dyL;
@@ -122,17 +163,17 @@ export function resizeFrameWorld(
   // Solve for the new frame's centre so anchorAfter (in NEW local
   // coords) lands on the same anchor world position.
   // anchorWorld = newCentre + R(rot) * (anchorAfter - newLocalCentre)
-  const dxA = anchorAfter.x - local.w / 2;
-  const dyA = anchorAfter.y - local.h / 2;
+  const dxA = anchorAfter.x - w / 2;
+  const dyA = anchorAfter.y - h / 2;
   const newCx = anchorWorldX - (cosF * dxA - sinF * dyA);
   const newCy = anchorWorldY - (sinF * dxA + cosF * dyA);
 
   return {
-    x: newCx - local.w / 2,
-    y: newCy - local.h / 2,
-    w: local.w,
-    h: local.h,
-    rotation: start.rotation,
+    x: newCx - w / 2,
+    y: newCy - h / 2,
+    w,
+    h,
+    rotation,
   };
 }
 
