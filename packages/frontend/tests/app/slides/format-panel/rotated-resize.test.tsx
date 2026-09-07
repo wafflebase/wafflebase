@@ -110,6 +110,20 @@ describe('FormatPanel W/H on a rotated element', () => {
     expect(after.y).toBeCloseTo(before.y, 6);
   });
 
+  it('rotates a legacy frame with no stored rotation instead of writing NaN', () => {
+    // A legacy / imported frame can reach the panel without `rotation`;
+    // `undefined + delta` is NaN, and a NaN rotation makes the element
+    // vanish from the render (#1039).
+    const start = { x: 100, y: 100, w: 384, h: 192 } as unknown as Frame;
+    const { readFrame } = setup(start);
+
+    fireEvent.click(screen.getByLabelText(/rotate 90 clockwise/i));
+
+    const next = readFrame();
+    expect(Number.isFinite(next.rotation)).toBe(true);
+    expect(next.rotation).toBeCloseTo(Math.PI / 2, 10);
+  });
+
   it('leaves x/y untouched on an unrotated element', () => {
     const start: Frame = { x: 100, y: 100, w: 384, h: 384, rotation: 0 };
     const { readFrame } = setup(start);

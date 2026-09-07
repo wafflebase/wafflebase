@@ -159,9 +159,17 @@ export function FormatPanel({
         for (const id of ids) {
           const el = selection.elements.find((e) => e.id === id);
           if (!el) continue;
+          // `Frame.rotation` is typed as required, but a legacy /
+          // imported frame can be stored without it (see
+          // `import/pptx/shape.ts`'s own `?? 0`), and `undefined +
+          // delta` is NaN — persisting a NaN rotation makes the element
+          // vanish, the same hazard `anchoredFramePatch` guards on the
+          // size path (#1039).
+          const base = Number.isFinite(el.frame.rotation)
+            ? el.frame.rotation
+            : 0;
           const next =
-            ((el.frame.rotation + delta) % (Math.PI * 2) + Math.PI * 2) %
-            (Math.PI * 2);
+            (((base + delta) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
           store.updateElementFrame(selection.slideId, id, { rotation: next });
         }
       });

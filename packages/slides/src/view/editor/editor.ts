@@ -7430,10 +7430,20 @@ export function maskEditingElement(
         // `placeholderRef` too: with empty blocks the renderer would
         // otherwise paint the placeholder ghost hint behind the active
         // editor. Grow the frame to the live editor height when supplied
-        // so the box decoration tracks an auto-growing box.
+        // so the box decoration tracks an auto-growing box — anchored
+        // through `resizeFrameToSize` so the live underlay lands on the
+        // SAME geometry the autofit-grow commit writes (#1039). Growing
+        // `h` with `x`/`y` held fixed moves a rotated box's painted
+        // centre, so a size-only clone here would drift away from the
+        // committed frame and jump at commit. Identity on `x`/`y` at
+        // rotation 0, so unrotated boxes are unchanged.
         const frame =
           liveHeight !== null
-            ? { ...el.frame, h: Math.max(MIN_TEXT_BOX_H, liveHeight) }
+            ? resizeFrameToSize(
+                el.frame,
+                el.frame.w,
+                Math.max(MIN_TEXT_BOX_H, liveHeight),
+              )
             : el.frame;
         out.push({
           ...el,

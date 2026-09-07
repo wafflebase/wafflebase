@@ -4,7 +4,11 @@ import '../../../src/view/canvas/test-canvas-env';
 import type { Block } from '@wafflebase/docs';
 import type { Frame } from '../../../src/model/element';
 import { MemSlidesStore } from '../../../src/store/memory';
-import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
+import {
+  initialize,
+  maskEditingElement,
+  type SlidesEditor,
+} from '../../../src/view/editor/editor';
 import type {
   MountSlidesTextBoxOptions,
   SlidesTextBoxEditor,
@@ -130,6 +134,43 @@ describe('autofit-grow commit on a rotated text box (#1039)', () => {
     const nwAfter = nwWorld(after);
     expect(nwAfter.x).toBeCloseTo(nwBefore.x, 6);
     expect(nwAfter.y).toBeCloseTo(nwBefore.y, 6);
+  });
+
+  it('grows the live underlay onto the frame the commit will write', () => {
+    // The in-edit box decoration is painted from `maskEditingElement`'s
+    // live-height clone. If that clone grew `h` with x/y pinned it would
+    // sit somewhere the anchored commit never lands, so a rotated box's
+    // fill/border would jump the moment the edit committed (#1039).
+    const rotation = Math.PI / 3;
+    const before: Frame = { x: 400, y: 300, w: 200, h: 100, rotation };
+    const el = {
+      id: 't1', type: 'text' as const,
+      frame: before,
+      data: { blocks: [block('grow me')] },
+    };
+    const [masked] = maskEditingElement([el as never], 't1', null, 180);
+    const live = masked.frame;
+    expect(live.h).toBe(180);
+    expect(live.x).not.toBeCloseTo(400, 3);
+    const nwBefore = nwWorld(before);
+    const nwLive = nwWorld(live);
+    expect(nwLive.x).toBeCloseTo(nwBefore.x, 6);
+    expect(nwLive.y).toBeCloseTo(nwBefore.y, 6);
+
+    // …and it is exactly the committed frame.
+    const { canvas, overlay, store, sid, textId } = setup(rotation);
+    const captured: { opts?: MountSlidesTextBoxOptions } = {};
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMount(captured),
+    });
+    editor.enterTextEditing(textId);
+    captured.opts!.onContentHeightChange!(180);
+    captured.opts!.onCommit(captured.opts!.blocks);
+    const after = frameOf(store, sid, textId);
+    expect(after.x).toBeCloseTo(live.x, 6);
+    expect(after.y).toBeCloseTo(live.y, 6);
   });
 
   it('leaves x/y untouched at rotation 0', () => {
