@@ -4,6 +4,7 @@ import { paintLayout, renderRun } from '../../src/view/paint-layout';
 import { computeLayout } from '../../src/view/layout';
 import type { LayoutLine, LayoutRun } from '../../src/view/layout';
 import { createBlock } from '../../src/model/types';
+import type { Inline } from '../../src/model/types';
 import { ptToPx, Theme } from '../../src/view/theme';
 import { stubMeasurer } from './_stub-measurer';
 
@@ -355,11 +356,11 @@ const HIGHLIGHT = '#ffff00';
  * the seam used to open up on (issue #1036).
  */
 function highlightRects(
-  inlines: Array<{ text: string; style: Record<string, unknown> }>,
+  inlines: Array<Inline>,
   opts: { alignment?: 'left' | 'justify'; width?: number } = {},
 ): { rects: Array<{ x: number; w: number }>; lines: LayoutLine[] } {
   const block = createBlock('paragraph');
-  block.inlines = inlines as never;
+  block.inlines = inlines;
   if (opts.alignment) block.style.alignment = opts.alignment;
   const { layout } = computeLayout([block], stubMeasurer(7.3), opts.width ?? 600);
   const { ctx, rects } = makeRectCtx();
