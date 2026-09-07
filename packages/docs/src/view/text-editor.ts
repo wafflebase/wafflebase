@@ -217,6 +217,21 @@ export class TextEditor {
   /** A `requestRender()` arrived while an undo unit was open. */
   private renderAfterUndoUnit = false;
   /**
+   * Recompute the host's layout WITHOUT painting.
+   *
+   * The paint can wait for the open undo unit to commit; the *layout* cannot.
+   * `getLayout()` returns the host's last computed layout, and the rest of a
+   * unit reads it — `blockParentMap` (`isInCell` / `getCellInfo`, which the
+   * paste path branches on) and wrap affinity. Before {@link withUndoUnit}
+   * held renders, the interior `requestRender()` refreshed both synchronously;
+   * this seam keeps that true while the paint stays outside the batch.
+   *
+   * Optional: a host whose own `requestRender` is already asynchronous (the
+   * slides text-box editor rAF-schedules it) never had a fresh layout
+   * mid-action to begin with, so leaving it unwired changes nothing there.
+   */
+  requestLayoutRefresh?: () => void;
+  /**
    * Render variant for layout-only changes that do NOT move the caret
    * (e.g. table border resize). The default `requestRender` pulls the
    * cursor into view, which causes the viewport to jump back to the
@@ -718,6 +733,9 @@ export class TextEditor {
     this.requestRender = () => {
       if (this.undoUnitDepth > 0) {
         this.renderAfterUndoUnit = true;
+        // Paint later, measure now — the remainder of the unit reads
+        // `getLayout()`. See {@link requestLayoutRefresh}.
+        this.requestLayoutRefresh?.();
         return;
       }
       this.hostRequestRender();
@@ -3799,16 +3817,24 @@ export class TextEditor {
    *
    * Two rules the callers depend on:
    *
-   * - **Layout and paint stay outside the batch**, the same rule
+   * - **The paint stays outside the batch**, the same rule
    *   `withNamedStyleChange` documents. Interior `requestRender()` calls are
    *   held and replayed once — at most once — after the outermost unit
    *   commits, including after a throw, so the screen always shows what the
-   *   store really holds.
+   *   store really holds. The *layout* is not held with it: each held render
+   *   still runs `requestLayoutRefresh()`, because the rest of the unit reads
+   *   `getLayout()` (`blockParentMap`, wrap affinity).
    * - **`saveSnapshot()` must be called before opening a unit, never inside
    *   one.** On `YorkieDocStore` it also flushes the *pre-edit* caret and
    *   selection into presence, which is what Yorkie records as the reverse of
    *   the change; inside an open batch that presence write is dropped
    *   (`skipNonHistoryPresence`) and undo would restore the post-edit caret.
+   *   That ordering costs nothing on `YorkieDocStore` (its `snapshot()` is a
+   *   no-op) and nothing on `MemDocStore` either: `MemDocStore.batch()` adopts
+   *   a checkpoint taken immediately before it rather than pushing a second,
+   *   identical one — see the comment there, and
+   *   `test/store/memory.test.ts`'s "snapshot() immediately before a batch"
+   *   case, which pins it.
    */
   private withUndoUnit(fn: () => void): void {
     this.undoUnitDepth++;

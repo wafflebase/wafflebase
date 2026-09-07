@@ -2523,6 +2523,12 @@ export function initialize(
     // Caret-only navigation repaints from the cached layout instead of
     // re-measuring the whole document (arrow keys, Home/End).
     textEditor.requestCursorRender = renderCursorMove;
+    // Measure without painting. An open undo unit holds the paint until its
+    // batch commits, but the rest of the unit still reads `getLayout()` —
+    // `blockParentMap` (the paste path branches on it) and wrap affinity —
+    // and `layout` is only reassigned by `recomputeLayout`. See
+    // `TextEditor.requestLayoutRefresh`.
+    textEditor.requestLayoutRefresh = recomputeLayout;
 
     // Remove the selected image inline as one undo unit and return to text
     // mode. Shared by the Delete/Backspace keys and by cut, which needs the

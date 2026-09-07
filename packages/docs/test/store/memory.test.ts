@@ -314,6 +314,54 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
     });
 
+    it('snapshot() immediately before a batch is still one undo unit', () => {
+      // The ordering `TextEditor.withUndoUnit()` uses: the snapshot has to be
+      // outside the batch, because on `YorkieDocStore` it also flushes the
+      // pre-edit caret into presence and that write is dropped inside an open
+      // batch. Here the snapshot has already checkpointed exactly this state,
+      // so `batch()` adopts it — pushing a second, identical checkpoint would
+      // cost a dead Cmd+Z on every edit in a slides text box or the demo app.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.batch(() => {
+        store.insertText(block.id, 5, ' World');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+      });
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello World');
+
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+      // The single Cmd+Z was the whole action. A second one would be dead.
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('snapshot() before a batch that writes nothing costs no undo unit', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.batch(() => {});
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('a write between snapshot() and batch() is not swallowed', () => {
+      // Adoption is only safe while nothing has been written since the
+      // checkpoint. Here it has, so the batch must take its own.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, ' A');
+      store.batch(() => {
+        store.insertText(block.id, 7, ' B');
+      });
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello A B');
+
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello A');
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+    });
+
     it('a batch that writes nothing costs no undo unit', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });

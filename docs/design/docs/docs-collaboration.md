@@ -328,16 +328,34 @@ Enter, page break, the Hangul syllable commit — wrap the delete together with
 the writes that follow, and the nested batch short-circuits so the pair is
 still one unit. Two rules the helper enforces:
 
-- **Layout and paint stay outside the batch**, the same rule
+- **The paint stays outside the batch**, the same rule
   `withNamedStyleChange` follows. Interior `requestRender()` calls are held
   and replayed once after the outermost unit commits, including after a
-  throw, so the screen always shows what the store really holds.
+  throw, so the screen always shows what the store really holds. The
+  **layout is not held with it**: a held render still calls the host's
+  `requestLayoutRefresh()` (`recomputeLayout` in `view/editor.ts`), because
+  the remainder of the unit reads `getLayout()` — `blockParentMap`, which
+  `isInCell` / `getCellInfo` and therefore the paste path branch on, and wrap
+  affinity. Hosts whose own `requestRender` is already asynchronous (the
+  slides text-box editor rAF-schedules it) leave the seam unwired; they never
+  had a fresh mid-action layout to lose.
 - **`saveSnapshot()` is called before the unit opens, never inside it.** On
   `MemDocStore` it is just a checkpoint, but on `YorkieDocStore` it also
   flushes the *pre-edit* caret and selection into presence, which is what
   Yorkie records as the reverse of the change's `addToHistory` set. Inside an
   open batch `skipNonHistoryPresence()` drops that write, so batching it
   would silently make undo restore the *post*-edit caret.
+
+  That ordering has to cost nothing on either store. On `YorkieDocStore` it
+  is free — `snapshot()` is a no-op there. On `MemDocStore`, where the
+  checkpoint *is* the undo unit, `batch()` would otherwise push a second,
+  identical one and every batched edit would cost a dead Cmd+Z in a slides
+  text box or the demo app. `MemDocStore.batch()` therefore **adopts** a
+  checkpoint that holds exactly the current state instead of pushing its own
+  — only ever true when nothing has been written since it was taken, which is
+  precisely the `saveSnapshot(); withUndoUnit(…)` shape. `link-run.ts` solves
+  the same collision the other way (it snapshots *inside* its batch) because
+  it has no pre-edit presence to flush.
 
 ##### The undo floor is an entry, not a depth
 

@@ -79,10 +79,14 @@ export function linkTextFollowsHref(block: Block, run: LinkRun): boolean {
  * enough to keep in step by hand.
  *
  * `snapshot` — the store's undo checkpoint — runs *inside* the batch, the
- * same ordering `withNamedStyleChange` uses. `MemDocStore.batch()` takes
- * its own checkpoint up front, so a call before the batch costs a second,
- * identical undo step (a dead Cmd+Z) and clears the redo stack that
- * `batch()` puts back when the body turns out to write nothing.
+ * same ordering `withNamedStyleChange` uses, and the simplest one for a
+ * caller with no pre-edit presence to flush: `MemDocStore.batch()` takes its
+ * own checkpoint up front, so an inside call is a no-op there and nothing can
+ * disturb the redo stack `batch()` puts back when the body writes nothing.
+ * (`TextEditor.withUndoUnit()` must snapshot *before* its batch instead —
+ * `YorkieDocStore.snapshot()` also flushes the pre-edit caret into presence,
+ * which an open batch drops — which is why `MemDocStore.batch()` adopts an
+ * identical checkpoint taken immediately before it rather than doubling it.)
  */
 export function rewriteLinkHrefInPlace(
   doc: Doc,

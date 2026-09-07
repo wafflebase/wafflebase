@@ -32,9 +32,20 @@ import {
  * docs-package editor tests). The undo/selection logic runs independent of
  * paint.
  */
+/**
+ * Every 2D-context method call the shim saw, by name. `save` is called once
+ * per `paint()` in this environment, which is what lets the render-deferral
+ * test below count paints. Reset with {@link resetCtxCalls}.
+ */
+const ctxCalls: Record<string, number> = {};
+function resetCtxCalls(): void {
+  for (const key of Object.keys(ctxCalls)) delete ctxCalls[key];
+}
+
 function installCanvasShim(): () => void {
   const ctxHandler: ProxyHandler<object> = {
     get(_t, prop) {
+      const name = String(prop);
       if (prop === 'measureText') {
         return (text: string) => ({
           width: typeof text === 'string' ? text.length * 6 : 0,
@@ -58,7 +69,9 @@ function installCanvasShim(): () => void {
       }
       if (prop === 'canvas') return null;
       if (prop === 'font') return '12px sans-serif';
-      return () => {};
+      return () => {
+        ctxCalls[name] = (ctxCalls[name] ?? 0) + 1;
+      };
     },
     set() {
       return true;
@@ -137,13 +150,15 @@ describe('editor undo restores the selection (issue #340, toolbar style path)', 
  * `insertBlocksAfter`, `insertBlocks()` wrote one `doc.update()` **per
  * pasted block**, so a 1000-block paste took 1000 Cmd+Z presses to undo.
  *
- * Batching the middle blocks collapses that to a constant, but *not* to one:
  * `insertBlocks()` still splits the destination block, rewrites the head,
- * inserts the batch, and rewrites the tail as separate store writes. This
- * test pins that constant so the cost stays independent of paste size — the
- * property that actually matters — and so nobody has to re-derive it from
- * the "one undo unit" phrasing, which describes `insertBlocksAfter` alone
- * and not the whole paste.
+ * inserts the batch, and rewrites the tail as separate store writes — four
+ * of them, which is what this used to cost. `applyPastePlan`'s
+ * `withUndoUnit` now folds those (and the delete a paste over a selection
+ * runs first) into one `doc.update()`, so the cost is exactly ONE, whatever
+ * is pasted and whatever it replaces. Both properties are asserted: the
+ * absolute cost, which `applyPastePlan`'s doc comment claims, and the older,
+ * weaker "constant in the size of the paste", which is what fails loudest if
+ * the batch is ever dropped.
  */
 function htmlWithParagraphs(n: number): string {
   const parts: string[] = [];
@@ -179,9 +194,12 @@ describe('multi-block paste undo cost', () => {
     restoreCanvas();
   });
 
-  function pasteHtml(html: string): void {
+  function pasteHtml(html: string, range?: {
+    anchor: { blockId: string; offset: number };
+    focus: { blockId: string; offset: number };
+  }): void {
     const block = store.getDocument().blocks[0];
-    editor._setSelectionForTest({
+    editor._setSelectionForTest(range ?? {
       anchor: { blockId: block.id, offset: 4 },
       focus: { blockId: block.id, offset: 4 },
     });
@@ -212,11 +230,40 @@ describe('multi-block paste undo cost', () => {
     // this file mounts the whole docs editor, and the frontend suite runs
     // files in parallel against a 5 s per-test budget elsewhere.
     expect(large).toBe(small);
-    // Measured at 4 — split, head rewrite, batched insert, tail rewrite.
-    // Asserted as a ceiling rather than an equality so an unrelated store
-    // refactor that merges two of them does not fail this test, while a
-    // regression back to per-block writes still does.
-    expect(small).toBeLessThanOrEqual(6);
+    // And the absolute cost `applyPastePlan` documents: the split, the head
+    // rewrite, the batched insert and the tail rewrite are one `doc.update()`
+    // now, not four. Asserted exactly — the claim in the doc comment is "one
+    // undo unit", and a ceiling would let a regression to 4 pass.
+    expect(small).toBe(1);
+  });
+
+  it('a paste over a multi-block selection is one undo unit', () => {
+    // The paste path deletes first, so this is the composite case: the
+    // delete's per-block writes and the insert's four all have to land in
+    // the same unit. `seed` alone is not enough to span blocks, so grow the
+    // document with a first paste and then paste over the result.
+    pasteHtml(htmlWithParagraphs(8));
+    const blocks = store.getDocument().blocks;
+    const last = blocks[blocks.length - 1];
+    const range = {
+      anchor: { blockId: blocks[0].id, offset: 0 },
+      focus: {
+        blockId: last.id,
+        offset: last.inlines.map((i) => i.text).join('').length,
+      },
+    };
+    const original = store.getDocument().blocks.map((b) =>
+      b.inlines.map((i) => i.text).join(''),
+    );
+
+    const before = doc.getUndoStackForTest().length;
+    pasteHtml('<p>Replacement</p>', range);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+
+    editor.undo();
+    expect(
+      store.getDocument().blocks.map((b) => b.inlines.map((i) => i.text).join('')),
+    ).toEqual(original);
   });
 });
 
@@ -306,6 +353,22 @@ describe('select-all then type is one undo unit (issue #1045)', () => {
 
     // Before the fix this restored ~48 blocks and the tail was gone for good.
     expect(texts()).toEqual(original);
+  });
+
+  // `withUndoUnit` holds every interior `requestRender()` and replays it once
+  // after the outermost unit commits, so the screen never shows a half-written
+  // batch. Counted through the canvas shim: `paint()` calls `ctx.save()`
+  // exactly once per pass here, and typing over a selection runs two interior
+  // renders (the delete's and the insert's). Without the hold this is 2.
+  it('paints once for the whole action, after the unit commits', () => {
+    selectAll();
+    resetCtxCalls();
+    type('X');
+
+    expect(ctxCalls.save).toBe(1);
+    // Held, not swallowed: the one paint really did happen, and it shows the
+    // committed state rather than the pre-edit one.
+    expect(texts()).toEqual(['X']);
   });
 
   it('backspace over a select-all is one undo unit too', () => {

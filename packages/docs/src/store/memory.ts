@@ -203,9 +203,27 @@ export class MemDocStore implements DocStore {
     // a body that never snapshots at all costs no undo unit — neither of
     // which `YorkieDocStore` does, since its single `doc.update` covers the
     // whole body regardless. Mirrors `MemSlidesStore.batch()`.
-    const before = cloneDocument(this.doc);
+    //
+    // A `snapshot()` taken *immediately before* the batch is the one ordering
+    // this must not double-count. The docs `TextEditor.withUndoUnit()` needs
+    // it there — on `YorkieDocStore` the snapshot also flushes the pre-edit
+    // caret into presence, and that write is dropped inside an open batch
+    // (`skipNonHistoryPresence`) — but here it has already pushed a
+    // checkpoint holding exactly this state, so pushing a second, identical
+    // one would cost a dead Cmd+Z on every edit in every MemDocStore host
+    // (slides text boxes, the docs demo, the visual harness). Adopt the
+    // checkpoint already on the stack instead: it *is* the "before" this
+    // batch wants. Compared by value for the same reason `wroteNothing` is —
+    // there is no flag a mutation could reliably clear — and only ever true
+    // when the last recorded state is the current one, i.e. when nothing has
+    // been written since it was taken.
+    const beforeClone = cloneDocument(this.doc);
+    const beforeJson = JSON.stringify(beforeClone);
+    const top = this.undoStack[this.undoStack.length - 1];
+    const adopted = top !== undefined && JSON.stringify(top) === beforeJson;
+    const before = adopted ? top : beforeClone;
     const priorRedo = this.redoStack;
-    this.undoStack.push(before);
+    if (!adopted) this.undoStack.push(before);
     this.redoStack = [];
     this.batchDepth++;
     try {
@@ -229,7 +247,7 @@ export class MemDocStore implements DocStore {
       // so the checkpoint is kept — that is what makes the mess undoable.
       const wroteNothing =
         this.undoStack[this.undoStack.length - 1] === before &&
-        JSON.stringify(before) === JSON.stringify(cloneDocument(this.doc));
+        beforeJson === JSON.stringify(cloneDocument(this.doc));
       if (wroteNothing) {
         this.undoStack.pop();
         this.redoStack = priorRedo;
