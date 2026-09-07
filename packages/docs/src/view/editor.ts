@@ -23,7 +23,7 @@ import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js'
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
-import { findLinkRunAt, linkTextFollowsHref } from './link-run.js';
+import { findLinkRunAt, linkRunCoveringRange, rewriteLinkHrefInPlace } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
 import { caretInlineStyle } from '../model/caret-style.js';
@@ -3580,7 +3580,6 @@ export function initialize(
       // too keeps the rule "this API mutates → it clears first" unconditional.
       clearImageSelectionForMutation();
       if (selection.hasSelection() && selection.range) {
-        docStore.snapshot();
         // Record the caret + selection so undo restores them. Mirrors
         // applyStyleImpl: this direct toolbar/⌘K path bypasses the
         // text-editor's saveSnapshot hook, so without this undo would
@@ -3597,6 +3596,7 @@ export function initialize(
 
         // Cell-range mode: apply to all cells in range (mirrors applyStyleImpl)
         if (range.tableCellRange) {
+          docStore.snapshot();
           applyStyleToCellRange(range.tableCellRange, { href: url });
           markDirty(range.tableCellRange.blockId);
           render();
@@ -3604,6 +3604,33 @@ export function initialize(
           return;
         }
 
+        // A selection covering exactly one link is what dragging over a
+        // link now produces (`expandRangeForLinks` snaps a partial drag out
+        // to the run's own bounds), so it must behave like the caret branch
+        // below — a URL-derived display text follows the new URL instead of
+        // going stale (#1038). Anything wider is a fresh span being linked.
+        const covered = linkRunCoveringRange(doc, range);
+        if (covered) {
+          const caretOffset = rewriteLinkHrefInPlace(
+            doc, covered.block, covered.run, url, () => docStore.snapshot(),
+          );
+          if (caretOffset !== undefined) {
+            // The replacement resized the run, so the stored selection
+            // would otherwise still describe the old text's extent.
+            const rewritten = {
+              anchor: { blockId: covered.block.id, offset: covered.run.start },
+              focus: { blockId: covered.block.id, offset: caretOffset },
+            };
+            selection.setRange(rewritten);
+            cursor.moveTo(rewritten.focus);
+          }
+          for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);
+          render();
+          notifyStyleApplied();
+          return;
+        }
+
+        docStore.snapshot();
         doc.applyInlineStyle(range, { href: url });
         // Mark affected blocks as dirty (mirrors applyStyleImpl)
         for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);
@@ -3617,10 +3644,12 @@ export function initialize(
         const block = doc.getBlock(pos.blockId);
         const link = block ? findLinkRunAt(block, pos.offset) : undefined;
         if (block && link) {
-          docStore.snapshot();
           // Same reason as the selection branch above: this path bypasses
           // the text-editor's saveSnapshot hook, so without it undo would
-          // not restore the caret (a pre-existing gap here).
+          // not restore the caret (a pre-existing gap here). It stays
+          // *outside* the batch, unlike the snapshot: `YorkieDocStore`
+          // holds a non-history presence write back while a batch is open,
+          // so the pre-edit caret would never reach presence at all.
           if ('setCursorForHistory' in docStore) {
             (docStore as {
               setCursorForHistory(
@@ -3631,33 +3660,13 @@ export function initialize(
           }
           // A display text that is the old URL was never customised, so it
           // follows the new one; a custom label survives (#494/#580).
-          const followsHref = linkTextFollowsHref(block, link);
-          const linkRange = (start: number, end: number) => ({
-            anchor: { blockId: block.id, offset: start },
-            focus: { blockId: block.id, offset: end },
-          });
-          // One batch: the href change and the text replacement undo
-          // together rather than as two separate steps.
-          doc.batch(() => {
-            doc.applyInlineStyle(linkRange(link.start, link.end), { href: url });
-            if (!followsHref) return;
-            // Insert at the run's *trailing* edge first: resolveOffset puts
-            // link.end inside the link's own last inline, so the new text
-            // inherits the run's style including the href just written.
-            doc.insertText({ blockId: block.id, offset: link.end }, url);
-            doc.deleteText(
-              { blockId: block.id, offset: link.start },
-              link.end - link.start,
-            );
-            doc.applyInlineStyle(
-              linkRange(link.start, link.start + url.length),
-              { href: url },
-            );
-          });
+          const caretOffset = rewriteLinkHrefInPlace(doc, block, link, url, () =>
+            docStore.snapshot(),
+          );
           // Not optional: the caret can otherwise sit past the end of a
           // run the replacement shortened.
-          if (followsHref) {
-            cursor.moveTo({ blockId: block.id, offset: link.start + url.length });
+          if (caretOffset !== undefined) {
+            cursor.moveTo({ blockId: block.id, offset: caretOffset });
           }
           // Cell block: mark the parent table block dirty (mirrors removeLink)
           const cellInfo = layout.blockParentMap.get(block.id);

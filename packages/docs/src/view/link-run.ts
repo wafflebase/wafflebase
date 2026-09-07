@@ -69,6 +69,80 @@ export function linkTextFollowsHref(block: Block, run: LinkRun): boolean {
 }
 
 /**
+ * Point `run`'s href at `url` without disturbing the text around it, and
+ * carry the display text along when it was never customised (see
+ * {@link linkTextFollowsHref}). Returns the offset the caret must move to,
+ * or `undefined` when the text was left alone and the caret is still valid.
+ *
+ * Shared by the docs editor and the slides text-box editor rather than
+ * copied into both: the insert-before-delete ordering below is not obvious
+ * enough to keep in step by hand.
+ *
+ * `snapshot` — the store's undo checkpoint — runs *inside* the batch, the
+ * same ordering `withNamedStyleChange` uses. `MemDocStore.batch()` takes
+ * its own checkpoint up front, so a call before the batch costs a second,
+ * identical undo step (a dead Cmd+Z) and clears the redo stack that
+ * `batch()` puts back when the body turns out to write nothing.
+ */
+export function rewriteLinkHrefInPlace(
+  doc: Doc,
+  block: Block,
+  run: LinkRun,
+  url: string,
+  snapshot?: () => void,
+): number | undefined {
+  const followsHref = linkTextFollowsHref(block, run);
+  const linkRange = (start: number, end: number): DocRange => ({
+    anchor: { blockId: block.id, offset: start },
+    focus: { blockId: block.id, offset: end },
+  });
+  // One batch: the href change and the text replacement undo together
+  // rather than as two separate steps.
+  doc.batch(() => {
+    snapshot?.();
+    doc.applyInlineStyle(linkRange(run.start, run.end), { href: url });
+    if (!followsHref) return;
+    // Insert at the run's *trailing* edge first: resolveOffset puts
+    // run.end inside the link's own last inline, so the new text inherits
+    // the run's style including the href just written.
+    doc.insertText({ blockId: block.id, offset: run.end }, url);
+    doc.deleteText({ blockId: block.id, offset: run.start }, run.end - run.start);
+    doc.applyInlineStyle(linkRange(run.start, run.start + url.length), { href: url });
+  });
+  return followsHref ? run.start + url.length : undefined;
+}
+
+/**
+ * The link run a range covers *exactly*, or `undefined`.
+ *
+ * A selection whose two endpoints are one link's own bounds is the pointer
+ * form of "the caret is in this link" — and, since `expandRangeForLinks`
+ * snaps a partial drag out to those bounds, it is the normal result of
+ * dragging over a link. Editing the href from there must therefore behave
+ * like the caret path (text follows a URL-derived label) rather than like
+ * linking a fresh span of text (#1038).
+ */
+export function linkRunCoveringRange(
+  doc: Doc,
+  range: DocRange,
+): { block: Block; run: LinkRun } | undefined {
+  if (range.tableCellRange) return undefined;
+  if (range.anchor.blockId !== range.focus.blockId) return undefined;
+  const start = Math.min(range.anchor.offset, range.focus.offset);
+  const end = Math.max(range.anchor.offset, range.focus.offset);
+  if (start === end) return undefined;
+  const block = doc.findBlock(range.anchor.blockId);
+  if (!block) return undefined;
+  // Probed one character in, not at `start`: `findLinkRunAt` is
+  // edge-inclusive and prefers the *earlier* run at a boundary, so asking
+  // at `start` would answer with the link that merely ends there. `start +
+  // 1` is always within the selection, since `end > start`.
+  const run = findLinkRunAt(block, start + 1);
+  if (!run || run.start !== start || run.end !== end) return undefined;
+  return { block, run };
+}
+
+/**
  * The link run strictly containing `offset`, or `undefined`.
  *
  * Deliberately *not* `findLinkRunAt`'s edge-inclusive test: an offset at

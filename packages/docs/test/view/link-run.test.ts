@@ -3,6 +3,7 @@ import {
   findLinkRunAt,
   linkTextFollowsHref,
   expandRangeForLinks,
+  linkRunCoveringRange,
 } from '../../src/view/link-run.js';
 import { createEmptyBlock } from '../../src/model/types.js';
 import type { Block, Inline } from '../../src/model/types.js';
@@ -269,8 +270,11 @@ describe('expandRangeForLinks', () => {
 
   it('skips tableCellRange mode, where block-local offsets mean nothing', () => {
     const { doc, id } = linked();
+    // Endpoints that WOULD both snap (2..8 grows to 2..10, asserted above),
+    // so only the `tableCellRange` guard can keep this range unchanged — a
+    // collapsed one would be returned by the collapsed guard regardless.
     const cellRange = {
-      anchor: { blockId: id, offset: 8 },
+      anchor: { blockId: id, offset: 2 },
       focus: { blockId: id, offset: 8 },
       tableCellRange: {
         blockId: id,
@@ -326,5 +330,112 @@ describe('expandRangeForLinks', () => {
       focus: { blockId: other.id, offset: 2 },
     };
     expect(expandRangeForLinks(doc, range)).toBe(range);
+  });
+});
+
+describe('linkRunCoveringRange', () => {
+  /** "plain LINK plain" — the link covers offsets 6..10. */
+  function linked(): { doc: Doc; id: string } {
+    const block = makeBlock([
+      { text: 'plain ', style: {} },
+      { text: 'link', style: { href: A } },
+      { text: ' plain', style: {} },
+    ]);
+    return { doc: makeDoc([block]), id: block.id };
+  }
+
+  it('answers the run when the range is exactly its bounds', () => {
+    const { doc, id } = linked();
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: id, offset: 6 },
+        focus: { blockId: id, offset: 10 },
+      })?.run,
+    ).toEqual({ start: 6, end: 10, href: A });
+  });
+
+  it('is direction-independent', () => {
+    const { doc, id } = linked();
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: id, offset: 10 },
+        focus: { blockId: id, offset: 6 },
+      })?.run,
+    ).toEqual({ start: 6, end: 10, href: A });
+  });
+
+  it('declines a range that covers more than the link', () => {
+    const { doc, id } = linked();
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: id, offset: 0 },
+        focus: { blockId: id, offset: 10 },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('declines a range that covers only part of the link', () => {
+    const { doc, id } = linked();
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: id, offset: 7 },
+        focus: { blockId: id, offset: 10 },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('declines a collapsed range and a range with no link in it', () => {
+    const { doc, id } = linked();
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: id, offset: 6 },
+        focus: { blockId: id, offset: 6 },
+      }),
+    ).toBeUndefined();
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: id, offset: 0 },
+        focus: { blockId: id, offset: 5 },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('picks the selected link, not the one that merely ends at its start', () => {
+    // `findLinkRunAt` is edge-inclusive and prefers the earlier run at a
+    // boundary, so probing at the selection start would answer with A.
+    const block = makeBlock([
+      { text: 'aaa', style: { href: A } },
+      { text: 'bbb', style: { href: B } },
+    ]);
+    const doc = makeDoc([block]);
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: block.id, offset: 3 },
+        focus: { blockId: block.id, offset: 6 },
+      })?.run,
+    ).toEqual({ start: 3, end: 6, href: B });
+  });
+
+  it('declines a multi-block range and a cell range', () => {
+    const first = makeBlock([{ text: 'link', style: { href: A } }]);
+    const second = makeBlock([{ text: 'second', style: {} }]);
+    const doc = makeDoc([first, second]);
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: first.id, offset: 0 },
+        focus: { blockId: second.id, offset: 3 },
+      }),
+    ).toBeUndefined();
+    expect(
+      linkRunCoveringRange(doc, {
+        anchor: { blockId: first.id, offset: 0 },
+        focus: { blockId: first.id, offset: 4 },
+        tableCellRange: {
+          blockId: first.id,
+          start: { rowIndex: 0, colIndex: 0 },
+          end: { rowIndex: 1, colIndex: 1 },
+        },
+      }),
+    ).toBeUndefined();
   });
 });

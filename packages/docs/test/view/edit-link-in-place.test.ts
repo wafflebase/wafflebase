@@ -383,6 +383,98 @@ describe('docs editor — edit link in place (#494)', () => {
     expect(firstBlockInlines()[0].style.href).toBe('https://example.com');
   });
 
+  /**
+   * `MemDocStore.batch()` takes its own undo checkpoint up front, so a
+   * `snapshot()` before the batch pushes a second, identical one — the
+   * first Cmd+Z then appears to do nothing and the step before it is one
+   * press further away than it should be.
+   */
+  it('an in-place link edit costs exactly one undo step', () => {
+    // Two units: inserting the self-labelled link, then editing its href.
+    makeSelfLabelledLink('https://example.com', 3);
+    editor.insertLink('https://www.google.com');
+    expect(blockText()).toBe('https://www.google.com');
+
+    editor.undo();
+    expect(blockText()).toBe('https://example.com');
+
+    // The second press must reach the state before the link existed at all.
+    editor.undo();
+    expect(blockText()).toBe('');
+  });
+
+  it('an href edit that leaves a custom label alone also costs one step', () => {
+    // The `followsHref === false` half of the same batch.
+    makeLinkedExample(3);
+    editor.insertLink('https://example.org');
+
+    editor.undo();
+    expect(firstBlockInlines()[0].style.href).toBe('https://example.com');
+
+    editor.undo();
+    expect(firstBlockInlines().every((i) => !i.style.href)).toBe(true);
+  });
+
+  /**
+   * Part A on the pointer flow (#1038): with a link snapped whole by a drag
+   * — the normal outcome now — ⌘K lands in `insertLink`'s *selection*
+   * branch, which used to rewrite only the href and leave the old URL
+   * showing as the display text.
+   */
+  it('a selected self-labelled link has its text follow the new URL', () => {
+    const blockId = makeSelfLabelledLink('https://example.com', 3);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 'https://example.com'.length },
+    });
+
+    editor.insertLink('https://ex.io');
+
+    expect(blockText()).toBe('https://ex.io');
+    expect(
+      firstBlockInlines().every((i) => !i.text || i.style.href === 'https://ex.io'),
+    ).toBe(true);
+    // The selection follows the resized run rather than describing the old
+    // text's extent.
+    expect(editor.getActiveSelection()).toEqual({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 'https://ex.io'.length },
+    });
+  });
+
+  it('a selected custom label survives an href edit', () => {
+    const blockId = makeLinkedExample(3);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 7 },
+    });
+
+    editor.insertLink('https://example.org');
+
+    expect(blockText()).toBe('example text');
+    expect(firstBlockInlines()[0].style.href).toBe('https://example.org');
+  });
+
+  it('a selection wider than the link still links the whole selection', () => {
+    // Not the in-place path: the user is linking a fresh span that happens
+    // to contain a link, so the text must not be rewritten to the URL.
+    const blockId = makeSelfLabelledLink('https://example.com', 3);
+    editor.restoreLocalCursor(
+      { blockId, offset: 'https://example.com'.length },
+      null,
+    );
+    type(' tail');
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 'https://example.com tail'.length },
+    });
+
+    editor.insertLink('https://ex.io');
+
+    expect(blockText()).toBe('https://example.com tail');
+    expect(firstBlockInlines().every((i) => !i.text || i.style.href === 'https://ex.io')).toBe(true);
+  });
+
   it('rewrites the URL text of a link that carries styled sub-runs', () => {
     const url = 'https://example.com';
     const blockId = makeSelfLabelledLink(url, 3);

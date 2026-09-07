@@ -46,3 +46,27 @@ expansion would *shrink* the selection, dropping selected characters.
 including the href written a moment earlier. Inserting at `link.start`
 would instead inherit whatever precedes the link. Insert first, delete
 the old extent second, and the offsets stay simple arithmetic.
+
+## `snapshot()` belongs inside `batch()`, not before it
+
+`MemDocStore.batch()` takes its own undo checkpoint up front, precisely so
+a body that writes before it snapshots is still undoable. A `snapshot()`
+*before* the batch therefore pushes a second, identical checkpoint: one
+in-place link edit cost two Cmd+Z, the first of which appeared to do
+nothing. It also cleared the redo stack `batch()` puts back when the body
+turns out to have written nothing (re-applying the same URL). The repo's
+own `withNamedStyleChange` already had the right shape — snapshot inside.
+
+`setCursorForHistory` is the opposite: it must stay *outside*, because
+`YorkieDocStore` holds a non-history presence write back while a batch is
+open (`skipNonHistoryPresence`), so the pre-edit caret would never reach
+presence and undo would restore the wrong one.
+
+## The popover's Apply guard needs the href, not a boolean
+
+Checking "is there *a* link at the caret" is not the same question as "is
+the caret still on the link this popover was opened for". Clicking into a
+different hyperlink passes the first check and silently rewrites that
+link's href. The guard compares against the href edit mode was entered on
+— and, when it fires, keeps the typed URL and says why rather than
+dropping the user's work on the floor.

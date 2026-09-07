@@ -1987,8 +1987,8 @@ export class TextEditor {
             const bLen = getBlockTextLength(cellBlock);
             const start: DocPosition = { blockId: resolved.blockId, offset: 0 };
             const end: DocPosition = { blockId: resolved.blockId, offset: bLen };
-            this.selection.setRange({ anchor: start, focus: end });
-            this.cursor.moveTo(end);
+            const snapped = this.setSnappedRange({ anchor: start, focus: end }, start);
+            this.cursor.moveTo(snapped.focus);
           } else if (this.clickCount === 2) {
             // Double-click: select word in cell block
             const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
@@ -1997,8 +1997,8 @@ export class TextEditor {
             const [start, end] = getWordRange(blockText, resolved.offset);
             const anchor: DocPosition = { blockId: resolved.blockId, offset: start };
             const focus: DocPosition = { blockId: resolved.blockId, offset: end };
-            this.selection.setRange({ anchor, focus });
-            this.cursor.moveTo(focus);
+            const snapped = this.setSnappedRange({ anchor, focus }, anchor);
+            this.cursor.moveTo(snapped.focus);
           } else if (e.shiftKey) {
             // Shift+click: extend selection within cell
             const anchor =
@@ -2049,17 +2049,24 @@ export class TextEditor {
       const len = getBlockTextLength(block);
       const start: DocPosition = { blockId: pos.blockId, offset: 0 };
       const end: DocPosition = { blockId: pos.blockId, offset: len };
-      this.selection.setRange({ anchor: start, focus: end });
-      this.cursor.moveTo(end);
+      // Routed through the snap for the same reason as every other pointer
+      // gesture, though a whole paragraph already covers every link inside
+      // it: what this actually buys is the raw anchor, so a shift+click
+      // afterwards extends from the paragraph start the user can see.
+      const snapped = this.setSnappedRange({ anchor: start, focus: end }, start);
+      this.cursor.moveTo(snapped.focus);
     } else if (this.clickCount === 2) {
-      // Double-click: select word
+      // Double-click: select word. `getWordRange` breaks a URL at its
+      // punctuation, so without the snap double-clicking inside
+      // `https://example.com` selects `example` — a partially covered link,
+      // the very state #1038 makes unreachable by drag.
       const block = this.doc.getBlock(pos.blockId);
       const text = getBlockText(block);
       const [start, end] = getWordRange(text, pos.offset);
       const anchor: DocPosition = { blockId: pos.blockId, offset: start };
       const focus: DocPosition = { blockId: pos.blockId, offset: end };
-      this.selection.setRange({ anchor, focus });
-      this.cursor.moveTo(focus);
+      const snapped = this.setSnappedRange({ anchor, focus }, anchor);
+      this.cursor.moveTo(snapped.focus);
     } else if (e.shiftKey) {
       // Shift+click: extend selection
       const anchor =
@@ -2364,12 +2371,18 @@ export class TextEditor {
    * hyperlink is covered whole (#1038), and carry the gesture's raw anchor
    * across the write so the correction stays idempotent and reversible as
    * the drag continues.
+   *
+   * `raw` is the anchor this gesture *itself* pressed at, and is passed by
+   * the gestures that establish a new anchor rather than continue one —
+   * word and paragraph select, whose anchor is snapped to a boundary the
+   * preceding single click's `rawAnchor` knows nothing about. Drag and
+   * shift+click omit it and re-use the stored one.
    */
-  private setSnappedRange(range: DocRange): DocRange {
-    const raw = this.selection.rawAnchor ?? range.anchor;
-    const snapped = expandRangeForLinks(this.doc, { ...range, anchor: raw });
+  private setSnappedRange(range: DocRange, raw?: DocPosition): DocRange {
+    const rawAnchor = raw ?? this.selection.rawAnchor ?? range.anchor;
+    const snapped = expandRangeForLinks(this.doc, { ...range, anchor: rawAnchor });
     this.selection.setRange(snapped);
-    this.selection.rawAnchor = raw;
+    this.selection.rawAnchor = rawAnchor;
     return snapped;
   }
 
