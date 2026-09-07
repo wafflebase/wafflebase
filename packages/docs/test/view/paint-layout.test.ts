@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { renderRun } from '../../src/view/paint-layout';
+import { paintLayout, renderRun } from '../../src/view/paint-layout';
 import { computeLayout } from '../../src/view/layout';
 import type { LayoutLine, LayoutRun } from '../../src/view/layout';
 import { createBlock } from '../../src/model/types';
+import type { Inline } from '../../src/model/types';
 import { ptToPx, Theme } from '../../src/view/theme';
 import { stubMeasurer } from './_stub-measurer';
 
@@ -310,5 +311,133 @@ describe('renderRun shared baseline', () => {
     const expectedOwn = Math.round((mixed.height + ptToPx(11) * 0.8) / 2);
     expect(fallback).toBe(expectedOwn);
     expect(fallback).toBeLessThan(shared);
+  });
+});
+
+/**
+ * Records every `fillRect` with the `fillStyle` in force at the time, so
+ * the inline-highlight bands can be told apart from the caret / selection
+ * fills `paintLayout` also emits.
+ */
+function makeRectCtx(): {
+  ctx: CanvasRenderingContext2D;
+  rects: Array<{ x: number; y: number; w: number; h: number; color: string }>;
+} {
+  const rects: Array<{ x: number; y: number; w: number; h: number; color: string }> = [];
+  let fillStyle = '';
+  const noop = () => {};
+  const ctx = {
+    font: '',
+    get fillStyle() { return fillStyle; },
+    set fillStyle(v: string) { fillStyle = v; },
+    strokeStyle: '',
+    lineWidth: 1,
+    textBaseline: 'alphabetic' as CanvasTextBaseline,
+    fillText: noop,
+    save: noop,
+    restore: noop,
+    beginPath: noop,
+    moveTo: noop,
+    lineTo: noop,
+    stroke: noop,
+    setLineDash: noop,
+    fillRect(x: number, y: number, w: number, h: number) {
+      rects.push({ x, y, w, h, color: fillStyle });
+    },
+  } as unknown as CanvasRenderingContext2D;
+  return { ctx, rects };
+}
+
+const HIGHLIGHT = '#ffff00';
+
+/**
+ * Lay out `inlines` and paint them, returning only the highlight bands.
+ * A fractional char width is what produces the sub-pixel run boundaries
+ * the seam used to open up on (issue #1036).
+ */
+function highlightRects(
+  inlines: Array<Inline>,
+  opts: { alignment?: 'left' | 'justify'; width?: number } = {},
+): { rects: Array<{ x: number; w: number }>; lines: LayoutLine[] } {
+  const block = createBlock('paragraph');
+  block.inlines = inlines;
+  if (opts.alignment) block.style.alignment = opts.alignment;
+  const { layout } = computeLayout([block], stubMeasurer(7.3), opts.width ?? 600);
+  const { ctx, rects } = makeRectCtx();
+  paintLayout(ctx, layout, 0, 0);
+  return {
+    rects: rects.filter((r) => r.color === HIGHLIGHT || r.color === '#00ffff')
+      .map((r) => ({ x: r.x, w: r.w })),
+    lines: layout.blocks[0].lines,
+  };
+}
+
+describe('inline highlight bands (issue #1036)', () => {
+  it('paints one continuous band across every word of a highlighted run', () => {
+    const { rects, lines } = highlightRects([
+      { text: 'the quick brown fox jumps over', style: { backgroundColor: HIGHLIGHT } },
+    ]);
+    expect(lines.length).toBe(1);
+    // Layout splits the inline into one run per word; the painter must
+    // still emit a single rect covering all of them.
+    expect(lines[0].runs.length).toBeGreaterThan(1);
+    expect(rects.length).toBe(1);
+
+    const last = lines[0].runs[lines[0].runs.length - 1];
+    expect(rects[0].x).toBe(Math.round(lines[0].runs[0].x));
+    expect(rects[0].x + rects[0].w).toBe(Math.round(last.x + last.width));
+  });
+
+  it('leaves no gap where two differently coloured highlights meet', () => {
+    const { rects } = highlightRects([
+      { text: 'the quick ', style: { backgroundColor: HIGHLIGHT } },
+      { text: 'brown fox', style: { backgroundColor: '#00ffff' } },
+    ]);
+    expect(rects.length).toBe(2);
+    for (let i = 1; i < rects.length; i++) {
+      expect(rects[i - 1].x + rects[i - 1].w).toBe(rects[i].x);
+    }
+  });
+
+  it('bridges the inter-word slack of a justified line', () => {
+    // Narrow enough to wrap, so the first line is justified (the last
+    // line of a block never is).
+    const { rects, lines } = highlightRects(
+      [{ text: 'the quick brown fox jumps over the lazy dog', style: { backgroundColor: HIGHLIGHT } }],
+      { alignment: 'justify', width: 120 },
+    );
+    expect(lines.length).toBeGreaterThan(1);
+    // Justify shifts run.x without growing run.width — the per-run
+    // painter used to leave those gaps unpainted.
+    const first = lines[0];
+    expect(first.runs[1].x).toBeGreaterThan(first.runs[0].x + first.runs[0].width);
+
+    expect(rects.length).toBe(lines.length);
+    for (let i = 0; i < lines.length; i++) {
+      const runs = lines[i].runs;
+      const last = runs[runs.length - 1];
+      expect(rects[i].x).toBe(Math.round(runs[0].x));
+      expect(rects[i].x + rects[i].w).toBe(Math.round(last.x + last.width));
+    }
+  });
+
+  it('does not split a band at a zero-width soft line break', () => {
+    // `\n` runs carry no glyphs; they must neither extend nor break the
+    // band around them.
+    const { rects, lines } = highlightRects([
+      { text: 'alpha\nbeta gamma', style: { backgroundColor: HIGHLIGHT } },
+    ]);
+    // One band per laid-out line, never one per side of the break.
+    expect(rects.length).toBe(lines.length);
+  });
+
+  it('breaks the band at an un-highlighted run', () => {
+    const { rects } = highlightRects([
+      { text: 'the quick ', style: { backgroundColor: HIGHLIGHT } },
+      { text: 'brown ', style: {} },
+      { text: 'fox jumps', style: { backgroundColor: HIGHLIGHT } },
+    ]);
+    expect(rects.length).toBe(2);
+    expect(rects[0].x + rects[0].w).toBeLessThan(rects[1].x);
   });
 });

@@ -10,6 +10,7 @@ import {
   computeMergedCellLineLayouts,
   getBlockIndexForLine,
 } from './table-geometry.js';
+import { drawInlineRunBackgroundsForLine } from './paint-layout.js';
 
 // Re-export the shared geometry helpers and types so existing call
 // sites that import them from `./table-renderer` keep working without
@@ -187,7 +188,7 @@ export function renderTableBackgrounds(
       // Walk the cell's lines once for two background-pass duties:
       //   (1) recurse into nested tables so their cell backgrounds also
       //       land before the selection layer, and
-      //   (2) paint each run's `style.backgroundColor` here in the
+      //   (2) paint the line's `style.backgroundColor` bands here in the
       //       background pass instead of inside the content pass —
       //       otherwise the opaque inline bg fillRect would later
       //       cover the translucent selection / search / peer
@@ -219,19 +220,14 @@ export function renderTableBackgrounds(
           continue;
         }
 
-        for (const run of line.runs) {
-          const style = run.inline.style;
-          if (style.image || !style.backgroundColor) continue;
-          const bg = defaultColorResolver(style.backgroundColor);
-          if (!bg) continue;
-          ctx.fillStyle = bg;
-          ctx.fillRect(
-            cellX + padding + run.x,
-            lineAbsoluteY,
-            run.width,
-            line.height,
-          );
-        }
+        drawInlineRunBackgroundsForLine(
+          ctx,
+          line.runs,
+          cellX + padding,
+          lineAbsoluteY,
+          line.height,
+          defaultColorResolver,
+        );
       }
     }
   }
