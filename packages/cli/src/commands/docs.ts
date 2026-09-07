@@ -10,6 +10,7 @@ import {
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { authorizationHeader } from '../client/http-client.js';
 import { seg } from '../client/url.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
 import { exportPdf } from '../docs/pdf-export.js';
@@ -330,8 +331,14 @@ export function registerDocsCommand(program: Command) {
         // it, and hands back a Blob. Relative URLs (`/images/<id>`)
         // resolve against the configured server base so the same doc
         // round-trips between the editor (browser-relative) and the CLI.
+        // The CLI's own credential rides along for images on the configured
+        // server: an image inserted through a share link is stored
+        // workspace-scoped behind the auth-gated
+        // `GET /api/v1/workspaces/:wid/images/:id`, and without it those
+        // images 401 and are dropped from the export.
         const imageFetcher = createImageFetcher({
           serverBase: getConfig(opts).server,
+          authorization: authorizationHeader(getConfig(opts)),
         });
 
         let bytes: Uint8Array;

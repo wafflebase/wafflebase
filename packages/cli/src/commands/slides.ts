@@ -10,6 +10,7 @@ import {
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { authorizationHeader } from '../client/http-client.js';
 import { seg } from '../client/url.js';
 import { runSlidesImport } from '../slides/import.js';
 import {
@@ -226,7 +227,13 @@ export function registerSlidesCommand(program: Command) {
         }
         const res = await getClient(opts).getSlidesContent(docId);
         if (!res.ok) return forwardUpstreamError(res, this);
-        const imageFetcher = createImageFetcher({ serverBase: getConfig(opts).server });
+        // Credential included for the same reason `docs export` does it: a
+        // workspace-scoped image URL is auth-gated, so an anonymous fetch
+        // would 401 and drop the picture from the export.
+        const imageFetcher = createImageFetcher({
+          serverBase: getConfig(opts).server,
+          authorization: authorizationHeader(getConfig(opts)),
+        });
         const bytes = await exportPptxCli(res.data, { imageFetcher });
         writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
       } catch (e) {

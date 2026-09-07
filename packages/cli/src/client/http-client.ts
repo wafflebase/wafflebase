@@ -193,21 +193,36 @@ export interface WorkspaceImage {
   url: string;
 }
 
+/**
+ * The `Authorization` value this config authenticates with, or `undefined`
+ * when it carries no credential.
+ *
+ * Exported because the API client is not the only thing that talks to the
+ * configured server: `docs export` fetches each inline image itself, and a
+ * workspace-scoped image (`/api/v1/workspaces/:wid/images/:id`) is auth-gated
+ * like any other v1 route. That fetcher must send the *same* credential
+ * without reaching into `HttpClient`'s privates — and, unlike this class,
+ * must only send it to the configured server's own origin (see
+ * `createImageFetcher`).
+ */
+export function authorizationHeader(config: CliConfig): string | undefined {
+  if (config.authMode === 'api-key' && config.apiKey) {
+    return `Bearer ${config.apiKey}`;
+  }
+  if (config.authMode === 'jwt' && config.accessToken) {
+    return `Bearer ${config.accessToken}`;
+  }
+  return undefined;
+}
+
 export class HttpClient {
   constructor(private config: CliConfig) {}
 
   /** Auth only — kept separate so multipart requests can omit Content-Type
    *  and let fetch generate the boundary. */
   private get authHeaders(): Record<string, string> {
-    const h: Record<string, string> = {};
-
-    if (this.config.authMode === 'api-key' && this.config.apiKey) {
-      h['Authorization'] = `Bearer ${this.config.apiKey}`;
-    } else if (this.config.authMode === 'jwt' && this.config.accessToken) {
-      h['Authorization'] = `Bearer ${this.config.accessToken}`;
-    }
-
-    return h;
+    const auth = authorizationHeader(this.config);
+    return auth ? { Authorization: auth } : {};
   }
 
   /**
