@@ -683,6 +683,20 @@ export class Selection {
   range: DocRange | null = null;
 
   /**
+   * The un-snapped position the current gesture anchored at, or `null`
+   * when the anchor was not set by a pointer press (word/paragraph snap,
+   * a programmatic range) and so has no rawer form.
+   *
+   * `expandRangeForLinks` may move the stored anchor outward to cover a
+   * partially-selected link. Recomputing the snap from that moved anchor
+   * would make it a one-way ratchet — dragging back out of the link could
+   * not un-snap, and the anchor's correct snap *direction* depends on
+   * where the focus is now, which the snapped value no longer records.
+   * Drag and shift+click therefore snap from `rawAnchor` when it is set.
+   */
+  rawAnchor: DocPosition | null = null;
+
+  /**
    * Store a range. Endpoints are kept as given, so an endpoint that
    * carries a `lineAffinity` (a click or caret move that landed on a
    * visual wrap boundary) keeps it all the way to `buildRects`.

@@ -5,6 +5,7 @@ import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
+import { expandRangeForLinks } from './link-run.js';
 import type { ComposingContext, DocumentLayout, LayoutBlock } from './layout.js';
 import { getBlockIndexForLine } from './table-geometry.js';
 import type { PaginatedLayout } from './pagination.js';
@@ -1986,6 +1987,7 @@ export class TextEditor {
             const bLen = getBlockTextLength(cellBlock);
             const start: DocPosition = { blockId: resolved.blockId, offset: 0 };
             const end: DocPosition = { blockId: resolved.blockId, offset: bLen };
+            this.selection.rawAnchor = null;
             this.selection.setRange({ anchor: start, focus: end });
             this.cursor.moveTo(end);
           } else if (this.clickCount === 2) {
@@ -1996,11 +1998,13 @@ export class TextEditor {
             const [start, end] = getWordRange(blockText, resolved.offset);
             const anchor: DocPosition = { blockId: resolved.blockId, offset: start };
             const focus: DocPosition = { blockId: resolved.blockId, offset: end };
+            this.selection.rawAnchor = null;
             this.selection.setRange({ anchor, focus });
             this.cursor.moveTo(focus);
           } else if (e.shiftKey) {
             // Shift+click: extend selection within cell
-            const anchor = this.selection.range?.anchor ?? this.cursor.position;
+            const anchor =
+              this.selection.rawAnchor ?? this.selection.range?.anchor ?? this.cursor.position;
             const anchorCellInfo = this.getCellInfo(anchor.blockId);
             if (anchorCellInfo &&
                 anchorCellInfo.rowIndex === cellAddr.rowIndex &&
@@ -2011,11 +2015,17 @@ export class TextEditor {
                 offset: resolved.offset,
                 lineAffinity: resolved.lineAffinity,
               };
-              this.selection.setRange({ anchor, focus });
-              this.cursor.moveTo(focus, resolved.lineAffinity);
+              this.selection.rawAnchor = anchor;
+              const snapped = this.snapRangeForLinks({ anchor, focus });
+              this.selection.setRange(snapped);
+              this.cursor.moveTo(
+                snapped.focus,
+                snapped.focus.lineAffinity ?? resolved.lineAffinity,
+              );
             } else {
               const firstBlockId = cell.blocks[0].id;
               this.cursor.moveTo({ blockId: firstBlockId, offset: 0 });
+              this.selection.rawAnchor = null;
               this.selection.setRange(null);
             }
           } else {
@@ -2029,6 +2039,7 @@ export class TextEditor {
 
             this.cursor.moveTo(cellPos, resolved.lineAffinity);
             // Set anchor for drag selection (same as non-cell single click)
+            this.selection.rawAnchor = cellPos;
             this.selection.setRange({ anchor: cellPos, focus: cellPos });
           }
           this.requestRender();
@@ -2043,6 +2054,7 @@ export class TextEditor {
       const len = getBlockTextLength(block);
       const start: DocPosition = { blockId: pos.blockId, offset: 0 };
       const end: DocPosition = { blockId: pos.blockId, offset: len };
+      this.selection.rawAnchor = null;
       this.selection.setRange({ anchor: start, focus: end });
       this.cursor.moveTo(end);
     } else if (this.clickCount === 2) {
@@ -2052,16 +2064,21 @@ export class TextEditor {
       const [start, end] = getWordRange(text, pos.offset);
       const anchor: DocPosition = { blockId: pos.blockId, offset: start };
       const focus: DocPosition = { blockId: pos.blockId, offset: end };
+      this.selection.rawAnchor = null;
       this.selection.setRange({ anchor, focus });
       this.cursor.moveTo(focus);
     } else if (e.shiftKey) {
       // Shift+click: extend selection
-      const anchor = this.selection.range?.anchor ?? this.cursor.position;
-      this.selection.setRange({ anchor, focus: pos });
-      this.cursor.moveTo(pos, lineAffinity);
+      const anchor =
+        this.selection.rawAnchor ?? this.selection.range?.anchor ?? this.cursor.position;
+      this.selection.rawAnchor = anchor;
+      const snapped = this.snapRangeForLinks({ anchor, focus: pos });
+      this.selection.setRange(snapped);
+      this.cursor.moveTo(snapped.focus, snapped.focus.lineAffinity ?? lineAffinity);
     } else {
       // Single click
       this.cursor.moveTo(pos, lineAffinity);
+      this.selection.rawAnchor = pos;
       this.selection.setRange({ anchor: pos, focus: pos });
     }
     this.requestRender();
@@ -2342,10 +2359,25 @@ export class TextEditor {
         }
       }
 
-      this.cursor.moveTo(pos, pos.lineAffinity ?? result.lineAffinity);
-      this.selection.setRange({ anchor, focus: pos, tableCellRange });
+      const snapped = this.snapRangeForLinks({ anchor, focus: pos, tableCellRange });
+      this.cursor.moveTo(
+        snapped.focus,
+        snapped.focus.lineAffinity ?? result.lineAffinity,
+      );
+      this.selection.setRange(snapped);
       this.requestRender();
     }
+  }
+
+  /**
+   * Grow a pointer-driven range so a partially covered hyperlink is
+   * covered whole (#1038). Snapped from `selection.rawAnchor` when set, so
+   * the correction stays idempotent and reversible as the drag continues.
+   */
+  private snapRangeForLinks(range: DocRange): DocRange {
+    const raw = this.selection.rawAnchor;
+    const fromRaw = raw ? { ...range, anchor: raw } : range;
+    return expandRangeForLinks(this.doc, fromRaw);
   }
 
   private startDragScroll(): void {
@@ -3158,6 +3190,15 @@ export class TextEditor {
 
       if (newPos) {
         if (shiftKey) {
+          // No link snapping here, deliberately — unlike the pointer
+          // gestures and unlike the merged-cell expansion two lines down
+          // (#1038). Shift+arrow advances the focus one character per
+          // keypress, so a snap would make the first Shift+Right into a
+          // link swallow the whole link and the next Shift+Left re-snap
+          // it: the selection could express no intermediate state and a
+          // pointer, which can always be moved back out, has no such
+          // problem. A cell range has no sub-cell granularity to lose,
+          // which is why merges do snap on shift+arrow.
           const anchor = this.selection.range?.anchor ?? pos;
           const anchorCI = this.getCellInfo(anchor.blockId);
           const newPosCI = this.getCellInfo(newPos.blockId);

@@ -43,6 +43,13 @@ export function DocsLinkPopover({
   const [visible, setVisible] = useState(false);
   const [mode, setMode] = useState<Mode>("view");
   const [editUrl, setEditUrl] = useState("");
+  /**
+   * Whether edit mode was entered on an existing link. The popover
+   * deliberately stays open when the caret leaves the link, so Apply after
+   * clicking into the body used to insert the URL as plain text at the new
+   * caret instead of editing anything (#1038).
+   */
+  const [editingExistingLink, setEditingExistingLink] = useState(false);
   const [editPosition, setEditPosition] = useState<{
     x: number;
     y: number;
@@ -77,6 +84,8 @@ export function DocsLinkPopover({
   useEffect(() => {
     if (!editRequest) return;
     setEditUrl(editRequest.initialUrl);
+    // A prefilled URL means ⌘K/toolbar found a link at the caret.
+    setEditingExistingLink(editRequest.initialUrl !== "");
     setEditPosition(editRequest.position);
     setMode("edit");
     setVisible(true);
@@ -108,6 +117,7 @@ export function DocsLinkPopover({
     setVisible(false);
     setLinkInfo(undefined);
     setMode("view");
+    setEditingExistingLink(false);
   }, []);
 
   // --- View mode handlers ---
@@ -115,6 +125,7 @@ export function DocsLinkPopover({
   const handleEdit = useCallback(() => {
     if (!linkInfo) return;
     setEditUrl(linkInfo.href);
+    setEditingExistingLink(true);
     setEditPosition({
       x: linkInfo.rect.x,
       y: linkInfo.rect.y,
@@ -136,10 +147,17 @@ export function DocsLinkPopover({
     if (!editor || !editUrl.trim()) return;
     const url = normalizeLinkUrl(editUrl);
     if (!url) return;
+    // The caret has since left the link this popover was editing — applying
+    // would insert the URL as text wherever the caret went (#1038).
+    if (editingExistingLink && !editor.getLinkAtCursor()) {
+      editor.focus();
+      close();
+      return;
+    }
     editor.insertLink(url);
     editor.focus();
     close();
-  }, [editor, editUrl, close]);
+  }, [editor, editUrl, editingExistingLink, close]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

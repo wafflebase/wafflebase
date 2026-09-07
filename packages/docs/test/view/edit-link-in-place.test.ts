@@ -300,6 +300,92 @@ describe('docs editor — edit link in place (#494)', () => {
     expect(firstBlockInlines()[0].style.href).toBe('https://example.com');
   });
 
+  /**
+   * ⌘K with no selection inserts the URL as its own text, so the display
+   * text *is* the href — the state neither #494 nor its tests covered
+   * (#1038 Part A).
+   */
+  function makeSelfLabelledLink(url: string, caretOffset: number): string {
+    editor.insertLink(url);
+    const blockId = editor.getDoc().document.blocks[0].id;
+    editor.restoreLocalCursor({ blockId, offset: caretOffset }, null);
+    return blockId;
+  }
+
+  it('a display text that is the old URL follows the new URL (#1038)', () => {
+    makeSelfLabelledLink('https://example.com', 3);
+
+    editor.insertLink('https://www.google.com');
+
+    expect(blockText()).toBe('https://www.google.com');
+    expect(
+      firstBlockInlines().every((i) => !i.text || i.style.href === 'https://www.google.com'),
+    ).toBe(true);
+  });
+
+  it('leaves the caret at the end of the rewritten text', () => {
+    const blockId = makeSelfLabelledLink('https://example.com', 3);
+
+    // A shorter replacement: the old caret offset would still be inside the
+    // block, so only an explicit move puts it at the end of the new run.
+    editor.insertLink('https://ex.io');
+
+    expect(blockText()).toBe('https://ex.io');
+    expect(editor._getCursorForTest()).toEqual({
+      blockId, offset: 'https://ex.io'.length, lineAffinity: 'backward',
+    });
+  });
+
+  it('keeps the caret inside the block when the replacement is much shorter', () => {
+    makeSelfLabelledLink('https://a-very-long-example-host.example.com/path', 20);
+
+    editor.insertLink('https://x.io');
+
+    expect(blockText()).toBe('https://x.io');
+    expect(editor._getCursorForTest()?.offset).toBe('https://x.io'.length);
+  });
+
+  it('a customised display text is preserved on an href edit', () => {
+    // The #494 guarantee: only a URL-derived label follows the URL.
+    makeLinkedExample(3);
+    editor.insertLink('https://example.org');
+
+    expect(blockText()).toBe('example text');
+    expect(firstBlockInlines()[0].style.href).toBe('https://example.org');
+  });
+
+  it('the href change and the text rewrite undo as one unit', () => {
+    makeSelfLabelledLink('https://example.com', 3);
+    editor.insertLink('https://www.google.com');
+    expect(blockText()).toBe('https://www.google.com');
+
+    editor.undo();
+
+    expect(blockText()).toBe('https://example.com');
+    expect(firstBlockInlines()[0].style.href).toBe('https://example.com');
+  });
+
+  it('rewrites the URL text of a link that carries styled sub-runs', () => {
+    const url = 'https://example.com';
+    const blockId = makeSelfLabelledLink(url, 3);
+    // Bold the first few characters, splitting the link into two same-href
+    // runs; the text still equals the href across the whole run.
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 4 },
+    });
+    editor.applyStyle({ bold: true });
+    editor._setSelectionForTest(null);
+    editor.restoreLocalCursor({ blockId, offset: 6 }, null);
+
+    editor.insertLink('https://example.org');
+
+    expect(blockText()).toBe('https://example.org');
+    expect(
+      firstBlockInlines().every((i) => !i.text || i.style.href === 'https://example.org'),
+    ).toBe(true);
+  });
+
   it('removeLink with the caret inside the link still unlinks the whole run', () => {
     makeLinkedExample(3);
     editor.removeLink();

@@ -23,7 +23,7 @@ import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js'
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
-import { findLinkRunAt } from './link-run.js';
+import { findLinkRunAt, linkTextFollowsHref } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
 import { caretInlineStyle } from '../model/caret-style.js';
@@ -3618,13 +3618,47 @@ export function initialize(
         const link = block ? findLinkRunAt(block, pos.offset) : undefined;
         if (block && link) {
           docStore.snapshot();
-          doc.applyInlineStyle(
-            {
-              anchor: { blockId: block.id, offset: link.start },
-              focus: { blockId: block.id, offset: link.end },
-            },
-            { href: url },
-          );
+          // Same reason as the selection branch above: this path bypasses
+          // the text-editor's saveSnapshot hook, so without it undo would
+          // not restore the caret (a pre-existing gap here).
+          if ('setCursorForHistory' in docStore) {
+            (docStore as {
+              setCursorForHistory(
+                pos: DocPosition,
+                selection?: DocRange | null,
+              ): void;
+            }).setCursorForHistory(cursor.position, null);
+          }
+          // A display text that is the old URL was never customised, so it
+          // follows the new one; a custom label survives (#494/#580).
+          const followsHref = linkTextFollowsHref(block, link);
+          const linkRange = (start: number, end: number) => ({
+            anchor: { blockId: block.id, offset: start },
+            focus: { blockId: block.id, offset: end },
+          });
+          // One batch: the href change and the text replacement undo
+          // together rather than as two separate steps.
+          doc.batch(() => {
+            doc.applyInlineStyle(linkRange(link.start, link.end), { href: url });
+            if (!followsHref) return;
+            // Insert at the run's *trailing* edge first: resolveOffset puts
+            // link.end inside the link's own last inline, so the new text
+            // inherits the run's style including the href just written.
+            doc.insertText({ blockId: block.id, offset: link.end }, url);
+            doc.deleteText(
+              { blockId: block.id, offset: link.start },
+              link.end - link.start,
+            );
+            doc.applyInlineStyle(
+              linkRange(link.start, link.start + url.length),
+              { href: url },
+            );
+          });
+          // Not optional: the caret can otherwise sit past the end of a
+          // run the replacement shortened.
+          if (followsHref) {
+            cursor.moveTo({ blockId: block.id, offset: link.start + url.length });
+          }
           // Cell block: mark the parent table block dirty (mirrors removeLink)
           const cellInfo = layout.blockParentMap.get(block.id);
           markDirty(cellInfo ? cellInfo.tableBlockId : block.id);
