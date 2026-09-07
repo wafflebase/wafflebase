@@ -19,6 +19,9 @@ import {
  *   selection before mutating, or undo restores nothing.
  * - multi-block paste undo cost: it must stay constant in the size of the
  *   paste.
+ * - issue #1045 (select-all then type): the whole replacement must be ONE
+ *   undo unit, or a document larger than Yorkie's 50-entry undo cap loses its
+ *   tail permanently.
  *
  * Both live in one file deliberately. Mounting the docs editor pulls in the
  * whole `@wafflebase/docs` module graph, and a second frontend test file
@@ -214,6 +217,109 @@ describe('multi-block paste undo cost', () => {
     // refactor that merges two of them does not fail this test, while a
     // regression back to per-block writes still does.
     expect(small).toBeLessThanOrEqual(6);
+  });
+});
+
+/**
+ * Select-all then type (issue #1045).
+ *
+ * `deleteSelection()` removes one block per store write, and outside a
+ * `DocStore.batch()` every write is its own `doc.update()` — one Yorkie undo
+ * unit. On a 100-paragraph document that made a single keystroke cost ~102
+ * units against a stack capped at 50, and because the delete runs backwards
+ * the entries dropped first were the ones holding the *tail* of the document.
+ * More than half the content could not be recovered by any number of undos.
+ *
+ * The document is deliberately larger than the 50-entry cap: at 40 paragraphs
+ * the old code was merely annoying, at 100 it destroyed data.
+ */
+describe('select-all then type is one undo unit (issue #1045)', () => {
+  const PARAGRAPHS = 100;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    store.setDocument({
+      blocks: Array.from({ length: PARAGRAPHS }, (_, i) => makeBlock(`Paragraph ${i}`)),
+    });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  const texts = (): string[] =>
+    store.getDocument().blocks.map((b) => b.inlines.map((i) => i.text).join(''));
+
+  function selectAll(): void {
+    const blocks = store.getDocument().blocks;
+    const last = blocks[blocks.length - 1];
+    editor._setSelectionForTest({
+      anchor: { blockId: blocks[0].id, offset: 0 },
+      focus: {
+        blockId: last.id,
+        offset: last.inlines.map((i) => i.text).join('').length,
+      },
+    });
+  }
+
+  function type(char: string): void {
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = char;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  it('replaces the whole document for one undo unit', () => {
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    type('X');
+
+    // The edit really did replace everything.
+    expect(texts()).toEqual(['X']);
+    // ...and cost one Cmd+Z, not one per deleted block.
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+  });
+
+  it('one undo brings every paragraph back', () => {
+    const original = texts();
+    expect(original).toHaveLength(PARAGRAPHS);
+
+    selectAll();
+    type('X');
+    editor.undo();
+
+    // Before the fix this restored ~48 blocks and the tail was gone for good.
+    expect(texts()).toEqual(original);
+  });
+
+  it('backspace over a select-all is one undo unit too', () => {
+    const original = texts();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
+    );
+
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(texts()).toEqual(original);
   });
 });
 

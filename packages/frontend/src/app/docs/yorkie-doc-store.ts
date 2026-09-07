@@ -549,6 +549,16 @@ function readPageSetup(proxy: any): PageSetup {
   };
 }
 
+/**
+ * One entry of Yorkie's undo stack — the reverse operations of a single
+ * change, i.e. exactly what one Cmd+Z applies. `HistoryOperation` itself is
+ * declared but not exported by the SDK, so the type is read back off the
+ * accessor.
+ */
+type UndoStackEntry = ReturnType<
+  YorkieDocument<YorkieDocsRoot>['getUndoStackForTest']
+>[number];
+
 // ---------------------------------------------------------------------------
 // YorkieDocStore
 // ---------------------------------------------------------------------------
@@ -561,8 +571,20 @@ export class YorkieDocStore implements DocStore {
   private localCursorAnchor: AnchoredDocPosition | null = null;
   private localSelectionAnchor: AnchoredDocRange | null = null;
   private compositionStartAnchor: AnchoredDocPosition | null = null;
-  /** Undo stack depth after setDocument — users cannot undo past this point. */
-  private undoFloor = 0;
+  /**
+   * The top entry of the initial-load prefix — the boundary users must not
+   * undo past. Null when the stack was empty at load time, i.e. nothing to
+   * protect.
+   *
+   * Held by **identity**, not as a depth. Yorkie caps the undo stack at 50
+   * entries (`MaxUndoRedoStackDepth`) and `pushUndo` `shift()`s the oldest
+   * one once it is full, so a depth recorded at load time stops describing
+   * the same boundary the moment anything falls off the bottom — `canUndo()`
+   * then refused undos that were still perfectly reachable (issue #1045). An
+   * entry that has been dropped is simply not found, which is exactly the
+   * "the floor is gone, so everything left is above it" answer.
+   */
+  private undoFloorMark: UndoStackEntry | null = null;
   /**
    * The live Yorkie root for the duration of a top-level `batch()`. Set
    * while the batch's single `doc.update` is open; every write routes
@@ -594,7 +616,7 @@ export class YorkieDocStore implements DocStore {
     // ensureTree() doc.update) is treated as the initial state. Users
     // must not be able to undo past it — doing so would destroy blocks
     // the cursor still references.
-    this.undoFloor = this.doc.getUndoStackForTest().length;
+    this.markUndoFloor();
 
     // Invalidate cache on remote changes
     doc.subscribe((event) => {
@@ -805,10 +827,10 @@ export class YorkieDocStore implements DocStore {
   // -----------------------------------------------------------------------
 
   setDocument(doc: Document): void {
-    // Guarded before the write, not after: `undoFloor` below reads the undo
-    // stack once the write has landed, which inside a batch is not until the
-    // batch's single `doc.update` closes. The floor would land one unit low
-    // and the whole loaded document would become undoable. No caller does
+    // Guarded before the write, not after: `markUndoFloor()` below reads the
+    // undo stack once the write has landed, which inside a batch is not until
+    // the batch's single `doc.update` closes. The floor would land one entry
+    // low and the whole loaded document would become undoable. No caller does
     // this today, but the coupling is invisible from `batch()`, so it is
     // enforced rather than documented.
     if (this.activeRoot) {
@@ -820,11 +842,22 @@ export class YorkieDocStore implements DocStore {
     // (e.g., stale documents whose content field was a plain object).
     this.cachedDoc = cloneDocument(doc);
     this.dirty = false;
-    // Mark the undo stack depth so users cannot undo past the initial
-    // document load. Yorkie's CRDT redo of writeFullDocument can
-    // conflict with subsequent text insertions.
+    // Mark the undo floor so users cannot undo past the initial document
+    // load. Yorkie's CRDT redo of writeFullDocument can conflict with
+    // subsequent text insertions.
     // Reads the stack *after* the write — see the batch guard at the top.
-    this.undoFloor = this.doc.getUndoStackForTest().length;
+    this.markUndoFloor();
+  }
+
+  /**
+   * Re-arm the undo floor at the current top of Yorkie's undo stack:
+   * everything on it now belongs to the initial load and must stay
+   * un-undoable. See {@link undoFloorMark} for why this holds an entry
+   * rather than a depth.
+   */
+  private markUndoFloor(): void {
+    const stack = this.doc.getUndoStackForTest();
+    this.undoFloorMark = stack.length > 0 ? stack[stack.length - 1] : null;
   }
 
   replaceDocument(doc: Document): void {
@@ -2935,8 +2968,13 @@ export class YorkieDocStore implements DocStore {
   }
 
   canUndo(): boolean {
-    return this.doc.history.canUndo() &&
-      this.doc.getUndoStackForTest().length > this.undoFloor;
+    if (!this.doc.history.canUndo()) return false;
+    if (this.undoFloorMark === null) return true;
+    const stack = this.doc.getUndoStackForTest();
+    // Where the floor is *now*, not how deep it was when it was recorded:
+    // Yorkie drops the oldest entry once the stack is full, and a floor that
+    // has itself been dropped (`-1`) leaves everything remaining undoable.
+    return stack.lastIndexOf(this.undoFloorMark) < stack.length - 1;
   }
 
   canRedo(): boolean {

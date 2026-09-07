@@ -356,6 +356,35 @@ describe('YorkieDocStore', () => {
       expect(store.canUndo()).toBe(false);
     });
 
+    // Yorkie caps the undo stack at 50 (`MaxUndoRedoStackDepth`) and
+    // `pushUndo` drops the OLDEST entry once it is full — the undo floor's
+    // own entries first. `canUndo()` used to compare the stack's *length*
+    // against the depth the floor was recorded at, so once entries started
+    // falling off the bottom it stopped one undo per dropped entry early,
+    // stranding edits that were still on the stack (issue #1045).
+    it('undo reaches every entry left on the stack after the cap drops the floor', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      // setDocument's own write, plus the tree-creating update in beforeEach.
+      const floorDepth = doc.getUndoStackForTest().length;
+      expect(floorDepth).toBeGreaterThan(0);
+
+      // Overflow the cap by more than the floor, so the floor is dropped.
+      const writes = 50 + floorDepth + 5;
+      for (let i = 0; i < writes; i++) store.insertText(block.id, 0, 'x');
+      expect(doc.getUndoStackForTest().length).toBe(50);
+
+      let undone = 0;
+      let safety = 200;
+      while (store.canUndo() && safety-- > 0) {
+        store.undo();
+        undone++;
+      }
+      // Every one of the 50 surviving entries is above the (now dropped)
+      // floor. The length-vs-depth comparison stopped at 50 - floorDepth.
+      expect(undone).toBe(50);
+    });
+
     it('undo should restore cursor position via presence', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });

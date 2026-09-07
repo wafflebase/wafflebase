@@ -208,6 +208,15 @@ export class TextEditor {
   private getCanvasOffsetTop: () => number;
   private requestRender: () => void;
   /**
+   * The host's real layout+paint. `requestRender` is a wrapper around it that
+   * holds the call while an undo unit is open — see {@link withUndoUnit}.
+   */
+  private hostRequestRender: () => void;
+  /** Depth of the open {@link withUndoUnit} grouping; 0 outside one. */
+  private undoUnitDepth = 0;
+  /** A `requestRender()` arrived while an undo unit was open. */
+  private renderAfterUndoUnit = false;
+  /**
    * Render variant for layout-only changes that do NOT move the caret
    * (e.g. table border resize). The default `requestRender` pulls the
    * cursor into view, which causes the viewport to jump back to the
@@ -702,7 +711,17 @@ export class TextEditor {
     this.getCanvasWidth = getCanvasWidth;
     this.getScaleFactor = getScaleFactor;
     this.getCanvasOffsetTop = getCanvasOffsetTop;
-    this.requestRender = requestRender;
+    this.hostRequestRender = requestRender;
+    // Every internal `requestRender()` goes through this wrapper so an undo
+    // unit can hold layout and paint until its batch has committed. See
+    // {@link withUndoUnit}.
+    this.requestRender = () => {
+      if (this.undoUnitDepth > 0) {
+        this.renderAfterUndoUnit = true;
+        return;
+      }
+      this.hostRequestRender();
+    };
     this.saveSnapshot = saveSnapshot;
     this.undoAction = undoAction;
     this.redoAction = redoAction;
@@ -793,14 +812,17 @@ export class TextEditor {
     if (this.readOnly) return;
     this.flushHangul();
     this.saveSnapshot();
-    this.deleteSelection();
-    const pos = this.cursor.position;
-    const blockId = pos.blockId;
-    this.docInsertText(pos, text);
-    const newPos = { blockId, offset: pos.offset + text.length };
-    this.markDirty(blockId);
-    this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
-    this.requestRender();
+    // Delete + insert are one undo unit, as on the keyboard path.
+    this.withUndoUnit(() => {
+      this.deleteSelection();
+      const pos = this.cursor.position;
+      const blockId = pos.blockId;
+      this.docInsertText(pos, text);
+      const newPos = { blockId, offset: pos.offset + text.length };
+      this.markDirty(blockId);
+      this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+      this.requestRender();
+    });
   }
 
   /**
@@ -971,33 +993,40 @@ export class TextEditor {
     this.flushHangul();
 
     this.saveSnapshot();
-    this.deleteSelection();
-    const blockId = this.cursor.position.blockId;
+    // Typing over a selection is ONE user action: the delete and the insert
+    // that replaces it are one undo unit. Before this, a select-all over a
+    // ~100-paragraph document cost ~102 units and blew past Yorkie's 50-entry
+    // cap, losing the tail of the document for good (issue #1045).
+    // `saveSnapshot()` stays above the unit — see `withUndoUnit`.
+    this.withUndoUnit(() => {
+      this.deleteSelection();
+      const blockId = this.cursor.position.blockId;
 
-    // A space typed right at the end of a hyperlink should exit link
-    // formatting rather than silently extending it into the space and
-    // whatever is typed after.
-    if (data === ' ') {
-      this.exitLinkIfAtTrailingEdge(this.cursor.position);
-    }
-    this.docInsertText(this.cursor.position, data);
-    const newPos = {
-      blockId: this.cursor.position.blockId,
-      offset: this.cursor.position.offset + data.length,
-    };
-    this.markDirty(blockId);
-    // Markdown-style auto-conversion: check after each space
-    if (data === ' ' && this.tryAutoConvert(blockId)) {
+      // A space typed right at the end of a hyperlink should exit link
+      // formatting rather than silently extending it into the space and
+      // whatever is typed after.
+      if (data === ' ') {
+        this.exitLinkIfAtTrailingEdge(this.cursor.position);
+      }
+      this.docInsertText(this.cursor.position, data);
+      const newPos = {
+        blockId: this.cursor.position.blockId,
+        offset: this.cursor.position.offset + data.length,
+      };
+      this.markDirty(blockId);
+      // Markdown-style auto-conversion: check after each space
+      if (data === ' ' && this.tryAutoConvert(blockId)) {
+        this.requestRender();
+        return;
+      }
+      // URL auto-detection: after typing a space, check if the preceding token
+      // is a URL and convert it to a hyperlink.
+      if (data === ' ') {
+        this.tryAutoLinkBeforeCursor(blockId, newPos.offset - 1);
+      }
+      this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
       this.requestRender();
-      return;
-    }
-    // URL auto-detection: after typing a space, check if the preceding token
-    // is a URL and convert it to a hyperlink.
-    if (data === ' ') {
-      this.tryAutoLinkBeforeCursor(blockId, newPos.offset - 1);
-    }
-    this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
-    this.requestRender();
+    });
   };
 
   private handleKeyDown = (e: KeyboardEvent): void => {
@@ -1485,13 +1514,13 @@ export class TextEditor {
   /**
    * Write a planned paste. Fully synchronous, so nothing can interleave.
    *
-   * Not one undo unit: `insertBlocks()` splits the destination, rewrites the
-   * head, inserts the batch, and rewrites the tail as separate store writes
-   * (measured at 4 for a multi-block paste, pinned by
-   * `tests/app/docs/editor-undo-selection.test.ts` in the frontend). What batching
-   * bought is that the count is now *constant* instead of one per pasted
-   * block. Collapsing it to one would need a transaction primitive on
-   * `DocStore`, which does not exist.
+   * One undo unit. `insertBlocks()` still splits the destination, rewrites the
+   * head, inserts the batch and rewrites the tail as separate store writes,
+   * and a paste over a selection deletes first — but `withUndoUnit` folds all
+   * of them into a single `doc.update()`. Pinned by
+   * `tests/app/docs/editor-undo-selection.test.ts` in the frontend, which also
+   * keeps the older, weaker property that the cost never grows with the size
+   * of the paste.
    */
   private applyPastePlan(plan: PastePlan): void {
     // Every paste — the keyboard one, the programmatic `pasteContent` the
@@ -1501,22 +1530,24 @@ export class TextEditor {
     // one, so the clear belongs at the mutation instead.
     this.imageSelectionClearer?.();
     this.saveSnapshot();
-    this.deleteSelection();
-    if (plan.kind === 'text') {
-      this.insertPlainText(plan.text);
-    } else {
-      if (plan.kind === 'tableCells') this.pasteTableCells(plan.cells);
-      else this.insertBlocks(plan.blocks);
-      // The internal clipboard is the one paste payload that preserves an
-      // explicit `italic: false` (the HTML/markdown parsers only ever write
-      // `true`), so a run copied out of a Heading 6 can land in a block whose
-      // named style does not supply italic — a dead flag (#749). Same cleanup
-      // a block-type change runs; a no-op when nothing is stale. Set only on
-      // the internal-clipboard plans, which are the ones that can carry it.
-      if (plan.dropStaleStyleOff) this.doc.dropStaleStyleOffAll();
-    }
-    this.selection.setRange(null);
-    this.requestRender();
+    this.withUndoUnit(() => {
+      this.deleteSelection();
+      if (plan.kind === 'text') {
+        this.insertPlainText(plan.text);
+      } else {
+        if (plan.kind === 'tableCells') this.pasteTableCells(plan.cells);
+        else this.insertBlocks(plan.blocks);
+        // The internal clipboard is the one paste payload that preserves an
+        // explicit `italic: false` (the HTML/markdown parsers only ever write
+        // `true`), so a run copied out of a Heading 6 can land in a block whose
+        // named style does not supply italic — a dead flag (#749). Same cleanup
+        // a block-type change runs; a no-op when nothing is stale. Set only on
+        // the internal-clipboard plans, which are the ones that can carry it.
+        if (plan.dropStaleStyleOff) this.doc.dropStaleStyleOffAll();
+      }
+      this.selection.setRange(null);
+      this.requestRender();
+    });
   }
 
   /**
@@ -2598,57 +2629,62 @@ export class TextEditor {
     const enterCellInfo = this.getCellInfo(this.cursor.position.blockId);
     if (enterCellInfo) {
       this.saveSnapshot();
-      this.deleteSelection();
-      const pos = this.cursor.position;
-      // URL auto-detection before splitting the block on Enter — mirrors
-      // the top-level branch below; this cell branch previously skipped
-      // straight to exitLinkIfAtTrailingEdge, so a URL typed into a table
-      // cell never got auto-linked.
-      this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
-      this.exitLinkIfAtTrailingEdge(pos);
-      const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
-      this.cursor.moveTo({
-        blockId: newBlockId,
-        offset: 0,
+      // Replacing a selection with a split is one action — see `withUndoUnit`.
+      this.withUndoUnit(() => {
+        this.deleteSelection();
+        const pos = this.cursor.position;
+        // URL auto-detection before splitting the block on Enter — mirrors
+        // the top-level branch below; this cell branch previously skipped
+        // straight to exitLinkIfAtTrailingEdge, so a URL typed into a table
+        // cell never got auto-linked.
+        this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
+        this.exitLinkIfAtTrailingEdge(pos);
+        const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
+        this.cursor.moveTo({
+          blockId: newBlockId,
+          offset: 0,
+        });
+        this.selection.setRange(null);
+        this.markDirty(enterCellInfo.tableBlockId);
+        this.invalidateLayout();
+        this.requestRender();
       });
-      this.selection.setRange(null);
-      this.markDirty(enterCellInfo.tableBlockId);
-      this.invalidateLayout();
-      this.requestRender();
       return;
     }
 
     this.saveSnapshot();
-    this.deleteSelection();
-    this.invalidateLayout();
+    this.withUndoUnit(() => {
+      this.deleteSelection();
+      this.invalidateLayout();
 
-    // Auto-convert "---" to horizontal rule on Enter
-    const enterPos = this.cursor.position;
-    const enterBlock = this.doc.getBlock(enterPos.blockId);
-    if (enterBlock && enterBlock.type === 'paragraph' && getBlockText(enterBlock) === '---') {
-      this.docDeleteText({ blockId: enterPos.blockId, offset: 0 }, 3);
-      this.doc.setBlockType(enterPos.blockId, 'horizontal-rule');
-      const newId = this.docSplitBlock(enterPos.blockId, 0);
-      this.cursor.moveTo({ blockId: newId, offset: 0 });
+      // Auto-convert "---" to horizontal rule on Enter
+      const enterPos = this.cursor.position;
+      const enterBlock = this.doc.getBlock(enterPos.blockId);
+      if (enterBlock && enterBlock.type === 'paragraph' && getBlockText(enterBlock) === '---') {
+        this.docDeleteText({ blockId: enterPos.blockId, offset: 0 }, 3);
+        this.doc.setBlockType(enterPos.blockId, 'horizontal-rule');
+        const newId = this.docSplitBlock(enterPos.blockId, 0);
+        this.cursor.moveTo({ blockId: newId, offset: 0 });
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+
+      // URL auto-detection before splitting the block on Enter
+      const pos = this.cursor.position;
+      this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
+      this.exitLinkIfAtTrailingEdge(pos);
+      const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
+
+      if (newBlockId === pos.blockId) {
+        // Block was converted in-place (e.g., empty list → paragraph)
+        this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
+      } else {
+        this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+      }
       this.selection.setRange(null);
       this.requestRender();
-      return;
-    }
-
-    // URL auto-detection before splitting the block on Enter
-    const pos = this.cursor.position;
-    this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
-    this.exitLinkIfAtTrailingEdge(pos);
-    const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
-
-    if (newBlockId === pos.blockId) {
-      // Block was converted in-place (e.g., empty list → paragraph)
-      this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
-    } else {
-      this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
-    }
-    this.selection.setRange(null);
-    this.requestRender();
+    });
   }
 
   private handlePageBreak(): void {
@@ -2657,23 +2693,25 @@ export class TextEditor {
     if (cellInfo) return;
 
     this.saveSnapshot();
-    this.deleteSelection();
-    this.invalidateLayout();
+    this.withUndoUnit(() => {
+      this.deleteSelection();
+      this.invalidateLayout();
 
-    const pos = this.cursor.position;
-    // Split at cursor position first
-    const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
+      const pos = this.cursor.position;
+      // Split at cursor position first
+      const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
 
-    // Insert a page-break block between the two halves
-    const blocks = this.doc.document.blocks;
-    const splitIndex = blocks.findIndex((b) => b.id === newBlockId);
-    const pageBreakBlock = createBlock('page-break');
-    this.doc.insertBlockAt(splitIndex, pageBreakBlock);
+      // Insert a page-break block between the two halves
+      const blocks = this.doc.document.blocks;
+      const splitIndex = blocks.findIndex((b) => b.id === newBlockId);
+      const pageBreakBlock = createBlock('page-break');
+      this.doc.insertBlockAt(splitIndex, pageBreakBlock);
 
-    // Move cursor to the block after the page-break
-    this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
-    this.selection.setRange(null);
-    this.requestRender();
+      // Move cursor to the block after the page-break
+      this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+      this.selection.setRange(null);
+      this.requestRender();
+    });
   }
 
   private handleTab(shift: boolean): void {
@@ -3743,11 +3781,66 @@ export class TextEditor {
   // --- Helpers ---
 
   /**
+   * Run the store writes of ONE user action so they cost ONE undo unit.
+   *
+   * `YorkieDocStore` takes an undo unit per `doc.update()`, and its
+   * `snapshot()` is a no-op, so an action that writes per block costs one
+   * Cmd+Z per block. That is not only a granularity annoyance: Yorkie's undo
+   * stack is capped at 50 entries (`MaxUndoRedoStackDepth`) and `pushUndo`
+   * `shift()`s the *oldest* entry once it is full. `deleteSelection()` deletes
+   * from the last block backwards, so on a select-all over ~100 paragraphs the
+   * entries dropped first were the ones holding the tail of the document —
+   * unrecoverable by any number of undo presses (issue #1045).
+   *
+   * `DocStore.batch()` folds the whole body into one store write on both
+   * stores. Nested calls short-circuit, which is what lets the primitive
+   * (`deleteSelection`) batch itself while a composite action (typing, paste,
+   * Enter) still costs one unit for delete + insert together.
+   *
+   * Two rules the callers depend on:
+   *
+   * - **Layout and paint stay outside the batch**, the same rule
+   *   `withNamedStyleChange` documents. Interior `requestRender()` calls are
+   *   held and replayed once — at most once — after the outermost unit
+   *   commits, including after a throw, so the screen always shows what the
+   *   store really holds.
+   * - **`saveSnapshot()` must be called before opening a unit, never inside
+   *   one.** On `YorkieDocStore` it also flushes the *pre-edit* caret and
+   *   selection into presence, which is what Yorkie records as the reverse of
+   *   the change; inside an open batch that presence write is dropped
+   *   (`skipNonHistoryPresence`) and undo would restore the post-edit caret.
+   */
+  private withUndoUnit(fn: () => void): void {
+    this.undoUnitDepth++;
+    try {
+      this.doc.batch(fn);
+    } finally {
+      this.undoUnitDepth--;
+      if (this.undoUnitDepth === 0 && this.renderAfterUndoUnit) {
+        this.renderAfterUndoUnit = false;
+        this.requestRender();
+      }
+    }
+  }
+
+  /**
    * Delete currently selected text. Returns true if there was a selection.
+   *
+   * One undo unit however many blocks the selection spans — see
+   * {@link withUndoUnit}. Callers that write more as part of the same action
+   * open their own unit around this one; the nested batch short-circuits.
    */
   private deleteSelection(): boolean {
     if (!this.selection.hasSelection()) return false;
+    let deleted = false;
+    this.withUndoUnit(() => {
+      deleted = this.deleteSelectionImpl();
+    });
+    return deleted;
+  }
 
+  /** The write body of {@link deleteSelection}, always run inside a unit. */
+  private deleteSelectionImpl(): boolean {
     // Header/footer: handle directly without layout-based normalization
     if (this.editContext !== 'body' && this.selection.range) {
       const range = this.selection.range;
@@ -4125,10 +4218,12 @@ export class TextEditor {
       const text = await navigator.clipboard.readText();
       if (!text) return;
       this.saveSnapshot();
-      this.deleteSelection();
-      this.insertPlainText(text);
-      this.selection.setRange(null);
-      this.requestRender();
+      this.withUndoUnit(() => {
+        this.deleteSelection();
+        this.insertPlainText(text);
+        this.selection.setRange(null);
+        this.requestRender();
+      });
     } catch {
       // Clipboard API unavailable or permission denied — silently ignore.
     }
@@ -5756,8 +5851,12 @@ export class TextEditor {
           offset: this.hangulStartPos.offset + result.commit.length,
         };
       } else {
-        this.deleteSelection();
-        this.docInsertText(this.cursor.position, result.commit);
+        // Replacing a selection with the syllable is one action, so the
+        // delete and the insert share one undo unit (see `withUndoUnit`).
+        this.withUndoUnit(() => {
+          this.deleteSelection();
+          this.docInsertText(this.cursor.position, result.commit!);
+        });
         this.hangulStartPos = {
           blockId: this.cursor.position.blockId,
           offset: this.cursor.position.offset + result.commit.length,

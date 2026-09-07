@@ -302,13 +302,56 @@ The contract both implementations enforce:
   `Doc.batch()` therefore re-reads the store when the body throws, so the
   docs model never outlives writes the CRDT rejected.
 
-Today only the named-style redefinition entry points use it
-(`setDocStyles` / `updateStyleToMatch` / `resetNamedStyle` /
-`resetAllNamedStyles`, whose registry write triggers a second
-`dropStaleStyleOffAll` sweep). Every other editing path keeps the undo
-granularity it had, though all of them now route their writes through
-`withUpdate` instead of calling `doc.update` directly — a nested update
-inside an open batch would split its undo unit.
+Callers: the named-style redefinition entry points (`setDocStyles` /
+`updateStyleToMatch` / `resetNamedStyle` / `resetAllNamedStyles`, whose
+registry write triggers a second `dropStaleStyleOffAll` sweep), the link-run
+writer, and — since issue #1045 — every selection-replacing edit, through
+`TextEditor.withUndoUnit()`. All editing paths route their writes through
+`withUpdate` instead of calling `doc.update` directly; a nested update inside
+an open batch would split its undo unit.
+
+##### One user action, one undo unit
+
+`deleteSelection()` removes a multi-block selection with one store write per
+block. Outside a batch that is one undo unit per block, and the cost is not
+merely a granularity annoyance: Yorkie caps the undo stack at 50 entries
+(`MaxUndoRedoStackDepth`) and `pushUndo` `shift()`s the **oldest** entry once
+it is full. Select-all + type on a 100-paragraph document cost ~102 units, so
+the entries dropped first were the ones holding the tail of the document —
+and because the delete runs backwards, more than half the content became
+unrecoverable by any number of Cmd+Z presses (issue #1045).
+
+`TextEditor.withUndoUnit(fn)` runs `fn` inside `Doc.batch()`.
+`deleteSelection()` wraps itself in one, so every call site is at most one
+unit; the composite actions — typing, the programmatic `insertText`, paste,
+Enter, page break, the Hangul syllable commit — wrap the delete together with
+the writes that follow, and the nested batch short-circuits so the pair is
+still one unit. Two rules the helper enforces:
+
+- **Layout and paint stay outside the batch**, the same rule
+  `withNamedStyleChange` follows. Interior `requestRender()` calls are held
+  and replayed once after the outermost unit commits, including after a
+  throw, so the screen always shows what the store really holds.
+- **`saveSnapshot()` is called before the unit opens, never inside it.** On
+  `MemDocStore` it is just a checkpoint, but on `YorkieDocStore` it also
+  flushes the *pre-edit* caret and selection into presence, which is what
+  Yorkie records as the reverse of the change's `addToHistory` set. Inside an
+  open batch `skipNonHistoryPresence()` drops that write, so batching it
+  would silently make undo restore the *post*-edit caret.
+
+##### The undo floor is an entry, not a depth
+
+`setDocument()` re-arms an undo floor so users cannot undo past the initial
+document load. It used to record the stack's *length*, and `canUndo()`
+compared the current length against it. Once the 50-entry cap starts dropping
+entries from the bottom — the floor's own entries first — that comparison
+stops describing the same boundary, and undo stopped one press early per
+dropped entry, stranding edits still on the stack.
+
+`YorkieDocStore` therefore holds the floor by the **identity** of the stack's
+top entry at load time (`undoFloorMark`) and asks where it is now. An entry
+that has itself been dropped is simply not found, which is exactly the "the
+floor is gone, so everything left is above it" answer a depth cannot give.
 
 ### Data Flow
 
