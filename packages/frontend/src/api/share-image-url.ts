@@ -15,19 +15,43 @@ function backendOrigin(): string | null {
   }
 }
 
+/** Base a relative `src` is resolved against, purely to find out *where* it
+ * resolves. A reserved `.invalid` host, so no real origin can collide with it
+ * and no request could ever be issued to it by accident. */
+const RELATIVE_BASE = "https://relative.invalid/";
+const RELATIVE_ORIGIN = "https://relative.invalid";
+
+/** Whether `src` names its own scheme (`https:`, `data:`, `blob:`, ...). */
+const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
 /**
  * True only for a URL that will actually hit our own backend's workspace-image
- * route: a root-relative path (same origin as the app), or an absolute URL
- * whose origin is the configured backend origin. This gate is a SECURITY
- * boundary: `data.src` comes from the CRDT and a malicious collaborator can set
- * it to `https://attacker.example/api/v1/workspaces/w/images/x.png`; without
- * the origin check we would append the viewer's share token and leak it to that
+ * route: a relative reference that resolves against the app's own origin, or
+ * an absolute URL whose origin is the configured backend origin. This gate is a
+ * SECURITY boundary: `data.src` comes from the CRDT and a malicious
+ * collaborator can set it to
+ * `https://attacker.example/api/v1/workspaces/w/images/x.png`; without the
+ * origin check we would append the viewer's share token and leak it to that
  * host.
+ *
+ * A relative reference is judged by where it *resolves*, never by how it is
+ * spelled. `//attacker.example/api/v1/workspaces/w/images/x.png` (protocol-
+ * relative) and `/\attacker.example/...` (a backslash, which the URL parser
+ * normalizes to a slash for http(s)) both begin with `/` yet address a foreign
+ * host — a `startsWith("/")` test reads them as same-origin and hands the
+ * token to the attacker.
  */
 function isTrustedWorkspaceImageUrl(src: string): boolean {
-  if (src.startsWith("/")) {
-    // Root-relative → resolves against the app's own origin. Safe.
-    return WORKSPACE_IMAGE_PATH_RE.test(src.split(/[?#]/, 1)[0]);
+  if (!HAS_SCHEME_RE.test(src)) {
+    let relative: URL;
+    try {
+      relative = new URL(src, RELATIVE_BASE);
+    } catch {
+      return false;
+    }
+    // Anything that escaped the sentinel origin was not relative to us.
+    if (relative.origin !== RELATIVE_ORIGIN) return false;
+    return WORKSPACE_IMAGE_PATH_RE.test(relative.pathname);
   }
   const origin = backendOrigin();
   if (!origin) return false;

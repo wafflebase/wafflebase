@@ -18,6 +18,32 @@ const imageCache = new Map<string, HTMLImageElement>();
 const pendingImageCallbacks = new Map<string, Set<() => void>>();
 
 /**
+ * Maps a CRDT-stored `src` to the URL actually fetched. Identity by default;
+ * a shared-link mount installs a resolver that appends its `?token=` to
+ * workspace image URLs so anonymous visitors can load them. The stored `src`
+ * is shared across every viewer and the author, so it cannot itself carry a
+ * per-viewer token. Applied where a `src` becomes a cache key, so the cache is
+ * keyed by what was actually requested.
+ *
+ * Mirrors the same seam in slides (`view/canvas/image-cache.ts`), notes
+ * (`view/preview.ts`) and sheets (`spreadsheet/image-cache.ts`); docs was the
+ * only engine without one, which is why an image inserted through an editor
+ * share link had nothing to make it load again (issue #1037).
+ */
+let urlResolver: (src: string) => string = (s) => s;
+
+/**
+ * Install (or clear, with `null`) the src → fetch-URL resolver. The resolver
+ * must be idempotent and leave non-workspace URLs (`data:`, `blob:`, external
+ * hosts) untouched. Set on a shared-link mount, cleared on unmount.
+ */
+export function setImageUrlResolver(
+  resolver: ((src: string) => string) | null,
+): void {
+  urlResolver = resolver ?? ((s) => s);
+}
+
+/**
  * Return a loaded HTMLImageElement for the given src, or null if it is
  * still loading. On first encounter, kicks off an async load and invokes
  * `onLoad` once the image is ready so the caller can trigger a re-render.
@@ -25,9 +51,10 @@ const pendingImageCallbacks = new Map<string, Set<() => void>>();
  * subscribed to the in-flight load so its onLoad still fires.
  */
 export function getOrLoadImage(
-  src: string,
+  logicalSrc: string,
   onLoad: () => void,
 ): HTMLImageElement | null {
+  const src = urlResolver(logicalSrc);
   const cached = imageCache.get(src);
   if (cached) {
     if (cached.complete && cached.naturalWidth > 0) return cached;

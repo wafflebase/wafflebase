@@ -35,6 +35,20 @@ export interface ImageFetcherOptions {
    * DOM types in.
    */
   fetch?: typeof globalThis.fetch;
+  /**
+   * `Authorization` value for images served by the configured server, e.g.
+   * `Bearer wfb_...` (see `authorizationHeader` in `client/http-client.ts`).
+   *
+   * Needed because not every document image is public: `POST /images` stores
+   * bytes under the unauthenticated `GET /images/:id`, but an image inserted
+   * through a share link is stored workspace-scoped and read back through
+   * `GET /api/v1/workspaces/:wid/images/:id`, which is auth-gated. Without a
+   * credential those images 401 and the export silently drops them.
+   *
+   * Sent **only** to the configured server's own origin — see
+   * `isConfiguredServerOrigin`.
+   */
+  authorization?: string;
   /** Optional hostname resolver — a seam for tests. Defaults to DNS. */
   lookup?: HostLookup;
   /**
@@ -416,6 +430,30 @@ export async function assertFetchableImageUrl(
 }
 
 /**
+ * Whether this hop is addressed to the configured server's **own** origin,
+ * and so may carry the CLI's credential.
+ *
+ * Deliberately stricter than `assertFetchableImageUrl`'s notion of "may be
+ * the server". That gate is permissive about spellings (loopback names, the
+ * server's resolved addresses) because being wrong there costs a fetch the
+ * user asked for; being wrong *here* hands an API key or session token to
+ * another host. An exact scheme+host+port match is the only spelling a
+ * credential travels on, and it is recomputed per hop, so a redirect off the
+ * server drops the header rather than forwarding it.
+ */
+function isConfiguredServerOrigin(target: string, server: URL | null): boolean {
+  if (!server) return false;
+  if (server.protocol !== 'http:' && server.protocol !== 'https:') return false;
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return false;
+  }
+  return url.origin === server.origin;
+}
+
+/**
  * A dispatcher that connects to `addresses` and to nothing else.
  *
  * The gate resolves the hostname itself, but `fetch` resolves it again at
@@ -734,11 +772,16 @@ export function reportSkippedImage(src: string, error: unknown): void {
  * downloads each unique image inline `src` once, returning a Blob the
  * exporter can embed verbatim (PDF) or stream into the DOCX zip.
  *
- * Backend's `GET /images/:id` is publicly readable, so we don't attach
- * an Authorization header — sending JWT cookies via the CLI isn't
- * possible anyway. Relative URLs resolve against `serverBase`; absolute
- * URLs (e.g., the canonical `https://api.wafflebase.io/images/...`
- * surfaced by `imageFetcher required` errors) pass through.
+ * Backend's `GET /images/:id` is publicly readable, but not every image a
+ * document references lives there: one inserted through a share link is
+ * stored workspace-scoped and read back through the auth-gated
+ * `GET /api/v1/workspaces/:wid/images/:id`. So `opts.authorization` — the
+ * CLI's own API key or session token — rides along, and only on a hop whose
+ * origin is exactly the configured server's (`isConfiguredServerOrigin`); a
+ * redirect anywhere else drops it. Relative URLs resolve against
+ * `serverBase`; absolute URLs (e.g., the canonical
+ * `https://api.wafflebase.io/images/...` surfaced by `imageFetcher required`
+ * errors) pass through.
  *
  * Redirects are followed by hand so every hop is gated the same way as
  * the first — an allowed host that 302s to `169.254.169.254` is the
@@ -790,12 +833,19 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
     const resolved = resolveImageUrl(url, opts.serverBase);
     let target = resolved;
 
-    /** Issue one planned hop, without following or gating anything. */
-    const issue = async (plan: Hop): Promise<Response> => {
+    /**
+     * Issue one planned hop, without following or gating anything.
+     * `headers` already carries the credential when — and only when — this
+     * hop is addressed to the configured server.
+     */
+    const issue = async (
+      plan: Hop,
+      headers: Record<string, string>,
+    ): Promise<Response> => {
       // A pinned proxied hop carries a `Host` of its own, which WHATWG
       // `fetch` forbids — so it goes out through undici's `request`.
       if (plan.pinnedThroughProxy) {
-        return rawRequest(plan.url, plan.agent, plan.headers);
+        return rawRequest(plan.url, plan.agent, headers);
       }
       let res = await fetchOrThrow(
         plan.url,
@@ -804,24 +854,32 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
         // implementation reads.
         {
           redirect: 'manual',
+          ...(Object.keys(headers).length ? { headers } : {}),
           ...(plan.agent ? { dispatcher: plan.agent } : {}),
         } as RequestInit,
         fetchImpl,
       );
       if (isOpaqueRedirect(res)) {
-        res = await rawRequest(plan.url, plan.agent, plan.headers);
+        res = await rawRequest(plan.url, plan.agent, headers);
       }
       return res;
     };
 
     for (let hop = 0; ; hop++) {
       const addresses = await assertFetchableImageUrl(target, server, lookup);
+      // Per hop, from the hop's *own* URL: a redirect that leaves the
+      // configured server leaves the credential behind.
+      const credential: Record<string, string> =
+        opts.authorization && isConfiguredServerOrigin(target, server)
+          ? { authorization: opts.authorization }
+          : {};
       let plan = planHop(target, addresses, pinThroughProxy);
+      let headers = { ...plan.headers, ...credential };
       let agent = plan.agent;
       try {
         let res: Response;
         try {
-          res = await issue(plan);
+          res = await issue(plan, headers);
         } catch (error) {
           // A proxy that allow-lists names refuses `CONNECT` to an
           // address literal, and the export would otherwise die on a
@@ -840,8 +898,9 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
           pinThroughProxy = false;
           reportPinDropped(target);
           plan = planHop(target, addresses, false);
+          headers = { ...plan.headers, ...credential };
           agent = plan.agent;
-          res = await issue(plan);
+          res = await issue(plan, headers);
         }
 
         const location = res.headers.get('location');

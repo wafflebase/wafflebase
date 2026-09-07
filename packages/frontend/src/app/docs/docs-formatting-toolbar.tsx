@@ -54,7 +54,11 @@ import {
 } from "@tabler/icons-react";
 import { Toggle } from "@/components/ui/toggle";
 import { TableGridPicker } from "@/components/table-grid-picker";
-import { insertImageFromFile, insertImageFromUrl } from "./image-insert";
+import {
+  insertImageFromFile,
+  insertImageFromUrl,
+  type DocsImageUpload,
+} from "./image-insert";
 import { DocsPageSetupDialog } from "./docs-page-setup-dialog";
 import {
   TextStyleGroup,
@@ -228,7 +232,13 @@ function TableDropdown({ editor }: { editor: EditorAPI | null }) {
   );
 }
 
-function InsertImageDropdown({ editor }: { editor: EditorAPI | null }) {
+function InsertImageDropdown({
+  editor,
+  uploadImage,
+}: {
+  editor: EditorAPI | null;
+  uploadImage?: DocsImageUpload;
+}) {
   const [open, setOpen] = useState(false);
   const [urlMode, setUrlMode] = useState(false);
   const [urlInput, setUrlInput] = useState("");
@@ -266,7 +276,7 @@ function InsertImageDropdown({ editor }: { editor: EditorAPI | null }) {
     e.target.value = "";
     if (!file || !editor) return;
     closeAndReset();
-    await insertImageFromFile(editor, file);
+    await insertImageFromFile(editor, file, undefined, uploadImage);
   };
 
   const handleUrlSubmit = async (e: React.FormEvent) => {
@@ -364,9 +374,15 @@ function InsertImageDropdown({ editor }: { editor: EditorAPI | null }) {
 interface DocsFormattingToolbarProps {
   editor: EditorAPI | null;
   editContext?: EditContext;
+  /**
+   * Which route the Insert → Image file pick uploads through. Omitted on the
+   * owner route, which uses the authenticated default; an anonymous
+   * share-link mount passes its editor-token uploader (issue #1037).
+   */
+  uploadImage?: DocsImageUpload;
 }
 
-export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsFormattingToolbarProps) {
+export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImage }: DocsFormattingToolbarProps) {
   const isMobile = useIsMobile();
   // Controlled open state for the header/footer slim color palettes — the
   // swatches are plain <button>s, not DropdownMenuItem, so Radix can't
@@ -807,7 +823,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
             disabled={!editor}
           />
 
-          <InsertImageDropdown editor={editor} />
+          <InsertImageDropdown editor={editor} uploadImage={uploadImage} />
 
           <TableDropdown editor={editor} />
 
@@ -879,7 +895,12 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
                   input.onchange = async (e) => {
                     const file = (e.target as HTMLInputElement).files?.[0];
                     if (file && editor) {
-                      await insertImageFromFile(editor, file);
+                      await insertImageFromFile(
+                        editor,
+                        file,
+                        undefined,
+                        uploadImage,
+                      );
                     }
                   };
                   input.click();

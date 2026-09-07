@@ -32,6 +32,35 @@ export async function postWorkspaceImage(
   );
 }
 
+/**
+ * Upload an image on behalf of an **anonymous share-link editor**. Stores
+ * under the workspace the token's document belongs to — the caller cannot name
+ * a workspace, and the backend derives it from the link
+ * (`ApiV1ShareImageUploadController`), so the result is read back through the
+ * same gated route {@link postWorkspaceImage}'s ids are.
+ *
+ * Deliberately a plain `fetch`, not `fetchWithAuth` like everything else in
+ * this module: an anonymous visitor has no session, so `fetchWithAuth`'s
+ * recovery from a 401/403 — refresh, then `logout()` and navigate to `/login` —
+ * would eject them from the document they were editing over a legitimate
+ * authorization failure (issue #1037). `credentials: "include"` is still sent
+ * so a *logged-in* visitor following the same share link is not treated
+ * differently by any proxy in between; the backend authorizes on the token
+ * either way.
+ */
+export async function postShareTokenImage(
+  file: File | Blob,
+  token: string,
+  filename?: string,
+): Promise<{ id: string; url: string }> {
+  return post(
+    `${BACKEND_BASE}/api/v1/shared/images?token=${encodeURIComponent(token)}`,
+    file,
+    filename,
+    { authenticated: false },
+  );
+}
+
 /** Upload an image anyone can read by id. See the note above. */
 export async function postSharedImage(
   file: File | Blob,
@@ -72,6 +101,7 @@ async function post(
   url: string,
   file: File | Blob,
   filename?: string,
+  { authenticated = true }: { authenticated?: boolean } = {},
 ): Promise<{ id: string; url: string }> {
   const formData = new FormData();
   // With a `filename` the platform rewraps the value into a fresh `File`, so
@@ -84,9 +114,30 @@ async function post(
   if (filename) formData.append("file", file, filename);
   else formData.append("file", file);
 
-  const res = await fetchWithAuth(url, { method: "POST", body: formData });
+  const init: RequestInit = { method: "POST", body: formData };
+  const res = authenticated
+    ? await fetchWithAuth(url, init)
+    : await fetch(url, { ...init, credentials: "include" });
   if (!res.ok) {
-    throw new Error(`Upload failed: ${await res.text()}`);
+    throw new Error(`Upload failed: ${await failureText(res)}`);
   }
   return (await res.json()) as { id: string; url: string };
+}
+
+/**
+ * The refusal in the terms the user is shown it. Every message here reaches a
+ * toast (`insertImageFromFile`), and a Nest exception body is JSON — so the
+ * raw text put `{"message":"This share link is read-only","statusCode":403}`
+ * in front of the user. Falls back to the whole body for anything that is not
+ * a Nest error shape.
+ */
+async function failureText(res: Response): Promise<string> {
+  const body = await res.text();
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown };
+    if (typeof parsed?.message === "string") return parsed.message;
+  } catch {
+    // Not JSON — fall through to the raw body.
+  }
+  return body;
 }

@@ -933,3 +933,99 @@ describe('createImageFetcher over a real listener', () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe('createImageFetcher authorization', () => {
+  const SERVER = 'https://api.wafflebase.io';
+  const AUTH = 'Bearer wfb_secret';
+
+  /** A fetcher that records the `authorization` header of every hop. */
+  function fetcherWithAuth(opts: {
+    onFetch?: (url: string) => Response;
+    serverBase?: string;
+    authorization?: string;
+  }) {
+    const sent: Array<{ url: string; auth: string | undefined }> = [];
+    const stubFetch: typeof globalThis.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as URL).toString();
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      sent.push({
+        url,
+        auth: headers.authorization ?? headers.Authorization,
+      });
+      return opts.onFetch?.(url) ?? new Response(new Uint8Array([1]));
+    };
+    return {
+      sent,
+      fetcher: createImageFetcher({
+        serverBase: opts.serverBase ?? SERVER,
+        authorization: opts.authorization ?? AUTH,
+        fetch: stubFetch,
+        lookup: publicLookup,
+      }),
+    };
+  }
+
+  it('sends the credential to a workspace-scoped image on the server', async () => {
+    // The whole point: an image inserted through a share link lives behind
+    // the auth-gated `/api/v1/workspaces/:wid/images/:id`, and an
+    // unauthenticated GET would 401 and drop it from the export.
+    const { fetcher, sent } = fetcherWithAuth({});
+    await fetcher('/api/v1/workspaces/ws-1/images/abc.png');
+    expect(sent).toEqual([
+      { url: `${SERVER}/api/v1/workspaces/ws-1/images/abc.png`, auth: AUTH },
+    ]);
+  });
+
+  it('sends nothing when the config carries no credential', async () => {
+    const sent: Array<string | undefined> = [];
+    const fetcher = createImageFetcher({
+      serverBase: SERVER,
+      fetch: async (input, init) => {
+        void input;
+        sent.push(
+          ((init?.headers ?? {}) as Record<string, string>).authorization,
+        );
+        return new Response(new Uint8Array([1]));
+      },
+      lookup: publicLookup,
+    });
+    await fetcher('/api/v1/workspaces/ws-1/images/abc.png');
+    expect(sent).toEqual([undefined]);
+  });
+
+  it('does NOT send the credential to a foreign image host', async () => {
+    const { fetcher, sent } = fetcherWithAuth({});
+    await fetcher('https://cdn.example.com/photo.jpg');
+    expect(sent).toEqual([
+      { url: 'https://cdn.example.com/photo.jpg', auth: undefined },
+    ]);
+  });
+
+  it('does NOT send the credential to another port on the server host', async () => {
+    // A different port is a different listener, so it is not our server.
+    const { fetcher, sent } = fetcherWithAuth({});
+    await fetcher('https://api.wafflebase.io:8443/api/v1/workspaces/w/images/a.png');
+    expect(sent[0].auth).toBeUndefined();
+  });
+
+  it('drops the credential when the server redirects off its own origin', async () => {
+    // Recomputed per hop: an open redirect on the API host must not forward
+    // the API key to wherever it points.
+    const first = `${SERVER}/api/v1/workspaces/ws-1/images/abc.png`;
+    const { fetcher, sent } = fetcherWithAuth({
+      onFetch: (url) =>
+        url === first
+          ? new Response(null, {
+              status: 302,
+              headers: { location: 'https://cdn.example.com/photo.jpg' },
+            })
+          : new Response(new Uint8Array([7])),
+    });
+
+    await fetcher(first);
+    expect(sent).toEqual([
+      { url: first, auth: AUTH },
+      { url: 'https://cdn.example.com/photo.jpg', auth: undefined },
+    ]);
+  });
+});

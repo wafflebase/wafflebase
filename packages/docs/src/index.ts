@@ -206,6 +206,9 @@ export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';
 export { resolveFontFamily, isKoreanCapableFamily, FontRegistry } from './view/fonts.js';
+// Lets a shared-link mount append its `?token=` to workspace image URLs at
+// render time (see `setImageUrlResolver`'s comment in `view/image-cache.ts`).
+export { setImageUrlResolver } from './view/image-cache.js';
 
 // Serialize (Markdown / text / JSON)
 export { serializeMarkdown } from './serialize/markdown.js';

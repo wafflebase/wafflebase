@@ -36,6 +36,31 @@ describe("appendShareTokenToImageUrl", () => {
     expect(appendShareTokenToImageUrl(evil, TOKEN)).toBe(evil);
   });
 
+  it("does NOT append the token to a protocol-relative foreign host", () => {
+    // `//attacker.example/...` starts with "/" but resolves to a foreign
+    // origin, so a spelling-based same-origin test hands it the token.
+    for (const backend of [BACKEND, ""]) {
+      vi.stubEnv("VITE_BACKEND_API_URL", backend);
+      const evil = "//attacker.example/api/v1/workspaces/w1/images/abc.png";
+      expect(appendShareTokenToImageUrl(evil, TOKEN)).toBe(evil);
+    }
+  });
+
+  it("does NOT append the token to a backslash-escaped foreign host", () => {
+    // The URL parser normalizes `\` to `/` for http(s), so `/\host/...` is
+    // protocol-relative too.
+    vi.stubEnv("VITE_BACKEND_API_URL", BACKEND);
+    const evil = "/\\attacker.example/api/v1/workspaces/w1/images/abc.png";
+    expect(appendShareTokenToImageUrl(evil, TOKEN)).toBe(evil);
+  });
+
+  it("does NOT append the token to a scheme-relative URL that dodges the path check", () => {
+    vi.stubEnv("VITE_BACKEND_API_URL", BACKEND);
+    const evil =
+      "https:/\\attacker.example/api/v1/workspaces/w1/images/abc.png";
+    expect(appendShareTokenToImageUrl(evil, TOKEN)).toBe(evil);
+  });
+
   it("does NOT append the token to any absolute URL when no backend origin is configured", () => {
     vi.stubEnv("VITE_BACKEND_API_URL", "");
     const abs = "https://api.wafflebase.io/api/v1/workspaces/w1/images/abc.png";

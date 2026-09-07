@@ -90,6 +90,47 @@ create editor links") which the frontend surfaces verbatim; the UI additionally
 disables the editor option and hides revoke buttons the caller cannot use, so a
 permitted user never hits the error path.
 
+### Image bytes under a share link
+
+CRDT edits are authorized by the Yorkie auth webhook
+([yorkie-auth-webhook.md](yorkie-auth-webhook.md)), which resolves the link and
+answers `editor → write`. Image **bytes** travel over plain HTTP instead, so
+they need their own decision at both ends:
+
+- **Read** — `GET /api/v1/workspaces/:wid/images/:id` accepts `?token=`
+  (`ApiV1ImageReadController`). Role is deliberately ignored: a viewer link is
+  meant to read.
+- **Write** — `POST /api/v1/shared/images?token=`
+  (`ApiV1ShareImageUploadController`). Role is **not** ignored here: it requires
+  `link.role === 'editor'`, mirroring the webhook's own write decision. The
+  route takes no `:workspaceId`; the storage prefix is read off
+  `link.document.workspaceId`, because a client-supplied id would let a token
+  proving access to one workspace write into another's key space — and
+  `WorkspaceScopeGuard` cannot catch that, since it authorizes by calling
+  `assertMember(user.id)` and an anonymous caller has no user.
+
+The URL the upload returns carries **no** token: it is stored in the CRDT and
+read by every other visitor plus the author, so each engine appends the current
+visitor's token at render time through its `setImageUrlResolver` seam
+(`IMAGE_RESOLVER_INSTALLERS` in `shared-document.tsx`; the origin gate in
+`appendShareTokenToImageUrl` is what stops a hostile collaborator pointing a
+`src` at their own host to harvest the token).
+
+Two client-side rules follow from the same place:
+
+- **An anonymous surface must not call `fetchWithAuth`.** It reads a 401/403 as
+  an expired session and recovers by logging out and navigating to `/login` —
+  which, for a visitor whose only credential is the link, destroys the access
+  they had. This is what made a failed docs image upload eject the visitor from
+  the document (issue #1037).
+- Docs is still the one type whose *owner* route uploads through the
+  unauthenticated root-bucket `POST /images`, so a single document can hold
+  URLs from both spines. The resolver matches only the workspace path, so a
+  legacy `/images/:id` URL is left untouched.
+
+Slides, board and sheets share-link mounts still pass no uploader, so image
+insert stays unavailable there.
+
 ### Frontend
 
 **Share dialog** (`ShareDialog` component) — Opened from the document header

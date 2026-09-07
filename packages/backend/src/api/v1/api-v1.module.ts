@@ -15,6 +15,7 @@ import { ApiV1SlidesController } from './slides.controller';
 import { ApiV1WorksheetImagesController } from './worksheet-images.controller';
 import { ApiV1ImagesController } from './images.controller';
 import { ApiV1ImageReadController } from './image-read.controller';
+import { ApiV1ShareImageUploadController } from './image-share-upload.controller';
 import { ApiV1FilesController } from './files.controller';
 import { ApiV1FoldersController } from './folders.controller';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
@@ -68,6 +69,7 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ApiV1SlidesController,
     ApiV1ImagesController,
     ApiV1ImageReadController,
+    ApiV1ShareImageUploadController,
     ApiV1FilesController,
     ApiV1FoldersController,
   ],

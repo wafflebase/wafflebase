@@ -1,6 +1,18 @@
 import type { EditorAPI } from "@wafflebase/docs";
 import { docxImageUploader } from "./docx-actions";
+import { resolveImageUrl } from "./export-utils";
+import { postShareTokenImage } from "@/api/images";
 import { toast } from "sonner";
+
+/**
+ * Upload one image file and return the absolute URL the canvas can render.
+ *
+ * Which route that goes through depends on who is asking, so it is a
+ * parameter rather than a constant: {@link uploadImageFile} is the
+ * authenticated owner path, {@link shareTokenImageUploader} the anonymous
+ * share-link one.
+ */
+export type DocsImageUpload = (file: File) => Promise<string>;
 
 /**
  * Upload an image file to the backend and return the absolute URL the
@@ -11,6 +23,29 @@ import { toast } from "sonner";
 export async function uploadImageFile(file: File): Promise<string> {
   const filename = file.name || "pasted-image";
   return docxImageUploader(file, filename);
+}
+
+/**
+ * The uploader for a visitor whose only authority is an **editor** share
+ * token. Goes to the workspace image spine — the backend derives the
+ * workspace from the token, so nothing here names one — and the result is read
+ * back through the gated route, which is why a shared docs mount also installs
+ * `setImageUrlResolver` (`shared-document.tsx`). Without the resolver the
+ * image would 403 for every reader including the author.
+ *
+ * The token is *not* written into the stored URL: that URL lives in the CRDT
+ * and is shared with every other viewer plus the author, so it is tokened
+ * per-viewer at render time instead.
+ */
+export function shareTokenImageUploader(token: string): DocsImageUpload {
+  return async (file: File): Promise<string> => {
+    const { url } = await postShareTokenImage(
+      file,
+      token,
+      file.name || "pasted-image",
+    );
+    return resolveImageUrl(url);
+  };
 }
 
 /**
@@ -47,19 +82,58 @@ export function loadImageDimensions(
 }
 
 /**
+ * Measure a local image file's intrinsic size from a `blob:` URL, without
+ * touching the network.
+ *
+ * Probing the *uploaded* URL instead cannot work on the share-link path: that
+ * URL is workspace-scoped and readable only with the visitor's `?token=`
+ * appended, which the stored URL deliberately does not carry — so a plain
+ * `<img>` on it is a 403, and the insert would fail after a successful
+ * upload. The bytes are the same either way (nothing here downscales), so the
+ * local measurement is the same number one round trip earlier. Mirrors what
+ * `spreadsheet/image-upload.ts` already does for the other engines.
+ */
+function loadFileDimensions(
+  file: File,
+): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      } else {
+        reject(new Error("Image has zero dimensions"));
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to read image"));
+    };
+    img.src = url;
+  });
+}
+
+/**
  * Upload a local image file, probe its natural size, and insert it at
  * the editor's current caret. Shows a toast on any failure. Wrapped
  * here so both the toolbar upload path and the drag/paste path go
  * through the same error-handling and insert flow.
+ *
+ * `upload` defaults to the authenticated owner path; a shared-link mount
+ * passes {@link shareTokenImageUploader} instead. The size is read off the
+ * local file rather than the uploaded URL — see {@link loadFileDimensions}.
  */
 export async function insertImageFromFile(
   editor: EditorAPI,
   file: File,
   position?: { blockId: string; offset: number },
+  upload: DocsImageUpload = uploadImageFile,
 ): Promise<void> {
   try {
-    const url = await uploadImageFile(file);
-    const { width, height } = await loadImageDimensions(url);
+    const { width, height } = await loadFileDimensions(file);
+    const url = await upload(file);
     editor.insertImage(url, width, height, {
       originalWidth: width,
       originalHeight: height,
