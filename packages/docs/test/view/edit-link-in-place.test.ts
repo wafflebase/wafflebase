@@ -345,6 +345,24 @@ describe('docs editor — edit link in place (#494)', () => {
     expect(editor._getCursorForTest()?.offset).toBe('https://x.io'.length);
   });
 
+  it('rewrites a URL label that sits between other text', () => {
+    // The link is not at offset 0, so the replacement exercises the real
+    // offset arithmetic rather than a start-of-block special case.
+    type('see  now');
+    const blockId = editor.getDoc().document.blocks[0].id;
+    editor.restoreLocalCursor({ blockId, offset: 4 }, null);
+    editor.insertLink('https://example.com');
+    editor.restoreLocalCursor({ blockId, offset: 7 }, null);
+
+    editor.insertLink('https://ex.io');
+
+    expect(blockText()).toBe('see https://ex.io now');
+    const linked = firstBlockInlines().filter((i) => i.style.href);
+    expect(linked.map((i) => i.text).join('')).toBe('https://ex.io');
+    expect(linked.every((i) => i.style.href === 'https://ex.io')).toBe(true);
+    expect(editor._getCursorForTest()?.offset).toBe(4 + 'https://ex.io'.length);
+  });
+
   it('a customised display text is preserved on an href edit', () => {
     // The #494 guarantee: only a URL-derived label follows the URL.
     makeLinkedExample(3);

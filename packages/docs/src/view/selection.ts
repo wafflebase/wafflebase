@@ -693,6 +693,12 @@ export class Selection {
    * not un-snap, and the anchor's correct snap *direction* depends on
    * where the focus is now, which the snapped value no longer records.
    * Drag and shift+click therefore snap from `rawAnchor` when it is set.
+   *
+   * `setRange` clears it, so any write that is not part of a pointer
+   * gesture — select-all, a restored cursor, `updateDragSelection`'s
+   * "mouse left the table" branch, which deliberately rewrites the anchor
+   * to the table block — invalidates it by default. The pointer paths
+   * re-assign it immediately after their own `setRange`.
    */
   rawAnchor: DocPosition | null = null;
 
@@ -703,6 +709,7 @@ export class Selection {
    */
   setRange(range: DocRange | null): void {
     this.range = range;
+    this.rawAnchor = null;
   }
 
   hasSelection(): boolean {
