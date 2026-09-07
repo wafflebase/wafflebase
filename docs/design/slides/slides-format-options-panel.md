@@ -242,6 +242,25 @@ Compensation is computed **per element**: each carries its own rotation,
 so a multi-select W commit writes a different `x`/`y` per element inside
 the one batch. It applies to the aspect-locked path as well.
 
+The rule is **not panel-local**. Any writer that changes `w`/`h` on a
+possibly-rotated frame has the same jump, so the one other such caller —
+the text autofit-grow commit in `view/editor/editor.ts`, which fits a
+text box's height to its content when text edit ends — routes through
+`resizeFrameToSize` too instead of patching `h` alone. Its basis is the
+element's **local** frame, which is sound because the surrounding
+`ancestorHasTransform` gate already restricts that path to elements
+whose ancestors only translate. Drag resize (`resizeFrameWorld`), crop
+commit and multi-resize already write whole frames, so they were never
+affected.
+
+`Frame.rotation` is typed as required, but a legacy or imported document
+can store a frame without it, and `Math.cos(undefined)` is `NaN` — which
+a size-only patch was immune to and the compensated one is not. So
+`frameAtAnchor`, `resizeFrame` and `resizeFrameWorld` all read a missing
+rotation as `0`, and `anchoredFramePatch` additionally drops back to the
+plain size-only patch if the computed `x`/`y` come out non-finite for any
+other reason.
+
 #### Multi-select mixed-value handling
 
 ```ts

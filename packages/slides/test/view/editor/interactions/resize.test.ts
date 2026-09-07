@@ -149,6 +149,26 @@ describe('resizeFrameToSize', () => {
     const start: Frame = { ...f(0, 0, 100, 50, Math.PI / 6), flipH: true };
     expect(resizeFrameToSize(start, 200, 50).flipH).toBe(true);
   });
+
+  it('reads a frame with no stored rotation as unrotated (no NaN x/y)', () => {
+    // `rotation` is typed as required, but legacy / imported documents
+    // can omit it; `Math.cos(undefined)` would poison x and y and make
+    // the element vanish once persisted.
+    const start = { x: 100, y: 100, w: 200, h: 100 } as unknown as Frame;
+    const next = resizeFrameToSize(start, 400, 250);
+    expect(next.x).toBe(100);
+    expect(next.y).toBe(100);
+    expect(next.w).toBe(400);
+    expect(next.h).toBe(250);
+  });
+});
+
+describe('resizeFrameWorld with no stored rotation', () => {
+  it('treats a missing rotation as 0 instead of producing NaN', () => {
+    const start = { x: 0, y: 0, w: 100, h: 50 } as unknown as Frame;
+    const next = resizeFrameWorld(start, 'se', 20, 10, false);
+    expect(next).toEqual({ x: 0, y: 0, w: 120, h: 60, rotation: 0 });
+  });
 });
 
 import {

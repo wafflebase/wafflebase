@@ -15,6 +15,14 @@ import { resizeFrameToSize } from '@wafflebase/slides';
  *
  * Patches that don't touch size (rotation, position) pass through
  * untouched.
+ *
+ * `Frame.rotation` is typed as required, but a legacy / imported
+ * document can store a frame without it, and `Math.cos(undefined)` is
+ * NaN — which would persist a vanished element. `resizeFrameToSize`
+ * reads a missing rotation as 0; the finite check below is the second
+ * belt, covering any other non-finite input (a `w`/`h` that arrived as
+ * NaN) by degrading to the old size-only patch rather than writing
+ * garbage coordinates.
  */
 export function anchoredFramePatch(
   frame: Frame,
@@ -22,5 +30,6 @@ export function anchoredFramePatch(
 ): Partial<Frame> {
   if (patch.w === undefined && patch.h === undefined) return patch;
   const next = resizeFrameToSize(frame, patch.w ?? frame.w, patch.h ?? frame.h);
+  if (!Number.isFinite(next.x) || !Number.isFinite(next.y)) return patch;
   return { ...patch, x: next.x, y: next.y };
 }

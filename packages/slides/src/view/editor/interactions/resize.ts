@@ -68,7 +68,10 @@ export function resizeFrame(
   return {
     x: left, y: top,
     w: r - left, h: b - top,
-    rotation: start.rotation,
+    // A frame with no stored rotation (legacy / imported document) is
+    // unrotated; normalize so downstream trigonometry never sees
+    // `undefined`.
+    rotation: start.rotation ?? 0,
   };
 }
 
@@ -88,13 +91,17 @@ export function resizeFrameWorld(
   worldDy: number,
   shift: boolean,
 ): Frame {
-  if (start.rotation === 0) {
+  // `rotation` is typed as required but legacy / imported documents can
+  // omit it (see `import/pptx/shape.ts`'s own `?? 0`), and
+  // `Math.cos(undefined)` is NaN — which would silently corrupt x/y.
+  const rotation = start.rotation ?? 0;
+  if (rotation === 0) {
     return resizeFrame(start, handle, worldDx, worldDy, shift);
   }
 
   // Project world delta into the frame's local axes by rotating by -θ.
-  const cosInv = Math.cos(-start.rotation);
-  const sinInv = Math.sin(-start.rotation);
+  const cosInv = Math.cos(-rotation);
+  const sinInv = Math.sin(-rotation);
   const localDx = worldDx * cosInv - worldDy * sinInv;
   const localDy = worldDx * sinInv + worldDy * cosInv;
 
@@ -142,8 +149,12 @@ function frameAtAnchor(
   // World position of anchorBefore = startCentre + R(rot) * (anchorBefore - startLocalCentre).
   const startCx = start.x + start.w / 2;
   const startCy = start.y + start.h / 2;
-  const cosF = Math.cos(start.rotation);
-  const sinF = Math.sin(start.rotation);
+  // A frame with no stored `rotation` (legacy / imported document) must
+  // read as unrotated; `Math.cos(undefined)` is NaN and would poison
+  // both x and y.
+  const rotation = start.rotation ?? 0;
+  const cosF = Math.cos(rotation);
+  const sinF = Math.sin(rotation);
   const dxL = anchorBefore.x - start.w / 2;
   const dyL = anchorBefore.y - start.h / 2;
   const anchorWorldX = startCx + cosF * dxL - sinF * dyL;
@@ -162,7 +173,7 @@ function frameAtAnchor(
     y: newCy - h / 2,
     w,
     h,
-    rotation: start.rotation,
+    rotation,
   };
 }
 
