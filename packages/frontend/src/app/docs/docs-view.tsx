@@ -33,7 +33,7 @@ import {
   registerThumbnailSource,
 } from "@/lib/thumbnail-capture";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
-import { insertImageFromFile } from "./image-insert";
+import { insertImageFromFile, type DocsImageUpload } from "./image-insert";
 import { toast } from "sonner";
 
 export type { EditorAPI } from "@wafflebase/docs";
@@ -129,6 +129,13 @@ interface DocsViewProps {
    * disables the mention dropdown (existing chips still render).
    */
   workspaceId?: string;
+  /**
+   * Which route a dropped / pasted image file uploads through. Omitted on the
+   * owner route, which uses the authenticated default; an anonymous
+   * share-link mount passes its editor-token uploader, because the default
+   * one 401s and that 401 ejects the visitor to `/login` (issue #1037).
+   */
+  uploadImage?: DocsImageUpload;
 }
 
 /**
@@ -146,6 +153,7 @@ export function DocsView({
   onCommentsPanelOpenChange,
   documentId,
   workspaceId,
+  uploadImage,
 }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // State-mirrored handle on the same DOM node, so effects that depend
@@ -159,6 +167,11 @@ export function DocsView({
   }, []);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
+  // Read through a ref by `onImageFileDrop`, which is registered once in the
+  // editor's mount effect: re-mounting the whole editor because an uploader
+  // identity changed would tear down the Yorkie store with it.
+  const uploadImageRef = useRef(uploadImage);
+  uploadImageRef.current = uploadImage;
   const [mountedEditor, setMountedEditor] = useState<EditorAPI | null>(null);
   const [didMount, setDidMount] = useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -471,7 +484,7 @@ export function DocsView({
     // resolution + insert all live in the frontend because they
     // depend on auth cookies and the `/images` endpoint.
     editor.onImageFileDrop((file, pos) => {
-      void insertImageFromFile(editor, file, pos);
+      void insertImageFromFile(editor, file, pos, uploadImageRef.current);
     });
 
     // Busy indicator for pastes big enough to block the tab (thousands of

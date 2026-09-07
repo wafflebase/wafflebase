@@ -1,6 +1,18 @@
 import type { EditorAPI } from "@wafflebase/docs";
 import { docxImageUploader } from "./docx-actions";
+import { resolveImageUrl } from "./export-utils";
+import { postShareTokenImage } from "@/api/images";
 import { toast } from "sonner";
+
+/**
+ * Upload one image file and return the absolute URL the canvas can render.
+ *
+ * Which route that goes through depends on who is asking, so it is a
+ * parameter rather than a constant: {@link uploadImageFile} is the
+ * authenticated owner path, {@link shareTokenImageUploader} the anonymous
+ * share-link one.
+ */
+export type DocsImageUpload = (file: File) => Promise<string>;
 
 /**
  * Upload an image file to the backend and return the absolute URL the
@@ -11,6 +23,29 @@ import { toast } from "sonner";
 export async function uploadImageFile(file: File): Promise<string> {
   const filename = file.name || "pasted-image";
   return docxImageUploader(file, filename);
+}
+
+/**
+ * The uploader for a visitor whose only authority is an **editor** share
+ * token. Goes to the workspace image spine — the backend derives the
+ * workspace from the token, so nothing here names one — and the result is read
+ * back through the gated route, which is why a shared docs mount also installs
+ * `setImageUrlResolver` (`shared-document.tsx`). Without the resolver the
+ * image would 403 for every reader including the author.
+ *
+ * The token is *not* written into the stored URL: that URL lives in the CRDT
+ * and is shared with every other viewer plus the author, so it is tokened
+ * per-viewer at render time instead.
+ */
+export function shareTokenImageUploader(token: string): DocsImageUpload {
+  return async (file: File): Promise<string> => {
+    const { url } = await postShareTokenImage(
+      file,
+      token,
+      file.name || "pasted-image",
+    );
+    return resolveImageUrl(url);
+  };
 }
 
 /**
@@ -51,14 +86,18 @@ export function loadImageDimensions(
  * the editor's current caret. Shows a toast on any failure. Wrapped
  * here so both the toolbar upload path and the drag/paste path go
  * through the same error-handling and insert flow.
+ *
+ * `upload` defaults to the authenticated owner path; a shared-link mount
+ * passes {@link shareTokenImageUploader} instead.
  */
 export async function insertImageFromFile(
   editor: EditorAPI,
   file: File,
   position?: { blockId: string; offset: number },
+  upload: DocsImageUpload = uploadImageFile,
 ): Promise<void> {
   try {
-    const url = await uploadImageFile(file);
+    const url = await upload(file);
     const { width, height } = await loadImageDimensions(url);
     editor.insertImage(url, width, height, {
       originalWidth: width,

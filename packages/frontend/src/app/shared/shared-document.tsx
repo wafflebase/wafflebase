@@ -45,6 +45,8 @@ import { fileUrl } from "@/api/files";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
+import { shareTokenImageUploader } from "@/app/docs/image-insert";
+import { setImageUrlResolver as setDocsImageUrlResolver } from "@wafflebase/docs";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import { setImageUrlResolver as setSlidesImageUrlResolver } from "@wafflebase/slides";
 import { setImageUrlResolver as setNotesImageUrlResolver } from "@wafflebase/notes";
@@ -310,10 +312,26 @@ function SharedDocumentLayout({
   );
 }
 
-function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
+function SharedDocsLayout({
+  resolved,
+  token,
+}: {
+  resolved: ResolvedShareLink;
+  token?: string;
+}) {
   const readOnly = resolved.role === "viewer";
   const [editor, setEditor] = useState<EditorAPI | null>(null);
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+
+  // An anonymous visitor has no session, so the default (owner) uploader's
+  // `POST /images` is a 401 — and `fetchWithAuth` reads that 401 as an expired
+  // session, logs them out and navigates to `/login`, losing the document they
+  // were editing. Upload through the share token instead; the backend refuses
+  // a viewer-role token, so `readOnly` here is a UI decision, not the gate.
+  const uploadImage = useMemo(
+    () => (token ? shareTokenImageUploader(token) : undefined),
+    [token],
+  );
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -338,12 +356,15 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
         </div>
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        {!readOnly && <DocsFormattingToolbar editor={editor} />}
+        {!readOnly && (
+          <DocsFormattingToolbar editor={editor} uploadImage={uploadImage} />
+        )}
         <DocsView
           onEditorReady={setEditor}
           readOnly={readOnly}
           commentsPanelOpen={commentsPanelOpen}
           onCommentsPanelOpenChange={setCommentsPanelOpen}
+          uploadImage={uploadImage}
         />
       </div>
     </div>
@@ -833,10 +854,9 @@ export function sharedBlobKind(type: string): "pdf" | "blob" | "crdt" {
  * every other viewer and the author, so the token cannot be baked in at upload
  * time — each engine exposes a resolver applied at render time instead.
  *
- * Types absent from this map render no workspace image at all: `doc` uploads
- * through the unauthenticated legacy `/images/:id` route, which has no
- * workspace scope to gate, and pdf/image/file are blobs served by
- * `DocumentFileController`, which does its own share-token check.
+ * Types absent from this map render no workspace image at all: pdf/image/file
+ * are blobs served by `DocumentFileController`, which does its own share-token
+ * check.
  */
 const IMAGE_RESOLVER_INSTALLERS = new Map<
   string,
@@ -849,6 +869,12 @@ const IMAGE_RESOLVER_INSTALLERS = new Map<
   ["note", setNotesImageUrlResolver],
   // `image-object-layer`'s floating images.
   ["sheet", setSheetsImageUrlResolver],
+  // The docs canvas's inline pictures. A doc's *owner*-inserted images still
+  // sit on the unauthenticated legacy `/images/:id` route, which the resolver
+  // leaves alone (`isTrustedWorkspaceImageUrl` matches only the workspace
+  // path) — but one inserted through an editor share link is workspace-scoped,
+  // and without this it 403s for every reader, its own author included.
+  ["doc", setDocsImageUrlResolver],
 ]);
 
 /**
@@ -862,8 +888,11 @@ const IMAGE_RESOLVER_INSTALLERS = new Map<
  * commit: the slides canvas paints from a passive `useEffect` /
  * `requestAnimationFrame` (see slides-view) and all layout effects run before
  * any passive effect; the notes preview is built in a passive effect gated on
- * the Yorkie document having loaded (see notes-view); and the sheets image
- * layer is behind `lazy()`, so its chunk cannot resolve before this commit
+ * the Yorkie document having loaded (see notes-view); the docs canvas is
+ * created in a passive effect gated on `didMount` (see docs-view) inside a
+ * *child* of this component, and a child's passive effect still runs after
+ * every layout effect, this one included; and the sheets image layer is behind
+ * `lazy()`, so its chunk cannot resolve before this commit
  * ends. So the token is in place before the first image load and no un-tokened
  * 403 is fired. Cleanup clears the singleton on unmount and pairs correctly
  * with StrictMode's dev mount→cleanup→remount.
@@ -987,7 +1016,7 @@ function SharedDocumentInner({
           initialPresence={presence}
           enableDevtools={import.meta.env.DEV}
         >
-          <SharedDocsLayout resolved={resolved} />
+          <SharedDocsLayout resolved={resolved} token={token} />
         </DocumentProvider>
       ) : resolved.type === "slides" ? (
         <DocumentProvider<Partial<YorkieSlidesRoot>>
