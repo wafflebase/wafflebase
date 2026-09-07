@@ -2229,8 +2229,21 @@ export class TextEditor {
           offset: result.offset,
           lineAffinity: result.lineAffinity,
         };
-        this.selection.setRange({ anchor: this.selection.range.anchor, focus: pos });
-        this.cursor.moveTo(pos, result.lineAffinity);
+        // Snapped like the body drag below: a header/footer paragraph can
+        // hold a hyperlink too, and `findBlock` reaches those blocks, so
+        // "a pointer selection never partially covers a link" (#1038) has
+        // to hold in this context as well. A range spanning two
+        // header/footer blocks is left alone by `expandRangeForLinks`,
+        // whose `anchorComesFirst` declines to order what
+        // `getBlockIndex` cannot see.
+        const snapped = this.setSnappedRange({
+          anchor: this.selection.range.anchor,
+          focus: pos,
+        });
+        this.cursor.moveTo(
+          snapped.focus,
+          snapped.focus.lineAffinity ?? result.lineAffinity,
+        );
         this.requestRender();
       }
       return;
