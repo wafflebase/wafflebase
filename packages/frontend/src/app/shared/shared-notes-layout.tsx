@@ -64,10 +64,12 @@ export function SharedNotesLayout({
   // An anonymous visitor has no session, so the authenticated uploader's
   // `POST /images` is a 401 — and `fetchWithAuth` reads that 401 as an expired
   // session, logs them out and navigates to `/login`, losing the note they
-  // were editing. Upload through the share token instead; the backend refuses
-  // a viewer-role token, so `readOnly` here is a UI decision, not the gate.
-  // The read half is already wired: `shared-document.tsx` installs the notes
-  // engine's share-token image-URL resolver for this mount.
+  // were editing. Upload through the share token instead — the backend refuses
+  // a viewer-role token, so skipping it for `readOnly` only saves a request
+  // that would be denied; `NotesView` leaves the upload extension out of a
+  // read-only mount either way. The read half is already wired:
+  // `shared-document.tsx` installs the notes engine's share-token image-URL
+  // resolver for this mount.
   const uploadImage = useMemo(
     () => (token && !readOnly ? shareTokenImageUploader(token) : undefined),
     [token, readOnly],

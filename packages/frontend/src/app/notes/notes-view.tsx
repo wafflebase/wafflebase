@@ -36,8 +36,9 @@ interface NotesViewProps {
    * Show the blame gutter (who last edited each line). Display only — every
    * client records authorship regardless, so what one reader sees does not
    * depend on what the writers had switched on. Omitted, it falls back to the
-   * viewer's own stored preference, which is how the share-link mount (no view
-   * menu of its own) gets the gutter at all.
+   * viewer's own stored preference — the fallback both mounting routes seed
+   * their own state from, kept for a mount that owns no view menu (the
+   * revision preview).
    */
   showAuthors?: boolean;
   /**

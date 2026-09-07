@@ -491,8 +491,15 @@ export function initialize(
     if (currentViewMode !== 'both') return;
     e.preventDefault();
     const rect = container.getBoundingClientRect();
+    // The divider sits *in* the flow, so the two panes share the container
+    // minus its width — and since flex-shrink takes that width from each pane
+    // in proportion to its basis, a pane's final width is `ratio * track`
+    // exactly. Measuring the ratio against `rect.width` instead would leave
+    // the divider trailing the pointer by up to its own width, which mattered
+    // little at 7px and is visible at 25px.
+    const track = rect.width - divider.offsetWidth;
     const onMove = (ev: PointerEvent) => {
-      const ratio = (ev.clientX - rect.left) / rect.width;
+      const ratio = (ev.clientX - rect.left) / track;
       splitRatio = Math.max(0.15, Math.min(0.85, ratio));
       editorEl.style.flex = `1 1 ${(splitRatio * 100).toFixed(3)}%`;
       preview.el.style.flex = `1 1 ${((1 - splitRatio) * 100).toFixed(3)}%`;
