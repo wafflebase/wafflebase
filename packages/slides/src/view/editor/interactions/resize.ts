@@ -102,12 +102,42 @@ export function resizeFrameWorld(
   const localStart: Frame = { x: 0, y: 0, w: start.w, h: start.h, rotation: 0 };
   const local = resizeFrame(localStart, handle, localDx, localDy, shift);
 
-  // Anchor = opposite corner / edge midpoint. It must stay in the same
-  // WORLD position before and after the resize. anchorBefore is its
-  // position in start's local coords; anchorAfter is its position in
-  // the new (resized) local coords.
+  return frameAtAnchor(start, handle, local.w, local.h);
+}
+
+/**
+ * Resize a (possibly rotated) frame to explicit dimensions, keeping the
+ * unrotated box's top-left corner fixed in world space — the same anchor
+ * `resizeFrameWorld(frame, 'se', …)` produces, so a panel W/H edit and a
+ * south-east drag agree. At `rotation === 0` this leaves `x` / `y`
+ * untouched.
+ *
+ * `x`/`y` are the top-left of the UNROTATED box while rotation pivots on
+ * the centre, so holding `x`/`y` fixed across a size change moves every
+ * painted point. Callers that write `w`/`h` on a rotated frame must go
+ * through this (or `resizeFrameWorld`) rather than patching size alone.
+ */
+export function resizeFrameToSize(start: Frame, w: number, h: number): Frame {
+  // Spread `start` first so flip flags survive; frameAtAnchor only
+  // returns the geometry it computes.
+  return { ...start, ...frameAtAnchor(start, 'se', w, h) };
+}
+
+/**
+ * Place a frame of size `w` × `h` so that the anchor of `handle` (the
+ * corner / edge midpoint OPPOSITE to it) stays at the same world
+ * position it occupies on `start`.
+ */
+function frameAtAnchor(
+  start: Frame,
+  handle: ResizeHandle,
+  w: number,
+  h: number,
+): Frame {
+  // anchorBefore is the anchor's position in start's local coords;
+  // anchorAfter is its position in the new (resized) local coords.
   const anchorBefore = anchorLocal(handle, start.w, start.h);
-  const anchorAfter  = anchorLocal(handle, local.w,  local.h);
+  const anchorAfter  = anchorLocal(handle, w,       h);
 
   // World position of anchorBefore = startCentre + R(rot) * (anchorBefore - startLocalCentre).
   const startCx = start.x + start.w / 2;
@@ -122,16 +152,16 @@ export function resizeFrameWorld(
   // Solve for the new frame's centre so anchorAfter (in NEW local
   // coords) lands on the same anchor world position.
   // anchorWorld = newCentre + R(rot) * (anchorAfter - newLocalCentre)
-  const dxA = anchorAfter.x - local.w / 2;
-  const dyA = anchorAfter.y - local.h / 2;
+  const dxA = anchorAfter.x - w / 2;
+  const dyA = anchorAfter.y - h / 2;
   const newCx = anchorWorldX - (cosF * dxA - sinF * dyA);
   const newCy = anchorWorldY - (sinF * dxA + cosF * dyA);
 
   return {
-    x: newCx - local.w / 2,
-    y: newCy - local.h / 2,
-    w: local.w,
-    h: local.h,
+    x: newCx - w / 2,
+    y: newCy - h / 2,
+    w,
+    h,
     rotation: start.rotation,
   };
 }

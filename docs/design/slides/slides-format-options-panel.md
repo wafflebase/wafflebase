@@ -209,6 +209,39 @@ file holds only the slot manager + header + empty-state hint.
   the docs/sheets precise-input pattern).
 - `Escape` reverts the draft to the displayed value and blurs.
 
+#### W/H on a rotated element
+
+`frame.x/y` is the top-left of the **unrotated** box, but rotation pivots
+on the centre `(x + w/2, y + h/2)`. So a size-only patch moves that centre
+and a rotated element translates across the slide instead of resizing in
+place — a ~153 px jump for a 45°, 400→800 px width change (#1039).
+
+Every W/H commit therefore goes through `anchoredFramePatch`
+(`format-panel/frame-patch.ts`), which widens the patch with the
+compensated `x`/`y` from `resizeFrameToSize` in `@wafflebase/slides`:
+
+```text
+c_new = c_old + R(θ)·(Δw/2, Δh/2)
+x     = c_new.x − w_new/2        y = c_new.y − h_new/2
+```
+
+That is the **anchor-preserving** rule — the unrotated box's top-left
+corner stays fixed in world space, which is exactly what
+`resizeFrameWorld(frame, 'se', …)` produces, so a panel edit and a drag
+resize agree. It is the identity on `x`/`y` at θ = 0, so unrotated
+behaviour is unchanged. `resizeFrameToSize` shares the anchor math with
+`resizeFrameWorld` (both call the private `frameAtAnchor`) rather than
+keeping a second copy of the trigonometry.
+
+A strictly centre-preserving rule (`c_new = c_old`) would match "resize
+about the transform origin" more literally, but it would also make an
+unrotated W change grow symmetrically — inconsistent with every other
+size-changing path in the editor.
+
+Compensation is computed **per element**: each carries its own rotation,
+so a multi-select W commit writes a different `x`/`y` per element inside
+the one batch. It applies to the aspect-locked path as well.
+
 #### Multi-select mixed-value handling
 
 ```ts

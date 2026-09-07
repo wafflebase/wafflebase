@@ -10,6 +10,7 @@ import type {
   AutofitMode,
 } from '@wafflebase/slides';
 import { deckSlideHeight, findElementPath } from '@wafflebase/slides';
+import { anchoredFramePatch } from './frame-patch';
 import { pickSections, type PanelSelection } from './pick-sections';
 import { SlideSizeSection } from './slide-size-section';
 import { AltTextSection } from './alt-text-section';
@@ -110,15 +111,23 @@ export function FormatPanel({
       // docs/design/slides/slides-group.md §6.1). x/y-only patches don't
       // change scale, so only bake when the size actually changed.
       const changesSize = patch.w !== undefined || patch.h !== undefined;
-      const groupIds =
-        changesSize && selection.kind === 'object'
-          ? ids.filter(
-              (id) =>
-                selection.elements.find((e) => e.id === id)?.type === 'group',
-            )
-          : [];
+      const elements = selection.kind === 'object' ? selection.elements : [];
+      const groupIds = changesSize
+        ? ids.filter(
+            (id) => elements.find((e) => e.id === id)?.type === 'group',
+          )
+        : [];
       store.batch(() => {
-        for (const id of ids) store.updateElementFrame(slideId, id, patch);
+        for (const id of ids) {
+          // A size change needs per-element x/y compensation: each
+          // element carries its own rotation (#1039).
+          const el = elements.find((e) => e.id === id);
+          store.updateElementFrame(
+            slideId,
+            id,
+            el ? anchoredFramePatch(el.frame, patch) : patch,
+          );
+        }
         for (const gid of groupIds) store.bakeGroupResize(slideId, gid);
       });
     },
@@ -218,11 +227,15 @@ export function FormatPanel({
       store.batch(() => {
         for (const el of elems) {
           const ratio = el.frame.w === 0 ? 1 : el.frame.h / el.frame.w;
-          const patch =
+          const size =
             axis === 'w'
               ? { w: newPx, h: newPx * ratio }
               : { h: newPx, w: ratio === 0 ? el.frame.w : newPx / ratio };
-          store.updateElementFrame(selection.slideId, el.id, patch);
+          store.updateElementFrame(
+            selection.slideId,
+            el.id,
+            anchoredFramePatch(el.frame, size),
+          );
         }
         // Bake any resized group so it rests at scale 1 (resting-scale
         // invariant, docs/design/slides/slides-group.md §6.1).

@@ -117,7 +117,42 @@ describe('resizeFrameWorld — rotated frames keep the anchor in world space', (
   });
 });
 
+describe('resizeFrameToSize', () => {
+  it('leaves x/y alone when rotation === 0', () => {
+    const next = resizeFrameToSize(f(100, 100, 200, 100), 400, 250);
+    expect(next).toEqual({ x: 100, y: 100, w: 400, h: 250, rotation: 0 });
+  });
+
+  it('keeps the unrotated top-left corner fixed in world space', () => {
+    const ROT = Math.PI / 4;
+    const start = f(100, 100, 400, 400, ROT);
+    const cornerBefore = localToWorld(start, 0, 0);
+    const next = resizeFrameToSize(start, 800, start.h);
+    const cornerAfter = localToWorld(next, 0, 0);
+    expect(cornerAfter.x).toBeCloseTo(cornerBefore.x, 6);
+    expect(cornerAfter.y).toBeCloseTo(cornerBefore.y, 6);
+    // c_new = c_old + R(θ)·(Δw/2, Δh/2): (300,300) + R(45°)·(200,0).
+    expect(next.x + next.w / 2).toBeCloseTo(300 + Math.SQRT2 * 100, 6);
+    expect(next.y + next.h / 2).toBeCloseTo(300 + Math.SQRT2 * 100, 6);
+    expect(next.rotation).toBe(ROT);
+  });
+
+  it('agrees with a se drag that lands on the same size', () => {
+    const start = f(100, 100, 200, 100, Math.PI / 3);
+    const dragged = resizeFrameWorld(start, 'se', 40, -25, false);
+    const sized = resizeFrameToSize(start, dragged.w, dragged.h);
+    expect(sized.x).toBeCloseTo(dragged.x, 6);
+    expect(sized.y).toBeCloseTo(dragged.y, 6);
+  });
+
+  it('preserves flip flags', () => {
+    const start: Frame = { ...f(0, 0, 100, 50, Math.PI / 6), flipH: true };
+    expect(resizeFrameToSize(start, 200, 50).flipH).toBe(true);
+  });
+});
+
 import {
+  resizeFrameToSize,
   resizeMultiFrames,
   type MultiResizeStart,
   type ElementSnapshot,
