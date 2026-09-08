@@ -280,16 +280,37 @@ Nothing else would have refused it: the Yorkie auth webhook ships in shadow
   (`@codemirror/commands`, autocomplete, the vim keymap), so they decline
   instead of mutating.
 - An `EditorState.changeFilter` that admits only transactions annotated
-  `Transaction.remote`. This is the chokepoint the store hangs off — the
-  engine's equivalent of the docs package's read-only store wrapper
-  (`packages/docs/src/store/read-only.ts`). A local change never becomes a
-  transaction, so it never reaches `noteSync`, and every write path is inert
-  by construction rather than by each caller remembering to check. Remote
-  changes still apply, which is what the viewer is there to read.
+  `Transaction.remote`. A local change never becomes a transaction, so it never
+  reaches `noteSync`, and every *transaction-shaped* write path is inert by
+  construction rather than by each caller remembering to check. Remote changes
+  still apply, which is what the viewer is there to read.
 
-`undo`/`redo` are the one exception the filter cannot cover: they call
-`store.undo()` **directly**, never through a transaction, so `runHistory()`
-refuses on a read-only mount and `canUndo()`/`canRedo()` report `false`.
+Both of those only see CodeMirror transactions, and the store's own mutators
+are reachable without one — `undo`/`redo` call `store.undo()` **directly**, and
+so does the selection publish. So the boundary is the **store**, closed the way
+the docs package closes it: `readOnlyNoteStore`
+(`packages/notes/src/store/read-only.ts`, the sibling of
+`packages/docs/src/store/read-only.ts`) is a `Proxy` whose reads and
+subscriptions forward and whose writes — `editText`,
+`recordSelectionForHistory`, `setLocalSelection`, `undo`/`redo` (returning
+`null`) — do nothing. It is an allowlist of *readers*, so a mutator added later
+is neutered by default rather than forwarded by omission; `batch(fn)` runs `fn`
+(so batched reads work) with every write inside it neutered on its own way
+through the same proxy; data properties are hidden, because
+`YorkieNoteStore.doc` is the raw CRDT handle and `doc.update()` is a wider hole
+than any method; and the prototype / `set` / `defineProperty` /
+`setPrototypeOf` traps refuse, since a class-prototype method or a planted
+accessor would otherwise reach the real store. `initialize()` wraps the store
+it is handed when `readOnly`, and the frontend mount wraps the one it retains
+(`notes-view.tsx`); the wrapper is idempotent, so neither has to know what the
+other did. This matters more than a client-side flag usually would: the
+server-side check behind it — the Yorkie auth webhook — ships in shadow
+(allow-all) mode by default, so with the default configuration this *is* the
+write boundary rather than a convenience in front of one.
+
+`runHistory()` keeps its own `readOnly` refusal on top, so the toolbar's
+undo/redo decline locally and visibly, and `canUndo()`/`canRedo()` report
+`false`.
 
 The **divider** was fixed in the engine rather than per route, since it helps
 both: `padding` widens its hit area from 7px to 25px around the same 1px

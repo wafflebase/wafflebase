@@ -13,6 +13,7 @@ import { CodeMirror, vim } from '@replit/codemirror-vim';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
 import { xcodeDark, xcodeLight } from '@uiw/codemirror-theme-xcode';
 import type { NoteStore, NoteSelection } from '../store/store.js';
+import { readOnlyNoteStore } from '../store/read-only.js';
 import { noteStoreFacet, noteSync } from './note-sync.js';
 import {
   noteRemoteSelections,
@@ -231,13 +232,21 @@ export interface NoteEditorOptions {
 
 export function initialize(
   container: HTMLElement,
-  store: NoteStore,
+  noteStore: NoteStore,
   theme: ThemeMode = 'light',
   readOnly = false,
   viewMode: NoteViewMode = 'both',
   options: NoteEditorOptions = {},
 ): NoteEditorAPI {
   routeVimHistoryToStore();
+  // A read-only mount is guarded at the STORE first, not only at the view. The
+  // view-level gates below (`EditorState.readOnly`, the `changeFilter`) only
+  // see CodeMirror transactions, and the store's own mutators are reachable
+  // without one — `runHistory()` is the proof, it needed a hand-written
+  // `readOnly` check of its own. Everything past this line talks to the
+  // guarded handle, so a write path added later is inert on a viewer mount by
+  // construction. Mirrors `readOnlyDocStore` in the docs package.
+  const store = readOnly ? readOnlyNoteStore(noteStore) : noteStore;
   const uploadImage = readOnly ? undefined : options.uploadImage;
   container.style.display = 'flex';
   container.style.alignItems = 'stretch';
@@ -337,6 +346,8 @@ export function initialize(
     // transaction, so the read-only change filter below never sees them. A
     // read-only mount has no write permission and nothing local to revert, so
     // refuse here — this is the one API method whose write bypasses the view.
+    // `store` is `readOnlyNoteStore`-guarded on such a mount anyway (its
+    // `undo`/`redo` return null); this keeps the refusal local and explicit.
     if (readOnly) return;
     // The store applies the reverted text synchronously through the remote
     // subscription (noteSync) before returning; the returned selection is the

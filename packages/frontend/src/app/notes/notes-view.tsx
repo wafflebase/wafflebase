@@ -1,5 +1,7 @@
 import {
   initialize,
+  readOnlyNoteStore,
+  type NoteStore,
   type NoteEditorAPI,
   type ThemeMode,
   type NoteViewMode,
@@ -108,7 +110,10 @@ export function NotesView({
   const gutterOn = showAuthors ?? storedShowAuthors;
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
-  const storeRef = useRef<YorkieNoteStore | null>(null);
+  // `NoteStore`, not `YorkieNoteStore`: on a read-only mount this holds the
+  // write-neutered view of it (see the effect below), and the only thing read
+  // through it here is `getText()` for the thumbnail.
+  const storeRef = useRef<NoteStore | null>(null);
   // The editor is initialized once (see the [didMount, doc] effect below), but
   // `uploadImage` changes identity as the document query resolves the
   // workspace id. Reading it through a ref hands the engine a stable callback
@@ -133,7 +138,18 @@ export function NotesView({
     // no write permission — the auth webhook would reject the update).
     if (!readOnly) ensureText(doc);
 
-    const store = new YorkieNoteStore(doc);
+    // A viewer mount holds a WRITE-NEUTERED handle, not the raw CRDT store.
+    // The editor's read-only mode stops typing and (via `EditorState.readOnly`
+    // plus a remote-only `changeFilter`) every CodeMirror transaction, but a
+    // store handle reaches around all of that — `editText`, `batch`, `undo`
+    // and the presence publish are `doc.update` calls that pass through no
+    // transaction at all. `readOnlyNoteStore` closes that at the store, the
+    // same boundary `readOnlyDocStore` is for docs, so nothing this component
+    // (or the engine) can be handed is a writable handle on a viewer mount.
+    // `initialize()` wraps too and the wrapper is idempotent, so the guarantee
+    // does not depend on which of the two remembers.
+    const raw = new YorkieNoteStore(doc);
+    const store = readOnly ? readOnlyNoteStore(raw) : raw;
     storeRef.current = store;
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor = initialize(container, store, theme, readOnly, viewMode, {
