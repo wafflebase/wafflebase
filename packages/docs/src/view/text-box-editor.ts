@@ -817,6 +817,10 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
    * Move every selected list item's level by `delta`, carrying its nested
    * children so the subtree's relative depth survives (#1050). The plan
    * is computed from the pre-edit levels before anything is written.
+   *
+   * Callers must wrap this in `doc.batch()`: it writes once per block in
+   * the subtree, so unbatched a single Cmd+Z would leave the subtree
+   * half-moved.
    */
   const applyListLevelChanges = (delta: 1 | -1): void => {
     const changes = planListLevelChanges(
@@ -1159,12 +1163,18 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     indent(): void {
       const INDENT_STEP = 36;
-      docStore.snapshot();
-      applyListLevelChanges(1);
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') return;
-        doc.applyBlockStyle(block.id, {
-          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+      // One gesture moves a whole subtree, so it is N `setBlockType` writes.
+      // Batched so it stays one undo unit — see `applyListLevelChanges`.
+      // `snapshot()` goes inside: `batch()` takes the checkpoint itself and
+      // `MemDocStore.snapshot()` is a no-op within one.
+      doc.batch(() => {
+        docStore.snapshot();
+        applyListLevelChanges(1);
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') return;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+          });
         });
       });
       layoutCache = undefined;
@@ -1174,14 +1184,17 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     outdent(): void {
       const INDENT_STEP = 36;
-      docStore.snapshot();
-      applyListLevelChanges(-1);
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') return;
-        const current = block.style.marginLeft ?? 0;
-        if (current <= 0) return;
-        doc.applyBlockStyle(block.id, {
-          marginLeft: Math.max(0, current - INDENT_STEP),
+      // One undo unit for the whole gesture — see `indent`.
+      doc.batch(() => {
+        docStore.snapshot();
+        applyListLevelChanges(-1);
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') return;
+          const current = block.style.marginLeft ?? 0;
+          if (current <= 0) return;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: Math.max(0, current - INDENT_STEP),
+          });
         });
       });
       layoutCache = undefined;

@@ -1591,6 +1591,12 @@ export function initialize(
    * Move every selected list item's level by `delta`, carrying its nested
    * children so the subtree's relative depth survives (#1050). The plan
    * is computed from the pre-edit levels before anything is written.
+   *
+   * Callers must wrap this in `doc.batch()`: it writes once per block in
+   * the subtree, and `YorkieDocStore.setBlockType` opens its own
+   * `withUpdate`, so unbatched each carried child would be its own Yorkie
+   * change and its own `doc.history` entry — one Cmd+Z would leave the
+   * subtree half-moved.
    */
   const applyListLevelChanges = (delta: 1 | -1): void => {
     const changes = planListLevelChanges(
@@ -1606,7 +1612,7 @@ export function initialize(
       // nothing marked it dirty — and `indent` / `outdent` only `render()`.
       // Without this its cached lines survive the level change and it
       // repaints at its old depth.
-      const cellInfo = layout.blockParentMap.get(change.block.id);
+      const cellInfo = doc.blockParentMap.get(change.block.id);
       markDirty(cellInfo?.tableBlockId ?? change.block.id);
     }
   };
@@ -1614,15 +1620,27 @@ export function initialize(
   /**
    * The array that holds `block` next to its neighbours — the cell it
    * lives in, or the active context's top-level blocks.
+   *
+   * `cellInfo` must come from `doc.blockParentMap`, not
+   * `layout.blockParentMap`: the latter is the *body* layout's map, so a
+   * caret inside a header/footer table cell resolves to `undefined` there
+   * and the walk would run over the region's top-level blocks instead of
+   * the cell's — finding no siblings and silently turning the gesture into
+   * a no-op. `doc.blockParentMap` is the merged map `recomputeLayout`
+   * builds from all three regions.
+   *
+   * Resolved with `findBlock`, not `getBlock`: the map is only as fresh as
+   * the last layout pass, so a table removed since then would throw out of
+   * the middle of an indent gesture rather than degrade to the block alone.
    */
   const siblingsOf = (
     block: Block,
     cellInfo: BlockCellInfo | undefined,
   ): ReadonlyArray<Block> => {
     if (!cellInfo) return doc.getContextBlocks();
-    const tableBlock = doc.getBlock(cellInfo.tableBlockId);
+    const tableBlock = doc.findBlock(cellInfo.tableBlockId);
     const cell =
-      tableBlock.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      tableBlock?.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
     return cell?.blocks ?? [block];
   };
 
@@ -1708,7 +1726,10 @@ export function initialize(
     }
     // No selection or fallback: cursor block only
     const block = doc.getBlock(cursor.position.blockId);
-    const cellInfo = layout.blockParentMap.get(block.id);
+    // `doc.blockParentMap`, not `layout.blockParentMap`: the caret can sit
+    // in a header/footer table cell, whose parentage only the merged map
+    // holds — see `siblingsOf`.
+    const cellInfo = doc.blockParentMap.get(block.id);
     fn(block, siblingsOf(block, cellInfo));
     markDirty(cellInfo?.tableBlockId ?? block.id);
   };
@@ -3573,12 +3594,22 @@ export function initialize(
     },
     indent() {
       const INDENT_STEP = 36;
-      docStore.snapshot();
-      applyListLevelChanges(1);
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') return;
-        doc.applyBlockStyle(block.id, {
-          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+      // One gesture moves a whole subtree, so it is N `setBlockType` writes
+      // — one Yorkie change and one `doc.history` entry each without this.
+      // A single Cmd+Z would then leave the subtree half-moved (and a peer
+      // would observe the parent-at-child-level state this exists to
+      // remove). `snapshot()` goes inside, as `withNamedStyleChange` does:
+      // `batch()` takes the checkpoint itself and `MemDocStore.snapshot()`
+      // is a no-op within one, so the gesture stays a single undo unit
+      // under both stores. Layout and paint stay outside the batch.
+      doc.batch(() => {
+        docStore.snapshot();
+        applyListLevelChanges(1);
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') return;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+          });
         });
       });
       render();
@@ -3589,14 +3620,17 @@ export function initialize(
     },
     outdent() {
       const INDENT_STEP = 36;
-      docStore.snapshot();
-      applyListLevelChanges(-1);
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') return;
-        const current = block.style.marginLeft ?? 0;
-        if (current <= 0) return;
-        doc.applyBlockStyle(block.id, {
-          marginLeft: Math.max(0, current - INDENT_STEP),
+      // One undo unit for the whole subtree — see `indent`.
+      doc.batch(() => {
+        docStore.snapshot();
+        applyListLevelChanges(-1);
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') return;
+          const current = block.style.marginLeft ?? 0;
+          if (current <= 0) return;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: Math.max(0, current - INDENT_STEP),
+          });
         });
       });
       render();

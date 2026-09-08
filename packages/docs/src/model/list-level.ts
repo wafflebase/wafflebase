@@ -13,6 +13,26 @@ export interface ListLevelChange {
 }
 
 /**
+ * A block's `listLevel` as a number the floor and ceiling checks can
+ * trust: a finite integer inside `[0, MAX_LIST_LEVEL]`.
+ *
+ * The field arrives unvalidated on the collaborative path — a peer's Tree
+ * attribute is read straight through `Number(...)` — so `NaN`,
+ * `Infinity`, a negative, or a level past the ceiling can all reach here.
+ * Every comparison against `NaN` is false, which made both guards below
+ * fail *open*: `subtreeOf` would swallow the whole following run of list
+ * items instead of stopping at the first same-or-shallower one, and the
+ * indent ceiling would let the run climb past `MAX_LIST_LEVEL` writing
+ * `NaN` levels as it went. Normalizing at the single point of read is
+ * what keeps both guards total.
+ */
+function levelOf(block: Block): number {
+  const raw = block.listLevel ?? 0;
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(MAX_LIST_LEVEL, Math.max(0, Math.floor(raw)));
+}
+
+/**
  * The children of a list item are the following contiguous run of
  * `list-item` blocks whose `listLevel` is strictly greater than its own,
  * stopping at the first block that is not a list item or is at the
@@ -27,13 +47,13 @@ function subtreeOf(
   blocks: ReadonlyArray<Block>,
   index: number,
 ): { end: number; deepest: number } {
-  const level = blocks[index].listLevel ?? 0;
+  const level = levelOf(blocks[index]);
   let end = index;
   let deepest = level;
   for (let i = index + 1; i < blocks.length; i++) {
     const next = blocks[i];
     if (next.type !== 'list-item') break;
-    const nextLevel = next.listLevel ?? 0;
+    const nextLevel = levelOf(next);
     if (nextLevel <= level) break;
     end = i;
     deepest = Math.max(deepest, nextLevel);
@@ -69,14 +89,17 @@ function planSiblingGroup(
     const { end, deepest } = subtreeOf(blocks, i);
     for (let j = i; j <= end; j++) covered.add(blocks[j].id);
 
-    const level = block.listLevel ?? 0;
+    const level = levelOf(block);
     if (delta < 0 && level <= 0) continue;
     if (delta > 0 && deepest >= MAX_LIST_LEVEL) continue;
 
     for (let j = i; j <= end; j++) {
       changes.push({
         block: blocks[j],
-        listLevel: (blocks[j].listLevel ?? 0) + delta,
+        // Normalized, so a poisoned level is repaired by the gesture that
+        // touches it rather than propagated (or multiplied into geometry
+        // by the layout pass, which reads `listLevel` raw).
+        listLevel: levelOf(blocks[j]) + delta,
       });
     }
   }

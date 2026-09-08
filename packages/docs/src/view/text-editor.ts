@@ -2698,8 +2698,12 @@ export class TextEditor {
     const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
     if (cursorBlock.type !== 'list-item') return;
 
-    this.saveSnapshot();
-    this.applyListLevelChanges(shift ? -1 : 1);
+    // One Tab moves a whole subtree, so it is N `setBlockType` writes — see
+    // `applyListLevelChanges` for why they have to share one undo unit.
+    this.doc.batch(() => {
+      this.saveSnapshot();
+      this.applyListLevelChanges(shift ? -1 : 1);
+    });
     this.invalidateLayout();
     this.requestRender();
   }
@@ -2708,6 +2712,12 @@ export class TextEditor {
    * Move every selected list item's level by `delta`, carrying its nested
    * children so the subtree's relative depth survives (#1050). The plan
    * is computed from the pre-edit levels before anything is written.
+   *
+   * Callers must wrap this in `doc.batch()`: it writes once per block in
+   * the subtree, and `YorkieDocStore.setBlockType` opens its own
+   * `withUpdate`, so unbatched each carried child would be its own Yorkie
+   * change and its own `doc.history` entry — one Cmd+Z would leave the
+   * subtree half-moved.
    */
   private applyListLevelChanges(delta: 1 | -1): void {
     const changes = planListLevelChanges(
@@ -2749,12 +2759,15 @@ export class TextEditor {
 
   private handleIndent(): void {
     const INDENT_STEP = 36;
-    this.saveSnapshot();
-    this.applyListLevelChanges(1);
-    this.forEachBlockInSelection((block) => {
-      if (block.type === 'list-item') return;
-      this.doc.applyBlockStyle(block.id, {
-        marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+    // One undo unit for the whole gesture — see `applyListLevelChanges`.
+    this.doc.batch(() => {
+      this.saveSnapshot();
+      this.applyListLevelChanges(1);
+      this.forEachBlockInSelection((block) => {
+        if (block.type === 'list-item') return;
+        this.doc.applyBlockStyle(block.id, {
+          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+        });
       });
     });
     this.invalidateLayout();
@@ -2763,14 +2776,17 @@ export class TextEditor {
 
   private handleOutdent(): void {
     const INDENT_STEP = 36;
-    this.saveSnapshot();
-    this.applyListLevelChanges(-1);
-    this.forEachBlockInSelection((block) => {
-      if (block.type === 'list-item') return;
-      const current = block.style.marginLeft ?? 0;
-      if (current <= 0) return;
-      this.doc.applyBlockStyle(block.id, {
-        marginLeft: Math.max(0, current - INDENT_STEP),
+    // One undo unit for the whole gesture — see `applyListLevelChanges`.
+    this.doc.batch(() => {
+      this.saveSnapshot();
+      this.applyListLevelChanges(-1);
+      this.forEachBlockInSelection((block) => {
+        if (block.type === 'list-item') return;
+        const current = block.style.marginLeft ?? 0;
+        if (current <= 0) return;
+        this.doc.applyBlockStyle(block.id, {
+          marginLeft: Math.max(0, current - INDENT_STEP),
+        });
       });
     });
     this.invalidateLayout();

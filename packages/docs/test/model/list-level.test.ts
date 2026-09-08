@@ -119,4 +119,45 @@ describe('planListLevelChanges', () => {
     const blocks = [paragraph('p'), item('a', 0)];
     expect(plan(blocks, ['p', 'a'], 1)).toEqual({ a: 1 });
   });
+
+  // `listLevel` is read off a peer's Tree attribute through a bare
+  // `Number(...)`, so a non-finite or out-of-band value can reach the
+  // planner. Every comparison against `NaN` is false, which would make the
+  // floor and the ceiling fail open.
+  describe('a poisoned listLevel', () => {
+    test('NaN does not swallow the following run as children', () => {
+      const blocks = [item('a', NaN), item('b', 0), item('c', 0)];
+      // `a` reads as level 0, so `b` at the same level is a sibling — not a
+      // child dragged along by the gesture.
+      expect(plan(blocks, ['a'], 1)).toEqual({ a: 1 });
+    });
+
+    test('NaN is repaired rather than written back', () => {
+      const blocks = [item('a', NaN)];
+      expect(plan(blocks, ['a'], 1)).toEqual({ a: 1 });
+      // And it holds the floor: level 0 refuses to outdent.
+      expect(plan(blocks, ['a'], -1)).toEqual({});
+    });
+
+    test('a level past the ceiling still refuses to indent', () => {
+      const blocks = [item('a', MAX_LIST_LEVEL + 40)];
+      expect(plan(blocks, ['a'], 1)).toEqual({});
+      // Outdent normalizes it down to the ceiling first.
+      expect(plan(blocks, ['a'], -1)).toEqual({ a: MAX_LIST_LEVEL - 1 });
+    });
+
+    test('a negative level holds the floor', () => {
+      const blocks = [item('a', -5)];
+      expect(plan(blocks, ['a'], -1)).toEqual({});
+      expect(plan(blocks, ['a'], 1)).toEqual({ a: 1 });
+    });
+
+    test('an Infinite level cannot be written back or dragged along', () => {
+      const blocks = [item('a', 0), item('b', Infinity)];
+      // Non-finite reads as 0, so `b` is a sibling of `a` rather than an
+      // unbounded child, and the gesture writes only finite levels.
+      expect(plan(blocks, ['a'], 1)).toEqual({ a: 1 });
+      expect(plan(blocks, ['a', 'b'], 1)).toEqual({ a: 1, b: 1 });
+    });
+  });
 });
