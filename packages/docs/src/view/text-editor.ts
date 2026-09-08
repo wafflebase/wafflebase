@@ -2018,6 +2018,26 @@ export class TextEditor {
                 snapped.focus,
                 snapped.focus.lineAffinity ?? resolved.lineAffinity,
               );
+            } else if (anchorCellInfo && anchorCellInfo.tableBlockId === pos.blockId) {
+              // Shift+click on another cell of the same table selects the
+              // same cell rectangle the equivalent drag would, merges and
+              // all. Without this the caret merely moved and no cell range
+              // was created (#1049).
+              const tableData = this.doc.getBlock(pos.blockId).tableData!;
+              const tableCellRange = expandCellRangeForMerges(
+                {
+                  blockId: pos.blockId,
+                  start: {
+                    rowIndex: anchorCellInfo.rowIndex,
+                    colIndex: anchorCellInfo.colIndex,
+                  },
+                  end: cellAddr,
+                },
+                tableData,
+              );
+              const focus: DocPosition = { blockId: cell.blocks[0].id, offset: 0 };
+              this.setSnappedRange({ anchor, focus, tableCellRange });
+              this.cursor.moveTo(focus);
             } else {
               const firstBlockId = cell.blocks[0].id;
               this.cursor.moveTo({ blockId: firstBlockId, offset: 0 });

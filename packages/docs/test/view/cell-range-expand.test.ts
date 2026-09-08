@@ -115,7 +115,9 @@ describe('expandCellRangeForMerges', () => {
 });
 
 import { Selection } from '../../src/view/selection.js';
-import type { DocumentLayout, LayoutBlock } from '../../src/view/layout.js';
+import { computeLayout, type DocumentLayout, type LayoutBlock } from '../../src/view/layout.js';
+import { createTableBlock, DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../../src/model/types.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
 describe('Selection.getNormalizedRange — cell range expansion at read time', () => {
   it('expands a partially-overlapping cell range using layout TableData', () => {
@@ -148,5 +150,45 @@ describe('Selection.getNormalizedRange — cell range expansion at read time', (
     const normalized = sel.getNormalizedRange(layout);
     expect(normalized?.tableCellRange?.start).toEqual({ rowIndex: 0, colIndex: 0 });
     expect(normalized?.tableCellRange?.end).toEqual({ rowIndex: 2, colIndex: 2 });
+  });
+
+  /**
+   * A nested table lives in `blockParentMap`, not in `layout.blocks`, so the
+   * flat lookup this used to do found no `TableData` and the expansion above
+   * silently did nothing — the columns a merge covers then painted only
+   * inside the merged row (#1049).
+   */
+  it('expands inside a nested table too', () => {
+    const outer = createTableBlock(1, 1);
+    const inner = createTableBlock(3, 3);
+    const itd = inner.tableData!;
+    // Inner row 1 is one cell spanning columns 0–1.
+    itd.rows[1].cells[0].colSpan = 2;
+    itd.rows[1].cells[0].rowSpan = 1;
+    itd.rows[1].cells[1].colSpan = 0;
+    outer.tableData!.rows[0].cells[0].blocks = [inner];
+
+    const setup = DEFAULT_PAGE_SETUP;
+    const { width } = getEffectiveDimensions(setup);
+    const { layout } = computeLayout(
+      [outer],
+      stubMeasurer(7),
+      width - setup.margins.left - setup.margins.right,
+    );
+
+    const sel = new Selection();
+    sel.setRange({
+      anchor: { blockId: itd.rows[0].cells[0].blocks[0].id, offset: 0 },
+      focus: { blockId: itd.rows[2].cells[0].blocks[0].id, offset: 0 },
+      tableCellRange: {
+        blockId: inner.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: 2, colIndex: 0 },
+      },
+    });
+
+    const normalized = sel.getNormalizedRange(layout);
+    expect(normalized?.tableCellRange?.start).toEqual({ rowIndex: 0, colIndex: 0 });
+    expect(normalized?.tableCellRange?.end).toEqual({ rowIndex: 2, colIndex: 1 });
   });
 });
