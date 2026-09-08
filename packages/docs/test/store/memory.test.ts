@@ -336,11 +336,19 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
     });
 
-    it('snapshot() before a batch that writes nothing costs no undo unit', () => {
+    it('a batch that writes nothing keeps the checkpoint it adopted', () => {
+      // Adoption is a loan: the checkpoint belongs to the `saveSnapshot()`
+      // before the batch, and that snapshot covers the whole action. Popping
+      // it because the *unit* wrote nothing would strand whatever the caller
+      // writes after it — see the `handleBackspace` case below. What the batch
+      // owes is only that it push no second, identical one.
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
       store.snapshot();
       store.batch(() => {});
+      expect(store.canUndo()).toBe(true);
+
+      store.undo();
       expect(store.canUndo()).toBe(false);
     });
 
@@ -408,6 +416,62 @@ describe('MemDocStore', () => {
       expect(store.canRedo()).toBe(true);
       store.redo();
       expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
+    });
+
+    it('an adopted checkpoint survives a batch that writes nothing', () => {
+      // `TextEditor.handleBackspace()` is `saveSnapshot()`, then
+      // `deleteSelection()` (a batch of its own), then — when that returns
+      // false — more writes outside any unit. The batch adopts the snapshot's
+      // checkpoint, so popping it for writing nothing would strand everything
+      // written after it: the action would become unundoable.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+
+      store.snapshot();
+      store.batch(() => {});
+      store.deleteText(block.id, 4, 1);
+
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hell');
+      expect(store.canUndo()).toBe(true);
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+    });
+
+    it('snapshot() then a batch that writes nothing leaves redo intact', () => {
+      // `YorkieDocStore.snapshot()` is a no-op and an empty batch pushes no
+      // change, so `doc.history` keeps its redo entries for this ordering.
+      // Redo must therefore be dropped by a *write* here, not by `snapshot()`.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.canRedo()).toBe(true);
+
+      store.snapshot();
+      store.batch(() => {});
+
+      expect(store.canRedo()).toBe(true);
+      store.redo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
+    });
+
+    it('a write after an adopted empty batch still drops redo', () => {
+      // The other half of the rule above: once the action really writes, the
+      // redo entries the empty unit preserved must go, or redo would replace
+      // the document with a state that branch no longer leads to.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.canRedo()).toBe(true);
+
+      store.snapshot();
+      store.batch(() => {});
+      store.insertText(block.id, 5, '?');
+
+      expect(store.canRedo()).toBe(false);
     });
 
     it('a no-op batch costs nothing on a document the clone normalizes', () => {

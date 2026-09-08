@@ -357,6 +357,26 @@ still one unit. Two rules the helper enforces:
   the same collision the other way (it snapshots *inside* its batch) because
   it has no pre-edit presence to flush.
 
+  Adoption is a loan, not a transfer: a batch only ever pops a checkpoint it
+  pushed **itself**. An adopted one belongs to the `saveSnapshot()` before it,
+  and that snapshot covers the whole action — including writes the caller
+  makes *after* the unit closes, which is exactly the shape of
+  `handleBackspace` / `handleDelete` (snapshot, `deleteSelection()`, then more
+  writes when it returns false). Popping it because the unit itself wrote
+  nothing would leave those trailing writes unundoable.
+
+  The redo half of that parity needs the same care, and it is why a **write**
+  — not `snapshot()` — is what drops `MemDocStore`'s redo stack (`willWrite()`,
+  called by every mutator). `YorkieDocStore` gets that rule from Yorkie:
+  `snapshot()` is a no-op there and `doc.history` clears redo when a change is
+  pushed, so `saveSnapshot()` followed by a unit that writes nothing keeps its
+  redo entries. Clearing eagerly in `snapshot()` made this store lose them, and
+  `batch()`'s `priorRedo` restore could then only put back an already-emptied
+  stack. Restoring them *without* moving the clear to write time would have
+  been worse than the divergence: redo would stay armed across the writes that
+  follow the unit, and pressing it would replace the document with a state that
+  branch no longer leads to.
+
 ##### The undo floor is an entry, not a depth
 
 `setDocument()` re-arms an undo floor so users cannot undo past the initial

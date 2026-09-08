@@ -55,10 +55,12 @@ export class MemDocStore implements DocStore {
     if (this.batchDepth > 0) {
       throw new Error('setDocument() must not be called inside batch()');
     }
+    this.willWrite();
     this.doc = cloneDocument(doc);
   }
 
   replaceDocument(doc: Document): void {
+    this.willWrite();
     this.doc = cloneDocument(doc);
   }
 
@@ -72,26 +74,31 @@ export class MemDocStore implements DocStore {
   }
 
   updateBlock(id: string, block: Block): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(id);
     blocks[index] = JSON.parse(JSON.stringify(block));
   }
 
   insertBlock(index: number, block: Block): void {
+    this.willWrite();
     this.doc.blocks.splice(index, 0, JSON.parse(JSON.stringify(block)));
   }
 
   insertBlockAfter(siblingBlockId: string, block: Block): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(siblingBlockId);
     blocks.splice(index + 1, 0, JSON.parse(JSON.stringify(block)));
   }
 
   insertBlocksAfter(siblingBlockId: string, newBlocks: Block[]): void {
     if (newBlocks.length === 0) return;
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(siblingBlockId);
     blocks.splice(index + 1, 0, ...JSON.parse(JSON.stringify(newBlocks)));
   }
 
   deleteBlock(id: string): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(id);
     blocks.splice(index, 1);
   }
@@ -100,6 +107,7 @@ export class MemDocStore implements DocStore {
     if (index < 0 || index >= this.doc.blocks.length) {
       throw new Error(`Block index out of bounds: ${index}`);
     }
+    this.willWrite();
     this.doc.blocks.splice(index, 1);
   }
 
@@ -108,6 +116,7 @@ export class MemDocStore implements DocStore {
   }
 
   setPageSetup(setup: PageSetup): void {
+    this.willWrite();
     this.doc.pageSetup = JSON.parse(JSON.stringify(setup));
   }
 
@@ -116,6 +125,7 @@ export class MemDocStore implements DocStore {
   }
 
   setDocStyles(styles: DocStyles): void {
+    this.willWrite();
     this.doc.styles = JSON.parse(JSON.stringify(styles));
     // Re-materialize spacing across all styled blocks so "Use my default
     // styles" applies paragraph spacing too (inline defaults reflow lazily).
@@ -123,17 +133,20 @@ export class MemDocStore implements DocStore {
   }
 
   updateStyleDefinition(styleId: StyleId, def: NamedStyleDef): void {
+    this.willWrite();
     if (!this.doc.styles) this.doc.styles = {};
     this.doc.styles[styleId] = JSON.parse(JSON.stringify(def));
     rematerializeDocSpacing(this.doc, styleId);
   }
 
   resetStyle(styleId: StyleId): void {
+    this.willWrite();
     if (this.doc.styles) delete this.doc.styles[styleId];
     rematerializeDocSpacing(this.doc, styleId);
   }
 
   resetAllStyles(): void {
+    this.willWrite();
     this.doc.styles = {};
     rematerializeDocSpacing(this.doc);
   }
@@ -147,10 +160,12 @@ export class MemDocStore implements DocStore {
   }
 
   setHeader(header: HeaderFooter | undefined): void {
+    this.willWrite();
     this.doc.header = header ? JSON.parse(JSON.stringify(header)) : undefined;
   }
 
   setFooter(footer: HeaderFooter | undefined): void {
+    this.willWrite();
     this.doc.footer = footer ? JSON.parse(JSON.stringify(footer)) : undefined;
   }
 
@@ -174,13 +189,34 @@ export class MemDocStore implements DocStore {
     return this.redoStack.length > 0;
   }
 
+  /**
+   * Drop the redo history, because the document is about to change.
+   *
+   * A **write** is what invalidates redo here — not `snapshot()`, which only
+   * records a checkpoint. `YorkieDocStore` has that rule for free: its
+   * `snapshot()` is a no-op and `doc.history` clears redo when a change is
+   * pushed. Clearing in `snapshot()` instead made the two stores answer
+   * differently for the `saveSnapshot(); withUndoUnit(…)` ordering
+   * `TextEditor` requires: on a unit whose body ends up writing nothing,
+   * `YorkieDocStore` pushes no change and keeps its redo entries, while this
+   * store had already thrown them away and `batch()`'s `priorRedo` restore
+   * put back an already-emptied stack.
+   *
+   * Called before the mutation rather than after, so a method that throws
+   * part-way still leaves no redo entry that could be applied on top of the
+   * partial write. Inside a batch this is what `batch()`'s `priorRedo` puts
+   * back when the body turns out to have written nothing.
+   */
+  private willWrite(): void {
+    this.redoStack = [];
+  }
+
   snapshot(): void {
     // Inside a batch the checkpoint has already been taken by `batch()`
     // itself, and it captured the true pre-batch state. Pushing again here
     // would make one batch N undo units — the opposite of the contract.
     if (this.batchDepth > 0) return;
     this.pushUndo();
-    this.redoStack = [];
   }
 
   batch(fn: () => void): void {
@@ -222,9 +258,12 @@ export class MemDocStore implements DocStore {
     const top = this.undoStack[this.undoStack.length - 1];
     const adopted = top !== undefined && JSON.stringify(top) === beforeJson;
     const before = adopted ? top : beforeClone;
+    // Redo is dropped by the body's first write (`willWrite`), not here, so a
+    // body that writes nothing never touches it. `priorRedo` still puts it
+    // back for a body that writes and then reverts itself, which `wroteNothing`
+    // also treats as free.
     const priorRedo = this.redoStack;
     if (!adopted) this.undoStack.push(before);
-    this.redoStack = [];
     this.batchDepth++;
     try {
       fn();
@@ -249,23 +288,33 @@ export class MemDocStore implements DocStore {
         this.undoStack[this.undoStack.length - 1] === before &&
         beforeJson === JSON.stringify(cloneDocument(this.doc));
       if (wroteNothing) {
-        this.undoStack.pop();
+        // Only ever pop a checkpoint this batch pushed. An *adopted* one
+        // belongs to the `snapshot()` that ran before the batch opened, and
+        // that snapshot covers the whole action — including writes the caller
+        // makes after the unit closes. `TextEditor.handleBackspace()` is
+        // exactly that shape (`saveSnapshot()`, then `deleteSelection()`, then
+        // more writes when it returns false), so popping here would leave
+        // those trailing writes permanently unundoable.
+        if (!adopted) this.undoStack.pop();
         this.redoStack = priorRedo;
       }
     }
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     block.tableData!.rows.splice(atIndex, 0, JSON.parse(JSON.stringify(row)));
   }
 
   deleteTableRow(tableBlockId: string, rowIndex: number): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     block.tableData!.rows.splice(rowIndex, 1);
   }
 
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     block.tableData!.rows.forEach((row, i) => {
       row.cells.splice(atIndex, 0, JSON.parse(JSON.stringify(cells[i])));
@@ -273,6 +322,7 @@ export class MemDocStore implements DocStore {
   }
 
   deleteTableColumn(tableBlockId: string, colIndex: number): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     block.tableData!.rows.forEach((row) => {
       row.cells.splice(colIndex, 1);
@@ -282,11 +332,13 @@ export class MemDocStore implements DocStore {
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     block.tableData!.rows[rowIndex].cells[colIndex] = JSON.parse(JSON.stringify(cell));
   }
 
   updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     block.tableData!.columnWidths = [...attrs.cols];
     if (attrs.rowHeights !== undefined) {
@@ -295,16 +347,19 @@ export class MemDocStore implements DocStore {
   }
 
   insertText(blockId: string, offset: number, text: string): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(blockId);
     blocks[index] = applyInsertText(blocks[index], offset, text);
   }
 
   deleteText(blockId: string, offset: number, length: number): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(blockId);
     blocks[index] = applyDeleteText(blocks[index], offset, length);
   }
 
   applyStyle(blockId: string, fromOffset: number, toOffset: number, style: Partial<InlineStyle>): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(blockId);
     blocks[index] = applyInlineStyleHelper(blocks[index], fromOffset, toOffset, style);
   }
@@ -318,6 +373,7 @@ export class MemDocStore implements DocStore {
   }
 
   splitBlock(blockId: string, offset: number, newBlockId: string, newBlockType: BlockType): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(blockId);
     const [before, after] = applySplitBlock(blocks[index], offset, newBlockId, newBlockType);
     blocks[index] = before;
@@ -329,6 +385,7 @@ export class MemDocStore implements DocStore {
     const { blocks: arr1, index: idx1 } = this.findBlockInAnyArray(blockId);
     const { blocks: arr2, index: idx2 } = this.findBlockInAnyArray(nextBlockId);
     if (arr1 !== arr2) throw new Error('Cannot merge blocks from different regions');
+    this.willWrite();
     arr1[idx1] = applyMergeBlocks(arr1[idx1], arr2[idx2]);
     arr2.splice(idx2, 1);
   }
@@ -338,6 +395,7 @@ export class MemDocStore implements DocStore {
     type: BlockType,
     opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
   ): void {
+    this.willWrite();
     const block = this.findBlock(blockId);
     const prevStyleId = blockStyleId(block);
     const prevHeadingLevel = block.headingLevel;
@@ -369,6 +427,7 @@ export class MemDocStore implements DocStore {
   }
 
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
+    this.willWrite();
     const block = this.findBlock(blockId);
     block.style = normalizeBlockStyle({ ...block.style, ...style });
   }
@@ -377,6 +436,7 @@ export class MemDocStore implements DocStore {
     tableBlockId: string, rowIndex: number, colIndex: number,
     style: Partial<CellStyle>,
   ): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
     // The cell-background "Reset" entry passes `''`; normalizing it to an
@@ -396,6 +456,7 @@ export class MemDocStore implements DocStore {
     tableBlockId: string, rowIndex: number, colIndex: number,
     span: { colSpan?: number; rowSpan?: number },
   ): void {
+    this.willWrite();
     const block = this.findBlock(tableBlockId);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
     if (span.colSpan !== undefined) {
@@ -407,6 +468,7 @@ export class MemDocStore implements DocStore {
   }
 
   insertImageInline(blockId: string, offset: number, inline: Inline): void {
+    this.willWrite();
     const { blocks, index } = this.findBlockInAnyArray(blockId);
     blocks[index] = applyInsertInline(blocks[index], offset, inline);
   }
