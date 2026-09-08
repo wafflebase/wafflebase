@@ -322,7 +322,7 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
   for (const [why, args, expected] of [
     ["the fixer finished — the head check decides", ["true", "success", "true"], true],
     // THE REGRESSION. Everything else here already held before the fix.
-    ["the 45-minute wall killed the fixer", ["true", "cancelled", "true"], true],
+    ["the job's own wall killed the fixer", ["true", "cancelled", "true"], true],
     ["the wall hit and the credential picker was absent", ["true", "cancelled", ""], true],
     ["no live credential, so the fixer never ran", ["true", "skipped", "false"], true],
     // Both of these are already covered by the `stalled` net, which pages on
@@ -354,6 +354,27 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
   assert.ok(fixPerms, "could not extract the fix job's permissions");
   assert.match(fixPerms, /^ {6}actions: read/m,
     "the fix job needs `actions: read` for the re-run check");
+
+  // THE WALL'S LENGTH IS WRITTEN IN THREE PLACES and cannot be read from any
+  // expression context, so a step cannot ask its own job how long it had. The page
+  // states the number to a human and tells them the retry path shares it, so a
+  // raise applied to one copy and not the others is a page that lies about both
+  // how long the round got and how long the retry will get. Pin all three.
+  const fixWall = (yml.match(/^ {2}fix:\n(?:.*\n)*? {4}timeout-minutes: (\d+)$/m) || [])[1];
+  assert.ok(fixWall, "could not read the fix job's timeout-minutes");
+  const stated = [...page.matchAll(/(\d+)[ -]minutes?\b/g)].map((m) => m[1]);
+  assert.ok(stated.length >= 2, "the cancelled cause line must state the wall and the retry path's wall");
+  for (const n of stated) {
+    assert.equal(n, fixWall,
+      `the page says ${n} minutes but the fix job's timeout-minutes is ${fixWall}`);
+  }
+  // `agent-fix.yml` is what the page tells a human to retry on, so its wall has to
+  // be the one the page promises. A tighter wall there would refuse exactly the
+  // rounds the loop could not finish either.
+  const fixYml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-fix.yml"), "utf8");
+  const onDemandWall = (fixYml.match(/^ {2}fix:\n(?:.*\n)*? {4}timeout-minutes: (\d+)$/m) || [])[1];
+  assert.equal(onDemandWall, fixWall,
+    "agent-fix.yml's fix wall must match the autonomous one the page points away from");
 
   // And `stalled` keeps its `!cancelled()`. It is not the bug — it is what stops
   // a run cancelled by the concurrency guard from paging over a FRESHER round,

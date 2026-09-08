@@ -7,7 +7,9 @@ Three agent PRs opened on 2026-09-08 — #1047, #1052, #1053 — stopped in the
 `agent:blocked`. #1046, opened alongside them, converged normally.
 
 All three died at the same place: the `fix` job of `agent-review-panel.yml` hit
-its `timeout-minutes: 45` wall while the fixer agent was still working.
+its `timeout-minutes: 45` wall while the fixer agent was still working. (That
+wall is 90 in this branch — see "Raising the wall" below — but every run in the
+table was cut at 45.)
 
 | PR | last dispatch | `fix` job | span | result |
 | --- | --- | --- | --- | --- |
@@ -65,7 +67,7 @@ if: >-
 | --- | --- | --- |
 | `success` | runs | runs |
 | skipped, no live credential | runs | runs |
-| `cancelled` (45-min wall) | **skipped — the bug** | **runs → page + `agent:blocked`** |
+| `cancelled` (the job's wall) | **skipped — the bug** | **runs → page + `agent:blocked`** |
 | `failure` | skipped; `stalled` pages | skipped; `stalled` pages |
 | an earlier setup step failed | skipped; `stalled` pages | skipped; `stalled` pages |
 
@@ -101,8 +103,39 @@ contents/pull-requests/issues. It fails **open** — an unread attempt number is
 not evidence of a re-run, and a stray page a human can clear beats the silent
 dead-end.
 
-Not in scope: raising the 45-minute wall. The wall is a budget; a wall that is
-hit silently is the defect.
+## Raising the wall: 45 → 90
+
+Asked for on top of the convergence fix, and it is the right call for a reason
+the convergence fix does not address: **a round that hits the wall loses all of
+its work.** The fixer pushes at the end, so the wall was not trimming an
+overlong round, it was discarding one — and on #1047 / #1052 / #1053 it
+discarded three that were still converging. Making the loss visible (above) does
+not make it cheaper.
+
+`--max-turns 200` remains the real backstop against a runaway session, and
+`MAX_REVIEW_ROUNDS: 3` still bounds how many rounds a PR may spend, so the wall
+is a cost ceiling rather than a control. Raised on **both** fix walls:
+
+| job | before | after |
+| --- | --- | --- |
+| `fix` in `agent-review-panel.yml` (autonomous round) | 45 | 90 |
+| `fix` in `agent-fix.yml` (`@claude fix` retry) | 45 | 90 |
+
+Both, not one: the page written by the first names the second as the retry path
+and promises the same limit, so leaving `agent-fix.yml` at 45 would refuse
+exactly the rounds the loop could not finish either. Deliberately **not**
+touched: `review-panel`'s own 45 (a different job doing different work) and
+`agent-iterate-ci.yml`'s 45 (the red-CI arm, a separate judgement).
+
+The wall's length is written in three places and cannot be read from any
+expression context — a step cannot ask its own job how long it had — so
+`checks.test.mjs` asserts the two `timeout-minutes` values and both numbers in
+the page's cause sentence all agree. Raising one copy and not the others now
+fails the build instead of telling a human the wrong number.
+
+Costs accepted: a stuck round holds its `active` concurrency slot for up to 90
+minutes rather than 45, and a worst-case PR's three rounds can now span 4.5
+hours of fixer wall-clock.
 
 ## Adjacent defect found, deliberately not fixed here
 
@@ -138,6 +171,7 @@ it is not lost.
       cancelled / re-run / read-failed) with stubbed `gh` and `git`
 - [x] Mutation-check both new assertions — drop the `cancelled` disjunct or the
       re-run `exit 0` and the test fails
+- [x] Raise both fix walls 45 → 90 and pin the three copies against each other
 - [x] `pnpm verify:fast`
 - [ ] Re-trigger #1047 / #1052 / #1053 by hand (`@claude fix`) — the fix cannot
       rescue a round that already died

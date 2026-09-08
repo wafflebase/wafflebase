@@ -1640,7 +1640,12 @@ jobs:
       needs.ci.outputs.conclusion == 'success' &&
       needs.review-panel.outputs.blocked == 'true' && needs.review-panel.outputs.pr != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90, raised from 45. A round that hits the wall loses ALL of its work — the
+    # fixer pushes at the end — so the wall was cutting off rounds that were still
+    # converging, and on #1047/#1052/#1053 it did so silently. `--max-turns 200`
+    # below is the real backstop against a runaway; this is the cost ceiling, and
+    # MAX_REVIEW_ROUNDS still bounds how many of them a PR may spend.
+    timeout-minutes: 90
     environment: agent
     permissions:
       contents: write # push the fix commit
@@ -1951,7 +1956,7 @@ jobs:
 
       - name: Address panel findings
         # ID'd so the no-commit page below can tell a fixer that was CANCELLED by
-        # the 45-minute wall from one that hard-errored. Those two land in
+        # the job's wall from one that hard-errored. Those two land in
         # different hands — this job's page for the first, the `stalled` net for
         # the second — and without the id both read as an empty outcome.
         id: fixer
@@ -2097,7 +2102,7 @@ jobs:
           # did not write at locations the panel chose, then fix every finding in
           # one pass because the prompt tells it to converge in one round. The
           # ceiling is a backstop against a runaway loop, not a budget — cost is
-          # bounded by MAX_REVIEW_ROUNDS and the 45-minute job timeout, both of
+          # bounded by MAX_REVIEW_ROUNDS and the job timeout, both of
           # which bind well before 200 turns of useful work does.
           claude_args: >-
             --max-turns 200
@@ -2139,7 +2144,7 @@ jobs:
       #
       # THE CONDITION IS THE POINT. This step used to carry only the `proceed`
       # clause, and so kept GitHub's implicit `success()` — which is false the
-      # moment the step before it is cancelled. `timeout-minutes: 45` on this job
+      # moment the step before it is cancelled. `timeout-minutes` on this job
       # reports `cancelled`, NOT `failure`, so a fixer killed by the wall skipped
       # this page AND missed the `stalled` net (which is `!cancelled()` and tests
       # `needs.fix.result == 'failure'`). The `agent:fixing` label set fourteen
@@ -2155,7 +2160,7 @@ jobs:
       #
       # The outcome set then admits exactly one new case and no more:
       #   success            → the head check decides, as before
-      #   cancelled          → the 45-minute wall; THIS is the fix
+      #   cancelled          → the job's own wall; THIS is the fix
       #   cred available=false → the fixer never ran, as before
       #   failure            → skipped; `stalled` pages, so paging here doubles it
       #   (setup step failed) → also skipped, which is why this names
@@ -2227,7 +2232,12 @@ jobs:
             # differs: the round did real work and lost it, so the retry has to be
             # told to push partial progress rather than aim for one clean pass.
             if [ "$FIXER_OUTCOME" = "cancelled" ]; then
-              CAUSE='It was **cancelled after 45 minutes** — the `fix` job'"'"'s `timeout-minutes` wall — with nothing pushed, so the whole round'"'"'s work was lost. Re-run it with `@claude fix` and, in the same comment, tell it to commit and push partial progress well before the wall (the same 45-minute limit applies to `agent-fix.yml`).'
+              # Both numbers below are copies of `timeout-minutes` — this job's and
+              # agent-fix.yml's — because a step cannot read its own job's timeout
+              # from any expression context. checks.test.mjs asserts all three agree,
+              # so raising a wall without correcting the sentence fails the build
+              # rather than telling a human the wrong number.
+              CAUSE='It was **cancelled after 90 minutes** — the `fix` job'"'"'s `timeout-minutes` wall — with nothing pushed, so the whole round'"'"'s work was lost. Re-run it with `@claude fix` and, in the same comment, tell it to commit and push partial progress well before the wall (the same 90-minute limit applies to `agent-fix.yml`).'
             else
               CAUSE='Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log.'
             fi
@@ -2402,7 +2412,7 @@ jobs:
     #
     # AND `needs.fix.result == 'cancelled'` DOES NOT BELONG IN THE LIST BELOW,
     # tempting as it looks: that is a fix round killed by its own
-    # `timeout-minutes: 45`, and the `fix` job's "Page if the fix produced no
+    # `timeout-minutes`, and the `fix` job's "Page if the fix produced no
     # commit" step now owns it from inside the cancellation grace window, where it
     # can read the branch head and stay silent on a supersede. Claiming it here as
     # well would comment twice and latch `agent:blocked` from two places on every
