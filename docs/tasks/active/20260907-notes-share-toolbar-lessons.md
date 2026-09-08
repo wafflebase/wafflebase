@@ -38,3 +38,22 @@ gutter, so the layout seeds state from `notes-settings`' readers and never
 calls the writers. "Don't touch the user's preferences" is not the same as
 "ignore them" — the workspace route makes the same distinction for a mode
 picked on a phone.
+
+## Raising a gate cap is not free — it costs auto-promotion
+
+The chunk-count cap was bumped 228 -> 231 as unmeasured headroom, with the
+reason string honestly saying so and pointing at CI as the measurement. CI then
+measured **225** — under the 228 that was already there, so no bump was ever
+needed.
+
+The bump was not merely redundant. `harness.config.json` is on
+`CI_DEFINING_PATHS` (`scripts/agent/checks.mjs`), so gate 1b of the ready gate
+refused to promote the PR: with the branch supplying part of the CI definition,
+a green CI run is evidence about the *branch's* gate rather than main's. Three
+of four gates passed and the PR sat as a draft with a green panel and nobody
+watching, because the one loosened knob was the gate that had to stay honest.
+
+Rule: never widen a budget in the same change that has not measured it. Push
+without the bump and let CI report the real number — if it genuinely does not
+fit, bump it then, with the measurement in hand and the knowledge that a human
+now has to promote the PR by hand.
