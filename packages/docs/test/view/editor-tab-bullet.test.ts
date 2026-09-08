@@ -15,9 +15,22 @@ import type { Block } from '../../src/model/types.js';
  * selection via `forEachBlockInSelection` — Tab now does too.
  */
 
+/**
+ * Every `fillText` the paint pass makes, in order. Painted x is the only
+ * observable that distinguishes a block laid out at its new list level
+ * from one whose cached lines survived the change — the marker is painted
+ * from live block data, so it moves either way.
+ */
+const fillTextCalls: Array<{ text: string; x: number }> = [];
+
 function installCanvasShim(): void {
   const ctxHandler: ProxyHandler<object> = {
     get(_t, prop) {
+      if (prop === 'fillText') {
+        return (text: string, x: number) => {
+          fillTextCalls.push({ text, x });
+        };
+      }
       if (prop === 'measureText') {
         return (text: string) => ({
           width: typeof text === 'string' ? text.length * 6 : 0,
@@ -84,6 +97,25 @@ function setupEditor(blocks: Block[]): { editor: EditorAPI; container: HTMLEleme
   document.body.appendChild(container);
   const editor = initialize(container, store);
   return { editor, container };
+}
+
+/**
+ * Cmd+] / Ctrl+] — the list-level shortcut a table-cell caret can reach
+ * (Tab inside a cell is cell navigation). Both modifiers are set so the
+ * dispatch matches whichever one the platform check picks.
+ */
+function pressIndentKey(container: HTMLElement): void {
+  const textarea = container.querySelector('textarea');
+  if (!textarea) throw new Error('textarea not mounted');
+  textarea.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: ']',
+      metaKey: true,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
 }
 
 function pressTab(container: HTMLElement, shift = false): void {
@@ -363,6 +395,267 @@ describe('list level carries nested children', () => {
     expect(header.map((b) => b.listLevel)).toEqual([1, 2]);
     editor.dispose();
   });
+
+});
+
+/**
+ * `indent()` / `outdent()` only `render()` — they keep the layout cache —
+ * so a carried child the selection never covered has to be marked dirty
+ * by hand or its cached lines repaint at the old indent. The marker is
+ * painted from live block data and moves either way, so the model level
+ * every other test here asserts cannot see this.
+ */
+describe('a carried child repaints at its new depth', () => {
+  let origRect: typeof Element.prototype.getBoundingClientRect;
+
+  beforeEach(() => {
+    installCanvasShim();
+    // jsdom reports every box as 0×0, which collapses the layout and leaves
+    // the paint pass with nothing on screen to draw.
+    origRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (): DOMRect {
+      return {
+        x: 0, y: 0, left: 0, top: 0, right: 816, bottom: 1056,
+        width: 816, height: 1056, toJSON: () => ({}),
+      } as DOMRect;
+    };
+    document.body.innerHTML = '';
+    fillTextCalls.length = 0;
+  });
+
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = origRect;
+    document.body.innerHTML = '';
+  });
+
+  /** The x of the last painted `fillText` whose text is `text`. */
+  const paintedX = (text: string): number | undefined => {
+    for (let i = fillTextCalls.length - 1; i >= 0; i--) {
+      if (fillTextCalls[i].text === text) return fillTextCalls[i].x;
+    }
+    return undefined;
+  };
+
+  test('toolbar indent / outdent move the carried child on screen', () => {
+    const { editor } = setupEditor([
+      makeListItem('b1', 'parent', 0),
+      makeListItem('b2', 'child', 1),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 0 },
+    });
+
+    editor.render();
+    const before = paintedX('child');
+    expect(before).toBeDefined();
+
+    editor.indent();
+    expect(editor.getDoc().document.blocks.map((b) => b.listLevel)).toEqual([1, 2]);
+    expect(paintedX('child')!).toBeGreaterThan(before!);
+
+    editor.outdent();
+    expect(editor.getDoc().document.blocks.map((b) => b.listLevel)).toEqual([0, 1]);
+    expect(paintedX('child')!).toBeCloseTo(before!, 5);
+    editor.dispose();
+  });
+});
+
+/**
+ * Blocks inside a table cell are their own list container: nesting is
+ * implied by adjacency *within the cell*, so the walker has to hand
+ * `cell.blocks` — not the top-level array — to the subtree planner.
+ */
+describe('list level inside a table cell', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /** A body table whose first cell holds `cellBlocks`, plus two paragraphs. */
+  function setupTable(cellBlocks: Block[]): {
+    editor: EditorAPI;
+    container: HTMLElement;
+    store: MemDocStore;
+  } {
+    const table: Block = {
+      id: 't1',
+      type: 'table',
+      inlines: [],
+      style: normalizeBlockStyle({}),
+      tableData: {
+        rows: [
+          {
+            cells: [
+              { blocks: cellBlocks, style: {} },
+              { blocks: [makeParagraph('other', 'other')], style: {} },
+            ],
+          },
+        ],
+        columnWidths: [0.5, 0.5],
+      },
+    };
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [makeParagraph('p1', 'before'), table, makeListItem('p2', 'after', 0)],
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    return { editor, container, store };
+  }
+
+  /** The stored (post-edit) list levels of the table's first cell. */
+  const cellLevels = (store: MemDocStore): Array<number | undefined> =>
+    store.getDocument().blocks[1].tableData!.rows[0].cells[0].blocks.map(
+      (b) => b.listLevel,
+    );
+
+  test('the toolbar carries a cell caret’s subtree, within that cell only', () => {
+    // Tab inside a cell is cell navigation, so the list-level gesture a cell
+    // caret reaches is the toolbar / Cmd+] one — `editor.ts`'s own walker.
+    const { editor, store } = setupTable([
+      makeListItem('c1', 'parent', 0),
+      makeListItem('c2', 'child', 1),
+      makeListItem('c3', 'sibling', 0),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'c1', offset: 0 },
+      focus: { blockId: 'c1', offset: 0 },
+    });
+
+    editor.indent();
+
+    expect(cellLevels(store)).toEqual([1, 2, 0]);
+    // The top-level list item is not a sibling of anything in the cell.
+    expect(store.getDocument().blocks[2].listLevel).toBe(0);
+
+    editor.outdent();
+    expect(cellLevels(store)).toEqual([0, 1, 0]);
+    editor.dispose();
+  });
+
+  test('Cmd+] on a cell caret carries the subtree too (text-editor walker)', () => {
+    const { editor, container, store } = setupTable([
+      makeListItem('c1', 'parent', 0),
+      makeListItem('c2', 'child', 1),
+      makeListItem('c3', 'sibling', 0),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'c1', offset: 0 },
+      focus: { blockId: 'c1', offset: 0 },
+    });
+
+    pressIndentKey(container);
+
+    expect(cellLevels(store)).toEqual([1, 2, 0]);
+    expect(store.getDocument().blocks[2].listLevel).toBe(0);
+    editor.dispose();
+  });
+
+  test('a same-cell multi-block selection groups by the cell', () => {
+    const { editor, container, store } = setupTable([
+      makeListItem('c1', 'parent', 0),
+      makeListItem('c2', 'child', 1),
+      makeListItem('c3', 'sibling', 0),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'c1', offset: 0 },
+      focus: { blockId: 'c3', offset: 7 },
+    });
+
+    pressIndentKey(container);
+
+    // c2 is carried by c1's subtree and must not move twice.
+    expect(cellLevels(store)).toEqual([1, 2, 1]);
+    editor.dispose();
+  });
+
+  test('a body selection spanning a table carries each cell subtree', () => {
+    const { editor, container, store } = setupTable([
+      makeListItem('c1', 'parent', 0),
+      makeListItem('c2', 'child', 1),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'p1', offset: 0 },
+      focus: { blockId: 'p2', offset: 5 },
+    });
+
+    pressTab(container, false);
+
+    expect(cellLevels(store)).toEqual([1, 2]);
+    expect(store.getDocument().blocks[2].listLevel).toBe(1);
+    editor.dispose();
+  });
+});
+
+describe('list level in a header context', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  test('a multi-block header selection indents header blocks, not body ones', () => {
+    // `getBlockIndex` resolves against the active context, so the walker's
+    // multi-block branch has to read the header array with those indices —
+    // reading the body array would move body blocks (or crash past its end).
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [
+        makeListItem('body1', 'body one', 0),
+        makeListItem('body2', 'body two', 0),
+      ],
+      header: {
+        blocks: [
+          makeListItem('h1', 'parent', 0),
+          makeListItem('h2', 'child', 1),
+          makeListItem('h3', 'sibling', 0),
+        ],
+        marginFromEdge: 48,
+      },
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editor._setEditContextForTest('header');
+    editor._setSelectionForTest({
+      anchor: { blockId: 'h1', offset: 0 },
+      focus: { blockId: 'h3', offset: 7 },
+    });
+
+    pressTab(container, false);
+
+    const doc = store.getDocument();
+    expect(doc.header!.blocks.map((b) => b.listLevel)).toEqual([1, 2, 1]);
+    expect(doc.blocks.map((b) => b.listLevel)).toEqual([0, 0]);
+    editor.dispose();
+  });
+});
+
+describe('list level carries nested children (paragraph indent)', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const putCaret = (editor: EditorAPI, blockId: string): void => {
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 0 },
+    });
+  };
 
   test('toolbar indent still moves a plain paragraph by marginLeft', () => {
     const { editor } = setupEditor([makeParagraph('b1', 'plain')]);

@@ -2833,9 +2833,16 @@ export class TextEditor {
       if (startIdx >= 0 && endIdx >= 0) {
         const lo = Math.min(startIdx, endIdx);
         const hi = Math.max(startIdx, endIdx);
-        const topLevel = this.doc.document.blocks;
+        // `getContextBlocks()`, not `document.blocks`: `getBlockIndex` above
+        // resolves against the *active* context, so a header/footer selection
+        // yields indices into the header/footer array. Reading the body array
+        // with them would visit unrelated body blocks — or `undefined` past
+        // its end — instead of the selected header items. Same container the
+        // cursor-only fallback resolves through (`siblingsOf`), and the same
+        // one `editor.ts`'s equivalent walker uses.
+        const contextBlocks = this.doc.getContextBlocks();
         for (let i = lo; i <= hi; i++) {
-          const b = topLevel[i];
+          const b = contextBlocks[i];
           if (b.type === 'table' && b.tableData) {
             for (const row of b.tableData.rows) {
               for (const cell of row.cells) {
@@ -2846,7 +2853,7 @@ export class TextEditor {
               }
             }
           } else {
-            fn(b, topLevel);
+            fn(b, contextBlocks);
           }
         }
         return;
