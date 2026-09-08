@@ -264,9 +264,9 @@ export interface TextBoxEditorAPI {
    * Strip all character-level inline styles (bold, italic, underline,
    * strikethrough, super/subscript, font size, font family, color,
    * background color) from the current selection. Block-level
-   * formatting and structural inlines — including a run's `href` — are
-   * preserved; matches the docs `EditorAPI.clearInlineFormatting`
-   * contract, `removeLink` being the way to drop a hyperlink.
+   * formatting, structural inlines and a run's `href` are preserved;
+   * matches the docs `EditorAPI.clearInlineFormatting` contract,
+   * `removeLink` being the way to drop a hyperlink.
    */
   clearInlineFormatting(): void;
 

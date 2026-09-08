@@ -245,9 +245,12 @@ list kind, list level, heading level) are intentionally preserved —
 this matches Google Docs' behavior and avoids accidentally collapsing a
 heading into a paragraph.
 
-**Structural inline keys are preserved too**, and `CLEAR_INLINE_STYLE`
-is the single list that says which those are: `image`, `pageNumber` and
-`href`. They describe *what the run is*, not how it looks. `href` used
+**The keys that say what a run *is* are preserved too**, and
+`CLEAR_INLINE_STYLE` is the single list that says which those are:
+`image`, `pageNumber` and `href`. (The first two also make the run
+structural — not text at all, which is the narrower `isStructuralInline`
+test; a linked run is ordinary text carrying a content attribute.)
+`href` used
 to be in the cleared set, so clearing formatting over a selection
 containing a link silently deleted the link (issue #1051); Word's
 *Clear All Formatting* leaves hyperlinks alone and keeps *Remove

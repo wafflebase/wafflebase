@@ -284,10 +284,12 @@ export const DEFAULT_INLINE_STYLE: InlineStyle = {
  * Inline-style override used by Clear formatting actions: every
  * surface-level key set to `undefined` so the inline-style merge in
  * `applyInlineStyle` strips them all in one call. `pageNumber`,
- * `image` and `href` are intentionally omitted — they are structural
- * inline kinds (*what the run is*), not character formatting.
+ * `image` and `href` are intentionally omitted — they say *what the run
+ * is*, not how it looks. (The first two also make the run structural,
+ * i.e. not text at all; `isStructuralInline` is that narrower test. A
+ * linked run is ordinary text carrying a content attribute.)
  *
- * `href` in particular: a hyperlink survives Clear formatting, matching
+ * `href`: a hyperlink survives Clear formatting, matching
  * Word's *Clear All Formatting*, which leaves links alone and keeps
  * *Remove Hyperlink* as a separate command — `EditorAPI.removeLink`
  * here (issue #1051). Clearing still wipes an author's custom colour or
