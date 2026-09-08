@@ -133,6 +133,45 @@ interface InlineStyle {
   "Normal text" / paragraph command still clears the level, because it
   sets the type directly rather than exiting a list.
 
+#### Changing a list level carries the subtree
+
+`listLevel` is a flat integer on the block (the shape OOXML's `w:ilvl`
+has), so hierarchy is implied by adjacency and there is no parent pointer
+to follow. Every list-level gesture therefore re-derives the subtree at
+the moment it runs: **the children of a list item are the following
+contiguous run of `list-item` blocks whose `listLevel` is strictly
+greater than its own**, stopping at the first block that is not a list
+item or is at the same-or-shallower level — the rule Word and Google Docs
+use to *render* the nesting. Moving an item alone left a parent on its own
+child's level and destroyed the hierarchy (issue #1050).
+
+`planListLevelChanges()` (`packages/docs/src/model/list-level.ts`) is the
+one implementation. It takes the caller's own selection walker — which
+hands each covered block together with the **sibling array** containing
+it, so blocks in different table cells are planned as separate list
+contexts — and returns the whole `block → new level` plan *unapplied*.
+Computing it up front is what makes it correct: writing while walking
+would let a subtree's second item see its parent's new level and
+mis-detect its own parent. All six writers route through it (`handleTab`,
+`handleIndent`, `handleOutdent` in `text-editor.ts`, and the `indent` /
+`outdent` API pair in both `editor.ts` and `text-box-editor.ts`, the last
+being what Slides and Board mount).
+
+Boundaries apply to the **subtree as a unit**, not per block: outdent is
+refused when the root is already at level 0, and indent when the
+subtree's *deepest* member is already at `MAX_LIST_LEVEL` (8). Clamping a
+single member instead — which is what a per-block clamp does — would
+collapse the depth gap and reproduce the bug, so the invariant is
+"relative depth is preserved, or nothing moves". A selected block already
+covered by an earlier item's subtree is skipped, refused or not, so every
+child moves exactly once and a refused parent never leaves its selected
+child to flatten on its own. Non-list blocks keep their independent
+`marginLeft ± 36` behavior.
+
+Levels that are *already* inconsistent (a level-3 item directly under a
+level-0 one) are read as-is rather than normalized; the gesture preserves
+whatever relative depth it finds.
+
 ### Document manipulation
 
 The `Doc` class provides methods to manipulate the document:

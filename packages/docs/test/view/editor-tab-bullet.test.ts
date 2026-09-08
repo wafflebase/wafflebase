@@ -229,3 +229,128 @@ describe('Tab / Shift+Tab on multi-bullet selection', () => {
     editor.dispose();
   });
 });
+
+/**
+ * Changing a list item's level carries its nested children, so a parent
+ * never lands on the same level as its own child (issue #1050).
+ */
+describe('list level carries nested children', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const levels = (editor: EditorAPI): Array<number | undefined> =>
+    editor.getDoc().document.blocks.map((b) => b.listLevel);
+
+  /** Collapsed range: `hasSelection()` is false, so this is a bare caret. */
+  const putCaret = (editor: EditorAPI, blockId: string): void => {
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 0 },
+    });
+  };
+
+  test('Tab on a parent moves its child too', () => {
+    const { editor, container } = setupEditor([
+      makeListItem('b1', '123123123', 0),
+      makeListItem('b2', '123123', 1),
+      makeListItem('b3', '123123', 0),
+    ]);
+    putCaret(editor, 'b1');
+
+    pressTab(container, false);
+
+    expect(levels(editor)).toEqual([1, 2, 0]);
+    editor.dispose();
+  });
+
+  test('Shift+Tab on a parent pulls its child up too', () => {
+    const { editor, container } = setupEditor([
+      makeListItem('b1', 'parent', 1),
+      makeListItem('b2', 'child', 2),
+      makeListItem('b3', 'after', 1),
+    ]);
+    putCaret(editor, 'b1');
+
+    pressTab(container, true);
+
+    expect(levels(editor)).toEqual([0, 1, 1]);
+    editor.dispose();
+  });
+
+  test('Shift+Tab on a level-0 parent is a no-op for the whole subtree', () => {
+    const { editor, container } = setupEditor([
+      makeListItem('b1', 'parent', 0),
+      makeListItem('b2', 'child', 1),
+    ]);
+    putCaret(editor, 'b1');
+
+    pressTab(container, true);
+
+    expect(levels(editor)).toEqual([0, 1]);
+    editor.dispose();
+  });
+
+  test('Tab is refused when the subtree is already at level 8', () => {
+    const { editor, container } = setupEditor([
+      makeListItem('b1', 'parent', 7),
+      makeListItem('b2', 'child', 8),
+    ]);
+    putCaret(editor, 'b1');
+
+    pressTab(container, false);
+
+    expect(levels(editor)).toEqual([7, 8]);
+    editor.dispose();
+  });
+
+  test('a selected parent and child each move exactly once', () => {
+    const { editor, container } = setupEditor([
+      makeListItem('b1', 'parent', 0),
+      makeListItem('b2', 'child', 1),
+      makeListItem('b3', 'grandchild', 2),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b3', offset: 3 },
+    });
+
+    pressTab(container, false);
+
+    expect(levels(editor)).toEqual([1, 2, 3]);
+    editor.dispose();
+  });
+
+  test('toolbar indent / outdent carry the subtree as well', () => {
+    const { editor } = setupEditor([
+      makeListItem('b1', 'parent', 0),
+      makeListItem('b2', 'child', 1),
+      makeParagraph('b3', 'plain'),
+    ]);
+    putCaret(editor, 'b1');
+
+    editor.indent();
+    expect(levels(editor)).toEqual([1, 2, undefined]);
+
+    editor.outdent();
+    expect(levels(editor)).toEqual([0, 1, undefined]);
+    editor.dispose();
+  });
+
+  test('toolbar indent still moves a plain paragraph by marginLeft', () => {
+    const { editor } = setupEditor([makeParagraph('b1', 'plain')]);
+    putCaret(editor, 'b1');
+
+    editor.indent();
+    expect(editor.getDoc().document.blocks[0].style.marginLeft).toBe(36);
+
+    editor.outdent();
+    expect(editor.getDoc().document.blocks[0].style.marginLeft).toBe(0);
+    editor.dispose();
+  });
+});

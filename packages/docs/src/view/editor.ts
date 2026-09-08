@@ -33,6 +33,7 @@ import { LocalSpellProvider } from '../spell/local-provider.js';
 import { resolveNestedTableLayout } from './table-layout.js';
 import { computeMergedCellLineLayouts, cellOriginPx } from './table-geometry.js';
 import type { BlockCellInfo } from '../model/types.js';
+import { planListLevelChanges } from '../model/list-level.js';
 import {
   collectImageRects,
   findImageAtPoint,
@@ -1587,12 +1588,49 @@ export function initialize(
   };
 
   /**
-   * Invoke `fn` for every leaf block in the current selection.
+   * Move every selected list item's level by `delta`, carrying its nested
+   * children so the subtree's relative depth survives (#1050). The plan
+   * is computed from the pre-edit levels before anything is written.
+   */
+  const applyListLevelChanges = (delta: 1 | -1): void => {
+    const changes = planListLevelChanges(
+      (fn) => forEachBlockInSelection(fn),
+      delta,
+    );
+    for (const change of changes) {
+      doc.setBlockType(change.block.id, 'list-item', {
+        listKind: change.block.listKind,
+        listLevel: change.listLevel,
+      });
+    }
+  };
+
+  /**
+   * The array that holds `block` next to its neighbours — the cell it
+   * lives in, or the active context's top-level blocks.
+   */
+  const siblingsOf = (
+    block: Block,
+    cellInfo: BlockCellInfo | undefined,
+  ): ReadonlyArray<Block> => {
+    if (!cellInfo) return doc.getContextBlocks();
+    const tableBlock = doc.getBlock(cellInfo.tableBlockId);
+    const cell =
+      tableBlock.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+    return cell?.blocks ?? [block];
+  };
+
+  /**
+   * Invoke `fn` for every leaf block in the current selection, with the
+   * sibling array that contains it — list nesting is implied by adjacency
+   * within one container, so callers that walk a subtree need both.
    * Handles cell-range selection, same-cell cross-block, top-level
    * multi-block (including table-internal cells), and cursor-only.
    * Calls markDirty for each affected top-level block.
    */
-  const forEachBlockInSelection = (fn: (block: Block) => void): void => {
+  const forEachBlockInSelection = (
+    fn: (block: Block, siblings: ReadonlyArray<Block>) => void,
+  ): void => {
     if (selection.hasSelection() && selection.range) {
       const range = selection.range;
       // Cell-range selection
@@ -1609,7 +1647,7 @@ export function initialize(
               const cell = tableBlock.tableData.rows[r]?.cells[c];
               if (!cell || cell.colSpan === 0) continue;
               for (const cellBlock of cell.blocks) {
-                fn(cellBlock);
+                fn(cellBlock, cell.blocks);
               }
             }
           }
@@ -1631,7 +1669,7 @@ export function initialize(
         const lo = Math.min(aIdx, fIdx);
         const hi = Math.max(aIdx, fIdx);
         for (let i = lo; i <= hi; i++) {
-          fn(cell.blocks[i]);
+          fn(cell.blocks[i], cell.blocks);
         }
         markDirty(anchorCI.tableBlockId);
         return;
@@ -1650,12 +1688,12 @@ export function initialize(
               for (const cell of row.cells) {
                 if (cell.colSpan === 0) continue;
                 for (const cellBlock of cell.blocks) {
-                  fn(cellBlock);
+                  fn(cellBlock, cell.blocks);
                 }
               }
             }
           } else {
-            fn(b);
+            fn(b, contextBlocks);
           }
           markDirty(b.id);
         }
@@ -1664,8 +1702,8 @@ export function initialize(
     }
     // No selection or fallback: cursor block only
     const block = doc.getBlock(cursor.position.blockId);
-    fn(block);
     const cellInfo = layout.blockParentMap.get(block.id);
+    fn(block, siblingsOf(block, cellInfo));
     markDirty(cellInfo?.tableBlockId ?? block.id);
   };
 
@@ -3528,22 +3566,14 @@ export function initialize(
       notifyStyleApplied();
     },
     indent() {
-      const MAX_LIST_LEVEL = 8;
       const INDENT_STEP = 36;
       docStore.snapshot();
+      applyListLevelChanges(1);
       forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel >= MAX_LIST_LEVEL) return;
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel + 1,
-          });
-        } else {
-          doc.applyBlockStyle(block.id, {
-            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-          });
-        }
+        if (block.type === 'list-item') return;
+        doc.applyBlockStyle(block.id, {
+          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+        });
       });
       render();
       // `listLevel` / `marginLeft` are read back through `getBlockType()` /
@@ -3554,21 +3584,14 @@ export function initialize(
     outdent() {
       const INDENT_STEP = 36;
       docStore.snapshot();
+      applyListLevelChanges(-1);
       forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel <= 0) return;
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel - 1,
-          });
-        } else {
-          const current = block.style.marginLeft ?? 0;
-          if (current <= 0) return;
-          doc.applyBlockStyle(block.id, {
-            marginLeft: Math.max(0, current - INDENT_STEP),
-          });
-        }
+        if (block.type === 'list-item') return;
+        const current = block.style.marginLeft ?? 0;
+        if (current <= 0) return;
+        doc.applyBlockStyle(block.id, {
+          marginLeft: Math.max(0, current - INDENT_STEP),
+        });
       });
       render();
       notifyStyleApplied();

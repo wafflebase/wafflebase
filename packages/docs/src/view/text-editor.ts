@@ -23,6 +23,7 @@ import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
 import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
+import { planListLevelChanges } from '../model/list-level.js';
 import { yieldToPaintedFrame } from '../export/yield.js';
 
 /**
@@ -2698,20 +2699,27 @@ export class TextEditor {
     if (cursorBlock.type !== 'list-item') return;
 
     this.saveSnapshot();
-    this.forEachBlockInSelection((b) => {
-      if (b.type !== 'list-item') return;
-      const currentLevel = b.listLevel ?? 0;
-      const newLevel = shift
-        ? Math.max(0, currentLevel - 1)
-        : Math.min(8, currentLevel + 1);
-      if (newLevel === currentLevel) return;
-      this.doc.setBlockType(b.id, 'list-item', {
-        listKind: b.listKind,
-        listLevel: newLevel,
-      });
-    });
+    this.applyListLevelChanges(shift ? -1 : 1);
     this.invalidateLayout();
     this.requestRender();
+  }
+
+  /**
+   * Move every selected list item's level by `delta`, carrying its nested
+   * children so the subtree's relative depth survives (#1050). The plan
+   * is computed from the pre-edit levels before anything is written.
+   */
+  private applyListLevelChanges(delta: 1 | -1): void {
+    const changes = planListLevelChanges(
+      (fn) => this.forEachBlockInSelection(fn),
+      delta,
+    );
+    for (const change of changes) {
+      this.doc.setBlockType(change.block.id, 'list-item', {
+        listKind: change.block.listKind,
+        listLevel: change.listLevel,
+      });
+    }
   }
 
   private handleAlign(alignment: 'left' | 'center' | 'right' | 'justify'): void {
@@ -2740,22 +2748,14 @@ export class TextEditor {
   }
 
   private handleIndent(): void {
-    const MAX_LIST_LEVEL = 8;
     const INDENT_STEP = 36;
     this.saveSnapshot();
+    this.applyListLevelChanges(1);
     this.forEachBlockInSelection((block) => {
-      if (block.type === 'list-item') {
-        const currentLevel = block.listLevel ?? 0;
-        if (currentLevel >= MAX_LIST_LEVEL) return;
-        this.doc.setBlockType(block.id, 'list-item', {
-          listKind: block.listKind,
-          listLevel: currentLevel + 1,
-        });
-      } else {
-        this.doc.applyBlockStyle(block.id, {
-          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-        });
-      }
+      if (block.type === 'list-item') return;
+      this.doc.applyBlockStyle(block.id, {
+        marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+      });
     });
     this.invalidateLayout();
     this.requestRender();
@@ -2764,31 +2764,28 @@ export class TextEditor {
   private handleOutdent(): void {
     const INDENT_STEP = 36;
     this.saveSnapshot();
+    this.applyListLevelChanges(-1);
     this.forEachBlockInSelection((block) => {
-      if (block.type === 'list-item') {
-        const currentLevel = block.listLevel ?? 0;
-        if (currentLevel <= 0) return;
-        this.doc.setBlockType(block.id, 'list-item', {
-          listKind: block.listKind,
-          listLevel: currentLevel - 1,
-        });
-      } else {
-        const current = block.style.marginLeft ?? 0;
-        if (current <= 0) return;
-        this.doc.applyBlockStyle(block.id, {
-          marginLeft: Math.max(0, current - INDENT_STEP),
-        });
-      }
+      if (block.type === 'list-item') return;
+      const current = block.style.marginLeft ?? 0;
+      if (current <= 0) return;
+      this.doc.applyBlockStyle(block.id, {
+        marginLeft: Math.max(0, current - INDENT_STEP),
+      });
     });
     this.invalidateLayout();
     this.requestRender();
   }
 
   /**
-   * Invoke fn for every leaf block in the current selection.
+   * Invoke fn for every leaf block in the current selection, with the
+   * sibling array that contains it — list nesting is implied by adjacency
+   * within one container, so callers that walk a subtree need both.
    * Handles cell-internal blocks, cross-table selections, and cursor-only.
    */
-  private forEachBlockInSelection(fn: (block: Block) => void): void {
+  private forEachBlockInSelection(
+    fn: (block: Block, siblings: ReadonlyArray<Block>) => void,
+  ): void {
     if (this.selection.hasSelection() && this.selection.range) {
       const range = this.selection.range;
       // Cell-range selection
@@ -2805,7 +2802,7 @@ export class TextEditor {
               const cell = tableBlock.tableData.rows[r]?.cells[c];
               if (!cell || cell.colSpan === 0) continue;
               for (const cellBlock of cell.blocks) {
-                fn(cellBlock);
+                fn(cellBlock, cell.blocks);
               }
             }
           }
@@ -2826,7 +2823,7 @@ export class TextEditor {
         const lo = Math.min(aIdx, fIdx);
         const hi = Math.max(aIdx, fIdx);
         for (let i = lo; i <= hi; i++) {
-          fn(cell.blocks[i]);
+          fn(cell.blocks[i], cell.blocks);
         }
         return;
       }
@@ -2836,25 +2833,39 @@ export class TextEditor {
       if (startIdx >= 0 && endIdx >= 0) {
         const lo = Math.min(startIdx, endIdx);
         const hi = Math.max(startIdx, endIdx);
+        const topLevel = this.doc.document.blocks;
         for (let i = lo; i <= hi; i++) {
-          const b = this.doc.document.blocks[i];
+          const b = topLevel[i];
           if (b.type === 'table' && b.tableData) {
             for (const row of b.tableData.rows) {
               for (const cell of row.cells) {
                 if (cell.colSpan === 0) continue;
                 for (const cellBlock of cell.blocks) {
-                  fn(cellBlock);
+                  fn(cellBlock, cell.blocks);
                 }
               }
             }
           } else {
-            fn(b);
+            fn(b, topLevel);
           }
         }
         return;
       }
     }
-    fn(this.doc.getBlock(this.cursor.position.blockId));
+    const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
+    fn(cursorBlock, this.siblingsOf(cursorBlock));
+  }
+
+  /**
+   * The array that holds `block` next to its neighbours — the cell it
+   * lives in, or the active context's top-level blocks.
+   */
+  private siblingsOf(block: Block): ReadonlyArray<Block> {
+    const info = this.getCellInfo(block.id);
+    if (!info) return this.doc.document.blocks;
+    const tableBlock = this.doc.getBlock(info.tableBlockId);
+    const cell = tableBlock.tableData?.rows[info.rowIndex]?.cells[info.colIndex];
+    return cell?.blocks ?? [block];
   }
 
   private tryAutoConvert(blockId: string): boolean {

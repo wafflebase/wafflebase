@@ -413,6 +413,7 @@ describe('TextBoxEditorAPI — formatting surface', () => {
     expect(onLinkRequest).toHaveBeenCalledTimes(1);
     api.detach();
   });
+
 });
 
 /**
@@ -539,6 +540,49 @@ describe('initializeTextBox — verticalAnchor', () => {
       style: {},
     } as Block;
   }
+
+  /**
+   * The text-box editor is what Slides and Board mount, so it carries a
+   * list item's nested children the same way the docs editor does
+   * (issue #1050). Lives in this describe for its canvas stubs — a
+   * non-empty mount needs a working measurer.
+   */
+  it('indent / outdent carry a list item\'s nested children', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const listItem = (id: string, listLevel: number): Block => ({
+      id,
+      type: 'list-item',
+      listKind: 'unordered',
+      listLevel,
+      inlines: [{ text: id, style: {} }],
+      style: {},
+    } as Block);
+    const onCommit = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [listItem('a', 0), listItem('b', 1)],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit,
+    });
+
+    // `detach` only flushes onCommit while focused.
+    api.focus();
+    // Cursor-only on the parent: the child goes down with it, then back up.
+    api.indent();
+    api.outdent();
+    api.indent();
+    api.detach();
+
+    const committed = onCommit.mock.calls.at(-1)?.[0] as Block[];
+    expect(committed.map((b) => b.listLevel)).toEqual([1, 2]);
+  });
 
   /**
    * With verticalAnchor absent (default 'top'), originY = 0. The text
