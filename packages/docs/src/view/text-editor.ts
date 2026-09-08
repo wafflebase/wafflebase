@@ -1,5 +1,5 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, ImageData, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
@@ -3412,30 +3412,28 @@ export class TextEditor {
     this.requestRender();
   }
 
+  /**
+   * Cmd/Ctrl+\ — the keyboard half of Clear formatting.
+   *
+   * Shares `CLEAR_INLINE_STYLE` with the toolbar button
+   * (`EditorAPI.clearInlineFormatting`) and the slides text-box entry, so
+   * all three clear exactly the same keys. This used to keep its own
+   * hand-rolled list, which had drifted — it omitted `fontSize`,
+   * `fontFamily`, `color` and `backgroundColor`, so the shortcut cleared
+   * strictly less than the button, and it carried `href`, so it deleted
+   * hyperlinks (issue #1051).
+   */
   private clearFormatting(): void {
-    const clearStyle: Partial<InlineStyle> = {
-      bold: undefined,
-      italic: undefined,
-      underline: undefined,
-      underlineStyle: undefined,
-      underlineColor: undefined,
-      strikethrough: undefined,
-      strikeStyle: undefined,
-      letterSpacing: undefined,
-      superscript: undefined,
-      subscript: undefined,
-      href: undefined,
-    };
-
     if (!this.selection.hasSelection() || !this.selection.range) {
       // Collapsed caret — pending the cleared style so the next typed
-      // run is plain.
-      this.pending?.set(clearStyle, this.cursor.position);
+      // run is plain. Same key set as the range path, so typing after
+      // the caret lands wherever the range write would have left it.
+      this.pending?.set(CLEAR_INLINE_STYLE, this.cursor.position);
       this.requestRender();
       return;
     }
     this.saveSnapshot();
-    this.applyStyleToSelection(this.selection.range, clearStyle);
+    this.applyStyleToSelection(this.selection.range, CLEAR_INLINE_STYLE);
   }
 
   private toggleStyle(style: Partial<InlineStyle>): void {
@@ -3550,7 +3548,7 @@ export class TextEditor {
    *
    * `image`, `pageNumber` and `href` are dropped: they are structural inline
    * kinds — *what the run is* — not how it looks, which is why
-   * `CLEAR_INLINE_STYLE` leaves the first two out too. The buffer is merged
+   * `CLEAR_INLINE_STYLE` leaves all three out too. The buffer is merged
    * over every run of the target selection, so carrying them would graft the
    * source's image / page-number field / hyperlink onto each of those runs.
    */

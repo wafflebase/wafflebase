@@ -93,9 +93,10 @@ export interface EditorAPI {
   /**
    * Strip all character-level inline styles (bold, italic, underline,
    * strikethrough, super/subscript, font size, font family, color,
-   * background color, href) from the current selection. Block-level
-   * formatting and structural inlines (page-number, image) are
-   * preserved. No-op when nothing is selected.
+   * background color) from the current selection. Block-level
+   * formatting and structural inlines (page-number, image, href) are
+   * preserved — dropping a hyperlink is `removeLink`, a separate
+   * command (issue #1051). No-op when nothing is selected.
    */
   clearInlineFormatting(): void;
   /** Apply block style to the block containing the cursor */

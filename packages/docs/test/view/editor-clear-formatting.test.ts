@@ -117,6 +117,125 @@ describe('clearFormatting', () => {
     editor.dispose();
   });
 
+  /**
+   * A hyperlink is a content attribute, not character formatting: Word's
+   * Clear All Formatting leaves links alone and keeps Remove Hyperlink as a
+   * separate command, which Docs ships as `EditorAPI.removeLink`. Regression
+   * coverage for issue #1051, where `href` sat in `CLEAR_INLINE_STYLE` and the
+   * link was deleted by the same write that cleared bold.
+   */
+  function linkedBlock(blockId: string): Block[] {
+    return [
+      {
+        id: blockId,
+        type: 'paragraph',
+        inlines: [
+          { text: 'see ', style: { bold: true } },
+          {
+            text: 'example',
+            style: {
+              href: 'https://example.com',
+              bold: true,
+              // A colour and underline authored *on top of* the link. These
+              // are formatting and must go; the run then falls back to the
+              // default link paint, which derives blue + underline from
+              // `href` at render time.
+              color: '#ff0000',
+              underline: true,
+            },
+          },
+          { text: ' now', style: { italic: true } },
+        ],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ];
+  }
+
+  function selectWholeBlock(editor: EditorAPI, blockId: string): void {
+    const text = editor
+      .getDoc()
+      .document.blocks[0].inlines.map((i) => i.text)
+      .join('');
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: text.length },
+    });
+  }
+
+  function linkedRun(editor: EditorAPI) {
+    return editor
+      .getDoc()
+      .document.blocks[0].inlines.find((i) => i.text === 'example');
+  }
+
+  test('keeps the hyperlink on a selection that covers it', () => {
+    const blockId = 'b1';
+    const { editor } = setupEditor(linkedBlock(blockId));
+    selectWholeBlock(editor, blockId);
+
+    editor.clearInlineFormatting();
+
+    const link = linkedRun(editor);
+    expect(link?.style.href).toBe('https://example.com');
+    // …while the character formatting on that same run is gone.
+    expect(link?.style.bold).toBeFalsy();
+    expect(link?.style.color).toBeFalsy();
+    expect(link?.style.underline).toBeFalsy();
+    for (const inline of editor.getDoc().document.blocks[0].inlines) {
+      expect(inline.style.bold).toBeFalsy();
+      expect(inline.style.italic).toBeFalsy();
+    }
+    editor.dispose();
+  });
+
+  test('the Mod+\\ shortcut keeps the hyperlink too', () => {
+    const blockId = 'b1';
+    const { editor } = setupEditor(linkedBlock(blockId));
+    selectWholeBlock(editor, blockId);
+
+    const textarea = document.querySelector('textarea');
+    expect(textarea).not.toBeNull();
+    // Both Meta and Ctrl are sent so the assertion holds whichever platform
+    // the shortcut resolves `mod` to.
+    textarea!.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '\\',
+        metaKey: true,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    const link = linkedRun(editor);
+    expect(link?.style.href).toBe('https://example.com');
+    expect(link?.style.bold).toBeFalsy();
+    // The shortcut used to keep its own key list, which omitted the font and
+    // colour keys — it must clear exactly what the button clears.
+    expect(link?.style.color).toBeFalsy();
+    editor.dispose();
+  });
+
+  test('removeLink is still how a hyperlink is dropped', () => {
+    const blockId = 'b1';
+    const { editor } = setupEditor(linkedBlock(blockId));
+    selectWholeBlock(editor, blockId);
+
+    editor.clearInlineFormatting();
+    // `removeLink` reads the caret, so park it inside 'example' (offsets
+    // 4..11 of 'see example now').
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 6 },
+      focus: { blockId, offset: 6 },
+    });
+    editor.removeLink();
+
+    for (const inline of editor.getDoc().document.blocks[0].inlines) {
+      expect(inline.style.href).toBeFalsy();
+    }
+    editor.dispose();
+  });
+
   test('preserves heading block type', () => {
     const blockId = 'b1';
     const { editor } = setupEditor([

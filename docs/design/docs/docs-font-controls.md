@@ -237,12 +237,35 @@ checkmark in the dropdown when it matches a preset.
 ### Clear formatting
 
 Calls `editor.clearInlineFormatting()`, which over the current selection
-range removes every inline-style attribute by dispatching the
-`CLEAR_INLINE_STYLE` payload through the existing `applyStyle` path
-(mapping each `InlineStyle` key to `undefined`). Block-level styles (alignment, line height,
+range removes every *character-formatting* inline-style attribute by
+dispatching the `CLEAR_INLINE_STYLE` payload through the existing
+`applyStyle` path (mapping each such `InlineStyle` key to `undefined`).
+Block-level styles (alignment, line height,
 list kind, list level, heading level) are intentionally preserved —
 this matches Google Docs' behavior and avoids accidentally collapsing a
 heading into a paragraph.
+
+**Structural inline keys are preserved too**, and `CLEAR_INLINE_STYLE`
+is the single list that says which those are: `image`, `pageNumber` and
+`href`. They describe *what the run is*, not how it looks. `href` used
+to be in the cleared set, so clearing formatting over a selection
+containing a link silently deleted the link (issue #1051); Word's
+*Clear All Formatting* leaves hyperlinks alone and keeps *Remove
+Hyperlink* as a separate command, which Docs already ships as
+`EditorAPI.removeLink`. Clearing still strips a custom colour or
+underline authored on a linked run — the link's blue and underline are
+derived from the presence of `href` in `renderRun`, never stored on the
+run, so it falls back to the default link paint.
+
+One list, three entry points: the toolbar button
+(`EditorAPI.clearInlineFormatting`), the Cmd/Ctrl+`\` shortcut
+(`TextEditor.clearFormatting`) and the slides text-box editor
+(`TextBoxEditorAPI.clearInlineFormatting`) all pass `CLEAR_INLINE_STYLE`.
+The shortcut kept a hand-rolled copy until #1051, and it had drifted —
+it omitted `fontSize` / `fontFamily` / `color` / `backgroundColor`, so
+the keyboard cleared strictly less than the button. The collapsed-caret
+path stages the same constant on the pending style, so a caret follows
+whatever a range would have done.
 
 Per the existing Yorkie store bug fix
 ([20260526-docs-unlink-href]), `applyInlineStyle` already removes
