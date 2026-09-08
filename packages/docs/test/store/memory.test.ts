@@ -418,6 +418,52 @@ describe('MemDocStore', () => {
       expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
     });
 
+    it('a batch that writes drops redo history', () => {
+      // The negative half of the `priorRedo` restore: it is only put back for a
+      // body that ends up costing no undo unit. A batch that genuinely writes
+      // opens a new branch, so the entries must go — keeping them would let
+      // Cmd+Shift+Z replace the document with a state this branch no longer
+      // leads to. `YorkieDocStore` pushes a change here, which clears
+      // `doc.history`'s redo stack for the same reason.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.canRedo()).toBe(true);
+
+      store.batch(() => {
+        store.insertText(block.id, 5, '?');
+      });
+
+      expect(store.canRedo()).toBe(false);
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello?');
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+    });
+
+    it('a batch that writes on an adopted checkpoint drops redo history', () => {
+      // Same rule through the `snapshot(); batch(…)` ordering `TextEditor`
+      // uses, where the checkpoint is adopted rather than pushed. `priorRedo`
+      // is captured on both paths, so both need the negative half asserted.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.canRedo()).toBe(true);
+
+      store.snapshot();
+      store.batch(() => {
+        store.insertText(block.id, 5, '?');
+      });
+
+      expect(store.canRedo()).toBe(false);
+      expect(store.canUndo()).toBe(true);
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+    });
+
     it('an adopted checkpoint survives a batch that writes nothing', () => {
       // `TextEditor.handleBackspace()` is `saveSnapshot()`, then
       // `deleteSelection()` (a batch of its own), then — when that returns
