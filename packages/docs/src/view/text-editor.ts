@@ -361,9 +361,10 @@ export class TextEditor {
   private pasting = false;
 
   /**
-   * Set by `dispose()`. Only read by the deferred paste job, which is the one
-   * piece of work that can outlive the editor: it is scheduled a frame ahead,
-   * and the host may unmount in between.
+   * Set by `dispose()`. Read by the two writes that can outlive the editor:
+   * the deferred paste job, scheduled a frame ahead, and the Cmd+Shift+V
+   * clipboard read, which resumes whenever the browser answers it. The host
+   * may unmount in between either.
    */
   private disposed = false;
 
@@ -4243,6 +4244,14 @@ export class TextEditor {
     try {
       const text = await navigator.clipboard.readText();
       if (!text) return;
+      // This is the second write that resumes after a yield, so it needs the
+      // same two re-validations `deferPaste` does — the clipboard read can
+      // take arbitrarily long (a permission prompt is a user interaction),
+      // and nothing about the state it was invoked against still holds.
+      // Writing through a disposed editor would mutate a document nothing
+      // renders; writing while `pasting` would land inside a large paste's
+      // yield gap, against a caret that paste's pending write owns.
+      if (this.disposed || this.pasting) return;
       this.saveSnapshot();
       this.withUndoUnit(() => {
         this.deleteSelection();
