@@ -384,6 +384,90 @@ describe('select-all then type is one undo unit (issue #1045)', () => {
     editor.undo();
     expect(texts()).toEqual(original);
   });
+
+  /**
+   * The three remaining composite actions that wrap `deleteSelection()`
+   * together with the writes that follow it: Enter (split), Cmd+Enter (page
+   * break) and Cmd+Shift+V (plain-text paste). Each is the #1045 shape — delete
+   * N blocks, then write — so each overflows the 50-entry cap on a document
+   * this size if its unit is ever dropped, and the tail is unrecoverable.
+   *
+   * Asserted on both halves deliberately: the count alone would pass if the
+   * unit committed nothing, and the round-trip alone would pass on a document
+   * small enough to fit under the cap.
+   */
+  function pressKey(key: string, init: KeyboardEventInit = {}): void {
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
+    );
+  }
+
+  it('enter over a select-all is one undo unit', () => {
+    const original = texts();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    pressKey('Enter');
+
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(texts()).toEqual(original);
+  });
+
+  it('a page break over a select-all is one undo unit', () => {
+    const original = texts();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    pressKey('Enter', { metaKey: true });
+
+    // The page break really was inserted, so the unit is not vacuously empty.
+    expect(
+      store.getDocument().blocks.some((b) => b.type === 'page-break'),
+    ).toBe(true);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(texts()).toEqual(original);
+  });
+
+  it('a plain-text paste over a select-all is one undo unit', async () => {
+    const original = texts();
+    const readText = vi.fn().mockResolvedValue('Pasted');
+    // Defined on the real `navigator` rather than stubbed wholesale: the
+    // editor reads `navigator.platform` to decide whether Cmd or Ctrl is the
+    // modifier, and that lives on the prototype, so a spread replacement
+    // silently makes every `mod` shortcut dead.
+    const hadClipboard = 'clipboard' in navigator;
+    const priorClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { readText },
+      configurable: true,
+    });
+
+    try {
+      selectAll();
+      const before = doc.getUndoStackForTest().length;
+      // Both modifiers, so the assertion does not depend on the host platform.
+      pressKey('v', { metaKey: true, ctrlKey: true, shiftKey: true });
+      // `pastePlainTextFromClipboard` awaits the clipboard read, so the writes
+      // land a microtask after the keydown returns.
+      await vi.waitFor(() => expect(readText).toHaveBeenCalled());
+      await Promise.resolve();
+
+      expect(texts()).toEqual(['Pasted']);
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+      editor.undo();
+      expect(texts()).toEqual(original);
+    } finally {
+      if (hadClipboard) {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: priorClipboard,
+          configurable: true,
+        });
+      } else {
+        delete (navigator as { clipboard?: unknown }).clipboard;
+      }
+    }
+  });
 });
 
 /**
