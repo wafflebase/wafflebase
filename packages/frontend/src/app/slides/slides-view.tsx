@@ -736,9 +736,18 @@ export function SlidesView({
       // their pre-font-load fallback widths stop showing through.
       onFontsLoaded: () => thumbHandle?.refreshContent(),
       // onLinkRequest is still intentionally unwired — the link popover
-      // needs a richer TextBoxEditorAPI (insertLink / getLinkAtCursor)
-      // before it can drive the docs text-box. Cmd+K no-ops at the
-      // editor level until then.
+      // needs an on-canvas anchor (it positions off DOM rects, which a
+      // text box inside the slide canvas has none of) before it can
+      // drive the docs text-box. Cmd+K no-ops at the editor level until
+      // then, so *inserting* a link here is not yet possible.
+      //
+      // *Removing* one is, and has to be: a run can pick up an href
+      // without this path — autolink-on-space in the shared docs
+      // `TextEditor`, or a PPTX import — and Clear formatting stopped
+      // dropping hyperlinks in issue #1051. The text-edit toolbar
+      // therefore renders a Remove link button
+      // (`toolbar/text-edit-section.tsx`, `showRemoveLink`) wired to the
+      // text box's `removeLink()`.
     });
     editorRef.current = editor;
     onEditorReady?.(editor);

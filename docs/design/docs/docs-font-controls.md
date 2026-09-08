@@ -270,6 +270,39 @@ the keyboard cleared strictly less than the button. The collapsed-caret
 path stages the same constant on the pending style, so a caret follows
 whatever a range would have done.
 
+With one addition on that pending path. `PendingStyle.set` *replaces*
+the staged style rather than merging into it, and `CLEAR_INLINE_STYLE`
+now carries no `href` key at all — so at a link's trailing edge the
+shortcut would overwrite the `href: undefined`
+`TextEditor.exitLinkIfAtTrailingEdge` arms there, and the next typed
+character would inherit the link from the run behind the caret.
+`clearFormatting` therefore re-arms the exit when the caret is at a
+trailing edge (or when the staged style already held one). Preserving a
+hyperlink is the point of #1051; *extending* one is not. Space and Enter
+hide the difference — both call `exitLinkIfAtTrailingEdge` again at
+insert time — so the regression is only reachable by typing an ordinary
+character, which is what `link-trailing-edge.test.ts` now asserts.
+
+### Removing a link on slides
+
+Preserving `href` through Clear formatting only works as a design if
+*some* command removes one. Docs has two (the link popover's unlink
+button and `EditorAPI.removeLink` behind it); slides had none — its
+canvas text boxes never wire `onLinkRequest`, so there is no link
+popover there, while their runs can still acquire an `href` from
+autolink-on-space in the shared `TextEditor` or from a PPTX import.
+Clear formatting was the only reachable way to drop one.
+
+The shared `TextFormatGroup` therefore grows a `showRemoveLink` flag
+(default `false` — docs keeps its popover) that renders an unlink
+button beside Insert link, calling the editor's `removeLink()`. Both
+slides text-edit surfaces opt in (desktop `text-edit-section.tsx` and
+the mobile Format sheet). It is always enabled rather than gated on
+`getLinkAtCursor()`: the slides toolbar re-renders on element-selection
+and text-edit transitions, not on every caret move, so a render-time
+gate would be stale exactly when the button is wanted — and
+`removeLink()` is a no-op off a link.
+
 Per the existing Yorkie store bug fix
 ([20260526-docs-unlink-href]), `applyInlineStyle` already removes
 attributes when their value is explicitly `undefined`, so no Yorkie

@@ -3428,7 +3428,24 @@ export class TextEditor {
       // Collapsed caret — pending the cleared style so the next typed
       // run is plain. Same key set as the range path, so typing after
       // the caret lands wherever the range write would have left it.
-      this.pending?.set(CLEAR_INLINE_STYLE, this.cursor.position);
+      //
+      // With one addition. `pending.set` *replaces* the pending state
+      // rather than merging into it, and `CLEAR_INLINE_STYLE` no longer
+      // carries an `href` key at all — so at a link's trailing edge this
+      // would wipe the `href: undefined` that `exitLinkIfAtTrailingEdge`
+      // armed, and the next typed character would inherit the link from
+      // the run behind the caret. Not removing a hyperlink is the point
+      // of #1051; silently *extending* one is not, so re-arm the exit.
+      const prev = this.pending?.get();
+      const exitsLink =
+        this.isAtLinkTrailingEdge(this.cursor.position) ||
+        !!(prev && 'href' in prev && prev.href === undefined);
+      this.pending?.set(
+        exitsLink
+          ? { ...CLEAR_INLINE_STYLE, href: undefined }
+          : CLEAR_INLINE_STYLE,
+        this.cursor.position,
+      );
       this.requestRender();
       return;
     }

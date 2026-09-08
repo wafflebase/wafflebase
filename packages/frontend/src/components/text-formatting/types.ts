@@ -91,6 +91,18 @@ export interface TextFormattingEditor {
   /** Programmatically trigger the link request (same as Ctrl+K). */
   requestLink(): void;
 
+  /**
+   * Drop the hyperlink covering the cursor, leaving its text in place.
+   * No-op when the cursor is not inside a link.
+   *
+   * Optional so a surface that renders no Remove-link control need not
+   * supply it; both the docs `EditorAPI` and the slides
+   * `SlidesTextBoxEditor` do. Clear formatting deliberately does *not*
+   * do this — a hyperlink is content, not character formatting (issue
+   * #1051) — so this is the only command that removes one.
+   */
+  removeLink?(): void;
+
   // --- Named styles (Google Docs paragraph styles) ---
   // Optional: only the docs `EditorAPI` implements these. Slides text-box
   // editors omit them, so the Styles dropdown hides the redefine/reset UI.
@@ -108,8 +120,9 @@ export interface TextFormattingEditor {
   /**
    * Strip all character-level inline styles (bold, italic, underline,
    * strikethrough, super/subscript, font size, font family, color,
-   * background color, href) from the current selection. Block-level
-   * style is preserved. No-op when nothing is selected.
+   * background color) from the current selection. Block-level style and
+   * a run's `href` are preserved — see `removeLink` for the latter.
+   * No-op when nothing is selected.
    */
   clearInlineFormatting(): void;
 }

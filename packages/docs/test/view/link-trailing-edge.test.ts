@@ -121,6 +121,20 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     );
   }
 
+  function pressClearFormatting(): void {
+    textarea().dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '\\',
+        // jsdom's navigator.platform is not a Mac, so the editor reads
+        // Ctrl as the mod key; send both so the helper is platform-proof.
+        ctrlKey: true,
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
   function pastePlainText(text: string): void {
     const ev = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(ev, 'clipboardData', {
@@ -217,6 +231,36 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     const inlines = firstBlockInlines();
     expect(last(inlines).style.href).toBeFalsy();
     expect(last(inlines).style.bold).toBe(true);
+  });
+
+  it('Cmd+\\ at a link trailing edge still exits the link', () => {
+    editor.insertLink('https://example.com');
+    // Clear formatting keeps hyperlinks (#1051), but `pending.set`
+    // replaces rather than merges — so it must re-arm the trailing-edge
+    // `href: undefined` it just overwrote, or the next typed character
+    // would silently extend the link. A plain character, not a space or
+    // Enter: those two re-arm the exit themselves at insert time, so
+    // they hide the overwrite.
+    pressClearFormatting();
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('Cmd+\\ inside link text leaves the link on what follows', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // Caret inside the link, not at its trailing edge: clearing must not
+    // invent a link exit there.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    pressClearFormatting();
+    type('X');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
   });
 
   it('pasting plain text right after an inserted link does not extend the link', () => {

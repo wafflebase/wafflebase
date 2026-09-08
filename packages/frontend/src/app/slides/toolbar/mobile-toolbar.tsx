@@ -577,6 +577,7 @@ function TextFormatSheet({
               editor={textEditor}
               showStrikethrough={false}
               showHighlight={false}
+              showRemoveLink
             />
           </div>
           <div className="flex flex-wrap items-center gap-1">
