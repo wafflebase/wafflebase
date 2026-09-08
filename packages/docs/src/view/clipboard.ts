@@ -3,6 +3,8 @@ import type {
   HeadingLevel, TableCell, TableData, CellStyle,
 } from '../model/types.js';
 import type { StoredColor } from '../model/color.js';
+// The editors' indent ceiling; keeps a payload from inventing a level.
+import { MAX_LIST_LEVEL } from '../model/list-level.js';
 import {
   generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_BORDER_STYLE, DEFAULT_CELL_STYLE,
   inlineStylesEqual, createTableBlock, normalizeTableMerges,
@@ -53,8 +55,6 @@ const STRIKE_STYLES = ['single', 'double'] as const;
 const VERTICAL_ALIGNS = ['top', 'middle', 'bottom'] as const;
 const BORDER_KINDS = ['solid', 'none'] as const;
 
-/** Matches the editors' indent ceiling; keeps a payload from inventing a level. */
-const MAX_LIST_LEVEL = 8;
 /** Nested tables are legal but a payload could nest them without bound. */
 const MAX_TABLE_DEPTH = 8;
 

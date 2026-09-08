@@ -2862,7 +2862,11 @@ export class TextEditor {
    */
   private siblingsOf(block: Block): ReadonlyArray<Block> {
     const info = this.getCellInfo(block.id);
-    if (!info) return this.doc.document.blocks;
+    // `getContextBlocks()`, not `document.blocks`: the caret can sit in a
+    // header/footer list, whose blocks live outside the body array — a
+    // subtree walk over the wrong container would find no children and
+    // silently turn the gesture into a no-op.
+    if (!info) return this.doc.getContextBlocks();
     const tableBlock = this.doc.getBlock(info.tableBlockId);
     const cell = tableBlock.tableData?.rows[info.rowIndex]?.cells[info.colIndex];
     return cell?.blocks ?? [block];

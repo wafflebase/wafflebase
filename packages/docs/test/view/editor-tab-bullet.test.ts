@@ -342,6 +342,28 @@ describe('list level carries nested children', () => {
     editor.dispose();
   });
 
+  test('a header list carries its children too (context blocks, not body)', () => {
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [makeParagraph('body', 'body text')],
+      header: {
+        blocks: [makeListItem('h1', 'parent', 0), makeListItem('h2', 'child', 1)],
+        marginFromEdge: 48,
+      },
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editor._setEditContextForTest('header');
+    putCaret(editor, 'h1');
+
+    pressTab(container, false);
+
+    const header = store.getDocument().header!.blocks;
+    expect(header.map((b) => b.listLevel)).toEqual([1, 2]);
+    editor.dispose();
+  });
+
   test('toolbar indent still moves a plain paragraph by marginLeft', () => {
     const { editor } = setupEditor([makeParagraph('b1', 'plain')]);
     putCaret(editor, 'b1');

@@ -1602,6 +1602,12 @@ export function initialize(
         listKind: change.block.listKind,
         listLevel: change.listLevel,
       });
+      // A child outside the selection was never visited by the walker, so
+      // nothing marked it dirty — and `indent` / `outdent` only `render()`.
+      // Without this its cached lines survive the level change and it
+      // repaints at its old depth.
+      const cellInfo = layout.blockParentMap.get(change.block.id);
+      markDirty(cellInfo?.tableBlockId ?? change.block.id);
     }
   };
 
