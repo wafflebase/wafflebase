@@ -118,8 +118,16 @@ function normalizeRange(
 ): NormalizedRange | null {
   // Cell-range mode: tableCellRange is set
   if (range.tableCellRange) {
-    const lb = layout.blocks.find((b) => b.block.id === range.tableCellRange!.blockId);
-    const table = lb?.block.tableData;
+    // A top-level table answers from the block list alone. A nested one is
+    // not in `layout.blocks` at all, so the flat lookup missed it, `table`
+    // came back undefined, and the merge expansion below was a silent no-op
+    // — the columns a merge covers then painted only inside the merged row
+    // (#1049). Fall back to the same resolver `buildCellRangeRects` uses, so
+    // the rectangle that gets painted is the rectangle that got expanded.
+    const crBlockId = range.tableCellRange.blockId;
+    const table =
+      layout.blocks.find((b) => b.block.id === crBlockId)?.block.tableData ??
+      resolveNestedTableLayout(crBlockId, layout)?.dataBlock.tableData;
     return {
       start: range.anchor,
       end: range.focus,
