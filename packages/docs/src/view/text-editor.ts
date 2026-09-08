@@ -22,7 +22,7 @@ import { resolveNestedTableLayout } from './table-layout.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
-import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
+import { caretInlineStyle, caretStyleDefaults, isAtLinkTrailingEdge } from '../model/caret-style.js';
 import { yieldToPaintedFrame } from '../export/yield.js';
 
 /**
@@ -3438,7 +3438,7 @@ export class TextEditor {
       // of #1051; silently *extending* one is not, so re-arm the exit.
       const prev = this.pending?.get();
       const exitsLink =
-        this.isAtLinkTrailingEdge(this.cursor.position) ||
+        isAtLinkTrailingEdge(this.doc, this.cursor.position) ||
         !!(prev && 'href' in prev && prev.href === undefined);
       this.pending?.set(
         exitsLink
@@ -5900,29 +5900,6 @@ export class TextEditor {
   }
 
   /**
-   * True if `pos` sits exactly at the trailing edge of a hyperlink run —
-   * not merely inside one. Guards against a link split across adjacent
-   * runs (e.g. a bold portion of the same URL) by checking the next run
-   * doesn't continue the same href.
-   */
-  private isAtLinkTrailingEdge(pos: DocPosition): boolean {
-    let block: Block;
-    try { block = this.doc.getBlock(pos.blockId); } catch { return false; }
-
-    let start = 0;
-    for (let i = 0; i < block.inlines.length; i++) {
-      const inline = block.inlines[i];
-      const end = start + inline.text.length;
-      if (pos.offset === end && pos.offset > start && inline.style.href) {
-        const next = block.inlines[i + 1];
-        return !(next && next.style.href === inline.style.href);
-      }
-      start = end;
-    }
-    return false;
-  }
-
-  /**
    * If the caret sits at the trailing edge of a hyperlink, arm the
    * pending style with `href: undefined` so the next typed character
    * (first char of a new paragraph on Enter, or a typed space) exits
@@ -5933,7 +5910,7 @@ export class TextEditor {
    * standalone Slides text boxes, which don't call `setPendingStyle`.
    */
   private exitLinkIfAtTrailingEdge(pos: DocPosition): void {
-    if (!this.isAtLinkTrailingEdge(pos)) return;
+    if (!isAtLinkTrailingEdge(this.doc, pos)) return;
     const base = this.getStyleAtCursor();
     const visual = this.pending?.has() ? { ...base, ...this.pending.get()! } : base;
     this.pending?.set({ ...visual, href: undefined }, pos);

@@ -283,6 +283,23 @@ hide the difference — both call `exitLinkIfAtTrailingEdge` again at
 insert time — so the regression is only reachable by typing an ordinary
 character, which is what `link-trailing-edge.test.ts` now asserts.
 
+**Both** collapsed-caret entry points need that addition, for two
+different reasons that arrive at the same place. The toolbar's
+`EditorAPI.clearInlineFormatting` routes into `applyStyleImpl`, whose
+collapsed branch stages `{ ...caretInlineStyle(), ...style }` — and at a
+link's trailing edge the caret style *is* the link run's, `href`
+included, so with no `href` key in the override the button re-armed the
+link rather than merely failing to disarm it. It therefore applies
+`{ ...CLEAR_INLINE_STYLE, href: undefined }` under the same condition,
+**collapsed carets only**: adding the key on a range write is the #1051
+bug itself. The trailing-edge test is one exported
+`isAtLinkTrailingEdge(doc, position)` in `model/caret-style.ts` rather
+than a private method per editor — it lives beside `caretInlineStyle`
+because it answers the other half of the same question (that walk
+necessarily reports a link run's `href` at its trailing edge, so every
+caller that *stores* a caret-derived style has to ask), and a
+hand-copied caret walk drifting between editors is how #715 happened.
+
 ### Removing a link on slides
 
 Preserving `href` through Clear formatting only works as a design if

@@ -53,6 +53,40 @@ export function caretStyleDefaults(
 }
 
 /**
+ * True if `position` sits exactly at the trailing edge of a hyperlink run —
+ * not merely inside one. Guards against a link split across adjacent runs
+ * (e.g. a bold portion of the same URL) by checking the next run doesn't
+ * continue the same href.
+ *
+ * Lives beside `caretInlineStyle` because it answers the other half of the
+ * same question: that walk says *which* style the caret carries, and at a
+ * link's trailing edge it necessarily reports the link run's `href` — so
+ * every caller that stores a caret-derived style has to ask this before
+ * doing so, or typing silently extends the link. Both entry points into
+ * Clear formatting need it (`TextEditor.clearFormatting` for Cmd+\ and
+ * `EditorAPI.clearInlineFormatting` for the toolbar button), which is why
+ * it is shared rather than private to one of them (issue #1051).
+ */
+export function isAtLinkTrailingEdge(doc: Doc, position: DocPosition): boolean {
+  // `findBlock` (not `getBlock`) so a caret in a header, footer or table
+  // cell resolves too — same reach as the caret walk below.
+  const block = doc.findBlock(position.blockId);
+  if (!block) return false;
+
+  let start = 0;
+  for (let i = 0; i < block.inlines.length; i++) {
+    const inline = block.inlines[i];
+    const end = start + inline.text.length;
+    if (position.offset === end && position.offset > start && inline.style.href) {
+      const next = block.inlines[i + 1];
+      return !(next && next.style.href === inline.style.href);
+    }
+    start = end;
+  }
+  return false;
+}
+
+/**
  * Read the inline style of the run the caret sits in. See the module comment
  * for when to pass `withStyleDefaults`.
  */

@@ -263,6 +263,50 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
   });
 
+  it('the Clear formatting button at a link trailing edge also exits the link', () => {
+    editor.insertLink('https://example.com');
+    // Same scenario as the Cmd+\ case above, through the *other* entry
+    // point: the toolbar button calls `clearInlineFormatting`, whose
+    // collapsed-caret path seeds pending from the caret style — which at
+    // the trailing edge carries the link's own `href`.
+    editor.clearInlineFormatting();
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('the Clear formatting button inside link text leaves the link alone', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // The over-reach guard for the test above: clearing inside a link must
+    // not invent an exit, so what follows the caret stays linked.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    editor.clearInlineFormatting();
+    type('X');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('the Clear formatting button keeps a link a selection covers', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // The other over-reach guard: the trailing-edge override is
+    // collapsed-caret only, so a range clear must not strip the href even
+    // when the selection ends exactly at the link's trailing edge.
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 0 },
+      focus: { blockId: block.id, offset: 'https://example.com'.length },
+    });
+    editor.clearInlineFormatting();
+
+    const inlines = firstBlockInlines();
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
   it('pasting plain text right after an inserted link does not extend the link', () => {
     editor.insertLink('https://example.com');
     pastePlainText('hello');

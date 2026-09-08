@@ -26,7 +26,7 @@ import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt, linkRunCoveringRange, rewriteLinkHrefInPlace } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
-import { caretInlineStyle } from '../model/caret-style.js';
+import { caretInlineStyle, isAtLinkTrailingEdge } from '../model/caret-style.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
 import { LocalSpellProvider } from '../spell/local-provider.js';
@@ -3346,7 +3346,30 @@ export function initialize(
       // and dirty-marking all flow through the same logic as ordinary
       // inline-style writes. CLEAR_INLINE_STYLE is the single source of
       // truth for which keys count as "character formatting".
-      applyStyleImpl(CLEAR_INLINE_STYLE);
+      //
+      // One addition, and only at a collapsed caret. That branch of
+      // `applyStyleImpl` stores `{ ...caretStyle, ...style }` as the
+      // pending style, and at a link's trailing edge the caret style *is*
+      // the link run's — including its `href`, which `CLEAR_INLINE_STYLE`
+      // no longer carries a key for. Without the override the button
+      // would re-arm the link there and the next typed character would
+      // silently extend it. Keeping a hyperlink through Clear formatting
+      // is the point of #1051; growing one is not. Same rule as the
+      // Cmd+\ half (`TextEditor.clearFormatting`), off the same shared
+      // trailing-edge test, and `pending.get()` is re-checked because
+      // `exitLinkIfAtTrailingEdge` may already have armed the exit that
+      // this write would otherwise replace.
+      const collapsed = !(selection.hasSelection() && selection.range);
+      const prev = pending.get();
+      const exitsLink =
+        collapsed &&
+        (isAtLinkTrailingEdge(doc, cursor.position) ||
+          !!(prev && 'href' in prev && prev.href === undefined));
+      applyStyleImpl(
+        exitsLink
+          ? { ...CLEAR_INLINE_STYLE, href: undefined }
+          : CLEAR_INLINE_STYLE,
+      );
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
