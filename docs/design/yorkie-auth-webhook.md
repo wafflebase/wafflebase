@@ -208,6 +208,25 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
 
 ## Risks and Mitigation
 
+- **Shadow mode reads as protection and is not** → the default configuration
+  computes a decision and allows the request anyway, so a deployment that
+  registered the methods but never flipped the flag is *observably* running the
+  webhook while enforcing nothing. This matters most for share-link **viewers**:
+  a viewer's write is refused here and nowhere else, and a viewer holds both
+  halves needed to skip us — their share token, which mints a Yorkie token at
+  `GET /auth/yorkie-token`, and the project's public key, which ships in every
+  visitor's bundle. Client-side read-only mounts (`readOnlyNoteStore`,
+  `readOnlyDocStore`, the editors' `readOnly` state) therefore bound *our app's*
+  write paths and no one else's; they are correctness boundaries, not access
+  control, and no feature should be reviewed as if they were. **Mitigation:** the
+  controller logs its posture at boot — `SHADOW mode — … per-document access is
+  NOT enforced` — so the gap is visible in a deployment's own logs rather than
+  inferred from the absence of denials; and features whose safety depends on the
+  distinction (the public template tier, revision history) assert
+  `YORKIE_AUTH_WEBHOOK_ENFORCE=true` themselves rather than assuming it. The
+  default is left at shadow deliberately: it is the instrument for the verb
+  question below, and flipping it would enforce on installs that registered the
+  methods for observation only.
 - **Bug denies all access** → staged shadow→enforce rollout; `DetachDocument`
   always allowed; instant rollback by unregistering webhook methods.
 - **Token/session expiry mid-session** → short-lived token + `401`-driven

@@ -272,9 +272,7 @@ and `EditorView.editable` only removes `contenteditable` — it stops typing and
 nothing else, so any programmatic `view.dispatch` (a toolbar command, a paste
 handler, a preview checkbox) still produced a document change, and `noteSync`
 forwards **any** non-remote change to `store.editText()`, which is a CRDT write.
-Nothing else would have refused it: the Yorkie auth webhook ships in shadow
-(allow-all) mode by default. So `initialize()` adds two state-level gates when
-`readOnly`:
+So `initialize()` adds two state-level gates when `readOnly`:
 
 - `EditorState.readOnly` — the facet every CodeMirror command consults
   (`@codemirror/commands`, autocomplete, the vim keymap), so they decline
@@ -303,10 +301,31 @@ than any method; and the prototype / `set` / `defineProperty` /
 accessor would otherwise reach the real store. `initialize()` wraps the store
 it is handed when `readOnly`, and the frontend mount wraps the one it retains
 (`notes-view.tsx`); the wrapper is idempotent, so neither has to know what the
-other did. This matters more than a client-side flag usually would: the
-server-side check behind it — the Yorkie auth webhook — ships in shadow
-(allow-all) mode by default, so with the default configuration this *is* the
-write boundary rather than a convenience in front of one.
+other did.
+
+**What that wrapper is not.** An earlier draft of this section claimed that
+because the Yorkie auth webhook ships in shadow (allow-all) mode by default,
+the proxy *is* the write boundary on a default install. That was wrong, and
+worth recording as wrong: a share-link viewer who does not run our code is not
+bounded by our code. They hold their share token, which mints a Yorkie token at
+`GET /auth/yorkie-token`, and the project's public key ships in every visitor's
+bundle — so they can attach with a bare SDK client and write, and the only
+thing that refuses them is `hasAccess()` in
+`packages/backend/src/document/yorkie-auth.controller.ts`, which a deployment
+in shadow mode never consults. The two gates answer different questions and
+neither covers for the other:
+
+| | bounds | needs |
+| --- | --- | --- |
+| `readOnlyNoteStore` + the state gates | this app's own write paths, including the next one somebody adds without checking a flag | nothing; it ships in the bundle |
+| The Yorkie auth webhook | every client, ours or not | the methods registered on the Yorkie project **and** `YORKIE_AUTH_WEBHOOK_ENFORCE=true` |
+
+So "viewer means read-only" is a property of a *deployment*, not of this
+feature. On a deployment still in shadow mode a viewer share link should be
+treated as write-capable no matter what the editor mounts; the webhook logs its
+posture at boot (`SHADOW mode — … per-document access is NOT enforced`) so that
+is visible without reading this document. See
+[`yorkie-auth-webhook.md`](../yorkie-auth-webhook.md).
 
 `runHistory()` keeps its own `readOnly` refusal on top, so the toolbar's
 undo/redo decline locally and visibly, and `canUndo()`/`canRedo()` report

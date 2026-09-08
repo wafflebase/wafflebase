@@ -54,11 +54,17 @@ const READ_ONLY_VIEWS = new WeakSet<NoteStore>();
  * that guard: on a viewer mount there is no reachable write, whether or not the
  * next write path remembers to check a flag.
  *
- * That matters more than a client-side flag usually would, because the
- * server-side check behind it — the Yorkie auth webhook — ships in shadow mode
- * by default (`YORKIE_AUTH_WEBHOOK_ENFORCE`), so with the default
- * configuration this is the write boundary rather than a convenience in front
- * of one.
+ * It is **not** an access-control boundary, and the earlier claim here that it
+ * was "the write boundary" on a default install was wrong. What refuses a
+ * share-link viewer's write is the Yorkie auth webhook
+ * (`hasAccess` in `packages/backend/src/document/yorkie-auth.controller.ts`),
+ * and a viewer who does not run this code reaches Yorkie without it: their
+ * share token mints a Yorkie token, the project's public key ships in every
+ * visitor's bundle, and the webhook allows everything until a deployment both
+ * registers its methods and sets `YORKIE_AUTH_WEBHOOK_ENFORCE=true`. So this
+ * wrapper bounds *this app* — every write path the editor grows, including the
+ * ones nobody remembers to gate — and the deployment's enforcement flag bounds
+ * everyone else. Neither substitutes for the other.
  *
  * A Proxy rather than a hand-written delegate, for the reasons the docs wrapper
  * gives, and with the same traps — because this is an access-control boundary,

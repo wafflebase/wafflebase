@@ -253,6 +253,17 @@ registers the revision methods but leaves `YORKIE_AUTH_WEBHOOK_ENFORCE=false`
 is not protected — an anonymous viewer share link can still list, read, and
 restore a document's revision history until enforcement is flipped on.
 
+The same holds for ordinary **writes**, and it is the more important half: this
+webhook is the only place a share-link `viewer` is refused one, and a viewer
+holds what it takes to skip us — their share token mints a Yorkie token at
+`GET /auth/yorkie-token`, and the project's public key ships in every visitor's
+bundle, so a bare SDK client attaches and writes. The read-only mounts the
+editors use on share routes bound *this app's* write paths, not anybody else's;
+treat a viewer link on a shadow-mode deployment as write-capable. The
+controller says which posture it is in at boot — `yorkie auth webhook:
+enforcing per-document access`, or a `SHADOW mode … per-document access is NOT
+enforced` warning — so check the log rather than the absence of denials.
+
 ### Development
 
 ```bash

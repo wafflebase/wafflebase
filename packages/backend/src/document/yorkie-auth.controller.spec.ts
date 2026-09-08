@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import { YorkieAuthController } from './yorkie-auth.controller';
@@ -64,6 +64,22 @@ function makeController(opts: {
     configService,
   );
 }
+
+// The controller states its enforcement posture at construction, so every
+// `makeController` below would print it. Silence both levels by default; the
+// posture tests read the spies instead.
+let logSpy: jest.SpyInstance;
+let warnSpy: jest.SpyInstance;
+
+beforeEach(() => {
+  logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+  warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  logSpy.mockRestore();
+  warnSpy.mockRestore();
+});
 
 describe('YorkieAuthController.decide', () => {
   it('always allows DetachDocument, even with a bad token', async () => {
@@ -250,6 +266,48 @@ describe('YorkieAuthController.handleAuth (shadow vs enforce)', () => {
     );
     expect(status).toHaveBeenCalledWith(200);
     expect(body.allowed).toBe(true);
+  });
+
+  // A shadow-mode install enforces nothing, and the write it lets through is
+  // the one nothing else refuses: a share-link viewer's. Both of these pin the
+  // *signal*, not the policy — a deployment must be able to tell from its own
+  // logs that it is unprotected, rather than inferring it from an absence of
+  // denials. See docs/design/yorkie-auth-webhook.md § Risks.
+  it('says at construction that shadow mode enforces nothing', () => {
+    makeController({ enforce: false });
+    const said = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(said).toContain('SHADOW mode');
+    expect(said).toContain('NOT enforced');
+  });
+
+  it('says at construction when it is enforcing, and does not warn', () => {
+    makeController({ enforce: true });
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'enforcing per-document access',
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('names the document and verb it would have denied', async () => {
+    const c = makeController({
+      enforce: false,
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      share: { documentId: '1', role: 'viewer' },
+    });
+    const { res } = mockRes();
+    await c.handleAuth(
+      {
+        method: 'PushPull',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      },
+      res,
+    );
+    const said = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(said).toContain('[shadow] would deny');
+    expect(said).toContain('target=note-1:rw');
+    // The token is a bearer credential and must never join the target in a log.
+    expect(said).not.toContain('token=');
   });
 });
 
