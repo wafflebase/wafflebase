@@ -310,6 +310,16 @@ writer, and — since issue #1045 — every selection-replacing edit, through
 `withUpdate` instead of calling `doc.update` directly; a nested update inside
 an open batch would split its undo unit.
 
+**Not yet every multi-write action.** `withUndoUnit()` is a `TextEditor`
+method, so it covers the keyboard and clipboard handlers and nothing else.
+The `EditorAPI` toolbar operations that write once per block —
+`toggleList` / `indent` / `outdent` / `applyBlockStyle` and the cell-range
+style loop — and `FindReplaceState.replaceAll()` still issue an unbatched
+write per block (per *match*, twice, for Replace All), so on a selection
+larger than the 50-entry cap they lose their oldest writes exactly as the
+keyboard paths did before #1045. Tracked in issue #1048; the fix is the same
+`doc.batch(...)` with the snapshot outside it.
+
 ##### One user action, one undo unit
 
 `deleteSelection()` removes a multi-block selection with one store write per
