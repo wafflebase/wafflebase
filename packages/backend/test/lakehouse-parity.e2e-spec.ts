@@ -86,6 +86,20 @@ type ParityLeg = {
 
 const FIXTURE_ROOT = resolve(__dirname, 'fixtures/lakehouse');
 
+/**
+ * A CI runner has no bundled `LAKEHOUSE_DUCKDB_EXTENSION_DIR` (only the
+ * production image does), so the first DuckDB initialization downloads
+ * `httpfs`/`iceberg`/`delta`/`azure` — roughly 170 MB, most of it `delta`.
+ * That download happens inside `waitForInitialization`, which is charged
+ * against the *first query's* `LAKEHOUSE_QUERY_TIMEOUT_MS` (30s by default),
+ * and a timeout there also invalidates the half-built instance, so the next
+ * query pays for the rebuild too. On a slow morning that is two red tests
+ * followed by a green suite, which is a flake about the network, not about
+ * connector parity. Warm the engine once with its own generous budget so
+ * every timed test measures a query.
+ */
+const WARMUP_TIMEOUT_MS = 120_000;
+
 function baseSource(
   overrides: Partial<LakehouseSource> & Pick<LakehouseSource, 'id' | 'format'>,
 ): LakehouseSource {
@@ -277,6 +291,8 @@ describeLakehouse('Lakehouse connector parity', () => {
 
     duckDb = new DuckDbService();
     service = new LakehouseService(prisma, duckDb);
+    // Forces extension install/load now rather than inside the first read.
+    await duckDb.withConnection(async () => undefined, WARMUP_TIMEOUT_MS);
   });
 
   afterAll(async () => {
