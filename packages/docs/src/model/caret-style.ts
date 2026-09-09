@@ -58,6 +58,16 @@ export function caretStyleDefaults(
  * (e.g. a bold portion of the same URL) by checking the next run doesn't
  * continue the same href.
  *
+ * An **empty-text** run carrying an `href` counts: that is the residue
+ * `normalizeInlines` leaves when a linked paragraph's whole text is deleted
+ * (the fallback inline keeps the first run's style). It anchors no link —
+ * `findLinkRunAt` refuses a zero-length run, so `removeLink` cannot reach
+ * it — yet the caret walk below still reports its `href`, so without
+ * counting it here the next typed character becomes a hyperlink nothing in
+ * the document displays and no command can drop. A caret can never be
+ * *inside* a zero-length run, so there is no "still in the link" case to
+ * protect.
+ *
  * Lives beside `caretInlineStyle` because it answers the other half of the
  * same question: that walk says *which* style the caret carries, and at a
  * link's trailing edge it necessarily reports the link run's `href` — so
@@ -77,7 +87,7 @@ export function isAtLinkTrailingEdge(doc: Doc, position: DocPosition): boolean {
   for (let i = 0; i < block.inlines.length; i++) {
     const inline = block.inlines[i];
     const end = start + inline.text.length;
-    if (position.offset === end && position.offset > start && inline.style.href) {
+    if (position.offset === end && inline.style.href) {
       const next = block.inlines[i + 1];
       return !(next && next.style.href === inline.style.href);
     }

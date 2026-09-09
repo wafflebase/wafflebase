@@ -92,8 +92,11 @@ export interface TextFormattingEditor {
   requestLink(): void;
 
   /**
-   * Drop the hyperlink covering the cursor, leaving its text in place.
-   * No-op when the cursor is not inside a link.
+   * Drop a hyperlink, leaving its text in place. A selection takes
+   * precedence over the caret where the implementation supports one (the
+   * slides text-box editor does, because its toolbar button's natural
+   * gesture is to select the linked text); otherwise the link the caret
+   * touches. No-op when neither finds a link.
    *
    * Optional so a surface that renders no Remove-link control need not
    * supply it; both the docs `EditorAPI` and the slides

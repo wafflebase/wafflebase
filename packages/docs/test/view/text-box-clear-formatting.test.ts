@@ -101,6 +101,38 @@ describe('initializeTextBox — clear formatting keeps hyperlinks', () => {
     );
   }
 
+  function type(text: string): void {
+    const ta = textarea();
+    ta.value = text;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function pressShiftLeft(times: number): void {
+    for (let i = 0; i < times; i++) {
+      textarea().dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ArrowLeft',
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }
+  }
+
+  /**
+   * `see <link> now` — a link with plain text on both sides, so a
+   * selection can reach past it. The space is typed on its own because
+   * the trailing-edge link exit fires on a single typed space; sending
+   * `' now'` as one input event would pull the whole tail into the link.
+   */
+  function linkBetweenText(): void {
+    type('see ');
+    api.insertLink('https://example.com');
+    type(' ');
+    type('now');
+  }
+
   /** Flush the final onCommit and return the committed blocks. */
   function commitBlocks(): Block[] {
     api.detach();
@@ -131,5 +163,53 @@ describe('initializeTextBox — clear formatting keeps hyperlinks', () => {
 
     const inlines = commitBlocks()[0].inlines;
     expect(inlines.every((i) => !i.style.href)).toBe(true);
+  });
+
+  it('removeLink drops a link the selection covers, caret outside it or not', () => {
+    // The natural gesture behind the Slides toolbar's Remove link button:
+    // drag over the linked text and click it. `removeLink` used to resolve
+    // the link purely from the caret, which after such a drag sits at the
+    // selection's *focus* — past the link when the selection reaches
+    // beyond it — so the click was a silent no-op. On Slides that left no
+    // way at all to drop a hyperlink, since Clear formatting deliberately
+    // keeps them now (#1051).
+    linkBetweenText();
+    selectAll();
+    api.removeLink();
+
+    const inlines = commitBlocks()[0].inlines;
+    expect(inlines.map((i) => i.text).join('')).toBe('see https://example.com now');
+    expect(inlines.every((i) => !i.style.href)).toBe(true);
+  });
+
+  it('removeLink leaves a link the selection does not touch', () => {
+    // Over-reach guard for the case above: a selection is authority over
+    // what it covers, not over every link in the text box.
+    linkBetweenText();
+    pressShiftLeft(3); // selects 'now', which the link does not reach
+
+    api.removeLink();
+
+    const inlines = commitBlocks()[0].inlines;
+    expect(inlines.some((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('a collapsed-caret clear at a link trailing edge keeps the link intact', () => {
+    // The third Clear-formatting entry point. Unlike the two docs ones it
+    // stages nothing at a collapsed caret — `applyStyleImpl` returns early
+    // without a selection — so it needs no trailing-edge `href` override:
+    // there is no caret-derived pending seed here to re-arm the link from.
+    // What it must not do is *drop* the href, and it must leave the exit
+    // machinery (`exitLinkIfAtTrailingEdge`, wired through the shared
+    // pending style) working, which the typed space below asserts.
+    api.insertLink('https://example.com');
+    api.clearInlineFormatting();
+    type(' ');
+    type('now');
+
+    const inlines = commitBlocks()[0].inlines;
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.com now');
+    expect(inlines[0].style.href).toBe('https://example.com');
+    expect(inlines[inlines.length - 1].style.href).toBeFalsy();
   });
 });

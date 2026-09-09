@@ -305,7 +305,11 @@ export interface TextBoxEditorAPI {
   /** Insert a hyperlink on the current selection (or insert URL text if no selection). */
   insertLink(url: string): void;
 
-  /** Remove the hyperlink at the current cursor position. */
+  /**
+   * Drop a hyperlink, leaving its text in place. With a selection, every
+   * `href` the selection covers goes; with a bare caret, the link run the
+   * caret touches. No-op when neither finds one.
+   */
   removeLink(): void;
 
   /** Get the href of the link at the current cursor position, if any. */
@@ -1232,6 +1236,25 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
 
     removeLink(): void {
+      // A selection wins over the caret. The Slides text-edit toolbar
+      // renders Remove link as an ordinary button (docs offers it only
+      // from the link popover, which opens on a caret), and the gesture
+      // that reaches for it is "drag over the linked text, click Remove
+      // link". After such a drag the caret sits at the selection's focus —
+      // *past* the link whenever the selection reaches beyond it — so a
+      // caret-only lookup made the click a silent no-op, on the one
+      // surface where this button is the only way to drop a hyperlink
+      // (Clear formatting keeps them since issue #1051).
+      //
+      // Routed through `applyStyleImpl` so the snapshot / layout / render
+      // bookkeeping is the one the style writes already use. A partial
+      // selection unlinks exactly what it covers: dragging cannot produce
+      // one (`TextEditor.setSnappedRange` expands a range out to whole
+      // links), so it only arises from a deliberate keyboard selection.
+      if (selection.hasSelection() && selection.range) {
+        applyStyleImpl({ href: undefined });
+        return;
+      }
       const block = doc.findBlock(cursor.position.blockId);
       if (!block) return;
       const link = findLinkRunAt(block, cursor.position.offset);
