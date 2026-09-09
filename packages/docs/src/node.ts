@@ -129,6 +129,10 @@ export type { DocsTreeNode } from './model/crdt-tree.js';
 // otherwise hardcode the ceiling (the markdown serializer's `repeat`, the
 // layout counters) need to be able to name it.
 export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
+// The table row-height band, here for the same reason: `YorkieDocStore`'s
+// own table reader calls `normalizeRowHeight` on every attribute read, and
+// `model/row-height.js` imports nothing at all, so it is DOM-free.
+export { MAX_ROW_HEIGHT, normalizeRowHeight } from './model/row-height.js';
 export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,

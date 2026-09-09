@@ -48,6 +48,7 @@ import {
   parseMarginFromEdgeAttr,
   parseBorderStyle,
   normalizeListLevel,
+  normalizeRowHeight,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -451,8 +452,12 @@ function treeNodeToBlock(node: TreeNode): Block {
       .map(treeNodeToRow);
     const cols = (attrs.cols ?? '').split(',').map(Number).filter(n => !isNaN(n));
     const rowHeightsAttr = attrs.rowHeights;
+    // Clamped like `listLevel` below, and for a sharper reason: the
+    // paginator splits an oversized row one page per loop iteration, so a
+    // peer-written `Infinity` height never terminates. See
+    // `normalizeRowHeight`.
     const rowHeights = rowHeightsAttr
-      ? rowHeightsAttr.split(',').map(v => v === '' ? undefined : Number(v))
+      ? rowHeightsAttr.split(',').map(v => v === '' ? undefined : normalizeRowHeight(Number(v)))
       : undefined;
     return {
       id: attrs.id ?? '',

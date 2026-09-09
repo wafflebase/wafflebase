@@ -1,6 +1,7 @@
 import type { TableData, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
 import { normalizeListLevel } from '../model/list-level.js';
+import { normalizeRowHeight } from '../model/row-height.js';
 import type { BlockSpacingContext, DocStyles, StyleSurface } from '../model/named-styles.js';
 import type { ComposingContext, LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
@@ -241,10 +242,15 @@ export function computeTableLayout(
     }
   }
 
-  // 5b. Apply user-specified row heights as minimums
+  // 5b. Apply user-specified row heights as minimums.
+  // Normalized here as well as at the CRDT read boundary: this is the one
+  // place a stored height becomes geometry, and the paste path
+  // (`sanitizeTableData`) admits any finite number. Everything downstream —
+  // the paginator's per-page row-split loop above all — reads
+  // `LayoutTable.rowHeights`, so bounding it here bounds all of them.
   if (tableData.rowHeights) {
     for (let r = 0; r < numRows; r++) {
-      const userHeight = tableData.rowHeights[r];
+      const userHeight = normalizeRowHeight(tableData.rowHeights[r]);
       if (userHeight !== undefined && userHeight > rowHeights[r]) {
         rowHeights[r] = userHeight;
       }

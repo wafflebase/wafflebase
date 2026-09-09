@@ -38,6 +38,7 @@ import type {
 } from './types.js';
 import { parseBlockStyleAttrs, parseMarginFromEdgeAttr } from './crdt-attrs.js';
 import { normalizeListLevel } from './list-level.js';
+import { normalizeRowHeight } from './row-height.js';
 
 /**
  * The structural subset of a CRDT tree node this reader needs.
@@ -192,10 +193,14 @@ export function treeNodeToBlock(node: DocsTreeNode): Block {
       .split(',')
       .map(Number)
       .filter((n) => !isNaN(n));
+    // Clamped here for the same reason `listLevel` is, and with more at
+    // stake: the paginator splits an oversized row one page per loop
+    // iteration, so an `Infinity` height never terminates and a `1e9` one
+    // builds a million pages. See `normalizeRowHeight`.
     const rowHeights = attrs.rowHeights
       ? attrs.rowHeights
           .split(',')
-          .map((v) => (v === '' ? undefined : Number(v)))
+          .map((v) => (v === '' ? undefined : normalizeRowHeight(Number(v))))
       : undefined;
     return {
       id: attrs.id ?? '',
