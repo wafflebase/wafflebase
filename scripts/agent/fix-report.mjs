@@ -250,7 +250,7 @@ export function locationsIn(note) {
  * A report covers the WHOLE checklist by construction (the prompt requires one
  * item per finding), so without a cap every still-gating finding would buy a
  * 20-turn Opus session on top of the verifier sessions it already costs — inside
- * the panel job's 45-minute timeout, which, if exceeded, kills the job and leaves
+ * the panel job's timeout, which, if exceeded, kills the job and leaves
  * `close-stuck-checks` to mark every lens failed. Claims past the cap are treated
  * exactly like skipped ones: upheld with no session, which is the safe direction.
  */

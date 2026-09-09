@@ -310,7 +310,7 @@ test("a stale `fixed` claim is not replayed against a tree it never saw", () => 
 
 test("adjudicator sessions are CAPPED, and the overflow fails safe", () => {
   // A report covers the whole checklist by construction, so uncapped this bought
-  // one 20-turn session per gating finding inside a 45-minute job.
+  // one 20-turn session per gating finding inside a single time-boxed job.
   const many = Array.from({ length: MAX_FIX_ADJUDICATIONS + 4 }, (_, i) => ({
     lens: "l", file: `f${i}.ts`, summary: `${WORDING} number ${i}`, note: `fixed at f${i}.ts:1`,
   }));
