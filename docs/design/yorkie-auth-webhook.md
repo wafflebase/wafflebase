@@ -78,7 +78,7 @@ enforce a subset:
 | Method | Handling |
 | --- | --- |
 | `ActivateClient` / `DeactivateClient` | No document. Validate token only (is it a live session / valid share?). |
-| `AttachDocument` | Enforce: resolve docKey → doc; require access; `rw` needs write role. |
+| `AttachDocument` | Enforce **read**: resolve docKey → doc; require access. Its verb is always `rw` and so carries no write intent — see the verb risk below. |
 | `PushPull` | Enforce (the real read/write gate; `verb` reflects sync mode). |
 | `Watch` (+ deprecated `WatchDocument`) | Enforce read access. |
 | `Broadcast` | Enforce read access (presence). |
@@ -267,20 +267,36 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
   `metadata.userID` is never trusted for access decisions.
 - **Forged webhook calls** → mandatory HMAC via `YorkieSignatureGuard`; endpoint
   refuses when `YORKIE_SECRET_KEY` is unset (same posture as the event webhook).
-- **Read-only viewers and the attach/PushPull verb** → yorkie derives the verb
-  from the client's change pack, not the sync mode: `AccessAttributes(pack)` is
-  `r` when `pack.HasChanges()` is false, `rw` otherwise
-  (`server/rpc/auth/auth.go`). A viewer who never edits a doc that already has
-  content pushes no changes → verb `r` → allowed. The risk is a "read-only"
-  client that still emits a local change on load (e.g. a lazy data migration or
-  field initialization) → verb `rw` → the webhook denies it under enforcement.
-  The React `DocumentProvider` does not currently expose a read-only/`syncMode`
-  attach option, so this can't be forced from the frontend today. **Mitigation:**
-  shadow mode is exactly the instrument for this — the rollout must confirm
-  viewer-link attach/PushPull requests actually carry verb `r` (watch the shadow
-  logs) before flipping `YORKIE_AUTH_WEBHOOK_ENFORCE=true`. If viewers do emit
-  `rw`, the fix is a read-only attach path in the SDK wrapper (follow-up), not a
-  webhook change.
+- **Read-only viewers and the attach/PushPull verb** → for `PushPull` yorkie
+  derives the verb from the client's change pack, not the sync mode:
+  `AccessAttributes(pack)` is `r` when `pack.HasChanges()` is false, `rw`
+  otherwise (`server/rpc/auth/auth.go`). A viewer who never edits a doc that
+  already has content pushes no changes → verb `r` → allowed.
+  **`AttachDocument` does not follow that rule**: it carries `rw`
+  unconditionally, confirmed against a real yorkie server by inspecting the
+  webhook body it sends for a brand-new local `Document` with zero local
+  changes attaching to an already-populated remote one
+  (`packages/backend/test/revision-history.e2e-spec.ts`, which omits
+  `AttachDocument` from its registered set for exactly this reason). Honoring
+  that verb would deny a share-link viewer their *very first attach*, so with
+  enforcement the default every viewer link would break on any deployment that
+  registered the method — which is what the earlier "watch the shadow logs
+  first" mitigation, written while shadow was the default, quietly deferred.
+  **Mitigation (in code):** `READ_GATED_METHODS` in
+  `yorkie-auth.controller.ts` authorizes `AttachDocument` as a **read**
+  whatever verb it carries, leaving `PushPull` — whose verb is truthful — the
+  write gate this document already calls "the real read/write gate". A viewer
+  therefore attaches and reads, and every write is refused one RPC later.
+  Pinned by `yorkie-auth.controller.spec.ts` ("lets a share viewer attach even
+  though attach claims rw", plus the two cases showing attach is not a blanket
+  allow and the viewer's `PushPull` write is still 403). The **residual** is a
+  change pack carried by the attach itself: a hand-rolled client could smuggle
+  one write past that method, while everything after it is refused. Closing it
+  needs a truthful verb from yorkie (upstream follow-up) — not a wider webhook
+  denial, which costs every viewer their access to buy back one pack. A client
+  that emits a local change on *load* under `PushPull` (a lazy migration, field
+  initialization) is still denied under enforcement; shadow mode remains the
+  instrument for finding one, and it is now asked for rather than assumed.
 - **Authenticated access is workspace-membership only** → the `PrivateRoute`
   path injects a *user* token, so the webhook authorizes canonical document URLs
   purely by `assertMember`. A logged-in non-member opening a canonical URL is

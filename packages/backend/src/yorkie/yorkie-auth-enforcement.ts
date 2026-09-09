@@ -11,6 +11,15 @@
  * rather than of the deployment, so an install that registers the webhook
  * methods and configures nothing else must enforce.
  *
+ * Making that the default meant paying the one documented denial it would
+ * otherwise have caused: Yorkie sends `AttachDocument` with verb `rw`
+ * unconditionally, so an install that registered that method would have
+ * refused a share-link viewer their very first attach. `READ_GATED_METHODS`
+ * (`src/document/yorkie-auth.controller.ts`) authorizes attach as a read for
+ * that reason, leaving `PushPull` — whose verb is derived from the change pack
+ * — the write gate. See `docs/design/yorkie-auth-webhook.md` § Risks for the
+ * residual and the upstream follow-up.
+ *
  * Shadow mode is therefore an explicit opt-in for the rollout window: the
  * literal string `false` (trimmed, case-insensitive) and nothing else. A typo
  * enforces rather than silently opening the door — the failure mode of getting

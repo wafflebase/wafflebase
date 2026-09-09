@@ -219,6 +219,17 @@ yorkie project update <project> \
   --auth-webhook-method-add RestoreRevision
 ```
 
+`AttachDocument` is safe to register but is authorized as a **read**: Yorkie
+sends it with verb `rw` unconditionally — even for a fresh local document with
+no local changes — so honoring that verb would refuse a share-link viewer their
+very first attach and break every viewer link on the deployment.
+`READ_GATED_METHODS` in `yorkie-auth.controller.ts` therefore ignores attach's
+verb, and `PushPull`, whose verb does reflect the change pack, stays the write
+gate. The residual is a write smuggled inside the attach's own change pack by a
+hand-rolled client; see
+[`docs/design/yorkie-auth-webhook.md`](../../docs/design/yorkie-auth-webhook.md)
+§ Risks.
+
 **Do not add `CreateRevision`.** Yorkie calls the webhook for it with
 `attributes: null` — no document key, no verb — for every caller, and
 `decide()` fails closed on a document-scoped method with no attributes. So

@@ -207,6 +207,59 @@ describe('YorkieAuthController.decide', () => {
     ).toMatchObject({ status: 200, allowed: true });
   });
 
+  // Yorkie sends `AttachDocument` with verb `rw` unconditionally (see
+  // READ_GATED_METHODS and test/revision-history.e2e-spec.ts), so honoring
+  // that verb under enforcement would deny a viewer share link its very first
+  // attach — breaking viewer links outright on any deployment that registered
+  // the method. Attach is therefore gated on read.
+  it('lets a share viewer attach even though attach claims rw', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      doc: { id: '1', workspaceId: 'ws' },
+      share: { documentId: '1', role: 'viewer' },
+    });
+    expect(
+      await c.decide({
+        method: 'AttachDocument',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  // Read-gating attach must not turn it into a blanket allow: somebody with no
+  // access at all is still refused, and PushPull still refuses the viewer's
+  // writes.
+  it('still 403s an attach by a share token bound to another document', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      doc: { id: '1', workspaceId: 'ws' },
+      share: { documentId: 'other', role: 'viewer' },
+    });
+    expect(
+      await c.decide({
+        method: 'AttachDocument',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('keeps refusing a viewer PushPull write after a permitted attach', async () => {
+    const base = {
+      identity: { typ: 'yorkie-share', shareToken: 's' } as YorkieTokenPayload,
+      doc: { id: '1', workspaceId: 'ws' },
+      share: { documentId: '1', role: 'viewer' },
+    };
+    expect(
+      await makeController(base).decide({
+        method: 'PushPull',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
   it('403s a share token bound to a different document', async () => {
     const c = makeController({
       identity: { typ: 'yorkie-share', shareToken: 's' },

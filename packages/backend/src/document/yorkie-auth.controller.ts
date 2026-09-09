@@ -83,6 +83,27 @@ const CLIENT_METHODS = new Set(['ActivateClient', 'DeactivateClient']);
 const REVISION_READ_METHODS = new Set(['ListRevisions', 'GetRevision']);
 
 /**
+ * Methods whose verb does not mean what it says, and are therefore authorized
+ * as a **read** whatever verb they carry.
+ *
+ * `AttachDocument` is sent with `rw` unconditionally — empirically so even for
+ * a brand-new local `Document` with zero local changes attaching to an
+ * already-populated remote one, recorded against a real Yorkie server in
+ * `test/revision-history.e2e-spec.ts`. Only `PushPull` derives its verb from
+ * the change pack (`AccessAttributes(pack)`, `server/rpc/auth/auth.go`), which
+ * is why the design doc calls it "the real read/write gate".
+ *
+ * Taking attach's verb at face value would deny a share-link **viewer** their
+ * very first attach, so with enforcement the default every viewer link would
+ * break on any deployment that registered the method — a denial the verb never
+ * meant to express. The residual is a change pack carried by the attach
+ * itself: a hand-rolled client could smuggle one write past this method, while
+ * every write after it is still refused at `PushPull`. Closing that needs a
+ * truthful verb from Yorkie; see `docs/design/yorkie-auth-webhook.md` § Risks.
+ */
+const READ_GATED_METHODS = new Set(['AttachDocument']);
+
+/**
  * Yorkie **auth** webhook: server-enforced per-document read/write access. On
  * privileged RPCs Yorkie POSTs `{ token, method, attributes:[{key, verb}] }`
  * here; we resolve the token to an identity and check it against the Postgres
@@ -254,7 +275,11 @@ export class YorkieAuthController {
     }
     // Reading a document's history needs editor-or-member authority even
     // though Yorkie asks for it with verb `r` — see REVISION_READ_METHODS.
-    const needWrite = attr.verb === 'rw' || REVISION_READ_METHODS.has(method);
+    // Conversely `AttachDocument` always claims `rw`, so its verb is ignored
+    // and read access is enough — see READ_GATED_METHODS.
+    const needWrite = REVISION_READ_METHODS.has(method)
+      ? true
+      : attr.verb === 'rw' && !READ_GATED_METHODS.has(method);
     const ok = await this.hasAccess(identity, parsed.id, needWrite);
     return ok
       ? null
