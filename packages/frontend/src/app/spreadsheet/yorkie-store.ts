@@ -69,6 +69,7 @@ import {
 export class YorkieStore implements Store {
   private doc: Document<SpreadsheetDocument, UserPresence>;
   private tabId: string;
+  private readOnly: boolean;
   private cellIndex: CellIndex = new CellIndex();
   private dirty = true;
 
@@ -77,15 +78,39 @@ export class YorkieStore implements Store {
   private batchOverlay: Map<Sref, Cell | null> | null = null;
   private batchOps: Array<(root: SpreadsheetDocument) => void> | null = null;
 
-  constructor(doc: Document<SpreadsheetDocument, UserPresence>, tabId: string) {
+  /**
+   * `readOnly` silences the three writes the grid makes without the user ever
+   * running an editing command: the mount-time presence seed below,
+   * {@link updateSelection} (every cursor move) and {@link ensureAxisOrder}
+   * (which grows `rowOrder`/`colOrder` in the CRDT *root* from that same
+   * selection path). All three are `doc.update()`s, so the next `PushPull`
+   * carries them with verb `rw` — which the Yorkie auth webhook, enforcing by
+   * default, refuses for a share-link `viewer`, wedging the viewer's own sync
+   * the moment they open the sheet or press an arrow key. The engine's own
+   * `readOnly` bounds the editing commands, not the selection publish, so the
+   * gate has to be here. Matches `board-view`'s selection presence,
+   * `slides-view`'s broadcast, `pdf-collab`'s `activePage` and
+   * `readOnlyNoteStore`'s `setLocalSelection`.
+   *
+   * Reads are untouched: `getPresences` still renders peer cursors, so a
+   * viewer sees the collaborators they cannot announce themselves to.
+   */
+  constructor(
+    doc: Document<SpreadsheetDocument, UserPresence>,
+    tabId: string,
+    readOnly = false,
+  ) {
     this.doc = doc;
     this.tabId = tabId;
+    this.readOnly = readOnly;
 
     // Keep presence aligned with the currently opened tab so peer cursors can
     // be scoped to that tab.
-    this.doc.update((_, p) => {
-      p.set({ activeTabId: this.tabId });
-    });
+    if (!this.readOnly) {
+      this.doc.update((_, p) => {
+        p.set({ activeTabId: this.tabId });
+      });
+    }
 
     // Mark index as dirty on remote changes so it gets rebuilt lazily.
     doc.subscribe((e) => {
@@ -622,6 +647,9 @@ export class YorkieStore implements Store {
     ranges: RangeAnchor[],
     activeCellRef: Ref,
   ) {
+    // A read-only mount announces nothing — see the constructor.
+    if (this.readOnly) return;
+
     // Always emit the legacy activeCell Sref so peer cursors render even
     // when activeCell sits beyond axis-ID coverage (e.g. after Cmd+Down on
     // an empty sheet). Emit `selection` only when an anchor is available.
@@ -655,6 +683,11 @@ export class YorkieStore implements Store {
   }
 
   ensureAxisOrder(minRows: number, minCols: number): void {
+    // Growing the axis is a write to the document root, not presence, and it
+    // is reached from the selection path — so on a read-only mount it is both
+    // a write a viewer must not make and one the webhook would refuse.
+    if (this.readOnly) return;
+
     // Most calls need nothing new — every arrow key re-publishes the
     // selection. Bail before `doc.update`, whose `new Set(rowOrder)` below
     // would otherwise walk the whole axis on each keystroke.

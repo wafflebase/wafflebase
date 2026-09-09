@@ -1009,7 +1009,7 @@ export function SheetView({
     let overlayFrame: number | null = null;
     let recalcFrame: number | null = null;
 
-    const store = new YorkieStore(doc, tabId);
+    const store = new YorkieStore(doc, tabId, readOnly);
     storeRef.current = store;
     initialize(container, {
       theme,
