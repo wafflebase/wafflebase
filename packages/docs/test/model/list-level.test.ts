@@ -1,5 +1,12 @@
 import { describe, test, expect } from 'vitest';
-import { planListLevelChanges, MAX_LIST_LEVEL } from '../../src/model/list-level.js';
+import {
+  planListLevelChanges,
+  normalizeListLevel,
+  MAX_LIST_LEVEL,
+} from '../../src/model/list-level.js';
+import { treeNodeToBlock } from '../../src/model/crdt-tree.js';
+import { computeListCounters } from '../../src/view/layout.js';
+import { serializeMarkdown } from '../../src/serialize/markdown.js';
 import { normalizeBlockStyle } from '../../src/model/types.js';
 import type { Block } from '../../src/model/types.js';
 
@@ -159,5 +166,87 @@ describe('planListLevelChanges', () => {
       expect(plan(blocks, ['a'], 1)).toEqual({ a: 1 });
       expect(plan(blocks, ['a', 'b'], 1)).toEqual({ a: 1, b: 1 });
     });
+  });
+});
+
+describe('normalizeListLevel', () => {
+  test('passes an in-band level through', () => {
+    expect(normalizeListLevel(0)).toBe(0);
+    expect(normalizeListLevel(3)).toBe(3);
+    expect(normalizeListLevel(MAX_LIST_LEVEL)).toBe(MAX_LIST_LEVEL);
+  });
+
+  test('an absent level is level 0', () => {
+    expect(normalizeListLevel(undefined)).toBe(0);
+  });
+
+  test('a non-finite level is level 0', () => {
+    expect(normalizeListLevel(NaN)).toBe(0);
+    expect(normalizeListLevel(Infinity)).toBe(0);
+    expect(normalizeListLevel(-Infinity)).toBe(0);
+  });
+
+  test('a level outside the band is clamped to it', () => {
+    expect(normalizeListLevel(-5)).toBe(0);
+    expect(normalizeListLevel(1e9)).toBe(MAX_LIST_LEVEL);
+  });
+
+  test('a fractional level floors', () => {
+    expect(normalizeListLevel(2.7)).toBe(2);
+  });
+});
+
+/**
+ * The planner is not the only reader. `listLevel` arrives off a peer's Tree
+ * attribute through a bare `Number(...)`, and every other consumer — the
+ * layout pass, the markdown serializer, the PDF painter — multiplies it into
+ * geometry or repeats a string with it. Those readers run on first render
+ * and on export, before any gesture, so normalizing only inside the planner
+ * leaves a poisoned level reaching them raw: `levelCounters.length = NaN` is
+ * a `RangeError` that takes the whole layout down, and `'  '.repeat(2e9)`
+ * either allocates gigabytes or throws.
+ */
+describe('a poisoned listLevel at the raw readers', () => {
+  test('the CRDT read boundary clamps a peer-supplied level', () => {
+    const read = (listLevel: string): number | undefined =>
+      treeNodeToBlock({
+        type: 'block',
+        attributes: { type: 'list-item', listKind: 'unordered', listLevel },
+        children: [],
+      }).listLevel;
+
+    expect(read('2')).toBe(2);
+    expect(read('1e9')).toBe(MAX_LIST_LEVEL);
+    expect(read('Infinity')).toBe(0);
+    expect(read('not-a-number')).toBe(0);
+    expect(read('-4')).toBe(0);
+  });
+
+  test('computeListCounters does not throw on a non-finite level', () => {
+    const poisoned = (id: string, listLevel: number): Block => ({
+      ...item(id, listLevel),
+      listKind: 'ordered',
+    });
+    expect(() =>
+      computeListCounters([poisoned('a', NaN), poisoned('b', 1e9)]),
+    ).not.toThrow();
+    // Both read as in-band levels, so both still get a marker.
+    const counters = computeListCounters([
+      poisoned('a', NaN),
+      poisoned('b', 1e9),
+    ]);
+    expect(counters.get('a')).toBeDefined();
+    expect(counters.get('b')).toBeDefined();
+  });
+
+  test('the markdown serializer bounds the indent it repeats', () => {
+    const md = serializeMarkdown({
+      blocks: [item('a', 1e9), item('b', NaN)],
+    });
+    // At most `MAX_LIST_LEVEL` levels of two-space indent, never 2e9.
+    for (const line of md.split('\n')) {
+      const indent = line.length - line.trimStart().length;
+      expect(indent).toBeLessThanOrEqual(MAX_LIST_LEVEL * 2);
+    }
   });
 });

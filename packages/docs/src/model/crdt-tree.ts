@@ -37,6 +37,7 @@ import type {
   TableRow,
 } from './types.js';
 import { parseBlockStyleAttrs, parseMarginFromEdgeAttr } from './crdt-attrs.js';
+import { normalizeListLevel } from './list-level.js';
 
 /**
  * The structural subset of a CRDT tree node this reader needs.
@@ -240,7 +241,13 @@ export function treeNodeToBlock(node: DocsTreeNode): Block {
   if ('headingLevel' in attrs)
     block.headingLevel = Number(attrs.headingLevel) as Block['headingLevel'];
   if ('listKind' in attrs) block.listKind = attrs.listKind as Block['listKind'];
-  if ('listLevel' in attrs) block.listLevel = Number(attrs.listLevel);
+  // Clamped where the value enters the model, not at each consumer: this is
+  // the collaborative read boundary (a peer's Tree attribute, or a snapshot
+  // written by the backend's content ingest, which serializes whatever it is
+  // handed), and every downstream reader multiplies the level into geometry
+  // or repeats a string with it. See `normalizeListLevel`.
+  if ('listLevel' in attrs)
+    block.listLevel = normalizeListLevel(Number(attrs.listLevel));
   return block;
 }
 

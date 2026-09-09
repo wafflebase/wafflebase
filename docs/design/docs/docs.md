@@ -172,6 +172,21 @@ Levels that are *already* inconsistent (a level-3 item directly under a
 level-0 one) are read as-is rather than normalized; the gesture preserves
 whatever relative depth it finds.
 
+The *numeric* band is a different matter, and is an invariant of the
+model rather than of the gesture: `listLevel` is a finite integer in
+`[0, MAX_LIST_LEVEL]`. It arrives unvalidated — a peer's Tree attribute
+is read through a bare `Number(...)`, and the backend's content ingest
+serializes whatever it is handed — so `normalizeListLevel()` clamps it at
+both read boundaries (`treeNodeToBlock` and `YorkieDocStore`'s block
+parser). The raw readers clamp again at the point of use, because they
+are the ones that break rather than merely misrender: the layout pass
+does `levelCounters.length = level + 1` (a `RangeError` on `NaN`) and the
+markdown serializer `'  '.repeat(level)` (a `RangeError` past the string
+limit), and both run before any gesture could repair the value — layout
+on first render, the serializer on export. Without that, one collaborator
+could blank the document, or its `--format md` export, for every other
+reader.
+
 ### Document manipulation
 
 The `Doc` class provides methods to manipulate the document:

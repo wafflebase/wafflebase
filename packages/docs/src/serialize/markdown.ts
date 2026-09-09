@@ -34,6 +34,7 @@ import type {
 // exporter needs the identical rule for the identical reason (#988), and a
 // rule enforced by two copies drifts.
 import { hasUrlAlteringChars, isSafeUrl } from '@wafflebase/core/url';
+import { normalizeListLevel } from '../model/list-level.js';
 
 /**
  * Options for the Markdown serializer.
@@ -137,7 +138,11 @@ function blockToMarkdown(block: Block, opts: MarkdownOptions): string {
       return text;
 
     case 'list-item': {
-      const indent = '  '.repeat(Math.max(0, block.listLevel ?? 0));
+      // `normalizeListLevel`, not a bare `Math.max(0, …)`: an unbounded
+      // level from a peer would repeat this string 2e9 times — a
+      // `RangeError: Invalid string length` that fails the whole export for
+      // anyone who runs `docs content get --format md`.
+      const indent = '  '.repeat(normalizeListLevel(block.listLevel));
       const marker = block.listKind === 'ordered' ? '1.' : '-';
       return `${indent}${marker} ${text}`;
     }

@@ -13,23 +13,41 @@ export interface ListLevelChange {
 }
 
 /**
- * A block's `listLevel` as a number the floor and ceiling checks can
- * trust: a finite integer inside `[0, MAX_LIST_LEVEL]`.
+ * A `listLevel` as a number every reader can trust: a finite integer
+ * inside `[0, MAX_LIST_LEVEL]`. A non-finite or absent level reads as 0.
  *
  * The field arrives unvalidated on the collaborative path — a peer's Tree
- * attribute is read straight through `Number(...)` — so `NaN`,
- * `Infinity`, a negative, or a level past the ceiling can all reach here.
- * Every comparison against `NaN` is false, which made both guards below
- * fail *open*: `subtreeOf` would swallow the whole following run of list
- * items instead of stopping at the first same-or-shallower one, and the
- * indent ceiling would let the run climb past `MAX_LIST_LEVEL` writing
- * `NaN` levels as it went. Normalizing at the single point of read is
- * what keeps both guards total.
+ * attribute is read straight through `Number(...)`, and the backend's
+ * content ingest serializes whatever it is handed — so `NaN`, `Infinity`,
+ * a negative, or a level far past the ceiling can all reach a reader.
+ *
+ * In the planner, every comparison against `NaN` is false, which made both
+ * guards below fail *open*: `subtreeOf` would swallow the whole following
+ * run of list items instead of stopping at the first same-or-shallower
+ * one, and the indent ceiling would let the run climb past
+ * `MAX_LIST_LEVEL` writing `NaN` levels as it went.
+ *
+ * The planner is not the only reader, and the others are worse off: they
+ * multiply the level into geometry or repeat a string with it, and they
+ * run on first render and on export — before any gesture could repair the
+ * value. `computeListCounters` does `levelCounters.length = level + 1`
+ * (`RangeError: Invalid array length` on `NaN`, a gigabyte allocation on
+ * `1e9`) and the markdown serializer does `'  '.repeat(level)`
+ * (`RangeError: Invalid string length`), so one hostile collaborator could
+ * blank the rendered document, or the `--format md` export, for every
+ * other reader. Both are exported here rather than clamped per call site
+ * so the band has one definition; the raw readers call
+ * `normalizeListLevel` at the point of use.
  */
+export function normalizeListLevel(raw: number | undefined): number {
+  const level = raw ?? 0;
+  if (!Number.isFinite(level)) return 0;
+  return Math.min(MAX_LIST_LEVEL, Math.max(0, Math.floor(level)));
+}
+
+/** {@link normalizeListLevel} of a block's own `listLevel`. */
 function levelOf(block: Block): number {
-  const raw = block.listLevel ?? 0;
-  if (!Number.isFinite(raw)) return 0;
-  return Math.min(MAX_LIST_LEVEL, Math.max(0, Math.floor(raw)));
+  return normalizeListLevel(block.listLevel);
 }
 
 /**
@@ -97,8 +115,7 @@ function planSiblingGroup(
       changes.push({
         block: blocks[j],
         // Normalized, so a poisoned level is repaired by the gesture that
-        // touches it rather than propagated (or multiplied into geometry
-        // by the layout pass, which reads `listLevel` raw).
+        // touches it rather than propagated.
         listLevel: levelOf(blocks[j]) + delta,
       });
     }

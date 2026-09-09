@@ -47,6 +47,7 @@ import {
   serializeMarginFromEdgeAttrs,
   parseMarginFromEdgeAttr,
   parseBorderStyle,
+  normalizeListLevel,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -492,7 +493,12 @@ function treeNodeToBlock(node: TreeNode): Block {
     block.listKind = attrs.listKind as Block['listKind'];
   }
   if ('listLevel' in attrs) {
-    block.listLevel = Number(attrs.listLevel);
+    // Clamped here, where a peer's Tree attribute enters the model: every
+    // downstream reader (layout, paint, markdown, PDF) multiplies the level
+    // into geometry or repeats a string with it, and they run on first
+    // render — before any gesture could repair a poisoned value. Mirrors
+    // `treeNodeToBlock`'s boundary in the engine.
+    block.listLevel = normalizeListLevel(Number(attrs.listLevel));
   }
   return block;
 }

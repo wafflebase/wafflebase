@@ -1619,30 +1619,21 @@ export function initialize(
 
   /**
    * The array that holds `block` next to its neighbours — the cell it
-   * lives in, or the active context's top-level blocks.
+   * lives in, or its region's top-level blocks.
    *
-   * `cellInfo` must come from `doc.blockParentMap`, not
-   * `layout.blockParentMap`: the latter is the *body* layout's map, so a
-   * caret inside a header/footer table cell resolves to `undefined` there
-   * and the walk would run over the region's top-level blocks instead of
-   * the cell's — finding no siblings and silently turning the gesture into
-   * a no-op. `doc.blockParentMap` is the merged map `recomputeLayout`
-   * builds from all three regions.
-   *
-   * Resolved with `findBlock`, not `getBlock`: the map is only as fresh as
-   * the last layout pass, so a table removed since then would throw out of
-   * the middle of an indent gesture rather than degrade to the block alone.
+   * `Doc.siblingBlocksOf` rather than a `layout.blockParentMap` lookup
+   * here: that map is the *body* layout's, so a caret inside a
+   * header/footer table cell resolves to `undefined` in it and the walk
+   * would run over the region's top-level blocks instead of the cell's —
+   * finding no siblings and silently turning the gesture into a no-op. The
+   * model's lookup checks each region and keeps the same full-walk
+   * fallback `findBlock` does, so a cell block created since the last
+   * layout (missing from every parent map) resolves too, and a table a
+   * peer removed since then degrades instead of throwing out of the middle
+   * of the gesture. `[block]` only when the block is not in the document.
    */
-  const siblingsOf = (
-    block: Block,
-    cellInfo: BlockCellInfo | undefined,
-  ): ReadonlyArray<Block> => {
-    if (!cellInfo) return doc.getContextBlocks();
-    const tableBlock = doc.findBlock(cellInfo.tableBlockId);
-    const cell =
-      tableBlock?.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
-    return cell?.blocks ?? [block];
-  };
+  const siblingsOf = (block: Block): ReadonlyArray<Block> =>
+    doc.siblingBlocksOf(block.id) ?? [block];
 
   /**
    * Invoke `fn` for every leaf block in the current selection, with the
@@ -1730,7 +1721,7 @@ export function initialize(
     // in a header/footer table cell, whose parentage only the merged map
     // holds — see `siblingsOf`.
     const cellInfo = doc.blockParentMap.get(block.id);
-    fn(block, siblingsOf(block, cellInfo));
+    fn(block, siblingsOf(block));
     markDirty(cellInfo?.tableBlockId ?? block.id);
   };
 
@@ -2513,6 +2504,25 @@ export function initialize(
     afterCursorRender();
   };
 
+  /**
+   * Flush the pre-edit caret + selection into the store so undo reverses to
+   * them rather than to whatever the throttled live cursor publish last
+   * sent (#523). Duck-typed: only `YorkieDocStore` keeps undo-history
+   * presence.
+   *
+   * Named rather than inlined into `saveSnapshot` because the batched
+   * gestures need it on its own — see `TextEditor.recordCursorForHistory`.
+   */
+  const recordCursorForHistory = (): void => {
+    if (!('setCursorForHistory' in docStore)) return;
+    (docStore as {
+      setCursorForHistory(pos: DocPosition, selection?: DocRange | null): void;
+    }).setCursorForHistory(
+      cursor.position,
+      selection.hasSelection() && selection.range ? selection.range : null,
+    );
+  };
+
   // The TextEditor is constructed in read-only mode too: it owns the
   // pointer/clipboard/link machinery (drag selection, copy serialization,
   // hyperlink opening) that viewers need. Its `readOnly` flag gates every
@@ -2538,17 +2548,7 @@ export function initialize(
     renderWithScroll,
     () => {
       docStore.snapshot();
-      if ('setCursorForHistory' in docStore) {
-        (docStore as {
-          setCursorForHistory(
-            pos: DocPosition,
-            selection?: DocRange | null,
-          ): void;
-        }).setCursorForHistory(
-          cursor.position,
-          selection.hasSelection() && selection.range ? selection.range : null,
-        );
-      }
+      recordCursorForHistory();
     },
     undoFn,
     redoFn,
@@ -2588,6 +2588,9 @@ export function initialize(
     // Caret-only navigation repaints from the cached layout instead of
     // re-measuring the whole document (arrow keys, Home/End).
     textEditor.requestCursorRender = renderCursorMove;
+    // The caret half of `saveSnapshot`, on its own, for the gestures that
+    // have to flush it before opening a batch (Tab / Cmd+] / Cmd+[).
+    textEditor.recordCursorForHistory = recordCursorForHistory;
 
     // Remove the selected image inline as one undo unit and return to text
     // mode. Shared by the Delete/Backspace keys and by cut, which needs the

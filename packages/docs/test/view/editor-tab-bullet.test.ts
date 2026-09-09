@@ -591,6 +591,270 @@ describe('list level inside a table cell', () => {
     expect(store.getDocument().blocks[2].listLevel).toBe(1);
     editor.dispose();
   });
+
+  /**
+   * The parent map is rebuilt only by the layout pass, so both of these are
+   * ordinary states rather than corruption: a block created since the last
+   * pass (the tail block a paste splits out inside a cell) is missing from
+   * it, and a table a remote peer removed since then no longer resolves.
+   * `Doc.findBlock` already keeps a full-walk fallback for exactly this;
+   * the sibling lookup the subtree planner needs has to as well, or the
+   * gesture silently does nothing (the array it hands back would not
+   * contain the caret's own block) or throws out of the middle of itself.
+   */
+  test('a cell caret missing from the parent map still carries its subtree', () => {
+    const { editor, store } = setupTable([
+      makeListItem('c1', 'parent', 0),
+      makeListItem('c2', 'child', 1),
+      makeListItem('c3', 'sibling', 0),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'c1', offset: 0 },
+      focus: { blockId: 'c1', offset: 0 },
+    });
+    editor.getDoc().blockParentMap.delete('c1');
+
+    editor.indent();
+
+    expect(cellLevels(store)).toEqual([1, 2, 0]);
+    editor.dispose();
+  });
+
+  test('Cmd+] on a cell caret missing from the parent map still carries it', () => {
+    const { editor, container, store } = setupTable([
+      makeListItem('c1', 'parent', 0),
+      makeListItem('c2', 'child', 1),
+      makeListItem('c3', 'sibling', 0),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'c1', offset: 0 },
+      focus: { blockId: 'c1', offset: 0 },
+    });
+    editor.getDoc().blockParentMap.delete('c1');
+
+    pressIndentKey(container);
+
+    expect(cellLevels(store)).toEqual([1, 2, 0]);
+    editor.dispose();
+  });
+
+  test('Cmd+] survives a parent map pointing at a table that is gone', () => {
+    const { editor, container, store } = setupTable([
+      makeListItem('c1', 'parent', 0),
+      makeListItem('c2', 'child', 1),
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'c1', offset: 0 },
+      focus: { blockId: 'c1', offset: 0 },
+    });
+    // The shape a remote table removal leaves behind: the entry still names
+    // a table id that no longer resolves. A throwing lookup here would
+    // escape the keydown handler mid-gesture.
+    editor.getDoc().blockParentMap.set('c1', {
+      tableBlockId: 'removed-by-peer',
+      rowIndex: 0,
+      colIndex: 0,
+    });
+
+    pressIndentKey(container);
+
+    expect(cellLevels(store)).toEqual([1, 2]);
+    editor.dispose();
+  });
+});
+
+/**
+ * One indent/outdent gesture moves a whole subtree, so it is N store
+ * writes. Under `YorkieDocStore` every write outside a batch is its own
+ * `doc.history` entry, so one Cmd+Z would leave the subtree half-moved and
+ * a peer would observe the parent-at-child-level state the feature exists
+ * to remove. `MemDocStore` takes its undo units from `snapshot()` instead,
+ * so the model-level assertions elsewhere in this file cannot see whether
+ * the writes were batched at all — this store reports it directly.
+ */
+class TracingStore extends MemDocStore {
+  /** Open `batch()` depth. */
+  depth = 0;
+  /** The depth each `setBlockType` was issued at, in order. */
+  writeDepths: Array<number> = [];
+  /** The depth each pre-edit cursor flush was issued at, in order. */
+  cursorFlushDepths: Array<number> = [];
+
+  batch(fn: () => void): void {
+    this.depth++;
+    try {
+      super.batch(fn);
+    } finally {
+      this.depth--;
+    }
+  }
+
+  setBlockType(
+    blockId: string,
+    type: Parameters<MemDocStore['setBlockType']>[1],
+    opts?: Parameters<MemDocStore['setBlockType']>[2],
+  ): void {
+    this.writeDepths.push(this.depth);
+    super.setBlockType(blockId, type, opts);
+  }
+
+  /**
+   * The docs editor's `saveSnapshot` hook also flushes the pre-edit caret
+   * and selection so Yorkie can reverse to them, and `YorkieDocStore` drops
+   * that presence write while a batch is open — so the flush has to be
+   * issued *before* the batch, not from inside it (#523 / #609). Duck-typed
+   * by `editor.ts` exactly as `YorkieDocStore` is.
+   */
+  setCursorForHistory(): void {
+    this.cursorFlushDepths.push(this.depth);
+  }
+}
+
+describe('a list level gesture is one undo unit', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /** A parent with one nested child, caret on the parent. */
+  function setupSubtree(): {
+    editor: EditorAPI;
+    container: HTMLElement;
+    store: TracingStore;
+  } {
+    const store = new TracingStore();
+    store.setDocument({
+      blocks: [
+        makeListItem('b1', 'parent', 0),
+        makeListItem('b2', 'child', 1),
+        makeListItem('b3', 'after', 0),
+      ],
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 0 },
+    });
+    store.writeDepths.length = 0;
+    store.cursorFlushDepths.length = 0;
+    return { editor, container, store };
+  }
+
+  const levels = (store: TracingStore): Array<number | undefined> =>
+    store.getDocument().blocks.map((b) => b.listLevel);
+
+  test('Tab writes the whole subtree inside one batch', () => {
+    const { editor, container, store } = setupSubtree();
+
+    pressTab(container, false);
+
+    expect(levels(store)).toEqual([1, 2, 0]);
+    // Parent plus the carried child — and neither at depth 0.
+    expect(store.writeDepths).toEqual([1, 1]);
+    editor.dispose();
+  });
+
+  test('one undo puts the whole subtree back, and there is nothing after it', () => {
+    const { editor, container, store } = setupSubtree();
+
+    pressTab(container, false);
+    expect(levels(store)).toEqual([1, 2, 0]);
+
+    editor.undo();
+
+    expect(levels(store)).toEqual([0, 1, 0]);
+    // The gesture cost exactly one undo unit: a second Cmd+Z here would be
+    // either a half-reverted subtree or a dead step that eats the user's
+    // previous action.
+    expect(store.canUndo()).toBe(false);
+    editor.dispose();
+  });
+
+  test('one undo puts back a Shift+Tab subtree too', () => {
+    const store = new TracingStore();
+    store.setDocument({
+      blocks: [makeListItem('b1', 'parent', 1), makeListItem('b2', 'child', 2)],
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 0 },
+    });
+
+    pressTab(container, true);
+    expect(levels(store)).toEqual([0, 1]);
+
+    editor.undo();
+
+    expect(levels(store)).toEqual([1, 2]);
+    expect(store.canUndo()).toBe(false);
+    editor.dispose();
+  });
+
+  test('Cmd+] carries the subtree in one batch as well', () => {
+    const { editor, container, store } = setupSubtree();
+
+    pressIndentKey(container);
+
+    expect(levels(store)).toEqual([1, 2, 0]);
+    expect(store.writeDepths).toEqual([1, 1]);
+    editor.dispose();
+  });
+
+  test('the toolbar path batches its writes too', () => {
+    const { editor, store } = setupSubtree();
+
+    editor.indent();
+
+    expect(levels(store)).toEqual([1, 2, 0]);
+    expect(store.writeDepths).toEqual([1, 1]);
+
+    store.writeDepths.length = 0;
+    editor.outdent();
+    expect(levels(store)).toEqual([0, 1, 0]);
+    expect(store.writeDepths).toEqual([1, 1]);
+    editor.dispose();
+  });
+
+  test('the pre-edit caret is flushed before the batch opens', () => {
+    const { editor, container, store } = setupSubtree();
+
+    pressTab(container, false);
+
+    // Depth 0: `YorkieDocStore` skips a non-history presence write while a
+    // batch is open, so a flush issued from inside the batch never reaches
+    // presence and undo restores a stale caret and selection.
+    expect(store.cursorFlushDepths.length).toBeGreaterThan(0);
+    expect(store.cursorFlushDepths[0]).toBe(0);
+    editor.dispose();
+  });
+
+  test('Cmd+[ flushes the pre-edit caret before the batch too', () => {
+    const { editor, container, store } = setupSubtree();
+    const textarea = container.querySelector('textarea')!;
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '[',
+        metaKey: true,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(levels(store)).toEqual([0, 1, 0]);
+    expect(store.cursorFlushDepths.length).toBeGreaterThan(0);
+    expect(store.cursorFlushDepths[0]).toBe(0);
+    editor.dispose();
+  });
 });
 
 describe('list level in a header context', () => {

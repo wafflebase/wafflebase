@@ -234,6 +234,23 @@ export class TextEditor {
    * from callsites that are guaranteed not to mutate the document.
    */
   requestCursorRender?: () => void;
+  /**
+   * Flush the pre-edit caret + selection into the store's undo history,
+   * separately from `saveSnapshot`'s store checkpoint.
+   *
+   * The two are one call in `saveSnapshot` for every ordinary mutation, and
+   * have to be split for the ones wrapped in `doc.batch()`: the checkpoint
+   * belongs *inside* the batch (`MemDocStore.snapshot()` is a no-op within
+   * one, so the gesture stays a single undo unit), while the caret flush
+   * must land *before* it — `YorkieDocStore` deliberately drops a
+   * non-history presence write while a batch is open, so a flush from
+   * inside never reaches presence and undo reverses to whatever the
+   * throttled live cursor publish last sent (#523 / #609).
+   *
+   * Optional because a host whose store has no undo-history presence (the
+   * slides text box, on `MemDocStore`) has nothing to flush.
+   */
+  recordCursorForHistory?: () => void;
   private saveSnapshot: () => void;
   private undoAction: () => void;
   private redoAction: () => void;
@@ -2698,6 +2715,8 @@ export class TextEditor {
     const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
     if (cursorBlock.type !== 'list-item') return;
 
+    // Before the batch, not inside it — see `recordCursorForHistory`.
+    this.recordCursorForHistory?.();
     // One Tab moves a whole subtree, so it is N `setBlockType` writes — see
     // `applyListLevelChanges` for why they have to share one undo unit.
     this.doc.batch(() => {
@@ -2759,6 +2778,8 @@ export class TextEditor {
 
   private handleIndent(): void {
     const INDENT_STEP = 36;
+    // Before the batch, not inside it — see `recordCursorForHistory`.
+    this.recordCursorForHistory?.();
     // One undo unit for the whole gesture — see `applyListLevelChanges`.
     this.doc.batch(() => {
       this.saveSnapshot();
@@ -2776,6 +2797,8 @@ export class TextEditor {
 
   private handleOutdent(): void {
     const INDENT_STEP = 36;
+    // Before the batch, not inside it — see `recordCursorForHistory`.
+    this.recordCursorForHistory?.();
     // One undo unit for the whole gesture — see `applyListLevelChanges`.
     this.doc.batch(() => {
       this.saveSnapshot();
@@ -2881,18 +2904,21 @@ export class TextEditor {
 
   /**
    * The array that holds `block` next to its neighbours — the cell it
-   * lives in, or the active context's top-level blocks.
+   * lives in, or its region's top-level blocks.
+   *
+   * `Doc.siblingBlocksOf`, not a parent-map lookup here: the caret can sit
+   * in a header/footer list, whose blocks live outside the body array, and
+   * the map is only as fresh as the last layout pass. Guessing the region's
+   * top-level array when the map misses hands back an array that does not
+   * contain `block`, and the subtree planner then finds nothing to do —
+   * silently turning the whole gesture into a no-op. The model's lookup
+   * keeps the same full-walk fallback `findBlock` does, and resolves the
+   * parent table without throwing, so a table a peer removed since the last
+   * layout cannot escape the middle of a Tab. Same helper `editor.ts`'s
+   * equivalent walker uses, so the two cannot drift.
    */
   private siblingsOf(block: Block): ReadonlyArray<Block> {
-    const info = this.getCellInfo(block.id);
-    // `getContextBlocks()`, not `document.blocks`: the caret can sit in a
-    // header/footer list, whose blocks live outside the body array — a
-    // subtree walk over the wrong container would find no children and
-    // silently turn the gesture into a no-op.
-    if (!info) return this.doc.getContextBlocks();
-    const tableBlock = this.doc.getBlock(info.tableBlockId);
-    const cell = tableBlock.tableData?.rows[info.rowIndex]?.cells[info.colIndex];
-    return cell?.blocks ?? [block];
+    return this.doc.siblingBlocksOf(block.id) ?? [block];
   }
 
   private tryAutoConvert(blockId: string): boolean {
