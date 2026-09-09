@@ -153,8 +153,18 @@ export function NotesView({
       storeRef.current = null;
       onEditorReady?.(null);
     };
+    // `readOnly` is load-bearing here, not incidental: `initialize()` captures
+    // it once — it gates every write path inside the CodeMirror editor — and
+    // nothing re-arms it on a mounted editor. A share-link role is no longer
+    // fixed for the route's lifetime: `/shared/:token` re-resolves its token
+    // on an interval (`SHARE_LINK_REVALIDATE_MS` in
+    // `app/shared/shared-document.tsx`), so an `editor` → `viewer` downgrade
+    // arrives mid-session. Left out of the deps, that visitor kept a fully
+    // writable note over a link that may no longer write it. Listing it
+    // rebuilds the editor (and its store) against the current permission,
+    // which is the only place that permission is applied.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [didMount, doc]);
+  }, [didMount, doc, readOnly]);
 
   // Let the template gallery show a note as something other than an icon
   // (docs/design/template-gallery.md). Notes is the one DOM editor, so there
