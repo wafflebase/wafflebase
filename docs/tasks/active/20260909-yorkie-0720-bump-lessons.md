@@ -63,3 +63,25 @@ pulled at 0.7.19. `docker compose pull yorkie && docker compose up -d yorkie`
 first, then `docker compose exec yorkie yorkie version` to confirm, otherwise
 the Yorkie-attached e2e suites test the new client against the old server and
 prove less than they appear to.
+
+## A blocked verification step is not a skipped one
+
+The plan said "manual smoke in `pnpm dev`". The dev servers came up fine, but
+every document route is behind GitHub OAuth, which the agent doing this work
+cannot complete. Two wrong moves were available: tick the box anyway (I did,
+briefly, in a bulk `- [ ]` → `- [x]` pass — never bulk-check a plan, the
+boxes are a record), or drop the step and say the bump was verified.
+
+The right move was to ask what the step was *for* and get that another way:
+two real clients against the live 0.7.20 server, asserting the chip's actual
+condition (`lastEditSeq <= checkpoint.getClientSeq()`), presence both ways, and
+#1337's duplicate-attach rejection. That is stronger evidence for what this
+bump changes than clicking would have been — and the residue that genuinely
+still needs a browser (the chip's rendering) is now written down as unverified
+instead of buried under a ticked box.
+
+One trap inside the probe: it first read `event.value.change.clientSeq` and
+measured `editSeq=0`, which *looked* like a real regression in the sync-status
+signal. The hook reads `event.value.clientSeq`. Mirror the production reader
+exactly rather than guessing an event's shape, or the probe invents its own
+bug and you spend the next hour on it.

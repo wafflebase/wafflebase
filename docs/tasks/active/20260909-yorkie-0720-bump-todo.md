@@ -1,8 +1,9 @@
 # Yorkie 0.7.20 bump
 
 Move `@yorkie-js/sdk` and `@yorkie-js/react` from 0.7.19 to 0.7.20 across
-the four packages that pin them. Scope is the bump alone: nothing in this
-task adopts the offline-persistence API the release introduces.
+the four pins that carry them (backend, notes, and frontend twice — sdk and
+react). Scope is the bump alone: nothing in this task adopts the
+offline-persistence API the release introduces.
 
 ## Why
 
@@ -35,26 +36,24 @@ run `yorkieteam/yorkie:latest`.
 
 ## Plan
 
-- [ ] Bump `@yorkie-js/sdk` 0.7.19 → 0.7.20 in `packages/backend`,
+- [x] Bump `@yorkie-js/sdk` 0.7.19 → 0.7.20 in `packages/backend`,
       `packages/frontend`, `packages/notes`
-- [ ] Bump `@yorkie-js/react` 0.7.19 → 0.7.20 in `packages/frontend`
-- [ ] `pnpm install`; confirm the lockfile resolves a single SDK version
+- [x] Bump `@yorkie-js/react` 0.7.19 → 0.7.20 in `packages/frontend`
+- [x] `pnpm install`; confirm the lockfile resolves a single SDK version
       (`@yorkie-js/react` bundles its own SDK copy — the realm-split trap in
       `packages/frontend/src/types/notes-document.ts` — so the two must move
       together)
-- [ ] Grep for stale `0.7.19` prose that the bump makes wrong. Do **not**
+- [x] Grep for stale `0.7.19` prose that the bump makes wrong. Do **not**
       rewrite the historical notes: `0.7.19` is load-bearing in
       `docs/design/revision-history.md` and the history adapters as the
       version that *fixed* `YSON.parse`, and those sentences stay true.
-- [ ] `pnpm verify:fast`
-- [ ] `pnpm verify:self`
-- [ ] Yorkie-attached integration suites against a live server
+- [x] `pnpm verify:fast`
+- [x] `pnpm verify:self`
+- [x] Yorkie-attached integration suites against a live server
       (`RUN_DB_INTEGRATION_TESTS=true RUN_YORKIE_INTEGRATION_TESTS=true`)
-- [ ] Manual smoke in `pnpm dev`: open a document, edit, confirm the
-      sync-status chip settles on `Saved`, and confirm presence avatars
-      still appear for a second peer (the server now keys watch
-      subscriptions by the client's stable actor)
-- [ ] Self review over the branch diff
+- [x] Smoke the two properties that matter, against a live 0.7.20 server —
+      done headlessly rather than by clicking, see Verification below
+- [x] Self review over the branch diff
 - [ ] PR
 
 ## Not in scope
@@ -108,3 +107,26 @@ version fixed `YSON.parse`, and that stays true.
 The 19 skips are the pre-existing gated cases (notably
 `revision-history.e2e-spec.ts`'s `refuses a read-only client`, which needs the
 `yorkie` admin CLI on `PATH`), not anything this bump disabled.
+
+**The UI smoke was done headlessly, and why.** `pnpm dev` came up, but every
+document route is behind GitHub OAuth and completing that sign-in is not
+something the agent doing this work can do. Rather than skip the check, the
+two properties the click-through was for were asserted directly against two
+real 0.7.20 clients and the live 0.7.20 server (throwaway script, not
+committed — it asserts behavior of a dependency, which is upstream's suite to
+own, not a fixture for ours):
+
+| Property | Result |
+| --- | --- |
+| The sync-status chip's actual condition — `lastEditSeq <= checkpoint.getClientSeq()`, read the same way `use-sync-status.ts` reads it, off `local-change`'s `event.value.clientSeq` | pass — editSeq 3, checkpoint 1 → 3 |
+| Presence both ways across two clients (0.7.20 keys watch subscriptions by the client's stable actor, which is what peer avatars ride on) | pass — each client saw the other |
+| Remote content propagation A → B | pass |
+| #1337 itself: a second attach of the same key on one client | pass — rejects with "…is already attached", and `clientA.isActive()` is still true afterwards, which is the whole point of the fix |
+
+That last row is worth stating plainly: the reason for this bump is now
+verified against the real server rather than taken from the release notes.
+
+An interactive pass over the chip's *rendering* (the four visual states, the
+toast, the `beforeunload` prompt) is still unverified here and would need a
+signed-in browser. Nothing in this bump touches that component's code, and its
+input signal is asserted above.
