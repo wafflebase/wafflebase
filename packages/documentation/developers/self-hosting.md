@@ -622,10 +622,13 @@ editor-or-member authority a write does for those two. Workspace members and
 share-link *editors* keep their history; only viewers lose it. Ordinary reads
 (`PushPull`, `Watch`) are untouched.
 
-The public template gallery additionally **requires** the webhook to be
-enforcing, and refuses to open while `YORKIE_AUTH_WEBHOOK_ENFORCE=false`: in
-shadow mode the preview token a public template card hands every visitor would
-also grant *write* access to the underlying document.
+The public template gallery additionally **requires an explicit
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true`** and refuses to open on anything else,
+unset included: the preview token a public template card hands every visitor
+would otherwise also grant *write* access to the underlying document. That is
+stricter than the webhook's own reading of the variable on purpose — enforcing
+only matters once the methods above are registered on the Yorkie project, which
+nothing in the server can observe, so the gallery asks the operator to say it.
 
 ## Blob Storage
 

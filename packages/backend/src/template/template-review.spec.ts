@@ -47,15 +47,14 @@ describe('assertPublicTierOpen', () => {
 });
 
 describe('assertYorkieAuthEnforced', () => {
-  // The webhook enforces unless a deployment opts out, and this gate has to
-  // read the setting the same way it does — a stricter reading here would shut
-  // the gallery on a deployment that is in fact enforcing, and a looser one
-  // would open it on a deployment that is not.
-  it('refuses only an explicit opt-out', () => {
-    for (const value of [undefined, '', 'true', 'TRUE', '1', 'yes']) {
-      expect(() => assertYorkieAuthEnforced(value)).not.toThrow();
-    }
-    for (const value of ['false', 'FALSE', ' false ']) {
+  // Deliberately stricter than the webhook's own reading of the same variable
+  // (`isYorkieAuthEnforced`, where unset means enforce). This gate needs the
+  // operator to affirm that per-document access is really being enforced,
+  // which also requires the auth-webhook methods to be registered on the
+  // Yorkie project — a step outside this process that no default can attest.
+  it('accepts only an explicit true', () => {
+    expect(() => assertYorkieAuthEnforced('true')).not.toThrow();
+    for (const value of [undefined, '', 'false', 'TRUE', '1', 'yes']) {
       expect(() => assertYorkieAuthEnforced(value)).toThrow(
         BadRequestException,
       );

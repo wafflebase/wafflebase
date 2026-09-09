@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { YorkieService } from './yorkie.service';
 
 // Mock the @yorkie-js/sdk module
@@ -31,9 +32,15 @@ jest.mock('@yorkie-js/sdk', () => {
   };
 });
 
+const JWT_SECRET = 'test-secret';
+
 function createMockConfigService(): ConfigService {
   return {
-    get: jest.fn().mockReturnValue('http://localhost:8080'),
+    get: jest.fn((key: string) => {
+      if (key === 'JWT_SECRET') return JWT_SECRET;
+      if (key === 'YORKIE_TOKEN_EXPIRES_IN') return undefined;
+      return 'http://localhost:8080';
+    }),
   } as unknown as ConfigService;
 }
 
@@ -160,6 +167,27 @@ describe('YorkieService', () => {
       );
       expect(mockDetach).toHaveBeenCalled();
       expect(mockDeactivate).toHaveBeenCalled();
+    });
+
+    // The auth webhook enforces by default, and a client with no token is
+    // exactly what it refuses — so every server-side attach has to identify
+    // itself as this backend or 401 on any deployment that registered the
+    // webhook methods.
+    it('attaches with a backend service token', async () => {
+      const { Client } = jest.requireMock('@yorkie-js/sdk') as {
+        Client: jest.Mock;
+      };
+
+      await service.withDocument('doc-1', () => 'ok');
+
+      const injector = Client.mock.calls[0][0].authTokenInjector as () =>
+        | Promise<string>
+        | undefined;
+      expect(injector).toBeInstanceOf(Function);
+      const token = await injector();
+      expect(
+        new JwtService().verify(token!, { secret: JWT_SECRET }),
+      ).toMatchObject({ typ: 'yorkie-service' });
     });
 
     it('concurrent calls to the same document should not conflict', async () => {

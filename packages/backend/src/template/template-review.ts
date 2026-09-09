@@ -1,5 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import { isYorkieAuthEnforced } from '../yorkie/yorkie-auth-enforcement';
 
 /**
  * The review states a listing can hold — see docs/design/template-gallery.md.
@@ -60,28 +59,40 @@ export function assertPublicTierOpen(): void {
 }
 
 /**
- * The public tier additionally requires the Yorkie auth webhook to be
- * **enforcing**, not merely configured.
+ * The public tier additionally requires an explicit
+ * `YORKIE_AUTH_WEBHOOK_ENFORCE=true`.
  *
- * Publishing publicly hands `previewToken` to every visitor, and in the
- * webhook's shadow mode (`YORKIE_AUTH_WEBHOOK_ENFORCE=false`) that token is
- * enough to *write* to the document — Yorkie logs the decision it would have
- * made and allows the push anyway. Two consequences, and the second is the one
- * that decides this:
+ * Publishing publicly hands `previewToken` to every visitor, and unless the
+ * auth webhook actually refuses that token's writes, it is enough to *write* to
+ * the document. Two consequences, and the second is the one that decides this:
  * anonymous visitors could edit the content of every public template, and
  * because an edit returns a listing to review, one cheap request per card would
  * empty the gallery into a queue only a human on the allowlist can drain.
  *
- * So the gallery's safety rests on a setting that lives outside this feature,
- * and the honest thing is to refuse rather than to document the dependency and
- * hope. Checked at `submit` and `approve` alongside {@link assertPublicTierOpen}.
+ * **This is deliberately stricter than `isYorkieAuthEnforced`
+ * (`src/yorkie/yorkie-auth-enforcement.ts`), which the webhook itself uses.**
+ * The two questions are not the same. The webhook asks
+ * "when I am called, do I honor my own denial?", and there the safe default for
+ * an unconfigured deployment is yes. This gate asks "is per-document access
+ * actually being enforced on this deployment?" — which additionally requires
+ * that the auth-webhook methods were registered on the Yorkie project, a manual
+ * step happening outside this process that no environment variable can attest
+ * and nothing here can observe. An unset variable means nobody has considered
+ * the question, which is precisely the deployment where the methods are least
+ * likely to be registered and where the webhook is therefore never invoked at
+ * all. So the operator has to affirm it, and a typo shuts the gallery rather
+ * than opening it — the same direction every other gate in this feature fails
+ * in.
+ *
+ * Checked at `submit` and `approve` alongside {@link assertPublicTierOpen}.
  */
 export function assertYorkieAuthEnforced(enforce: string | undefined): void {
-  if (isYorkieAuthEnforced(enforce)) return;
+  if (enforce === 'true') return;
   throw new BadRequestException(
-    'The public template gallery requires the Yorkie auth webhook to be ' +
-      'enforcing (YORKIE_AUTH_WEBHOOK_ENFORCE must not be false): in shadow ' +
-      'mode a preview token also grants write access to the document',
+    'The public template gallery requires YORKIE_AUTH_WEBHOOK_ENFORCE=true, ' +
+      'affirming that the auth-webhook methods are registered on the Yorkie ' +
+      'project: without the webhook refusing them, a preview token also ' +
+      'grants write access to the document',
   );
 }
 

@@ -5,7 +5,6 @@ import { AppModule } from '../../app.module';
 import { AuthService } from '../../auth/auth.service';
 import { sessionCookieName } from '../../auth/oauth-state';
 import { PrismaService } from '../../database/prisma.service';
-import { isYorkieAuthEnforced } from '../../yorkie/yorkie-auth-enforcement';
 import { parseReviewerIds } from '../template-review';
 import { TemplateService } from '../template.service';
 import { TEMPLATE_CATALOG } from './catalog';
@@ -152,12 +151,12 @@ async function main(): Promise<void> {
           'could publish templates but never approve them.',
       );
     }
-    if (
-      !isYorkieAuthEnforced(config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE'))
-    ) {
+    // The same explicit affirmation the server demands at submit/approve —
+    // see assertYorkieAuthEnforced. Checked here too so the run fails before
+    // publishing rather than at the first submission.
+    if (config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE') !== 'true') {
       throw new Error(
-        'The public tier requires the Yorkie auth webhook to be enforcing, ' +
-          'but YORKIE_AUTH_WEBHOOK_ENFORCE is set to false.',
+        'The public tier requires YORKIE_AUTH_WEBHOOK_ENFORCE=true.',
       );
     }
 

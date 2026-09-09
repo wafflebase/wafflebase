@@ -116,6 +116,32 @@ describe('YorkieAuthController.decide', () => {
     });
   });
 
+  // The backend's own client (`YorkieService`) carries a `yorkie-service`
+  // token. Without this branch, enforcement denies every server-side attach —
+  // the v1 content endpoints, document copy, template seeding — because there
+  // is no user or share link behind them to resolve.
+  it('allows the backend service token on any document, read or write', async () => {
+    const c = makeController({ identity: { typ: 'yorkie-service' } });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [{ key: 'sheet-anything', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  it('still refuses a service token that does not verify', async () => {
+    const c = makeController({ identity: 'throw' });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'forged',
+        attributes: [{ key: 'sheet-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 401, allowed: false });
+  });
+
   it('grants a workspace member read+write', async () => {
     const c = makeController({
       identity: { typ: 'yorkie', sub: 7 },

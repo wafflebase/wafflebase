@@ -118,6 +118,22 @@ injector *can* hold:
 The webhook decodes the token to `{ userId }` or `{ shareToken }` and resolves
 access from there. Identity is thus **backend-signed**, not client-asserted.
 
+**The backend is a third identity.** `YorkieService.withDocument` attaches
+server-side for the v1 content endpoints, `DocumentCopyService` and the template
+seed, and it is not any user: some of those paths run from a command line with
+no session at all. It supplies its own `{ typ: 'yorkie-service' }` token
+(`packages/backend/src/yorkie/yorkie-service-token.ts`), which `decide()`
+allows unconditionally. That is the layer *above* the permission model rather
+than a hole in it — every one of those paths authorized its caller against
+Postgres (workspace membership, document manager, API-key `write` scope) before
+opening the document, and none of that authority is recoverable from a document
+key inside the webhook. The token is signed with `JWT_SECRET`, is as short-lived
+as a user's, and never leaves the process, so only a secret compromise can
+produce one — and a secret compromise already mints a session for any user.
+Before it existed, a deployment that registered the webhook methods 401'd every
+server-side attach, which is the whole reason enforce-by-default could not have
+shipped without it.
+
 **Token-replay hardening.** The Yorkie token is signed with `JWT_SECRET` (same
 key as the session access token) but, unlike the httpOnly session cookie, it is
 readable by client JS. So `JwtStrategy.validate` must reject anything that isn't

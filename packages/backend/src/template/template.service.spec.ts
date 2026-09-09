@@ -1450,16 +1450,16 @@ describe('public-tier preconditions and the review window', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  // The webhook enforces unless a deployment opts out, so an unset variable is
-  // the *enforcing* case and must not be read as shadow — otherwise a stock
-  // deployment could never open its gallery.
-  it('reads an unset YORKIE_AUTH_WEBHOOK_ENFORCE as enforcing', async () => {
+  // The webhook's own default is enforce, but that says nothing about whether
+  // its methods were ever registered on the Yorkie project — with none
+  // registered the webhook is never called and the preview token still writes.
+  // So this gate wants the operator's affirmation, not a default.
+  it('refuses an unset YORKIE_AUTH_WEBHOOK_ENFORCE, default or not', async () => {
     openPublicTier();
-    const { service, prisma } = makeService({ yorkieEnforce: undefined });
-    await service.submit('tpl-1', 7, { acceptLicense: true });
-    expect(prisma.templateListing.updateMany.mock.calls[0][0].data.status).toBe(
-      'pending',
-    );
+    const { service } = makeService({ yorkieEnforce: undefined });
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('checks it again at approve, since a setting can change in between', async () => {

@@ -8,6 +8,7 @@ import { ShareLinkService } from '../share-link/share-link.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { isYorkieAuthEnforced } from '../yorkie/yorkie-auth-enforcement';
 import { parseYorkieDocKey } from '../yorkie/yorkie-doc-key';
+import { YORKIE_SERVICE_TOKEN_TYPE } from '../yorkie/yorkie-service-token';
 import { YorkieSignatureGuard } from './yorkie-signature.guard';
 
 /**
@@ -38,6 +39,17 @@ interface AuthDecision {
   allowed: boolean;
   reason: string;
 }
+
+/**
+ * The identities whose access is resolved per document: an end user, or an
+ * anonymous share-link visitor. The backend's own service token is answered in
+ * {@link YorkieAuthController.decide} before it reaches here, so it is not part
+ * of this union.
+ */
+type DocumentScopedIdentity = Exclude<
+  YorkieTokenPayload,
+  { typ: typeof YORKIE_SERVICE_TOKEN_TYPE }
+>;
 
 const ALLOW: AuthDecision = { status: 200, allowed: true, reason: 'ok' };
 const UNAUTHENTICATED: AuthDecision = {
@@ -192,6 +204,18 @@ export class YorkieAuthController {
       return UNAUTHENTICATED;
     }
 
+    // This backend's own Yorkie client (`YorkieService`). Every server-side
+    // path — the v1 content endpoints, `DocumentCopyService`, template
+    // publish/seed — authorized its caller against Postgres before opening the
+    // document, and none of that authority is recoverable from a document key
+    // here; some of those paths (a seed command) have no user at all. The
+    // token is signed with `JWT_SECRET` and never leaves the process, so
+    // nothing outside this server can present one. See
+    // `src/yorkie/yorkie-service-token.ts`.
+    if (identity.typ === YORKIE_SERVICE_TOKEN_TYPE) {
+      return ALLOW;
+    }
+
     // Client-scoped methods carry no document; a valid token is enough.
     if (CLIENT_METHODS.has(method)) {
       return ALLOW;
@@ -220,7 +244,7 @@ export class YorkieAuthController {
 
   /** Returns a deny decision, or `null` when the attribute is allowed. */
   private async checkAttribute(
-    identity: YorkieTokenPayload,
+    identity: DocumentScopedIdentity,
     attr: AuthAttribute,
     method: string,
   ): Promise<AuthDecision | null> {
@@ -238,7 +262,7 @@ export class YorkieAuthController {
   }
 
   private async hasAccess(
-    identity: YorkieTokenPayload,
+    identity: DocumentScopedIdentity,
     documentId: string,
     needWrite: boolean,
   ): Promise<boolean> {

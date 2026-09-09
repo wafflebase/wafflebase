@@ -461,11 +461,17 @@ and `approve` — a setting can change between a submission and its decision:
 
 - `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` must name somebody. No reviewers means no
   review pipeline.
-- The Yorkie auth webhook must be enforcing, i.e. `YORKIE_AUTH_WEBHOOK_ENFORCE`
-  must not be `false`. In shadow mode the preview
-  token a public card hands every visitor also grants *write* access to the
-  document, and since an edit returns a listing to review, one request per card
-  would empty the gallery into a queue only a human can drain.
+- `YORKIE_AUTH_WEBHOOK_ENFORCE` must be the literal `true`. Unless the webhook
+  actually refuses them, the preview token a public card hands every visitor
+  also grants *write* access to the document, and since an edit returns a
+  listing to review, one request per card would empty the gallery into a queue
+  only a human can drain. This is deliberately stricter than the webhook's own
+  reading of the same variable (where unset means enforce), because the gate is
+  asking a different question: whether per-document access is *actually* being
+  enforced here, which also needs the auth-webhook methods to have been
+  registered on the Yorkie project — a manual step no environment variable can
+  attest. So the operator affirms it, and a typo shuts the gallery instead of
+  opening it.
 
 `PUBLIC_TIER_OPEN` (`src/template/template-review.ts`) stays as a constant
 rather than being deleted: it is the one line to flip if the gallery has to be
@@ -505,14 +511,14 @@ running frontend and API. It is **not** idempotent — a document that already
 has a listing is skipped, since the dialog shows the listing form rather than
 the publish block once one exists; `--reset` unpublishes first.
 
-**Order these against the Yorkie auth webhook.** `register:templates` requires
-the webhook to be enforcing (a public listing's preview token would
-otherwise also grant write access), while `seed:templates` writes content
-through `YorkieService`, whose client carries no auth token — so once the
-webhook methods are registered its writes are denied, enforcement being the
-default. This is not specific to seeding; it applies to the v1 content
-endpoints and `DocumentCopyService` too. Seed the documents before registering
-the webhook methods on the Yorkie project, or unregister them for the duration.
+**`register:templates` requires the webhook to be enforcing** — the same
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true` the server demands, because a public
+listing's preview token would otherwise also grant write access. `seed:templates`
+needs no such ordering: it writes content through `YorkieService`, which
+authenticates to the webhook as this backend
+(`src/yorkie/yorkie-service-token.ts`), so its writes survive enforcement. The
+same token is what keeps the v1 content endpoints and `DocumentCopyService`
+working with the webhook methods registered.
 
 Both commands also require `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` to name the
 `--author`, who approves their own submissions — which is what a seed is, and
