@@ -1,0 +1,110 @@
+# Yorkie 0.7.20 bump
+
+Move `@yorkie-js/sdk` and `@yorkie-js/react` from 0.7.19 to 0.7.20 across
+the four packages that pin them. Scope is the bump alone: nothing in this
+task adopts the offline-persistence API the release introduces.
+
+## Why
+
+0.7.20 (2026-09-09) carries two SDK changes and one server change:
+
+| Where | Change |
+| --- | --- |
+| SDK #1338 | Offline local persistence — `ClientOptions.store` (`DocStore` + `MemoryDocStore`), `Document.toBytes()`/`fromBytes()`, a `LocalChangesDropped` event, a Web Locks single-active-session guard, and `deactivateOnUnload` auto-defaulting to `false` when `store` is set |
+| SDK #1337 | Attaching the same document key twice on one client now throws `ErrAlreadyAttached` **synchronously**, instead of failing in a way that could kill the whole client session |
+| server | Server-side offline-resumable attach (stable actor, resume, epoch); watch subscriptions keyed by the client's stable actor; a project-stats HLL rollup fix |
+
+**#1337 is the reason to bump now.** `main.tsx` mounts the app in
+`StrictMode` and every document route mounts a `DocumentProvider` whose
+cleanup detaches asynchronously, so an unmount immediately followed by a
+remount leaves a window where the same docKey is attached twice on the one
+provider-level client. The old failure mode for that took the client down
+with it — every other attached document included. The new one is a
+catchable, non-fatal rejection.
+
+**#1338 changes nothing here.** Persistence is opt-in via `ClientOptions.store`
+and we pass no `store`, so non-store clients keep today's behavior. Adopting
+it is a separate, larger task — it needs a stable `clientKey` (we pass none,
+so the SDK generates a random one per client and nothing would ever resume),
+and stabilizing that key activates the single-active-session guard, which
+fails the second tab's attach on a document already open in another tab. That
+is a product decision, not a dependency bump. See the review section below.
+
+The server change needs no action from us: `docker-compose.yaml` and CI both
+run `yorkieteam/yorkie:latest`.
+
+## Plan
+
+- [ ] Bump `@yorkie-js/sdk` 0.7.19 → 0.7.20 in `packages/backend`,
+      `packages/frontend`, `packages/notes`
+- [ ] Bump `@yorkie-js/react` 0.7.19 → 0.7.20 in `packages/frontend`
+- [ ] `pnpm install`; confirm the lockfile resolves a single SDK version
+      (`@yorkie-js/react` bundles its own SDK copy — the realm-split trap in
+      `packages/frontend/src/types/notes-document.ts` — so the two must move
+      together)
+- [ ] Grep for stale `0.7.19` prose that the bump makes wrong. Do **not**
+      rewrite the historical notes: `0.7.19` is load-bearing in
+      `docs/design/revision-history.md` and the history adapters as the
+      version that *fixed* `YSON.parse`, and those sentences stay true.
+- [ ] `pnpm verify:fast`
+- [ ] `pnpm verify:self`
+- [ ] Yorkie-attached integration suites against a live server
+      (`RUN_DB_INTEGRATION_TESTS=true RUN_YORKIE_INTEGRATION_TESTS=true`)
+- [ ] Manual smoke in `pnpm dev`: open a document, edit, confirm the
+      sync-status chip settles on `Saved`, and confirm presence avatars
+      still appear for a second peer (the server now keys watch
+      subscriptions by the client's stable actor)
+- [ ] Self review over the branch diff
+- [ ] PR
+
+## Not in scope
+
+- **Offline persistence.** `docs/design/sync-status.md` names it a Non-Goal
+  on the premise that "the Yorkie JS SDK persists nothing locally". 0.7.20
+  makes that premise false, so the doc's Non-Goal needs rewriting — but
+  behind a design pass, not this bump.
+- **The open upstream revision-history asks.** `CreateRevision` is still
+  called with `attributes: null`, so registering it on the auth webhook
+  still denies everyone (`docs/design/revision-history.md` §6 ask 1). Asks 2
+  (revision author) and 3 (retention/delete RPC) and the
+  `ListRevisionsByAdmin` panic under API-Key auth are likewise untouched by
+  0.7.20.
+
+## Review
+
+**One thing was not free: the bundle.** `verify:fast` is green on the bump
+alone, but `verify:self` failed the frontend chunk gate — `vendor-yorkie` is
+782.51 kB against its 780 kB targeted cap. Measured before/after on this tree
+(build `main`'s deps, then the branch's), 767.43 kB → **782.51 kB, +15.08 kB**,
+which is 0.7.20's offline-persistence layer: the `DocStore`/`MemoryDocStore`
+backend, `toBytes()`/`fromBytes()` envelope serialization, the Web Locks guard,
+and the `LocalChangesDropped` path. We pay for it without using it — the SDK
+ships one bundle and the code is not separable behind the `store` option.
+Cap raised 780 → 800 kB with that measurement recorded in
+`harness.config.json`, following the convention the neighbouring entries set:
+a targeted cap slightly above the measured size, rather than loosening the
+global per-chunk budget for unrelated chunks.
+
+**Doc corrections the bump forced.** `sync-status.md` asserted "the Yorkie JS
+SDK persists nothing locally" in the present tense, twice (its Summary and the
+`docs/design/README.md` index line), as the justification for adopting only
+Google Docs' warning half. 0.7.20 makes the bare claim false. Both now say the
+SDK persists nothing *unless asked to* and that we do not ask — which keeps the
+design's conclusion intact for the right reason — and the Non-Goal spells out
+the two things adoption actually costs (a stable `clientKey`, and the second
+tab). The historical `0.7.19` references in `revision-history.md` and the
+history snapshot adapters were deliberately left alone: they record which
+version fixed `YSON.parse`, and that stays true.
+
+### Verification
+
+| Gate | Result |
+| --- | --- |
+| `pnpm verify:fast` | pass (exit 0) |
+| `pnpm verify:self` | pass after the chunk-cap fix; failed before it on `verify:frontend:chunks` |
+| Backend e2e incl. Yorkie-attached suites (`RUN_DB_INTEGRATION_TESTS=true RUN_YORKIE_INTEGRATION_TESTS=true`) | 17 suites, 109 passed / 19 skipped — `revision-history`, `docs-tree-attached`, `docs-cli-roundtrip` all pass |
+| Yorkie server | pulled `yorkieteam/yorkie:latest` to 0.7.20 first, so the attached suites ran client 0.7.20 against server 0.7.20 |
+
+The 19 skips are the pre-existing gated cases (notably
+`revision-history.e2e-spec.ts`'s `refuses a read-only client`, which needs the
+`yorkie` admin CLI on `PATH`), not anything this bump disabled.
