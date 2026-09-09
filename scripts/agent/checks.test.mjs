@@ -270,6 +270,138 @@ test("the panel starts with CI, admits re-runs, and mirrors ciRunDecision", () =
   }
 });
 
+// A FIX ROUND KILLED BY ITS OWN 45-MINUTE WALL MUST STILL CONVERGE THE PR.
+//
+// `timeout-minutes` makes GitHub report the job `cancelled`, not `failure`, and
+// both stall detectors read `failure`: the `stalled` net tests
+// `needs.fix.result == 'failure'` behind a `!cancelled()`, and the no-commit
+// page used to carry nothing but `steps.guard.outputs.proceed == 'true'` — which
+// keeps GitHub's implicit `success()`, false once the step before it was
+// cancelled. So the `agent:fixing` label written fourteen steps earlier stayed,
+// and since that label is what the pipeline reads as "a round is in flight",
+// nothing re-triggered. #1047, #1052 and #1053 all stopped there on 2026-09-08,
+// silently, after #1042 did on 2026-09-07.
+//
+// The condition is the whole fix, so it is pinned here as a truth table rather
+// than a grep: every row is a real outcome the `fix` job produces, and the two
+// that must NOT page are what keeps this from double-paging against `stalled`.
+test("the no-commit page fires on a timed-out fixer, and only where `stalled` won't", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-review-panel.yml"), "utf8");
+
+  // The step's own block, so a same-named phrase in a comment elsewhere in this
+  // 2.4k-line file cannot satisfy the assertions below.
+  const block = (name) => {
+    const at = yml.indexOf(`- name: ${name}\n`);
+    assert.ok(at > 0, `no step named ${name}`);
+    const rest = yml.slice(at);
+    const end = rest.slice(1).search(/\n {6}- (name|uses):/);
+    return end === -1 ? rest : rest.slice(0, end + 1);
+  };
+
+  // `steps.fixer.outcome` reads empty unless the fixer step is actually
+  // ID'd — the condition would then be vacuously false on every timeout and
+  // this whole fix would be a no-op that still passes a grep for the outcome.
+  assert.match(block("Address panel findings"), /^\s*id: fixer$/m,
+    "the fixer step must carry `id: fixer` for its outcome to be readable");
+
+  const cond = (block("Page if the fix produced no commit").match(/^\s*if: >-\n((?: {9,}.*\n)+)/m) || [])[1];
+  assert.ok(cond, "could not extract the no-commit page's if: expression");
+
+  // `always()` and not `!failure()`: the runner is only documented to keep
+  // running a step through a cancellation when the condition is always-true, and
+  // this step has to run precisely when the job is being cancelled.
+  assert.match(cond, /always\(\)/, "the step must survive the job's own cancellation");
+
+  const pages = new Function("PROCEED", "FIXER", "CRED", `return Boolean(${cond
+    .replace(/always\(\)/g, "true")
+    .replace(/steps\.guard\.outputs\.proceed/g, "PROCEED")
+    .replace(/steps\.fixer\.outcome/g, "FIXER")
+    .replace(/steps\.cred\.outputs\.available/g, "CRED")});`);
+
+  for (const [why, args, expected] of [
+    ["the fixer finished — the head check decides", ["true", "success", "true"], true],
+    // THE REGRESSION this step's condition was rewritten for.
+    ["the job's own wall killed the fixer", ["true", "cancelled", "true"], true],
+    ["the wall hit and the credential picker was absent", ["true", "cancelled", ""], true],
+    // Every row below reports `outcome: skipped` or `failure`, and each already has
+    // a pager that says something TRUER than this step could. Paging here as well
+    // would comment twice and latch `agent:blocked` from two places.
+    ["the fixer hard-errored — `stalled` pages", ["true", "failure", "true"], false],
+    ["a setup step failed, so the fixer was skipped — `stalled` pages", ["true", "skipped", ""], false],
+    // The dedicated no-credential page owns this one: it knows no round was spent
+    // and that a usage window commonly reopens on its own, so this step's "did not
+    // converge within its turn budget / re-run with @claude fix" would contradict
+    // it in both cause and remedy.
+    ["no live credential — its own page owns it", ["true", "skipped", "false"], false],
+    ["the round guard held or paged, so no round was spent", ["false", "skipped", ""], false],
+  ]) {
+    assert.equal(pages(...args), expected,
+      `${why}: expected the no-commit page to ${expected ? "run" : "be skipped"}`);
+  }
+
+  // ...and because it is excluded, THAT page must write the state itself. It used
+  // to inherit `agent:blocked` from this step as a side effect, so removing the
+  // case without moving the label would strand the no-credential path on
+  // `agent:fixing` — the same silent dead-end this whole change closes, reached a
+  // different way.
+  assert.match(block("Page — no live credential for the fixer"),
+    /set-state\.mjs" "\$PR" blocked/,
+    "the no-credential page must set the state, now that the generic pager skips it");
+
+  // A CI RE-RUN IS THE ONE SUPERSEDE THE HEAD CHECK CANNOT SEE, and paging
+  // through it is worse than silence: the page body is the `<!-- agent-review-paged
+  // -->` latch the `gate` job refuses every later panel run on, and `@claude rerun`
+  // deletes that latch BEFORE it re-runs CI — so a page from the cancellation grace
+  // window lands after the cleanup and freezes the round the operator just started.
+  // Without this the fix above would trade a silent dead-end for a louder one.
+  const page = block("Page if the fix produced no commit");
+  assert.match(page, /CI_ATTEMPT: \$\{\{ github\.event\.workflow_run\.run_attempt \}\}/,
+    "the page must know which CI attempt this round reviewed");
+  assert.match(page, /NOW_ATTEMPT.*actions\/runs\/\$CI_RUN_ID.*run_attempt/s,
+    "the page must read the CI run's CURRENT attempt to detect a re-run");
+  assert.match(page, /"\$NOW_ATTEMPT" != "\$CI_ATTEMPT"[\s\S]*?exit 0/,
+    "a re-run must suppress the page, not just be logged");
+  // Reading it needs a scope the App token used for the comment does not carry.
+  const fixPerms = (yml.match(/^ {2}fix:\n(?:.*\n)*? {4}permissions:\n((?: {6}.*\n)+)/m) || [])[1];
+  assert.ok(fixPerms, "could not extract the fix job's permissions");
+  assert.match(fixPerms, /^ {6}actions: read/m,
+    "the fix job needs `actions: read` for the re-run check");
+
+  // THE WALL'S LENGTH IS WRITTEN IN THREE PLACES and cannot be read from any
+  // expression context, so a step cannot ask its own job how long it had. The page
+  // states the number to a human and tells them the retry path shares it, so a
+  // raise applied to one copy and not the others is a page that lies about both
+  // how long the round got and how long the retry will get. Pin all three.
+  const fixWall = (yml.match(/^ {2}fix:\n(?:.*\n)*? {4}timeout-minutes: (\d+)$/m) || [])[1];
+  assert.ok(fixWall, "could not read the fix job's timeout-minutes");
+  const stated = [...page.matchAll(/(\d+)[ -]minutes?\b/g)].map((m) => m[1]);
+  assert.ok(stated.length >= 2, "the cancelled cause line must state the wall and the retry path's wall");
+  for (const n of stated) {
+    assert.equal(n, fixWall,
+      `the page says ${n} minutes but the fix job's timeout-minutes is ${fixWall}`);
+  }
+  // `agent-fix.yml` is what the page tells a human to retry on, so its wall has to
+  // be the one the page promises. A tighter wall there would refuse exactly the
+  // rounds the loop could not finish either.
+  const fixYml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-fix.yml"), "utf8");
+  const onDemandWall = (fixYml.match(/^ {2}fix:\n(?:.*\n)*? {4}timeout-minutes: (\d+)$/m) || [])[1];
+  assert.equal(onDemandWall, fixWall,
+    "agent-fix.yml's fix wall must match the autonomous one the page points away from");
+
+  // And `stalled` keeps its `!cancelled()`. It is not the bug — it is what stops
+  // a run cancelled by the concurrency guard from paging over a FRESHER round,
+  // and it is deliberately left alone because the step above now owns the
+  // timeout. Deleting it to "also catch cancelled" would restore #648's
+  // spurious latch and double-page every timeout on top.
+  const stalledIf = (yml.match(/^ {2}stalled:\n(?:.*\n)*? {4}if: >-\n((?: {6}.*\n)+)/m) || [])[1];
+  assert.ok(stalledIf, "could not extract the stalled job's if: expression");
+  assert.match(stalledIf, /!cancelled\(\)/,
+    "stalled must keep `!cancelled()` — a superseded panel must not page");
+  assert.ok(!/needs\.fix\.result == 'cancelled'/.test(stalledIf),
+    "a cancelled fix job is the no-commit page's case; claiming it here double-pages");
+});
+
 // --- "@claude fix": routing, gate order, and reporting ----------------------
 
 // Workflow text with FULL-LINE `#` comments stripped. These assertions are about

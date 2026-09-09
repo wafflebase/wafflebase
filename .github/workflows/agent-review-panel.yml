@@ -1640,13 +1640,19 @@ jobs:
       needs.ci.outputs.conclusion == 'success' &&
       needs.review-panel.outputs.blocked == 'true' && needs.review-panel.outputs.pr != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90, raised from 45. A round that hits the wall loses ALL of its work — the
+    # fixer pushes at the end — so the wall was cutting off rounds that were still
+    # converging, and on #1047/#1052/#1053 it did so silently. `--max-turns 200`
+    # below is the real backstop against a runaway; this is the cost ceiling, and
+    # MAX_REVIEW_ROUNDS still bounds how many of them a PR may spend.
+    timeout-minutes: 90
     environment: agent
     permissions:
       contents: write # push the fix commit
       checks: read # read the lens findings
       pull-requests: write
       issues: write
+      actions: read # the no-commit page reads the CI run's current attempt
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
     steps:
@@ -1910,6 +1916,18 @@ jobs:
       # the PR would stall silently with no comment at all. The message says what a
       # usage window actually needs, because unlike every other page here this one
       # commonly clears on its own.
+      #
+      # IT SETS THE STATE ITSELF, and it has to. The comment above claimed the steps
+      # below were skipped on this path; they were not — nothing had FAILED, so the
+      # no-commit page's implicit `success()` held and it posted a second, worse page
+      # ("did not converge within its turn budget", `@claude fix`) contradicting this
+      # one in both cause and remedy, and set `agent:blocked` as a side effect this
+      # path was silently depending on. That page now excludes this case, so the
+      # label has to be written here or the PR strands on `agent:fixing` — the exact
+      # dead-end this job's other change closes. `blocked` is not a new policy: the
+      # latch printed on the first line below already makes `deriveState` return
+      # `blocked` (set-state.mjs), so this only makes the label agree with the signal
+      # that always dominated it.
       - name: Page — no live credential for the fixer
         if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available == 'false'
         continue-on-error: true
@@ -1934,6 +1952,7 @@ jobs:
             printf 'Where to look: [this run](%s) — the `Pick a live fixer credential` step names the slots it found.\n' "$RUN_URL"
           } > "$RUNNER_TEMP/no-credential.md"
           gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"
+          node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
 
       - name: Record the fix-round dispatch
         # `!= 'false'` and not `== 'true'`: an unset output (picker skipped, older
@@ -1949,6 +1968,11 @@ jobs:
           gh pr comment "$PR" --body-file "$DISPATCH_FILE"
 
       - name: Address panel findings
+        # ID'd so the no-commit page below can tell a fixer that was CANCELLED by
+        # the job's wall from one that hard-errored. Those two land in
+        # different hands — this job's page for the first, the `stalled` net for
+        # the second — and without the id both read as an empty outcome.
+        id: fixer
         if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         # Pinned to the v1 release commit (immutable). github_token is the App
         # token so the fix push re-triggers CI (and a fresh review panel).
@@ -2091,7 +2115,7 @@ jobs:
           # did not write at locations the panel chose, then fix every finding in
           # one pass because the prompt tells it to converge in one round. The
           # ceiling is a backstop against a runaway loop, not a budget — cost is
-          # bounded by MAX_REVIEW_ROUNDS and the 45-minute job timeout, both of
+          # bounded by MAX_REVIEW_ROUNDS and the job timeout, both of
           # which bind well before 200 turns of useful work does.
           claude_args: >-
             --max-turns 200
@@ -2127,18 +2151,60 @@ jobs:
       # no new commit → no new CI → no new panel → no next round — yet the fix
       # job still reports success, so nothing pages. Detect "fixer ran but the
       # branch head didn't advance" and page a human via the same latch the guard
-      # uses. No `always()`: this runs only when the fixer step SUCCEEDED but
-      # committed nothing; if the fixer hard-errored, the job fails and the
-      # stalled net pages instead (no double-page). We deliberately do NOT
-      # blind-retry — the fixer just failed to converge (turn budget / denials),
-      # so re-running the same config would burn budget and likely fail again.
+      # uses. We deliberately do NOT blind-retry — the fixer just failed to
+      # converge (turn budget / denials), so re-running the same config would
+      # burn budget and likely fail again.
+      #
+      # THE CONDITION IS THE POINT. This step used to carry only the `proceed`
+      # clause, and so kept GitHub's implicit `success()` — which is false the
+      # moment the step before it is cancelled. `timeout-minutes` on this job
+      # reports `cancelled`, NOT `failure`, so a fixer killed by the wall skipped
+      # this page AND missed the `stalled` net (which is `!cancelled()` and tests
+      # `needs.fix.result == 'failure'`). The `agent:fixing` label set fourteen
+      # steps up therefore stayed, and it is the latch the pipeline reads as "a
+      # round is in flight", so nothing re-triggered: #1042, then #1047, #1052
+      # and #1053 all stopped dead there with no comment saying so.
+      #
+      # `always()` and not `!failure()`: the runner is only documented to carry a
+      # step through a cancellation when its condition is always-true, and this
+      # step's whole job is to run while the job is being cancelled. There is room
+      # to — the cancellation grace window ran `Update loop status` below for five
+      # seconds of `ls-remote` plus an API write on #1053's dead round.
+      #
+      # The outcome set names the two cases where the fixer actually RAN, so every
+      # other way to reach this step is somebody else's page:
+      #   success   → the head check below decides, as before
+      #   cancelled → the job's own wall; THIS is the fix
+      #   failure           → skipped; the `stalled` net pages
+      #   no live credential → skipped; the dedicated page above already said so,
+      #                        more accurately, and sets the state itself
+      #   (setup step failed) → skipped; `stalled` pages
+      # The last three all report `outcome: skipped`, which is why this names the
+      # two real outcomes rather than excluding `skipped` — and why it does not
+      # test `cred.outputs.available`, whose only effect would be to re-admit the
+      # no-credential case this step must stay out of.
+      #
+      # A CONCURRENCY SUPERSEDE DOES NOT PAGE, which is the property `stalled`
+      # needs `!cancelled()` for. The `active` group is only claimed by a fresh
+      # `ci.yml` workflow_run, which requires a push — so a superseded round has
+      # always advanced the head, and the `BEFORE != AFTER` check below takes the
+      # "fixer pushed" arm. Data, not job status.
       - name: Page if the fix produced no commit
-        if: steps.guard.outputs.proceed == 'true'
+        if: >-
+          always() && steps.guard.outputs.proceed == 'true' &&
+          (steps.fixer.outcome == 'success' || steps.fixer.outcome == 'cancelled')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ needs.review-panel.outputs.pr }}
           BEFORE: ${{ steps.before-fix.outputs.sha }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
+          FIXER_OUTCOME: ${{ steps.fixer.outcome }}
+          # A SECOND, read-only token. The App token above is scoped to
+          # contents/pull-requests/issues and cannot read the Actions API, which
+          # the re-run check below needs.
+          ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
           # Only trust a "re-triggered" conclusion when BOTH remote heads
@@ -2150,10 +2216,48 @@ jobs:
           if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
             echo "Fixer pushed a new commit ($AFTER) — CI + a fresh panel will re-trigger."
           else
+            # A CI RE-RUN IS THE ONE SUPERSEDE THAT LEAVES THE HEAD UNCHANGED, so
+            # the check above cannot see it — and a page written through it is worse
+            # than silence. The page body carries `<!-- agent-review-paged -->`,
+            # which the `gate` job treats as "a human owns this" and refuses every
+            # later panel run on; and `@claude rerun` DELETES that latch before it
+            # re-runs CI. So a page written from this cancellation grace window
+            # lands just after that cleanup and freezes the very round the operator
+            # started, consuming their rerun.
+            #
+            # The attempt number is already visible by now: a re-run bumps it when
+            # it STARTS, which is before CI completes, which is before the panel run
+            # that cancels us is even created. Only the `cancelled` arm needs this —
+            # every other outcome reached this step before the fix too.
+            #
+            # Fails OPEN (pages) when the read fails: an unread attempt number is
+            # not evidence of a re-run, and a stray page a human can clear beats the
+            # silent dead-end this whole step exists to close.
+            if [ "$FIXER_OUTCOME" = "cancelled" ]; then
+              NOW_ATTEMPT="$(GH_TOKEN="$ACTIONS_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID" --jq .run_attempt 2>/dev/null || true)"
+              if [ -n "$NOW_ATTEMPT" ] && [ -n "$CI_ATTEMPT" ] && [ "$NOW_ATTEMPT" != "$CI_ATTEMPT" ]; then
+                echo "CI run $CI_RUN_ID is on attempt $NOW_ATTEMPT; this round reviewed attempt $CI_ATTEMPT — a re-run superseded it, so a fresher round owns this PR. Not paging."
+                exit 0
+              fi
+            fi
             echo "Branch head did not advance (before='$BEFORE' after='$AFTER') — paging a human." >&2
+            # A fixer killed by the wall gets its OWN cause line. "did not
+            # converge within its turn budget" would be a guess, and the recovery
+            # differs: the round did real work and lost it, so the retry has to be
+            # told to push partial progress rather than aim for one clean pass.
+            if [ "$FIXER_OUTCOME" = "cancelled" ]; then
+              # Both numbers below are copies of `timeout-minutes` — this job's and
+              # agent-fix.yml's — because a step cannot read its own job's timeout
+              # from any expression context. checks.test.mjs asserts all three agree,
+              # so raising a wall without correcting the sentence fails the build
+              # rather than telling a human the wrong number.
+              CAUSE='It was **cancelled after 90 minutes** — the `fix` job'"'"'s `timeout-minutes` wall — with nothing pushed, so the whole round'"'"'s work was lost. Re-run it with `@claude fix` and, in the same comment, tell it to commit and push partial progress well before the wall (the same 90-minute limit applies to `agent-fix.yml`).'
+            else
+              CAUSE='Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log.'
+            fi
             printf '%s\n' \
               '<!-- agent-review-paged -->' \
-              '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
+              "🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). $CAUSE **A human should take over** on this PR." \
               '' \
               "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`fix\`, step \"Address panel findings\"; a fixer transcript, when one was captured, is in the \`claude-fix-execution-output\` artifact (its upload warns instead of failing when the fixer died before writing one)." \
               '' \
@@ -2166,9 +2270,9 @@ jobs:
       # loop-status comment — pushed (next round starts with CI) or paged.
       # Staged trusted copy, same reason as the session-summary step. On a
       # no-advance outcome the note must NOT point at "the page comment": on a
-      # hard fixer error the no-commit step above is skipped (deliberately not
-      # always(); the `stalled` net pages instead), so at this moment the page
-      # may not exist yet — name both possible pagers instead.
+      # hard fixer error the no-commit step above is skipped on purpose (its
+      # outcome set excludes `failure`, so the `stalled` net pages instead), so at
+      # this moment the page may not exist yet — name both possible pagers.
       - name: Update loop status (fix outcome)
         if: always() && steps.guard.outputs.proceed == 'true'
         continue-on-error: true
@@ -2319,6 +2423,15 @@ jobs:
     # owns this now". `!cancelled()` still fires on every genuine failure — a
     # failed dependency is not a cancellation — so nothing this job was built to
     # catch is lost.
+    #
+    # AND `needs.fix.result == 'cancelled'` DOES NOT BELONG IN THE LIST BELOW,
+    # tempting as it looks: that is a fix round killed by its own
+    # `timeout-minutes`, and the `fix` job's "Page if the fix produced no
+    # commit" step now owns it from inside the cancellation grace window, where it
+    # can read the branch head and stay silent on a supersede. Claiming it here as
+    # well would comment twice and latch `agent:blocked` from two places on every
+    # timeout, and would page spuriously whenever a fixer's own push superseded
+    # the run. Both conditions are pinned in checks.test.mjs.
     if: >-
       !cancelled() &&
       (needs.gate.result == 'failure' ||
