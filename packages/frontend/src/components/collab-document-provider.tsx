@@ -82,7 +82,14 @@ function PresenceIdentityRepair<P extends Indexable>({
 
       const current = doc.getMyPresence() ?? {};
       const missing = Object.keys(initialPresence).filter(
-        (key) => !(key in current),
+        (key) =>
+          !(key in current) &&
+          // An `undefined` value is not stored by the SDK, so such a key is
+          // absent even after a perfectly healthy attach — `DocsDetail` passes
+          // `activeCursorPos: undefined`. Without this the repair would write
+          // it back on every single mount, which is both pointless traffic and
+          // a contradiction of the no-op-when-healthy property above.
+          (initialPresence as Record<string, unknown>)[key] !== undefined,
       );
       if (missing.length === 0) return;
 

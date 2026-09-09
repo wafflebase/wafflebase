@@ -130,6 +130,33 @@ describe("CollabDocumentProvider presence repair", () => {
     ).not.toThrow();
   });
 
+  it("ignores keys whose value is undefined", () => {
+    // `DocsDetail` passes `activeCursorPos: undefined`, and the SDK does not
+    // store an undefined value — so the key is absent even after a healthy
+    // attach. Measured against a live server. Treating it as "missing" would
+    // fire a pointless presence write on every docs open and break the
+    // no-op-when-healthy property.
+    const doc = fakeDoc({ username: "hackerwins", email: "a@b.c", photo: "" });
+    mount(doc, { ...IDENTITY, activeCursorPos: undefined });
+    expect(doc.update).not.toHaveBeenCalled();
+  });
+
+  it("still repairs real keys alongside an undefined one", () => {
+    const doc = fakeDoc({});
+    mount(doc, { ...IDENTITY, activeCursorPos: undefined });
+    const patch = writtenPatch(doc);
+    expect(patch).toEqual(IDENTITY);
+    expect(patch).not.toHaveProperty("activeCursorPos");
+  });
+
+  it("treats an explicit null as a real value to restore", () => {
+    // Distinct from undefined: notes/board pass `selection: null` and
+    // `cursor: null`, and the SDK does store those.
+    const doc = fakeDoc({});
+    mount(doc, { selection: null, cursor: null });
+    expect(writtenPatch(doc)).toEqual({ selection: null, cursor: null });
+  });
+
   it("tolerates a doc-like value that is missing the presence API", () => {
     // Not hypothetical: several existing tests stub `useDocument()` with only
     // the members they need. This effect runs in the provider of every

@@ -67,7 +67,7 @@ there are no console errors.
 
 The real cause, reduced against a live server:
 
-```
+```text
 same client, re-attach immediately   1st=[4 keys]  2nd=[EMPTY]   <-- Anonymous
 same client, re-attach after 1.5s    1st=[4 keys]  2nd=[EMPTY]   <-- Anonymous
 DIFFERENT client (= page reload)     1st=[4 keys]  2nd=[username,email,…]  OK
