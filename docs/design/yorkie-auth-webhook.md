@@ -291,7 +291,14 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
   though attach claims rw", plus the two cases showing attach is not a blanket
   allow and the viewer's `PushPull` write is still 403). The **residual** is a
   change pack carried by the attach itself: a hand-rolled client could smuggle
-  one write past that method, while everything after it is refused. Closing it
+  one *pack* past that method, and nothing stops it from detaching and
+  attaching again, so the bound is per attach rather than per client. What
+  enforcement buys is therefore narrower than "a viewer cannot write": no
+  visitor's *browser* can — our editors mount read-only and every write after
+  the attach is refused at `PushPull` — while a non-browser client that
+  re-attaches per write still can. Features resting on this bound it rather
+  than close it, and say so where they assert it (the public template tier's
+  `assertYorkieAuthEnforced`). Closing it
   needs a truthful verb from yorkie (upstream follow-up) — not a wider webhook
   denial, which costs every viewer their access to buy back one pack. A client
   that emits a local change on *load* under `PushPull` (a lazy migration, field

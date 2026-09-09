@@ -57,3 +57,64 @@ Rule: never widen a budget in the same change that has not measured it. Push
 without the bump and let CI report the real number — if it genuinely does not
 fit, bump it then, with the measurement in hand and the knowledge that a human
 now has to promote the PR by hand.
+
+## Round 11: two of three blocking findings did not survive the code
+
+Three code findings arrived (two more entries were `POOL_EXHAUSTED`
+infrastructure failures, not defects). Verifying each against HEAD before
+touching anything mattered, because two were arguing with code that no longer
+existed or with a change this branch never made:
+
+- **"Enforce-by-default denies viewer share links at attach"** — refuted. The
+  finding quotes `checkAttribute` as `verb === 'rw' ⇒ needWrite`, which is the
+  pre-`d708062bd` line; that commit is HEAD and it added
+  `READ_GATED_METHODS`, so the expression reads
+  `attr.verb === 'rw' && !READ_GATED_METHODS.has(method)`. The claim that the
+  README and design doc were left unchanged is also wrong — both carry the
+  read-gating explanation. Its "dispute adjudicated: upheld" carries no weight:
+  the adjudicator session errored, so nothing read the code.
+- **A viewer's `initialPresence` does not make `PushPull` `rw`** — the same
+  finding's secondary claim. `attachDocument` calls
+  `doc.update((_, p) => p.set(initialPresence))` *before* the RPC, so that
+  change rides the attach pack. That is very likely *why* attach always carries
+  `rw`. What is still unverified is whether a *later* presence-only change
+  (a read-only visitor moving their caret) counts toward the Go server's
+  `pack.HasChanges()`; if it does, the design doc's "a viewer who never edits
+  pushes no changes → verb `r`" is too strong. Left alone deliberately —
+  changing the verb handling is not this PR's business — but it is the thing to
+  watch first in the shadow-mode rollout window.
+- **The shared PDF viewer seeded the root as a `viewer`** — confirmed and
+  fixed, and the mechanism is worth keeping.
+
+## `initialRoot` is applied *after* attach, so a seed is a `PushPull`
+
+The four `*InitialRootForRole` helpers (from #992) read as belt-and-braces
+until you look at the SDK: `attachDocument` sends the change pack, applies the
+server's, marks the document attached, and *then* runs
+`doc.update()` for the `initialRoot` keys the root lacks. The seed is therefore
+a local change carried by the **next `PushPull`** — verb `rw`, which the auth
+webhook refuses for a viewer. So a viewer that seeds does not merely write
+where it should not; under enforcement its sync is denied outright.
+
+`PdfCollabProvider` was the one provider #992 missed, and it is the one this
+branch made reachable: enforce is now the default, so a share-link viewer
+opening a never-commented PDF would seed `comments` and then be 403'd. Fixed
+by `initialRoot={readOnly ? {} : initialPdfRoot()}` — `readOnly` is already the
+resolved role at both call sites (`false` on the owned route,
+`role === 'viewer'` on the shared one), so no new prop was needed. The
+regression test mocks `DocumentProvider` to capture the props it is mounted
+with, which pins the *wiring* rather than a pure helper the provider could
+stop calling.
+
+## Say what a gate buys, not what you wish it bought
+
+`assertYorkieAuthEnforced`'s comment claimed the webhook "refuses that token's
+writes". Read-gating attach makes that false in one direction: a client can put
+its change pack in the attach, and re-attaching repeats it, so the residual is
+bounded per attach, not per client. The gate still decides the public template
+tier — no visitor's *browser* can write, which is the cheap path that would
+empty the gallery into the review queue — but the comment now says that
+instead of the absolute. Same correction in the `READ_GATED_METHODS` comment
+("one write" → one pack per attach) and in the design doc's Risks entry.
+A doc-comment premise that overstates its guarantee is how a later feature ends
+up resting on something that was never true.

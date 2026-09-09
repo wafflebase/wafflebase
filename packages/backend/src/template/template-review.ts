@@ -84,6 +84,21 @@ export function assertPublicTierOpen(): void {
  * than opening it — the same direction every other gate in this feature fails
  * in.
  *
+ * **What enforcement actually buys here is narrower than "the writes are
+ * refused".** `AttachDocument` is authorized as a read (`READ_GATED_METHODS`,
+ * `src/document/yorkie-auth.controller.ts`) because Yorkie sends it with verb
+ * `rw` unconditionally, so a client that puts its change pack in the attach
+ * itself gets that pack applied, and re-attaching repeats it. The gate still
+ * decides this tier, because the consequence it exists to prevent is the cheap
+ * one: with the webhook enforcing, no *visitor's browser* can write — our
+ * editors mount read-only on a viewer token and every write they would make
+ * after the attach is refused at `PushPull` — so emptying the gallery into the
+ * review queue now takes a hand-rolled client that re-attaches per edit rather
+ * than one request per card. Shadow mode refuses nothing at all, which is the
+ * distinction being asserted. The remaining path closes with a truthful attach
+ * verb from Yorkie (`docs/design/yorkie-auth-webhook.md` § Risks); until then
+ * this gate is a bound on the residual, not its removal.
+ *
  * Checked at `submit` and `approve` alongside {@link assertPublicTierOpen}.
  */
 export function assertYorkieAuthEnforced(enforce: string | undefined): void {

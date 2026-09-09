@@ -97,9 +97,13 @@ const REVISION_READ_METHODS = new Set(['ListRevisions', 'GetRevision']);
  * very first attach, so with enforcement the default every viewer link would
  * break on any deployment that registered the method — a denial the verb never
  * meant to express. The residual is a change pack carried by the attach
- * itself: a hand-rolled client could smuggle one write past this method, while
- * every write after it is still refused at `PushPull`. Closing that needs a
- * truthful verb from Yorkie; see `docs/design/yorkie-auth-webhook.md` § Risks.
+ * itself: a hand-rolled client could smuggle one *pack* past this method, and
+ * since nothing stops it from detaching and attaching again, the bound is per
+ * attach rather than per client — what is refused is every write it tries
+ * *after* the attach, at `PushPull`. So enforcement narrows a viewer's write
+ * path to a non-browser client that re-attaches per write; it does not close
+ * it. Closing it needs a truthful verb from Yorkie; see
+ * `docs/design/yorkie-auth-webhook.md` § Risks.
  */
 const READ_GATED_METHODS = new Set(['AttachDocument']);
 

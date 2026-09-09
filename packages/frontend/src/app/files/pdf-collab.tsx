@@ -188,7 +188,18 @@ export function PdfCollabProvider({
   return (
     <DocumentProvider<YorkiePdfRoot, PdfPresence>
       docKey={`pdf-${documentId}`}
-      initialRoot={initialPdfRoot()}
+      // A read-only mount — a share-link `viewer` — must not seed the root.
+      // The SDK writes every absent `initialRoot` key in a `doc.update()`
+      // *after* the attach RPC returns, so a seed is a local change the next
+      // `PushPull` carries; its verb is then `rw`, which the Yorkie auth
+      // webhook refuses for a viewer. Seeding would therefore both write to
+      // the document as the one role that must not, and leave the viewer's
+      // sync denied. Safe to skip: every `root.comments` read is
+      // existence-guarded (`pdf-comment-store.ts`) and a viewer cannot add a
+      // comment at all, while the LWW argument for seeding the container is
+      // about two *editors* racing on the first comment — and editors still
+      // seed. Same rule as `docsInitialRootForRole` and its siblings.
+      initialRoot={readOnly ? {} : initialPdfRoot()}
       initialPresence={presence}
       enableDevtools={import.meta.env.DEV}
     >
