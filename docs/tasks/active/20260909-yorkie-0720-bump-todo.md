@@ -56,6 +56,50 @@ run `yorkieteam/yorkie:latest`.
 - [x] Self review over the branch diff
 - [x] PR — #1055
 
+## Added after the browser smoke: the #1004 "Anonymous" fix
+
+The browser pass found that [#1004](https://github.com/wafflebase/wafflebase/issues/1004)
+still reproduces on 0.7.20 — one bounce of documents-list → note → back → note
+strands the header on a single `AN` / "Anonymous (You)" avatar. Instrumenting
+the live client showed the chain #1004 documents is **not** what fires: the
+client stays active, the document is `attached`, both attaches succeed, and
+there are no console errors.
+
+The real cause, reduced against a live server:
+
+```
+same client, re-attach immediately   1st=[4 keys]  2nd=[EMPTY]   <-- Anonymous
+same client, re-attach after 1.5s    1st=[4 keys]  2nd=[EMPTY]   <-- Anonymous
+DIFFERENT client (= page reload)     1st=[4 keys]  2nd=[username,email,…]  OK
+```
+
+`client.attach(doc, { initialPresence })` applies the presence locally *before*
+the attach RPC (`doc.update((_, p) => p.set(opts.initialPresence || {}))`), and
+reconciling the response leaves that actor's entry `{}` — the actor id is
+reused across attach/detach, so unlike a first attach there is an entry to
+clobber. **Measured identically on 0.7.19 and 0.7.20**, so it is pre-existing
+and unrelated to the bump; a reload appears to fix it only because it mints a
+new client.
+
+Fixed in this PR at the two layers that do not need upstream:
+
+- **`CollabDocumentProvider`** (`src/components/collab-document-provider.tsx`) —
+  wraps `DocumentProvider` and, once attached, re-asserts only the
+  `initialPresence` keys that are **missing**. Restricting it to absent keys is
+  what makes it safe alongside `SlidesView`'s `broadcast()` and `BoardView`'s
+  selection listener, both of which document the assumption that identity
+  fields "are seeded once by `initialPresence` and stay intact". A healthy
+  attach performs no CRDT write at all. Adopted at all 9 provider call sites,
+  so a new document type inherits it instead of having to remember it.
+- **`user-presence.tsx`** — stop substituting `"Anonymous"` for an empty
+  username. That substitution also made the existing `username.length > 0`
+  filter dead code. Genuinely anonymous share-link visitors are unaffected:
+  `shared-document.tsx:975` puts the literal string in their presence.
+
+The upstream fix (apply `initialPresence` after reconciling the attach
+response) and #1004's original orphan (the binding's `client.has(docKey)`
+cleanup guard, unchanged in 0.7.20) both remain open; posted to the issue.
+
 ## Not in scope
 
 - **Offline persistence.** `docs/design/sync-status.md` names it a Non-Goal

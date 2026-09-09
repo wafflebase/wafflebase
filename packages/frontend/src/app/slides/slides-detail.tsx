@@ -1,4 +1,4 @@
-import { createDocumentSelector, DocumentProvider } from "@yorkie-js/react";
+import { createDocumentSelector } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -55,6 +55,7 @@ import {
   FIT_ZOOM,
   type ZoomController,
 } from "./zoom-controller";
+import { CollabDocumentProvider } from "@/components/collab-document-provider";
 
 // Lazy: `revision-preview.tsx` statically imports all three of
 // @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
@@ -947,7 +948,7 @@ export function SlidesDetail() {
   if (!currentUser.username || !currentUser.email) return <Loader />;
 
   return (
-    <DocumentProvider
+    <CollabDocumentProvider
       docKey={`slides-${id}`}
       initialRoot={initialSlidesRoot()}
       initialPresence={{
@@ -958,7 +959,7 @@ export function SlidesDetail() {
       enableDevtools={import.meta.env.DEV}
     >
       <SlidesLayout documentId={id!} />
-    </DocumentProvider>
+    </CollabDocumentProvider>
   );
 }
 

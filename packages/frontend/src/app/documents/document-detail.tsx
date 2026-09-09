@@ -1,4 +1,4 @@
-import { DocumentProvider, useDocument } from "@yorkie-js/react";
+import { useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -58,6 +58,7 @@ import {
 } from "@/app/spreadsheet/pending-imports";
 import type { Thread, CommentAnchor } from "@wafflebase/sheets";
 import { cellAnchorToSref } from "@wafflebase/sheets";
+import { CollabDocumentProvider } from "@/components/collab-document-provider";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
@@ -870,7 +871,7 @@ export function DocumentDetail() {
   // NOTE(hackerwins): Fetch the document from the server using the id.
   // NOTE(hackerwins): instead of using the document id, consider using hash-based key.
   return (
-    <DocumentProvider
+    <CollabDocumentProvider
       docKey={`sheet-${id}`}
       initialRoot={initialSpreadsheetDocument()}
       initialPresence={{
@@ -881,7 +882,7 @@ export function DocumentDetail() {
       enableDevtools={import.meta.env.DEV}
     >
       <DocumentLayout documentId={id!} />
-    </DocumentProvider>
+    </CollabDocumentProvider>
   );
 }
 

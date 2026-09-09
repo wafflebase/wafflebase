@@ -85,3 +85,51 @@ measured `editSeq=0`, which *looked* like a real regression in the sync-status
 signal. The hook reads `event.value.clientSeq`. Mirror the production reader
 exactly rather than guessing an event's shape, or the probe invents its own
 bug and you spend the next hour on it.
+
+## The headless smoke was right about its claim and wrong about the question
+
+The headless pass asserted "the client survives a duplicate attach" and that
+was true — verified, and still true. But I let it stand in for "is #1004
+fixed?", which it never tested, and wrote a PR description that read as though
+the bump resolved the issue. The user ran the browser and it reproduced in one
+bounce.
+
+The gap was not rigour, it was scope. I verified the mechanism I had read
+about in the release notes instead of the symptom the issue is named after.
+When a change is claimed to affect a known issue, the thing to reproduce is
+**the issue's symptom**, not the mechanism you believe causes it.
+
+## Instrument before theorising, twice over
+
+Two rounds of reasoning were wrong before any measurement was taken:
+
+1. I predicted 0.7.20 would turn #1004 into `ErrAlreadyAttached` → a red error
+   in `docs-view.tsx:634`. Patching `client.attach` in the live page showed
+   **both attaches succeeding**, no error anywhere, client active, document
+   attached — and the avatar still wrong.
+2. I then assumed an actor-key mismatch. Dumping the presence map showed the
+   same actor id on both attaches with an **empty** entry under it.
+
+Only after that did the real cause appear, and it was mundane: `initialPresence`
+is applied before the attach RPC and clobbered by the response. Each wrong
+theory was plausible and each cost a round trip; the instrument answered in
+one. Reach for the probe first when a symptom is reproducible.
+
+## Bisect a suspicion against the previous version before reporting it
+
+The empty presence looked exactly like something 0.7.20's "stable actor /
+resumable attach" work could have introduced, and the branch was a version
+bump — a tempting story. Running the identical reduction on 0.7.19 showed
+byte-identical behavior, which turned "this PR regressed presence" into "this
+PR neither causes nor fixes a pre-existing defect". Opposite conclusions, one
+command apart.
+
+## A shared wrapper, not nine edits
+
+`initialPresence` had nine call sites across six document types. Repairing each
+would have left the next document type broken by default. Making the repair
+structural — a `CollabDocumentProvider` the call sites use instead of the raw
+provider — means the next type inherits it. The same reasoning says the repair
+must touch only *missing* keys: `SlidesView` and `BoardView` both carry
+comments relying on identity fields surviving their partial presence writes, so
+a repair that re-set everything would trade one bug for a worse one.
