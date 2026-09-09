@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { initializeTextBox } from '../../src/view/text-box-editor.js';
+import { MemDocStore } from '../../src/store/memory.js';
 import type { Block } from '../../src/model/types.js';
 
 /**
@@ -814,6 +815,141 @@ describe('initializeTextBox — verticalAnchor', () => {
     api.stepSelectionFontSize(1, clamp);
     expect(api.getRangeStyleSummary().fontSize).toBe(13);
     api.detach();
+  });
+
+  /**
+   * `TextEditor.insertText()` — slides' type-to-edit entry, which forwards
+   * the printable key that opened the text-box — is the programmatic twin of
+   * typing, and it replaces a selection the same way: delete N blocks, then
+   * write. That is the #1045 shape, so it carries the same `withUndoUnit`,
+   * and the unit has to be observable from a host that never touches a
+   * keyboard.
+   *
+   * Pinned at the `DocStore.batch()` seam rather than on `MemDocStore`'s undo
+   * stack, because that stack cannot tell the two apart: `deleteSelection()`
+   * batches itself and `insertText()` snapshots before opening its unit, so
+   * this store answers one undo either way. The store that *does* lose data
+   * without the outer unit is `YorkieDocStore` (one undo unit per
+   * `doc.update()`, capped at 50 entries), and what makes the two agree is
+   * that every write of the action lands inside ONE outermost batch. So that
+   * is what is asserted here — plus the round-trip, so the unit is not
+   * vacuously empty.
+   */
+  function textOf(blocks: Block[]): string[] {
+    return blocks.map((b) => b.inlines.map((i) => i.text).join(''));
+  }
+
+  function mountForInsertText(blocks: Block[]) {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    let committed: Block[] = [];
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks,
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit: (next) => {
+        committed = next;
+      },
+    });
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    api.focus();
+    // Cmd/Ctrl+A: both modifiers so the assertion does not depend on what
+    // `navigator.platform` reports under jsdom.
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a',
+        metaKey: true,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // `detach()` flushes a final `onCommit` while focused, which is how the
+    // resulting blocks are read back out of the internal store.
+    return { api, read: (): string[] => (api.detach(), textOf(committed)) };
+  }
+
+  /**
+   * Count outermost `batch()` calls, and any write that escapes one. A write
+   * seen at depth 0 is a write that would be its own undo unit on
+   * `YorkieDocStore`.
+   */
+  function watchBatches(): {
+    outermost: () => number;
+    writesOutsideABatch: () => number;
+    restore: () => void;
+  } {
+    const proto = MemDocStore.prototype;
+    const realBatch = proto.batch;
+    const writeNames = [
+      'insertText', 'deleteText', 'deleteBlock', 'deleteBlockByIndex',
+      'mergeBlock', 'updateBlock', 'splitBlock', 'insertBlock', 'insertBlockAfter',
+    ] as const;
+    const reals = new Map<string, unknown>();
+    let depth = 0;
+    let outermost = 0;
+    let escaped = 0;
+    proto.batch = function patchedBatch(fn: () => void): void {
+      if (depth === 0) outermost++;
+      depth++;
+      try {
+        realBatch.call(this, fn);
+      } finally {
+        depth--;
+      }
+    };
+    for (const name of writeNames) {
+      const real = proto[name] as (...args: unknown[]) => unknown;
+      reals.set(name, real);
+      (proto as unknown as Record<string, unknown>)[name] = function patchedWrite(
+        this: MemDocStore,
+        ...args: unknown[]
+      ) {
+        if (depth === 0) escaped++;
+        return real.apply(this, args);
+      };
+    }
+    return {
+      outermost: () => outermost,
+      writesOutsideABatch: () => escaped,
+      restore: () => {
+        proto.batch = realBatch;
+        for (const [name, real] of reals) {
+          (proto as unknown as Record<string, unknown>)[name] = real;
+        }
+      },
+    };
+  }
+
+  it('insertText over a multi-block selection is one undo unit', () => {
+    const mounted = mountForInsertText([makeBlock('alpha'), makeBlock('beta')]);
+    const watch = watchBatches();
+    try {
+      mounted.api.insertText('X');
+      // The delete and the insert share ONE outermost batch — that is the
+      // unit. Without it the delete would batch alone and the insert would
+      // be a second write, i.e. a second `doc.update()` on the Yorkie store.
+      expect(watch.outermost()).toBe(1);
+      expect(watch.writesOutsideABatch()).toBe(0);
+    } finally {
+      watch.restore();
+    }
+    // And one undo returns the whole replaced body.
+    mounted.api.undo();
+    expect(mounted.read()).toEqual(['alpha', 'beta']);
+  });
+
+  it('insertText really writes what it was given', () => {
+    const mounted = mountForInsertText([makeBlock('alpha'), makeBlock('beta')]);
+    mounted.api.insertText('X');
+    // The unit is not vacuously empty — the undo above had something to undo.
+    expect(mounted.read()).toEqual(['X']);
   });
 });
 

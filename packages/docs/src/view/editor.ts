@@ -2528,7 +2528,25 @@ export function initialize(
     // `blockParentMap` (the paste path branches on it) and wrap affinity —
     // and `layout` is only reassigned by `recomputeLayout`. See
     // `TextEditor.requestLayoutRefresh`.
-    textEditor.requestLayoutRefresh = recomputeLayout;
+    //
+    // The incremental state has to survive that extra pass. `recomputeLayout`
+    // ends by clearing `dirtyBlockIds`, and `computeLayout` only consults its
+    // cache while that set is non-null (`canUseCache`) — so handing
+    // `recomputeLayout` over directly would make the unit's own deferred
+    // paint re-measure the WHOLE document, on every batched edit down to a
+    // single keystroke. Putting the set back keeps that second pass
+    // incremental; blocks dirtied later in the unit are added to it as usual.
+    //
+    // A set that was `undefined` (a structural edit asking for a full
+    // recompute) restores as EMPTY rather than `undefined`: the pass just run
+    // rebuilt every cache entry, so the deferred paint has nothing left to
+    // re-measure. A later `invalidateLayout()` inside the same unit still
+    // clears it back to `undefined` and forces its own full pass.
+    textEditor.requestLayoutRefresh = () => {
+      const dirty = dirtyBlockIds;
+      recomputeLayout();
+      dirtyBlockIds = dirty ?? new Set();
+    };
 
     // Remove the selected image inline as one undo unit and return to text
     // mode. Shared by the Delete/Backspace keys and by cut, which needs the

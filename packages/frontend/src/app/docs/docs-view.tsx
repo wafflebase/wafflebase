@@ -569,8 +569,16 @@ export function DocsView({
       storeRef.current = null;
       onEditorReady?.(null);
     };
+    // `readOnly` is load-bearing here, not incidental: `initialize()` captures
+    // it once — it decides whether the store is wrapped in `readOnlyDocStore`
+    // and gates every write path inside the editor — and nothing re-arms it on
+    // a mounted editor. Left out of the deps, a session that *loses* write
+    // authority while open (a share link re-resolving from `editor` to
+    // `viewer`) kept a fully writable editor over a document it may no longer
+    // write. Listing it rebuilds the editor against the current permission,
+    // which is the only place that permission is applied.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [didMount, doc]);
+  }, [didMount, doc, readOnly]);
 
   // Update the editor theme when the user toggles light/dark mode.
   useEffect(() => {

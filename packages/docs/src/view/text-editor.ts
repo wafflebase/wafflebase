@@ -4251,7 +4251,14 @@ export class TextEditor {
       // Writing through a disposed editor would mutate a document nothing
       // renders; writing while `pasting` would land inside a large paste's
       // yield gap, against a caret that paste's pending write owns.
-      if (this.disposed || this.pasting) return;
+      //
+      // `readOnly` is re-checked with them rather than trusted from the
+      // keydown gate: it is read here, at the moment of the write, so the
+      // permission this session is allowed to exercise is the one that
+      // decides — not the one that held when the shortcut was pressed and
+      // the clipboard prompt went up. Every other write on this class is
+      // gated synchronously; this is the only one that resumes.
+      if (this.disposed || this.pasting || this.readOnly) return;
       this.saveSnapshot();
       this.withUndoUnit(() => {
         this.deleteSelection();

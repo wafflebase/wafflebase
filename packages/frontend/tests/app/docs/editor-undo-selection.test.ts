@@ -429,6 +429,48 @@ describe('select-all then type is one undo unit (issue #1045)', () => {
     expect(texts()).toEqual(original);
   });
 
+  /**
+   * Korean typing over a select-all, on the software-Hangul path (Mobile
+   * Safari sends raw jamo with no composition events, so the editor assembles
+   * syllables itself). Both halves of that path replace the selection and are
+   * therefore the #1045 shape:
+   *
+   * - a jamo that cannot start a syllable — `ㄳ`, a compound consonant with no
+   *   lead mapping — commits immediately, so `applyHangulResult` deletes the
+   *   selection and writes the character in one breath (`withUndoUnit`);
+   * - an ordinary lead jamo starts a view-local preview instead, and the only
+   *   thing written is the selection delete.
+   *
+   * Either one losing its unit costs one Cmd+Z per deleted block, which on a
+   * document this size overflows Yorkie's 50-entry cap and takes the tail of
+   * the document with it — unrecoverable, exactly as in #1045.
+   */
+  it('a Hangul commit over a select-all is one undo unit', () => {
+    const original = texts();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    type('ㄳ');
+
+    // The commit really landed, so the unit is not vacuously empty.
+    expect(texts().join('')).toBe('ㄳ');
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(texts()).toEqual(original);
+  });
+
+  it('the first jamo of a syllable clears a select-all as one undo unit', () => {
+    const original = texts();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    type('ㄱ');
+
+    // The syllable preview is view-local; only the delete reached the store.
+    expect(texts().join('')).toBe('');
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(texts()).toEqual(original);
+  });
+
   it('a plain-text paste over a select-all is one undo unit', async () => {
     const original = texts();
     const readText = vi.fn().mockResolvedValue('Pasted');
