@@ -35,7 +35,7 @@ import type {
   PdfAnchor,
 } from '@/types/comments.ts';
 import { fileUrl } from '@/api/files.ts';
-import { CollabDocumentProvider } from "@/components/collab-document-provider";
+import { CollabDocumentProvider } from '@/components/collab-document-provider';
 
 export type PdfPresenceUser = {
   username: string;
