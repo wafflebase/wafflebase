@@ -78,6 +78,14 @@ type PeerJumpTarget = {
   requestId: number;
 };
 
+/**
+ * How often a mounted share view re-resolves its token (see
+ * {@link SharedDocumentByToken}). Bounds how long a revoked or downgraded
+ * link keeps the authority it was opened with — one request per minute per
+ * open tab against a cheap, unauthenticated lookup.
+ */
+const SHARE_LINK_REVALIDATE_MS = 60_000;
+
 const DataSourceView = lazy(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
     default: module.DataSourceView,
@@ -1079,38 +1087,49 @@ function SharedDocumentInner({
  * everything below already took `token` as a prop.
  */
 export function SharedDocumentByToken({ token }: { token?: string }) {
-  const [resolved, setResolved] = useState<ResolvedShareLink | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // A share link is a live capability, not a fact settled at page load: it can
+  // be revoked, expire, or be downgraded from `editor` to `viewer` while the
+  // tab sits open. Everything downstream reads its authority off `resolved`
+  // — `readOnly` here, and through it the docs editor's read-only wrapper,
+  // which under the default `YORKIE_AUTH_WEBHOOK_ENFORCE=false` is the write
+  // boundary the visitor actually meets. Resolved exactly once, that boundary
+  // could only ever loosen, never tighten. So re-resolve it periodically and
+  // on tab focus (react-query pauses the interval while the tab is hidden,
+  // and its structural sharing keeps `resolved`'s identity stable when
+  // nothing changed, so an unchanged link re-renders nothing).
+  //
+  // A revoked or expired link now closes the view rather than being carried
+  // for the tab's lifetime. Two attempts have to fail before that happens, so
+  // a single network blip does not evict a working session; a sustained
+  // failure does, which is the safe direction — a document that cannot reach
+  // the API is not syncing either.
+  const {
+    data: resolved,
+    error,
+    isLoading,
+  } = useQuery({
+    queryKey: ["share-link", "resolve", token],
+    queryFn: () => resolveShareLink(token as string),
+    enabled: Boolean(token),
+    refetchInterval: SHARE_LINK_REVALIDATE_MS,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    retry: 1,
+  });
 
-  useEffect(() => {
-    if (!token) {
-      setError("No share token provided");
-      setLoading(false);
-      return;
-    }
-
-    resolveShareLink(token)
-      .then((data) => {
-        setResolved(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || "Invalid or expired link");
-        setLoading(false);
-      });
-  }, [token]);
-
-  if (loading) {
+  if (token && isLoading) {
     return <Loader />;
   }
 
-  if (error || !resolved) {
+  if (!token || error || !resolved) {
+    const message = !token
+      ? "No share token provided"
+      : (error instanceof Error && error.message) || "Invalid or expired link";
     return (
       <div className="flex h-screen w-full items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-semibold mb-2">Link unavailable</h1>
-          <p className="text-muted-foreground">{error || "Invalid or expired link"}</p>
+          <p className="text-muted-foreground">{message}</p>
         </div>
       </div>
     );

@@ -609,6 +609,17 @@ export class YorkieDocStore implements DocStore {
    */
   onRemoteChange?: () => void;
 
+  /**
+   * Unsubscribe for the document subscription opened in the constructor.
+   * Kept (rather than discarded) so {@link dispose} can release it: the
+   * Yorkie document outlives any one store — it belongs to the
+   * `DocumentProvider` — so a store that is replaced while the document
+   * stays attached would otherwise keep receiving `remote-change` and keep
+   * driving the editor it was built for, long after that editor was
+   * disposed. Null once disposed.
+   */
+  private unsubscribeDoc: (() => void) | null = null;
+
   constructor(doc: YorkieDocument<YorkieDocsRoot>) {
     this.doc = doc;
     // Whatever already exists in the doc when this store is constructed
@@ -619,12 +630,28 @@ export class YorkieDocStore implements DocStore {
     this.markUndoFloor();
 
     // Invalidate cache on remote changes
-    doc.subscribe((event) => {
+    this.unsubscribeDoc = doc.subscribe((event) => {
       if (event.type === 'remote-change') {
         this.dirty = true;
         this.onRemoteChange?.();
       }
     });
+  }
+
+  /**
+   * Detach this store from the Yorkie document.
+   *
+   * Call it whenever the store is discarded while its document remains
+   * attached — the host effect rebuilding the editor (a permission change,
+   * for instance). Idempotent, and it clears `onRemoteChange` as well as the
+   * subscription so an already-queued callback cannot reach the disposed
+   * editor either. The store is unusable afterwards: reads still work off
+   * the live root, but nothing refreshes the cache, so callers must drop it.
+   */
+  dispose(): void {
+    this.unsubscribeDoc?.();
+    this.unsubscribeDoc = null;
+    this.onRemoteChange = undefined;
   }
 
   // -----------------------------------------------------------------------
