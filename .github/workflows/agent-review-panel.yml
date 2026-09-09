@@ -1916,6 +1916,18 @@ jobs:
       # the PR would stall silently with no comment at all. The message says what a
       # usage window actually needs, because unlike every other page here this one
       # commonly clears on its own.
+      #
+      # IT SETS THE STATE ITSELF, and it has to. The comment above claimed the steps
+      # below were skipped on this path; they were not — nothing had FAILED, so the
+      # no-commit page's implicit `success()` held and it posted a second, worse page
+      # ("did not converge within its turn budget", `@claude fix`) contradicting this
+      # one in both cause and remedy, and set `agent:blocked` as a side effect this
+      # path was silently depending on. That page now excludes this case, so the
+      # label has to be written here or the PR strands on `agent:fixing` — the exact
+      # dead-end this job's other change closes. `blocked` is not a new policy: the
+      # latch printed on the first line below already makes `deriveState` return
+      # `blocked` (set-state.mjs), so this only makes the label agree with the signal
+      # that always dominated it.
       - name: Page — no live credential for the fixer
         if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available == 'false'
         continue-on-error: true
@@ -1940,6 +1952,7 @@ jobs:
             printf 'Where to look: [this run](%s) — the `Pick a live fixer credential` step names the slots it found.\n' "$RUN_URL"
           } > "$RUNNER_TEMP/no-credential.md"
           gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"
+          node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
 
       - name: Record the fix-round dispatch
         # `!= 'false'` and not `== 'true'`: an unset output (picker skipped, older
@@ -2158,15 +2171,18 @@ jobs:
       # to — the cancellation grace window ran `Update loop status` below for five
       # seconds of `ls-remote` plus an API write on #1053's dead round.
       #
-      # The outcome set then admits exactly one new case and no more:
-      #   success            → the head check decides, as before
-      #   cancelled          → the job's own wall; THIS is the fix
-      #   cred available=false → the fixer never ran, as before
-      #   failure            → skipped; `stalled` pages, so paging here doubles it
-      #   (setup step failed) → also skipped, which is why this names
-      #                        `cred.outputs.available` instead of accepting
-      #                        `fixer.outcome == 'skipped'` — a step never reached
-      #                        reports `skipped` too, and `stalled` owns that case.
+      # The outcome set names the two cases where the fixer actually RAN, so every
+      # other way to reach this step is somebody else's page:
+      #   success   → the head check below decides, as before
+      #   cancelled → the job's own wall; THIS is the fix
+      #   failure           → skipped; the `stalled` net pages
+      #   no live credential → skipped; the dedicated page above already said so,
+      #                        more accurately, and sets the state itself
+      #   (setup step failed) → skipped; `stalled` pages
+      # The last three all report `outcome: skipped`, which is why this names the
+      # two real outcomes rather than excluding `skipped` — and why it does not
+      # test `cred.outputs.available`, whose only effect would be to re-admit the
+      # no-credential case this step must stay out of.
       #
       # A CONCURRENCY SUPERSEDE DOES NOT PAGE, which is the property `stalled`
       # needs `!cancelled()` for. The `active` group is only claimed by a fresh
@@ -2176,9 +2192,7 @@ jobs:
       - name: Page if the fix produced no commit
         if: >-
           always() && steps.guard.outputs.proceed == 'true' &&
-          (steps.fixer.outcome == 'success' ||
-           steps.fixer.outcome == 'cancelled' ||
-           steps.cred.outputs.available == 'false')
+          (steps.fixer.outcome == 'success' || steps.fixer.outcome == 'cancelled')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ needs.review-panel.outputs.pr }}

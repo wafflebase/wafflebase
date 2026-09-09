@@ -137,20 +137,31 @@ Costs accepted: a stuck round holds its `active` concurrency slot for up to 90
 minutes rather than 45, and a worst-case PR's three rounds can now span 4.5
 hours of fixer wall-clock.
 
-## Adjacent defect found, deliberately not fixed here
+## The no-credential path double-paged (found in self review, fixed on review)
 
-The no-live-credential path double-pages, and has since before this change.
 `Page — no live credential for the fixer` says *"the fix agent was **not
 dispatched** … **No fix round was consumed**"* and advises `@claude rerun` once
-usage windows reset — its comment asserts that "skipping the steps below leaves
-the `fix` job GREEN", i.e. that the no-commit page will not run. It does run:
-nothing failed, so the implicit `success()` holds. So the PR also gets the
-generic *"did not converge within its turn budget"* page and `agent:blocked`,
-contradicting the first comment in both cause and remedy.
+usage windows reset. Its comment asserted that "skipping the steps below leaves
+the `fix` job GREEN", i.e. that the no-commit page would not run. It did run:
+nothing had *failed*, so that page's implicit `success()` held. So the PR also got
+the generic *"did not converge within its turn budget / re-run with `@claude
+fix`"* page — contradicting the first in both cause and remedy — plus
+`agent:blocked` as a side effect the no-credential path was silently depending on.
 
-Left alone on purpose — fixing it means deciding whether that path should latch
-`blocked` at all, which is a contract question and not this bug. Filed here so
-it is not lost.
+This was first filed here as out of scope, on the grounds that fixing it meant
+deciding whether that path should latch `blocked` at all. CodeRabbit flagged the
+same thing on the PR, and the contract question turned out to be already
+answered: `deriveState` (`set-state.mjs`) returns `blocked` for **any**
+`agent-review-paged` latch, and that page prints the latch on its first line. So
+the label was never a free choice — it only had to agree with the signal that
+already dominated it.
+
+So the generic page's outcome set drops the `cred.outputs.available == 'false'`
+disjunct (it now names the two outcomes where the fixer actually ran), and the
+dedicated page writes `blocked` itself. **The two halves are one change**:
+excluding the case without moving the label would strand the no-credential path
+on `agent:fixing` — this bug, reached a different way — so the test asserts both,
+and each half is mutation-checked.
 
 ## Tasks
 
@@ -172,6 +183,8 @@ it is not lost.
 - [x] Mutation-check both new assertions — drop the `cancelled` disjunct or the
       re-run `exit 0` and the test fails
 - [x] Raise both fix walls 45 → 90 and pin the three copies against each other
+- [x] Review (CodeRabbit): stop the generic page from double-paging the
+      no-credential path, and move the state write into that path's own page
 - [x] `pnpm verify:fast`
 - [ ] Re-trigger #1047 / #1052 / #1053 by hand (`@claude fix`) — the fix cannot
       rescue a round that already died

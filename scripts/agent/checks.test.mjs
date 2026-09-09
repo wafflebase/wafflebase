@@ -321,20 +321,33 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
 
   for (const [why, args, expected] of [
     ["the fixer finished — the head check decides", ["true", "success", "true"], true],
-    // THE REGRESSION. Everything else here already held before the fix.
+    // THE REGRESSION this step's condition was rewritten for.
     ["the job's own wall killed the fixer", ["true", "cancelled", "true"], true],
     ["the wall hit and the credential picker was absent", ["true", "cancelled", ""], true],
-    ["no live credential, so the fixer never ran", ["true", "skipped", "false"], true],
-    // Both of these are already covered by the `stalled` net, which pages on
-    // `needs.fix.result == 'failure'`. Paging here too would comment twice and
-    // latch `agent:blocked` from two places.
+    // Every row below reports `outcome: skipped` or `failure`, and each already has
+    // a pager that says something TRUER than this step could. Paging here as well
+    // would comment twice and latch `agent:blocked` from two places.
     ["the fixer hard-errored — `stalled` pages", ["true", "failure", "true"], false],
     ["a setup step failed, so the fixer was skipped — `stalled` pages", ["true", "skipped", ""], false],
+    // The dedicated no-credential page owns this one: it knows no round was spent
+    // and that a usage window commonly reopens on its own, so this step's "did not
+    // converge within its turn budget / re-run with @claude fix" would contradict
+    // it in both cause and remedy.
+    ["no live credential — its own page owns it", ["true", "skipped", "false"], false],
     ["the round guard held or paged, so no round was spent", ["false", "skipped", ""], false],
   ]) {
     assert.equal(pages(...args), expected,
       `${why}: expected the no-commit page to ${expected ? "run" : "be skipped"}`);
   }
+
+  // ...and because it is excluded, THAT page must write the state itself. It used
+  // to inherit `agent:blocked` from this step as a side effect, so removing the
+  // case without moving the label would strand the no-credential path on
+  // `agent:fixing` — the same silent dead-end this whole change closes, reached a
+  // different way.
+  assert.match(block("Page — no live credential for the fixer"),
+    /set-state\.mjs" "\$PR" blocked/,
+    "the no-credential page must set the state, now that the generic pager skips it");
 
   // A CI RE-RUN IS THE ONE SUPERSEDE THE HEAD CHECK CANNOT SEE, and paging
   // through it is worse than silence: the page body is the `<!-- agent-review-paged
