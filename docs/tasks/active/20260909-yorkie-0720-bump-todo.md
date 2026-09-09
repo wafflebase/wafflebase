@@ -54,7 +54,7 @@ run `yorkieteam/yorkie:latest`.
 - [x] Smoke the two properties that matter, against a live 0.7.20 server —
       done headlessly rather than by clicking, see Verification below
 - [x] Self review over the branch diff
-- [ ] PR
+- [x] PR — #1055
 
 ## Not in scope
 
