@@ -66,7 +66,11 @@ jobs:
     needs: [route]
     if: needs.route.outputs.command == 'fix'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Matched to the autonomous fixer's wall in agent-review-panel.yml, which
+    # documents why it is 90. This is the path a human is told to retry on when
+    # that one dies, so a tighter wall here would refuse exactly the rounds the
+    # loop could not finish either.
+    timeout-minutes: 90
     # Scope the API key to a protected Environment so a maintainer can require
     # approval before any run spends budget (configure in repo settings).
     environment: agent
@@ -439,7 +443,7 @@ jobs:
           # Matched to the autonomous fixer's ceiling (agent-review-panel.yml
           # documents why 200): this agent does the same job from the same brief,
           # and a tighter budget here would make the on-demand path fail on PRs the
-          # loop can handle. Cost is bounded by the 45-minute job timeout and by
+          # loop can handle. Cost is bounded by the job timeout and by
           # this being one manually-requested run, not a loop.
           claude_args: >-
             --max-turns 200
