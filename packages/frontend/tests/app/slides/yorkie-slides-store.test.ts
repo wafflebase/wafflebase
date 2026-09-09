@@ -76,6 +76,65 @@ describe('ensureSlidesRoot — initial theme preference', () => {
   });
 });
 
+describe('ensureSlidesRoot — read-only mounts', () => {
+  it('writes nothing at all when readOnly', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc, { readOnly: true });
+    // Not "seeds a lighter shape" — nothing. Both branches are
+    // `doc.update()`s on the CRDT root, and a share-link viewer's write is
+    // refused at the next PushPull by the Yorkie auth webhook, which wedges
+    // that viewer's own sync.
+    expect(doc.getRoot().meta).toBeUndefined();
+    expect(doc.getRoot().slides).toBeUndefined();
+    expect(doc.toJSON()).toBe('{}');
+  });
+
+  it('skips the pre-v0.5 backfill when readOnly, and reads it in memory', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    // An unmigrated deck: `meta`/`slides`/`layouts` present, but no
+    // `themes`/`masters`/`guides`. This is the shape that made a viewer's
+    // mount write.
+    doc.update((r) => {
+      const rootAny = r as unknown as {
+        meta: { title: string; themeId: string; masterId: string };
+        slides: unknown[];
+        layouts: unknown[];
+      };
+      rootAny.meta = {
+        title: 'Pre-existing deck',
+        themeId: 'default-light',
+        masterId: 'default',
+      };
+      rootAny.slides = [];
+      rootAny.layouts = [];
+    });
+
+    ensureSlidesRoot(doc, { readOnly: true });
+    expect(doc.getRoot().themes).toBeUndefined();
+    expect(doc.getRoot().masters).toBeUndefined();
+
+    // Nothing downstream needs the write: `read()` runs the same backfill in
+    // memory, so the viewer still renders the deck.
+    const out = new YorkieSlidesStore(doc).read();
+    expect(out.themes.length > 0).toBeTruthy();
+    expect(out.masters.length > 0).toBeTruthy();
+    expect(out.themes.some((t) => t.id === out.meta.themeId)).toBe(true);
+  });
+
+  it('still backfills a writable mount of the same deck', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc);
+    expect(doc.getRoot().themes.length > 0).toBeTruthy();
+    expect(doc.getRoot().masters.length > 0).toBeTruthy();
+  });
+});
+
 describe('YorkieSlidesStore — slide ops', () => {
   it('addSlide pushes onto the array and returns the new id', () => {
     const doc = makeDoc();

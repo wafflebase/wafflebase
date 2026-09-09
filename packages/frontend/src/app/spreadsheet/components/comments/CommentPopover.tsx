@@ -22,6 +22,14 @@ type Props = {
   ) => Promise<void>;
   onDeleteComment: (threadId: string, commentId: string) => Promise<void>;
   onClose: () => void;
+  /**
+   * Suppress every write affordance even when there *is* a signed-in author.
+   * A viewer-role share link mounts the sheet read-only, and being signed in
+   * is not authority over somebody else's document — without this the
+   * composer, reply box and resolve/edit/delete menu all stayed live and each
+   * one writes the CRDT root.
+   */
+  readOnly?: boolean;
 };
 
 /**
@@ -43,8 +51,9 @@ export function CommentPopover({
   onEditComment,
   onDeleteComment,
   onClose,
+  readOnly = false,
 }: Props) {
-  const isReadOnly = currentUser === null;
+  const isReadOnly = readOnly || currentUser === null;
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Dismiss on outside click. Skip clicks inside Radix portals (dropdown
@@ -113,7 +122,9 @@ export function CommentPopover({
 
       {isReadOnly && threads.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          Sign in to leave a comment.
+          {currentUser === null
+            ? "Sign in to leave a comment."
+            : "You have view-only access to this document."}
         </p>
       )}
     </div>

@@ -1295,11 +1295,30 @@ export class YorkieStore implements Store {
     return this.doc.history.canRedo();
   }
 
+  /**
+   * Refuse a comment write on a read-only mount.
+   *
+   * The comment mutators below are the one write path the grid exposes that
+   * does **not** run through the engine's own `readOnly` — the popover calls
+   * this store directly — so nothing else stands between a viewer-role
+   * share-link visitor and a `doc.update()` on the CRDT root. `CommentPopover`
+   * now hides the affordances (`readOnly` in `sheet-view.tsx`), but a UI gate
+   * is the wrong last line: this throws so a future caller that forgets it
+   * fails loudly instead of writing where the Yorkie auth webhook will refuse
+   * it and wedge the viewer's sync.
+   */
+  private assertWritable(action: string): void {
+    if (this.readOnly) {
+      throw new Error(`${action}: this document is open read-only`);
+    }
+  }
+
   async addThread(
     anchor: CommentAnchor,
     body: string,
     author: CommentAuthor,
   ): Promise<Thread> {
+    this.assertWritable('addThread');
     if (anchor.kind === 'sheet-cell' && anchor.tabId !== this.tabId) {
       throw new Error(
         `addThread: anchor.tabId (${anchor.tabId}) does not match store tabId (${this.tabId})`,
@@ -1325,6 +1344,7 @@ export class YorkieStore implements Store {
     body: string,
     author: CommentAuthor,
   ): Promise<Comment> {
+    this.assertWritable('addReply');
     let reply!: Comment;
     this.doc.update((root) => {
       const ws = root.sheets[this.tabId];
@@ -1344,6 +1364,7 @@ export class YorkieStore implements Store {
   }
 
   async editComment(threadId: string, commentId: string, body: string): Promise<void> {
+    this.assertWritable('editComment');
     if (body.trim().length === 0) throw new Error('Comment body cannot be empty');
     this.doc.update((root) => {
       applyEditComment(root.sheets[this.tabId], threadId, commentId, body, Date.now());
@@ -1351,6 +1372,7 @@ export class YorkieStore implements Store {
   }
 
   async deleteComment(threadId: string, commentId: string): Promise<void> {
+    this.assertWritable('deleteComment');
     this.doc.update((root) => {
       applyDeleteComment(root.sheets[this.tabId], threadId, commentId);
     });
@@ -1361,6 +1383,7 @@ export class YorkieStore implements Store {
     resolved: boolean,
     by: CommentAuthor,
   ): Promise<void> {
+    this.assertWritable('setThreadResolved');
     this.doc.update((root) => {
       applyResolveThread(root.sheets[this.tabId], threadId, resolved, by, Date.now());
     });

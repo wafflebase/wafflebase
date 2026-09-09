@@ -273,14 +273,18 @@ export function SlidesView({
       }
     }
 
-    // Known gap (intentional in this PR): `ensureSlidesRoot` may run a
-    // `doc.update()` migration block when a viewer mounts an
-    // unmigrated pre-v0.5 deck, contradicting the empty-deck-seed
-    // policy below. Fixing it properly (gating the migration on a
-    // role, or migrating server-side) is owned by the doc-migration
-    // workstream — not the share-link toolbar work.
+    // Seed / backfill the root only when this mount may write. On a
+    // read-only (share-link viewer) mount `ensureSlidesRoot` would run a
+    // `doc.update()` on the CRDT root — the seed for an empty deck, or the
+    // themes/masters/guides/`meta.themeId` backfill for an unmigrated
+    // pre-v0.5 one — which the Yorkie auth webhook, enforcing by default,
+    // refuses at the next `PushPull` and so wedges the viewer's sync. The
+    // store's `read()` performs the same backfill in memory, so a viewer
+    // still renders an unmigrated deck; the next editor persists it.
+    // Matches the empty-deck seed gate below and `mobile-slides-view`.
     ensureSlidesRoot(doc, {
       initialThemePreference: resolvedThemeRef.current,
+      readOnly: readOnlyMount,
     });
 
     // Build the canvas + overlay DOM into the container. The slides

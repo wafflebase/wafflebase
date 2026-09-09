@@ -959,9 +959,21 @@ export class Spreadsheet {
   /**
    * `recalculateCrossSheetFormulas` re-evaluates all formulas that reference
    * other sheets and re-renders. Call when another sheet's data may have changed.
+   *
+   * Recalculation *writes*: `Sheet.recalculateCrossSheetFormulas` opens a store
+   * batch and `calculate()` persists every formula's new cached value through
+   * it. On a read-only mount those are `doc.update()`s the Yorkie auth webhook
+   * — enforcing by default — refuses for a share-link `viewer`, wedging the
+   * viewer's own sync. So a read-only sheet repaints with whatever cached
+   * values the document already carries and skips the pass entirely, the same
+   * way every other mutator on this class is gated.
    */
   public async recalculateCrossSheetFormulas(): Promise<void> {
     if (!this.sheet) return;
+    if (this._readOnly) {
+      this.worksheet.render();
+      return;
+    }
     await this.sheet.recalculateCrossSheetFormulas();
     this.worksheet.render();
   }

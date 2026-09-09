@@ -148,3 +148,43 @@ always knows the key) sets it. The ops scripts stay unscoped by necessity —
 one client, many documents, and the SDK refreshes on the server's schedule
 rather than per attach — which is now stated as the exception instead of being
 the whole design.
+
+## "Nothing may reach `doc.update()`" has to include the load-time migration
+
+The rule above was written about presence and then applied only to presence.
+Two load-time writes survived it, both reached before the user touches
+anything:
+
+- `ensureSlidesRoot` — a root `doc.update()` on *every* slides mount, shipped
+  with a comment booking it as a known gap owned by "the doc-migration
+  workstream". That booking was priced under shadow-by-default, where a stray
+  viewer write is merely a stray write. With enforcement the default it is a
+  denied `PushPull`, so the gap stopped being a tidiness debt and became a
+  viewer who cannot open a shared deck. It also was never only about empty
+  decks: the themes/masters/guides/`meta.themeId` backfill fires on any
+  unmigrated pre-v0.5 deck. Skipping it costs nothing, because
+  `YorkieSlidesStore.read()` runs the same backfill in memory through
+  `migrateDocument` — the CRDT write was only ever persisting a computation
+  the read path repeats.
+- `recalculateCrossSheetFormulas` — `sheet-view` runs it unconditionally one
+  tick after mount and on every remote change. It reads like a render pass;
+  it is a write, because `calculate()` persists each formula's new cached
+  value through the store. Gated at the engine (`Spreadsheet`, where every
+  other mutator was already gated on `_readOnly`) rather than only at the call
+  site, so the next caller cannot leak it again.
+
+Generalized: the audit question is not "which handlers write?" but "which
+`doc.update()`s run without a user gesture?" — seeds, migrations, backfills
+and recalcs all answer yes and none of them are on an event listener.
+
+## A signed-in viewer is not the same read-only case as an anonymous one
+
+`CommentPopover` derived its read-only state from `currentUser === null`,
+which is a test for *anonymity*, not for authority. A signed-in non-member on
+a viewer-role share link therefore got the full compose / reply / resolve /
+edit / delete UI, and the sheet's comment mutators are the one grid write path
+that does not run through the engine's `readOnly` — the popover calls
+`YorkieStore` directly. Fixed at both altitudes: an explicit `readOnly` prop
+on the popover, and `assertWritable()` on the five comment mutators so a
+future caller fails loudly instead of writing where the webhook will refuse
+it. Being signed in is not authority over somebody else's document.
