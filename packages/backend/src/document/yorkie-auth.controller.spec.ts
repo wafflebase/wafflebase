@@ -50,9 +50,14 @@ function makeController(opts: {
     }),
   } as unknown as ShareLinkService;
 
+  // Enforcing is the default, so "shadow" is the case that has to say so:
+  // `enforce: false` sets the variable to the literal `'false'`, and leaving
+  // it out leaves the variable unset — which enforces.
   const configService = {
     get: jest.fn((k: string) =>
-      k === 'YORKIE_AUTH_WEBHOOK_ENFORCE' && opts.enforce ? 'true' : undefined,
+      k === 'YORKIE_AUTH_WEBHOOK_ENFORCE' && opts.enforce === false
+        ? 'false'
+        : undefined,
     ),
   } as unknown as ConfigService;
 
@@ -251,6 +256,62 @@ describe('YorkieAuthController.handleAuth (shadow vs enforce)', () => {
     );
     expect(status).toHaveBeenCalledWith(401);
     expect(body.allowed).toBe(false);
+  });
+
+  // The default decides whether a share-link viewer's write is refused on a
+  // deployment that registered the webhook methods and configured nothing
+  // else. It is the only place that write is refused at all, so the default
+  // has to be the one that refuses it: shadow mode is opt-in, not the floor.
+  it('enforces when YORKIE_AUTH_WEBHOOK_ENFORCE is unset', async () => {
+    const c = new YorkieAuthController(
+      { verifyYorkieToken: () => ({ typ: 'yorkie-share', shareToken: 's' }) } as unknown as AuthService,
+      { document: jest.fn() } as unknown as DocumentService,
+      {} as unknown as WorkspaceService,
+      {
+        findByToken: () => ({ documentId: '1', role: 'viewer' }),
+      } as unknown as ShareLinkService,
+      { get: () => undefined } as unknown as ConfigService,
+    );
+    const { res, status } = mockRes();
+    const body = await c.handleAuth(
+      {
+        method: 'PushPull',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      },
+      res,
+    );
+    expect(status).toHaveBeenCalledWith(403);
+    expect(body.allowed).toBe(false);
+  });
+
+  // A mistyped opt-out must land on the side that denies: a denial gets
+  // noticed, an accidental bypass does not.
+  it.each([
+    ['FALSE', false],
+    [' false ', false],
+    ['0', true],
+    ['flase', true],
+    ['', true],
+    ['true', true],
+  ])('reads %p as enforcing=%p', async (raw, enforcing) => {
+    const c = new YorkieAuthController(
+      { verifyYorkieToken: () => { throw new Error('invalid'); } } as unknown as AuthService,
+      {} as unknown as DocumentService,
+      {} as unknown as WorkspaceService,
+      {} as unknown as ShareLinkService,
+      { get: () => raw } as unknown as ConfigService,
+    );
+    const { res, status } = mockRes();
+    await c.handleAuth(
+      {
+        method: 'PushPull',
+        token: 'bad',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      },
+      res,
+    );
+    expect(status).toHaveBeenCalledWith(enforcing ? 401 : 200);
   });
 
   it('lets denied traffic through (200) in shadow mode', async () => {

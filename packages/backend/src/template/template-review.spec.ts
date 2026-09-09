@@ -47,9 +47,15 @@ describe('assertPublicTierOpen', () => {
 });
 
 describe('assertYorkieAuthEnforced', () => {
-  it('accepts only an explicit true', () => {
-    expect(() => assertYorkieAuthEnforced('true')).not.toThrow();
-    for (const value of [undefined, '', 'false', 'TRUE', '1', 'yes']) {
+  // The webhook enforces unless a deployment opts out, and this gate has to
+  // read the setting the same way it does — a stricter reading here would shut
+  // the gallery on a deployment that is in fact enforcing, and a looser one
+  // would open it on a deployment that is not.
+  it('refuses only an explicit opt-out', () => {
+    for (const value of [undefined, '', 'true', 'TRUE', '1', 'yes']) {
+      expect(() => assertYorkieAuthEnforced(value)).not.toThrow();
+    }
+    for (const value of ['false', 'FALSE', ' false ']) {
       expect(() => assertYorkieAuthEnforced(value)).toThrow(
         BadRequestException,
       );

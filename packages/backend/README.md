@@ -98,10 +98,14 @@ YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
 YORKIE_TOKEN_EXPIRES_IN=10m             # Optional, lifetime of the short-lived
                                         # Yorkie auth-webhook token minted by
                                         # GET /auth/yorkie-token.
-YORKIE_AUTH_WEBHOOK_ENFORCE=false       # Optional. false (default) = shadow
-                                        # mode: log the access decision but
-                                        # never deny. true = enforce per-doc
-                                        # access at the Yorkie auth webhook.
+YORKIE_AUTH_WEBHOOK_ENFORCE=            # Optional. Unset (the default) =
+                                        # enforce per-document access at the
+                                        # Yorkie auth webhook. The literal
+                                        # `false`, and only that, selects
+                                        # shadow mode: log the access decision
+                                        # but never deny. A typo therefore
+                                        # enforces rather than opening the
+                                        # door.
 WAFFLEBASE_API_ORIGIN=                  # Optional, this deployment's own public
                                         # API origin (scheme + host + port).
                                         # Used to decide whether an absolute
@@ -245,13 +249,14 @@ share-link *editors* keep their history; only viewers lose it, matching Google
 Docs and the panel's own client-side gating. An ordinary `r` (`PushPull`,
 `Watch`) is untouched — a viewer can still read the document itself.
 
-Roll out with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` first (shadow mode — logs the
-decision it *would* make), confirm no false denials, then flip to `true`.
-Unregister the methods (`--auth-webhook-method-rm ALL`) to disable. Shadow mode
-allows every request regardless of the computed decision, so a deployment that
-registers the revision methods but leaves `YORKIE_AUTH_WEBHOOK_ENFORCE=false`
-is not protected — an anonymous viewer share link can still list, read, and
-restore a document's revision history until enforcement is flipped on.
+Registering the methods is the whole switch: with `YORKIE_AUTH_WEBHOOK_ENFORCE`
+unset the backend enforces the decision it computes. If you want to watch first,
+opt into shadow mode with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` (logs the decision
+it *would* make), confirm no false denials, then **unset it again**. Unregister
+the methods (`--auth-webhook-method-rm ALL`) to disable. Shadow mode allows
+every request regardless of the computed decision, so a deployment left in it is
+not protected — an anonymous viewer share link can still list, read, and restore
+a document's revision history.
 
 The same holds for ordinary **writes**, and it is the more important half: this
 webhook is the only place a share-link `viewer` is refused one, and a viewer
@@ -456,7 +461,8 @@ and `approve` — a setting can change between a submission and its decision:
 
 - `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` must name somebody. No reviewers means no
   review pipeline.
-- `YORKIE_AUTH_WEBHOOK_ENFORCE` must be `true`. In shadow mode the preview
+- The Yorkie auth webhook must be enforcing, i.e. `YORKIE_AUTH_WEBHOOK_ENFORCE`
+  must not be `false`. In shadow mode the preview
   token a public card hands every visitor also grants *write* access to the
   document, and since an edit returns a listing to review, one request per card
   would empty the gallery into a queue only a human can drain.
@@ -500,13 +506,13 @@ has a listing is skipped, since the dialog shows the listing form rather than
 the publish block once one exists; `--reset` unpublishes first.
 
 **Order these against the Yorkie auth webhook.** `register:templates` requires
-`YORKIE_AUTH_WEBHOOK_ENFORCE=true` (a public listing's preview token would
+the webhook to be enforcing (a public listing's preview token would
 otherwise also grant write access), while `seed:templates` writes content
-through `YorkieService`, whose client carries no auth token — so with the
-webhook methods registered *and* enforcement on, its writes are denied. This is
-not specific to seeding; it applies to the v1 content endpoints and
-`DocumentCopyService` too. Seed the documents before registering the webhook
-methods on the Yorkie project, or unregister them for the duration.
+through `YorkieService`, whose client carries no auth token — so once the
+webhook methods are registered its writes are denied, enforcement being the
+default. This is not specific to seeding; it applies to the v1 content
+endpoints and `DocumentCopyService` too. Seed the documents before registering
+the webhook methods on the Yorkie project, or unregister them for the duration.
 
 Both commands also require `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` to name the
 `--author`, who approves their own submissions — which is what a seed is, and

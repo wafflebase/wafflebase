@@ -1444,10 +1444,22 @@ describe('public-tier preconditions and the review window', () => {
     // an edit returns a listing to review, one request per card would empty
     // the gallery into a queue only a human can drain.
     openPublicTier();
-    const { service } = makeService({ yorkieEnforce: undefined });
+    const { service } = makeService({ yorkieEnforce: 'false' });
     await expect(
       service.submit('tpl-1', 7, { acceptLicense: true }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // The webhook enforces unless a deployment opts out, so an unset variable is
+  // the *enforcing* case and must not be read as shadow — otherwise a stock
+  // deployment could never open its gallery.
+  it('reads an unset YORKIE_AUTH_WEBHOOK_ENFORCE as enforcing', async () => {
+    openPublicTier();
+    const { service, prisma } = makeService({ yorkieEnforce: undefined });
+    await service.submit('tpl-1', 7, { acceptLicense: true });
+    expect(prisma.templateListing.updateMany.mock.calls[0][0].data.status).toBe(
+      'pending',
+    );
   });
 
   it('checks it again at approve, since a setting can change in between', async () => {

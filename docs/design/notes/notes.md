@@ -318,11 +318,11 @@ neither covers for the other:
 | | bounds | needs |
 | --- | --- | --- |
 | `readOnlyNoteStore` + the state gates | this app's own write paths, including the next one somebody adds without checking a flag | nothing; it ships in the bundle |
-| The Yorkie auth webhook | every client, ours or not | the methods registered on the Yorkie project **and** `YORKIE_AUTH_WEBHOOK_ENFORCE=true` |
+| The Yorkie auth webhook | every client, ours or not | the methods registered on the Yorkie project; enforcement is the default, so only an explicit `YORKIE_AUTH_WEBHOOK_ENFORCE=false` turns it back off |
 
 So "viewer means read-only" is a property of a *deployment*, not of this
-feature. On a deployment still in shadow mode a viewer share link should be
-treated as write-capable no matter what the editor mounts; the webhook logs its
+feature. On a deployment that opted into shadow mode a viewer share link should
+be treated as write-capable no matter what the editor mounts; the webhook logs its
 posture at boot (`SHADOW mode — … per-document access is NOT enforced`) so that
 is visible without reading this document. See
 [`yorkie-auth-webhook.md`](../yorkie-auth-webhook.md).

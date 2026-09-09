@@ -6,6 +6,7 @@ import { AuthService, YorkieTokenPayload } from '../auth/auth.service';
 import { DocumentService } from './document.service';
 import { ShareLinkService } from '../share-link/share-link.service';
 import { WorkspaceService } from '../workspace/workspace.service';
+import { isYorkieAuthEnforced } from '../yorkie/yorkie-auth-enforcement';
 import { parseYorkieDocKey } from '../yorkie/yorkie-doc-key';
 import { YorkieSignatureGuard } from './yorkie-signature.guard';
 
@@ -79,24 +80,29 @@ const REVISION_READ_METHODS = new Set(['ListRevisions', 'GetRevision']);
  * the event webhook) — the signature proves the caller is Yorkie; the `token`
  * in the body proves who the end user is.
  *
- * Rollout: while `YORKIE_AUTH_WEBHOOK_ENFORCE` is not `true`, the computed
- * decision is logged but never enforced (always returns allow), so the webhook
- * can be registered and observed before it starts denying traffic.
+ * **Enforcing is the default**, because this is the only place a *write* by a
+ * share-link `viewer` is refused (`hasAccess`: `link.role === 'editor'`), and a
+ * viewer holds both halves needed to reach Yorkie directly — their share token,
+ * which mints a Yorkie token at `GET /auth/yorkie-token`, and the project's
+ * public key, which every visitor's bundle carries. So a client that is not our
+ * frontend attaches and writes regardless of what our editors mount: the
+ * read-only mounts on the share routes (`readOnlyNoteStore`, `readOnlyDocStore`,
+ * the editors' own `readOnly` state) keep *this app* from writing where it must
+ * not, which is a correctness boundary, not an access-control one. A default
+ * that allowed the write would leave viewer-means-read-only true only of
+ * well-behaved clients.
  *
- * **Shadow mode is not a security posture, and nothing in a client can stand in
- * for it.** This is the only place a *write* by a share-link `viewer` is
- * refused (`hasAccess`: `link.role === 'editor'`), and a viewer holds both
- * halves needed to reach Yorkie directly — their share token, which mints a
- * Yorkie token at `GET /auth/yorkie-token`, and the project's public key, which
- * every visitor's bundle carries. So a client that is not our frontend attaches
- * and writes regardless of what our editors mount: the read-only mounts on the
- * share routes (`readOnlyNoteStore`, `readOnlyDocStore`, the editors' own
- * `readOnly` state) keep *this app* from writing where it must not, which is a
- * correctness boundary, not an access-control one. Registering the methods on
- * the Yorkie project **and** setting `YORKIE_AUTH_WEBHOOK_ENFORCE=true` is what
- * makes viewer-means-read-only true of a deployment; until then it is true only
- * of well-behaved clients, which is why {@link logPosture} says so at boot
+ * Shadow mode — computing the decision, logging it, and allowing the request
+ * anyway — remains available for the rollout window, but only by asking for it:
+ * `YORKIE_AUTH_WEBHOOK_ENFORCE=false` and nothing else
+ * ({@link isYorkieAuthEnforced}). It is an observation instrument, not a
+ * posture, so {@link logPosture} says at boot which one this deployment is in
  * rather than leaving the gap to be inferred from a quiet log.
+ *
+ * Registering the methods on the Yorkie project is still a separate, manual
+ * step: with none registered Yorkie never calls this endpoint and nothing here
+ * runs. That is the switch that disables the feature; the variable only chooses
+ * whether a computed denial is honored.
  */
 @Controller('internal/yorkie')
 @SkipThrottle()
@@ -112,8 +118,9 @@ export class YorkieAuthController {
     private readonly shareLinkService: ShareLinkService,
     configService: ConfigService,
   ) {
-    this.enforce =
-      configService.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE') === 'true';
+    this.enforce = isYorkieAuthEnforced(
+      configService.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE'),
+    );
     this.logPosture();
   }
 
@@ -121,8 +128,8 @@ export class YorkieAuthController {
    * Say at boot which posture this deployment is in. Shadow mode otherwise
    * announces itself only through a `[shadow] would deny` line, which appears
    * when somebody is *already* doing the thing that is not being refused — so
-   * an install that meant to enforce and mistyped the variable looks identical
-   * to one that is protected until the day it matters.
+   * an install that is unprotected looks identical to one that is protected
+   * until the day it matters.
    */
   private logPosture(): void {
     if (this.enforce) {
@@ -131,11 +138,11 @@ export class YorkieAuthController {
     }
     this.logger.warn(
       'yorkie auth webhook: SHADOW mode — every request is allowed and ' +
-        'per-document access is NOT enforced. A share-link viewer can write ' +
-        'to a document by attaching with their own Yorkie client; the ' +
-        "editors' read-only mounts do not bound anything but this app. Set " +
-        'YORKIE_AUTH_WEBHOOK_ENFORCE=true (with the methods registered on the ' +
-        'Yorkie project) to enforce.',
+        'per-document access is NOT enforced, because ' +
+        'YORKIE_AUTH_WEBHOOK_ENFORCE is set to false. A share-link viewer can ' +
+        'write to a document by attaching with their own Yorkie client; the ' +
+        "editors' read-only mounts do not bound anything but this app. Unset " +
+        'the variable when the rollout window is over.',
     );
   }
 

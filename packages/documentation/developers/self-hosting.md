@@ -182,7 +182,7 @@ token fails with *"Bad credentials"*.
 | `YORKIE_PUBLIC_KEY` | unset | Yorkie project public key used by the backend SDK client |
 | `YORKIE_SECRET_KEY` | unset | Project secret key. Enables "currently editing" presence on the documents list, **and** is the HMAC key that verifies the Yorkie event and auth webhooks (`document/yorkie-signature.guard.ts`). Without it the event webhook is rejected outright |
 | `YORKIE_TOKEN_EXPIRES_IN` | `10m` | Lifetime of the short-lived token minted by `GET /auth/yorkie-token` for the auth webhook |
-| `YORKIE_AUTH_WEBHOOK_ENFORCE` | `false` | `false` = shadow mode (log the decision, allow everything). `true` = actually deny. See [Yorkie auth webhook](#yorkie-auth-webhook-per-document-access-control) |
+| `YORKIE_AUTH_WEBHOOK_ENFORCE` | unset (**enforce**) | Set it to `false` — and only that exact value — for shadow mode (log the decision, allow everything) during a rollout. Anything else, including unset, denies. See [Yorkie auth webhook](#yorkie-auth-webhook-per-document-access-control) |
 
 ### Blob storage (S3-compatible)
 
@@ -581,21 +581,28 @@ yorkie project update <project> \
   --auth-webhook-method-add RestoreRevision
 ```
 
-Then roll it out:
+Registering the methods is the whole switch: with `YORKIE_AUTH_WEBHOOK_ENFORCE`
+unset the backend **enforces** the decision it computes, so the deployment is
+protected as soon as Yorkie starts calling it. The controller says which posture
+it is in at boot (`enforcing per-document access`, or a `SHADOW mode` warning).
+
+If you would rather watch before denying, opt into a rollout window:
 
 1. Deploy with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` (**shadow mode**) — the
    backend computes and logs the decision it *would* make but allows every
    request.
 2. Confirm the logs show no false denials.
-3. Flip to `YORKIE_AUTH_WEBHOOK_ENFORCE=true`.
+3. **Unset the variable** (or set it to anything but `false`) to enforce.
 
 Unregister with `--auth-webhook-method-rm ALL` to disable.
 
 > [!CAUTION]
-> **Shadow mode is not protection.** A deployment that registers the methods but
-> leaves `YORKIE_AUTH_WEBHOOK_ENFORCE=false` allows everything regardless of the
-> computed decision — including an anonymous share-link viewer listing, reading
-> and restoring a document's full revision history. Both steps are required.
+> **Shadow mode is not protection, and it is not a place to leave a deployment.**
+> While `YORKIE_AUTH_WEBHOOK_ENFORCE=false` everything is allowed regardless of
+> the computed decision — including an anonymous share-link viewer writing to
+> the document, and listing, reading and restoring its full revision history.
+> Only the literal `false` selects it, so a typo enforces rather than silently
+> opening the door.
 
 > [!WARNING]
 > **Do not register `CreateRevision`.** Yorkie calls the webhook for it with
@@ -615,10 +622,10 @@ editor-or-member authority a write does for those two. Workspace members and
 share-link *editors* keep their history; only viewers lose it. Ordinary reads
 (`PushPull`, `Watch`) are untouched.
 
-The public template gallery additionally **requires**
-`YORKIE_AUTH_WEBHOOK_ENFORCE=true`, and refuses to open otherwise: in shadow
-mode the preview token a public template card hands every visitor would also
-grant *write* access to the underlying document.
+The public template gallery additionally **requires** the webhook to be
+enforcing, and refuses to open while `YORKIE_AUTH_WEBHOOK_ENFORCE=false`: in
+shadow mode the preview token a public template card hands every visitor would
+also grant *write* access to the underlying document.
 
 ## Blob Storage
 

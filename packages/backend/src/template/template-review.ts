@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { isYorkieAuthEnforced } from '../yorkie/yorkie-auth-enforcement';
 
 /**
  * The review states a listing can hold — see docs/design/template-gallery.md.
@@ -63,9 +64,10 @@ export function assertPublicTierOpen(): void {
  * **enforcing**, not merely configured.
  *
  * Publishing publicly hands `previewToken` to every visitor, and in the
- * webhook's default shadow mode that token is enough to *write* to the
- * document — Yorkie logs the decision it would have made and allows the push
- * anyway. Two consequences, and the second is the one that decides this:
+ * webhook's shadow mode (`YORKIE_AUTH_WEBHOOK_ENFORCE=false`) that token is
+ * enough to *write* to the document — Yorkie logs the decision it would have
+ * made and allows the push anyway. Two consequences, and the second is the one
+ * that decides this:
  * anonymous visitors could edit the content of every public template, and
  * because an edit returns a listing to review, one cheap request per card would
  * empty the gallery into a queue only a human on the allowlist can drain.
@@ -75,10 +77,11 @@ export function assertPublicTierOpen(): void {
  * hope. Checked at `submit` and `approve` alongside {@link assertPublicTierOpen}.
  */
 export function assertYorkieAuthEnforced(enforce: string | undefined): void {
-  if (enforce === 'true') return;
+  if (isYorkieAuthEnforced(enforce)) return;
   throw new BadRequestException(
-    'The public template gallery requires YORKIE_AUTH_WEBHOOK_ENFORCE=true: ' +
-      'without it a preview token also grants write access to the document',
+    'The public template gallery requires the Yorkie auth webhook to be ' +
+      'enforcing (YORKIE_AUTH_WEBHOOK_ENFORCE must not be false): in shadow ' +
+      'mode a preview token also grants write access to the document',
   );
 }
 

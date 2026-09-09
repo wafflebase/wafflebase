@@ -25,10 +25,11 @@ roles per document, per verb.
 (`packages/backend/src/document/yorkie-auth.controller.ts`), the two token
 endpoints, the `tokenType === 'access'` replay guard, the shared rawBody scope,
 and both frontend injectors are all implemented and wired. What remains
-operational (not code) is the staged rollout: enforcement is gated by
-`YORKIE_AUTH_WEBHOOK_ENFORCE` (shadow-mode default) and by registering the
-webhook methods on the Yorkie project. The sections below describe the design
-as built.
+operational (not code) is registering the webhook methods on the Yorkie
+project. Enforcement itself is the **default**: `YORKIE_AUTH_WEBHOOK_ENFORCE`
+selects shadow mode only when it is set to the literal `false`, so an install
+that registers the methods and configures nothing else denies. The sections
+below describe the design as built.
 
 ## Goals / Non-Goals
 
@@ -197,36 +198,40 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
 
 1. **Endpoint + token endpoints + frontend injectors** — shipped. With the
    webhook URL **unregistered** there is no enforcement, but tokens flow.
-2. **Shadow mode** (default): register the webhook with
-   `YORKIE_AUTH_WEBHOOK_ENFORCE` unset/`false` — the handler computes the
+2. **Shadow mode** (opt-in, for the rollout window only): register the webhook
+   with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` — the handler computes the
    decision, logs the one it *would* have made, but always returns `allowed`.
    Watch for false denials (token gaps, key-parse misses, share edge cases).
-3. **Enforce**: set `YORKIE_AUTH_WEBHOOK_ENFORCE=true` so the handler honors the
-   computed decision.
+3. **Enforce** (the default): unset `YORKIE_AUTH_WEBHOOK_ENFORCE` so the handler
+   honors the computed decision. Registering the methods with the variable
+   unset goes straight here, which is the intended path for a new deployment.
 4. Reversible at every step: flip the flag back, or unregister the webhook
    methods to fully disable.
 
 ## Risks and Mitigation
 
-- **Shadow mode reads as protection and is not** → the default configuration
-  computes a decision and allows the request anyway, so a deployment that
-  registered the methods but never flipped the flag is *observably* running the
-  webhook while enforcing nothing. This matters most for share-link **viewers**:
+- **Shadow mode reads as protection and is not** → it computes a decision and
+  allows the request anyway, so a deployment left in it is *observably* running
+  the webhook while enforcing nothing. This matters most for share-link
+  **viewers**:
   a viewer's write is refused here and nowhere else, and a viewer holds both
   halves needed to skip us — their share token, which mints a Yorkie token at
   `GET /auth/yorkie-token`, and the project's public key, which ships in every
   visitor's bundle. Client-side read-only mounts (`readOnlyNoteStore`,
   `readOnlyDocStore`, the editors' `readOnly` state) therefore bound *our app's*
   write paths and no one else's; they are correctness boundaries, not access
-  control, and no feature should be reviewed as if they were. **Mitigation:** the
-  controller logs its posture at boot — `SHADOW mode — … per-document access is
-  NOT enforced` — so the gap is visible in a deployment's own logs rather than
-  inferred from the absence of denials; and features whose safety depends on the
-  distinction (the public template tier, revision history) assert
-  `YORKIE_AUTH_WEBHOOK_ENFORCE=true` themselves rather than assuming it. The
-  default is left at shadow deliberately: it is the instrument for the verb
-  question below, and flipping it would enforce on installs that registered the
-  methods for observation only.
+  control, and no feature should be reviewed as if they were. **Mitigation:**
+  shadow mode is no longer the default — `isYorkieAuthEnforced`
+  (`src/yorkie/yorkie-auth-enforcement.ts`) reads only the literal `false` as
+  shadow, so registering the methods and configuring nothing else denies, and a
+  typo lands on the side that denies rather than the side that opens. Shadow
+  stays reachable because it is the instrument for the verb question below, but
+  it must now be asked for. On top of that the controller logs its posture at
+  boot — `SHADOW mode — … per-document access is NOT enforced` — so an install
+  that did opt out sees the gap in its own logs rather than inferring it from
+  the absence of denials; and features whose safety depends on the distinction
+  (the public template tier, revision history) assert enforcement themselves
+  through the same helper rather than assuming it.
 - **Bug denies all access** → staged shadow→enforce rollout; `DetachDocument`
   always allowed; instant rollback by unregistering webhook methods.
 - **Token/session expiry mid-session** → short-lived token + `401`-driven
