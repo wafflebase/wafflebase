@@ -1,0 +1,203 @@
+import { describe, test, expect } from 'vitest';
+import {
+  MAX_CELL_PADDING,
+  MAX_FONT_SIZE,
+  MAX_IMAGE_SIZE,
+  MAX_LINE_HEIGHT,
+  isPaintableImageSize,
+  normalizeCellPadding,
+  normalizeFontSize,
+  normalizeLineHeight,
+} from '../../src/model/numeric-attrs.js';
+import { treeNodeToBlock } from '../../src/model/crdt-tree.js';
+import { computeLayout } from '../../src/view/layout.js';
+import { paginateLayout } from '../../src/view/pagination.js';
+import {
+  createTableBlock,
+  DEFAULT_BLOCK_STYLE,
+  DEFAULT_PAGE_SETUP,
+  getEffectiveDimensions,
+} from '../../src/model/types.js';
+import { stubMeasurer } from '../view/_stub-measurer.js';
+
+/**
+ * `rowHeights` is not the only untrusted number that becomes a table row
+ * height: steps 3–4 of `computeTableLayout` derive one from the cell's
+ * content, and every line height in that sum comes from a font size, an
+ * inline image, or a paragraph's line spacing. Each of those is its own
+ * peer-writable Tree attribute, so each reaches `paginateLayout`'s
+ * `while (consumed < rowHeight)` loop the same way a poisoned `rowHeights`
+ * entry does — a hang, or a million `PageLine`s, for every *reader* of the
+ * document.
+ */
+
+describe('the numeric attribute bands', () => {
+  test('normalizeFontSize', () => {
+    expect(normalizeFontSize(11)).toBe(11);
+    expect(normalizeFontSize(MAX_FONT_SIZE)).toBe(MAX_FONT_SIZE);
+    expect(normalizeFontSize(undefined)).toBeUndefined();
+    expect(normalizeFontSize(NaN)).toBeUndefined();
+    expect(normalizeFontSize(Infinity)).toBeUndefined();
+    expect(normalizeFontSize(0)).toBeUndefined();
+    expect(normalizeFontSize(-11)).toBeUndefined();
+    expect(normalizeFontSize(1e9)).toBe(MAX_FONT_SIZE);
+  });
+
+  test('normalizeLineHeight', () => {
+    expect(normalizeLineHeight(1.5)).toBe(1.5);
+    expect(normalizeLineHeight(MAX_LINE_HEIGHT)).toBe(MAX_LINE_HEIGHT);
+    expect(normalizeLineHeight(undefined)).toBeUndefined();
+    expect(normalizeLineHeight(NaN)).toBeUndefined();
+    expect(normalizeLineHeight(-Infinity)).toBeUndefined();
+    expect(normalizeLineHeight(0)).toBeUndefined();
+    expect(normalizeLineHeight(1e9)).toBe(MAX_LINE_HEIGHT);
+  });
+
+  test('normalizeCellPadding keeps zero — no padding is a real style', () => {
+    expect(normalizeCellPadding(0)).toBe(0);
+    expect(normalizeCellPadding(4)).toBe(4);
+    expect(normalizeCellPadding(undefined)).toBeUndefined();
+    expect(normalizeCellPadding(NaN)).toBeUndefined();
+    expect(normalizeCellPadding(Infinity)).toBeUndefined();
+    expect(normalizeCellPadding(-4)).toBeUndefined();
+    expect(normalizeCellPadding(1e9)).toBe(MAX_CELL_PADDING);
+  });
+
+  test('isPaintableImageSize rejects a pair either edge of which is poisoned', () => {
+    expect(isPaintableImageSize(300, 200)).toBe(true);
+    expect(isPaintableImageSize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE)).toBe(true);
+    expect(isPaintableImageSize(300, Infinity)).toBe(false);
+    expect(isPaintableImageSize(NaN, 200)).toBe(false);
+    expect(isPaintableImageSize(300, 0)).toBe(false);
+    expect(isPaintableImageSize(300, 1e9)).toBe(false);
+    expect(isPaintableImageSize(1e9, 200)).toBe(false);
+  });
+});
+
+describe('the CRDT read boundary bands them', () => {
+  const inlineStyle = (attributes: Record<string, string>) =>
+    treeNodeToBlock({
+      type: 'block',
+      attributes: { type: 'paragraph' },
+      children: [
+        {
+          type: 'inline',
+          attributes,
+          children: [{ type: 'text', value: 'hi' }],
+        },
+      ],
+    }).inlines[0].style;
+
+  test('fontSize', () => {
+    expect(inlineStyle({ fontSize: '11' }).fontSize).toBe(11);
+    // Out of band reads as absent, so the block's resolved default applies.
+    expect(inlineStyle({ fontSize: 'Infinity' }).fontSize).toBeUndefined();
+    expect(inlineStyle({ fontSize: 'not-a-number' }).fontSize).toBeUndefined();
+    expect(inlineStyle({ fontSize: '-11' }).fontSize).toBeUndefined();
+    expect(inlineStyle({ fontSize: '1e9' }).fontSize).toBe(MAX_FONT_SIZE);
+  });
+
+  test('the inline image size', () => {
+    const image = (width: string, height: string) =>
+      inlineStyle({ 'image.src': 'x.png', 'image.width': width, 'image.height': height }).image;
+
+    expect(image('300', '200')).toMatchObject({ width: 300, height: 200 });
+    expect(image('300', 'Infinity')).toBeUndefined();
+    expect(image('300', '1e9')).toBeUndefined();
+  });
+
+  test('the block lineHeight', () => {
+    const lineHeight = (value: string) =>
+      treeNodeToBlock({
+        type: 'block',
+        attributes: { type: 'paragraph', lineHeight: value },
+        children: [],
+      }).style.lineHeight;
+
+    expect(lineHeight('1.5')).toBe(1.5);
+    // Absent reads as the default rather than as the ceiling.
+    expect(lineHeight('Infinity')).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+    expect(lineHeight('-2')).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+    expect(lineHeight('1e9')).toBe(MAX_LINE_HEIGHT);
+  });
+
+  test('the cell padding', () => {
+    const padding = (value: string) =>
+      treeNodeToBlock({
+        type: 'block',
+        attributes: { type: 'table', cols: '1' },
+        children: [
+          {
+            type: 'row',
+            children: [{ type: 'cell', attributes: { padding: value }, children: [] }],
+          },
+        ],
+      }).tableData?.rows[0].cells[0].style.padding;
+
+    expect(padding('8')).toBe(8);
+    expect(padding('Infinity')).toBeUndefined();
+    expect(padding('not-a-number')).toBeUndefined();
+    expect(padding('1e9')).toBe(MAX_CELL_PADDING);
+  });
+});
+
+/**
+ * The bands above are one half. The other is that `paginateLayout` bounds its
+ * own row-split loop, because `LayoutTable.rowHeights` has producers that
+ * never pass a read boundary at all — the paste sanitizer, and the cell
+ * content path exercised here.
+ */
+describe('paginateLayout bounds a content-derived row height', () => {
+  const setup = DEFAULT_PAGE_SETUP;
+  const { width } = getEffectiveDimensions(setup);
+  const contentWidth = width - setup.margins.left - setup.margins.right;
+
+  const paginateCellWith = (mutate: (block: ReturnType<typeof createTableBlock>) => void) => {
+    const block = createTableBlock(1, 1);
+    mutate(block);
+    const { layout } = computeLayout([block], stubMeasurer(7), contentWidth);
+    return paginateLayout(layout, setup);
+  };
+
+  test('a poisoned font size inside a cell neither hangs nor floods pages', () => {
+    for (const fontSize of [Infinity, 1e9, NaN]) {
+      const result = paginateCellWith((block) => {
+        block.tableData!.rows[0].cells[0].blocks[0].inlines[0].style.fontSize = fontSize;
+      });
+      // 200 pages is the loop's own ceiling; anything under it proves the
+      // loop terminated rather than looping on `Infinity`.
+      expect(result.pages.length).toBeLessThanOrEqual(202);
+    }
+  });
+
+  test('a poisoned cell padding neither hangs nor floods pages', () => {
+    for (const padding of [Infinity, 1e9]) {
+      const result = paginateCellWith((block) => {
+        block.tableData!.rows[0].cells[0].style.padding = padding;
+      });
+      expect(result.pages.length).toBeLessThanOrEqual(202);
+    }
+  });
+
+  test('a poisoned line height inside a cell neither hangs nor floods pages', () => {
+    for (const lineHeight of [Infinity, 1e9]) {
+      const result = paginateCellWith((block) => {
+        block.tableData!.rows[0].cells[0].blocks[0].style.lineHeight = lineHeight;
+      });
+      expect(result.pages.length).toBeLessThanOrEqual(202);
+    }
+  });
+
+  test('a genuinely tall cell still splits across pages', () => {
+    const result = paginateCellWith((block) => {
+      const cell = block.tableData!.rows[0].cells[0];
+      cell.blocks = Array.from({ length: 200 }, (_, i) => ({
+        id: `p${i}`,
+        type: 'paragraph' as const,
+        inlines: [{ text: 'content', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }));
+    });
+    expect(result.pages.length).toBeGreaterThanOrEqual(2);
+  });
+});

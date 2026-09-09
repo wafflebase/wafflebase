@@ -45,6 +45,43 @@ export interface PaginatedLayout {
   pageSetup: PageSetup;
 }
 
+/**
+ * Most pages one table row may be split across.
+ *
+ * The row-split loop below emits one page per iteration, and the height it
+ * consumes is `LayoutTable.rowHeights[r]` — which is *not* only the minimum
+ * the user dragged to (banded at the CRDT read boundaries by
+ * `normalizeRowHeight`). Steps 3–4 of `computeTableLayout` also derive it
+ * from the cell's content, summing line heights that come from a font size,
+ * an inline image and a paragraph's line spacing — each its own untrusted
+ * Tree attribute, and each banded on read (`model/numeric-attrs.ts`) but
+ * through a different code path. The loop therefore bounds itself rather than
+ * trusting its input: whatever produced the height, no single row can hang
+ * the tab or allocate a `PageLine` per page for a million pages.
+ *
+ * 200 pages is far past any real row — a letter page holds ~50 lines, so this
+ * is a ~10,000-line table cell — while a `1e9` px height would ask for 1.1
+ * million. Content past the bound is clipped, which is the same thing the
+ * band on the stored height does and the only option that terminates.
+ */
+const MAX_ROW_PAGE_SPAN = 200;
+
+/**
+ * The row height this paginator will consume: finite, non-negative, and
+ * within {@link MAX_ROW_PAGE_SPAN} pages.
+ *
+ * A non-finite height reads as 0 rather than as the bound, so the row is
+ * placed (empty) on the current page instead of claiming 200 of them for
+ * geometry that is already meaningless. With no usable content height on a
+ * page at all — a degenerate `pageSetup` — there is nothing to bound against,
+ * and the fragment loop's own floor is what terminates it.
+ */
+function paginatableRowHeight(raw: number, contentHeight: number): number {
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  if (!(contentHeight > 0)) return raw;
+  return Math.min(raw, contentHeight * MAX_ROW_PAGE_SPAN);
+}
+
 export function paginateLayout(
   layout: DocumentLayout,
   pageSetup: PageSetup,
@@ -92,7 +129,7 @@ export function paginateLayout(
     if (lb.block.type === 'table' && lb.layoutTable) {
       const tl = lb.layoutTable;
       for (let ri = 0; ri < tl.rowHeights.length; ri++) {
-        const rowHeight = tl.rowHeights[ri];
+        const rowHeight = paginatableRowHeight(tl.rowHeights[ri], contentHeight);
         const rowLine = { runs: [] as LayoutRun[], y: tl.rowYOffsets[ri], height: rowHeight, width: availableWidth };
 
         // Row fits on current page — place whole row
@@ -132,6 +169,13 @@ export function paginateLayout(
             fragHeight = sh > consumed ? sh - consumed : Math.min(remaining, pageAvail);
           }
           if (fragHeight <= 0) fragHeight = Math.min(remaining, contentHeight);
+          // Every iteration must consume height, or this loop never ends.
+          // `remaining` is > 0 by the `while` condition, so falling back to it
+          // terminates even when the page has no usable content height at all
+          // (`contentHeight <= 0` from a degenerate `pageSetup`, which the
+          // line above would otherwise turn into a *negative* fragment that
+          // walks `consumed` backwards forever).
+          if (!(fragHeight > 0)) fragHeight = remaining;
 
           const needsSplit = consumed > 0 || fragHeight < rowHeight;
           currentLines.push({

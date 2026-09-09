@@ -39,6 +39,11 @@ import type {
 import { parseBlockStyleAttrs, parseMarginFromEdgeAttr } from './crdt-attrs.js';
 import { normalizeListLevel } from './list-level.js';
 import { normalizeRowHeight } from './row-height.js';
+import {
+  isPaintableImageSize,
+  normalizeCellPadding,
+  normalizeFontSize,
+} from './numeric-attrs.js';
 
 /**
  * The structural subset of a CRDT tree node this reader needs.
@@ -69,21 +74,27 @@ function parseInlineStyle(
     style.strikethrough = attrs.strikethrough === 'true';
   if ('superscript' in attrs) style.superscript = attrs.superscript === 'true';
   if ('subscript' in attrs) style.subscript = attrs.subscript === 'true';
-  if ('fontSize' in attrs) style.fontSize = Number(attrs.fontSize);
+  // Banded for the same reason `listLevel` and `rowHeights` are, and through
+  // the same sink: a run's font size becomes its line's height, a table
+  // cell's line heights are summed into the row height, and the paginator
+  // splits an oversized row one page per loop iteration. See
+  // `normalizeFontSize`.
+  if ('fontSize' in attrs) {
+    const fontSize = normalizeFontSize(Number(attrs.fontSize));
+    if (fontSize !== undefined) style.fontSize = fontSize;
+  }
   if ('fontFamily' in attrs) style.fontFamily = attrs.fontFamily;
   if ('color' in attrs) style.color = attrs.color;
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
   if ('href' in attrs) style.href = attrs.href;
   if ('pageNumber' in attrs) style.pageNumber = attrs.pageNumber === 'true';
   if ('image.src' in attrs) {
+    // `isPaintableImageSize` adds a ceiling to the finite/positive check this
+    // already had: an image height is a line height, so a `1e9` one reaches
+    // the paginator's row-split loop the same way a font size does.
     const width = Number(attrs['image.width']);
     const height = Number(attrs['image.height']);
-    if (
-      Number.isFinite(width) &&
-      Number.isFinite(height) &&
-      width > 0 &&
-      height > 0
-    ) {
+    if (isPaintableImageSize(width, height)) {
       const image: NonNullable<Inline['style']['image']> = {
         src: attrs['image.src'],
         width,
@@ -128,7 +139,13 @@ function parseCellStyle(attrs: Record<string, string>): TableCell['style'] {
   if (attrs.backgroundColor) style.backgroundColor = attrs.backgroundColor;
   if (attrs.verticalAlign)
     style.verticalAlign = attrs.verticalAlign as 'top' | 'middle' | 'bottom';
-  if (attrs.padding) style.padding = Number(attrs.padding);
+  // Banded: `computeTableLayout` adds `padding * 2` to the cell's content
+  // height, so an `Infinity` padding is an `Infinity` row height and the
+  // paginator's row-split loop never terminates. See `normalizeCellPadding`.
+  if (attrs.padding) {
+    const padding = normalizeCellPadding(Number(attrs.padding));
+    if (padding !== undefined) style.padding = padding;
+  }
   if (attrs.borderTop) style.borderTop = parseBorderStyle(attrs.borderTop);
   if (attrs.borderBottom)
     style.borderBottom = parseBorderStyle(attrs.borderBottom);

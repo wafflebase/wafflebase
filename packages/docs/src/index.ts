@@ -93,6 +93,16 @@ export {
 } from './model/named-styles.js';
 export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
 export { MAX_ROW_HEIGHT, normalizeRowHeight } from './model/row-height.js';
+export {
+  MAX_FONT_SIZE,
+  MAX_LINE_HEIGHT,
+  MAX_CELL_PADDING,
+  MAX_IMAGE_SIZE,
+  normalizeFontSize,
+  normalizeLineHeight,
+  normalizeCellPadding,
+  isPaintableImageSize,
+} from './model/numeric-attrs.js';
 export { Doc } from './model/document.js';
 export type { EditContext } from './model/document.js';
 export type { StoredColor, ColorResolver } from './model/color.js';

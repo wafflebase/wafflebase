@@ -47,6 +47,8 @@ describe('docs entry parity', () => {
     // the failure the block-helpers case above describes, from a source module
     // this allowlist did not name.
     ['list level', './model/list-level.js'],
+    ['row height', './model/row-height.js'],
+    ['numeric attribute bands', './model/numeric-attrs.js'],
   ])('re-exports every %s from the Node entry too', (_label, source) => {
     const browser = reExports('../../src/index.ts', source);
     const node = reExports('../../src/node.ts', source);

@@ -18,6 +18,7 @@ import {
   normalizeBlockStyle,
   type BlockStyle,
 } from './types.js';
+import { normalizeLineHeight } from './numeric-attrs.js';
 
 /** The alignments a block style may carry. Mirrors `BlockStyle['alignment']`. */
 export const BLOCK_ALIGNMENTS: ReadonlyArray<NonNullable<BlockStyle['alignment']>> =
@@ -136,6 +137,18 @@ export function parseBlockStyleAttrs(
     if (!(field in attrs)) continue;
     const value = Number(attrs[field]);
     if (Number.isFinite(value)) partial[field] = value;
+  }
+  // `lineHeight` needs more than finiteness, because it is a *multiplier*
+  // rather than an offset: it scales every font size in the paragraph into a
+  // line height, a table cell's line heights are summed into the row height,
+  // and the paginator splits an oversized row one page per loop iteration. A
+  // finite `1e9` here is the same million-page allocation a poisoned
+  // `rowHeights` entry produces. Out of band reads as absent, so the block's
+  // resolved named style supplies the spacing. See `normalizeLineHeight`.
+  if (partial.lineHeight !== undefined) {
+    const banded = normalizeLineHeight(partial.lineHeight);
+    if (banded === undefined) delete partial.lineHeight;
+    else partial.lineHeight = banded;
   }
   // An absent marker attribute stays `undefined` on the model (the legacy "no
   // information" state); anything present is read as a boolean, so a

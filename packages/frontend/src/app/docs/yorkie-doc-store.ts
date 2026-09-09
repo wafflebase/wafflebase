@@ -49,6 +49,9 @@ import {
   parseBorderStyle,
   normalizeListLevel,
   normalizeRowHeight,
+  normalizeFontSize,
+  normalizeCellPadding,
+  isPaintableImageSize,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -189,7 +192,14 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if ('strikethrough' in attrs) style.strikethrough = attrs.strikethrough === 'true';
   if (attrs.superscript !== undefined) style.superscript = attrs.superscript === 'true';
   if (attrs.subscript !== undefined) style.subscript = attrs.subscript === 'true';
-  if ('fontSize' in attrs) style.fontSize = Number(attrs.fontSize);
+  // Banded like `rowHeights` below, and through the same sink: a run's font
+  // size becomes its line's height, a table cell's line heights are summed
+  // into the row height, and the paginator splits an oversized row one page
+  // per loop iteration. See `normalizeFontSize`.
+  if ('fontSize' in attrs) {
+    const fontSize = normalizeFontSize(Number(attrs.fontSize));
+    if (fontSize !== undefined) style.fontSize = fontSize;
+  }
   if ('fontFamily' in attrs) style.fontFamily = attrs.fontFamily;
   if ('color' in attrs) style.color = attrs.color;
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
@@ -199,14 +209,12 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
     // Guard against NaN / non-positive sizes from missing or malformed
     // attributes so that invalid image data is dropped instead of being
     // materialised into the in-memory document (and persisted back).
+    // `isPaintableImageSize` adds the ceiling to that check: an image height
+    // is a line height, so a `1e9` one reaches the paginator's row-split loop
+    // the same way a font size does.
     const width = Number(attrs['image.width']);
     const height = Number(attrs['image.height']);
-    if (
-      Number.isFinite(width) &&
-      Number.isFinite(height) &&
-      width > 0 &&
-      height > 0
-    ) {
+    if (isPaintableImageSize(width, height)) {
       const image: ImageData = {
         src: attrs['image.src'],
         width,
@@ -308,7 +316,13 @@ function parseCellStyle(attrs: Record<string, string>): CellStyle {
   const style: CellStyle = {};
   if (attrs.backgroundColor) style.backgroundColor = attrs.backgroundColor;
   if (attrs.verticalAlign) style.verticalAlign = attrs.verticalAlign as 'top' | 'middle' | 'bottom';
-  if (attrs.padding) style.padding = Number(attrs.padding);
+  // Banded: `computeTableLayout` adds `padding * 2` to the cell's content
+  // height, so an `Infinity` padding is an `Infinity` row height and the
+  // paginator's row-split loop never terminates. See `normalizeCellPadding`.
+  if (attrs.padding) {
+    const padding = normalizeCellPadding(Number(attrs.padding));
+    if (padding !== undefined) style.padding = padding;
+  }
   if (attrs.borderTop) style.borderTop = parseBorderStyle(attrs.borderTop);
   if (attrs.borderBottom) style.borderBottom = parseBorderStyle(attrs.borderBottom);
   if (attrs.borderLeft) style.borderLeft = parseBorderStyle(attrs.borderLeft);

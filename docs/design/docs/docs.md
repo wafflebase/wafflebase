@@ -187,6 +187,47 @@ on first render, the serializer on export. Without that, one collaborator
 could blank the document, or its `--format md` export, for every other
 reader.
 
+#### The other peer-writable numbers, and the loop that consumes them
+
+`listLevel` is not the only Tree attribute read through a bare
+`Number(...)`, and it is not the worst one. The **paginator** is what
+raises the stakes: `paginateLayout` splits an oversized table row with
+`while (consumed < rowHeight)`, emitting one page — and one `PageLine` —
+per iteration. An `Infinity` row height never terminates, and a finite
+`1e9` px against a ~864 px content height is ~1.1 million pages. Either
+is a hung tab or an OOM for every *reader* of the document, caused by one
+writer.
+
+So the height that loop consumes is bounded twice, and both halves are
+load-bearing:
+
+1. **Bands where the values enter the model.** `normalizeRowHeight()`
+   (`model/row-height.ts`) for the user-dragged minimum, and
+   `model/numeric-attrs.ts` for the attributes that make up a row's
+   *content* height — `fontSize`, a paragraph's `lineHeight`, a cell's
+   `padding`, and an inline image's `width`/`height`. Steps 3–4 of
+   `computeTableLayout` derive `rowHeights[r]` from
+   `lines.reduce((s, l) => s + l.height, 0) + padding * 2`, so each of
+   those reaches the loop exactly as a poisoned `rowHeights` entry does.
+   Every band is applied at both read boundaries (`treeNodeToBlock` and
+   `YorkieDocStore`'s parsers; `lineHeight` in the block-style codec
+   `crdt-attrs.ts` they share) and is set at the range the editor's own
+   controls can produce, so nothing a gesture can make is altered. Out of
+   band reads as *absent* — "take the resolved default" — rather than as
+   the clamped edge, matching `normalizeRowHeight`.
+2. **A bound on the loop itself.** A band alone would still be
+   bypassable: `LayoutTable.rowHeights` also has producers that pass no
+   read boundary (the clipboard sanitizer admits any finite number), and
+   a future attribute would have to remember to join the list above. So
+   `paginateLayout` clamps the height it consumes to `MAX_ROW_PAGE_SPAN`
+   (200) pages and refuses to advance by a non-positive fragment,
+   whatever produced the number. Content past the bound is clipped, which
+   is the only outcome that terminates.
+
+Keeping only the loop bound would not do either: a `NaN` height left in
+the geometry blanks the table and, through `totalHeight`, the scroll
+extent. Band the value where it enters, bound the loop that consumes it.
+
 ### Document manipulation
 
 The `Doc` class provides methods to manipulate the document:

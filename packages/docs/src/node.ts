@@ -133,6 +133,20 @@ export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
 // own table reader calls `normalizeRowHeight` on every attribute read, and
 // `model/row-height.js` imports nothing at all, so it is DOM-free.
 export { MAX_ROW_HEIGHT, normalizeRowHeight } from './model/row-height.js';
+// The bands for the numeric attributes that feed a line's height, here for
+// the same reason again: `YorkieDocStore` reads `fontSize`, cell `padding`
+// and the inline image size on every attribute read, and
+// `model/numeric-attrs.js` imports nothing at all, so it is DOM-free.
+export {
+  MAX_FONT_SIZE,
+  MAX_LINE_HEIGHT,
+  MAX_CELL_PADDING,
+  MAX_IMAGE_SIZE,
+  normalizeFontSize,
+  normalizeLineHeight,
+  normalizeCellPadding,
+  isPaintableImageSize,
+} from './model/numeric-attrs.js';
 export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,
