@@ -110,6 +110,30 @@ pressed `undo()` would have passed either way. The regression guard is a
 guarded), paired with `canUndo() === false` after one undo — that last
 assertion is what catches a checkpoint hoisted out of the batch.
 
+### A new export has two entries, and only one lane sees the second
+
+Exporting `normalizeListLevel` from `src/index.ts` was enough for every lane
+that runs in this repo's unit gate, and enough for `verify:self`. It was not
+enough for `verify-integration`: `YorkieDocStore` imports the symbol, and the
+frontend `.integration.ts` suites run that store under Node, where
+`package.json`'s `node` condition resolves `@wafflebase/docs` to the *built*
+`dist/node.js` — a different entry, `src/node.ts`, which did not re-export it.
+Both docs suites died at ESM link time with "does not provide an export named
+`normalizeListLevel`" before a single assertion ran.
+
+`test/store/entry-parity.test.ts` exists precisely to catch this and did not,
+because it is an allowlist of source modules (`block-helpers.js`,
+`types.js`) rather than a sweep — a symbol from a module nobody had listed is
+invisible to it. Adding `list-level.js` to the list closes this instance;
+the shape of the guard means the next new source module will need the same
+line. A version that diffs *every* `export {...} from` clause the two entries
+share would need no upkeep, and is the better fix if this recurs.
+
+Worth knowing when reproducing locally: the frontend integration lane resolves
+against built dists, so an unbuilt `slides`/`sheets` produces
+`ERR_MODULE_NOT_FOUND` failures that look like regressions and are not. Build
+the workspace packages first, or the signal is noise.
+
 ### Left undone
 
 The 16 non-blocking suggestions and 4 nits are untouched, including the two

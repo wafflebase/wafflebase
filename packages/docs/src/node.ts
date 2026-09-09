@@ -121,6 +121,14 @@ export {
   treeNodeToBlock,
 } from './model/crdt-tree.js';
 export type { DocsTreeNode } from './model/crdt-tree.js';
+// The `listLevel` band and its normalizer. `model/list-level.js` imports
+// nothing but the `Block` type, so it is DOM-free. It belongs here for both
+// reasons the file header gives: `YorkieDocStore` calls `normalizeListLevel`
+// on every attribute read and runs under Node in the docs `.integration.ts`
+// suites, which resolve to this entry; and the Node-side readers that would
+// otherwise hardcode the ceiling (the markdown serializer's `repeat`, the
+// layout counters) need to be able to name it.
+export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
 export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,
