@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import yorkie, { Client, SyncMode } from '@yorkie-js/sdk';
+import { yorkieServiceTokenInjectorFromEnv } from '../src/yorkie/yorkie-service-token';
 
 type DbDocument = {
   id: string;
@@ -211,7 +212,14 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const rpcAddr = process.env.YORKIE_RPC_ADDR ?? 'http://localhost:8080';
   const apiKey = process.env.YORKIE_PUBLIC_KEY;
-  const client = new yorkie.Client({ rpcAddr, apiKey });
+  // Authenticate to the auth webhook as this backend: enforcement is the
+  // default, so an anonymous attach is refused wherever the methods are
+  // registered.
+  const client = new yorkie.Client({
+    rpcAddr,
+    apiKey,
+    authTokenInjector: yorkieServiceTokenInjectorFromEnv(),
+  });
   const summary: MigrationSummary = {
     processed: 0,
     changed: 0,

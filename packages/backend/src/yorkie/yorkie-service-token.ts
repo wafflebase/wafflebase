@@ -44,3 +44,44 @@ export function signYorkieServiceToken(
     expiresIn,
   });
 }
+
+/**
+ * The `authTokenInjector` a `yorkie.Client` owned by this backend hands to the
+ * auth webhook. `undefined` when there is no secret to sign with, which leaves
+ * the client anonymous — correct only against a Yorkie whose project has no
+ * auth-webhook methods registered.
+ */
+export function yorkieServiceTokenInjector(
+  secret: string | undefined,
+  expiresIn: ms.StringValue = '10m',
+): (() => Promise<string>) | undefined {
+  if (!secret) {
+    return undefined;
+  }
+  return () => Promise.resolve(signYorkieServiceToken(secret, expiresIn));
+}
+
+/**
+ * The same, for the ops scripts under `packages/backend/scripts`. They build
+ * their own client outside Nest, so they have no `ConfigService` to read —
+ * but they attach to real documents and are refused exactly like any other
+ * anonymous client once the webhook methods are registered, which enforcement
+ * being the default means every deployment that registered them.
+ *
+ * Warns rather than throws when the secret is missing: a script pointed at a
+ * local Yorkie with no webhook registered has nothing to authenticate to, and
+ * failing there would break a working workflow for a token nobody reads.
+ */
+export function yorkieServiceTokenInjectorFromEnv(
+  secret: string | undefined = process.env.JWT_SECRET,
+  expiresIn: string = process.env.YORKIE_TOKEN_EXPIRES_IN ?? '10m',
+): (() => Promise<string>) | undefined {
+  if (!secret) {
+    console.warn(
+      'JWT_SECRET is unset, so this script attaches to Yorkie with no auth ' +
+        'token; it will be denied wherever the auth webhook is registered.',
+    );
+    return undefined;
+  }
+  return yorkieServiceTokenInjector(secret, expiresIn as ms.StringValue);
+}

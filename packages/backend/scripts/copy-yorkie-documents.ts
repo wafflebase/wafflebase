@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { Client as PgClient } from 'pg';
 import yorkie, { Client, SyncMode } from '@yorkie-js/sdk';
 import { snapshotJsonRoot } from '../src/yorkie/yorkie-json';
+import { yorkieServiceTokenInjectorFromEnv } from '../src/yorkie/yorkie-service-token';
 
 type CliOptions = {
   databaseUrl: string;
@@ -10,6 +11,14 @@ type CliOptions = {
   sourceRpcAddr: string;
   sourceApiKey: string;
   targetRpcAddr: string;
+  /**
+   * `JWT_SECRET` of the backend that owns each side, used to mint the
+   * auth-webhook token the attach carries. The two sides are different
+   * deployments, so they need not share a secret; each falls back to this
+   * process's own `JWT_SECRET`.
+   */
+  sourceJwtSecret?: string;
+  targetJwtSecret?: string;
   limit?: number;
   documentIds: string[];
 };
@@ -25,7 +34,12 @@ function usage(): string {
     --source-rpc-addr <source-rpc-addr> \\
     --source-api-key <source-api-key> \\
     --target-rpc-addr <target-rpc-addr> \\
-    [--limit <count>] [--document <id> ...]`;
+    [--source-jwt-secret <secret>] [--target-jwt-secret <secret>] \\
+    [--limit <count>] [--document <id> ...]
+
+The auth-webhook token each attach carries is signed with that side's
+JWT_SECRET; both default to this process's JWT_SECRET. Pass them when the
+source and target deployments do not share one.`;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -64,6 +78,14 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case '--target-rpc-addr':
         options.targetRpcAddr = next;
+        index += 1;
+        break;
+      case '--source-jwt-secret':
+        options.sourceJwtSecret = next;
+        index += 1;
+        break;
+      case '--target-jwt-secret':
+        options.targetJwtSecret = next;
         index += 1;
         break;
       case '--limit': {
@@ -201,12 +223,21 @@ async function copyDocument(
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  // Both attaches authenticate to their side's auth webhook as that backend:
+  // enforcement is the default, so an anonymous attach is refused wherever the
+  // methods are registered.
   const sourceClient = new yorkie.Client({
     rpcAddr: options.sourceRpcAddr,
     apiKey: options.sourceApiKey,
+    authTokenInjector: yorkieServiceTokenInjectorFromEnv(
+      options.sourceJwtSecret,
+    ),
   });
   const targetClient = new yorkie.Client({
     rpcAddr: options.targetRpcAddr,
+    authTokenInjector: yorkieServiceTokenInjectorFromEnv(
+      options.targetJwtSecret,
+    ),
   });
 
   await sourceClient.activate();

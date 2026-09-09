@@ -4,7 +4,7 @@ import yorkie, { Document, SyncMode } from '@yorkie-js/sdk';
 import type ms from 'ms';
 import { SpreadsheetDocument } from './yorkie.types';
 import { YORKIE_DOC_KEY_PREFIXES } from './yorkie-doc-key';
-import { signYorkieServiceToken } from './yorkie-service-token';
+import { yorkieServiceTokenInjector } from './yorkie-service-token';
 
 export interface WithDocumentOptions {
   syncMode?: 'readwrite' | 'readonly';
@@ -52,8 +52,7 @@ export class YorkieService {
       const expiresIn = (this.configService.get<string>(
         'YORKIE_TOKEN_EXPIRES_IN',
       ) ?? '10m') as ms.StringValue;
-      this.authTokenInjector = () =>
-        Promise.resolve(signYorkieServiceToken(secret, expiresIn));
+      this.authTokenInjector = yorkieServiceTokenInjector(secret, expiresIn);
     } else {
       this.logger.warn(
         'JWT_SECRET is unset, so server-side Yorkie attaches carry no auth ' +
