@@ -824,6 +824,23 @@ describe('a list level gesture is one undo unit', () => {
     editor.dispose();
   });
 
+  test('the toolbar path flushes the pre-edit caret before its batch', () => {
+    // Same rule as the key handlers: `EditorAPI.indent()`/`outdent()` open a
+    // batch, and a flush from inside one is dropped by `YorkieDocStore`, so
+    // undo of a toolbar indent would reverse to a stale caret (#523).
+    const { editor, store } = setupSubtree();
+
+    editor.indent();
+    expect(store.cursorFlushDepths.length).toBeGreaterThan(0);
+    expect(store.cursorFlushDepths[0]).toBe(0);
+
+    store.cursorFlushDepths.length = 0;
+    editor.outdent();
+    expect(store.cursorFlushDepths.length).toBeGreaterThan(0);
+    expect(store.cursorFlushDepths[0]).toBe(0);
+    editor.dispose();
+  });
+
   test('the pre-edit caret is flushed before the batch opens', () => {
     const { editor, container, store } = setupSubtree();
 

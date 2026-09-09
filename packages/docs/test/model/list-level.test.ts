@@ -6,9 +6,11 @@ import {
 } from '../../src/model/list-level.js';
 import { treeNodeToBlock } from '../../src/model/crdt-tree.js';
 import { computeListCounters } from '../../src/view/layout.js';
+import { computeTableLayout } from '../../src/view/table-layout.js';
 import { serializeMarkdown } from '../../src/serialize/markdown.js';
-import { normalizeBlockStyle } from '../../src/model/types.js';
+import { createTableBlock, normalizeBlockStyle } from '../../src/model/types.js';
 import type { Block } from '../../src/model/types.js';
+import { stubMeasurer } from '../view/_stub-measurer.js';
 
 /**
  * Changing a list item's level carries its nested children, so the
@@ -237,6 +239,28 @@ describe('a poisoned listLevel at the raw readers', () => {
     ]);
     expect(counters.get('a')).toBeDefined();
     expect(counters.get('b')).toBeDefined();
+  });
+
+  // The body indent and the cell indent are the same expression in two
+  // files, so clamping only the body one leaves a poisoned level producing a
+  // NaN `marginLeft` — and a blank block — inside a table cell.
+  test('a table cell lays a poisoned list item out at finite geometry', () => {
+    const block = createTableBlock(1, 1);
+    const cell = block.tableData!.rows[0].cells[0];
+    cell.blocks = [item('a', NaN)];
+    const layout = computeTableLayout(
+      block.tableData!,
+      'poisoned-table',
+      stubMeasurer(7),
+      300,
+    );
+    expect(Number.isFinite(layout.rowHeights[0])).toBe(true);
+    const lines = layout.cells[0][0].lines;
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      expect(Number.isFinite(line.width)).toBe(true);
+      for (const run of line.runs) expect(Number.isFinite(run.x)).toBe(true);
+    }
   });
 
   test('the markdown serializer bounds the indent it repeats', () => {

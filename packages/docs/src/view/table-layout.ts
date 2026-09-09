@@ -1,5 +1,6 @@
 import type { TableData, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
+import { normalizeListLevel } from '../model/list-level.js';
 import type { BlockSpacingContext, DocStyles, StyleSurface } from '../model/named-styles.js';
 import type { ComposingContext, LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
@@ -88,9 +89,12 @@ function layoutCellBlocks(
       continue;
     }
 
+    // Normalized for the same reason the body indent is (`layout.ts`): a
+    // poisoned level multiplied into the indent is a NaN/Infinity
+    // `marginLeft` that blanks the block — here, one inside a table cell.
     const listIndent =
       block.type === 'list-item'
-        ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
+        ? LIST_INDENT_PX * (normalizeListLevel(block.listLevel) + 1)
         : 0;
     const effectiveBlock: Block = listIndent === 0
       ? block

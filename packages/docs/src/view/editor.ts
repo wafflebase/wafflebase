@@ -3605,6 +3605,12 @@ export function initialize(
       // `batch()` takes the checkpoint itself and `MemDocStore.snapshot()`
       // is a no-op within one, so the gesture stays a single undo unit
       // under both stores. Layout and paint stay outside the batch.
+      //
+      // The caret flush goes *before* the batch, not inside it:
+      // `YorkieDocStore` drops non-history presence published from within a
+      // batch, so an in-batch flush would leave undo reversing to whatever
+      // the throttled live publish last sent (#523).
+      recordCursorForHistory();
       doc.batch(() => {
         docStore.snapshot();
         applyListLevelChanges(1);
@@ -3623,7 +3629,9 @@ export function initialize(
     },
     outdent() {
       const INDENT_STEP = 36;
-      // One undo unit for the whole subtree — see `indent`.
+      // One undo unit for the whole subtree, and the caret flushed before
+      // the batch rather than inside it — see `indent`.
+      recordCursorForHistory();
       doc.batch(() => {
         docStore.snapshot();
         applyListLevelChanges(-1);

@@ -58,3 +58,20 @@ behavior, untouched by the subtree rule.
   level-0 one).
 - Enter/Backspace/paste level behavior.
 - OOXML `w:ilvl` model change — hierarchy stays implied by adjacency.
+
+## Review follow-ups
+
+- [x] `normalizeListLevel` at **every** point of use, not just the planner and
+      the two crash sinks. The body indent (`layout.ts`) and the PDF painter
+      were clamped first, leaving their on-screen twins raw — so screen
+      geometry could disagree with the clamped indent, and the NaN
+      `marginLeft` the PDF fix removed still reached canvas:
+      `table-layout.ts` (cell indent), `doc-canvas.ts` + `paint-layout.ts`
+      (body marker), `table-renderer.ts` (cell marker, also a `Map` key that
+      a NaN level would never match on reset), `peer-cursor.ts` ×2
+      (empty-line caret x).
+- [x] `EditorAPI.indent()` / `outdent()` flush the pre-edit caret *before*
+      opening `doc.batch()`, the same ordering the three `text-editor.ts`
+      gestures use — `YorkieDocStore` drops a non-history presence write
+      issued inside a batch, so undo of a toolbar indent reversed to a stale
+      caret (#523).
