@@ -1126,7 +1126,15 @@ export function SlidesView({
     // slides-specific fields. The username/email/photo were seeded by
     // SlidesDetail via `initialPresence` and stay intact across these
     // partial updates.
+    //
+    // Silent on a read-only mount. `updatePresence` is a `doc.update()`, so
+    // it is a local change the next `PushPull` carries with verb `rw` — which
+    // the auth webhook, enforcing by default, refuses for a share-link
+    // `viewer`. So a viewer merely clicking through slides would wedge their
+    // own sync; the cost of staying quiet is that their avatar carries no
+    // slide/selection, which is what a read-only visitor has anyway.
     const broadcast = () => {
+      if (readOnlyMount) return;
       // Table cell-range presence: map the editor's local cell selection
       // to the wire shape, or `undefined` to clear it (Presence.set
       // merges, and peers guard on the field — so undefined reads the

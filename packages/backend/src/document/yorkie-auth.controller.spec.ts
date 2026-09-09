@@ -120,7 +120,10 @@ describe('YorkieAuthController.decide', () => {
   // token. Without this branch, enforcement denies every server-side attach —
   // the v1 content endpoints, document copy, template seeding — because there
   // is no user or share link behind them to resolve.
-  it('allows the backend service token on any document, read or write', async () => {
+  // An *unscoped* service token — no `key` — is the operator credential the
+  // ops scripts mint: they walk many documents through one long-lived client,
+  // so there is no single key to pin.
+  it('allows an unscoped backend service token on any document, read or write', async () => {
     const c = makeController({ identity: { typ: 'yorkie-service' } });
     expect(
       await c.decide({
@@ -128,6 +131,69 @@ describe('YorkieAuthController.decide', () => {
         token: 'service',
         attributes: [{ key: 'sheet-anything', verb: 'rw' }],
       }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  // Every request path (`YorkieService.withDocument`) mints a token bound to
+  // the one document its client attaches to, so the credential the SDK puts
+  // on the wire is worth that document and nothing else.
+  it('allows a scoped service token on its own document', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [{ key: 'sheet-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  it('403s a scoped service token on another document', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [{ key: 'sheet-2', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('403s a scoped service token when one of several keys is foreign', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [
+          { key: 'sheet-1', verb: 'r' },
+          { key: 'sheet-2', verb: 'r' },
+        ],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('403s a scoped service token on a doc method with no attributes', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({ method: 'PushPull', token: 'service' }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('allows a scoped service token to activate its client', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({ method: 'ActivateClient', token: 'service' }),
     ).toMatchObject({ status: 200, allowed: true });
   });
 

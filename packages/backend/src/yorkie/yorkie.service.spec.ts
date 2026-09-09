@@ -173,7 +173,11 @@ describe('YorkieService', () => {
     // exactly what it refuses — so every server-side attach has to identify
     // itself as this backend or 401 on any deployment that registered the
     // webhook methods.
-    it('attaches with a backend service token', async () => {
+    // ...and the token names the one document key this client attaches to, so
+    // a token that leaves the process (it is sent to whatever Yorkie server
+    // `YORKIE_RPC_ADDR` points at, on every RPC) is worth that document
+    // rather than every document in the deployment.
+    it('attaches with a backend service token scoped to the document', async () => {
       const { Client } = jest.requireMock('@yorkie-js/sdk') as {
         Client: jest.Mock;
       };
@@ -187,7 +191,23 @@ describe('YorkieService', () => {
       const token = await injector();
       expect(
         new JwtService().verify(token!, { secret: JWT_SECRET }),
-      ).toMatchObject({ typ: 'yorkie-service' });
+      ).toMatchObject({ typ: 'yorkie-service', key: 'sheet-doc-1' });
+    });
+
+    it('scopes the token to the requested doc key prefix', async () => {
+      const { Client } = jest.requireMock('@yorkie-js/sdk') as {
+        Client: jest.Mock;
+      };
+
+      await service.withDocument('doc-1', () => 'ok', { docKeyPrefix: 'doc-' });
+
+      const injector = Client.mock.calls[0][0].authTokenInjector as () =>
+        | Promise<string>
+        | undefined;
+      const token = await injector();
+      expect(
+        new JwtService().verify(token!, { secret: JWT_SECRET }),
+      ).toMatchObject({ key: 'doc-doc-1' });
     });
 
     it('concurrent calls to the same document should not conflict', async () => {

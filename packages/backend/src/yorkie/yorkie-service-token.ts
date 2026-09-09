@@ -19,16 +19,39 @@ import type ms from 'ms';
  * *user's* rights here would also be the wrong check, since some of these
  * paths run with no user at all (a seed command, a webhook-driven copy).
  *
- * The token is signed with `JWT_SECRET`, which only this server holds, and is
- * as short-lived as a user's — it never leaves the process, so nothing but a
- * secret compromise can produce one, and a secret compromise already yields a
- * session for any user.
+ * The token is signed with `JWT_SECRET`, which only this server holds, so
+ * nothing but a secret compromise can produce one — and a secret compromise
+ * already yields a session for any user. It is as short-lived as a user's,
+ * which matters because it does **not** stay inside this process: it is handed
+ * to the Yorkie SDK, which sends it to whichever Yorkie server the client is
+ * pointed at, on every RPC, over whatever transport `YORKIE_RPC_ADDR` names.
+ * That is the reason for {@link YorkieServiceTokenPayload.key} below.
  */
 export const YORKIE_SERVICE_TOKEN_TYPE = 'yorkie-service';
 
 /** Payload of a backend service token. Carries no subject: there isn't one. */
 export type YorkieServiceTokenPayload = {
   typ: typeof YORKIE_SERVICE_TOKEN_TYPE;
+  /**
+   * The single Yorkie document key (`sheet-<id>`, `doc-<id>`, …) this token
+   * authorizes, when there is one. `decide()` then refuses it for any other
+   * key, so an intercepted token buys read/write on the one document the
+   * request that minted it was already authorized for, rather than on every
+   * document in the deployment.
+   *
+   * {@link YorkieService.withDocument} builds a fresh client per document and
+   * therefore always sets it — that is the path that runs continuously in
+   * production and so the one whose token is transmitted over and over.
+   *
+   * Absent means unscoped, which the ops scripts under `scripts/` need: they
+   * walk many documents through one long-lived client, and the SDK refreshes
+   * the token whenever the server asks rather than per attach, so a key
+   * pinned at construction would be the wrong one by the second document.
+   * An unscoped token is therefore an operator-run, one-shot credential held
+   * by whoever already has the deployment's `JWT_SECRET`, not something a
+   * request path mints.
+   */
+  key?: string;
 };
 
 // DI-free on purpose: `YorkieService` is constructed directly by seed commands
@@ -38,11 +61,12 @@ const jwt = new JwtService();
 export function signYorkieServiceToken(
   secret: string,
   expiresIn: ms.StringValue,
+  key?: string,
 ): string {
-  return jwt.sign({ typ: YORKIE_SERVICE_TOKEN_TYPE } as const, {
-    secret,
-    expiresIn,
-  });
+  const payload: YorkieServiceTokenPayload = key
+    ? { typ: YORKIE_SERVICE_TOKEN_TYPE, key }
+    : { typ: YORKIE_SERVICE_TOKEN_TYPE };
+  return jwt.sign(payload, { secret, expiresIn });
 }
 
 /**
@@ -50,15 +74,20 @@ export function signYorkieServiceToken(
  * auth webhook. `undefined` when there is no secret to sign with, which leaves
  * the client anonymous — correct only against a Yorkie whose project has no
  * auth-webhook methods registered.
+ *
+ * Pass `key` whenever the client is bound to one document, which every
+ * request-path client is; see {@link YorkieServiceTokenPayload.key} for why
+ * the ops scripts are the exception.
  */
 export function yorkieServiceTokenInjector(
   secret: string | undefined,
   expiresIn: ms.StringValue = '10m',
+  key?: string,
 ): (() => Promise<string>) | undefined {
   if (!secret) {
     return undefined;
   }
-  return () => Promise.resolve(signYorkieServiceToken(secret, expiresIn));
+  return () => Promise.resolve(signYorkieServiceToken(secret, expiresIn, key));
 }
 
 /**

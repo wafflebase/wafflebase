@@ -123,16 +123,34 @@ server-side for the v1 content endpoints, `DocumentCopyService` and the template
 seed, and it is not any user: some of those paths run from a command line with
 no session at all. It supplies its own `{ typ: 'yorkie-service' }` token
 (`packages/backend/src/yorkie/yorkie-service-token.ts`), which `decide()`
-allows unconditionally. That is the layer *above* the permission model rather
-than a hole in it — every one of those paths authorized its caller against
-Postgres (workspace membership, document manager, API-key `write` scope) before
-opening the document, and none of that authority is recoverable from a document
-key inside the webhook. The token is signed with `JWT_SECRET`, is as short-lived
-as a user's, and never leaves the process, so only a secret compromise can
-produce one — and a secret compromise already mints a session for any user.
-Before it existed, a deployment that registered the webhook methods 401'd every
-server-side attach, which is the whole reason enforce-by-default could not have
-shipped without it.
+allows without resolving a user or a link. That is the layer *above* the
+permission model rather than a hole in it — every one of those paths authorized
+its caller against Postgres (workspace membership, document manager, API-key
+`write` scope) before opening the document, and none of that authority is
+recoverable from a document key inside the webhook. Before it existed, a
+deployment that registered the webhook methods 401'd every server-side attach,
+which is the whole reason enforce-by-default could not have shipped without it.
+
+**It is scoped to one document.** The token is signed with `JWT_SECRET`, so
+only a secret compromise can produce one — and a secret compromise already
+mints a session for any user. But it does **not** stay inside the process: the
+SDK sends it to whichever Yorkie server the client is pointed at, on every RPC,
+over whatever transport `YORKIE_RPC_ADDR` names (and in
+`scripts/copy-yorkie-documents.ts`, to a *foreign* deployment's). So it carries
+a `key` claim naming the single document key it authorizes, and
+`decideService()` refuses it for any other — bounding an intercepted or logged
+token to the one document the request that minted it was already authorized
+for, for the ten minutes it lives, rather than to every document in the
+deployment. `YorkieService.withDocument` builds its client per document and
+therefore always sets it, which covers every request path. The **ops scripts**
+under `scripts/` are the exception: they walk many documents through one
+long-lived client, and the SDK refreshes the token when the server asks rather
+than per attach, so a key pinned at construction would be the wrong one by the
+second document. Their token stays unscoped — an operator-run, one-shot
+credential held by whoever already has the deployment's `JWT_SECRET`. Pinned by
+`yorkie-auth.controller.spec.ts` (scoped allow / cross-document 403 / unscoped
+blanket allow) and `yorkie.service.spec.ts` (the minted key tracks the doc-key
+prefix).
 
 **Token-replay hardening.** The Yorkie token is signed with `JWT_SECRET` (same
 key as the session access token) but, unlike the httpOnly session cookie, it is

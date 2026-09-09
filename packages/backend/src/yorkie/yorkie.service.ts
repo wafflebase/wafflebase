@@ -28,13 +28,21 @@ export class YorkieService {
   private readonly rpcAddr: string;
   private readonly apiKey?: string;
   /**
-   * Supplies the backend's own auth-webhook token, the same way the frontend's
-   * `authTokenInjector` supplies a user's. Without it the webhook sees an
-   * empty token and 401s every server-side attach on a deployment that has
-   * registered its methods — which, enforcement being the default, is every
-   * deployment that has registered them. See `yorkie-service-token.ts`.
+   * Signing material for the backend's own auth-webhook token, which supplies
+   * this client's identity the way the frontend's `authTokenInjector` supplies
+   * a user's. Without it the webhook sees an empty token and 401s every
+   * server-side attach on a deployment that has registered its methods —
+   * which, enforcement being the default, is every deployment that has
+   * registered them. See `yorkie-service-token.ts`.
+   *
+   * Kept as material rather than a ready injector because the token is
+   * **scoped to one document key**, and the key is only known per
+   * {@link withDocument} call. A leaked or intercepted token then buys the one
+   * document the request that minted it was already authorized for, not the
+   * whole deployment.
    */
-  private readonly authTokenInjector?: () => Promise<string>;
+  private readonly tokenSecret?: string;
+  private readonly tokenExpiresIn: ms.StringValue;
 
   constructor(private configService: ConfigService) {
     this.rpcAddr =
@@ -48,12 +56,11 @@ export class YorkieService {
     // is talking to a Yorkie with no auth webhook registered, and refusing
     // would break it for a token nothing will read.
     const secret = this.configService.get<string>('JWT_SECRET');
-    if (secret) {
-      const expiresIn = (this.configService.get<string>(
-        'YORKIE_TOKEN_EXPIRES_IN',
-      ) ?? '10m') as ms.StringValue;
-      this.authTokenInjector = yorkieServiceTokenInjector(secret, expiresIn);
-    } else {
+    this.tokenSecret = secret;
+    this.tokenExpiresIn = (this.configService.get<string>(
+      'YORKIE_TOKEN_EXPIRES_IN',
+    ) ?? '10m') as ms.StringValue;
+    if (!secret) {
       this.logger.warn(
         'JWT_SECRET is unset, so server-side Yorkie attaches carry no auth ' +
           'token; they will be denied wherever the auth webhook is registered.',
@@ -67,12 +74,19 @@ export class YorkieService {
     options?: WithDocumentOptions,
   ): Promise<T> {
     const prefix = options?.docKeyPrefix ?? YORKIE_DOC_KEY_PREFIXES.sheet;
+    const docKey = `${prefix}${documentId}`;
     const client = new yorkie.Client({
       rpcAddr: this.rpcAddr,
       apiKey: this.apiKey,
-      authTokenInjector: this.authTokenInjector,
+      // Scoped to this one document: the client is built per call, so the
+      // token it hands over the wire authorizes nothing else.
+      authTokenInjector: yorkieServiceTokenInjector(
+        this.tokenSecret,
+        this.tokenExpiresIn,
+        docKey,
+      ),
     });
-    const doc = new yorkie.Document<R>(`${prefix}${documentId}`);
+    const doc = new yorkie.Document<R>(docKey);
     let attached = false;
     try {
       await client.activate();

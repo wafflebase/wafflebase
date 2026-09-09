@@ -120,9 +120,18 @@ export function PdfCollabStateProvider({
   };
 
   // Broadcast the active page (deduped) for presence.
+  //
+  // Not on a read-only mount. A presence publish is a `doc.update()` like any
+  // other, so it is a local change the next `PushPull` carries with verb `rw`
+  // — which the Yorkie auth webhook, enforcing by default, refuses for a
+  // share-link `viewer`. Publishing here would therefore not just fail: it
+  // would wedge the viewer's whole sync at the first page scroll, the same
+  // failure the `initialRoot` seed below avoids. Losing it costs a viewer's
+  // avatar its page number in peers' presence; keeping the document readable
+  // is worth more.
   const lastPageRef = useRef<number>(-1);
   const onActivePageChange = (pageIndex: number) => {
-    if (!doc || pageIndex === lastPageRef.current) return;
+    if (readOnly || !doc || pageIndex === lastPageRef.current) return;
     lastPageRef.current = pageIndex;
     doc.update((_r, p) => p.set({ activePage: pageIndex }));
   };

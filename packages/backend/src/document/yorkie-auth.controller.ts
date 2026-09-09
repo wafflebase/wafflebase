@@ -234,11 +234,12 @@ export class YorkieAuthController {
     // publish/seed — authorized its caller against Postgres before opening the
     // document, and none of that authority is recoverable from a document key
     // here; some of those paths (a seed command) have no user at all. The
-    // token is signed with `JWT_SECRET` and never leaves the process, so
-    // nothing outside this server can present one. See
-    // `src/yorkie/yorkie-service-token.ts`.
+    // token is signed with `JWT_SECRET`, so nothing outside this server can
+    // produce one — but it *is* sent to whichever Yorkie server the client is
+    // pointed at, so it is bounded to the document it was minted for wherever
+    // the minter knows one. See `src/yorkie/yorkie-service-token.ts`.
     if (identity.typ === YORKIE_SERVICE_TOKEN_TYPE) {
-      return ALLOW;
+      return this.decideService(identity, method, body?.attributes ?? []);
     }
 
     // Client-scoped methods carry no document; a valid token is enough.
@@ -262,6 +263,53 @@ export class YorkieAuthController {
       const denied = await this.checkAttribute(identity, attr, method);
       if (denied) {
         return denied;
+      }
+    }
+    return ALLOW;
+  }
+
+  /**
+   * The backend's own service token. It stands in for authority already
+   * checked against Postgres, so there is nothing left to resolve here — the
+   * only question is *scope*.
+   *
+   * A token minted with a `key` (every {@link YorkieService.withDocument}
+   * call, which is every request path) authorizes that document key and no
+   * other, so the credential the SDK puts on the wire is worth one document
+   * rather than the deployment. A token with no `key` is the unscoped
+   * operator credential the ops scripts under `scripts/` mint, and keeps the
+   * blanket allow they need to walk many documents through one client — see
+   * `yorkie-service-token.ts`.
+   */
+  private decideService(
+    identity: { key?: string },
+    method: string,
+    attributes: AuthAttribute[],
+  ): AuthDecision {
+    if (!identity.key) {
+      return ALLOW;
+    }
+    // `ActivateClient` / `DeactivateClient` name no document; the scoped
+    // token is still the right identity for them.
+    if (CLIENT_METHODS.has(method)) {
+      return ALLOW;
+    }
+    // Fail closed on a document-scoped method with nothing to compare, the
+    // same way the user/share path does.
+    if (!attributes.length) {
+      return {
+        status: 403,
+        allowed: false,
+        reason: 'missing document attributes',
+      };
+    }
+    for (const attr of attributes) {
+      if (attr.key !== identity.key) {
+        return {
+          status: 403,
+          allowed: false,
+          reason: 'service token is scoped to another document',
+        };
       }
     }
     return ALLOW;

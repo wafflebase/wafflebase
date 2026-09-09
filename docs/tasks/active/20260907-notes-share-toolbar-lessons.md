@@ -118,3 +118,33 @@ instead of the absolute. Same correction in the `READ_GATED_METHODS` comment
 ("one write" → one pack per attach) and in the design doc's Risks entry.
 A doc-comment premise that overstates its guarantee is how a later feature ends
 up resting on something that was never true.
+
+## A presence publish is a write, everywhere — not just where we remembered
+
+The `initialRoot` fix above chased one class of local change on a read-only
+mount. Review found three more of the same class, all presence: PDF's
+`onActivePageChange`, Slides' `broadcast()`, and Board's selection listener.
+Each is a `doc.update()`, so each makes the next `PushPull` carry verb `rw` —
+which enforcement refuses for a viewer, wedging their sync the first time they
+scroll a page, change a slide, or click an element. Board had already gated
+its *cursor* publish on `readOnly` and left its *selection* publish open two
+hundred lines later, which is the shape of the bug: the guard goes on the
+listener you were thinking about.
+
+The rule worth writing down: on a read-only mount, nothing may reach
+`doc.update()` — presence included. Losing presence costs a viewer's avatar its
+page/slide number; losing sync costs them the document.
+
+## An unscoped service credential is not made safe by "it never leaves"
+
+The `yorkie-service` token's own doc comment argued its blast radius (every
+document, read and write) was acceptable because it "never leaves the
+process". That was simply false — the SDK sends it to whatever
+`YORKIE_RPC_ADDR` names, on every RPC, and `copy-yorkie-documents.ts` sends
+one side's to the *other* deployment's server. Fixed by scoping: the payload
+carries a `key`, `decideService()` refuses any other document key, and
+`YorkieService.withDocument` (which builds its client per document, so it
+always knows the key) sets it. The ops scripts stay unscoped by necessity —
+one client, many documents, and the SDK refreshes on the server's schedule
+rather than per attach — which is now stated as the exception instead of being
+the whole design.
