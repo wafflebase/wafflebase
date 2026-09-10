@@ -1657,6 +1657,18 @@ export class TextEditor {
    * keyboard state to respect the "paste as plain text" modifier.
    */
   pasteContent(opts: { html?: string; text?: string }): void {
+    // A disposed editor must not write, and this is the one entry point
+    // where that is reachable from *outside* the class. `EditorAPI.paste()`
+    // awaits `navigator.clipboard.read()` — an await that can span a browser
+    // permission prompt, i.e. arbitrarily long — and only then calls here.
+    // `EditorAPI.dispose()` neuters `api.paste`, but that replaces the entry
+    // point for *future* calls only: a call already suspended at the await
+    // resumes in its own closure, on the `TextEditor` it captured, and
+    // reaches this method directly. So the host rebuilding the editor
+    // because the share role dropped to viewer would otherwise still see the
+    // stale paste land in the shared CRDT. Same re-validation, and the same
+    // reasoning, as `pastePlainTextFromClipboard` — the two resuming writes.
+    if (this.disposed) return;
     // View-only mode: block programmatic paste, mirroring handlePaste.
     if (this.readOnly) return;
     // A large paste is already mid-yield; a second one would interleave,

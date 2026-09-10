@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import { readOnlyDocStore } from '../store/read-only.js';
+import { readOnlyDocStore, revocableDocStore } from '../store/read-only.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData, PageSetup } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE, MIN_CONTENT_PX } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
@@ -406,10 +406,12 @@ export interface EditorAPI {
   dispose(): void;
   /**
    * Whether {@link dispose} has run. A disposed editor is inert — every
-   * mutating method has been neutered — but a long-running async caller
-   * that captured it before disposal (an image upload, a clipboard read)
-   * cannot tell that from a successful write. Ask this after any `await`
-   * before reporting success to the user.
+   * mutating method has been neutered, and the handles `getStore()` and
+   * `getDoc()` hand out have gone read-only, copies already taken
+   * included — but a long-running
+   * async caller that captured it before disposal (an image upload, a
+   * clipboard read) cannot tell a neutered no-op from a successful write.
+   * Ask this after any `await` before reporting success to the user.
    */
   isDisposed(): boolean;
   /**
@@ -1120,7 +1122,21 @@ export function initialize(
   // read-only store would leave a caller's `getDoc().refresh()` updating a
   // throwaway while the editor's own cache went stale, and remote edits
   // would stop repainting for exactly the viewers this protects.
-  const readStore = readOnly ? readOnlyDocStore(docStore) : docStore;
+  /** Set by `dispose()`; read back through `isDisposed()`. */
+  let disposed = false;
+
+  // The write handle every store-backed object in this editor is built over.
+  // Transparent while the editor lives; a `readOnlyDocStore` from `dispose()`
+  // onwards. Wrapping at construction rather than swapping what `getStore()`
+  // and `getDoc()` *return* at disposal is the whole point: the holders that
+  // matter captured the handle long ago (`docs-find-bar` takes both once, for
+  // the editor's lifetime), so only the handle itself going dead revokes
+  // anything for them.
+  //
+  // `readOnly` needs no revocation — its writes were dead at construction —
+  // so it keeps the plain read-only view rather than paying for two proxies.
+  const revocableStore = readOnly ? docStore : revocableDocStore(docStore, () => disposed);
+  const readStore = readOnly ? readOnlyDocStore(docStore) : revocableStore;
   const doc = new Doc(readStore);
   const pending = createPendingStyle(doc);
 
@@ -3285,9 +3301,12 @@ export function initialize(
     // a store-level write, so it deliberately does not snapshot or repaint;
     // `getStore()`'s other writes do not either.
     assertUsablePageSetup(setup);
-    docStore.setPageSetup(resolvePageSetup(setup));
+    // Through `revocableStore`, not `docStore`: this is the one member the
+    // proxy below never forwards, so writing to the raw store here would be
+    // the single page-setup-shaped hole left in a disposed handle.
+    revocableStore.setPageSetup(resolvePageSetup(setup));
   };
-  const pageSetupGuardedStore: DocStore = new Proxy(docStore, {
+  const pageSetupGuardedStore: DocStore = new Proxy(revocableStore, {
     get(target, prop) {
       if (prop === 'setPageSetup') return guardedSetPageSetup;
       const raw = Reflect.get(target, prop) as unknown;
@@ -3309,11 +3328,13 @@ export function initialize(
     // post-validation value while `get` kept returning the guard (#991).
   });
 
-  /** Set by `dispose()`; read back through `isDisposed()`. */
-  let disposed = false;
-
   const api: EditorAPI = {
     render,
+    // Both handles are built over `revocableStore` (see its declaration), so
+    // they stop writing at `dispose()` — including the copies a caller took
+    // while the editor was alive. Neither accessor needs a `disposed` check
+    // of its own, and a check here would not have helped the stale holders
+    // that are the actual hazard.
     getDoc: () => doc,
     getStore: () => (readOnly ? readStore : pageSetupGuardedStore),
     getSelectionStyle: (): Partial<InlineStyle> => {
@@ -4440,6 +4461,17 @@ export function initialize(
       // image upload in flight, a clipboard read) resumes on this object and
       // would otherwise write through a permission the session no longer
       // has. Disposal is the only moment the host can revoke it.
+      //
+      // Three things have to be revoked, not one, because a stale holder can
+      // reach the document by three different routes: the api's own mutating
+      // members (`neuterMutations`), the live handles `getStore()`/`getDoc()`
+      // hand out (setting `disposed` is what kills those — `revocableStore`
+      // reads it, so even a handle captured before now goes dead), and —
+      // inside `TextEditor` — `pasteContent`, which `EditorAPI.paste()`
+      // reaches on the captured text editor after its clipboard `await` and
+      // so never passes back through `api` at all (that one is
+      // `this.disposed` in `text-editor.ts`, set by `textEditor.dispose()`
+      // below).
       disposed = true;
       neuterMutations(api);
       peerCursors = [];
@@ -4506,7 +4538,9 @@ export function initialize(
   // `readOnly`, so their mutators are already dead by the time this runs
   // (#989). That split is deliberate — a list of names cannot guard an
   // object it merely returns, and adding them here would have looked like
-  // it did.
+  // it did. Disposal covers the same two the same way — `revocableDocStore`
+  // turns into a `readOnlyDocStore` the moment `disposed` flips — rather
+  // than by adding names here.
   if (readOnly) {
     neuterMutations(api);
   }
