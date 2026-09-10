@@ -148,6 +148,44 @@ logged-in users for presence identity; falls back to "Anonymous". For `viewer`
 links, editing remains blocked across tab types (including datasource query
 editing).
 
+### The read-only rule: nothing on a read-only mount reaches `doc.update()`
+
+The per-type sections below enumerate which *commands* a viewer cannot run.
+They are the visible half of one cross-cutting rule that binds every document
+type:
+
+> On a read-only mount, **no** code path may reach `doc.update()` — not just
+> the editing commands.
+
+The gates worth naming are the ones that are not commands at all, because a
+viewer triggers them without ever asking to edit:
+
+| Path | Where it is gated |
+| ---- | ----------------- |
+| Presence / selection publish | `YorkieStore` (sheets), `YorkieDocStore` (docs), `slides-view`'s broadcast, `board-view`'s selection presence, `pdf-collab`'s `activePage`, `readOnlyNoteStore.setLocalSelection` |
+| Root seeding (`initialRoot`) | `shared-document.tsx`'s per-role `*InitialRootForRole` helpers — the SDK writes every missing key on *each* attach, so a viewer opening a never-edited document created it |
+| Schema migrations / backfills | `ensureSlidesRoot(doc, { readOnly })` skips the seed and the backfill, and `YorkieSlidesStore.read()` reproduces the backfill in memory so an unmigrated deck still renders; `slides-view` likewise skips the first-slide seed |
+| Axis-ID materialization | `YorkieStore.ensureAxisOrder` — reached from the selection path, writes the CRDT root |
+| Cross-sheet formula recalculation | `Spreadsheet.recalculateCrossSheetFormulas`, plus `sheet-view`'s `runRemoteSync(!readOnly)` |
+| Comment mutators | `YorkieStore.assertWritable` (sheets), and `CommentPopover`'s `readOnly` prop hides the affordances |
+
+Two properties make the rule worth stating once rather than per type:
+
+- **A refused write is not a tidy error.** The webhook denies the `PushPull`,
+  not the operation, so one stray `doc.update()` wedges that viewer's sync for
+  the session. Not attempting the write is the only outcome that leaves a
+  viewer's screen working.
+- **The engine, not the caller, is the right place.** Gating each call site
+  leaves the next one to remember. Where it is affordable the boundary is
+  therefore a construct — `readOnlyNoteStore` and the docs `read-only.ts`
+  proxy neuter the store handle itself, and the notes editor's
+  `EditorState.changeFilter` drops a local transaction before `noteSync` can
+  see it — so a new write path is inert by construction.
+
+Being signed in is not authority: a workspace member opening somebody else's
+`viewer` link is read-only too, which is why these gates key on the resolved
+link role and not on `currentUser === null`.
+
 ### Sheet Package (Read-Only Mode)
 
 The `Spreadsheet` class accepts a `readOnly` option. When enabled:
@@ -197,24 +235,30 @@ constructed in read-only mode too, with every **mutating** path gated so
   unguessable.
 - **Revocation** — Deleting a ShareLink immediately invalidates the token.
 - **Cascade deletion** — Deleting a document cascades to all its share links.
-- **Server-side write enforcement, once enabled** — The Yorkie auth webhook can
-  enforce the share-link role server-side: an anonymous visitor's token is
-  checked in `hasAccess()`
-  (`packages/backend/src/document/yorkie-auth.controller.ts`), which returns
-  `needWrite ? link.role === 'editor' : true`, so a `viewer` token requesting a
-  write (`rw`) verb is denied with `403`
+- **Server-side write enforcement** — The Yorkie auth webhook enforces the
+  share-link role server-side: an anonymous visitor's token is checked in
+  `hasAccess()` (`packages/backend/src/document/yorkie-auth.controller.ts`),
+  which returns `needWrite ? link.role === 'editor' : true`, so a `viewer`
+  token requesting a write (`rw`) verb is denied with `403`
   (see [yorkie-auth-webhook.md](yorkie-auth-webhook.md)).
 
-  This is **off by default**. `YORKIE_AUTH_WEBHOOK_ENFORCE` is unset in a
-  stock deployment, which puts the controller in shadow mode: it logs the
-  decision it would have made and answers `allowed: true` anyway. So the
-  sentence above describes the enforced configuration, and in the default one
-  the client-side `readOnly` flag is the write boundary rather than a
-  convenience in front of one. That is why the client-side gates are treated
-  as load-bearing throughout this document, and why `EditorAPI`'s store and
-  doc accessors hand out a neutered `DocStore` under `readOnly`
-  (`packages/docs/src/store/read-only.ts`, issue #989) rather than relying on
-  the server to catch what gets through. Client-side read-only also gates the
+  **Enforcing is the default**: registering the methods on the Yorkie project
+  is the whole switch, and `YORKIE_AUTH_WEBHOOK_ENFORCE` needs no value
+  (`isYorkieAuthEnforced`, `packages/backend/src/yorkie/yorkie-auth-enforcement.ts`).
+  The literal string `false` — trimmed, case-insensitive, and nothing else —
+  selects shadow mode for a rollout window: the controller logs the decision it
+  would have made and answers `allowed: true` anyway. A deployment that has not
+  registered the methods is equally unenforced, and that is a manual step no
+  environment variable can attest.
+
+  So the client-side `readOnly` gates are still treated as load-bearing
+  throughout this document. Two reasons, and the second holds even on a fully
+  enforced deployment: an unregistered or shadowed deployment has nothing else
+  standing there, and a write the webhook *does* refuse fails the viewer's
+  whole `PushPull` — wedging their own sync rather than producing a tidy error.
+  That is why `EditorAPI`'s store and doc accessors hand out a neutered
+  `DocStore` under `readOnly` (`packages/docs/src/store/read-only.ts`, issue
+  #989), and why the rule below is a rule. Client-side read-only also gates the
   UI so a viewer never hits the error path, and the Yorkie doc key is only
   revealed after valid token resolution.
 - **Expiration** — Links can have time-limited access (1h, 8h, 24h, 7d).
@@ -227,12 +271,14 @@ client-side role enforcement.
 
 **Token leakage across write access** — A `viewer` link is read-only, but an
 `editor` link grants anonymous write access. Mitigation: editor links are gated
-to workspace owners / document authors, and are revocable and expirable. With
-`YORKIE_AUTH_WEBHOOK_ENFORCE=true` the auth webhook enforces the link role
-server-side, so bypassing the client-side read-only checks does not grant a
-viewer token write access; with the flag at its default the client-side checks
-are what stands there, so they are written to fail closed (see **Server-side
-write enforcement, once enabled** above).
+to workspace owners / document authors, and are revocable and expirable. Once
+the auth-webhook methods are registered on the Yorkie project the webhook
+enforces the link role server-side by default, so bypassing the client-side
+read-only checks does not grant a viewer token write access. On a deployment
+that has not registered them, or that has opted into shadow mode with
+`YORKIE_AUTH_WEBHOOK_ENFORCE=false`, the client-side checks are what stands
+there — which is why they are written to fail closed (see **Server-side write
+enforcement** above).
 
 **Brute-forcing token resolution** — The public resolve endpoint could be
 probed. Mitigation: UUID tokens have sufficient entropy to make brute-force
