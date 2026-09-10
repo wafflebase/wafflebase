@@ -89,6 +89,20 @@ export function migrateDocument(input: unknown): SlidesDocument {
   // so consumers downstream never see undefined and the read-path stays
   // shape-stable across pre- / post-v0.4.2 documents.
   const guides = Array.isArray(raw?.guides) ? raw.guides.map(migrateGuide) : [];
+  // Reconcile `meta.themeId` / `meta.masterId` against the arrays resolved
+  // above. `migrateMeta` alone cannot: it sees no themes, so it falls back to
+  // the hard-coded 'default-light' / 'default' ids, and a customized or
+  // partially migrated deck may carry neither — `getActiveTheme(doc)` then
+  // throws at render time. `ensureSlidesRoot` performs the same repair in the
+  // CRDT, but a share-link **viewer** mount skips it (a write the Yorkie auth
+  // webhook refuses), so this read-path pass is what keeps that mount
+  // renderable.
+  if (!themes.some((t: { id?: string }) => t.id === meta.themeId)) {
+    meta.themeId = themes[0].id;
+  }
+  if (!masters.some((m: { id?: string }) => m.id === meta.masterId)) {
+    meta.masterId = masters[0].id;
+  }
   return { meta, themes, masters, layouts, slides, guides };
 }
 

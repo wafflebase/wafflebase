@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
+import { getActiveTheme } from '@wafflebase/slides';
 import type { YorkieSlidesRoot } from '../../../src/types/slides-document.ts';
 import {
   YorkieSlidesStore,
@@ -123,6 +124,44 @@ describe('ensureSlidesRoot — read-only mounts', () => {
     expect(out.themes.length > 0).toBeTruthy();
     expect(out.masters.length > 0).toBeTruthy();
     expect(out.themes.some((t) => t.id === out.meta.themeId)).toBe(true);
+  });
+
+  it('reconciles a stale meta.themeId in memory so a viewer can render', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    // A customized deck: its `themes` array does not contain the id
+    // `meta.themeId` pins. A writable mount repairs that in the CRDT
+    // (`ensureSlidesRoot`'s backfill); a viewer mount skips the write, so the
+    // reconciliation has to happen on the read path or `getActiveTheme`
+    // throws and the share route renders nothing.
+    doc.update((r) => {
+      const rootAny = r as unknown as {
+        meta: { title: string; themeId: string; masterId: string };
+        slides: unknown[];
+        layouts: unknown[];
+        themes: unknown[];
+        masters: unknown[];
+      };
+      rootAny.meta = {
+        title: 'Customized deck',
+        themeId: 'a-theme-that-was-removed',
+        masterId: 'a-master-that-was-removed',
+      };
+      rootAny.slides = [];
+      rootAny.layouts = [];
+      rootAny.themes = [{ id: 'coral', name: 'Coral', colors: {}, fonts: {} }];
+      rootAny.masters = [{ id: 'custom', name: 'Custom', placeholders: [] }];
+    });
+
+    ensureSlidesRoot(doc, { readOnly: true });
+    // Untouched: the viewer wrote nothing.
+    expect(doc.getRoot().meta.themeId).toBe('a-theme-that-was-removed');
+
+    const out = new YorkieSlidesStore(doc).read();
+    expect(out.meta.themeId).toBe('coral');
+    expect(out.meta.masterId).toBe('custom');
+    expect(() => getActiveTheme(out)).not.toThrow();
   });
 
   it('still backfills a writable mount of the same deck', () => {
