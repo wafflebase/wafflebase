@@ -85,3 +85,84 @@ blocking entries were `[POOL_EXHAUSTED]` infrastructure failures, not
 findings; the non-blocking suggestions (sharing.md revalidation contract, the
 undisposed store in the import path, polling after the error page, tests for
 the revalidation query) were left alone to stop this PR growing further.
+
+Both of those deferrals came back in round 13 and both were right to come
+back — see the next two sections.
+
+## Deferring a class of defect is no defence when the fix is on the branch
+
+Round 13's blocking finding was that the toolbar's `applyBlockStyle` /
+`toggleList` / `indent` / `outdent`, the two cell-rectangle writers, and
+`FindReplaceState.replaceAll()` still wrote once per block outside any batch,
+so "Tab is one undo unit, the Increase-indent button is a hundred" was the
+shipped behaviour — the same action, the same selection, different verdict
+depending on which control the user reached for. The branch's own design-doc
+text *said so* and pointed at #1048, and that is what made it worse rather
+than better: the divergence did not exist before this change, and the fix was
+the wrapper already built here. Twelve of these are one line each plus a test.
+
+The rule for next time: when a change fixes a class of defect on one code
+path, enumerate the sibling paths *before* claiming the class. The audit that
+found them is one grep (`forEachBlockInSelection`, then every `doc.` call
+inside a loop), and the reachability check is one more (the toolbar component
+that calls each `EditorAPI` member). Deferring is legitimate when the
+follow-up is genuinely a different change; it is not when it is the same
+three lines in the next function down.
+
+What *did* stay deferred, with a reason that survives: the logic is still
+written three times (`EditorAPI`, `TextEditor`, `text-box-editor`), and each
+copy now carries its own `doc.batch(...)`. Routing them together looked like
+the elegant move and is not behaviour-preserving — `TextEditor.toggleList()`
+acts on the caret's block where the `EditorAPI` one acts on the selection, and
+`textEditor` is absent on a read-only mount. A refactor that changes what a
+button does is not a cleanup.
+
+## A checkpoint is not an undo unit until something is written
+
+`MemDocStore.snapshot()` pushed a copy of the current document onto the undo
+stack. That reads as obviously correct and is not: a checkpoint holding
+exactly the current state is a Cmd+Z that changes nothing unless a write
+follows it, and an action that snapshots and then writes nothing is ordinary
+(the indent button with every item at `MAX_LIST_LEVEL`, a Replace All with no
+matches). Earlier in this same branch `snapshot()` also cleared redo, which
+hid the first half of the bug by destroying the evidence; once redo was
+correctly preserved, the dead checkpoint became a dead Cmd+Z followed by a
+dead Cmd+Shift+Z with the real redo entry one press further away than it
+looked.
+
+The fix is to move the push to `willWrite()`, where the redo clear had
+already been moved for the same reason — the write is the event, in both
+directions. Two things fell out of it that were being paid for separately:
+
+- `batch()`'s adoption of a preceding `snapshot()` had been a *value*
+  heuristic (JSON-stringify the whole document, compare against the top of
+  the undo stack). With the checkpoint deferred, adoption is reading a field,
+  and one full-document stringify per batch — one per keystroke on the slides
+  text-box and demo paths — goes away.
+- `YorkieDocStore` answers "nothing to undo" for a write-nothing action by
+  construction, because its `snapshot()` is a no-op. Deferring is what makes
+  the in-memory store agree, so the parity the branch kept patching stopped
+  needing patches.
+
+The general shape: when two implementations of one interface keep needing
+compensating hacks to agree, the interface is usually being read at the wrong
+moment by one of them. Here `snapshot()` was being treated as the event when
+the event was the write.
+
+## Read the SDK before writing a comment about what the SDK might do
+
+`canUndo()`'s undo-floor lookup had a branch commented "either the entry was
+shifted off the bottom or the SDK rebuilt it in place", with a cap test to
+tell them apart, and the panel flagged the residual case as a silent
+permanent loss of the floor. The rebuilt case does not exist: in
+`@yorkie-js/sdk` 0.7.20's `History`, `pushUndo` stores the caller's array by
+reference, `getUndoStackForTest()` returns the live stack, and
+`reconcileCreatedAt` / `reconcileTextEdit` mutate the *operations* inside an
+entry without ever replacing the entry — and the one remaining way an entry
+leaves the stack, `popUndo`, cannot reach the floor because `canUndo()` only
+answers true with an entry above it. Fifteen minutes in `dist/` turned a
+speculative fix into a grounded rejection plus an enumerated comment.
+
+An honest "this cannot happen, here is why" is worth more than a guard for a
+case nobody has characterized: the guard has to be maintained and it teaches
+the next reader something false.
