@@ -34,11 +34,22 @@
  * - `MAX_CELL_PADDING` is far above the 4 px default; no control sets it.
  * - `MAX_IMAGE_SIZE` is ~25× the widest page an insert clamps an image to.
  *
- * Out of band reads as *absent* rather than as the clamped edge, matching
- * `normalizeRowHeight`: an absent font size or line height already means
- * "take the block's resolved default", which is the neutral reading of a
- * value that cannot be trusted. `Math.min` still applies inside the band's
- * upper half so a merely-large value renders large rather than vanishing.
+ * Every band has *two* branches, and which one an input takes is the whole
+ * contract — a band summarized as a single verb is wrong for half its inputs:
+ *
+ * - **Non-finite or non-positive** (`NaN`, `Infinity`, `0`, a negative) is
+ *   **dropped** — returned as `undefined`, so the resolved default applies.
+ *   There is no edge to clamp such a value towards, and an absent font size
+ *   or line height already means "take the block's resolved default", the
+ *   neutral reading of a value that cannot be trusted.
+ * - **Finite but above the ceiling** (`1e9`) is **clamped to the ceiling and
+ *   returned present**, so a merely-large value renders large rather than
+ *   vanishing.
+ *
+ * `normalizeRowHeight` splits on the same line, and `normalizeListLevel`
+ * clamps at both ends (0 is its floor, not a rejection). The one exception is
+ * `isPaintableImageSize`, which drops rather than clamps even above the
+ * ceiling — see its own note for why a *pair* cannot be clamped.
  */
 
 /** Largest inline font size (pt) any reader will honour. */
@@ -56,6 +67,9 @@ export const MAX_IMAGE_SIZE = 20000;
 /**
  * One `fontSize` attribute as a number every reader can trust: a finite size
  * inside `(0, MAX_FONT_SIZE]`, or `undefined` for "inherit".
+ *
+ * A finite size *above* the ceiling is clamped to it and returned present —
+ * only a non-finite or non-positive one becomes `undefined`.
  */
 export function normalizeFontSize(raw: number | undefined): number | undefined {
   if (raw === undefined) return undefined;
@@ -66,7 +80,16 @@ export function normalizeFontSize(raw: number | undefined): number | undefined {
 /**
  * One `lineHeight` block attribute as a multiple every reader can trust: a
  * finite multiple inside `(0, MAX_LINE_HEIGHT]`, or `undefined` so the
- * block's resolved named style supplies it.
+ * block's resolved default spacing supplies it.
+ *
+ * A finite multiple *above* the ceiling is clamped to it and returned present
+ * — only a non-finite or non-positive one becomes `undefined`.
+ *
+ * "Resolved default" is not always the *named style's*: `effectiveBlockSpacing`
+ * consults the style only while the spacing reads as inherited, and a block
+ * carrying `authoredLineHeight: true` reads as authored either way — so a
+ * dropped multiple there resolves `DEFAULT_BLOCK_STYLE.lineHeight` (1.5)
+ * instead. Both are a legible paragraph, which is all this band promises.
  */
 export function normalizeLineHeight(
   raw: number | undefined,
@@ -81,7 +104,9 @@ export function normalizeLineHeight(
  * padding inside `[0, MAX_CELL_PADDING]`, or `undefined` for the default.
  *
  * Zero is in band — a table with no cell padding is a real style — so the
- * floor is inclusive here where the others exclude it.
+ * floor is inclusive here where the others exclude it. A finite padding
+ * *above* the ceiling is clamped to it and returned present; only a
+ * non-finite or negative one becomes `undefined`.
  */
 export function normalizeCellPadding(
   raw: number | undefined,

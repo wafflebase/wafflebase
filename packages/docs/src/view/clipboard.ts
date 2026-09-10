@@ -3,8 +3,9 @@ import type {
   HeadingLevel, TableCell, TableData, CellStyle,
 } from '../model/types.js';
 import type { StoredColor } from '../model/color.js';
-// The editors' indent ceiling; keeps a payload from inventing a level.
-import { MAX_LIST_LEVEL } from '../model/list-level.js';
+// The `[0, MAX_LIST_LEVEL]` band every reader of a `Block.listLevel` applies;
+// keeps a payload from inventing a level.
+import { normalizeListLevel } from '../model/list-level.js';
 // The bands the CRDT read boundaries apply to the same fields. This
 // sanitizer is the other *producer* of them, so it has to agree: a value it
 // admitted but a reader bands leaves the pasting client rendering something
@@ -212,9 +213,12 @@ function sanitizeBlockStyle(value: unknown): BlockStyle {
   // does, one step removed: it is a *multiplier* that scales every font size
   // in the paragraph into a line height, and a table cell's line heights are
   // summed into its row height. Banded exactly as `parseBlockStyleAttrs` bands
-  // it, so the pasting client and every other reader agree; out of band keeps
-  // the default, so the block's resolved named style supplies the spacing. The
-  // offsets in the loop above reach no such sink and stay finite-only.
+  // it, so the pasting client and every other reader agree: a finite multiple
+  // above `MAX_LINE_HEIGHT` is clamped to it and kept, and only a non-finite
+  // or non-positive one is dropped — leaving `DEFAULT_BLOCK_STYLE`'s 1.5 here,
+  // which the block's resolved spacing then treats as inherited (or as
+  // authored, if the marker below says so). The offsets in the loop above
+  // reach no such sink and stay finite-only.
   const lineHeight = normalizeLineHeight(asNumber(value.lineHeight));
   if (lineHeight !== undefined) style.lineHeight = lineHeight;
   // Authored-spacing markers ride the internal docs→docs payload too. Without
@@ -263,7 +267,9 @@ function sanitizeCellStyle(value: unknown): CellStyle {
   if (verticalAlign !== undefined) style.verticalAlign = verticalAlign;
   // Banded like the CRDT readers band it: `computeTableLayout` adds
   // `padding * 2` to the cell's content height, so an out-of-band padding is
-  // an out-of-band row height. Out of band keeps the default.
+  // an out-of-band row height. A finite padding above `MAX_CELL_PADDING` is
+  // clamped to it and kept; only a non-finite or negative one is dropped, and
+  // then `DEFAULT_CELL_STYLE`'s padding stands.
   const padding = normalizeCellPadding(asNumber(value.padding));
   if (padding !== undefined) style.padding = padding;
   const borderKeys = ['borderTop', 'borderBottom', 'borderLeft', 'borderRight'] as const;
@@ -384,10 +390,11 @@ function sanitizeBlock(value: unknown, depth: number): Block | null {
   }
   if (type === 'list-item') {
     block.listKind = asOneOf(record.listKind, LIST_KINDS) ?? 'unordered';
-    const level = asNumber(record.listLevel);
-    block.listLevel = level === undefined
-      ? 0
-      : Math.min(MAX_LIST_LEVEL, Math.max(0, Math.trunc(level)));
+    // The shared band, not a fourth open-coded copy of `[0, MAX_LIST_LEVEL]`:
+    // `asNumber` has already rejected everything non-finite, and `Math.trunc`
+    // and `Math.floor` cannot differ once `Math.max(0, …)` has run, so this is
+    // the same function the CRDT readers and the PPTX exporter call.
+    block.listLevel = normalizeListLevel(asNumber(record.listLevel));
     const marker = sanitizeMarker(record.marker);
     if (marker !== undefined) block.marker = marker;
   }

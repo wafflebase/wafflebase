@@ -28,9 +28,14 @@ export const MAX_ROW_HEIGHT = 10000;
  * `Number.isFinite` checks downstream (row hit-testing, the split-height
  * search) meaningless.
  *
- * `undefined` rather than a clamp-to-floor for a bad value: an absent entry
- * already means "size this row from its content", which is the neutral
- * reading of a height that cannot be trusted.
+ * Two branches, and the difference matters to every caller that reads this as
+ * the model's rule: a **non-finite or non-positive** height is **dropped**,
+ * because an absent entry already means "size this row from its content",
+ * which is the neutral reading of a height that cannot be trusted — a
+ * clamp-to-floor would invent a minimum the user never dragged to. A
+ * **finite** height *above* `MAX_ROW_HEIGHT` is **clamped to it and returned
+ * present**, so a merely-tall row stays tall instead of collapsing to its
+ * content. It is not the case that out-of-band reads as absent.
  */
 export function normalizeRowHeight(raw: number | undefined): number | undefined {
   if (raw === undefined) return undefined;

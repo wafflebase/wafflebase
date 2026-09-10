@@ -157,8 +157,14 @@ export function parseBlockStyleAttrs(
   // finite `1e9` here is the same million-page allocation a poisoned
   // `rowHeights` entry produces, so it is clamped to `MAX_LINE_HEIGHT` — large
   // still renders large. A non-finite or non-positive multiple is nothing to
-  // clamp towards, so it reads as absent and the block's resolved named style
-  // supplies the spacing. See `normalizeLineHeight`.
+  // clamp towards, so it is dropped and the block falls back to its resolved
+  // default spacing. *Which* default is decided by the other peer-writable
+  // attribute read below, not by this one: `effectiveBlockSpacing` consults
+  // the named style only while the spacing reads as inherited, and
+  // `authoredLineHeight === '1'` makes it read as authored — so a dropped
+  // multiple on a marked block resolves the hardcoded
+  // `DEFAULT_BLOCK_STYLE.lineHeight` (1.5) and the named style is never
+  // consulted. See `normalizeLineHeight`.
   if (partial.lineHeight !== undefined) {
     const banded = normalizeLineHeight(partial.lineHeight);
     if (banded === undefined) delete partial.lineHeight;

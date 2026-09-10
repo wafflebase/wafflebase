@@ -220,9 +220,27 @@ load-bearing:
    Every band is applied at both read boundaries (`treeNodeToBlock` and
    `YorkieDocStore`'s parsers; `lineHeight` in the block-style codec
    `crdt-attrs.ts` they share) and is set at the range the editor's own
-   controls can produce, so nothing a gesture can make is altered. Out of
-   band reads as *absent* — "take the resolved default" — rather than as
-   the clamped edge, matching `normalizeRowHeight`.
+   controls can produce, so nothing a gesture can make is altered.
+
+   Each band has **two** branches, and reading it as a single verb gets
+   half its inputs wrong. A **non-finite or non-positive** value is
+   *dropped* — read as absent, "take the resolved default" — because
+   there is no edge to clamp it towards. A **finite value above the
+   ceiling** is *clamped to the ceiling and kept present*, so a
+   merely-large one renders large rather than vanishing.
+   `normalizeRowHeight` splits on the same line;
+   `normalizeListLevel` clamps at both ends (0 is its floor, not a
+   rejection); `isPaintableImageSize` is the one that drops at both,
+   because a width/height *pair* cannot be clamped on one edge without
+   restretching the picture.
+
+   One wrinkle where "the resolved default" is not the named style's:
+   `effectiveBlockSpacing` consults the style only while a block's
+   spacing reads as *inherited*, and `authoredLineHeight` — itself a
+   peer-writable attribute — makes it read as authored. So a dropped
+   `lineHeight` on a block marked `authoredLineHeight: '1'` resolves the
+   hardcoded `DEFAULT_BLOCK_STYLE.lineHeight` (1.5) instead. Both
+   outcomes are a legible paragraph, which is all the band promises.
 
    The paste sanitizer (`view/clipboard.ts`) is a *producer* of the same
    fields rather than a reader, and it calls the same bands: a value it

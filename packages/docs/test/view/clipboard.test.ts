@@ -403,8 +403,8 @@ describe('clipboard payload validation', () => {
         parseOne({ type: 'paragraph', style: { lineHeight } }).style.lineHeight;
       expect(lineHeightOf(1.5)).toBe(1.5);
       expect(lineHeightOf(1e9)).toBe(MAX_LINE_HEIGHT);
-      // Out of band falls back to the default, so the block's resolved named
-      // style supplies the spacing.
+      // Above the ceiling is clamped and kept (the line above); only a
+      // non-positive multiple is dropped, leaving `DEFAULT_BLOCK_STYLE`'s.
       expect(lineHeightOf(0)).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
       expect(lineHeightOf(-2)).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
       // The other numerics in the same loop reach no such sink and stay
@@ -440,7 +440,7 @@ describe('clipboard payload validation', () => {
       expect(padding(8)).toBe(8);
       expect(padding(0)).toBe(0);
       expect(padding(1e9)).toBe(MAX_CELL_PADDING);
-      // Out of band falls back to the default, like every other bad value here.
+      // A negative one is dropped rather than clamped, so the default stands.
       expect(padding(-4)).toBe(DEFAULT_CELL_STYLE.padding);
     });
   });

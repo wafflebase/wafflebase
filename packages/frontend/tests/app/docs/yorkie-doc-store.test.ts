@@ -3411,11 +3411,13 @@ describe('YorkieDocStore', () => {
 
       expect(fontSizeOf(11)).toBe(11);
       expect(fontSizeOf(MAX_FONT_SIZE)).toBe(MAX_FONT_SIZE);
-      // Out of band reads as absent, so the block's resolved default applies.
+      // Non-finite or non-positive is dropped, so the resolved default
+      // applies.
       expect(fontSizeOf(Infinity)).toBeUndefined();
       expect(fontSizeOf(NaN)).toBeUndefined();
       expect(fontSizeOf(0)).toBeUndefined();
       expect(fontSizeOf(-11)).toBeUndefined();
+      // Finite but above the ceiling is clamped and kept *present*.
       expect(fontSizeOf(1e9)).toBe(MAX_FONT_SIZE);
     });
 
@@ -3442,10 +3444,12 @@ describe('YorkieDocStore', () => {
         }).tableData!.rows[0].cells[0].style.padding;
 
       expect(paddingOf(8)).toBe(8);
-      // Out of band reads as absent, so the layout's default padding applies.
+      // Non-finite or negative is dropped, so the layout's default padding
+      // applies.
       expect(paddingOf(Infinity)).toBeUndefined();
       expect(paddingOf(NaN)).toBeUndefined();
       expect(paddingOf(-4)).toBeUndefined();
+      // Finite but above the ceiling is clamped and kept *present*.
       expect(paddingOf(1e9)).toBe(MAX_CELL_PADDING);
     });
 

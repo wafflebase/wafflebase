@@ -1,8 +1,9 @@
 import type { Block } from './types.js';
 
 /**
- * Deepest list level a `list-item` may reach (0-based), matching the
- * clamp the clipboard parser applies to a pasted `listLevel`.
+ * Deepest list level a `list-item` may reach (0-based). It is also OOXML's
+ * `ST_TextIndentLevelType` ceiling, which is what the editors' indent gesture
+ * and the PPTX exporter are bounded by.
  */
 export const MAX_LIST_LEVEL = 8;
 

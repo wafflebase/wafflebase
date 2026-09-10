@@ -90,10 +90,11 @@ describe('the CRDT read boundary bands them', () => {
 
   test('fontSize', () => {
     expect(inlineStyle({ fontSize: '11' }).fontSize).toBe(11);
-    // Out of band reads as absent, so the block's resolved default applies.
+    // Non-finite or non-positive is dropped, so the resolved default applies.
     expect(inlineStyle({ fontSize: 'Infinity' }).fontSize).toBeUndefined();
     expect(inlineStyle({ fontSize: 'not-a-number' }).fontSize).toBeUndefined();
     expect(inlineStyle({ fontSize: '-11' }).fontSize).toBeUndefined();
+    // Finite but above the ceiling is clamped and kept *present*.
     expect(inlineStyle({ fontSize: '1e9' }).fontSize).toBe(MAX_FONT_SIZE);
   });
 
@@ -115,9 +116,12 @@ describe('the CRDT read boundary bands them', () => {
       }).style.lineHeight;
 
     expect(lineHeight('1.5')).toBe(1.5);
-    // Absent reads as the default rather than as the ceiling.
+    // Non-finite or non-positive is dropped, so `parseBlockStyleAttrs`'s
+    // spread over `DEFAULT_BLOCK_STYLE` supplies the multiple — not the
+    // ceiling.
     expect(lineHeight('Infinity')).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
     expect(lineHeight('-2')).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+    // Finite but above the ceiling is clamped and kept *present*.
     expect(lineHeight('1e9')).toBe(MAX_LINE_HEIGHT);
   });
 
@@ -135,6 +139,7 @@ describe('the CRDT read boundary bands them', () => {
       }).tableData?.rows[0].cells[0].style.padding;
 
     expect(padding('8')).toBe(8);
+    // Dropped, then clamped-and-kept — the band's two branches.
     expect(padding('Infinity')).toBeUndefined();
     expect(padding('not-a-number')).toBeUndefined();
     expect(padding('1e9')).toBe(MAX_CELL_PADDING);

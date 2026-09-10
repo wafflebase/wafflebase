@@ -243,10 +243,13 @@ export function computeTableLayout(
   }
 
   // 5b. Apply user-specified row heights as minimums.
-  // Normalized here as well as at the CRDT read boundary: this is the one
-  // place a stored height becomes geometry, and the paste path
-  // (`sanitizeTableData`) admits any finite number. Everything downstream —
-  // the paginator's per-page row-split loop above all — reads
+  // Normalized here as well as at the CRDT read boundaries and in the paste
+  // sanitizer: this is the one place a stored height becomes geometry, and the
+  // readers are not the only producers. `Doc.setRowHeight` writes the drag
+  // straight into the in-memory `tableData`, and the DOCX importer writes
+  // `rowHeights` from `<w:trHeight>` (`import/docx-importer.ts`) — neither
+  // passes a read boundary before layout runs. Everything downstream — the
+  // paginator's per-page row-split loop above all — reads
   // `LayoutTable.rowHeights`, so bounding it here bounds all of them.
   if (tableData.rowHeights) {
     for (let r = 0; r < numRows; r++) {
