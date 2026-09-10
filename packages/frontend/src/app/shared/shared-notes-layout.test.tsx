@@ -108,11 +108,20 @@ vi.mock("@/app/notes/notes-view", async () => {
   };
 });
 
+/** Set to make the stubbed share-token upload reject, as the real one does. */
+const uploadFailure: { current: Error | null } = { current: null };
+
 // The real uploader pulls the docs DOCX importer/exporter in through
 // `docx-actions`; the layout only needs to hand *something* to the view.
 vi.mock("@/app/docs/image-insert", () => ({
-  shareTokenImageUploader: (token: string) => async () => `uploaded:${token}`,
+  shareTokenImageUploader: (token: string) => async () => {
+    if (uploadFailure.current) throw uploadFailure.current;
+    return `uploaded:${token}`;
+  },
 }));
+
+const toastError = vi.fn();
+vi.mock("sonner", () => ({ toast: { error: (m: string) => toastError(m) } }));
 
 // Both read the live Yorkie document through a provider this test has none of.
 vi.mock("@/app/shared/shared-header-status", () => ({
@@ -148,6 +157,8 @@ beforeEach(() => {
   setViewportWidth(1024);
   window.localStorage.clear();
   viewProps.current = {};
+  uploadFailure.current = null;
+  toastError.mockClear();
 });
 
 describe("SharedNotesLayout for an editor-role visitor", () => {
@@ -164,6 +175,22 @@ describe("SharedNotesLayout for an editor-role visitor", () => {
     await expect(
       (viewProps.current.uploadImage as () => Promise<string>)(),
     ).resolves.toBe("uploaded:tok-1");
+  });
+
+  // The notes engine's `UploadImage` contract is "resolve `null` once you have
+  // told the user"; a rejection only reaches its `console.error`. The
+  // share-token uploader rejects, so without an adapter here a failed upload
+  // is the one mount that fails silently.
+  it("reports a failed upload and resolves null", async () => {
+    uploadFailure.current = new Error("413 too large");
+    await renderLayout("editor");
+    const upload = viewProps.current.uploadImage as (
+      file: File,
+    ) => Promise<string | null>;
+    await expect(upload(new File([], "a.png"))).resolves.toBeNull();
+    expect(toastError).toHaveBeenCalledWith(
+      expect.stringContaining("413 too large"),
+    );
   });
 
   it("opens in the visitor's stored view mode", async () => {

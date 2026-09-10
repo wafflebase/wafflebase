@@ -1,5 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import type { NoteEditorAPI, NoteKeymap, NoteViewMode } from "@wafflebase/notes";
+import type {
+  NoteEditorAPI,
+  NoteKeymap,
+  NoteViewMode,
+  UploadImage,
+} from "@wafflebase/notes";
+import { toast } from "sonner";
 import type { ResolvedShareLink } from "@/api/share-links";
 import { SharedHeaderStatus } from "@/app/shared/shared-header-status";
 import { UserPresence } from "@/components/user-presence";
@@ -70,10 +76,30 @@ export function SharedNotesLayout({
   // read-only mount either way. The read half is already wired:
   // `shared-document.tsx` installs the notes engine's share-token image-URL
   // resolver for this mount.
-  const uploadImage = useMemo(
-    () => (token && !readOnly ? shareTokenImageUploader(token) : undefined),
-    [token, readOnly],
-  );
+  //
+  // Adapted at the boundary: `shareTokenImageUploader` is a `DocsImageUpload`,
+  // which *rejects* on failure, while the notes engine's `UploadImage` contract
+  // is "report it yourself and resolve `null`" — a rejection only reaches its
+  // `console.error`, so a failed upload here would be the one note mount that
+  // says nothing. `notes-detail.tsx` toasts for the authenticated path; this
+  // does the same for the share-link one.
+  const uploadImage: UploadImage | undefined = useMemo(() => {
+    if (!token || readOnly) return undefined;
+    const upload = shareTokenImageUploader(token);
+    return async (file: File) => {
+      try {
+        return await upload(file);
+      } catch (err) {
+        console.error("Note image upload failed", err);
+        toast.error(
+          err instanceof Error
+            ? `Image upload failed: ${err.message}`
+            : "Image upload failed",
+        );
+        return null;
+      }
+    };
+  }, [token, readOnly]);
 
   useEffect(() => {
     document.title = resolved.title
