@@ -418,6 +418,31 @@ describe('YorkieDocStore', () => {
       expect(seededStore.canUndo()).toBe(true);
       seededStore.undo();
       expect(seededStore.canUndo()).toBe(false);
+
+      // The case that separates the guard from its absence: a stack sitting
+      // exactly AT the cap with the floor still on it. The identity lookup
+      // cannot find a copied mark, and a not-found mark at the cap is the
+      // "dropped for good" latch — which clears the floor and hands back
+      // `true` until Yorkie's own history runs out, undoing the initial load
+      // itself. The guard never enters that branch, so the depth still
+      // fences the load off.
+      const floorDepth = doc.getUndoStackForTest().length;
+      const writes = 50 - floorDepth;
+      for (let i = 0; i < writes; i++) seededStore.insertText(block.id, 5, 'x');
+      expect(doc.getUndoStackForTest().length).toBe(50);
+
+      let undone = 0;
+      let safety = 200;
+      while (seededStore.canUndo() && safety-- > 0) {
+        seededStore.undo();
+        undone++;
+      }
+      expect(undone).toBe(writes);
+      // And the seeded document survived, which is the property the floor
+      // exists for.
+      const survived = seededStore.getDocument();
+      expect(survived.blocks.length).toBe(1);
+      expect(survived.blocks[0].inlines[0].text).toBe('Hello');
     });
 
     it('undo should restore cursor position via presence', () => {
