@@ -162,11 +162,19 @@ refused when the root is already at level 0, and indent when the
 subtree's *deepest* member is already at `MAX_LIST_LEVEL` (8). Clamping a
 single member instead — which is what a per-block clamp does — would
 collapse the depth gap and reproduce the bug, so the invariant is
-"relative depth is preserved, or nothing moves". A selected block already
-covered by an earlier item's subtree is skipped, refused or not, so every
-child moves exactly once and a refused parent never leaves its selected
-child to flatten on its own. Non-list blocks keep their independent
-`marginLeft ± 36` behavior.
+"relative depth is preserved, or the subtree does not move". A selected
+block already *moved* as part of an earlier item's subtree is skipped, so
+every child moves exactly once.
+
+A refused subtree suppresses only itself. Its members stay eligible, so a
+deeper one the user also selected is reconsidered as a subtree root in its
+own right and moves if it has room — otherwise select-all + Shift+Tab
+would be a no-op on any document whose first list item is a root, since
+that root's subtree covers everything under it. The two rules divide along
+what the user asked for: a child is *carried* by its parent, so a parent
+that cannot move keeps it; a child the user selected asked to move on its
+own account. Non-list blocks keep their independent `marginLeft ± 36`
+behavior.
 
 Levels that are *already* inconsistent (a level-3 item directly under a
 level-0 one) are read as-is rather than normalized; the gesture preserves
@@ -215,14 +223,19 @@ load-bearing:
    controls can produce, so nothing a gesture can make is altered. Out of
    band reads as *absent* — "take the resolved default" — rather than as
    the clamped edge, matching `normalizeRowHeight`.
-2. **A bound on the loop itself.** A band alone would still be
-   bypassable: `LayoutTable.rowHeights` also has producers that pass no
-   read boundary (the clipboard sanitizer admits any finite number), and
-   a future attribute would have to remember to join the list above. So
-   `paginateLayout` clamps the height it consumes to `MAX_ROW_PAGE_SPAN`
-   (200) pages and refuses to advance by a non-positive fragment,
-   whatever produced the number. Content past the bound is clipped, which
-   is the only outcome that terminates.
+
+   The paste sanitizer (`view/clipboard.ts`) is a *producer* of the same
+   fields rather than a reader, and it calls the same bands: a value it
+   admitted but a reader banded would leave the pasting client rendering
+   something no peer, and no later reload, reproduces.
+2. **A bound on the loop itself**, because a band alone is bypassable —
+   a row height is also *derived* from content, and a future attribute
+   would have to remember to join the list above. That half belongs to
+   the paginator and is designed in
+   [`tables/docs-table-row-splitting.md`](tables/docs-table-row-splitting.md)
+   §1.5, together with the one place a row height may be substituted
+   (`computeTableLayout` step 5d) and what the bound costs the
+   atomic-unit invariant.
 
 Keeping only the loop bound would not do either: a `NaN` height left in
 the geometry blanks the table and, through `totalHeight`, the scroll

@@ -141,3 +141,104 @@ that were adjudicated "upheld" but filed as suggestions: `editor.ts`'s
 same-cell branch still resolves parentage through the body-only
 `layout.blockParentMap` (line 1683), and the slides PPTX export still
 hard-codes its own list-level ceiling.
+
+## Round-9 review findings
+
+### A band has producers, not only readers
+
+The hardening added `normalizeFontSize` / `isPaintableImageSize` /
+`normalizeCellPadding` / `normalizeRowHeight` at the two CRDT *read*
+boundaries and stopped there. But the model has other writers, and the paste
+sanitizer is one: it validated the same four fields to "any finite number".
+The result is worse than no band at all — the pasting client holds `1e9` and
+renders it, while every peer, the same user after reload, the revision preview
+and the PDF painter read it banded. A band that is not applied at every
+producer converts a rendering glitch into two clients disagreeing about the
+same document.
+
+The rule to carry forward: when adding a band, enumerate the *writers* of the
+field, not just the parsers. `grep` for the field name and read every hit that
+assigns it.
+
+### Clamping at the consumer desyncs the consumers
+
+`paginatableRowHeight` was the tidy-looking fix: bound the height the row-split
+loop consumes and leave the layout alone. It is wrong because a row height is a
+*shared* number — `LayoutTable.rowHeights`, `rowYOffsets` and `totalHeight` are
+read raw by the table renderer, the row hit-tests, the selection geometry and
+the scroll extent — so clamping in one consumer makes that consumer the only
+one with the clamped value. The equality "a table `PageLine`'s height ===
+`rowHeights[row]`" was an unwritten contract out-of-diff code relies on.
+
+Two rules came out of it. Substitute a value only where it *becomes* the thing
+(here `computeTableLayout`, the one place a row height turns into geometry).
+And when a loop needs bounding, bound the *loop* — count iterations — rather
+than falsifying its input: `MAX_ROW_PAGE_SPAN` now caps fragments and lets the
+last one take the remainder, so termination and the geometry contract are both
+kept.
+
+### "Boundaries apply as a unit" is right for carrying, wrong for selecting
+
+The subtree rule refused a whole subtree when its root hit the floor, and
+marked every member covered so a selected descendant could not move either.
+That reads as principled and produced a plain regression: on any document
+whose first list item is at level 0, that item's subtree covers everything
+below it, so select-all + Shift+Tab did nothing at all — where before the
+branch each selected item outdented and clamped at 0.
+
+The distinction the rule was missing is *why* a block is in the plan. A child
+that is merely carried moves only with its parent, so a parent that cannot
+move keeps it. A child the user selected asked to move on its own account. So
+refusal now suppresses only the refused item, and its members stay eligible as
+subtree roots of their own. Worth noting the branch's own test asserted the
+regression as intended behaviour — an assertion is not evidence that the
+behaviour is right, only that it is deliberate.
+
+### Two parsers, one test suite
+
+`YorkieDocStore` is a hand-maintained duplicate of `crdt-tree.ts`, and it is
+the copy that reads a collaborator's attributes in the live editor. Every band
+was tested against the docs-package copy only, in a package that also has a
+`tsc` lane; the frontend copy had neither. Nothing would have failed if a guard
+there were wired to the wrong field, dropped, or inverted.
+
+Testing it needed one non-obvious step: the writing store answers
+`getDocument()` from the document it cached on write, so the poisoned values
+have to be read back through a *second* store over the same Yorkie document —
+which is what a peer is. Two smaller traps in the same test: `cloneDocument`
+goes through JSON, so a dropped `rowHeights` entry arrives as `null` rather
+than `undefined`, and a non-finite value written through `MemDocStore` arrives
+as `null` too (which is why the paint-side test poisons with `1e9`).
+
+### Verify a "never exercised" finding before writing the test
+
+Two findings were about untested code paths, and neither test could be written
+honestly as asked:
+
+- The paginator's `if (!(fragHeight > 0)) fragHeight = remaining` floor is
+  unreachable. `remaining` is `> 0` by the loop condition and neither branch
+  above it can return a non-positive fragment. Proven by making the line throw
+  and running the whole 2000-test suite — nothing hit it. So the comment now
+  says it is a belt-and-braces guard rather than the thing that terminates the
+  loop, and the test that was asked for asserts the *behaviour* (a degenerate
+  `pageSetup` terminates and places every row once) instead of pretending to
+  cover the line.
+- The text-box editor's `doc.batch()` cannot be observed through its own
+  store: `initializeTextBox` owns a `MemDocStore`, whose undo units come from
+  `snapshot()`. Verified by removing the batch — the undo assertion still
+  passed. The test kept the user-visible claim and records what it cannot see.
+
+Same rule as round 5's "the headline behavior needed a test that can fail",
+one step earlier: before writing a test for a finding, check that the code can
+actually reach the state the test would assert.
+
+### A dirty mark into a cache the target never uses
+
+The round-9 correctness lens read `markDirty(cellInfo?.tableBlockId ?? id)` as
+repainting a table at its old indent whenever `blockParentMap` misses. It
+cannot: `computeLayout` recomputes every `table` block's layout *before* it
+reaches the `canUseCache` branch, so a cell child repaints whether the map
+resolves it or not. Rejected with that evidence, plus a test that deletes the
+map entry and asserts the repaint. The lesson is about the code, not the
+lens: a dirty mark whose target is never cached is dead bookkeeping that reads
+as load-bearing, and it drew a reviewer's attention twice.

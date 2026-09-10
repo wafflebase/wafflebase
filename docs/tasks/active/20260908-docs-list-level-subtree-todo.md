@@ -27,10 +27,14 @@ Google Docs use to *render* the hierarchy, and the only one the flat
 2. **Floor** — a parent already at level 0 cannot outdent, so the gesture is a
    no-op for that subtree; the children do **not** move on their own (that
    would flatten them into siblings of the parent — the very symptom).
-3. **Multi-block selection** — a selected block that is already covered by an
-   earlier selected item's subtree is skipped, so each child moves exactly
-   once. A subtree whose root was refused by a boundary also suppresses its
-   selected descendants, for the reason in (2).
+3. **Multi-block selection** — a selected block that is already *moved* as
+   part of an earlier selected item's subtree is skipped, so each child moves
+   exactly once. A subtree whose root a boundary refused suppresses **only
+   itself**: its members stay eligible, so a deeper one the user also selected
+   is reconsidered as a subtree root and moves if it has room. (Revised in
+   round 9 — see "Review follow-ups". Suppressing them as well, which is how
+   (2) first read, made select-all + Shift+Tab a no-op on any document whose
+   first list item is a root.)
 4. **Ceiling** — `MAX_LIST_LEVEL` (8) refuses the whole subtree when its
    *deepest* member is already at the ceiling. Clamping only the child would
    collapse the parent onto it and reproduce the bug; refusing keeps the one
@@ -75,3 +79,50 @@ behavior, untouched by the subtree rule.
       gestures use — `YorkieDocStore` drops a non-history presence write
       issued inside a batch, so undo of a toolbar indent reversed to a stale
       caret (#523).
+
+### Round 9
+
+- [x] **The paste sanitizer bands what the CRDT readers band.**
+      `view/clipboard.ts` is the other *producer* of `fontSize`, an inline
+      image size, `rowHeights` and cell `padding`, and it admitted any finite
+      number — so a pasted `1e9` entered the model out of band while every
+      other reader re-read it banded (divergent render; an oversized image
+      dropped entirely on the next read).
+- [x] **Outdent no longer refuses sibling subtrees that have room.** See
+      decision (3) above: select-all + Shift+Tab was a no-op whenever the
+      first list item was at level 0.
+- [x] **One clamp for a row height, at the layout boundary.**
+      `paginatableRowHeight` clamped only what the paginator consumed, leaving
+      `LayoutTable.rowHeights` / `rowYOffsets` / `totalHeight` raw — so the
+      renderers, hit-tests and selection geometry disagreed with pagination
+      about a clamped row (and `totalHeight`, the scroll extent, stayed
+      `NaN`). `computeTableLayout` step 5d now substitutes `MIN_ROW_HEIGHT`
+      for a non-finite height, and `MAX_ROW_PAGE_SPAN` bounds the loop by
+      *fragment count* so the fragments still sum to the published row height.
+- [x] **Poisoned-value tests for the frontend `YorkieDocStore`** — the
+      duplicate parser that reads a hostile peer's attributes in production,
+      in a package with no `tsc` lane. Five cases, read back through a second
+      store over the same Yorkie document (the writer answers from its cache).
+- [x] `Doc.siblingBlocksOf` direct tests, including the header/footer
+      table-cell case and both parent-map fallbacks; the text-box editor's
+      undo/`marginLeft` branches; one paint-side out-of-band `listLevel` case.
+- [x] Fold the two surviving copies of a band into the band: the slides PPTX
+      exporter's `Math.min(8, …)` and the frontend picker's
+      `FONT_SIZE_MAX = 400`.
+- [x] Record the pagination bound in its own subsystem doc
+      (`tables/docs-table-row-splitting.md` §1.5, plus a pointer from
+      `docs-pagination.md`); `docs.md` keeps the model half and cross-refers.
+- [x] Delete `normalizeRowHeights` (the array form) — no caller, no test, not
+      re-exported.
+- [x] Correct `parseBlockStyleAttrs`'s claim that the v1 write validator
+      "rejects exactly the values dropped here" — it accepts any finite
+      `lineHeight`.
+- Rejected: the dirty-mark in `editor.ts`'s `applyListLevelChanges` reads
+  `doc.blockParentMap`, but `computeLayout` recomputes every `table` block
+  before it reaches the layout cache, so the mark is inert for a cell child
+  either way. Asserted with the map entry deleted rather than changed.
+- Follow-up, not built here: `isPaintableImageSize` *drops* an image taller
+  than 20000 px and no insert path bounds height, so a narrow-but-tall image
+  (width under the ~624 px content width, so `clampImageToWidth` scales
+  nothing) silently vanishes on the next read. Wants a proportional clamp
+  helper at the three read boundaries, or a height bound at insert.
