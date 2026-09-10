@@ -20,6 +20,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | agent rerun inflight ci (2026-09-10) | [20260910-agent-rerun-inflight-ci-todo.md](./active/20260910-agent-rerun-inflight-ci-todo.md) | [20260910-agent-rerun-inflight-ci-lessons.md](./active/20260910-agent-rerun-inflight-ci-lessons.md) |
 | agent fix timeout latch (2026-09-09) | [20260909-agent-fix-timeout-latch-todo.md](./active/20260909-agent-fix-timeout-latch-todo.md) | - |
+| yorkie 0720 bump (2026-09-09) | [20260909-yorkie-0720-bump-todo.md](./active/20260909-yorkie-0720-bump-todo.md) | [20260909-yorkie-0720-bump-lessons.md](./active/20260909-yorkie-0720-bump-lessons.md) |
 | docs highlight gaps (2026-09-07) | [20260907-docs-highlight-gaps-todo.md](./active/20260907-docs-highlight-gaps-todo.md) | [20260907-docs-highlight-gaps-lessons.md](./active/20260907-docs-highlight-gaps-lessons.md) |
 | docs link text and snap (2026-09-07) | [20260907-docs-link-text-and-snap-todo.md](./active/20260907-docs-link-text-and-snap-todo.md) | [20260907-docs-link-text-and-snap-lessons.md](./active/20260907-docs-link-text-and-snap-lessons.md) |
 | share link image upload (2026-09-07) | [20260907-share-link-image-upload-todo.md](./active/20260907-share-link-image-upload-todo.md) | [20260907-share-link-image-upload-lessons.md](./active/20260907-share-link-image-upload-lessons.md) |

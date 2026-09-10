@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { DocumentProvider, useDocument } from '@yorkie-js/react';
+import { useDocument } from '@yorkie-js/react';
 import { IconMessage, IconMessagePlus } from '@tabler/icons-react';
 
 import { Toggle } from '@/components/ui/toggle.tsx';
@@ -35,6 +35,7 @@ import type {
   PdfAnchor,
 } from '@/types/comments.ts';
 import { fileUrl } from '@/api/files.ts';
+import { CollabDocumentProvider } from '@/components/collab-document-provider';
 
 export type PdfPresenceUser = {
   username: string;
@@ -186,7 +187,7 @@ export function PdfCollabProvider({
     photo: presenceUser.photo,
   };
   return (
-    <DocumentProvider<YorkiePdfRoot, PdfPresence>
+    <CollabDocumentProvider<YorkiePdfRoot, PdfPresence>
       docKey={`pdf-${documentId}`}
       initialRoot={initialPdfRoot()}
       initialPresence={presence}
@@ -200,7 +201,7 @@ export function PdfCollabProvider({
       >
         {children}
       </PdfCollabStateProvider>
-    </DocumentProvider>
+    </CollabDocumentProvider>
   );
 }
 
