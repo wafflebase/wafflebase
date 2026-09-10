@@ -299,6 +299,20 @@ text). The re-arm therefore lives on the seed itself,
 `href` on purpose (`insertLink`). **Collapsed carets only**: adding the
 key on a range write is the #1051 bug itself.
 
+`view/editor.ts` is not the only place that seeds pending from the caret,
+so the same rule is repeated — off the same shared test — wherever a
+collapsed-caret write stages a caret-derived style:
+
+- `TextEditor.setPendingStyleGuarded` (`view/text-editor.ts`) — the
+  keyboard half. Both `clearFormatting` (Cmd+\\) and `toggleStyle` (the
+  Cmd+B/I/U/S toggles, which keep their own `pending.set` rather than
+  routing through `EditorAPI`) go through it, so the shortcut and the
+  identical toolbar click agree on where a link ends.
+- `stepSelectionFontSizeImpl`'s collapsed branch in
+  `view/text-box-editor.ts` — the only caret-derived seed in the slides
+  text-box editor, and the surface where it matters most, since a slides
+  text box has no link popover to undo an unwanted link with.
+
 The trailing-edge test is one exported
 `isAtLinkTrailingEdge(doc, position)` in `model/caret-style.ts` rather
 than a private method per editor — it lives beside `caretInlineStyle`
@@ -318,7 +332,9 @@ the range is empty, so `applyInlineStyle` writes nothing.
 The slides text-box `clearInlineFormatting` is the one entry point that
 needs no such override, because it stages nothing at a collapsed caret —
 its `applyStyleImpl` returns early without a selection, so there is no
-caret-derived seed to re-arm a link from (`text-box-clear-formatting.test.ts`
+caret-derived seed to re-arm a link from. (The font-size stepper beside
+it does stage one, which is why it carries the guard listed above.)
+(`text-box-clear-formatting.test.ts`
 pins that, including that the clear leaves the trailing-edge exit
 working). A plain character typed at a link's trailing edge still
 inherits the link in a slides text box, as it does in docs when nothing

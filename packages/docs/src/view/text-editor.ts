@@ -3435,22 +3435,42 @@ export class TextEditor {
       // would wipe the `href: undefined` that `exitLinkIfAtTrailingEdge`
       // armed, and the next typed character would inherit the link from
       // the run behind the caret. Not removing a hyperlink is the point
-      // of #1051; silently *extending* one is not, so re-arm the exit.
-      const prev = this.pending?.get();
-      const exitsLink =
-        isAtLinkTrailingEdge(this.doc, this.cursor.position) ||
-        !!(prev && 'href' in prev && prev.href === undefined);
-      this.pending?.set(
-        exitsLink
-          ? { ...CLEAR_INLINE_STYLE, href: undefined }
-          : CLEAR_INLINE_STYLE,
-        this.cursor.position,
-      );
+      // of #1051; silently *extending* one is not, so re-arm the exit
+      // (`setPendingStyleGuarded`).
+      this.setPendingStyleGuarded(CLEAR_INLINE_STYLE);
       this.requestRender();
       return;
     }
     this.saveSnapshot();
     this.applyStyleToSelection(this.selection.range, CLEAR_INLINE_STYLE);
+  }
+
+  /**
+   * `pending.set` for a collapsed caret, with the link-extension guard.
+   *
+   * Every collapsed-caret seed here is derived from the caret's own run
+   * style, and at a hyperlink's trailing edge that run *is* the link — so
+   * the seed carries its `href` and the next typed character silently
+   * extends the hyperlink. `pending.set` also replaces rather than merges,
+   * so an unguarded write discards the `href: undefined` that
+   * `exitLinkIfAtTrailingEdge` already armed there.
+   *
+   * The docs toolbar half solves this on its own shared seed
+   * (`pendingStyleFor` in `view/editor.ts`); this is the keyboard half, so
+   * Cmd+B/I/U/S and Cmd+\ agree with it on where a link ends. Both read the
+   * same `isAtLinkTrailingEdge`. No caller here ever writes an `href` of its
+   * own — insert/remove-link goes through the link commands, not pending —
+   * so there is no "the write means it" case to exempt.
+   */
+  private setPendingStyleGuarded(seed: Partial<InlineStyle>): void {
+    const prev = this.pending?.get();
+    const exitsLink =
+      isAtLinkTrailingEdge(this.doc, this.cursor.position) ||
+      !!(prev && 'href' in prev && prev.href === undefined);
+    this.pending?.set(
+      exitsLink ? { ...seed, href: undefined } : seed,
+      this.cursor.position,
+    );
   }
 
   private toggleStyle(style: Partial<InlineStyle>): void {
@@ -3493,8 +3513,10 @@ export class TextEditor {
     if (!this.selection.hasSelection() || !this.selection.range) {
       // Collapsed caret — record the toggle in pending so the next
       // typed character picks it up. Mirrors the toolbar's collapsed
-      // path through editor.applyStyle.
-      this.pending?.set({ ...visual, ...resolved }, this.cursor.position);
+      // path through editor.applyStyle, guard included: `visual` is
+      // caret-derived, so at a link's trailing edge it carries the link's
+      // `href` and Cmd+B would re-arm the hyperlink the caret just left.
+      this.setPendingStyleGuarded({ ...visual, ...resolved });
       this.requestRender();
       return;
     }

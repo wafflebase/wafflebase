@@ -135,6 +135,19 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     );
   }
 
+  function pressBold(): void {
+    textarea().dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'b',
+        // Same platform-proofing as `pressClearFormatting` above.
+        ctrlKey: true,
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
   function pastePlainText(text: string): void {
     const ev = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(ev, 'clipboardData', {
@@ -332,6 +345,35 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     // follows linked.
     editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
     editor.applyStyle({ bold: true });
+    type('X');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('Cmd+B at a link trailing edge does not re-arm the link', () => {
+    editor.insertLink('https://example.com');
+    // The keyboard half of the toolbar case above. `TextEditor.toggleStyle`
+    // has its own collapsed-caret `pending.set`, seeded from the caret's
+    // visual style — the link run's, `href` included — so Cmd+B at the
+    // trailing edge used to grow the hyperlink even though the identical
+    // toolbar click no longer did.
+    pressBold();
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(last(inlines).style.bold).toBe(true);
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('Cmd+B inside link text still keeps the link', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // Over-reach guard: the exit is armed only at the trailing edge.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    pressBold();
     type('X');
 
     const inlines = firstBlockInlines();

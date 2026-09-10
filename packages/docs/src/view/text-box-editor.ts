@@ -35,7 +35,7 @@ import { CanvasTextMeasurer } from './canvas-measurer.js';
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt, rewriteLinkHrefInPlace } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
-import { caretInlineStyle } from '../model/caret-style.js';
+import { caretInlineStyle, isAtLinkTrailingEdge } from '../model/caret-style.js';
 import {
   computeLayout,
   type ComposingContext,
@@ -885,7 +885,21 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       const current = effective.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
       const next = clamp(current + delta);
       if (!Number.isFinite(next) || next === current) return;
-      pending.set({ ...base, fontSize: next }, cursor.position);
+      // `base` is caret-derived, so at a hyperlink's trailing edge it carries
+      // the link run's `href` and the next typed character would extend the
+      // hyperlink. Same rule, same shared test, as the docs toolbar's
+      // `pendingStyleFor` and the keyboard's `setPendingStyleGuarded` — and
+      // it matters most here, because a slides text box has no link popover
+      // to undo it with. `pending.set` replaces rather than merges, so an
+      // already-armed `href: undefined` has to be carried over too.
+      const seed = { ...base, fontSize: next };
+      const exitsLink =
+        isAtLinkTrailingEdge(doc, cursor.position) ||
+        ('href' in staged && staged.href === undefined);
+      pending.set(
+        exitsLink ? { ...seed, href: undefined } : seed,
+        cursor.position,
+      );
       requestRender();
       notifyStyleApplied();
       return;

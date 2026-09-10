@@ -194,6 +194,39 @@ describe('initializeTextBox — clear formatting keeps hyperlinks', () => {
     expect(inlines.some((i) => i.style.href === 'https://example.com')).toBe(true);
   });
 
+  it('a collapsed-caret font-size step at a link trailing edge does not re-arm the link', () => {
+    // `stepSelectionFontSize` is the one collapsed-caret write in this
+    // editor that *does* stage a caret-derived pending seed — and the seed
+    // carries the link run's own `href`, so the next typed character used to
+    // extend the hyperlink. It matters most here: a Slides text box has no
+    // link popover, so nothing would undo it.
+    api.insertLink('https://example.com');
+    api.stepSelectionFontSize(1, (n) => n);
+    type('x');
+
+    const inlines = commitBlocks()[0].inlines;
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+    expect(inlines[0].style.href).toBe('https://example.com');
+    expect(inlines[inlines.length - 1].style.href).toBeFalsy();
+  });
+
+  it('a collapsed-caret font-size step inside link text keeps the link', () => {
+    // Over-reach guard for the case above: stepping inside the link must not
+    // invent an exit, so what follows the caret stays linked.
+    api.insertLink('https://example.com');
+    for (let i = 0; i < 14; i++) {
+      textarea().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+      );
+    }
+    api.stepSelectionFontSize(1, (n) => n);
+    type('X');
+
+    const inlines = commitBlocks()[0].inlines;
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
   it('a collapsed-caret clear at a link trailing edge keeps the link intact', () => {
     // The third Clear-formatting entry point. Unlike the two docs ones it
     // stages nothing at a collapsed caret — `applyStyleImpl` returns early
