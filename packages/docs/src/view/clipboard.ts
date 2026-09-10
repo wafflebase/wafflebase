@@ -13,6 +13,7 @@ import {
   isPaintableImageSize,
   normalizeCellPadding,
   normalizeFontSize,
+  normalizeLineHeight,
 } from '../model/numeric-attrs.js';
 import { normalizeRowHeight } from '../model/row-height.js';
 import {
@@ -201,12 +202,21 @@ function sanitizeBlockStyle(value: unknown): BlockStyle {
   const alignment = asOneOf(value.alignment, ALIGNMENTS);
   if (alignment !== undefined) style.alignment = alignment;
   const numericKeys = [
-    'lineHeight', 'marginTop', 'marginBottom', 'textIndent', 'marginLeft',
+    'marginTop', 'marginBottom', 'textIndent', 'marginLeft',
   ] as const;
   for (const key of numericKeys) {
     const n = asNumber(value[key]);
     if (n !== undefined) style[key] = n;
   }
+  // `lineHeight` needs more than finiteness for the same reason `fontSize`
+  // does, one step removed: it is a *multiplier* that scales every font size
+  // in the paragraph into a line height, and a table cell's line heights are
+  // summed into its row height. Banded exactly as `parseBlockStyleAttrs` bands
+  // it, so the pasting client and every other reader agree; out of band keeps
+  // the default, so the block's resolved named style supplies the spacing. The
+  // offsets in the loop above reach no such sink and stay finite-only.
+  const lineHeight = normalizeLineHeight(asNumber(value.lineHeight));
+  if (lineHeight !== undefined) style.lineHeight = lineHeight;
   // Authored-spacing markers ride the internal docs→docs payload too. Without
   // them, copying a paragraph whose leading was deliberately set to 1.5 (or a
   // Word-imported heading with `w:before="0"`) and pasting it elsewhere would

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TableCell } from '../../src/model/types.js';
-import { createTableBlock, DEFAULT_CELL_STYLE } from '../../src/model/types.js';
-import { MAX_CELL_PADDING, MAX_FONT_SIZE, MAX_IMAGE_SIZE } from '../../src/model/numeric-attrs.js';
+import { createTableBlock, DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE } from '../../src/model/types.js';
+import { MAX_CELL_PADDING, MAX_FONT_SIZE, MAX_IMAGE_SIZE, MAX_LINE_HEIGHT } from '../../src/model/numeric-attrs.js';
 import { MAX_ROW_HEIGHT } from '../../src/model/row-height.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables } from '../../src/view/clipboard.js';
 
@@ -396,6 +396,20 @@ describe('clipboard payload validation', () => {
       expect(styleOf({ fontSize: -11 }).fontSize).toBeUndefined();
       // `letterSpacing` shares the loop but not the sink; it stays finite-only.
       expect(styleOf({ letterSpacing: -2 }).letterSpacing).toBe(-2);
+    });
+
+    it('bands a pasted lineHeight', () => {
+      const lineHeightOf = (lineHeight: unknown) =>
+        parseOne({ type: 'paragraph', style: { lineHeight } }).style.lineHeight;
+      expect(lineHeightOf(1.5)).toBe(1.5);
+      expect(lineHeightOf(1e9)).toBe(MAX_LINE_HEIGHT);
+      // Out of band falls back to the default, so the block's resolved named
+      // style supplies the spacing.
+      expect(lineHeightOf(0)).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+      expect(lineHeightOf(-2)).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+      // The other numerics in the same loop reach no such sink and stay
+      // finite-only.
+      expect(parseOne({ type: 'paragraph', style: { marginTop: -8 } }).style.marginTop).toBe(-8);
     });
 
     it('drops a pasted image whose size is out of band', () => {

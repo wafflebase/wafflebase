@@ -130,9 +130,11 @@ export function serializeBlockStyleAttrs(
  * The write validator is *not* the exact inverse of this reader, and the
  * difference is `lineHeight`: `assertValidBlockStyle`
  * (`api/v1/docs-content.controller.ts`) accepts any finite number, while the
- * band below drops one outside `(0, MAX_LINE_HEIGHT]`. So a `PUT` of
- * `lineHeight: 1e9` is accepted and then read as absent. Deliberately not
- * reconciled at the writer: that one validator also guards *slides* text-body
+ * band below admits only `(0, MAX_LINE_HEIGHT]`. So a `PUT` of
+ * `lineHeight: 1e9` is accepted and then read *clamped* to
+ * `MAX_LINE_HEIGHT`, and one of `0` or `-2` is accepted and then read as
+ * absent — a `GET` after either does not echo what was `PUT`. Deliberately
+ * not reconciled at the writer: that one validator also guards *slides* text-body
  * blocks, which are persisted as plain JSON and never pass through this
  * codec, so rejecting the value there would refuse a paragraph the slides
  * renderer honours. Read-side banding is the narrower half.
@@ -153,8 +155,10 @@ export function parseBlockStyleAttrs(
   // line height, a table cell's line heights are summed into the row height,
   // and the paginator splits an oversized row one page per loop iteration. A
   // finite `1e9` here is the same million-page allocation a poisoned
-  // `rowHeights` entry produces. Out of band reads as absent, so the block's
-  // resolved named style supplies the spacing. See `normalizeLineHeight`.
+  // `rowHeights` entry produces, so it is clamped to `MAX_LINE_HEIGHT` — large
+  // still renders large. A non-finite or non-positive multiple is nothing to
+  // clamp towards, so it reads as absent and the block's resolved named style
+  // supplies the spacing. See `normalizeLineHeight`.
   if (partial.lineHeight !== undefined) {
     const banded = normalizeLineHeight(partial.lineHeight);
     if (banded === undefined) delete partial.lineHeight;
