@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import {
   signYorkieServiceToken,
   yorkieServiceTokenInjector,
+  yorkieServiceTokenInjectorFromEnv,
 } from '../yorkie/yorkie-service-token';
 
 function createMockConfig(values: Record<string, string | undefined>) {
@@ -112,6 +113,29 @@ describe('AuthService', () => {
       expect(injector).toBeDefined();
       const payload = service.verifyYorkieToken(await injector!());
       expect(payload).toMatchObject({ typ: 'yorkie-service' });
+    });
+
+    // The other branch: with no secret there is nothing to sign with, so the
+    // injector is `undefined` and the client attaches anonymously rather than
+    // carrying a token nothing can verify. Correct only against a Yorkie whose
+    // project registered no auth-webhook methods — which is why the `FromEnv`
+    // variant warns instead of throwing: it would otherwise break a working
+    // local workflow over a token nobody reads.
+    it('hands back no injector when there is no secret to sign with', () => {
+      expect(yorkieServiceTokenInjector(undefined)).toBeUndefined();
+      expect(yorkieServiceTokenInjector('')).toBeUndefined();
+
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // `''` rather than `undefined`: the parameter defaults to
+        // `process.env.JWT_SECRET`, which a default parameter would restore.
+        expect(yorkieServiceTokenInjectorFromEnv('')).toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('JWT_SECRET is unset'),
+        );
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     // A service token from another deployment must not verify here: the whole

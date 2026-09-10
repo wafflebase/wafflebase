@@ -194,6 +194,36 @@ describe("SharedNotesLayout for an editor-role visitor", () => {
     await renderLayout("editor");
     expect(viewProps.current.viewMode).toBe("edit");
   });
+
+  // The layout's promise is "the workspace route's state, minus every
+  // `localStorage` write" — so it holds for all three settings the toolbar
+  // exposes, not just the view mode above. Each is read on mount and applied
+  // when changed; none is written back.
+  it("applies keymap and show-authors changes without persisting either", async () => {
+    window.localStorage.setItem("wafflebase:notes:keymap", "default");
+    window.localStorage.setItem("wafflebase:notes:showAuthors", "false");
+    const user = userEvent.setup();
+    await renderLayout("editor");
+    expect(viewProps.current.keymap).toBe("default");
+    expect(viewProps.current.showAuthors).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: /^Keyboard:/ }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Vim" }));
+    expect(viewProps.current.keymap).toBe("vim");
+
+    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
+    await user.click(
+      screen.getByRole("menuitemcheckbox", { name: "Show authors" }),
+    );
+    expect(viewProps.current.showAuthors).toBe(true);
+
+    expect(window.localStorage.getItem("wafflebase:notes:keymap")).toBe(
+      "default",
+    );
+    expect(window.localStorage.getItem("wafflebase:notes:showAuthors")).toBe(
+      "false",
+    );
+  });
 });
 
 describe("SharedNotesLayout for a viewer-role visitor", () => {
