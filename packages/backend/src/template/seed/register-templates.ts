@@ -5,7 +5,7 @@ import { AppModule } from '../../app.module';
 import { AuthService } from '../../auth/auth.service';
 import { sessionCookieName } from '../../auth/oauth-state';
 import { PrismaService } from '../../database/prisma.service';
-import { parseReviewerIds } from '../template-review';
+import { assertYorkieAuthEnforced, parseReviewerIds } from '../template-review';
 import { TemplateService } from '../template.service';
 import { TEMPLATE_CATALOG } from './catalog';
 import { seedDocumentId } from './seed-templates';
@@ -151,14 +151,13 @@ async function main(): Promise<void> {
           'could publish templates but never approve them.',
       );
     }
-    // The same explicit affirmation the server demands at submit/approve —
-    // see assertYorkieAuthEnforced. Checked here too so the run fails before
-    // publishing rather than at the first submission.
-    if (config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE') !== 'true') {
-      throw new Error(
-        'The public tier requires YORKIE_AUTH_WEBHOOK_ENFORCE=true.',
-      );
-    }
+    // The same explicit affirmation the server demands at submit/approve, run
+    // through the same assertion rather than re-derived here: this script and
+    // the endpoints it drives must not be able to disagree about what counts
+    // as enforced. Checked up front so the run fails before publishing rather
+    // than at the first submission. `main()`'s catch prints `err.message`, so
+    // the `BadRequestException` reads as an ordinary CLI error.
+    assertYorkieAuthEnforced(config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE'));
 
     const reset = process.argv.includes('--reset');
 
