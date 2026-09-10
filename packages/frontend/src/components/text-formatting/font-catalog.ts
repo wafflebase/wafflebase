@@ -15,6 +15,7 @@
  * only as long as the list that asked for it (`releasePreviewFontLinks`).
  */
 import { useEffect } from 'react';
+import { MAX_FONT_SIZE } from '@wafflebase/docs';
 import { FONT_CATALOG_DATA } from './font-catalog.data';
 
 export type FontGroup =
@@ -71,7 +72,14 @@ export const FONT_SIZE_PRESETS = [8, 10, 12, 14, 16, 18, 20, 24, 32, 48, 64, 96]
 export type FontSizePreset = (typeof FONT_SIZE_PRESETS)[number];
 
 export const FONT_SIZE_MIN = 1;
-export const FONT_SIZE_MAX = 400;
+/**
+ * The picker's ceiling is the *model's* ceiling, not a second opinion about
+ * it: `MAX_FONT_SIZE` is the band every reader of a `fontSize` attribute
+ * applies (`@wafflebase/docs`, `model/numeric-attrs.ts`), so a larger number
+ * here would be a value the picker can produce and every reader then clamps —
+ * silently, and only for the peers.
+ */
+export const FONT_SIZE_MAX = MAX_FONT_SIZE;
 
 /**
  * Clamp a font size to the legal [FONT_SIZE_MIN, FONT_SIZE_MAX] range,

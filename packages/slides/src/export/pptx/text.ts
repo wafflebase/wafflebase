@@ -1,6 +1,6 @@
 import type { Block, BlockMarker, Inline } from '@wafflebase/docs';
 import type { StoredColor } from '@wafflebase/docs';
-import { toRgbHexColor } from '@wafflebase/docs';
+import { toRgbHexColor, normalizeListLevel } from '@wafflebase/docs';
 import type { AutofitMode, TextBody, VerticalAnchorMode } from '../../model/element.js';
 import type { ColorRole, ThemeColor } from '../../model/theme.js';
 import { escapeXmlText, escapeXmlAttr } from './xml.js';
@@ -78,11 +78,15 @@ const ALGN = new Map<string, string>([
  * model value is untrusted (content PUT API, PPTX import), so it is coerced
  * and clamped rather than interpolated; anything non-numeric drops the
  * attribute and the paragraph renders at the outermost level.
+ *
+ * That is the same `[0, MAX_LIST_LEVEL]` band `normalizeListLevel` owns for
+ * every other reader of a `Block.listLevel`, so it is called here rather than
+ * kept as a third copy of the ceiling. Omitting level 0 — the default — is
+ * the only thing this sink adds.
  */
 function listLevelAttr(listLevel: number | undefined): string {
-  const n = Math.trunc(Number(listLevel));
-  if (!Number.isFinite(n) || n <= 0) return '';
-  return ` lvl="${Math.min(8, n)}"`;
+  const n = normalizeListLevel(listLevel);
+  return n > 0 ? ` lvl="${n}"` : '';
 }
 
 /**

@@ -123,9 +123,19 @@ export function serializeBlockStyleAttrs(
  * An attribute the writer above would never emit — a non-finite number, an
  * alignment outside {@link BLOCK_ALIGNMENTS} — reads as the default rather
  * than reaching the layout engine: `normalizeBlockStyle` is a bare spread and
- * would keep whatever it is handed. This also keeps the v1 REST endpoint's
- * `GET` → `PUT` identity intact, since the validator on the write side
- * rejects exactly the values dropped here.
+ * would keep whatever it is handed. That keeps the v1 REST endpoint's `GET` →
+ * `PUT` identity intact: a `GET` never emits a value this reader drops, so
+ * putting a body back unchanged changes nothing.
+ *
+ * The write validator is *not* the exact inverse of this reader, and the
+ * difference is `lineHeight`: `assertValidBlockStyle`
+ * (`api/v1/docs-content.controller.ts`) accepts any finite number, while the
+ * band below drops one outside `(0, MAX_LINE_HEIGHT]`. So a `PUT` of
+ * `lineHeight: 1e9` is accepted and then read as absent. Deliberately not
+ * reconciled at the writer: that one validator also guards *slides* text-body
+ * blocks, which are persisted as plain JSON and never pass through this
+ * codec, so rejecting the value there would refuse a paragraph the slides
+ * renderer honours. Read-side banding is the narrower half.
  */
 export function parseBlockStyleAttrs(
   attrs: Record<string, string> | undefined,
