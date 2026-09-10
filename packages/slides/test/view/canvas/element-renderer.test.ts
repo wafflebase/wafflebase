@@ -73,6 +73,23 @@ describe('drawElement — structurally incomplete element', () => {
     expect(ctx.save).not.toHaveBeenCalled();
   });
 
+  it('skips a framed element with no data instead of throwing', () => {
+    // `element.data.effects?.shadow` runs before every per-type painter, so
+    // a shape / image / table that arrives without `data` is fatal the same
+    // way a missing frame is. The store repairs `data` for text only.
+    const ctx = createCtxSpy();
+    const dataless = {
+      id: 'broken',
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 100, h: 60, rotation: 0 },
+    } as unknown as Element;
+
+    expect(() =>
+      drawElement(asCtx(ctx), dataless, DOC, THEME, () => undefined),
+    ).not.toThrow();
+    expect(ctx.save).not.toHaveBeenCalled();
+  });
+
   it('still paints a frameless connector, which draws from its endpoints', () => {
     const ctx = createCtxSpy();
     const connector = {

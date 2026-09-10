@@ -206,7 +206,7 @@ function unwrapElement(e: unknown): YorkieElement {
 const ZERO_FRAME: Frame = { x: 0, y: 0, w: 0, h: 0, rotation: 0 };
 
 /**
- * Whether `frame` is usable as geometry at all.
+ * Whether `frame` carries usable geometry.
  *
  * Object-ness alone is not the bar: `{}` or `{ x: 10 }` survives every
  * `typeof` check and then feeds `undefined` into `frame.x + frame.w / 2`,
@@ -214,10 +214,12 @@ const ZERO_FRAME: Frame = { x: 0, y: 0, w: 0, h: 0, rotation: 0 };
  * class of defect as a missing frame, only silent. `x` / `y` / `w` / `h` are
  * what place and size the element, so all four have to be numbers.
  *
- * `rotation` is deliberately not required. A frame that positions correctly
- * but omits it merely skips `ctx.rotate`, and demanding it here would
- * replace real geometry with `ZERO_FRAME` — trading a cosmetic defect for
- * data loss.
+ * `rotation` is not part of the test — `normalizeFrame` repairs it instead,
+ * because discarding a frame that positions correctly would lose real
+ * geometry over one absent field.
+ *
+ * Reads properties rather than spreading, so it is safe to call on a live
+ * Yorkie proxy.
  */
 function hasFrame(frame: unknown): boolean {
   if (typeof frame !== 'object' || frame === null) return false;
@@ -228,6 +230,25 @@ function hasFrame(frame: unknown): boolean {
     && Number.isFinite(f.w)
     && Number.isFinite(f.h)
   );
+}
+
+/**
+ * A stored frame as geometry every consumer can do arithmetic with:
+ * `ZERO_FRAME` when it carries none, otherwise itself with a finite
+ * `rotation`.
+ *
+ * Normalizing `rotation` is not cosmetic. `group()` feeds candidate frames
+ * to `applyGroupTransformMatrix` and `frameCorners`, which take its sine
+ * and cosine — an absent one turns the group's AABB into `NaN` and persists
+ * it as the group's frame. `ctx.rotate` is the forgiving consumer here, not
+ * the representative one.
+ *
+ * Takes a plain object (spreads), so unwrap a Yorkie proxy first.
+ */
+function normalizeFrame(frame: unknown): Frame {
+  if (!hasFrame(frame)) return { ...ZERO_FRAME };
+  const f = frame as Frame;
+  return Number.isFinite(f.rotation) ? f : { ...f, rotation: 0 };
 }
 
 /**
@@ -253,7 +274,10 @@ function recoverFrame(
     (s) => s.type === ref.type && s.index === ref.index,
   );
   const frame = slot >= 0 ? layout.placeholders[slot]?.frame : undefined;
-  return frame ? { ...frame } : { ...ZERO_FRAME };
+  // A stored layout is document state like any other, so its placeholder
+  // frames get the same scrutiny as an element's — copying a malformed one
+  // would just relocate the defect.
+  return hasFrame(frame) ? normalizeFrame(frame) : { ...ZERO_FRAME };
 }
 
 
@@ -380,12 +404,20 @@ export function ensureSlidesRoot(
         // what `readFrame` already hands the reader. The write would buy
         // nothing and make a wrong bbox look authoritative to
         // `combinedBoundingBox` (align / distribute / multi-select).
-        if (el.type !== 'connector' && !hasFrame(el.frame)) {
-          el.frame = recoverFrame(
-            el,
-            (slide as { layoutId?: unknown }).layoutId,
-            r.layouts,
-          ) as unknown as typeof el.frame;
+        if (el.type !== 'connector') {
+          if (!hasFrame(el.frame)) {
+            el.frame = recoverFrame(
+              el,
+              (slide as { layoutId?: unknown }).layoutId,
+              r.layouts,
+            ) as unknown as typeof el.frame;
+          } else if (!Number.isFinite(el.frame.rotation)) {
+            // Geometry is intact, only `rotation` is missing — heal that
+            // field alone rather than replacing the frame and losing the
+            // position it does carry. See `normalizeFrame` for why an
+            // absent rotation is not merely cosmetic.
+            (el.frame as { rotation: number }).rotation = 0;
+          }
         }
         if (el.type === 'text') {
           // `el.data` is required by the model but has been observed
@@ -615,8 +647,7 @@ export class YorkieSlidesStore implements SlidesStore {
    * page. Mirrors the `el.data ?? {}` guard the text branch already has.
    */
   private readFrame(frame: unknown): Frame {
-    const plain = yorkieToPlain<Frame>(frame);
-    return hasFrame(plain) ? plain : { ...ZERO_FRAME };
+    return normalizeFrame(yorkieToPlain<Frame>(frame));
   }
 
   /**
@@ -2070,7 +2101,12 @@ export class YorkieSlidesStore implements SlidesStore {
 
       // Compute world frames for each candidate.
       const worldFrames = candidatesInOrder.map(el => {
-        const frame = yorkieToPlain<Frame>((el as { frame: unknown }).frame)!;
+        // Through `readFrame`, not raw: `ensureSlidesRoot` repairs only
+        // top-level `slide.elements`, so a candidate that is itself inside
+        // a group can still be the frameless / rotation-less shape this
+        // whole guard exists for. `applyGroupTransformMatrix` would take
+        // its sine and cosine and turn the group's AABB into NaN.
+        const frame = this.readFrame((el as { frame: unknown }).frame);
         return applyGroupTransformMatrix(frame, ancestorTransform);
       });
 

@@ -283,21 +283,105 @@ describe('ensureSlidesRoot — structurally incomplete elements', () => {
     );
   });
 
-  it('keeps a frame that positions correctly but omits rotation', () => {
-    // Demanding `rotation` would replace real geometry with a zero frame —
-    // trading a skipped `ctx.rotate` for data loss.
-    const frame = { x: 10, y: 20, w: 30, h: 40 };
+  it('heals a missing rotation in place, keeping the position it has', () => {
+    // Replacing the whole frame would lose real geometry over one absent
+    // field; leaving `rotation` undefined would reach
+    // `applyGroupTransformMatrix` / `frameCorners` and turn a group's AABB
+    // into NaN.
     const doc = docWithElement({
       id: 'no-rotation',
       type: 'text',
-      frame,
+      frame: { x: 10, y: 20, w: 30, h: 40 },
       placeholderRef: { type: 'body', index: 0 },
       data: { blocks: [] },
     });
 
     ensureSlidesRoot(doc);
 
-    expect(doc.getRoot().slides[0].elements[0].frame).toEqual(frame);
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual({
+      x: 10,
+      y: 20,
+      w: 30,
+      h: 40,
+      rotation: 0,
+    });
+  });
+
+  it('recovers a zero frame when the layout placeholder is malformed too', () => {
+    // A stored layout is document state like any other — copying a
+    // malformed placeholder frame would just relocate the defect.
+    const doc = docWithElement({
+      id: 'e4f7414b',
+      type: 'text',
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+    doc.update((r) => {
+      const layouts = r.layouts as unknown as {
+        id: string;
+        placeholders: { frame?: unknown }[];
+      }[];
+      const caption = layouts.find((l) => l.id === 'caption')!;
+      caption.placeholders[0].frame = { x: 80 };
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual({
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+      rotation: 0,
+    });
+  });
+
+  it('groups a frameless child without producing a NaN group frame', () => {
+    // `ensureSlidesRoot` repairs only top-level `slide.elements`, so
+    // `group()` can still meet the shape this guard exists for. Reading the
+    // candidate frames raw fed `undefined` to `applyGroupTransformMatrix`.
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc);
+    doc.update((r) => {
+      (r as unknown as { slides: unknown[] }).slides.push({
+        id: 'slide-1',
+        layoutId: 'blank',
+        background: {},
+        elements: [
+          {
+            id: 'ok',
+            type: 'shape',
+            frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+            data: { kind: 'rect' },
+          },
+          { id: 'broken', type: 'shape', data: { kind: 'rect' } },
+        ],
+        notes: [],
+      });
+    });
+    const store = new YorkieSlidesStore(doc);
+
+    let groupId = '';
+    expect(() => {
+      store.batch(() => {
+        groupId = store.group('slide-1', ['ok', 'broken']).groupId;
+      });
+    }).not.toThrow();
+
+    const group = store
+      .read()
+      .slides[0].elements.find((e) => e.id === groupId)!;
+    for (const n of [
+      group.frame.x,
+      group.frame.y,
+      group.frame.w,
+      group.frame.h,
+      group.frame.rotation,
+    ]) {
+      expect(Number.isFinite(n)).toBe(true);
+    }
   });
 
   it('does not write a frame onto a frameless connector', () => {

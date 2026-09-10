@@ -1,9 +1,8 @@
 # Slides: a structurally incomplete element blanks the whole deck
 
-Reported: a shared slides link intermittently fails with a script error and
-renders nothing.
-
-    https://wafflebase.io/shared/eec87355-3adf-426a-81f8-b08eb5d7a23a
+Reported: a `/shared/:token` slides link intermittently fails with a script
+error and renders nothing. (The reporting link is a live anonymous
+credential, so it is not recorded here — it is in the issue thread.)
 
     yorkie-slides-store-*.js  Uncaught TypeError:
       Cannot read properties of undefined (reading 'blocks')
