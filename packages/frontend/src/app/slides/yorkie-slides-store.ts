@@ -191,6 +191,51 @@ function unwrapElement(e: unknown): YorkieElement {
   return yorkieToPlain<YorkieElement>(e);
 }
 
+/**
+ * The frame a structurally incomplete element falls back to.
+ *
+ * `Element.frame` is required by the model and every reader dereferences it
+ * unconditionally — `const ownFlipH = !!frame.flipH` in
+ * `packages/slides/src/view/canvas/element-renderer.ts` runs for text /
+ * shape / image / table alike — so an element that arrives without one is a
+ * TypeError that takes the whole deck down with it (there is no React error
+ * boundary above the slides view). A zero frame paints nothing and
+ * hit-tests as empty, which is the right answer for geometry we cannot
+ * recover: the element is inert instead of fatal.
+ */
+const ZERO_FRAME: Frame = { x: 0, y: 0, w: 0, h: 0, rotation: 0 };
+
+/** Whether `frame` is usable as geometry at all. */
+function hasFrame(frame: unknown): boolean {
+  return typeof frame === 'object' && frame !== null;
+}
+
+/**
+ * Geometry to restore onto an element whose `frame` is missing.
+ *
+ * A placeholder-backed element can be put back exactly where its slide's
+ * layout says it belongs, so a repaired slide looks like the author left it
+ * rather than like a recovery. Anything else — no `placeholderRef`, an
+ * unknown layout, a slot the layout no longer offers — gets `ZERO_FRAME`.
+ */
+function recoverFrame(
+  el: { placeholderRef?: unknown },
+  layoutId: unknown,
+  layouts: unknown,
+): Frame {
+  const ref = yorkieToPlain<PlaceholderRef | undefined>(el.placeholderRef);
+  if (!ref) return { ...ZERO_FRAME };
+  const layout = (yorkieToPlain<Layout[]>(layouts) ?? []).find(
+    (l) => l.id === layoutId,
+  );
+  if (!layout) return { ...ZERO_FRAME };
+  const slot = slotRefsForLayout(layout).findIndex(
+    (s) => s.type === ref.type && s.index === ref.index,
+  );
+  const frame = slot >= 0 ? layout.placeholders[slot]?.frame : undefined;
+  return frame ? { ...frame } : { ...ZERO_FRAME };
+}
+
 
 // ---------------------------------------------------------------------------
 // ensureSlidesRoot — initialise the Yorkie root with the slides shape. Safe
@@ -303,8 +348,23 @@ export function ensureSlidesRoot(
         slide.notes = [] as unknown as YorkieSlide['notes'];
       }
       for (const el of slide.elements) {
+        // Restore geometry before anything else reads the element. An
+        // element with no `frame` is fatal to every reader (see
+        // `ZERO_FRAME`), and unlike the readers' own fallback this write
+        // heals the document for every future session.
+        if (!hasFrame(el.frame)) {
+          el.frame = recoverFrame(
+            el,
+            (slide as { layoutId?: unknown }).layoutId,
+            r.layouts,
+          ) as unknown as typeof el.frame;
+        }
         if (el.type === 'text') {
-          const data = el.data as { blocks?: unknown };
+          // `el.data` is required by the model but has been observed
+          // absent in the wild, and this deref used to be unguarded — so
+          // the repair on the next line could never run for the one shape
+          // that needed it most.
+          const data = (el.data ?? {}) as { blocks?: unknown };
           const blocks = yorkieToPlain<unknown>(data.blocks);
           if (!Array.isArray(blocks)) {
             el.data = { blocks: [] } as unknown as typeof el.data;
@@ -508,6 +568,21 @@ export class YorkieSlidesStore implements SlidesStore {
   // --- read helpers ---
 
   /**
+   * Unwrap an element's `frame`, substituting `ZERO_FRAME` when it is
+   * absent.
+   *
+   * `ensureSlidesRoot` repairs the document itself, which is the durable
+   * fix — but its write is a write, and a share-link viewer's can be
+   * denied by the Yorkie auth webhook. Carrying the fallback here too
+   * means such a viewer still sees the rest of the deck instead of a blank
+   * page. Mirrors the `el.data ?? {}` guard the text branch already has.
+   */
+  private readFrame(frame: unknown): Frame {
+    const plain = yorkieToPlain<Frame>(frame);
+    return hasFrame(plain) ? plain : { ...ZERO_FRAME };
+  }
+
+  /**
    * Recursively unwrap a single Yorkie element proxy into a plain
    * ModelElement. Group elements recurse into their `data.children`
    * array, which is itself a Yorkie proxy.
@@ -571,7 +646,7 @@ export class YorkieSlidesStore implements SlidesStore {
       return {
         id: el.id,
         type: 'text',
-        frame: yorkieToPlain<Frame>(el.frame),
+        frame: this.readFrame(el.frame),
         placeholderRef,
         data: { ...extras, blocks } as TextElement['data'],
       } as ModelElement;
@@ -595,7 +670,7 @@ export class YorkieSlidesStore implements SlidesStore {
       return {
         id: el.id,
         type: 'connector',
-        frame: yorkieToPlain<Frame>(el.frame),
+        frame: this.readFrame(el.frame),
         routing: c.routing,
         start: yorkieToPlain<Endpoint>(c.start),
         end: yorkieToPlain<Endpoint>(c.end),
@@ -628,7 +703,7 @@ export class YorkieSlidesStore implements SlidesStore {
       return {
         id: el.id,
         type: 'group',
-        frame: yorkieToPlain<Frame>(el.frame),
+        frame: this.readFrame(el.frame),
         data: refSize ? { children, refSize } : { children },
       } as ModelElement;
     }
@@ -639,7 +714,7 @@ export class YorkieSlidesStore implements SlidesStore {
     return {
       id: el.id,
       type: el.type,
-      frame: yorkieToPlain<Frame>(el.frame),
+      frame: this.readFrame(el.frame),
       placeholderRef,
       data,
     } as ModelElement;
@@ -1139,7 +1214,11 @@ export class YorkieSlidesStore implements SlidesStore {
         if (el.type !== 'text') continue;
         const t = el.placeholderRef?.type;
         if (!t || !typeSet.has(t)) continue;
-        const data = el.data as { blocks?: unknown };
+        // `el.data` is required by the model but has been observed absent;
+        // there is nothing to re-seed on an element with no body, and
+        // `ensureSlidesRoot` owns the repair.
+        const data = el.data as { blocks?: unknown } | undefined;
+        if (!data) continue;
         const blocks = yorkieToPlain<Block[]>(data.blocks);
         if (!Array.isArray(blocks) || !isBlocksEmpty(blocks)) continue;
         // Banded for the reason `resolveMasterAndTheme()` bands the master it

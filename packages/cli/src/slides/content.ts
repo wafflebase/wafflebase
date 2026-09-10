@@ -152,22 +152,30 @@ function collectSlideBlocks(slide: Slide): Block[] {
   const blocks: Block[] = [];
   for (const el of flattenElements(slide.elements)) {
     for (const body of textBodiesOf(el)) {
-      blocks.push(...body.blocks);
+      blocks.push(...(body.blocks ?? []));
     }
   }
   return blocks;
 }
 
-/** Extract every `TextBody` carried by a single element. */
+/**
+ * Extract every `TextBody` carried by a single element.
+ *
+ * `Element.data` is required by the model, but stored decks holding an
+ * element without one exist — reading such a deck must print the rest of it
+ * rather than abort the command.
+ */
 function textBodiesOf(el: Element): TextBody[] {
   switch (el.type) {
     case 'text':
       // `TextElement.data` is a `TextBody` (intersection with fill/stroke).
-      return [el.data];
+      return el.data ? [el.data] : [];
     case 'shape':
-      return el.data.text ? [el.data.text] : [];
+      return el.data?.text ? [el.data.text] : [];
     case 'table':
-      return el.data.rows.flatMap((row) => row.cells.map((cell) => cell.body));
+      return (el.data?.rows ?? []).flatMap((row) =>
+        row.cells.map((cell) => cell.body),
+      );
     default:
       // image / connector carry no text; group is handled by flatten.
       return [];

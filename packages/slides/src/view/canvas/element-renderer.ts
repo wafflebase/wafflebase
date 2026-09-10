@@ -96,6 +96,14 @@ export function drawElement(
   anim?: AnimState,
 ): void {
   if (anim?.hidden) return;
+  // `Element.frame` is required by the model, but decks holding an element
+  // without one exist and every path below dereferences it unconditionally
+  // (`element.frame.x` for the animation centre, `!!frame.flipH` in
+  // `drawElementBody`). There is no error boundary above the canvas, so the
+  // throw blanks the entire app rather than losing one element — skip it.
+  // Connectors are exempt: they paint from their endpoints, and their
+  // cached `frame` is only a selection bbox.
+  if (element.type !== 'connector' && !element.frame) return;
   const hasAnim =
     !!anim &&
     (anim.opacity !== 1 ||
