@@ -310,15 +310,30 @@ writer, and — since issue #1045 — every selection-replacing edit, through
 `withUpdate` instead of calling `doc.update` directly; a nested update inside
 an open batch would split its undo unit.
 
-**Not yet every multi-write action.** `withUndoUnit()` is a `TextEditor`
-method, so it covers the keyboard and clipboard handlers and nothing else.
-The `EditorAPI` toolbar operations that write once per block —
-`toggleList` / `indent` / `outdent` / `applyBlockStyle` and the cell-range
-style loop — and `FindReplaceState.replaceAll()` still issue an unbatched
-write per block (per *match*, twice, for Replace All), so on a selection
-larger than the 50-entry cap they lose their oldest writes exactly as the
-keyboard paths did before #1045. Tracked in issue #1048; the fix is the same
-`doc.batch(...)` with the snapshot outside it.
+**The toolbar's paths are covered too, one by one.** `withUndoUnit()` is a
+`TextEditor` method, so it reaches only the keyboard and clipboard handlers;
+the `EditorAPI` operations behind the toolbar buttons write once per selected
+block through their own `forEachBlockInSelection` loops. Each of those loops
+is batched directly — `doc.batch(...)` around the writes, `docStore.snapshot()`
+left outside it, the same ordering the helper enforces: `applyBlockStyle`,
+`toggleList`, `indent`, `outdent`, the two cell-rectangle writers
+(`applyTableCellStyle`, and `insertLink`'s cell-range arm through
+`applyStyleToCellRange`), and `FindReplaceState.replaceActive()` /
+`replaceAll()`. Until they were, "Tab is one undo unit but the
+Increase-indent button is a hundred" was the shipped behaviour: the same
+action on the same selection got a different verdict depending on which
+control the user reached for, and past the 50-entry cap the button destroyed
+content the key did not.
+
+What is *not* fixed is the duplication underneath. `indent` / `outdent` /
+`toggleList` exist three times — `editor.ts`'s `EditorAPI`, `TextEditor`, and
+`text-box-editor.ts` — with the same `MAX_LIST_LEVEL` and `INDENT_STEP`, so
+the batching shape is now written in each rather than once, and a future
+change to the undo-unit rule has to be made three times. Routing the
+`EditorAPI` copies through the `TextEditor` ones is not behaviour-preserving
+(`TextEditor.toggleList()` acts on the caret's block where the `EditorAPI`
+one acts on the whole selection, and `textEditor` is absent on a read-only
+mount), so unifying them is its own change. Tracked in issue #1048.
 
 ##### One user action, one undo unit
 

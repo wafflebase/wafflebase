@@ -6,6 +6,7 @@ import {
   initialize,
   generateBlockId,
   DEFAULT_BLOCK_STYLE,
+  FindReplaceState,
   type EditorAPI,
   type Block,
 } from '@wafflebase/docs';
@@ -659,6 +660,315 @@ describe('indenting a multi-block selection is one undo unit (issue #1045)', () 
     expect(doc.getUndoStackForTest().length).toBe(before + 1);
     editor.undo();
     expect(levels()).toEqual(original);
+  });
+});
+
+/**
+ * The same #1045 shape reached through the **toolbar** rather than the
+ * keyboard. `EditorAPI`'s block-level mutators each loop
+ * `forEachBlockInSelection` with one `Doc` call inside, and one `Doc` call
+ * outside a batch is one `doc.update()` — one Yorkie undo entry. Over a
+ * selection longer than Yorkie's 50-entry cap `pushUndo` `shift()`s the
+ * oldest of them off for good, so the earliest blocks' change becomes
+ * un-undoable: exactly the data loss the keyboard twins above were fixed
+ * for. Every one of these is a button a user clicks
+ * (`docs-formatting-toolbar.tsx`, `text-paragraph-group.tsx`), so "Tab is
+ * safe but Increase indent is not" was the shipped behaviour.
+ */
+describe('toolbar block mutators over a multi-block selection are one undo unit (issue #1045)', () => {
+  const BLOCKS = 100;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+
+  function mount(blocks: Block[]): void {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    store.setDocument({ blocks });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+  }
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  function selectAll(): void {
+    const blocks = store.getDocument().blocks;
+    const last = blocks[blocks.length - 1];
+    editor._setSelectionForTest({
+      anchor: { blockId: blocks[0].id, offset: 0 },
+      focus: {
+        blockId: last.id,
+        offset: last.inlines.map((i) => i.text).join('').length,
+      },
+    });
+  }
+
+  const alignments = (): Array<string | undefined> =>
+    store.getDocument().blocks.map((b) => b.style.alignment);
+  const types = (): string[] => store.getDocument().blocks.map((b) => b.type);
+  const levels = (): number[] =>
+    store.getDocument().blocks.map((b) => b.listLevel ?? 0);
+  const margins = (): number[] =>
+    store.getDocument().blocks.map((b) => b.style.marginLeft ?? 0);
+
+  it('applyBlockStyle over a select-all is one undo unit', () => {
+    mount(Array.from({ length: BLOCKS }, (_, i) => makeBlock(`Paragraph ${i}`)));
+    const original = alignments();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+
+    editor.applyBlockStyle({ alignment: 'center' });
+
+    expect(alignments().every((a) => a === 'center')).toBe(true);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(alignments()).toEqual(original);
+  });
+
+  it('toggleList over a select-all is one undo unit', () => {
+    mount(Array.from({ length: BLOCKS }, (_, i) => makeBlock(`Paragraph ${i}`)));
+    const original = types();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+
+    editor.toggleList('unordered');
+
+    expect(types().every((t) => t === 'list-item')).toBe(true);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(types()).toEqual(original);
+  });
+
+  it('the indent button over a select-all is one undo unit', () => {
+    mount(Array.from({ length: BLOCKS }, (_, i) => makeListBlock(`Item ${i}`)));
+    const original = levels();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+
+    editor.indent();
+
+    expect(levels()).toEqual(original.map((l) => l + 1));
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(levels()).toEqual(original);
+  });
+
+  it('the outdent button over a select-all is one undo unit', () => {
+    mount(Array.from({ length: BLOCKS }, (_, i) => makeListBlock(`Item ${i}`)));
+    const original = levels();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+
+    editor.outdent();
+
+    expect(levels()).toEqual(original.map((l) => l - 1));
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(levels()).toEqual(original);
+  });
+
+  it('the indent button over non-list paragraphs is one undo unit', () => {
+    // The `applyBlockStyle` arm of the same loop — `marginLeft`, not
+    // `listLevel` — so both branches of `indent()` are pinned.
+    mount(Array.from({ length: BLOCKS }, (_, i) => makeBlock(`Paragraph ${i}`)));
+    const original = margins();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+
+    editor.indent();
+
+    expect(margins()).toEqual(original.map((m) => m + 36));
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(margins()).toEqual(original);
+  });
+});
+
+/**
+ * `FindReplaceState` writes twice per match (a `deleteText` then an
+ * `insertText`), so Replace All over a document with more than 25 matches
+ * used to exceed Yorkie's 50-entry cap on its own — the earliest
+ * replacements were unrecoverable. Driven the way `docs-find-bar.tsx`
+ * drives it: against `editor.getDoc()`, with `editor.getStore().snapshot`
+ * as the snapshot hook.
+ */
+describe('find & replace undo cost (issue #1045)', () => {
+  const MATCHES = 100;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+  let find: FindReplaceState;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    store.setDocument({
+      blocks: Array.from({ length: MATCHES }, () => makeBlock('needle here')),
+    });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+    find = new FindReplaceState(editor.getDoc(), () =>
+      editor.getStore().snapshot(),
+    );
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  const texts = (): string[] =>
+    store.getDocument().blocks.map((b) => b.inlines.map((i) => i.text).join(''));
+
+  it('replaceAll over every match is one undo unit', () => {
+    find.search('needle');
+    expect(find.matches).toHaveLength(MATCHES);
+    const before = doc.getUndoStackForTest().length;
+
+    find.replaceAll('pin');
+
+    expect(texts().every((t) => t === 'pin here')).toBe(true);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(texts().every((t) => t === 'needle here')).toBe(true);
+  });
+
+  it('replaceActive is one undo unit, not two', () => {
+    // Delete-then-insert is two writes for one user action, so this cost a
+    // dead Cmd+Z before the batch.
+    find.search('needle');
+    const before = doc.getUndoStackForTest().length;
+
+    find.replaceActive('pin');
+
+    expect(texts()[0]).toBe('pin here');
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(texts()[0]).toBe('needle here');
+  });
+});
+
+/**
+ * The two cell-range write paths: `applyTableCellStyle` (one
+ * `doc.applyCellStyle` per cell) and `insertLink`'s cell-range arm (which
+ * reaches `Doc.applyInlineStyleToCells`, one `store.applyStyle` per slice).
+ * An 8×8 table is 64 cells — past the 50-entry cap for a single click.
+ */
+describe('cell-range writes are one undo unit (issue #1045)', () => {
+  const SIZE = 8;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+  let tableId: string;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    // Built by hand rather than through `editor.insertTable`, because the
+    // cells have to hold text: `Doc.applyInlineStyleToCells` writes one
+    // slice per non-empty block, so an empty table would make the
+    // `insertLink` case below assert against zero writes.
+    const table: Block = {
+      id: generateBlockId(),
+      type: 'table',
+      inlines: [],
+      style: { ...DEFAULT_BLOCK_STYLE },
+      tableData: {
+        rows: Array.from({ length: SIZE }, (_, r) => ({
+          cells: Array.from({ length: SIZE }, (_, c) => ({
+            blocks: [makeBlock(`r${r}c${c}`)],
+            style: {},
+          })),
+        })),
+        columnWidths: Array.from({ length: SIZE }, () => 1 / SIZE),
+      },
+    };
+    store.setDocument({ blocks: [makeBlock('Intro'), table] });
+    tableId = table.id;
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+    selectWholeTable();
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  function tableBlock(): Block {
+    return store.getDocument().blocks.find((b) => b.id === tableId)!;
+  }
+
+  function selectWholeTable(): void {
+    const rows = tableBlock().tableData!.rows;
+    const first = rows[0].cells[0].blocks[0];
+    const last = rows[SIZE - 1].cells[SIZE - 1].blocks[0];
+    editor._setSelectionForTest({
+      anchor: { blockId: first.id, offset: 0 },
+      focus: { blockId: last.id, offset: 0 },
+      tableCellRange: {
+        blockId: tableId,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: SIZE - 1, colIndex: SIZE - 1 },
+      },
+    });
+  }
+
+  const cellBackgrounds = (): Array<string | undefined> =>
+    tableBlock().tableData!.rows.flatMap((r) =>
+      r.cells.map((c) => c.style?.backgroundColor),
+    );
+
+  it('applyTableCellStyle over a cell rectangle is one undo unit', () => {
+    const before = doc.getUndoStackForTest().length;
+
+    editor.applyTableCellStyle({ backgroundColor: '#ff0000' });
+
+    expect(cellBackgrounds().every((c) => c === '#ff0000')).toBe(true);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(cellBackgrounds().every((c) => c === undefined)).toBe(true);
+  });
+
+  it("insertLink's cell-range arm is one undo unit", () => {
+    const before = doc.getUndoStackForTest().length;
+
+    editor.insertLink('https://example.com');
+
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
   });
 });
 

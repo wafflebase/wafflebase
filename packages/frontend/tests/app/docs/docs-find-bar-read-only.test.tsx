@@ -19,6 +19,10 @@ function makeDoc() {
     searchText: vi.fn(() => [
       { blockId: 'b1', startOffset: 0, endOffset: 3 },
     ]),
+    // A replace is two store writes for one user action, so
+    // `FindReplaceState` groups them into one undo unit via `Doc.batch()`.
+    // The stub runs the body so the write spies below still see the calls.
+    batch: vi.fn((fn: () => void) => fn()),
     deleteText: vi.fn(),
     insertText: vi.fn(),
   };

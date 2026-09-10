@@ -3450,8 +3450,17 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        doc.applyBlockStyle(block.id, style);
+      // One undo unit however many blocks the selection spans — the rule
+      // `applyStyleImpl` above and `TextEditor.withUndoUnit` document. Each
+      // `doc.applyBlockStyle` is one store write, so the alignment and
+      // line-spacing controls over a select-all otherwise cost one Cmd+Z per
+      // block and, past Yorkie's 50-entry cap, dropped the oldest of them for
+      // good (issue #1045). Only the store writes go inside the batch;
+      // layout and paint read the document after it commits.
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          doc.applyBlockStyle(block.id, style);
+        });
       });
       render();
       notifyStyleApplied();
@@ -3611,16 +3620,19 @@ export function initialize(
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item' && block.listKind === kind) {
-          const exit = unlistedBlockType(block);
-          doc.setBlockType(block.id, exit.type, exit.opts);
-        } else {
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: kind,
-            listLevel: block.listLevel ?? 0,
-          });
-        }
+      // One undo unit — see `applyBlockStyle` above (issue #1045).
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item' && block.listKind === kind) {
+            const exit = unlistedBlockType(block);
+            doc.setBlockType(block.id, exit.type, exit.opts);
+          } else {
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: kind,
+              listLevel: block.listLevel ?? 0,
+            });
+          }
+        });
       });
       invalidateLayout();
       render();
@@ -3633,19 +3645,23 @@ export function initialize(
       const MAX_LIST_LEVEL = 8;
       const INDENT_STEP = 36;
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel >= MAX_LIST_LEVEL) return;
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel + 1,
-          });
-        } else {
-          doc.applyBlockStyle(block.id, {
-            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-          });
-        }
+      // One undo unit — see `applyBlockStyle` above (issue #1045). The
+      // keyboard twin `TextEditor.handleIndent` batches the identical loop.
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') {
+            const currentLevel = block.listLevel ?? 0;
+            if (currentLevel >= MAX_LIST_LEVEL) return;
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: block.listKind,
+              listLevel: currentLevel + 1,
+            });
+          } else {
+            doc.applyBlockStyle(block.id, {
+              marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+            });
+          }
+        });
       });
       render();
       // `listLevel` / `marginLeft` are read back through `getBlockType()` /
@@ -3656,21 +3672,25 @@ export function initialize(
     outdent() {
       const INDENT_STEP = 36;
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel <= 0) return;
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel - 1,
-          });
-        } else {
-          const current = block.style.marginLeft ?? 0;
-          if (current <= 0) return;
-          doc.applyBlockStyle(block.id, {
-            marginLeft: Math.max(0, current - INDENT_STEP),
-          });
-        }
+      // One undo unit — see `applyBlockStyle` above (issue #1045). The
+      // keyboard twin `TextEditor.handleOutdent` batches the identical loop.
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') {
+            const currentLevel = block.listLevel ?? 0;
+            if (currentLevel <= 0) return;
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: block.listKind,
+              listLevel: currentLevel - 1,
+            });
+          } else {
+            const current = block.style.marginLeft ?? 0;
+            if (current <= 0) return;
+            doc.applyBlockStyle(block.id, {
+              marginLeft: Math.max(0, current - INDENT_STEP),
+            });
+          }
+        });
       });
       render();
       notifyStyleApplied();
@@ -3698,8 +3718,12 @@ export function initialize(
 
         // Cell-range mode: apply to all cells in range (mirrors applyStyleImpl)
         if (range.tableCellRange) {
+          const cellRange = range.tableCellRange;
           docStore.snapshot();
-          applyStyleToCellRange(range.tableCellRange, { href: url });
+          // One store write per slice, so one undo unit for the whole
+          // rectangle — exactly as `applyStyleImpl`'s cell-range arm does
+          // (issue #1045).
+          doc.batch(() => applyStyleToCellRange(cellRange, { href: url }));
           markDirty(range.tableCellRange.blockId);
           render();
           notifyStyleApplied();
@@ -4247,11 +4271,17 @@ export function initialize(
         const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
         const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
         const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
-        for (let r = minR; r <= maxR; r++) {
-          for (let c = minC; c <= maxC; c++) {
-            doc.applyCellStyle(cr.blockId, { rowIndex: r, colIndex: c }, style);
+        // One write per cell, so one undo unit for the rectangle: a cell
+        // border or background applied to a table bigger than Yorkie's
+        // 50-entry undo cap otherwise stranded the earliest cells for good
+        // (issue #1045).
+        doc.batch(() => {
+          for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+              doc.applyCellStyle(cr.blockId, { rowIndex: r, colIndex: c }, style);
+            }
           }
-        }
+        });
         markDirty(cr.blockId);
         render();
         return;
