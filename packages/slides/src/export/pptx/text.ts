@@ -81,11 +81,22 @@ const ALGN = new Map<string, string>([
  *
  * The `[0, MAX_LIST_LEVEL]` band itself is `normalizeListLevel`'s, shared with
  * every other reader of a `Block.listLevel` rather than kept as a third copy
- * of the ceiling. This sink adds the two things that band does not do: the
- * `Number(...)` coercion — `normalizeListLevel` takes a `number` and reads
- * anything else as non-finite, so a numeric string (`"2"`, the shape a level
- * takes after a round trip through JSON) would otherwise flatten to level 0 —
- * and omitting level 0, which is `<a:pPr>`'s default.
+ * of the ceiling. This sink adds the two things that band does not do:
+ * omitting level 0 (which is `<a:pPr>`'s default), and the `Number(...)`
+ * coercion.
+ *
+ * The coercion is load-bearing *here specifically*, for the reason `ALGN`
+ * above gives: a slide text body is persisted verbatim as JSON by
+ * `writeSlidesRoot`, and unlike a docs block it passes no attribute codec on
+ * read — `treeNodeToBlock` is what runs `normalizeListLevel(Number(...))` on
+ * the docs path, and slides has no equivalent. The v1 content `PUT`'s slides
+ * arm (`assertValidSlideBlocks`, `api/v1/docs-content.controller.ts`) checks a
+ * block's `style`, `inlines` and nested table cells and never looks at
+ * `listLevel`, so `{"type": "list-item", "listLevel": "2"}` is stored as the
+ * *string* it was sent as and arrives here with that type.
+ * `normalizeListLevel` takes a `number` and reads anything else as
+ * non-finite, so without the coercion such a level would flatten to 0 and the
+ * exported deck would lose its nesting silently.
  */
 function listLevelAttr(listLevel: number | undefined): string {
   const n = normalizeListLevel(Number(listLevel));
