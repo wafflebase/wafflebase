@@ -237,12 +237,143 @@ checkmark in the dropdown when it matches a preset.
 ### Clear formatting
 
 Calls `editor.clearInlineFormatting()`, which over the current selection
-range removes every inline-style attribute by dispatching the
-`CLEAR_INLINE_STYLE` payload through the existing `applyStyle` path
-(mapping each `InlineStyle` key to `undefined`). Block-level styles (alignment, line height,
+range removes every *character-formatting* inline-style attribute by
+dispatching the `CLEAR_INLINE_STYLE` payload through the existing
+`applyStyle` path (mapping each such `InlineStyle` key to `undefined`).
+Block-level styles (alignment, line height,
 list kind, list level, heading level) are intentionally preserved —
 this matches Google Docs' behavior and avoids accidentally collapsing a
 heading into a paragraph.
+
+**The keys that say what a run *is* are preserved too**, and
+`CLEAR_INLINE_STYLE` is the single list that says which those are:
+`image`, `pageNumber` and `href`. (The first two also make the run
+structural — not text at all, which is the narrower `isStructuralInline`
+test; a linked run is ordinary text carrying a content attribute.)
+`href` used
+to be in the cleared set, so clearing formatting over a selection
+containing a link silently deleted the link (issue #1051); Word's
+*Clear All Formatting* leaves hyperlinks alone and keeps *Remove
+Hyperlink* as a separate command, which Docs already ships as
+`EditorAPI.removeLink`. Clearing still strips a custom colour or
+underline authored on a linked run — the link's blue and underline are
+derived from the presence of `href` in `renderRun`, never stored on the
+run, so it falls back to the default link paint.
+
+One list, three entry points: the toolbar button
+(`EditorAPI.clearInlineFormatting`), the Cmd/Ctrl+`\` shortcut
+(`TextEditor.clearFormatting`) and the slides text-box editor
+(`TextBoxEditorAPI.clearInlineFormatting`) all pass `CLEAR_INLINE_STYLE`.
+The shortcut kept a hand-rolled copy until #1051, and it had drifted —
+it omitted `fontSize` / `fontFamily` / `color` / `backgroundColor`, so
+the keyboard cleared strictly less than the button. The collapsed-caret
+path stages the same constant on the pending style, so a caret follows
+whatever a range would have done.
+
+With one addition on that pending path. `PendingStyle.set` *replaces*
+the staged style rather than merging into it, and `CLEAR_INLINE_STYLE`
+now carries no `href` key at all — so at a link's trailing edge the
+shortcut would overwrite the `href: undefined`
+`TextEditor.exitLinkIfAtTrailingEdge` arms there, and the next typed
+character would inherit the link from the run behind the caret.
+`clearFormatting` therefore re-arms the exit when the caret is at a
+trailing edge (or when the staged style already held one). Preserving a
+hyperlink is the point of #1051; *extending* one is not. Space and Enter
+hide the difference — both call `exitLinkIfAtTrailingEdge` again at
+insert time — so the regression is only reachable by typing an ordinary
+character, which is what `link-trailing-edge.test.ts` now asserts.
+
+The toolbar's `EditorAPI.clearInlineFormatting` needs the same rule for a
+sharper reason, and that is where it belongs — not on the entry point.
+It routes into `applyStyleImpl`, whose collapsed branch stages
+`{ ...caretInlineStyle(), ...style }`; at a link's trailing edge the
+caret style *is* the link run's, `href` included, so the button re-armed
+the link rather than merely failing to disarm it. But **every** collapsed
+toolbar write shares that seed — Bold, the colour pickers,
+`stepSelectionFontSize` — so patching Clear formatting alone left the
+sibling buttons growing the hyperlink through the identical path (click
+the caret at a link's end, click Bold, type: the link swallowed the new
+text). The re-arm therefore lives on the seed itself,
+`pendingStyleFor(style)`, which every collapsed-caret write in
+`view/editor.ts` goes through, and which yields to a `style` that names
+`href` on purpose (`insertLink`). **Collapsed carets only**: adding the
+key on a range write is the #1051 bug itself.
+
+`view/editor.ts` is not the only place that seeds pending from the caret,
+so the same rule is repeated — off the same shared test — wherever a
+collapsed-caret write stages a caret-derived style:
+
+- `TextEditor.setPendingStyleGuarded` (`view/text-editor.ts`) — the
+  keyboard half. Both `clearFormatting` (Cmd+\\) and `toggleStyle` (the
+  Cmd+B/I/U/S toggles, which keep their own `pending.set` rather than
+  routing through `EditorAPI`) go through it, so the shortcut and the
+  identical toolbar click agree on where a link ends.
+- `stepSelectionFontSizeImpl`'s collapsed branch in
+  `view/text-box-editor.ts` — the only caret-derived seed in the slides
+  text-box editor, and the surface where it matters most, since a slides
+  text box has no link popover to undo an unwanted link with.
+
+The trailing-edge test is one exported
+`isAtLinkTrailingEdge(doc, position)` in `model/caret-style.ts` rather
+than a private method per editor — it lives beside `caretInlineStyle`
+because it answers the other half of the same question (that walk
+necessarily reports a link run's `href` at its trailing edge, so every
+caller that *stores* a caret-derived style has to ask), and a
+hand-copied caret walk drifting between editors is how #715 happened.
+An **empty-text** run carrying an `href` counts as a trailing edge: that
+is the residue `normalizeInlines` leaves when a linked paragraph's whole
+text is deleted (the fallback inline keeps the first run's style). No
+link is displayed and `removeLink` cannot reach it — `findLinkRunAt`
+refuses a zero-length run — yet the caret walk reports its `href`, so a
+clear that seeded from it made the next typed character a hyperlink
+nothing could remove. Clearing over a *range* cannot help there either:
+the range is empty, so `applyInlineStyle` writes nothing.
+
+The slides text-box `clearInlineFormatting` is the one entry point that
+needs no such override, because it stages nothing at a collapsed caret —
+its `applyStyleImpl` returns early without a selection, so there is no
+caret-derived seed to re-arm a link from. (The font-size stepper beside
+it does stage one, which is why it carries the guard listed above.)
+(`text-box-clear-formatting.test.ts`
+pins that, including that the clear leaves the trailing-edge exit
+working). A plain character typed at a link's trailing edge still
+inherits the link in a slides text box, as it does in docs when nothing
+armed the exit; only Space, Enter and paste exit a link at insert time.
+
+### Removing a link on slides
+
+Preserving `href` through Clear formatting only works as a design if
+*some* command removes one. Docs has two (the link popover's unlink
+button and `EditorAPI.removeLink` behind it); slides had none — its
+canvas text boxes never wire `onLinkRequest`, so there is no link
+popover there, while their runs can still acquire an `href` from
+autolink-on-space in the shared `TextEditor` or from a PPTX import.
+Clear formatting was the only reachable way to drop one.
+
+The shared `TextFormatGroup` therefore grows a `showRemoveLink` flag
+(default `false` — docs keeps its popover) that renders an unlink
+button beside Insert link, calling the editor's `removeLink()`. Both
+slides text-edit surfaces opt in (desktop `text-edit-section.tsx` and
+the mobile Format sheet). It is always enabled rather than gated on
+`getLinkAtCursor()`: the slides toolbar re-renders on element-selection
+and text-edit transitions, not on every caret move, so a render-time
+gate would be stale exactly when the button is wanted — and
+`removeLink()` is a no-op off a link.
+
+A toolbar button is reached by a different gesture than a popover, so
+`TextBoxEditorAPI.removeLink` had to grow with it: **a selection wins
+over the caret**. Docs only ever offered unlink from the link popover,
+which opens on a caret, so resolving the link from `cursor.position` was
+enough there. The gesture the slides button invites is "drag over the
+linked text, then click Remove link" — and after that drag the caret
+sits at the selection's *focus*, past the link whenever the selection
+reaches beyond it, so the caret-only lookup made the click a silent
+no-op on the one surface with no other way to drop a link. With a
+selection it now clears `href` across it (through the same
+`applyStyleImpl` the style writes use); with a bare caret it still takes
+the link run the caret touches. A partial selection unlinks exactly what
+it covers, which a drag cannot produce — `TextEditor.setSnappedRange`
+expands a range out to whole links.
 
 Per the existing Yorkie store bug fix
 ([20260526-docs-unlink-href]), `applyInlineStyle` already removes

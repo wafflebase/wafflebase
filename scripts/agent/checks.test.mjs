@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, definesCi, CHECK_PRODUCER_APP_SLUG, CI_DEFINING_PATHS, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, ciRunToAwait, definesCi, CHECK_PRODUCER_APP_SLUG, CI_DEFINING_PATHS, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -901,7 +901,37 @@ test("ciRunToRerun: the newest COMPLETED run, and only that one", () => {
   assert.equal(ciRunToRerun([run(9, "queued", null)]), null, "nothing completed yet");
 });
 
-test("agent-rerun / agent-loop mirror ciRunToRerun inline, and the copies agree", () => {
+test("ciRunToAwait: the newest run that is NOT completed", () => {
+  const run = (id, status, conclusion) => ({ id, status, conclusion });
+
+  assert.equal(ciRunToAwait([]), null, "nothing to wait for");
+  assert.equal(ciRunToAwait(undefined), null, "a missing list is not a crash");
+  assert.equal(ciRunToAwait([run(1, "completed", "success")]), null, "a finished run is not waited for");
+
+  // The case #1047 and #1052 died on: a run in flight and nothing completed, so
+  // `ciRunToRerun` is null and the verb used to stop there. Answering with the
+  // in-flight run is what lets the caller wait and then produce the
+  // `run_attempt > 1` completion the review panel re-engages on.
+  assert.equal(ciRunToAwait([run(7, "in_progress", null)]).id, 7);
+  assert.equal(ciRunToAwait([run(9, "queued", null), run(4, "completed", "success")]).id, 9);
+
+  // A status this pipeline has never heard of reads as "still going". The two
+  // selections partition the listing, so nothing can fall between them.
+  assert.equal(ciRunToAwait([run(3, "waiting", null)]).id, 3, "an unknown status is not 'nothing here'");
+  for (const fixture of [
+    [run(1, "completed", "success")],
+    [run(2, "in_progress", null), run(1, "completed", "success")],
+    [run(2, "pending", null), run(1, "queued", null)],
+    [run(3, "requested", null)],
+  ]) {
+    const rerun = ciRunToRerun(fixture);
+    const await_ = ciRunToAwait(fixture);
+    assert.ok(rerun || await_, `a non-empty listing must select something: ${JSON.stringify(fixture)}`);
+    assert.notEqual(rerun?.id ?? "r", await_?.id ?? "a", "one run cannot be both");
+  }
+});
+
+test("agent-rerun / agent-loop mirror ciRunToRerun + ciRunToAwait inline, and the copies agree", () => {
   // Both re-run steps run BEFORE any checkout, so they cannot import checks.mjs
   // — the same constraint that makes agent-review-panel.yml mirror
   // `ciRunDecision` inline. The rule therefore exists twice; pinning the copy is
@@ -925,11 +955,17 @@ test("agent-rerun / agent-loop mirror ciRunToRerun inline, and the copies agree"
     const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
     const at = yml.indexOf("workflow_id: 'ci.yml'");
     assert.notEqual(at, -1, `${file} must still re-run CI by workflow id`);
-    const block = yml.slice(at - 400, at + 700);
+    // Wide enough to hold the whole re-run step: both selections, the wait, and
+    // the two guards after it.
+    const block = yml.slice(at - 400, at + 5000);
 
     // Exactly one reRunWorkflow call, not a loop over a selection.
     assert.ok(!/for \(const run of/.test(block), `${file}: fanning out cancels the fixer and erodes the attempt bound`);
-    assert.match(block, /if \(run\) \{ await github\.rest\.actions\.reRunWorkflow/, `${file} re-runs exactly one run`);
+    assert.equal(
+      (yml.match(/await github\.rest\.actions\.reRunWorkflow\(\{ owner, repo, run_id: target\.id \}\)/g) || []).length,
+      1,
+      `${file} re-runs exactly one run, and re-runs whatever the selection chose`,
+    );
     // The LISTING has to be able to see past the first run. `per_page: 1` — what
     // this step did before — hands the selection a one-element list, so "the
     // newest completed run" silently degrades to "the newest run, if it happens
@@ -948,15 +984,48 @@ test("agent-rerun / agent-loop mirror ciRunToRerun inline, and the copies agree"
     assert.ok(src, `${file}: could not extract the inline run-selection from the workflow`);
     const mirror = new Function("all", `${src[0]}\nreturn run;`);
 
+    // The SECOND selection, added after #1047/#1052 sat unreviewed for five
+    // hours: with nothing completed, the verb used to report "the panel will
+    // engage on the next CI run" and there was no next CI run.
+    const awaitSrc = block.match(/const pending = [\s\S]*?const awaited = pending\.reduce\(.*?\);/);
+    assert.ok(awaitSrc, `${file}: could not extract the inline in-flight selection from the workflow`);
+    const awaitMirror = new Function("all", `${awaitSrc[0]}\nreturn awaited;`);
+
     for (const fixture of fixtures) {
       assert.deepEqual(
         mirror(fixture)?.id ?? null,
         ciRunToRerun(fixture)?.id ?? null,
         `${file}'s inline mirror disagrees with ciRunToRerun on ${JSON.stringify(fixture).slice(0, 120)}`,
       );
+      assert.deepEqual(
+        awaitMirror(fixture)?.id ?? null,
+        ciRunToAwait(fixture)?.id ?? null,
+        `${file}'s inline mirror disagrees with ciRunToAwait on ${JSON.stringify(fixture).slice(0, 120)}`,
+      );
     }
     // And prove the extracted code is not a constant-null stub that trivially
     // agrees on nothing — at least one fixture must select a run.
     assert.equal(mirror(fixtures[1])?.id, 1, `${file}'s extracted mirror must actually select a run`);
+    assert.equal(awaitMirror(fixtures[5])?.id, 1, `${file}'s extracted in-flight mirror must actually select a run`);
+
+    // The three things the wait is only correct WITH. Each removed one is a
+    // distinct regression: no poll → the dead end returns; no head check → CI
+    // re-runs against a stale sha; no failure check → a second
+    // `completed/failure` event cancels agent-iterate-ci's fixer mid-push,
+    // which is how #648 lost a round.
+    assert.match(block, /getWorkflowRun\(\{ owner, repo, run_id: awaited\.id \}\)/, `${file} must poll the in-flight run`);
+    assert.match(block, /fresh\.head\.sha !== pr\.head\.sha/, `${file} must not re-run CI for a sha that is no longer the head`);
+    assert.match(block, /target\.conclusion === 'failure'/, `${file} must leave a red run to the CI-fix arm`);
+
+    // The wall and the wait live in two places and no expression context can
+    // read a job's own timeout, so a raised wait with an unraised wall would
+    // kill the job mid-poll — latch cleared, nothing re-run, nothing said.
+    const waitMinutes = Number(block.match(/Date\.now\(\) \+ (\d+) \* 60 \* 1000/)?.[1]);
+    assert.ok(waitMinutes > 0, `${file}: could not read the wait budget`);
+    const walls = [...yml.matchAll(/timeout-minutes: (\d+)/g)].map((m) => Number(m[1]));
+    assert.ok(
+      Math.max(...walls) > waitMinutes,
+      `${file}: the job wall (${Math.max(...walls)}m) must exceed the ${waitMinutes}m wait`,
+    );
   }
 });
