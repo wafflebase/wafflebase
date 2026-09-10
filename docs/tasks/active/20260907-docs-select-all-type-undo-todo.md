@@ -75,6 +75,42 @@ Scope was widened to close the class rather than defer it to #1048:
       revocation model; `requestLayoutRefresh` becomes
       `recomputeLayout({ keepDirty: true })`.
 
+### Added during review (round 14)
+
+- [x] `insertLink`'s **plain** multi-block arm batches too. The third of its
+      three selection shapes — the one a ⌘K over a select-all reaches, since
+      `linkRunCoveringRange` never matches across blocks — was the last
+      unbatched `applyInlineStyle` in the file, so 60 linked paragraphs left
+      the first ten linked past any Cmd+Z.
+- [x] `docs-view-readonly.test.tsx` — the docs twin of the notes/slides
+      read-only remount tests: the rebuild on a role downgrade, and
+      `YorkieDocStore.dispose()` releasing the discarded subscription.
+- [x] `layout-keep-dirty.test.ts` — `recomputeLayout({ keepDirty })` keeps the
+      per-keystroke paint incremental. Cold measure cache, or a full second
+      pass rides the memo and the two paths are indistinguishable.
+- [x] The undo-floor identity-stability test now discriminates: it drives the
+      stack to the cap with the floor still on it, which is the one state
+      where the identity path's "floor is gone" latch would undo past the
+      initial load.
+- [x] `applyStyleToSelection`'s doc comment no longer claims every caller
+      snapshots. `toggleStyle` does not, and correctly: a style toggle moves
+      no caret, and `consumePendingCursor()` means an unstaged write records
+      no presence rather than a stale one.
+
+## Follow-ups (found in review, deliberately not in this PR)
+
+Each is real and each is new scope; none is a regression from this branch.
+
+- `applySpellSuggestion` (`editor.ts`) is two undo units.
+- `mergeTableCells` / `splitTableCell` write one op per cell, unbatched.
+- The three sibling stores (`yorkie-slides-store.ts` and friends) still key
+  their undo floor on a depth, so they carry the pre-#1045 bug this branch
+  fixed for docs.
+- `MemSlidesStore.batch()` does not match `MemDocStore.batch()` (no
+  `snapshot()` seam, so no deferral and no adoption).
+- The stale-`blockId` hazard in the cell-range writers.
+- Unifying the three copies of indent/outdent/toggleList — #1048, see below.
+
 ## Non-goals
 
 - Changing Yorkie's 50-entry cap.

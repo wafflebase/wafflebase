@@ -166,3 +166,39 @@ speculative fix into a grounded rejection plus an enumerated comment.
 An honest "this cannot happen, here is why" is worth more than a guard for a
 case nobody has characterized: the guard has to be maintained and it teaches
 the next reader something false.
+
+## "Identical to main" is not a defence when the branch's own doc says otherwise
+
+Round 14's one code fix was a line byte-identical to `origin/main`, and two of
+six verifiers refused it on exactly that ground. They were right about the
+provenance and wrong about the verdict: this branch's design doc had just
+started claiming *"The toolbar's paths are covered too, one by one"*, and that
+sentence was false while `insertLink`'s plain arm was bare. A pre-existing line
+becomes this PR's problem the moment the PR documents it as fixed. The rule is
+not "fix everything you touch"; it is that a claim and the code have to agree,
+and the cheap way to make them agree is usually the one-line fix rather than a
+qualified sentence.
+
+The severity still has to be stated accurately. A stranded `href` is
+repairable — select the range, Remove link — where #1045 lost content
+outright. Filing both at the same pitch is how a review loop stops being able
+to tell which finding matters.
+
+## A perf test needs to know what its own caches absorb
+
+The first version of the `keepDirty` guard counted `measureText` calls after a
+keystroke and passed identically with the option reverted — 12 either way. The
+option was working; the *test* could not see it, because `layout.ts` memoizes
+every (text, font) width process-wide, so the extra full pass re-walked all 40
+blocks without measuring anything. Clearing the measure cache first turns the
+same assertion into 58 against 216.
+
+Two lessons, and the second is the load-bearing one. A guard for "we do less
+work now" has to name the resource it is counting and check that nothing
+between the code and the counter is holding the answer. And the check for that
+is mechanical: revert the thing under test and watch the number move. A test
+whose number does not move is not a weak test, it is not a test — which is
+also what the panel found in the undo-floor identity case, where the whole
+mocked-copy scenario fell through to the very fallback it was meant to be
+distinguished from. Both were found the same way, by reverting the guard, and
+both should have been found that way when they were written.

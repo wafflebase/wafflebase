@@ -326,6 +326,13 @@ action on the same selection got a different verdict depending on which
 control the user reached for, and past the 50-entry cap the button destroyed
 content the key did not.
 
+`insertLink`'s third selection shape — a **plain** cross-block range, which
+is what ⌘K over a select-all reaches, since `linkRunCoveringRange` matches
+only within one block — is batched for the same reason, with a smaller
+consequence: what the cap strands there is an `href` on the earliest blocks,
+and a stranded link is repairable by selecting the range and using Remove
+link. It is the same defect one severity down, not equivalent data loss.
+
 What is *not* fixed is the duplication underneath. `indent` / `outdent` /
 `toggleList` exist three times — `editor.ts`'s `EditorAPI`, `TextEditor`, and
 `text-box-editor.ts` — with the same `MAX_LIST_LEVEL` and `INDENT_STEP`, so

@@ -3583,8 +3583,18 @@ export class TextEditor {
    * Both writes go through {@link withUndoUnit}: `Doc.applyInlineStyle` and
    * `applyInlineStyleToCells` call `store.applyStyle` once per *slice*, so
    * bolding a select-all cost one Cmd+Z per block and, past Yorkie's 50-entry
-   * cap, dropped the oldest slices outright (issue #1045). Callers call
-   * `saveSnapshot()` before this, never inside — see `withUndoUnit`.
+   * cap, dropped the oldest slices outright (issue #1045).
+   *
+   * A caller that snapshots does so *before* this, never inside one — see
+   * `withUndoUnit`. Two of the three do (`clearFormatting`, the format
+   * painter's apply); `toggleStyle` deliberately does not, and no caller may
+   * snapshot from within. What `saveSnapshot()` buys on `YorkieDocStore` is a
+   * reverse *caret*: it stages the pre-edit position, and the store records it
+   * with `addToHistory` on the next write. A style toggle moves no offsets and
+   * no caret, so there is nothing to reverse — and an unstaged write records
+   * no presence at all rather than a stale one, because
+   * `consumePendingCursor()` clears the staged position on every write. The
+   * undo *unit* is unaffected either way: it comes from the batch here.
    */
   private applyStyleToSelection(
     range: DocRange,
