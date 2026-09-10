@@ -596,6 +596,12 @@ describe('initializeTextBox — verticalAnchor', () => {
    * entry; the docs editor asserts that directly with a tracing store it can
    * be constructed with, which `initializeTextBox` takes no option for. So
    * this guards the snapshot placement and the user-visible outcome only.
+   *
+   * It also has to *observe the indented state* before undoing. Asserting
+   * only the restored `[0, 1]` re-states the input, so it passed verbatim
+   * against `origin/main` — where `indent()` moves the caret's own block
+   * alone, giving `[1, 1]` and undoing to the same `[0, 1]` — and would stay
+   * green if `indent()` became a no-op.
    */
   it('one undo reverses the whole indented subtree', () => {
     const container = document.createElement('div');
@@ -623,7 +629,18 @@ describe('initializeTextBox — verticalAnchor', () => {
     });
 
     api.focus();
+    // Cursor on the parent only: the carried child makes this `[1, 2]`, not
+    // the `[1, 1]` a caret-block-only indent would produce. `blur` is how the
+    // indented state is *observed* — `onCommit` fires on the focusout path,
+    // not per gesture — and it leaves `docStore`'s undo stack alone.
     api.indent();
+    api.blur();
+    expect(
+      (onCommit.mock.calls.at(-1)?.[0] as Block[]).map((b) => b.listLevel),
+    ).toEqual([1, 2]);
+
+    // One undo, not two, puts the whole subtree back.
+    api.focus();
     api.undo();
     api.detach();
 

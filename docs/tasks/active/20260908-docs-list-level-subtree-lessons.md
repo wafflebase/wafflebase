@@ -289,3 +289,78 @@ one and returns it present. Both were written in the same round as the code
 they describe. A band has two behaviours — clamp and drop — and a comment that
 names only one is wrong for half its inputs, so it is worth stating which
 input takes which branch rather than summarizing the band as a single verb.
+
+### Correcting a false claim means grepping for the claim, not editing the line
+
+Round 10 was told that `parseBlockStyleAttrs`'s comment wrongly said an
+out-of-band `lineHeight` "is read as absent". It fixed that comment — and in
+the same round wrote the same false sentence into two brand-new comments a
+hundred lines away, while the identical claim sat uncorrected in the module
+header, the design doc, the exemplar function it cited, and four test
+comments. Round 11 found **17 occurrences in 9 files** by grepping five
+phrasings ("reads as absent", "keeps the default", "admits any finite",
+"resolved named style", "clamped edge") — three of them only on a second pass
+that flattened comment-continuation markers, because the sentence wrapped
+across two `*`-prefixed lines and a line-oriented grep cannot see it.
+
+A review finding names an *instance*; what is actually wrong is the *claim*.
+So the fix is: read the code, write down the true statement in one line, then
+`git grep` the false phrasing across the whole branch — code comments, design
+docs, task files and test headers alike — and correct every hit. The
+mechanical tell that a claim has spread is that its wording is quotable: a
+sentence someone liked enough to copy has been copied.
+
+Three corollaries this round produced:
+
+- **Check the exemplar the claim cites.** The sentence said "matching
+  `normalizeRowHeight`", and `normalizeRowHeight` clamps too — the citation
+  was the strongest-looking part of the claim and was itself false.
+- **A guard has as many branches as it has branches.** Every band here has
+  two: non-finite or non-positive is *dropped*, finite-above-ceiling is
+  *clamped and kept present*. Naming one verb ("drops", "clamps", "keeps the
+  default") is wrong for half the inputs, so write the branch table into the
+  band's own JSDoc and let call sites point at it instead of paraphrasing.
+- **Prose can be falsified by a fix in the same round.** `table-layout.ts`
+  justified re-normalizing with "the paste path admits any finite number";
+  another commit in the same round made the paste path band it. When a commit
+  closes a gap, grep for comments that cited that gap as a reason.
+
+### A non-discriminating test is fixed by adding an assertion, never by deleting the case
+
+Round 10 was told its row-split test did not discriminate — it passed
+unchanged against `origin/main`. It **deleted** the case
+(`terminates on a page setup that leaves no content height`) and put the
+discriminating assertion in its place. Nothing required that, and the deleted
+case was the only coverage for a *different* claim: `pagination.ts`'s promise
+that the loop terminates for "a `contentHeight` too small to make progress",
+which the design doc repeats. One finding about test quality became a silent
+coverage regression.
+
+The rule: "this test does not prove X" is never "this test proves nothing".
+Add the assertion for X alongside it, and if the old case turns out to cover
+Y, say which claim it covers in its comment so the next reviewer does not
+mistake it for a duplicate. Both cases here now name the half of the
+termination claim they guard, and both were verified red against the code
+they cover — the restored one at 200 fragments instead of 1 with the
+non-positive-budget guards removed.
+
+The companion mistake to watch for is the *other* way a test can assert
+nothing: the round-10 undo test seeded `[0, 1]`, indented, undid, and
+asserted `[0, 1]` — its own input. It never observed the state under test, so
+it was green against `origin/main` and would have stayed green with
+`indent()` a total no-op. A round-trip test has to assert the *midpoint*, and
+the check is the same one command: revert the behaviour and watch it fail.
+
+### A mechanism invented to justify a fix is worse than no comment
+
+Round 10 correctly restored a `Number(...)` coercion the PPTX exporter needed,
+and justified it with "the shape a level takes after a round trip through
+JSON" — which is not a thing that happens; JSON does not stringify numbers,
+and both `clone()` and `yorkieToPlain()` preserve `2` as `2`. The real reason
+was already written twenty lines above in the same file: a slide text body is
+persisted verbatim with no read-side codec, and the content `PUT` validator's
+slides arm never looks at `listLevel`. A plausible-but-wrong rationale is
+strictly worse than "needed, reason unclear": it survives review, and the next
+person removes the coercion because JSON round trips demonstrably do not
+stringify numbers. When a fix is right but the reason is not obvious, look for
+the file's existing note on the same hazard before inventing one.

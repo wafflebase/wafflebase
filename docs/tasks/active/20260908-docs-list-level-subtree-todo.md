@@ -106,9 +106,11 @@ behavior, untouched by the subtree rule.
 - [x] `Doc.siblingBlocksOf` direct tests, including the header/footer
       table-cell case and both parent-map fallbacks; the text-box editor's
       undo/`marginLeft` branches; one paint-side out-of-band `listLevel` case.
-- [x] Fold the two surviving copies of a band into the band: the slides PPTX
+- [x] Fold the surviving copies of a band into the band: the slides PPTX
       exporter's `Math.min(8, …)` and the frontend picker's
-      `FONT_SIZE_MAX = 400`.
+      `FONT_SIZE_MAX = 400`. (Said "two" until round 11 — the paste
+      sanitizer's `Math.min(MAX_LIST_LEVEL, Math.max(0, Math.trunc(level)))`
+      was a third, folded there.)
 - [x] Record the pagination bound in its own subsystem doc
       (`tables/docs-table-row-splitting.md` §1.5, plus a pointer from
       `docs-pagination.md`); `docs.md` keeps the model half and cross-refers.
@@ -171,3 +173,74 @@ extended to any new attribute.
 - Not covered on purpose: poisoned-`listLevel` tests for the pdf painter,
   table renderer and peer-cursor paint sinks. One representative sink is
   asserted; the rest share the reader.
+
+### Round 11
+
+Zero blocking, zero confirmed-major. Six of the eight findings were defects in
+round 10's *own* fixes and two of those were coverage regressions, so this
+round changes prose and tests: the only code changes are one band fold and one
+JSDoc rewrite. No band's behaviour is touched.
+
+- [x] **The false claim was a claim *class*, not one sentence.** "Out of band
+      reads as absent" is wrong for 4 of the 5 bands —
+      `normalizeFontSize` / `normalizeLineHeight` / `normalizeCellPadding` /
+      `normalizeRowHeight` all `Math.min` a finite above-ceiling value and
+      return it **present**; only a non-finite or non-positive input is
+      dropped. Round 10 corrected the sentence in `crdt-attrs.ts` and then
+      wrote it again into two new comments in the same round. Grepped the
+      branch for the phrasing rather than editing the reported line: **17
+      occurrences in 9 files**, all corrected to name both branches —
+      `numeric-attrs.ts` (module header + 3 function JSDocs), `row-height.ts`
+      (the exemplar the claim cited, which clamps too), `crdt-attrs.ts`,
+      `clipboard.ts` ×2, `table-layout.ts`, `docs.md`,
+      `numeric-attrs.test.ts` ×3, `yorkie-doc-store.test.ts` ×2,
+      `clipboard.test.ts` ×2. Also `list-level.ts`'s `MAX_LIST_LEVEL` doc,
+      which defined the ceiling by pointing at the clipboard copy folded
+      below.
+- [x] **"…and the named style supplies the spacing" was still wrong** after
+      round 10 corrected it. A dropped `lineHeight` on a block whose
+      peer-writable `authoredLineHeight` is `'1'` makes
+      `effectiveBlockSpacing`'s `inheritedLine` false, so it resolves the
+      hardcoded `DEFAULT_BLOCK_STYLE.lineHeight` (1.5) and the named style is
+      never consulted. Stated in `crdt-attrs.ts`, `numeric-attrs.ts`,
+      `clipboard.ts` and `docs.md`.
+- [x] **`table-layout.ts` step 5b's rationale was made false by round 10.** It
+      said the paste path "admits any finite number"; round 10 made
+      `sanitizeTableData` call `normalizeRowHeight`. Replaced with the
+      producers that genuinely bypass a read boundary: `Doc.setRowHeight` and
+      the DOCX importer's `<w:trHeight>`.
+- [x] **Coverage regression: restored the row-split case round 10 deleted.**
+      `terminates on a page setup that leaves no content height` was *removed*
+      and the fragment-count assertion put in its place, leaving
+      `pagination.ts`'s "and a `contentHeight` too small to make progress"
+      unasserted. Both cases now exist. The restored one discriminates the
+      `pageAvail > 0` guard and the `fragHeight > 0` floor: 200 fragments
+      instead of 1 with both removed.
+- [x] **Coverage regression: the undo test passed against `origin/main`.**
+      `one undo reverses the whole indented subtree` asserted only the
+      restored `[0, 1]` — literally its own input — so it never observed the
+      indented state and would have stayed green with `indent()` a no-op. It
+      now blurs to flush `onCommit`, asserts the carried `[1, 2]`, then the
+      restoration. Verified red (`[1, 1]`) with `indent()` reverted to
+      `origin/main`'s caret-block-only body.
+- [x] **The PPTX exporter's JSDoc named a mechanism that does not exist.**
+      Round 10 justified restoring the `Number(...)` coercion with "the shape
+      a level takes after a round trip through JSON" — a JSON round trip does
+      not stringify a number, and `clone()` / `yorkieToPlain()` both preserve
+      `2` as `2`. The coercion *is* needed, for the reason `ALGN` gives 20
+      lines above: a slide text body is stored verbatim by `writeSlidesRoot`
+      with no read-side codec, and the v1 content `PUT`'s slides arm
+      (`assertValidSlideBlocks`) validates `style` / `inlines` / table cells
+      and never looks at `listLevel`, so `"listLevel": "2"` is stored and
+      arrives as a string. Coercion kept, JSDoc rewritten.
+- [x] **A third open-coded copy of the list-level band.** `clipboard.ts`'s
+      `Math.min(MAX_LIST_LEVEL, Math.max(0, Math.trunc(level)))` is
+      behaviourally identical to `normalizeListLevel(level)` (`asNumber`
+      already rejects non-finite, so trunc-vs-floor cannot differ after
+      `Math.max(0, …)`). Folded; the branch's "two surviving copies" claim
+      above corrected to three.
+- Unchanged from round 10 and still deferred: `isPaintableImageSize` dropping
+  rather than proportionally clamping a narrow-and-tall image; the DOCX
+  importer as an unbounded *producer* of `fontSize` / `lineHeight`;
+  poisoned-`listLevel` tests for the remaining paint sinks; restructuring the
+  band modules.
