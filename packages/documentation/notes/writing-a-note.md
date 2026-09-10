@@ -82,8 +82,11 @@ Some lines are blank in that column: text written before this feature existed
 carries no authorship, and an editor who had no display name shows as
 **Anonymous**.
 
-Like the view mode, the switch is remembered per browser. It isn't available in
-a note opened through a share link, which has no view menu.
+Like the view mode, the switch is remembered per browser. A note opened through
+a share link has the same switch — the share-link page carries the view menu
+too — but it starts from whatever your browser remembers and any change you make
+there lasts only for that visit: nothing a share link changes is saved back over
+the preferences you set on your own notes.
 
 ::: warning Your name is recorded whether or not you switch this on
 **Show authors** only decides what *you* see — it does not decide what you leave

@@ -142,3 +142,57 @@ Scoped hard: six findings, no new modules, no refactors. +255 / −13.
 Follow-ups recorded rather than fixed: `shared-notes-layout.test.tsx`'s
 `renderLayout` waits on a `lazy()` import with `findByRole`'s default 1s
 budget, which timed out once under load on a cold Vite transform cache.
+
+## Review round 18
+
+Zero blocking, zero confirmed-major: all five lenses cleared the branch, three
+of them chasing and dropping candidate findings against round 17's fixes (the
+`themes[0]` bounds question, the `layouts` backfill asymmetry, and the notes
+read-only proxy's allowlist). Four low-severity items remained, three of them
+defects *in round 17's own fixes*. Prose and tests only.
+
+- [x] Docs (minor) — the claim class, not the instance. Round 17 fixed
+      `notes-settings.ts`'s module header and left the same class of claim in
+      four other places, and its own replacement was inaccurate: a viewer
+      mount reads the keymap and blame-gutter keys but **not** the stored view
+      mode (`shared-notes-layout.tsx:55-57` short-circuits it to `"view"`), so
+      it reads two of the three. Six occurrences found by grepping the claim
+      rather than the reported line, all corrected:
+      `notes-settings.ts`'s header, `readShowAuthors`'s JSDoc (which claimed
+      the switch decides "whether this user's display name is recorded" —
+      false and privacy-relevant: `YorkieNoteStore.editText` stamps the name on
+      every insert regardless, which is what the toolbar copy and
+      `notes-view.tsx`'s own prop doc already say),
+      `packages/documentation/notes/writing-a-note.md` (still telling users the
+      switch "isn't available in a note opened through a share link"),
+      `docs/design/notes/notes.md`'s per-browser-preferences bullet,
+      `packages/notes/src/view/editor.ts`'s `showAuthors` option doc, and this
+      task's own lessons file.
+- [x] Test-adequacy (minor) — `yorkie-doc-store-read-only.test.ts`'s "still
+      reads peer presence" case asserted only `Array.isArray(getPresences())`,
+      which holds with the read half gated too. It now seeds a peer's presence
+      into the local document (borrow the actor id, write, hand it back, mark
+      the peer online) and requires it back through `getPresences()`.
+      Mutation-checked: red with `if (this.readOnly) return []` in
+      `getPresences`.
+- [x] Test-adequacy (minor) — `yorkie-slides-store.test.ts`'s "still backfills
+      a writable mount of the same deck" built a *fresh empty* document, so it
+      exercised `ensureSlidesRoot`'s `needsRoot` path, not the backfill-on-an-
+      existing-broken-deck path its name promises. Both halves of the pair now
+      build the same customized deck through one `seedCustomizedDeck()` helper.
+      Mutation-checked: deleting the `meta.themeId` / `masterId` reconciliation
+      leaves the old body green and turns the new one red.
+- [x] Correctness (minor) — `migrate.ts`'s read-path reconciliation read
+      `themes[0].id` / `masters[0].id` without checking the value is a string.
+      The bounds are safe (the arrays are forced non-empty at `:80-85`), but
+      the entries come off the CRDT, where a peer can write `{ name: 'x' }`
+      with no id — and assigning that `undefined` to a `string` field is worse
+      than leaving the mismatch, because `getActiveTheme` then matches
+      `undefined === undefined` and resolves a theme with no palette instead of
+      throwing the error that names the id. Reconciles onto the first entry
+      with a non-empty string id, or leaves `meta` alone. Three tests in
+      `packages/slides/test/model/migrate.test.ts`.
+- [x] Flake guard (optional) — `shared-notes-layout.test.tsx`'s `renderLayout`
+      gives its `lazy()` toolbar import a 15s budget instead of `findBy*`'s 1s
+      default. Two agents saw it time out locally on a cold Vite transform
+      cache (`notes-toolbar` plus ~20 tabler icons); it passes in CI.

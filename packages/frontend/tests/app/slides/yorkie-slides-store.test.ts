@@ -77,6 +77,38 @@ describe('ensureSlidesRoot — initial theme preference', () => {
   });
 });
 
+/**
+ * A customized deck whose `meta` pins ids its own `themes` / `masters` arrays
+ * do not carry — the shape a removed or renamed custom theme leaves behind. A
+ * writable mount repairs it in the CRDT; a read-only one must reconcile it in
+ * memory instead. Both read-only and writable cases below build *this* deck,
+ * so the pair contrasts on identical input.
+ */
+function seedCustomizedDeck(): Document<YorkieSlidesRoot> {
+  const doc = new yorkie.Document<YorkieSlidesRoot>(
+    `test-${Date.now()}-${Math.random()}`,
+  );
+  doc.update((r) => {
+    const rootAny = r as unknown as {
+      meta: { title: string; themeId: string; masterId: string };
+      slides: unknown[];
+      layouts: unknown[];
+      themes: unknown[];
+      masters: unknown[];
+    };
+    rootAny.meta = {
+      title: 'Customized deck',
+      themeId: 'a-theme-that-was-removed',
+      masterId: 'a-master-that-was-removed',
+    };
+    rootAny.slides = [];
+    rootAny.layouts = [];
+    rootAny.themes = [{ id: 'coral', name: 'Coral', colors: {}, fonts: {} }];
+    rootAny.masters = [{ id: 'custom', name: 'Custom', placeholders: [] }];
+  });
+  return doc;
+}
+
 describe('ensureSlidesRoot — read-only mounts', () => {
   it('writes nothing at all when readOnly', () => {
     const doc = new yorkie.Document<YorkieSlidesRoot>(
@@ -127,32 +159,10 @@ describe('ensureSlidesRoot — read-only mounts', () => {
   });
 
   it('reconciles a stale meta.themeId in memory so a viewer can render', () => {
-    const doc = new yorkie.Document<YorkieSlidesRoot>(
-      `test-${Date.now()}-${Math.random()}`,
-    );
-    // A customized deck: its `themes` array does not contain the id
-    // `meta.themeId` pins. A writable mount repairs that in the CRDT
-    // (`ensureSlidesRoot`'s backfill); a viewer mount skips the write, so the
-    // reconciliation has to happen on the read path or `getActiveTheme`
-    // throws and the share route renders nothing.
-    doc.update((r) => {
-      const rootAny = r as unknown as {
-        meta: { title: string; themeId: string; masterId: string };
-        slides: unknown[];
-        layouts: unknown[];
-        themes: unknown[];
-        masters: unknown[];
-      };
-      rootAny.meta = {
-        title: 'Customized deck',
-        themeId: 'a-theme-that-was-removed',
-        masterId: 'a-master-that-was-removed',
-      };
-      rootAny.slides = [];
-      rootAny.layouts = [];
-      rootAny.themes = [{ id: 'coral', name: 'Coral', colors: {}, fonts: {} }];
-      rootAny.masters = [{ id: 'custom', name: 'Custom', placeholders: [] }];
-    });
+    // A viewer mount skips the CRDT repair, so the reconciliation has to
+    // happen on the read path or `getActiveTheme` throws and the share route
+    // renders nothing.
+    const doc = seedCustomizedDeck();
 
     ensureSlidesRoot(doc, { readOnly: true });
     // Untouched: the viewer wrote nothing.
@@ -165,12 +175,17 @@ describe('ensureSlidesRoot — read-only mounts', () => {
   });
 
   it('still backfills a writable mount of the same deck', () => {
-    const doc = new yorkie.Document<YorkieSlidesRoot>(
-      `test-${Date.now()}-${Math.random()}`,
-    );
+    // The other half of the contrast: identical input, writable mount. The
+    // repair the viewer above only got in memory is persisted here — and the
+    // deck's own themes are kept, not repainted with a built-in.
+    const doc = seedCustomizedDeck();
     ensureSlidesRoot(doc);
-    expect(doc.getRoot().themes.length > 0).toBeTruthy();
-    expect(doc.getRoot().masters.length > 0).toBeTruthy();
+    expect(doc.getRoot().meta.themeId).toBe('coral');
+    expect(doc.getRoot().meta.masterId).toBe('custom');
+    expect(doc.getRoot().themes.map((t) => t.id)).toEqual(['coral']);
+    expect(doc.getRoot().masters.map((m) => m.id)).toEqual(['custom']);
+    // The pre-ruler backfill runs on the same pass.
+    expect(doc.getRoot().guides.length).toBe(0);
   });
 });
 

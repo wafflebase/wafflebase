@@ -26,7 +26,31 @@ import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 type LocalDoc = {
   update(fn: (root: Record<string, unknown>, presence: unknown) => void): void;
   getRoot(): Record<string, unknown>;
+  setActor(actorID: string): void;
+  addOnlineClient(clientID: string): void;
+  getChangeID(): { getActorID(): string };
 };
+
+/**
+ * Put a peer's presence into a local document, the way
+ * `getOthersPresences()` reads it: a presence stored under an actor id that
+ * is not the local one, and that actor marked online. Presence is written by
+ * whichever actor the document currently is, so borrow the identity, write,
+ * and hand it back.
+ */
+function seedPeerPresence(
+  doc: LocalDoc,
+  clientID: string,
+  presence: Record<string, unknown>,
+): void {
+  const mine = doc.getChangeID().getActorID();
+  doc.setActor(clientID);
+  doc.update((_, p) => {
+    (p as { set(next: Record<string, unknown>): void }).set(presence);
+  });
+  doc.setActor(mine);
+  doc.addOnlineClient(clientID);
+}
 
 function makeBlock(text: string): Block {
   return {
@@ -39,6 +63,7 @@ function makeBlock(text: string): Block {
 
 function createStore(readOnly: boolean): {
   store: YorkieDocStore;
+  doc: LocalDoc;
   blockId: string;
   countUpdates: (fn: () => void) => number;
 } {
@@ -64,6 +89,7 @@ function createStore(readOnly: boolean): {
 
   return {
     store: new YorkieDocStore(doc as never, readOnly),
+    doc,
     blockId: block.id,
     countUpdates: (fn) => {
       updates = 0;
@@ -122,10 +148,21 @@ describe('YorkieDocStore readOnly — the presence publish', () => {
   });
 
   test('a read-only mount still reads peer presence', () => {
-    const { store } = createStore(true);
+    const { store, doc, blockId } = createStore(true);
     // The gate is one-directional: a viewer sees the peers they cannot
-    // announce themselves to.
-    expect(Array.isArray(store.getPresences())).toBe(true);
+    // announce themselves to. Asserting the array-ness of the result would
+    // hold with the read half gated too, so seed an actual peer and require
+    // it to come back through.
+    seedPeerPresence(doc, 'peer-actor-0001', {
+      name: 'Peer',
+      color: '#ff0000',
+      activeCursorPos: { blockId, offset: 1 },
+    });
+    const peers = store.getPresences();
+    expect(peers.map((p) => p.clientID)).toEqual(['peer-actor-0001']);
+    expect(peers[0].presence.name).toBe('Peer');
+    // And the viewer's own presence is not among them — they published none.
+    expect(peers.length).toBe(1);
   });
 });
 

@@ -348,5 +348,87 @@ Two of round 17's three doc findings were of this kind, and both were claims
 *this branch* introduced. Adding a surface (the share-link view menu) falsifies
 every comment that described the old set of surfaces, and those comments do not
 live next to the diff — `notes-settings.ts` said "the read-only shared viewer
-does not use them" about a module the new layout now reads all three keys from.
+does not use them" about a module the new layout now reads from. (Round 18
+corrected that correction: a viewer mount reads *two* of the three keys, not
+all three. See "A replacement claim is a claim too" below.)
 Grep for the surface you just changed, not just for the code you touched.
+
+## A replacement claim is a claim too
+
+Round 17 replaced "the read-only shared viewer does not use them" with "the
+share-link layout reads all three on mount — on a viewer mount as much as an
+editor one". The replacement was also false: `shared-notes-layout.tsx` reads
+the stored view mode behind `readOnly ? "view" : readViewMode()`, so a viewer
+mount reads two of the three keys. The fix for a wrong comment was written from
+the same summary that produced the wrong comment, one file away from the
+three-line answer.
+
+Writing a claim costs one sentence and reading the code costs one file. Any
+comment that quantifies behaviour ("all three", "both mounts", "every caller")
+is a claim about a set, and the set has to be counted at the code, not
+remembered from the change that motivated it.
+
+## Correcting a false claim is a grep, not an edit
+
+Round 17 found the claim at `notes-settings.ts:7`, fixed that line, and left
+the same class of claim in five other places — including 39 lines below in the
+same file, and in `packages/documentation/`, where it was telling *users* that
+the share-link note page has no view menu. Round 18 grepped the claim's
+phrasings ("read-only shared viewer", "does not use them", "no view menu",
+"all three", "remembered per browser") and found six occurrences.
+
+A review finding names an instance because that is what the reviewer's eye
+landed on; the finding is the class. The mechanical version: for a doc finding,
+grep the false sentence's distinctive phrases across `packages/` **and**
+`docs/`, and treat user-facing documentation as in scope — it decays the same
+way source comments do and nothing typechecks it.
+
+The privacy-relevant instance is the one worth remembering. `readShowAuthors`'s
+JSDoc said the switch decides "whether this user's display name is recorded on
+the lines they edit", so someone who never turns it on "leaves no name in its
+content". `YorkieNoteStore.editText` stamps the name on every insert
+unconditionally; the flag installs the gutter and its authorship walk, nothing
+more. The correct statement was already written twice in the repo — in the
+toolbar's own copy and in `writing-a-note.md`'s warning — so the module that
+owns the key was the only place that got it backwards, and it got it backwards
+in the direction that understates what a user leaves behind.
+
+## A test whose name promises input has to use that input
+
+Two of round 18's findings were the same defect in different suites: a case
+named for a contrast that its body did not set up.
+
+- "a read-only mount still reads peer presence" asserted
+  `Array.isArray(getPresences())`. There were no peers in the document, so the
+  assertion held whether the read half of the gate existed or not.
+- "still backfills a writable mount of the same deck" built a fresh empty
+  document, so it ran the `needsRoot` seeding branch rather than the
+  backfill-on-an-existing-broken-deck branch — the whole point of pairing it
+  with the read-only case.
+
+Both passed, and both would have kept passing through the regression they were
+written to catch. The check that finds this is the one round 17's own lessons
+already prescribed for gates: mutate the behaviour the name describes and watch
+the named test go red. Applied to a *pair*, it needs the input to be shared —
+extract the fixture into a helper both halves call, and the contrast is
+structural instead of asserted in a comment.
+
+## Bounds-safe is not type-safe
+
+`themes[0].id` was reviewed three times for the index and cleared three times:
+the array is forced non-empty two lines above. The defect was in the `.id`. The
+entries come off a CRDT read typed `any`, so a peer can write an entry with no
+id, and the assignment then puts `undefined` into a field typed `string`.
+
+`getActiveTheme` made that worse rather than louder: it resolves by
+`find(x => x.id === meta.themeId)`, so `undefined === undefined` *matches* the
+id-less entry and the deck renders from a theme with no palette instead of
+failing with the error that names the missing id. A guard that keeps the
+mismatch is better than a repair that fabricates a match — which is the same
+judgement `migrateGuide` in that file already makes for a guide's `id` and
+`position`.
+
+Generally: when a review says "index out of bounds", answer the index *and*
+read the expression's type. An `any` from the CRDT has no shape, and the
+one-line hardening lives at the point where its value first crosses into a
+typed field.

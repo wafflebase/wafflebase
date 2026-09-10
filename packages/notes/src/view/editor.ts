@@ -224,8 +224,11 @@ export interface NoteEditorOptions {
   uploadImage?: UploadImage;
   /**
    * Mount with the blame gutter shown. Defaults to `false` — the feature is
-   * opt-in, and while off nothing about the editor differs from before it
-   * existed.
+   * opt-in, and while off neither of its extensions is installed, so nothing
+   * about the *editor* differs from before it existed. It does not gate the
+   * attribution: whether an edit records who made it is the store's business
+   * (`YorkieNoteStore.editText` records it either way), so this decides what a
+   * reader sees and nothing about what a writer leaves behind.
    */
   showAuthors?: boolean;
 }

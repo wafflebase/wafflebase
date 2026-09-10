@@ -261,6 +261,11 @@ Two deliberate differences from the workspace route:
   ignoring them would be its own bug; but nothing an anonymous share-link
   visitor changes is persisted back over a preference they may not own. Same
   reasoning as the phone's session-local mode above, applied to the whole trio.
+  The stored **view mode** is read on an editor-role mount only: a viewer opens
+  on the rendered markdown regardless of what they last chose, since arriving
+  in the source view of a note you cannot edit is the wrong default, and the
+  view menu is right there to reach it. So a viewer mount reads two of the
+  three keys — the contract is "reads, never writes", not "reads all three".
 - **A viewer keeps the toolbar.** `canFormat = !readOnly && mode !== "view"`
   drops the formatting group by itself, which leaves exactly the view menu — so
   a read-only visitor gains a preview/source switch and loses nothing. The

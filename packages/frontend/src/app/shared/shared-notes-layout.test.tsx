@@ -149,8 +149,16 @@ async function renderLayout(role: "editor" | "viewer", token = "tok-1") {
       <SharedNotesLayout resolved={resolvedLink(role)} token={token} />
     </TooltipProvider>,
   );
-  // The toolbar is `lazy()`, so it lands one microtask after the first paint.
-  return screen.findByRole("toolbar", { name: "Note toolbar" });
+  // The toolbar is `lazy()`, so it lands one microtask after the first paint —
+  // except on a cold transform cache, where the import has to put
+  // `notes-toolbar` and its ~20 tabler icons through Vite first, which has
+  // outlasted `findBy*`'s 1s default on two machines. The budget is a flake
+  // guard, not a wait: a mounted toolbar still resolves immediately.
+  return screen.findByRole(
+    "toolbar",
+    { name: "Note toolbar" },
+    { timeout: 15_000 },
+  );
 }
 
 beforeEach(() => {
