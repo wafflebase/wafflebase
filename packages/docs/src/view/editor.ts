@@ -3769,8 +3769,13 @@ export function initialize(
         // the same rule the cell-range arm above and `applyStyleImpl` follow
         // (issue #1045). A ⌘K over a select-all is the reachable case:
         // `linkRunCoveringRange` never matches a cross-block range, so this
-        // is the arm it lands in. The snapshot stays outside the batch (see
-        // the caret branch below for why).
+        // is the arm it lands in. The snapshot stays outside the batch to
+        // keep `TextEditor.withUndoUnit`'s ordering everywhere; here it costs
+        // one unit either way, because `YorkieDocStore.snapshot()` is a no-op
+        // and `MemDocStore.batch()` adopts a checkpoint a preceding
+        // `snapshot()` left pending (see `memory.ts`). The caret branch below
+        // keeps a *presence* write outside a batch for a load-bearing reason,
+        // which is a different one.
         doc.batch(() => doc.applyInlineStyle(range, { href: url }));
         // Mark affected blocks as dirty (mirrors applyStyleImpl)
         for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);

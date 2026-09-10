@@ -3591,10 +3591,20 @@ export class TextEditor {
    * snapshot from within. What `saveSnapshot()` buys on `YorkieDocStore` is a
    * reverse *caret*: it stages the pre-edit position, and the store records it
    * with `addToHistory` on the next write. A style toggle moves no offsets and
-   * no caret, so there is nothing to reverse — and an unstaged write records
-   * no presence at all rather than a stale one, because
-   * `consumePendingCursor()` clears the staged position on every write. The
-   * undo *unit* is unaffected either way: it comes from the batch here.
+   * no caret, so there is nothing to reverse.
+   *
+   * What an unstaged write records is *usually* nothing at all — and only
+   * usually, which is the honest form of this claim. `consumePendingCursor()`
+   * clears the staged position on every write, so an unstaged toggle that
+   * follows a write finds nothing staged, skips `recordHistoryPresence`
+   * entirely, and undo leaves the caret where the toggle left it. The
+   * exception is a `saveSnapshot()` whose path then returned without writing
+   * — `handleBackspace` at the first block of a table cell, a table border
+   * drag under a pixel — which leaves a position staged for the next write to
+   * consume as *its* reverse caret. That predates this batch and belongs to
+   * the staging protocol, not to style: the same stale caret would reach any
+   * write that followed. The undo *unit* is unaffected either way, since it
+   * comes from the batch here.
    */
   private applyStyleToSelection(
     range: DocRange,
@@ -4296,12 +4306,17 @@ export class TextEditor {
       // renders; writing while `pasting` would land inside a large paste's
       // yield gap, against a caret that paste's pending write owns.
       //
-      // `readOnly` is re-checked with them rather than trusted from the
-      // keydown gate: it is read here, at the moment of the write, so the
-      // permission this session is allowed to exercise is the one that
-      // decides — not the one that held when the shortcut was pressed and
-      // the clipboard prompt went up. Every other write on this class is
-      // gated synchronously; this is the only one that resumes.
+      // `readOnly` rides along, but it is belt and braces rather than a
+      // permission re-read: the field is assigned once in the constructor
+      // and has no setter, so it cannot differ from the value the keydown
+      // gate already consulted. A *permission change* does not mutate it —
+      // `initialize()` captures `readOnly` at construction, so `DocsView`
+      // rebuilds the whole editor when it flips (`docs-view.tsx`, the effect
+      // keyed on `[didMount, doc, readOnly]`), which means `this.disposed`
+      // is the check that actually catches a downgrade mid-clipboard-prompt.
+      // Kept anyway: this is the one write on the class that resumes after a
+      // yield, so a future caller could reach it having taken a different
+      // route to the gate, and a redundant boolean on a write path is free.
       if (this.disposed || this.pasting || this.readOnly) return;
       this.saveSnapshot();
       this.withUndoUnit(() => {

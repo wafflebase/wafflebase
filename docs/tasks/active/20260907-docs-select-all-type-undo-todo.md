@@ -95,13 +95,56 @@ Scope was widened to close the class rather than defer it to #1048:
 - [x] `applyStyleToSelection`'s doc comment no longer claims every caller
       snapshots. `toggleStyle` does not, and correctly: a style toggle moves
       no caret, and `consumePendingCursor()` means an unstaged write records
-      no presence rather than a stale one.
+      no presence rather than a stale one. *(Corrected again in round 15 —
+      "records no presence" is only the usual case, see below.)*
+
+### Added during review (round 15)
+
+- [x] `isShareLinkResolveFatal` / `shouldRetryShareLinkResolve` — the two
+      expressions the `useState`/`useEffect` → 60-second-refetch rewrite of
+      `SharedDocumentByToken` rests on, split out of the component into
+      `api/share-links.ts` next to `isRevokedShareLinkError` and covered in
+      `share-links.test.ts`. Only the predicate was tested before; nothing
+      exercised the *composition*, so collapsing `fatal` to `Boolean(error)`
+      or dropping its `!resolved` conjunct would have gone unnoticed.
+      Extracted rather than tested through a mount because the non-fatal case
+      is the one that matters and it renders `SharedDocumentInner` — the whole
+      editor and every provider under it. Both mutations were run and both go
+      red (`!resolved` dropped → "closes a link that never resolved"; whole
+      conjunct → "keeps a live session through a refetch failure").
+- [x] `pastePlainTextFromClipboard`'s `readOnly` re-check keeps the guard but
+      loses the claim: the field is assigned once in the constructor
+      (`text-editor.ts:719`) and has no setter, so it cannot differ from the
+      value the keydown gate read. A permission flip rebuilds the editor
+      (`docs-view.tsx`, effect keyed on `[didMount, doc, readOnly]`), which
+      makes `this.disposed` the check that actually catches a mid-prompt
+      downgrade.
+- [x] `applyStyleToSelection`'s "records no presence at all" is now stated
+      with its condition. `consumePendingCursor()` clears on every *write*, so
+      an unstaged toggle that follows a write records nothing — but a
+      `saveSnapshot()` whose path then returned without writing
+      (`handleBackspace` at the first block of a cell, a sub-pixel border
+      drag) leaves a position staged for the next write to consume as its
+      reverse caret. Pre-existing, and a property of the staging protocol
+      rather than of style.
+- [x] `insertLink`'s snapshot-outside-the-batch comment points at the right
+      place (`TextEditor.withUndoUnit` / `MemDocStore.batch()`'s adoption)
+      and says why it is free here, instead of at the caret branch, which
+      documents a *presence* write for an unrelated reason.
+- [x] The `doc` import branch in `apply-imported-content.ts` disposes its
+      `YorkieDocStore`, matching the `board` branch. Not a leak — the store
+      and the document are both function-scoped and `onRemoteChange` is never
+      set — so this is symmetry, so that `dispose()` reads as unconditional
+      at every `new YorkieDocStore` in the repo.
 
 ## Follow-ups (found in review, deliberately not in this PR)
 
 Each is real and each is new scope; none is a regression from this branch.
 
 - `applySpellSuggestion` (`editor.ts`) is two undo units.
+- `TextBoxEditorAPI.applyBlockStyle` (`text-box-editor.ts:1085`) is a **fourth**
+  unbatched `forEachBlockInSelection` site — real, and it goes to #1048 with
+  the other three rather than widening this PR again.
 - `mergeTableCells` / `splitTableCell` write one op per cell, unbatched.
 - The three sibling stores (`yorkie-slides-store.ts` and friends) still key
   their undo floor on a depth, so they carry the pre-#1045 bug this branch

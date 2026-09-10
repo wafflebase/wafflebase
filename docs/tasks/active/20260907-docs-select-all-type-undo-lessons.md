@@ -202,3 +202,39 @@ also what the panel found in the undo-floor identity case, where the whole
 mocked-copy scenario fell through to the very fallback it was meant to be
 distinguished from. Both were found the same way, by reverting the guard, and
 both should have been found that way when they were written.
+
+## A corrected comment needs the same verification as a corrected line
+
+Round 14 rewrote `applyStyleToSelection`'s doc comment because the old text
+claimed every caller snapshots. The replacement claimed that an unstaged write
+"records no presence at all rather than a stale one" — and round 15 found that
+one false too. `consumePendingCursor()` does clear on every *write*, so the
+sentence holds for the case it was written against; what it misses is that
+`saveSnapshot()` can be called on a path that then returns without writing
+(`handleBackspace` at the first block of a table cell; a table border drag
+under a pixel), leaving a staged position for whatever writes next to consume
+as its reverse caret. Two rounds in a row, a comment correction traded one
+overstatement for another.
+
+The same round produced the same shape twice more. `pastePlainTextFromClipboard`
+grew a `|| this.readOnly` re-check whose comment said `readOnly` is "re-read at
+the moment of the write" — the field is assigned once in the constructor and
+has no setter, so it is the same value the earlier gate saw, and the check that
+actually catches a mid-prompt permission change is `this.disposed`. And
+`insertLink`'s new comment pointed the reader at "the caret branch below for
+why" when that branch documents a *presence* write held out of a batch, an
+unrelated reason.
+
+The rule this yields: a prose claim about mechanism is a claim, and it gets
+checked the way a code change gets checked — find the field's assignments,
+read the callee, follow the cross-reference to the line it names. The
+comment-shaped version of "revert the guard and watch the number move" is
+"assume the sentence is wrong and try to falsify it": grep the identifier it
+names, and if the sentence survives that, write down the condition under which
+it holds rather than the unconditional form. Every one of these three was
+found in a few minutes of grep by a reader who did not trust the sentence,
+which means the author could have found them in the same few minutes.
+
+Corollary, and the cheaper habit: prefer the conditional phrasing at writing
+time. "Usually nothing, and here is the exception" costs one clause and cannot
+rot into a lie; "nothing at all" is a hostage to the next path someone adds.
