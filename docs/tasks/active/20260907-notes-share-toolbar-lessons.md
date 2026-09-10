@@ -188,3 +188,96 @@ that does not run through the engine's `readOnly` — the popover calls
 on the popover, and `assertWritable()` on the five comment mutators so a
 future caller fails loudly instead of writing where the webhook will refuse
 it. Being signed in is not authority over somebody else's document.
+
+## "No catch" is a claim about the callers, so read the callers
+
+Round 16 reported `assertWritable`'s throw turning a refused comment write
+into an unhandled rejection "rather than a message". It does not. Every path
+into those five mutators is awaited inside a `try`: `CommentComposer.submit`
+catches for add / reply / edit (`components/comments/components/CommentComposer.tsx`),
+and `CommentThreadCard` catches resolve and delete with a `toast.error`
+(`CommentThreadCard.tsx`). `CommentPopover` is the only consumer, and it hides
+those affordances under `readOnly` anyway.
+
+What *is* true — and is the smaller, real observation buried in the finding —
+is that the composer's catch only `console.error`s, so add/reply/edit fail
+silently where resolve/delete get a toast. That asymmetry is shared with docs
+and is not this branch's to change. A finding about error propagation is worth
+one grep of the call graph before it is worth a code change: the fix here would
+have been a `try/catch` added around code that already had one.
+
+## A stale default in a design doc is load-bearing prose
+
+Flipping `YORKIE_AUTH_WEBHOOK_ENFORCE` to enforce-by-default updated the two
+operator-facing files (`packages/backend/README.md`, `self-hosting.md`) and
+left three others asserting the old default — including `sharing.md`, which is
+the canonical answer to "is a viewer's write refused on a stock deployment?".
+The corpus then gave two answers, and the wrong one was in the document a
+reader would reach for first.
+
+The cheap check when a default flips: `grep` the variable across `docs/` and
+`packages/*/README.md`, not just the files the change already touches. Note
+that some of the hits are *correctly* unchanged — the template gallery
+genuinely demands the literal `true`, deliberately stricter than the webhook's
+own reading, and `assertYorkieAuthEnforced` says why. "Update every mention" is
+as wrong as updating none; each hit has to be read.
+
+## The cross-cutting rule belonged in the cross-cutting document
+
+"Nothing on a read-only mount may reach `doc.update()`" was discovered here,
+written down here, and then recorded only in `notes/notes.md` and
+`slides-mobile.md` — the two per-feature docs that happened to be open. Meanwhile
+`sharing.md`, which owns the per-type read-only sections and is where the next
+person adding a document type will look, enumerated blocked *commands* and said
+nothing about seeds, migrations, presence or recalcs. A rule filed under the
+feature that found it reads as that feature's implementation note. It is now a
+subsection of `sharing.md` with a table of the write paths that are not
+commands, because those are the ones a new document type will miss.
+
+## Recalculate-in-memory was the right question and the wrong change
+
+The obvious repair for "a viewer renders a stale cross-sheet value" is to
+recalculate without persisting. `YorkieStore` even looks ready for it: the
+batch overlay already buffers writes and reads already consult it, so
+retaining it past `endBatch()` would hold the recomputed values.
+
+It is still wrong, and not merely because of the invalidation and lifetime
+work. Nothing distinguishes a recalc write from a user write at the store, so a
+permanent overlay would catch *every* ungated write on a read-only mount and
+make it appear to succeed locally while never saving. That converts "refused"
+into "silently local", which is strictly worse than a stale cached value and is
+precisely the failure the read-only boundary exists to remove. The honest
+outcome was to keep the gate, state the staleness window (narrow: an editor's
+own edit propagates through `buildGlobalDependantsMap`; the residual is writers
+that do not recalculate at all, i.e. the `/api/v1` cell endpoints), and say in
+the comment why the tempting alternative was declined.
+
+## Where a gate is testable decides which gate to test
+
+The blocking finding asked for tests on two gates: the engine's
+`Spreadsheet.recalculateCrossSheetFormulas` early return and `sheet-view`'s
+`runRemoteSync(!readOnly)`. Only the first is reachable — the second lives in a
+closure inside a `useEffect` of a component that pulls canvas, Yorkie and the
+app's provider tree into jsdom.
+
+That is not a coverage gap of equal weight, because the two gates are not of
+equal weight: `runRemoteSync(!readOnly)` calls
+`sheet.recalculateCrossSheetFormulas()`, which *is* the gated engine method. So
+the engine gate is the boundary and the call-site gate is an optimization on
+top of it. Testing the boundary covers the property; the untested gate can only
+cost a viewer a wasted dependency pass. Both comments now say which is which,
+so the next reader does not mistake the cheap gate for the load-bearing one.
+
+## A widened hit area is a behaviour change to everything that reads it
+
+Widening the split divider from a 7px box to 25px was filed as a touch-target
+fix. It also multiplied an existing bug by 3.5×: the drag handler measured the
+new ratio from the *pointer*, not from the divider's leading edge, so the first
+`pointermove` re-centred the divider under the finger. At 7px that is a jitter
+nobody filed; at 25px it is a visible snap. The offset is now recorded at
+pointerdown and derived from `splitRatio` rather than read back from
+`getBoundingClientRect()`, so a grab with no movement is exactly a no-op rather
+than one flex-rounding away from one.
+
+Generally: enlarging a hit area changes the range of `event.clientX - element.left`,
+so every consumer of that difference is in scope for the change that widens it.

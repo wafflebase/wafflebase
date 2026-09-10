@@ -56,3 +56,50 @@ Plus, from "Proposed fix":
 
 Sheets/Board toolbars having no mobile branch (symmetric across both entry
 paths — its own issue). Docs and Slides need no change.
+
+## Review round 16
+
+Merged `origin/main` first (the PR was `CONFLICTING`). One conflict, in
+`shared-document.tsx`: main's #1055 renamed the `DocumentProvider` wrapper to
+`CollabDocumentProvider` on the same JSX element this branch had given a
+`token` prop. Resolved as the union.
+
+- [x] Blocking (test-adequacy) — `Spreadsheet.recalculateCrossSheetFormulas`'s
+      read-only early return now has
+      `packages/sheets/test/view/spreadsheet-readonly-recalc.test.ts`, built
+      on the `worksheet-readonly-editing.test.ts` prototype-context technique.
+      Mutation-checked: deleting the gate reddens it.
+- [x] Correctness (minor) — read-only mounts still show the *persisted*
+      cross-sheet cached value. Behaviour left as it is; the trade-off is now
+      stated in the engine method's doc comment along with why the in-memory
+      alternative was rejected (see lessons).
+- [x] Correctness (minor) — `assertWritable` "unhandled rejection".
+      **Rejected**: every caller catches. Evidence in the report and lessons.
+- [x] Correctness (nit) — divider drag records the grab offset
+      (`packages/notes/src/view/editor.ts`), with a jsdom regression test.
+- [x] Design-fit (nit) — the notes editor comment no longer claims the webhook
+      ships in shadow mode.
+- [x] Docs — `packages/frontend/README.md`, `docs/design/sharing.md` and
+      `docs/design/template-gallery.md` corrected for the enforce-by-default
+      flip this PR made.
+- [x] Design-fit (minor) — `sharing.md` gained a short "The read-only rule"
+      subsection recording the cross-cutting `doc.update()` rule and the table
+      of non-command write paths it covers.
+- [x] Design-fit (minor) — `register-templates.ts` calls
+      `assertYorkieAuthEnforced` instead of re-deriving the check.
+- [x] Correctness (minor) — the `read-only.ts` proxy's `isExtensible` /
+      `preventExtensions` pair. Judged unreachable (nothing freezes the raw
+      store) and left as is; the docs package's explanation of *why* the pair
+      is invariant-safe was ported into the notes copy, which had dropped it.
+- [x] Correctness (minor) — the lakehouse parity `beforeAll` has its own
+      `SETUP_TIMEOUT_MS` instead of sharing 180s with the warm-up.
+- [x] Test-adequacy (minor) — `CommentPopover.test.tsx` (new), the
+      keymap / show-authors half of the shared-notes-layout no-write promise,
+      and `yorkieServiceTokenInjector`'s no-secret branch in
+      `auth.service.spec.ts`. Deferred: the presence gates inside
+      slides/board/pdf `useEffect` closures, and `sideTokenInjector` — see the
+      report for why each needs a harness this PR should not build.
+
+Deliberately not done, recorded as follow-ups instead: extracting a shared
+generic read-only store proxy from the near-identical notes and docs copies,
+and splitting the auth-posture flip out of the notes-toolbar change.
