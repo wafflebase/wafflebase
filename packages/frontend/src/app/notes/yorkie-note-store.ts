@@ -131,6 +131,14 @@ export class YorkieNoteStore implements NoteStore {
    * Read and cleared by `runHistory`; null between ops.
    */
   private pendingHistorySelection: NoteSelection | null = null;
+  /**
+   * Unsubscribe for the document subscription opened in the constructor.
+   * Kept rather than discarded so {@link dispose} can release it: the Yorkie
+   * document belongs to the enclosing `DocumentProvider` and outlives any one
+   * store, and `NotesView` rebuilds the editor — and this store — when a
+   * share link is downgraded mid-session. Null once disposed.
+   */
+  private unsubscribeDoc: (() => void) | null = null;
 
   constructor(private readonly doc: Document<YorkieNotesRoot, NotesPresence>) {
     this.undoFloor = doc.getUndoStackForTest().length;
@@ -140,11 +148,24 @@ export class YorkieNoteStore implements NoteStore {
     // the current caret over the same `selection` presence key, clobbering
     // Yorkie's reverse (the undo-vs-live-publisher race, cf.
     // docs-intent-preserving-edits.md #609). Reading here, first, beats it.
-    doc.subscribe((event) => {
+    this.unsubscribeDoc = doc.subscribe((event) => {
       if (event.type === 'local-change' && event.source === 'undoredo') {
         this.captureHistorySelection();
       }
     });
+  }
+
+  /**
+   * Detach this store from the Yorkie document.
+   *
+   * Call it whenever the store is discarded while its document stays
+   * attached — the host effect rebuilding the editor for a permission change,
+   * for instance. Idempotent. Mirrors `YorkieDocStore.dispose()`; the store
+   * is unusable afterwards, so callers must drop it.
+   */
+  dispose(): void {
+    this.unsubscribeDoc?.();
+    this.unsubscribeDoc = null;
   }
 
   getText(): string {

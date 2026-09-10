@@ -57,6 +57,37 @@ describe('YorkieNoteStore', () => {
     expect(store.getPeerSelections()).toEqual([]);
   });
 
+  /**
+   * The Yorkie document belongs to the enclosing `DocumentProvider` and
+   * outlives any one store: `NotesView` rebuilds the editor — and with it
+   * this store — when a share link is downgraded to `viewer`, so the
+   * discarded store's constructor subscription has to go with it. Mirrors
+   * `YorkieDocStore.dispose()`.
+   */
+  it('releases its document subscription on dispose', () => {
+    const doc = makeDoc();
+    let released = 0;
+    const real = doc.subscribe.bind(doc);
+    (doc as unknown as { subscribe: unknown }).subscribe = (
+      ...args: unknown[]
+    ) => {
+      const unsubscribe = (real as (...a: unknown[]) => () => void)(...args);
+      return () => {
+        released += 1;
+        unsubscribe();
+      };
+    };
+
+    const store = new YorkieNoteStore(doc);
+    expect(released).toBe(0);
+
+    store.dispose();
+    expect(released).toBe(1);
+    // Idempotent — a host cleanup may run more than once.
+    store.dispose();
+    expect(released).toBe(1);
+  });
+
   describe('undo/redo (Yorkie-native)', () => {
     it('collapses a batch into a single undo unit', () => {
       const doc = makeDoc();

@@ -150,6 +150,13 @@ export function NotesView({
     return () => {
       editor.dispose();
       editorRef.current = null;
+      // Release the store's `doc.subscribe` before dropping the reference, the
+      // same reason `docs-view` does: the Yorkie document belongs to the
+      // enclosing `DocumentProvider` and outlives this effect, so a store left
+      // subscribed keeps handling events for an editor that no longer exists.
+      // This effect re-runs on a `readOnly` flip, so without it every
+      // mid-session downgrade leaks one subscription.
+      store.dispose();
       storeRef.current = null;
       onEditorReady?.(null);
     };

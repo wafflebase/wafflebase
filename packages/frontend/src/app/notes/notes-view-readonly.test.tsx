@@ -86,6 +86,34 @@ describe('NotesView read-only remount', () => {
     expect(disposeCalls).toBe(1);
   });
 
+  it('releases the discarded store subscription when it rebuilds', () => {
+    // The Yorkie document belongs to the `DocumentProvider` and survives the
+    // rebuild, so the store the rebuild throws away must not stay subscribed
+    // to it. `initialize` is mocked here, so `YorkieNoteStore`'s constructor
+    // is the only subscriber and the count is exact.
+    let live = 0;
+    const real = mockDoc!.subscribe.bind(mockDoc!);
+    (mockDoc as unknown as { subscribe: unknown }).subscribe = (
+      ...args: unknown[]
+    ) => {
+      live += 1;
+      const unsubscribe = (real as (...a: unknown[]) => () => void)(...args);
+      return () => {
+        live -= 1;
+        unsubscribe();
+      };
+    };
+
+    const view = render(<NotesView readOnly={false} />);
+    expect(live).toBe(1);
+
+    view.rerender(<NotesView readOnly={true} />);
+    expect(live).toBe(1);
+
+    view.unmount();
+    expect(live).toBe(0);
+  });
+
   it('does not rebuild the editor when readOnly is unchanged', () => {
     const view = render(<NotesView readOnly={false} viewMode="both" />);
     expect(initCalls).toEqual([false]);
