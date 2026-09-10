@@ -3765,7 +3765,13 @@ export function initialize(
         }
 
         docStore.snapshot();
-        doc.applyInlineStyle(range, { href: url });
+        // One store write per block, so one undo unit for the whole span —
+        // the same rule the cell-range arm above and `applyStyleImpl` follow
+        // (issue #1045). A ⌘K over a select-all is the reachable case:
+        // `linkRunCoveringRange` never matches a cross-block range, so this
+        // is the arm it lands in. The snapshot stays outside the batch (see
+        // the caret branch below for why).
+        doc.batch(() => doc.applyInlineStyle(range, { href: url }));
         // Mark affected blocks as dirty (mirrors applyStyleImpl)
         for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);
         render();

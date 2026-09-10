@@ -973,6 +973,75 @@ describe('cell-range writes are one undo unit (issue #1045)', () => {
 });
 
 /**
+ * `insertLink`'s **plain** range arm — the third of its three selection
+ * shapes, and the one a ⌘K over a multi-block selection reaches:
+ * `linkRunCoveringRange` returns nothing for a cross-block range, so neither
+ * the cell-rectangle arm above nor the single-link rewrite arm applies.
+ * `Doc.applyInlineStyle` writes one `store.applyStyle` per block, so the href
+ * cost one Cmd+Z per block and, past Yorkie's 50-entry cap, stranded the
+ * earliest blocks' `href` beyond any number of undo presses. Less severe than
+ * the #1045 losses — a stranded link is repairable with Remove link, where a
+ * dropped delete lost content — but the same defect, and the batch is the same
+ * one line.
+ */
+describe("insertLink's plain multi-block arm is one undo unit (issue #1045)", () => {
+  const BLOCKS = 60;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    store.setDocument({
+      blocks: Array.from({ length: BLOCKS }, (_, i) => makeBlock(`Line ${i}`)),
+    });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+    const blocks = store.getDocument().blocks;
+    const last = blocks[blocks.length - 1];
+    editor._setSelectionForTest({
+      anchor: { blockId: blocks[0].id, offset: 0 },
+      focus: {
+        blockId: last.id,
+        offset: last.inlines.map((i) => i.text).join('').length,
+      },
+    });
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  const hrefs = (): Array<string | undefined> =>
+    store.getDocument().blocks.map((b) => b.inlines[0]?.style.href);
+
+  it('links every selected block for one Cmd+Z', () => {
+    const before = doc.getUndoStackForTest().length;
+
+    editor.insertLink('https://example.com');
+
+    expect(hrefs().every((h) => h === 'https://example.com')).toBe(true);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    // The whole span comes back unlinked. Unbatched, 60 blocks past the
+    // 50-entry cap left the first ten linked for good.
+    expect(hrefs().every((h) => h === undefined)).toBe(true);
+  });
+});
+
+/**
  * Redefining a named style is two store writes: the registry write itself
  * (`updateStyleDefinition` → `writeStylesAndRematerialize`) and the
  * stale-style-off sweep it triggers (`Doc.dropStaleStyleOffAll` →
