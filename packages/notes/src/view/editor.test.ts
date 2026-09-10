@@ -369,4 +369,39 @@ describe('initialize', () => {
     api.dispose();
     container.remove();
   });
+
+  it('drags the split divider from where it was grabbed', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // jsdom lays nothing out, so the two measurements the drag handler takes
+    // have to be supplied: the container's box and the divider's own width.
+    container.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 1000, height: 600 }) as DOMRect;
+    const api = initialize(container, new MemNoteStore('hi'), 'light', false, 'both');
+    const editorEl = container.querySelector<HTMLElement>('[data-role="note-editor"]')!;
+    const divider = container.querySelector<HTMLElement>('[data-role="note-divider"]')!;
+    Object.defineProperty(divider, 'offsetWidth', { value: 25, configurable: true });
+
+    // The panes share the container minus the divider, so the track is 975 and
+    // the divider's leading edge starts at 0.5 * 975 = 487.5.
+    expect(editorEl.style.flex).toBe('1 1 50.000%');
+
+    // Grab 20px into the 25px divider and do not move: the split must not
+    // shift. Before the grab offset was recorded, the first pointermove
+    // re-centred the divider on the pointer, jumping the split by up to the
+    // divider's own width.
+    divider.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: 507.5, bubbles: true }),
+    );
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 507.5 }));
+    expect(editorEl.style.flex).toBe('1 1 50.000%');
+
+    // Now a real 97.5px drag is exactly one tenth of the track.
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 605 }));
+    expect(editorEl.style.flex).toBe('1 1 60.000%');
+    window.dispatchEvent(new MouseEvent('pointerup', {}));
+
+    api.dispose();
+    container.remove();
+  });
 });

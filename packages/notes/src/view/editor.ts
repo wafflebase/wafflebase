@@ -542,8 +542,17 @@ export function initialize(
     // the divider trailing the pointer by up to its own width, which mattered
     // little at 7px and is visible at 25px.
     const track = rect.width - divider.offsetWidth;
+    // Where inside the divider the pointer landed. Without it the ratio is
+    // measured from the pointer rather than from the divider's leading edge,
+    // so the very first `pointermove` re-centres the divider on the pointer —
+    // a jump of up to the divider's whole width, which the widened 25px hit
+    // area made plainly visible. Derived from `splitRatio` rather than read
+    // back off `divider.getBoundingClientRect()` so it uses exactly the math
+    // that positions the divider below, which makes a grab with no movement a
+    // true no-op instead of one sub-pixel flex rounding away from it.
+    const grabOffset = e.clientX - (rect.left + splitRatio * track);
     const onMove = (ev: PointerEvent) => {
-      const ratio = (ev.clientX - rect.left) / track;
+      const ratio = (ev.clientX - grabOffset - rect.left) / track;
       splitRatio = Math.max(0.15, Math.min(0.85, ratio));
       editorEl.style.flex = `1 1 ${(splitRatio * 100).toFixed(3)}%`;
       preview.el.style.flex = `1 1 ${((1 - splitRatio) * 100).toFixed(3)}%`;
