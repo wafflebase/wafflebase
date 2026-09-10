@@ -79,13 +79,16 @@ const ALGN = new Map<string, string>([
  * and clamped rather than interpolated; anything non-numeric drops the
  * attribute and the paragraph renders at the outermost level.
  *
- * That is the same `[0, MAX_LIST_LEVEL]` band `normalizeListLevel` owns for
- * every other reader of a `Block.listLevel`, so it is called here rather than
- * kept as a third copy of the ceiling. Omitting level 0 — the default — is
- * the only thing this sink adds.
+ * The `[0, MAX_LIST_LEVEL]` band itself is `normalizeListLevel`'s, shared with
+ * every other reader of a `Block.listLevel` rather than kept as a third copy
+ * of the ceiling. This sink adds the two things that band does not do: the
+ * `Number(...)` coercion — `normalizeListLevel` takes a `number` and reads
+ * anything else as non-finite, so a numeric string (`"2"`, the shape a level
+ * takes after a round trip through JSON) would otherwise flatten to level 0 —
+ * and omitting level 0, which is `<a:pPr>`'s default.
  */
 function listLevelAttr(listLevel: number | undefined): string {
-  const n = normalizeListLevel(listLevel);
+  const n = normalizeListLevel(Number(listLevel));
   return n > 0 ? ` lvl="${n}"` : '';
 }
 
