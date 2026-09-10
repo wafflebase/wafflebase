@@ -459,6 +459,95 @@ describe('a carried child repaints at its new depth', () => {
     expect(paintedX('child')!).toBeCloseTo(before!, 5);
     editor.dispose();
   });
+
+  /**
+   * The same claim for a child inside a table cell, whose dirty mark is
+   * resolved through `blockParentMap` — a map the rest of this change
+   * deliberately routes around because the layout pass is the only thing that
+   * rebuilds it. It is asserted with the map entry *removed*, the state a
+   * block created since the last pass is in: the mark misses either way, and
+   * the child still has to repaint at its new depth, because `computeLayout`
+   * serves no table block from the layout cache (`layout.ts` recomputes
+   * `computeTableLayout` before the cache branch is reached).
+   */
+  test('a carried child inside a table cell repaints too', () => {
+    const table: Block = {
+      id: 't1',
+      type: 'table',
+      inlines: [],
+      style: normalizeBlockStyle({}),
+      tableData: {
+        rows: [
+          {
+            cells: [
+              {
+                blocks: [
+                  makeListItem('c1', 'parent', 0),
+                  makeListItem('c2', 'child', 1),
+                ],
+                style: {},
+              },
+            ],
+          },
+        ],
+        columnWidths: [1],
+      },
+    };
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [table] });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'c1', offset: 0 },
+      focus: { blockId: 'c1', offset: 0 },
+    });
+
+    editor.render();
+    const before = paintedX('child');
+    expect(before).toBeDefined();
+
+    // The state a layout pass has not caught up with yet.
+    editor.getDoc().blockParentMap.delete('c2');
+    editor.indent();
+
+    expect(paintedX('child')!).toBeGreaterThan(before!);
+    editor.dispose();
+  });
+
+  /**
+   * The paint side multiplies `listLevel` into the marker's x and indexes the
+   * marker table with it, so a level off a peer's Tree attribute reaches it
+   * before any gesture could repair the value: `NaN` is a marker (and a
+   * caret) painted at a coordinate that never appears.
+   *
+   * One representative sink, on purpose. This is the editor's own paint pass
+   * (`doc-canvas` → `paint-layout`); the other three call sites the change
+   * normalized — the PDF painter, the table renderer and the peer cursor —
+   * take the level through the same `normalizeListLevel` and are left to the
+   * unit test of the band itself (`test/model/list-level.test.ts`), which
+   * covers the table-cell layout indent end to end.
+   */
+  test('a poisoned list level paints inside the page, not off it', () => {
+    const poisoned = makeListItem('b1', 'poisoned', 0);
+    // `1e9` rather than `NaN`: `MemDocStore` clones through JSON, which turns
+    // a non-finite level into `null` before the paint pass could see it. A
+    // finite out-of-band level is the one that survives a store round trip.
+    poisoned.listLevel = 1e9;
+    const { editor } = setupEditor([poisoned, makeListItem('b2', 'sane', 1)]);
+
+    editor.render();
+
+    expect(paintedX('poisoned')).toBeDefined();
+    expect(fillTextCalls.length).toBeGreaterThan(0);
+    for (const call of fillTextCalls) {
+      expect(Number.isFinite(call.x)).toBe(true);
+      // The deepest legal level indents 9 × 36 px from the left margin;
+      // unbanded, this one lands 36 × 1e9 px off the page.
+      expect(call.x).toBeLessThan(1000);
+    }
+    editor.dispose();
+  });
 });
 
 /**

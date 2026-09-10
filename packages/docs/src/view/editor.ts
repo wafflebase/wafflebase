@@ -1647,6 +1647,14 @@ export function initialize(
       // nothing marked it dirty — and `indent` / `outdent` only `render()`.
       // Without this its cached lines survive the level change and it
       // repaints at its old depth.
+      //
+      // Only the top-level branch of this can matter, and that is the branch
+      // with no map lookup in it: `computeLayout` recomputes every `table`
+      // block's layout before it reaches the cache, so a cell child is
+      // repainted whether or not `blockParentMap` resolves it (asserted in
+      // `editor-tab-bullet.test.ts` with the entry deleted). The lookup names
+      // the enclosing table rather than the child because that is the id the
+      // cache is keyed by if tables ever join it.
       const cellInfo = doc.blockParentMap.get(change.block.id);
       markDirty(cellInfo?.tableBlockId ?? change.block.id);
     }

@@ -585,6 +585,85 @@ describe('initializeTextBox — verticalAnchor', () => {
   });
 
   /**
+   * One Cmd+Z reverses the whole subtree, not the last carried child on its
+   * own — the state #1050 exists to remove.
+   *
+   * What this *cannot* see is the `doc.batch()` wrapper itself: this editor
+   * owns its `MemDocStore`, whose undo units come from the explicit
+   * `snapshot()` call rather than from the batch, so the assertion holds with
+   * the batch removed (verified by removing it). The batch matters to
+   * `YorkieDocStore`, where each unbatched write is its own `doc.history`
+   * entry; the docs editor asserts that directly with a tracing store it can
+   * be constructed with, which `initializeTextBox` takes no option for. So
+   * this guards the snapshot placement and the user-visible outcome only.
+   */
+  it('one undo reverses the whole indented subtree', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const listItem = (id: string, listLevel: number): Block => ({
+      id,
+      type: 'list-item',
+      listKind: 'unordered',
+      listLevel,
+      inlines: [{ text: id, style: {} }],
+      style: {},
+    } as Block);
+    const onCommit = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [listItem('a', 0), listItem('b', 1)],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit,
+    });
+
+    api.focus();
+    api.indent();
+    api.undo();
+    api.detach();
+
+    const committed = onCommit.mock.calls.at(-1)?.[0] as Block[];
+    expect(committed.map((b) => b.listLevel)).toEqual([0, 1]);
+  });
+
+  /**
+   * The same gesture on a block that is not a list item moves its left
+   * margin instead, and that branch shares the batch with the list one.
+   */
+  it('indent / outdent move a non-list block by its margin', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const onCommit = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [makeBlock('plain text')],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit,
+    });
+
+    api.focus();
+    api.indent();
+    api.indent();
+    api.outdent();
+    api.detach();
+
+    const committed = onCommit.mock.calls.at(-1)?.[0] as Block[];
+    expect(committed[0].style.marginLeft).toBe(36);
+    expect(committed[0].listLevel).toBeUndefined();
+  });
+
+  /**
    * With verticalAnchor absent (default 'top'), originY = 0. The text
    * baseline y must be small — near the top of the 400×200 canvas.
    */

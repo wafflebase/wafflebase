@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Doc } from '../../src/model/document.js';
-import { type BlockCellInfo, type Inline, createEmptyBlock, getBlockText, CLEAR_INLINE_STYLE } from '../../src/model/types.js';
+import { type BlockCellInfo, type Inline, createEmptyBlock, createTableBlock, getBlockText, CLEAR_INLINE_STYLE } from '../../src/model/types.js';
 import { MemDocStore } from '../../src/store/memory.js';
 
 function buildParentMap(doc: Doc, tableBlockId: string): Map<string, BlockCellInfo> {
@@ -875,6 +875,106 @@ describe('Doc', () => {
       expect(doc.document.blocks[0].style.marginLeft).toBe(36);
       expect(doc.document.blocks[1].style.marginLeft).toBe(36);
     });
+  });
+});
+
+/**
+ * The array that holds a block next to the ones list nesting is implied
+ * against. The subtree planner reads a whole hierarchy out of this, so the
+ * wrong container is a gesture that silently does nothing (the caret's own
+ * block is not in the array it got back) — and the containers it has to
+ * resolve include a table cell inside a header, which the body layout's
+ * parent map never covers.
+ */
+describe('Doc siblingBlocksOf', () => {
+  /** A 1×1 table whose only cell holds `blocks`. */
+  function tableWith(blocks: ReturnType<typeof createEmptyBlock>[]) {
+    const table = createTableBlock(1, 1);
+    table.tableData!.rows[0].cells[0].blocks = blocks;
+    return table;
+  }
+
+  it('returns the region array for a top-level block', () => {
+    const store = new MemDocStore();
+    const body = createEmptyBlock();
+    const header = createEmptyBlock();
+    const footer = createEmptyBlock();
+    store.setDocument({
+      blocks: [body],
+      header: { blocks: [header], marginFromEdge: 48 },
+      footer: { blocks: [footer], marginFromEdge: 48 },
+    });
+    const doc = new Doc(store);
+    expect(doc.siblingBlocksOf(body.id)).toBe(doc.document.blocks);
+    expect(doc.siblingBlocksOf(header.id)).toBe(doc.document.header!.blocks);
+    expect(doc.siblingBlocksOf(footer.id)).toBe(doc.document.footer!.blocks);
+  });
+
+  it('returns the cell array for a block inside a body table cell', () => {
+    const store = new MemDocStore();
+    const cellBlock = createEmptyBlock();
+    store.setDocument({ blocks: [tableWith([cellBlock])] });
+    const doc = new Doc(store);
+    const cell = doc.document.blocks[0].tableData!.rows[0].cells[0];
+    expect(doc.siblingBlocksOf(cellBlock.id)).toBe(cell.blocks);
+  });
+
+  // The case that motivates the method: `layout.blockParentMap` is the *body*
+  // layout's, so a caret inside a header table cell resolves through neither
+  // the map nor the body walk.
+  it('returns the cell array for a block inside a header or footer table', () => {
+    const store = new MemDocStore();
+    const inHeader = createEmptyBlock();
+    const inFooter = createEmptyBlock();
+    store.setDocument({
+      blocks: [createEmptyBlock()],
+      header: { blocks: [tableWith([inHeader])], marginFromEdge: 48 },
+      footer: { blocks: [tableWith([inFooter])], marginFromEdge: 48 },
+    });
+    const doc = new Doc(store);
+    const headerCell =
+      doc.document.header!.blocks[0].tableData!.rows[0].cells[0];
+    const footerCell =
+      doc.document.footer!.blocks[0].tableData!.rows[0].cells[0];
+    expect(doc.siblingBlocksOf(inHeader.id)).toBe(headerCell.blocks);
+    expect(doc.siblingBlocksOf(inFooter.id)).toBe(footerCell.blocks);
+  });
+
+  it('resolves a nested table cell, and an unknown block is undefined', () => {
+    const store = new MemDocStore();
+    const deep = createEmptyBlock();
+    store.setDocument({ blocks: [tableWith([tableWith([deep])])] });
+    const doc = new Doc(store);
+    const inner = doc.document.blocks[0].tableData!.rows[0].cells[0].blocks[0];
+    expect(doc.siblingBlocksOf(deep.id)).toBe(
+      inner.tableData!.rows[0].cells[0].blocks,
+    );
+    expect(doc.siblingBlocksOf('no-such-block')).toBeUndefined();
+  });
+
+  // A stale parent map is an ordinary state (only the layout pass rebuilds
+  // it), so the full walk has to stand on its own — and an entry naming a
+  // table a peer has since removed must not throw out of the middle of a
+  // gesture.
+  it('falls back to the walk when the parent map is missing or stale', () => {
+    const store = new MemDocStore();
+    const cellBlock = createEmptyBlock();
+    store.setDocument({ blocks: [tableWith([cellBlock])] });
+    const doc = new Doc(store);
+    const cell = doc.document.blocks[0].tableData!.rows[0].cells[0];
+
+    doc.setBlockParentMap(new Map());
+    expect(doc.siblingBlocksOf(cellBlock.id)).toBe(cell.blocks);
+
+    doc.setBlockParentMap(
+      new Map([
+        [
+          cellBlock.id,
+          { tableBlockId: 'removed-by-peer', rowIndex: 0, colIndex: 0 },
+        ],
+      ]),
+    );
+    expect(doc.siblingBlocksOf(cellBlock.id)).toBe(cell.blocks);
   });
 });
 
