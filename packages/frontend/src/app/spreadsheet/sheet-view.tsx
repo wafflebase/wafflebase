@@ -1305,6 +1305,15 @@ export function SheetView({
       // `false` keeps the dimension reload + repaint and drops only the
       // write; `Spreadsheet.recalculateCrossSheetFormulas` refuses it at the
       // engine too, so neither this call site nor a future one can leak it.
+      // That engine gate is the tested one
+      // (`packages/sheets/test/view/spreadsheet-readonly-recalc.test.ts`),
+      // which is what makes this gate an optimization — it saves a viewer the
+      // wasted dependency pass — rather than the boundary itself.
+      //
+      // The cost is that a viewer renders the *persisted* cached value, which
+      // is stale for as long as nobody recalculates it; the engine method's doc
+      // comment states that trade-off and why recalculating in memory without
+      // persisting was rejected.
       runRemoteSync(!readOnly);
 
       // Re-render on any remote change. Cell/merge/tab-name changes also
