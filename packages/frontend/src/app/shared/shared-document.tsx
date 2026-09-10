@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
+import { YorkieProvider, useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
 import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
 import { fetchMeOptional, fetchYorkieShareToken } from "@/api/auth";
@@ -58,6 +58,7 @@ import {
   FIT_ZOOM,
   type ZoomController,
 } from "@/app/slides/zoom-controller";
+import { CollabDocumentProvider } from "@/components/collab-document-provider";
 import {
   Sheet,
   SheetContent,
@@ -1008,7 +1009,7 @@ function SharedDocumentInner({
       authTokenInjector={token ? () => fetchYorkieShareToken(token) : undefined}
     >
       {resolved.type === "doc" ? (
-        <DocumentProvider<YorkieDocsRoot>
+        <CollabDocumentProvider<YorkieDocsRoot>
           docKey={docKey}
           // A viewer must not seed the root. The SDK writes every
           // `initialRoot` key the document does not already have, on each
@@ -1025,18 +1026,18 @@ function SharedDocumentInner({
           enableDevtools={import.meta.env.DEV}
         >
           <SharedDocsLayout resolved={resolved} token={token} />
-        </DocumentProvider>
+        </CollabDocumentProvider>
       ) : resolved.type === "slides" ? (
-        <DocumentProvider<Partial<YorkieSlidesRoot>>
+        <CollabDocumentProvider<Partial<YorkieSlidesRoot>>
           docKey={docKey}
           initialRoot={{}}
           initialPresence={presence}
           enableDevtools={import.meta.env.DEV}
         >
           <SharedSlidesLayout resolved={resolved} />
-        </DocumentProvider>
+        </CollabDocumentProvider>
       ) : resolved.type === "note" ? (
-        <DocumentProvider<Partial<YorkieNotesRoot>>
+        <CollabDocumentProvider<Partial<YorkieNotesRoot>>
           docKey={docKey}
           initialRoot={notesInitialRootForRole(resolved.role)}
           initialPresence={{
@@ -1049,9 +1050,9 @@ function SharedDocumentInner({
           enableDevtools={import.meta.env.DEV}
         >
           <SharedNotesLayout resolved={resolved} />
-        </DocumentProvider>
+        </CollabDocumentProvider>
       ) : resolved.type === "board" ? (
-        <DocumentProvider<Partial<YorkieBoardRoot>>
+        <CollabDocumentProvider<Partial<YorkieBoardRoot>>
           docKey={docKey}
           initialRoot={boardInitialRootForRole(resolved.role)}
           initialPresence={{
@@ -1062,16 +1063,16 @@ function SharedDocumentInner({
           enableDevtools={import.meta.env.DEV}
         >
           <SharedBoardLayout resolved={resolved} />
-        </DocumentProvider>
+        </CollabDocumentProvider>
       ) : (
-        <DocumentProvider
+        <CollabDocumentProvider
           docKey={docKey}
           initialRoot={sheetsInitialRootForRole(resolved.role)}
           initialPresence={presence}
           enableDevtools={import.meta.env.DEV}
         >
           <SharedDocumentLayout resolved={resolved} />
-        </DocumentProvider>
+        </CollabDocumentProvider>
       )}
     </YorkieProvider>
   );

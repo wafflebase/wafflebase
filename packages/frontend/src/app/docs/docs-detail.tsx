@@ -1,4 +1,4 @@
-import { DocumentProvider, useDocument } from "@yorkie-js/react";
+import { useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
@@ -32,6 +32,7 @@ import {
   EditingChrome,
   PreviewSurface,
 } from "@/components/history/preview-surface";
+import { CollabDocumentProvider } from "@/components/collab-document-provider";
 
 // Lazy for the same reason as the other four editors: `revision-preview.tsx`
 // statically imports every engine it might have to mount (sheets, slides,
@@ -42,7 +43,6 @@ const RevisionPreviewOverlay = lazy(() =>
     default: module.RevisionPreviewOverlay,
   })),
 );
-
 
 /**
  * DocsLayout provides the sidebar + header chrome around the docs editor,
@@ -347,7 +347,7 @@ export function DocsDetail() {
   }
 
   return (
-    <DocumentProvider
+    <CollabDocumentProvider
       docKey={`doc-${id}`}
       initialRoot={initialDocsRoot()}
       initialPresence={{
@@ -359,7 +359,7 @@ export function DocsDetail() {
       enableDevtools={import.meta.env.DEV}
     >
       <DocsLayout documentId={id!} />
-    </DocumentProvider>
+    </CollabDocumentProvider>
   );
 }
 

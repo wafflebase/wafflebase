@@ -23,8 +23,8 @@ shows to the **durability of the pending edits** rather than to connectivity
 itself: with offline mode on, edits are in IndexedDB and the message is calm
 ("Saved to this device"); with offline mode off, edits are in memory and it
 warns and blocks the unload. Wafflebase is unconditionally in the second
-situation — the Yorkie JS SDK persists nothing locally — so this adopts the
-warning half and states the risk plainly.
+situation — the Yorkie JS SDK persists nothing locally *unless asked to*, and
+we do not ask — so this adopts the warning half and states the risk plainly.
 
 ### Goals
 
@@ -39,12 +39,25 @@ warning half and states the risk plainly.
 
 ### Non-Goals
 
-- **Offline persistence.** Making edits survive a reload would mean persisting
-  Yorkie's local change queue to IndexedDB. That is a much larger change with
-  its own correctness questions (reattach semantics, GC, epoch mismatch), and
-  it is what would let the calm "saved to this device" wording become true.
-  Deferred; this document only makes the current, non-durable behavior
-  visible.
+- **Offline persistence.** Making edits survive a reload means persisting
+  Yorkie's local change queue. `@yorkie-js/sdk@0.7.20` added the machinery for
+  it — an opt-in `ClientOptions.store` (a byte-oriented `DocStore` the app
+  implements; the SDK ships only an in-memory one), `Document.toBytes()` /
+  `fromBytes()`, and a `LocalChangesDropped` event for the cases where a
+  persisted envelope cannot be reconciled with the server. **We do not pass a
+  `store`**, so nothing here changes: without one the client persists nothing
+  and this document's premise holds.
+
+  Turning it on is not a flag flip, which is why it stays a Non-Goal. The
+  persisted envelope is keyed by `apiKey/clientKey/docKey`, and we pass no
+  `key` to `YorkieProvider`, so the SDK generates a random one per client and
+  nothing would ever resume. Stabilizing that key then activates the SDK's
+  Web Locks single-active-session guard, which fails the *second* tab's attach
+  on a document already open in another — a document open twice is ordinary
+  use here, and our presence system shows it as two peers. Which way that
+  trades is a product decision. Deferred; this document only makes the
+  current, non-durable behavior visible, and its wording is what would change
+  first if the trade is ever taken.
 - **A user-facing offline mode toggle.** There is nothing to toggle until
   persistence exists.
 - **Retry/backoff policy.** Reconnection is the SDK's watch loop. This surface
