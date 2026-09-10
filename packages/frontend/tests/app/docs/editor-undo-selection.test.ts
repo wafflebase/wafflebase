@@ -510,6 +510,156 @@ describe('select-all then type is one undo unit (issue #1045)', () => {
       }
     }
   });
+
+  /**
+   * The inline-style actions, which are the #1045 shape without deleting
+   * anything. `Doc.applyInlineStyle` walks the range slice by slice and calls
+   * `store.applyStyle` once per slice, so bolding this document cost 100
+   * `doc.update()`s — twice the cap, so the first fifty paragraphs' styling
+   * could never be undone.
+   *
+   * Both entry points are covered because they are separate code paths onto
+   * the same `Doc` call: the keyboard's `TextEditor.applyStyleToSelection`
+   * (which clear-formatting and the format painter share) and the toolbar's
+   * `applyStyleImpl` in `editor.ts`.
+   */
+  const boldCount = (): number =>
+    store
+      .getDocument()
+      .blocks.filter((b) => b.inlines.every((i) => i.style.bold === true))
+      .length;
+
+  it('bold over a select-all is one undo unit', () => {
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    // Both modifiers, so the assertion does not depend on the host platform.
+    pressKey('b', { metaKey: true, ctrlKey: true });
+
+    expect(boldCount()).toBe(PARAGRAPHS);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(boldCount()).toBe(0);
+  });
+
+  it('the toolbar style path over a select-all is one undo unit', () => {
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    editor.applyStyle({ bold: true });
+
+    expect(boldCount()).toBe(PARAGRAPHS);
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(boldCount()).toBe(0);
+  });
+});
+
+/**
+ * The block-level actions that write once per selected block: Tab / Shift+Tab
+ * on a list, and Cmd+] / Cmd+[ anywhere. Each drives `forEachBlockInSelection`
+ * with a `setBlockType` (or `applyBlockStyle`) inside, so over a selection
+ * larger than Yorkie's 50-entry undo cap the earliest blocks' change was
+ * dropped from the stack and could never be undone — #1045 again, with no
+ * deletion involved.
+ */
+function makeListBlock(text: string): Block {
+  return {
+    id: generateBlockId(),
+    type: 'list-item',
+    listKind: 'unordered',
+    listLevel: 1,
+    inlines: [{ text, style: {} }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  };
+}
+
+describe('indenting a multi-block selection is one undo unit (issue #1045)', () => {
+  const ITEMS = 100;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    store.setDocument({
+      blocks: Array.from({ length: ITEMS }, (_, i) => makeListBlock(`Item ${i}`)),
+    });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  const levels = (): number[] =>
+    store.getDocument().blocks.map((b) => b.listLevel ?? 0);
+
+  function selectAll(): void {
+    const blocks = store.getDocument().blocks;
+    const last = blocks[blocks.length - 1];
+    editor._setSelectionForTest({
+      anchor: { blockId: blocks[0].id, offset: 0 },
+      focus: {
+        blockId: last.id,
+        offset: last.inlines.map((i) => i.text).join('').length,
+      },
+    });
+  }
+
+  function pressKey(key: string, init: KeyboardEventInit = {}): void {
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
+    );
+  }
+
+  it('Tab over a multi-item list selection is one undo unit', () => {
+    const original = levels();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    pressKey('Tab');
+
+    expect(levels()).toEqual(original.map((l) => l + 1));
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(levels()).toEqual(original);
+  });
+
+  it('Cmd+] over a multi-block selection is one undo unit', () => {
+    const original = levels();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    pressKey(']', { metaKey: true, ctrlKey: true });
+
+    expect(levels()).toEqual(original.map((l) => l + 1));
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(levels()).toEqual(original);
+  });
+
+  it('Cmd+[ over a multi-block selection is one undo unit', () => {
+    const original = levels();
+    selectAll();
+    const before = doc.getUndoStackForTest().length;
+    pressKey('[', { metaKey: true, ctrlKey: true });
+
+    expect(levels()).toEqual(original.map((l) => l - 1));
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    editor.undo();
+    expect(levels()).toEqual(original);
+  });
 });
 
 /**

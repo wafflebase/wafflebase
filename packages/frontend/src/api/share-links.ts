@@ -1,5 +1,5 @@
 import { fetchWithAuth } from "./auth";
-import { assertOk } from "./http-error";
+import { assertOk, HttpError } from "./http-error";
 import { seg } from "./url";
 
 export type ShareLink = {
@@ -108,4 +108,28 @@ export async function resolveShareLink(
     },
   });
   return response.json();
+}
+
+/**
+ * Did a failed {@link resolveShareLink} carry the server's *verdict* on the
+ * link — revoked, expired, or never valid — as opposed to the request never
+ * reaching an answer at all?
+ *
+ * A caller that re-resolves its token on an interval (`SharedDocumentByToken`)
+ * has to tell the two apart before it acts. Only a verdict may evict a live
+ * editing session: react-query keeps its last good `data` while reporting
+ * `error` for every subsequent background refetch failure, so treating any
+ * error as fatal tore the editor down — losing whatever had not synced — on
+ * the first laptop sleep, flaky network or backend restart that outlasted the
+ * retry. A 5xx, a rate-limit, a timeout, and the `TypeError` `fetch()` throws
+ * when it cannot connect all say nothing about the link.
+ */
+export function isRevokedShareLinkError(error: unknown): boolean {
+  return (
+    error instanceof HttpError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    error.status !== 408 &&
+    error.status !== 429
+  );
 }

@@ -3,7 +3,11 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
-import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
+import {
+  resolveShareLink,
+  isRevokedShareLinkError,
+  ResolvedShareLink,
+} from "@/api/share-links";
 import { fetchMeOptional, fetchYorkieShareToken } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { SharedHeaderStatus } from "@/app/shared/shared-header-status";
@@ -1091,19 +1095,24 @@ export function SharedDocumentByToken({ token }: { token?: string }) {
   // A share link is a live capability, not a fact settled at page load: it can
   // be revoked, expire, or be downgraded from `editor` to `viewer` while the
   // tab sits open. Everything downstream reads its authority off `resolved`
-  // — `readOnly` here, and through it the docs editor's read-only wrapper,
-  // which under the default `YORKIE_AUTH_WEBHOOK_ENFORCE=false` is the write
-  // boundary the visitor actually meets. Resolved exactly once, that boundary
+  // — `readOnly` here, and through it the docs editor's read-only wrapper.
+  // That wrapper is a client-side affordance, not the security boundary: per
+  // -document write authority is enforced server-side by the Yorkie auth
+  // webhook, which a deployment must switch out of its default shadow mode
+  // (`YORKIE_AUTH_WEBHOOK_ENFORCE=true`) for a downgrade or a revocation to
+  // actually stop a write. What re-resolving buys is that the *client* stops
+  // presenting authority it no longer has: resolved exactly once, the view
   // could only ever loosen, never tighten. So re-resolve it periodically and
   // on tab focus (react-query pauses the interval while the tab is hidden,
   // and its structural sharing keeps `resolved`'s identity stable when
   // nothing changed, so an unchanged link re-renders nothing).
   //
   // A revoked or expired link now closes the view rather than being carried
-  // for the tab's lifetime. Two attempts have to fail before that happens, so
-  // a single network blip does not evict a working session; a sustained
-  // failure does, which is the safe direction — a document that cannot reach
-  // the API is not syncing either.
+  // for the tab's lifetime — but only when the server *said so*. See
+  // {@link isRevokedShareLinkError}: react-query keeps `data` while reporting
+  // `error` on a background refetch, so treating any failure as fatal tore
+  // down a live editing session on the first offline blip that outlasted the
+  // retry.
   const {
     data: resolved,
     error,
@@ -1115,14 +1124,20 @@ export function SharedDocumentByToken({ token }: { token?: string }) {
     refetchInterval: SHARE_LINK_REVALIDATE_MS,
     refetchOnWindowFocus: true,
     staleTime: 0,
-    retry: 1,
+    retry: (failureCount, err) =>
+      !isRevokedShareLinkError(err) && failureCount < 1,
   });
 
   if (token && isLoading) {
     return <Loader />;
   }
 
-  if (!token || error || !resolved) {
+  // Close the view when the link never resolved at all, or when a re-resolve
+  // came back as a *verdict* on the link. A transient failure keeps the last
+  // good `resolved` and the interval keeps trying.
+  const fatal = error && (!resolved || isRevokedShareLinkError(error));
+
+  if (!token || fatal || !resolved) {
     const message = !token
       ? "No share token provided"
       : (error instanceof Error && error.message) || "Invalid or expired link";

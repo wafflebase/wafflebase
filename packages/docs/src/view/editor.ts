@@ -1249,16 +1249,22 @@ export function initialize(
     }
     const range = selection.range;
 
-    // Cell-range mode: apply to all cells in range
+    // One undo unit however many blocks the selection spans. Both writes
+    // below call `store.applyStyle` once per *slice*, so the toolbar's Bold
+    // over a select-all otherwise cost one Cmd+Z per block and, past Yorkie's
+    // 50-entry cap, dropped the oldest of them for good (issue #1045). Same
+    // rule as `withNamedStyleChange` below: only the store writes go inside
+    // the batch; layout and paint read the document afterwards.
     if (range.tableCellRange) {
-      applyStyleToCellRange(range.tableCellRange, style);
-      markDirty(range.tableCellRange.blockId);
+      const cellRange = range.tableCellRange;
+      doc.batch(() => applyStyleToCellRange(cellRange, style));
+      markDirty(cellRange.blockId);
       render();
       notifyStyleApplied();
       return;
     }
 
-    doc.applyInlineStyle(range, style);
+    doc.batch(() => doc.applyInlineStyle(range, style));
     // Repaint exactly what was written — same traversal, so the two cannot
     // drift apart (see `dirtyBlockIdsForRange`).
     for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);

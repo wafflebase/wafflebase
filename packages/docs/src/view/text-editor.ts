@@ -2766,17 +2766,21 @@ export class TextEditor {
     const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
     if (cursorBlock.type !== 'list-item') return;
 
+    // One write per selected list item, so one undo unit for the lot — see
+    // `withUndoUnit`. `saveSnapshot()` stays above it.
     this.saveSnapshot();
-    this.forEachBlockInSelection((b) => {
-      if (b.type !== 'list-item') return;
-      const currentLevel = b.listLevel ?? 0;
-      const newLevel = shift
-        ? Math.max(0, currentLevel - 1)
-        : Math.min(8, currentLevel + 1);
-      if (newLevel === currentLevel) return;
-      this.doc.setBlockType(b.id, 'list-item', {
-        listKind: b.listKind,
-        listLevel: newLevel,
+    this.withUndoUnit(() => {
+      this.forEachBlockInSelection((b) => {
+        if (b.type !== 'list-item') return;
+        const currentLevel = b.listLevel ?? 0;
+        const newLevel = shift
+          ? Math.max(0, currentLevel - 1)
+          : Math.min(8, currentLevel + 1);
+        if (newLevel === currentLevel) return;
+        this.doc.setBlockType(b.id, 'list-item', {
+          listKind: b.listKind,
+          listLevel: newLevel,
+        });
       });
     });
     this.invalidateLayout();
@@ -2811,20 +2815,23 @@ export class TextEditor {
   private handleIndent(): void {
     const MAX_LIST_LEVEL = 8;
     const INDENT_STEP = 36;
+    // One write per selected block, one undo unit — see `withUndoUnit`.
     this.saveSnapshot();
-    this.forEachBlockInSelection((block) => {
-      if (block.type === 'list-item') {
-        const currentLevel = block.listLevel ?? 0;
-        if (currentLevel >= MAX_LIST_LEVEL) return;
-        this.doc.setBlockType(block.id, 'list-item', {
-          listKind: block.listKind,
-          listLevel: currentLevel + 1,
-        });
-      } else {
-        this.doc.applyBlockStyle(block.id, {
-          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-        });
-      }
+    this.withUndoUnit(() => {
+      this.forEachBlockInSelection((block) => {
+        if (block.type === 'list-item') {
+          const currentLevel = block.listLevel ?? 0;
+          if (currentLevel >= MAX_LIST_LEVEL) return;
+          this.doc.setBlockType(block.id, 'list-item', {
+            listKind: block.listKind,
+            listLevel: currentLevel + 1,
+          });
+        } else {
+          this.doc.applyBlockStyle(block.id, {
+            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+          });
+        }
+      });
     });
     this.invalidateLayout();
     this.requestRender();
@@ -2832,22 +2839,25 @@ export class TextEditor {
 
   private handleOutdent(): void {
     const INDENT_STEP = 36;
+    // One write per selected block, one undo unit — see `withUndoUnit`.
     this.saveSnapshot();
-    this.forEachBlockInSelection((block) => {
-      if (block.type === 'list-item') {
-        const currentLevel = block.listLevel ?? 0;
-        if (currentLevel <= 0) return;
-        this.doc.setBlockType(block.id, 'list-item', {
-          listKind: block.listKind,
-          listLevel: currentLevel - 1,
-        });
-      } else {
-        const current = block.style.marginLeft ?? 0;
-        if (current <= 0) return;
-        this.doc.applyBlockStyle(block.id, {
-          marginLeft: Math.max(0, current - INDENT_STEP),
-        });
-      }
+    this.withUndoUnit(() => {
+      this.forEachBlockInSelection((block) => {
+        if (block.type === 'list-item') {
+          const currentLevel = block.listLevel ?? 0;
+          if (currentLevel <= 0) return;
+          this.doc.setBlockType(block.id, 'list-item', {
+            listKind: block.listKind,
+            listLevel: currentLevel - 1,
+          });
+        } else {
+          const current = block.style.marginLeft ?? 0;
+          if (current <= 0) return;
+          this.doc.applyBlockStyle(block.id, {
+            marginLeft: Math.max(0, current - INDENT_STEP),
+          });
+        }
+      });
     });
     this.invalidateLayout();
     this.requestRender();
@@ -3569,6 +3579,12 @@ export class TextEditor {
    * Dirty-marking follows the shape too: a rectangle marks its table, every
    * other shape marks whatever `dirtyBlockIdsForRange` derives from the very
    * slices the write covered.
+   *
+   * Both writes go through {@link withUndoUnit}: `Doc.applyInlineStyle` and
+   * `applyInlineStyleToCells` call `store.applyStyle` once per *slice*, so
+   * bolding a select-all cost one Cmd+Z per block and, past Yorkie's 50-entry
+   * cap, dropped the oldest slices outright (issue #1045). Callers call
+   * `saveSnapshot()` before this, never inside — see `withUndoUnit`.
    */
   private applyStyleToSelection(
     range: DocRange,
@@ -3578,15 +3594,21 @@ export class TextEditor {
     // `isStyleOnInSelection` reads through, so the add-vs-remove decision
     // covers the cells this writes.
     if (range.tableCellRange) {
-      this.doc.applyInlineStyleToCells(range.tableCellRange, style);
-      this.markDirty(range.tableCellRange.blockId);
+      const cellRange = range.tableCellRange;
+      this.withUndoUnit(() => {
+        this.doc.applyInlineStyleToCells(cellRange, style);
+      });
+      this.markDirty(cellRange.blockId);
       this.requestRender();
       return;
     }
 
-    this.doc.applyInlineStyle(range, style);
+    this.withUndoUnit(() => {
+      this.doc.applyInlineStyle(range, style);
+    });
     // Repaint exactly what was written — same traversal, so the two cannot
-    // drift apart (see `dirtyBlockIdsForRange`).
+    // drift apart (see `dirtyBlockIdsForRange`). Read after the unit commits,
+    // so it walks what the store really holds.
     for (const id of dirtyBlockIdsForRange(this.doc, range)) this.markDirty(id);
     this.requestRender();
   }
