@@ -263,6 +263,63 @@ describe('ensureSlidesRoot — structurally incomplete elements', () => {
     });
   });
 
+  it('repairs a frame that is an object but carries no geometry', () => {
+    // `{}` and `{ x: 10 }` pass every `typeof` check and then feed
+    // `undefined` into `frame.x + frame.w / 2` — the element lands
+    // somewhere NaN instead of somewhere wrong. Same class of defect as a
+    // missing frame, only silent.
+    const doc = docWithElement({
+      id: 'partial',
+      type: 'text',
+      frame: { x: 10 },
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual(
+      CAPTION_BODY_FRAME,
+    );
+  });
+
+  it('keeps a frame that positions correctly but omits rotation', () => {
+    // Demanding `rotation` would replace real geometry with a zero frame —
+    // trading a skipped `ctx.rotate` for data loss.
+    const frame = { x: 10, y: 20, w: 30, h: 40 };
+    const doc = docWithElement({
+      id: 'no-rotation',
+      type: 'text',
+      frame,
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual(frame);
+  });
+
+  it('does not write a frame onto a frameless connector', () => {
+    // A connector's `frame` is a derived selection bbox that
+    // `computeConnectorFrame` recomputes from its endpoints, and it never
+    // carries a `placeholderRef` — so the repair could only persist a zero
+    // bbox, which is what the read path already supplies anyway. Writing it
+    // would make a wrong bbox look authoritative to `combinedBoundingBox`.
+    const doc = docWithElement({
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'free', x: 0, y: 0 },
+      end: { kind: 'free', x: 100, y: 100 },
+      arrowheads: {},
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toBeUndefined();
+  });
+
   it('leaves a well-formed frame untouched', () => {
     const frame = { x: 10, y: 20, w: 30, h: 40, rotation: 0.5 };
     const doc = docWithElement({
@@ -292,6 +349,28 @@ describe('ensureSlidesRoot — structurally incomplete elements', () => {
     const el = new YorkieSlidesStore(doc).read().slides[0].elements[0];
     expect(el.type).toBe('text');
     expect((el as TextElement).data.blocks).toEqual([]);
+  });
+
+  it('seeds blocks in place, keeping the rest of an element data', () => {
+    // Reassigning the whole `data` object to repair `blocks` drops every
+    // sibling key — the drop `withTextElement` was reviewed and fixed for
+    // in #263.
+    const doc = docWithElement({
+      id: 'no-blocks',
+      type: 'text',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      data: { autofit: 'shrink', verticalAnchor: 'middle' },
+    });
+
+    ensureSlidesRoot(doc);
+
+    const el = doc.getRoot().slides[0].elements[0] as unknown as {
+      data: { autofit?: string; verticalAnchor?: string };
+    };
+    expect(el.data.autofit).toBe('shrink');
+    expect(el.data.verticalAnchor).toBe('middle');
+    const read = new YorkieSlidesStore(doc).read().slides[0].elements[0];
+    expect((read as TextElement).data.blocks).toEqual([]);
   });
 
   it('reads a frameless element as a zero frame without repairing it', () => {

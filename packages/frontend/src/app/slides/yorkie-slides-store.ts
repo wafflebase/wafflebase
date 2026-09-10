@@ -205,9 +205,29 @@ function unwrapElement(e: unknown): YorkieElement {
  */
 const ZERO_FRAME: Frame = { x: 0, y: 0, w: 0, h: 0, rotation: 0 };
 
-/** Whether `frame` is usable as geometry at all. */
+/**
+ * Whether `frame` is usable as geometry at all.
+ *
+ * Object-ness alone is not the bar: `{}` or `{ x: 10 }` survives every
+ * `typeof` check and then feeds `undefined` into `frame.x + frame.w / 2`,
+ * so the element lands somewhere NaN instead of somewhere wrong — the same
+ * class of defect as a missing frame, only silent. `x` / `y` / `w` / `h` are
+ * what place and size the element, so all four have to be numbers.
+ *
+ * `rotation` is deliberately not required. A frame that positions correctly
+ * but omits it merely skips `ctx.rotate`, and demanding it here would
+ * replace real geometry with `ZERO_FRAME` — trading a cosmetic defect for
+ * data loss.
+ */
 function hasFrame(frame: unknown): boolean {
-  return typeof frame === 'object' && frame !== null;
+  if (typeof frame !== 'object' || frame === null) return false;
+  const f = frame as Partial<Frame>;
+  return (
+    Number.isFinite(f.x)
+    && Number.isFinite(f.y)
+    && Number.isFinite(f.w)
+    && Number.isFinite(f.h)
+  );
 }
 
 /**
@@ -352,7 +372,15 @@ export function ensureSlidesRoot(
         // element with no `frame` is fatal to every reader (see
         // `ZERO_FRAME`), and unlike the readers' own fallback this write
         // heals the document for every future session.
-        if (!hasFrame(el.frame)) {
+        //
+        // Connectors are exempt. Their `frame` is a derived selection bbox
+        // recomputed from the endpoints by `computeConnectorFrame` on the
+        // next endpoint edit, and they never carry a `placeholderRef` — so
+        // `recoverFrame` could only write `ZERO_FRAME`, which is exactly
+        // what `readFrame` already hands the reader. The write would buy
+        // nothing and make a wrong bbox look authoritative to
+        // `combinedBoundingBox` (align / distribute / multi-select).
+        if (el.type !== 'connector' && !hasFrame(el.frame)) {
           el.frame = recoverFrame(
             el,
             (slide as { layoutId?: unknown }).layoutId,
@@ -362,11 +390,20 @@ export function ensureSlidesRoot(
         if (el.type === 'text') {
           // `el.data` is required by the model but has been observed
           // absent in the wild, and this deref used to be unguarded — so
-          // the repair on the next line could never run for the one shape
-          // that needed it most.
-          const data = (el.data ?? {}) as { blocks?: unknown };
-          const blocks = yorkieToPlain<unknown>(data.blocks);
-          if (!Array.isArray(blocks)) {
+          // the repair below could never run for the one shape that needed
+          // it most.
+          const data = el.data as { blocks?: unknown } | undefined;
+          const blocks = yorkieToPlain<unknown>(data?.blocks);
+          if (Array.isArray(blocks)) continue;
+          if (data) {
+            // Seed `blocks` in place rather than reassigning the whole
+            // `data` object: a wholesale replace drops every sibling key
+            // (`autofit`, `verticalAnchor`, `fill`, …) — the drop
+            // `withTextElement` was reviewed and fixed for in #263 — and
+            // is the wholesale-LWW op `withShapeText` argues against.
+            // Matches `cascadeMasterStyles`' per-field write.
+            data.blocks = [];
+          } else {
             el.data = { blocks: [] } as unknown as typeof el.data;
           }
         }

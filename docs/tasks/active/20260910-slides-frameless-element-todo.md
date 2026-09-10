@@ -63,29 +63,68 @@ Two invariants, applied where they belong:
 1. **A reader never crashes on a structurally incomplete element.**
 2. **An editor session repairs one rather than leaving it to the next reader.**
 
-- [ ] Tests first (`packages/frontend/tests/app/slides/yorkie-slides-store.test.ts`)
+- [x] Tests first (`packages/frontend/tests/app/slides/yorkie-slides-store.test.ts`)
       — `ensureSlidesRoot` on a deck holding a frameless text element and on
       one holding a data-less text element
-- [ ] `ensureSlidesRoot` (`yorkie-slides-store.ts:288`) — guard `el.data`
-      so it falls into the existing `el.data = { blocks: [] }` repair, and
+- [x] `ensureSlidesRoot` (`yorkie-slides-store.ts:288`) — guard `el.data`
+      so the `blocks` repair can reach the shape that needed it, and
       restore a missing `frame` from the slide layout's matching placeholder
       (`placeholderRef`), falling back to a zero frame when nothing resolves.
       This is what permanently fixes the reported document: the caption body
       returns to its designed position, text intact.
-- [ ] `readElement` (`:482`) — one frame fallback across its four return
+- [x] `readElement` (`:482`) — one frame fallback across its four return
       sites, so a read-only share-link viewer (whose repair write the Yorkie
       auth webhook may deny) still renders the rest of the deck
-- [ ] `cascadeMasterStyles` (`:1072`) — same `el.data` guard; it is the next
+- [x] `cascadeMasterStyles` (`:1072`) — same `el.data` guard; it is the next
       unguarded deref after line 291
-- [ ] `isElementEmpty` (`packages/slides/src/model/element.ts:640`) — guard
+- [x] `isElementEmpty` (`packages/slides/src/model/element.ts:640`) — guard
       `data.blocks`; `applyLayoutToSlide` calls it on every layout change
-- [ ] `element-renderer.ts:175` — skip an element with no usable frame
+- [x] `element-renderer.ts:175` — skip an element with no usable frame
       instead of throwing (covers `MemSlidesStore` and the revision-preview
       path, which do not go through `readElement`)
-- [ ] `packages/cli/src/slides/content.ts:164` — guard `el.data`
-- [ ] `pnpm verify:fast`
-- [ ] Code review over the branch diff
+- [x] `packages/cli/src/slides/content.ts:164` — guard `el.data`
+- [x] `pnpm verify:fast`
+- [x] Code review over the branch diff
 - [ ] PR
+
+## Review outcomes folded in
+
+Branch review (CLAUDE.md adherence / bug scan / git-history + comments)
+surfaced four things worth acting on:
+
+- **Connectors must not be repaired.** Their `frame` is a derived selection
+  bbox `computeConnectorFrame` rebuilds from the endpoints, and they never
+  carry a `placeholderRef` — so `recoverFrame` could only persist
+  `ZERO_FRAME`, which is what the read fallback already supplies. The write
+  would buy nothing and make a wrong bbox look authoritative to
+  `combinedBoundingBox` (align / distribute / multi-select).
+- **`hasFrame` needed more than object-ness.** `{}` and `{ x: 10 }` pass a
+  `typeof` check and then feed `undefined` into `frame.x + frame.w / 2`.
+  Now all of `x`/`y`/`w`/`h` must be finite — but *not* `rotation`, since
+  demanding it would replace real geometry with a zero frame.
+- **The `blocks` repair was a wholesale replace.** `el.data = { blocks: [] }`
+  drops `autofit` / `verticalAnchor` / `fill` — the same drop
+  `withTextElement` was reviewed and fixed for in #263, and the wholesale-LWW
+  op `withShapeText` argues against. Now seeded in place, matching
+  `cascadeMasterStyles`.
+- **Exempting connectors from the renderer guard left one live throw.** The
+  animation wrapper takes its transform centre from `element.frame` for every
+  type, so a frameless *and* animated connector still died. It now paints
+  un-animated.
+
+Two more were raised and deliberately not acted on:
+
+- **Group children are not healed in the document.** The repair walks
+  top-level `slide.elements` only. Recursing buys nothing: a group child
+  never carries a `placeholderRef`, so the repair value would be `ZERO_FRAME`
+  — byte-identical to what `readFrame` already returns on every read. The
+  element is non-fatal either way.
+- **The backend still rejects on write what it repairs for `data`.**
+  `assertValidElement` 400s a frameless top-level element while #1022 taught
+  its sibling `assertValidElementData` to repair a missing `data` in place.
+  So a CLI `GET` → edit → `PUT` round-trip of the reported deck still fails
+  until a frontend session heals it. Closing that asymmetry means deciding
+  what geometry a server-side repair should invent, which is its own change.
 
 ## Deliberately out of scope
 

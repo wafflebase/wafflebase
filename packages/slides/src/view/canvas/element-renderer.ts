@@ -111,7 +111,11 @@ export function drawElement(
       anim.dx !== 0 ||
       anim.dy !== 0 ||
       anim.rotation !== 0);
-  if (!hasAnim) {
+  // `!element.frame` can only still be true for a connector, which the
+  // guard above lets through — but the animation transform below needs a
+  // frame centre regardless of type. Paint it un-animated rather than
+  // throw; a connector is drawn from its endpoints either way.
+  if (!hasAnim || !element.frame) {
     drawElementBody(
       ctx, element, doc, theme, onAssetLoad,
       elementsLookup, parentFlip, parentTransform,

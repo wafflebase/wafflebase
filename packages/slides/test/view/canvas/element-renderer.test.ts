@@ -89,6 +89,37 @@ describe('drawElement — structurally incomplete element', () => {
     ).not.toThrow();
     expect(ctx.stroke).toHaveBeenCalled();
   });
+
+  it('paints a frameless connector un-animated rather than throwing', () => {
+    // The animation wrapper takes its transform centre from `element.frame`
+    // for every type, so exempting connectors from the frame guard would
+    // otherwise leave one live combination — frameless plus animated —
+    // still throwing.
+    const ctx = createCtxSpy();
+    const connector = {
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'free', x: 0, y: 0 },
+      end: { kind: 'free', x: 50, y: 50 },
+      arrowheads: {},
+    } as unknown as Element;
+
+    expect(() =>
+      drawElement(
+        asCtx(ctx),
+        connector,
+        DOC,
+        THEME,
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        { opacity: 0.5, scale: 2, dx: 10, dy: 10, rotation: 1, hidden: false },
+      ),
+    ).not.toThrow();
+    expect(ctx.stroke).toHaveBeenCalled();
+  });
 });
 
 describe('drawElement — frame transform', () => {
