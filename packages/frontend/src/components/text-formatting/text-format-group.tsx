@@ -29,6 +29,7 @@ import {
   IconTypography,
   IconHighlight,
   IconClearFormatting,
+  IconUnlink,
 } from "@tabler/icons-react";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
@@ -54,6 +55,21 @@ interface TextFormatGroupProps {
    * `InsertLinkButton` in the Insert group beside Image/Table.
    */
   showLink?: boolean;
+  /**
+   * Whether to render the Remove-link button beside Insert link.
+   * Defaults to `false`: the Docs surface offers Remove link from its
+   * link popover (`docs-link-popover.tsx`), so a toolbar duplicate would
+   * be redundant there.
+   *
+   * The Slides text-edit toolbar opts in. It has no link popover (the
+   * canvas text-box editor never wires `onLinkRequest`), yet its runs can
+   * still acquire an `href` — autolink-on-space in the shared
+   * `TextEditor`, or a PPTX import. Clear formatting used to be the only
+   * reachable way to drop one, and since issue #1051 it deliberately
+   * preserves hyperlinks, so without this button Slides would have no way
+   * at all.
+   */
+  showRemoveLink?: boolean;
   /**
    * Whether to render the Highlight (background color) swatch. Defaults
    * to `true`. The slides text-edit toolbar opts out by passing `false`
@@ -83,6 +99,7 @@ export function TextFormatGroup({
   disabled = false,
   showStrikethrough = true,
   showLink = true,
+  showRemoveLink = false,
   showHighlight = true,
   defaultTextColor,
   defaultHighlightColor,
@@ -146,6 +163,18 @@ export function TextFormatGroup({
   const handleInsertLink = useCallback(() => {
     if (!editor) return;
     editor.requestLink();
+  }, [editor]);
+
+  // Always enabled while an editor is mounted, rather than gated on
+  // `getLinkAtCursor()`. The toolbar re-renders on element selection and
+  // text-edit transitions but not on every caret move, so a gate read at
+  // render time would go stale the moment the caret entered a link —
+  // exactly when the button is wanted. `removeLink()` is a no-op off a
+  // link, so an over-eager click costs nothing.
+  const handleRemoveLink = useCallback(() => {
+    if (!editor) return;
+    editor.removeLink?.();
+    editor.focus();
   }, [editor]);
 
   const handleClearFormatting = useCallback(() => {
@@ -277,6 +306,22 @@ export function TextFormatGroup({
       {/* Link */}
       {showLink && (
         <InsertLinkButton onClick={handleInsertLink} disabled={isDisabled} />
+      )}
+      {showRemoveLink && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <ToolbarButton
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleRemoveLink}
+              aria-label="Remove link"
+              disabled={isDisabled}
+              data-text-edit-keepalive
+            >
+              <IconUnlink size={16} />
+            </ToolbarButton>
+          </TooltipTrigger>
+          <TooltipContent>Remove link</TooltipContent>
+        </Tooltip>
       )}
 
       {/* Clear formatting */}

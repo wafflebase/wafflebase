@@ -19,6 +19,12 @@
  *   - No Highlight (background color) swatch. Highlight backgrounds
  *     rarely read against themed slide backgrounds and the inline-format
  *     cluster stays compact without them. Text color stays.
+ *   - Remove link IS shown (`showRemoveLink`), where docs hides it.
+ *     Docs offers it from the link popover; slides has no popover (see
+ *     `slides-view.tsx`, where `onLinkRequest` is unwired), so this
+ *     button is the only way to drop an `href` a run picked up from
+ *     autolink-on-space or a PPTX import — Clear formatting preserves
+ *     hyperlinks since issue #1051.
  *
  * `SlidesTextBoxEditor` structurally satisfies `TextFormattingEditor`
  * (all required methods are present on the type — see
@@ -84,6 +90,7 @@ export function TextEditSection({ state, editor }: TextEditSectionProps) {
         editor={textEditor}
         showStrikethrough={false}
         showHighlight={false}
+        showRemoveLink
       />
       <ToolbarSeparator className="mx-1" />
       <TextParagraphGroup editor={textEditor} />
