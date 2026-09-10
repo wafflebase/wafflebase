@@ -38,9 +38,13 @@ interface NotesViewProps {
    * Show the blame gutter (who last edited each line). Display only — every
    * client records authorship regardless, so what one reader sees does not
    * depend on what the writers had switched on. Omitted, it falls back to the
-   * viewer's own stored preference — the fallback both mounting routes seed
-   * their own state from, kept for a mount that owns no view menu (the
-   * revision preview).
+   * viewer's own stored preference — the same value both mounting routes seed
+   * their own state from. Both of them do pass it (each owns a view menu), so
+   * the fallback is unreached today; it is kept so that adding a third mount
+   * cannot silently turn the gutter off for a reader who has it on. Note the
+   * revision preview is not such a mount: it calls the notes engine's
+   * `initialize()` directly (`components/history/revision-preview.tsx`) and
+   * never renders this component.
    */
   showAuthors?: boolean;
   /**

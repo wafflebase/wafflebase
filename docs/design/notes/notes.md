@@ -799,9 +799,10 @@ says in as many words that names are recorded and who can see them. Nothing is
 erased retroactively: rewriting a shared document's runs to strip a name is not
 something one client may do to it.
 
-Both `NotesView` mounts pass the preference — the authenticated note page from
-its view menu, the share-link page (which has no menu) from the same
-per-browser `wafflebase:notes:showAuthors` value, read once at mount.
+Both `NotesView` mounts pass the preference, each from its own view menu — the
+share-link page has one since #1044 — seeded from the same per-browser
+`wafflebase:notes:showAuthors` value, read once at mount. The share-link page
+never writes it back.
 
 Authorship rides on the existing `root.content` `Text` as **per-run
 attributes**, written by `YorkieNoteStore.editText`:

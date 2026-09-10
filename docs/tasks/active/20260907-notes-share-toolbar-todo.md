@@ -103,3 +103,42 @@ Merged `origin/main` first (the PR was `CONFLICTING`). One conflict, in
 Deliberately not done, recorded as follow-ups instead: extracting a shared
 generic read-only store proxy from the near-identical notes and docs copies,
 and splitting the auth-posture flip out of the notes-toolbar change.
+
+## Review round 17
+
+Scoped hard: six findings, no new modules, no refactors. +255 / −13.
+
+- [x] Correctness (major) — a read-only slides mount skipped
+      `ensureSlidesRoot`, and with it the `meta.themeId` / `masterId`
+      reconciliation, so `getActiveTheme` could throw on the share route for a
+      deck an editor renders fine. Reconciled in `migrateDocument` instead,
+      which holds both the meta and the resolved arrays, so the Yorkie read
+      path and `MemSlidesStore` stay identical. Regression test in
+      `yorkie-slides-store.test.ts`.
+- [x] Correctness (major) — `SharedNotesLayout` handed the notes engine a
+      `DocsImageUpload` (which rejects) where its `UploadImage` contract wants
+      "report it, then resolve `null`", so a failed image upload on the share
+      route was the one note mount that said nothing. Adapted at the boundary,
+      with a test.
+- [x] Test-adequacy (major) — `YorkieDocStore(doc, readOnly)`'s two presence
+      gates had no test. New
+      `packages/frontend/tests/app/docs/yorkie-doc-store-read-only.test.ts`,
+      shaped after the spreadsheet suite (counts `doc.update` calls, not
+      emitted changes). Mutation-checked in both directions, so the deliberate
+      publish-gated / anchoring-still-runs split is pinned.
+- [x] Docs — three claims this branch itself made false: `notes-settings.ts`
+      ("the read-only shared viewer does not use them"), `notes-view.tsx`'s
+      `showAuthors` fallback justification (the revision preview calls the
+      engine's `initialize()` directly and never mounts `NotesView`), and
+      `notes.md`'s "the share-link page (which has no menu)".
+- [x] Test-adequacy (minor) — `read-only.test.ts` called `setLocalSelection`
+      and `recordSelectionForHistory` with no assertion behind them; both are
+      now pinned through `MemNoteStore.currentSelection`.
+- [x] Correctness (minor) — the notes split divider now ends its drag on
+      `pointercancel`, which this branch's own touch-drag enablement made
+      reachable; without it a cancelled touch drag left the body's
+      `col-resize` cursor and `user-select` lock applied.
+
+Follow-ups recorded rather than fixed: `shared-notes-layout.test.tsx`'s
+`renderLayout` waits on a `lazy()` import with `findByRole`'s default 1s
+budget, which timed out once under load on a cold Vite transform cache.

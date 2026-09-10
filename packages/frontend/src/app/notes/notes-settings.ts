@@ -4,7 +4,11 @@ import type { NoteViewMode, NoteKeymap } from "@wafflebase/notes";
  * Per-user (per-browser) notes editor preferences, persisted in localStorage.
  * These are USER settings, not document data — they must not live in the CRDT
  * or reset per note. The owner editor (NotesDetail) reads them on open and
- * writes them on change; the read-only shared viewer does not use them.
+ * writes them on change. The share-link layout (`SharedNotesLayout`) reads all
+ * three on mount — a visitor's own vim keymap and blame gutter apply behind a
+ * share link too, on a viewer mount as much as an editor one — but never
+ * writes any of them back: what an anonymous visitor changes there must not
+ * overwrite the preferences they set in a surface that owns them.
  */
 const VIEW_MODE_KEY = "wafflebase:notes:viewMode";
 const KEYMAP_KEY = "wafflebase:notes:keymap";

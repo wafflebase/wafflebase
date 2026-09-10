@@ -281,3 +281,72 @@ than one flex-rounding away from one.
 
 Generally: enlarging a hit area changes the range of `event.clientX - element.left`,
 so every consumer of that difference is in scope for the change that widens it.
+
+The same shape appeared again in round 17, one event further out: enabling
+touch dragging (`touch-action: none`) does not just widen a range, it adds a
+whole terminator. A mouse drag ends with `pointerup`; a touch drag can end with
+`pointercancel` instead, which the handler had never needed to know about. Any
+handler that mutates state outside itself — here `document.body`'s cursor and
+`user-select` — needs an entry for every way its gesture can end, not just the
+one the old input device produced.
+
+## "The in-memory path covers it" has to name the specific reconciliation
+
+Skipping `ensureSlidesRoot` on a read-only mount was justified with "`read()`
+runs the same theme/master/layout/guides backfill in memory through
+`migrateDocument`". Three of those four were true. The fourth — reconciling
+`meta.themeId` against the deck's *own* `themes` array — existed only in the
+CRDT-writing helper, because it is the one step that needs both the meta and
+the resolved arrays, and `migrateMeta` sees only the meta. So the claim was
+right about the shape of the data and wrong about one field, and the cost was a
+throw (`getActiveTheme` refuses a mismatch by design) on the share route for a
+deck that opens fine as an editor.
+
+The rule this suggests: when a gate is defended by "an equivalent runs
+elsewhere", enumerate the equivalent's steps against the gated code's steps.
+"Same backfill" is a summary, and a summary is exactly where one branch hides.
+
+## The sibling suite is the deliverable, not the inspiration
+
+`YorkieDocStore`'s two `readOnly` gates went untested through sixteen rounds
+while the spreadsheet store next door grew a whole read-only suite — with the
+non-obvious technique already worked out (count `doc.update` calls, not emitted
+changes, because an update that mutates nothing still is the write the webhook
+sees attempted). Writing the docs equivalent took one file and no new harness.
+
+When a review finds an untested gate and a directly-applicable harness exists,
+the honest read is that the test was cheap and got skipped, not that it needs
+scaffolding. The expensive ones are genuinely different — the presence gates
+inside slides/board/pdf `useEffect` closures still need canvas, Yorkie and the
+provider tree in jsdom — and keeping that distinction sharp is what stops
+"deferred: needs a harness" from becoming a blanket answer.
+
+## Mutation-check a split gate in both directions
+
+`updateCursorPos` suppresses the presence write but deliberately keeps running
+the caret anchoring that shares the method, because
+`resolveAnchoredLocalCursor` is what holds a viewer's caret in place across a
+peer's edit. A test that only deletes the gate proves half of that: it catches
+the gate being removed, not the gate being "hardened" one line earlier, where
+it would silently cost every viewer their caret position.
+
+So the check was run twice — remove the gate (two tests red), and move it above
+the anchoring (the other two red). A split like this is only pinned when both
+mutations are covered, and the second is the one nobody thinks to try.
+
+## A comment that names a caller should be checked against the caller
+
+The `showAuthors` fallback was justified with "a mount that owns no view menu
+(the revision preview)". The revision preview does not mount `NotesView` at
+all — it calls the notes engine's `initialize()` directly, the same way it
+mounts the sheets and slides engines. So the JSDoc offered a concrete reason
+that could be checked in one grep, and it was wrong, which is worse than
+offering none: the next reader takes it as evidence the fallback is live and
+sizes their change around a caller that does not exist.
+
+Two of round 17's three doc findings were of this kind, and both were claims
+*this branch* introduced. Adding a surface (the share-link view menu) falsifies
+every comment that described the old set of surfaces, and those comments do not
+live next to the diff — `notes-settings.ts` said "the read-only shared viewer
+does not use them" about a module the new layout now reads all three keys from.
+Grep for the surface you just changed, not just for the code you touched.
