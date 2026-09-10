@@ -88,9 +88,20 @@ describe('planListLevelChanges', () => {
   test('floor: a level-0 root refuses, and its children stay put', () => {
     const blocks = [item('a', 0), item('b', 1)];
     expect(plan(blocks, ['a'], -1)).toEqual({});
-    // Even when the child is selected too — moving it alone would flatten
-    // it into a sibling of its own parent.
-    expect(plan(blocks, ['a', 'b'], -1)).toEqual({});
+  });
+
+  // A refused subtree suppresses itself, not the selection below it. The
+  // child is only carried *along with* its parent; when the user selected it
+  // too, they asked for it to move, and refusing it would make select-all +
+  // Shift+Tab a no-op on any document whose first list item is a root.
+  test('floor: a refused root does not freeze the items selected under it', () => {
+    const blocks = [item('a', 0), item('b', 1)];
+    expect(plan(blocks, ['a', 'b'], -1)).toEqual({ b: 0 });
+  });
+
+  test('floor: select-all outdents every subtree that has room', () => {
+    const blocks = [item('a', 0), item('b', 1), item('c', 2), item('d', 1)];
+    expect(plan(blocks, ['a', 'b', 'c', 'd'], -1)).toEqual({ b: 0, c: 1, d: 0 });
   });
 
   test('outdenting a child on its own is unaffected by its parent', () => {

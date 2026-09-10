@@ -89,8 +89,15 @@ function subtreeOf(
  * root is already at level 0, indent when the subtree's *deepest* member
  * is already at `MAX_LIST_LEVEL`. Clamping a single member instead would
  * collapse the depth gap, which is the bug this exists to prevent. A
- * selected block already covered by an earlier item's subtree — refused
- * or not — is skipped, so every child moves exactly once.
+ * selected block already *moved* as part of an earlier item's subtree is
+ * skipped, so every child moves exactly once.
+ *
+ * A refused subtree suppresses only itself: its members are left
+ * uncovered, so a deeper one the user also selected is re-examined as a
+ * subtree root in its own right and moves if it has room. Suppressing them
+ * too would make select-all + Shift+Tab a no-op on any document whose
+ * first list item is a root — the child is only carried *along with* its
+ * parent, and a child the user selected asked to move on its own account.
  */
 function planSiblingGroup(
   blocks: ReadonlyArray<Block>,
@@ -105,13 +112,14 @@ function planSiblingGroup(
     if (!selectedIds.has(block.id) || covered.has(block.id)) continue;
 
     const { end, deepest } = subtreeOf(blocks, i);
-    for (let j = i; j <= end; j++) covered.add(blocks[j].id);
-
     const level = levelOf(block);
+    // Refused: nothing is marked covered, so a selected descendant is
+    // reconsidered as its own subtree root below.
     if (delta < 0 && level <= 0) continue;
     if (delta > 0 && deepest >= MAX_LIST_LEVEL) continue;
 
     for (let j = i; j <= end; j++) {
+      covered.add(blocks[j].id);
       changes.push({
         block: blocks[j],
         // Normalized, so a poisoned level is repaired by the gesture that
