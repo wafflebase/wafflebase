@@ -443,9 +443,11 @@ export function initialize(
     // and nothing else: a command, a toolbar call, or any other programmatic
     // `view.dispatch` still produces a document change, and `noteSync` forwards
     // any non-remote change straight to `store.editText()` — a CRDT write. On a
-    // viewer-role share link that is the whole authorization gap, since the
-    // Yorkie auth webhook ships in shadow (allow-all) mode by default and so
-    // may not refuse the write either.
+    // viewer-role share link the webhook does refuse that write (enforcing is
+    // the default — `isYorkieAuthEnforced`), but a refused `PushPull` wedges
+    // the viewer's own sync, so the write must not be attempted in the first
+    // place; and a deployment in shadow mode for a rollout would let it
+    // through outright.
     //
     // So a read-only mount is enforced twice more, at the state:
     // `EditorState.readOnly` is the facet every CodeMirror command consults

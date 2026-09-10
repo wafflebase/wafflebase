@@ -151,6 +151,16 @@ export function readOnlyNoteStore(store: NoteStore): NoteStore {
     deleteProperty: () => false,
     getPrototypeOf: () => null,
     setPrototypeOf: () => false,
+    // `preventExtensions` forwards the same way `setPrototypeOf` would, and
+    // making the *target* non-extensible would leave the two filtering traps
+    // below violating a proxy invariant — a non-extensible target requires
+    // `ownKeys` to report exactly its own keys, so every later `Object.keys` /
+    // spread / descriptor read would throw a `TypeError`. `Object.freeze(view)`
+    // is the realistic way in: it runs `preventExtensions` first, so the damage
+    // would land on the real store and only then would the call fail. Refusing
+    // keeps the target extensible, which is what makes the hard-coded `true`
+    // below truthful rather than a second invariant break. Same reasoning, same
+    // pair of traps, as `packages/docs/src/store/read-only.ts`.
     preventExtensions: () => false,
     isExtensible: () => true,
     // `in` does not consult `ownKeys`, so without this a hidden field still
