@@ -264,6 +264,23 @@ function writeFrame(target: { frame: Frame }, patch: Partial<Frame>): void {
 }
 
 /**
+ * Replace a live `frame` with `next` — every field of `next`, and none of
+ * what it omits — without discarding the frame object itself.
+ *
+ * `writeFrame` alone would be a merge, so a `next` that carries no flip
+ * would leave a stale `flipH` / `flipV` behind (the two optional fields).
+ * Deleting those is safe where replacing the whole object is not: they are
+ * leaves, so the reverse of removing one is a restoring set, not the
+ * key-deleting reverse `writeFrame` exists to avoid.
+ */
+function replaceFrame(target: { frame: Frame }, next: Frame): void {
+  writeFrame(target, next);
+  const frame = target.frame as unknown as Record<string, unknown>;
+  if (next.flipH === undefined) delete frame.flipH;
+  if (next.flipV === undefined) delete frame.flipV;
+}
+
+/**
  * A stored frame as geometry every consumer can do arithmetic with:
  * `ZERO_FRAME` when it carries none, otherwise itself with a finite
  * `rotation`.
@@ -1021,10 +1038,10 @@ export class YorkieSlidesStore implements SlidesStore {
           }
         }
         const plain = e as unknown as ConnectorElement;
-        c.frame = computeConnectorFrame(
+        replaceFrame(c, computeConnectorFrame(
           plain,
           lookup as unknown as ReadonlyMap<string, ModelElement>,
-        );
+        ));
       }
       const sourceNotes = yorkieToPlain<Block[]>((src as { notes: unknown }).notes) ?? [];
       const newSlide: YorkieSlide = {
@@ -1388,7 +1405,7 @@ export class YorkieSlidesStore implements SlidesStore {
             el.placeholderRef.index === ref.index &&
             framesApproxEqual({ ...el.frame } as Frame, oldFrame)
           ) {
-            el.frame = { ...newFrame };
+            replaceFrame(el, newFrame);
           }
         }
       }
@@ -1436,9 +1453,9 @@ export class YorkieSlidesStore implements SlidesStore {
         for (const el of s.elements) {
           if (el.type !== 'connector') continue;
           const plain = unwrapElement(el) as unknown as ConnectorElement;
-          (el as unknown as { frame: Frame }).frame = computeConnectorFrame(
-            plain,
-            lookup,
+          replaceFrame(
+            el as unknown as { frame: Frame },
+            computeConnectorFrame(plain, lookup),
           );
         }
       }
@@ -1825,7 +1842,7 @@ export class YorkieSlidesStore implements SlidesStore {
       // Recompute the cached frame from the (post-update) endpoints +
       // current slide elements.
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -1925,7 +1942,7 @@ export class YorkieSlidesStore implements SlidesStore {
       if (routing !== 'elbow') delete c.elbowBend;
       if (routing !== 'curved') delete c.curveBend;
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -1961,7 +1978,7 @@ export class YorkieSlidesStore implements SlidesStore {
         c.elbowBend = Math.round(bend * 100) / 100;
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -1994,7 +2011,7 @@ export class YorkieSlidesStore implements SlidesStore {
         c.curveBend = Math.min(CURVE_BEND_MAX, Math.max(CURVE_BEND_MIN, rounded));
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -2270,7 +2287,7 @@ export class YorkieSlidesStore implements SlidesStore {
         frame: Frame;
         data: { refSize: { w: number; h: number }; children: ProxyArray };
       };
-      gAny.frame = { ...newFrame };
+      replaceFrame(gAny, newFrame);
       gAny.data.refSize = { ...newRefSize };
 
       gAny.data.children.forEach((ch) => {
@@ -2280,11 +2297,10 @@ export class YorkieSlidesStore implements SlidesStore {
           start?: Endpoint;
           end?: Endpoint;
         };
-        chAny.frame = {
-          ...chAny.frame,
+        writeFrame(chAny, {
           x: chAny.frame.x - localShift.x,
           y: chAny.frame.y - localShift.y,
-        };
+        });
         if (chAny.type === 'connector') {
           for (const side of ['start', 'end'] as const) {
             const ep = chAny[side];
@@ -2350,7 +2366,7 @@ export class YorkieSlidesStore implements SlidesStore {
           start?: Endpoint;
           end?: Endpoint;
         };
-        chAny.frame = { ...next.frame };
+        replaceFrame(chAny, next.frame);
         if (next.type === 'connector') {
           (chAny as unknown as Record<'start' | 'end', Endpoint>).start = next.start;
           (chAny as unknown as Record<'start' | 'end', Endpoint>).end = next.end;
@@ -3114,7 +3130,7 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       if (mutated) {
         const plain = unwrapElement(el) as unknown as ConnectorElement;
-        c.frame = computeConnectorFrame(plain, lookup);
+        replaceFrame(c, computeConnectorFrame(plain, lookup));
       }
     }
   }
@@ -3142,7 +3158,7 @@ export class YorkieSlidesStore implements SlidesStore {
         (c.end.kind   === 'attached' && c.end.elementId   === sourceId);
       if (dependsOnUs) {
         const plain = unwrapElement(el) as unknown as ConnectorElement;
-        c.frame = computeConnectorFrame(plain, lookup);
+        replaceFrame(c, computeConnectorFrame(plain, lookup));
       }
     }
   }

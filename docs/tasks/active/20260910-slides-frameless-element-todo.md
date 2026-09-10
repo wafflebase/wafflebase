@@ -72,6 +72,14 @@ That element was the deck's only `autofit: 'grow'`.
 | `ownKeys` duplicate-key throw | 1 | 3 |
 | GC sync crash | 87 | 87 (unrelated) |
 
+Every live-proxy frame write now goes through one of two helpers:
+`writeFrame` for a merge, `replaceFrame` for a full replace (which deletes
+the optional `flipH` / `flipV` the replacement omits — safe, because those
+are leaves, so removing one reverses to a restoring set rather than the
+key-deleting reverse the helpers exist to avoid). The only direct
+assignment left is on a plain object built before it is pushed into the
+CRDT, which has no node to displace.
+
 The `ownKeys` throw is not a regression the fix introduces: seed 1056 hits it
 under *both* variants, and all three occurrences are local-only — a fresh
 client reading the server copy is clean (`SERVER READ OK, violations=[]`), so
