@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { isRevokedShareLinkError } from "@/api/share-links";
+import {
+  isRevokedShareLinkError,
+  isShareLinkResolveFatal,
+  shouldRetryShareLinkResolve,
+  type ResolvedShareLink,
+} from "@/api/share-links";
 import { HttpError } from "@/api/http-error";
 
 /**
@@ -47,5 +52,83 @@ describe("isRevokedShareLinkError", () => {
     expect(isRevokedShareLinkError(undefined)).toBe(false);
     expect(isRevokedShareLinkError(null)).toBe(false);
     expect(isRevokedShareLinkError("404")).toBe(false);
+  });
+});
+
+/**
+ * The predicate above is only half of the safety property. What actually
+ * decides whether a live editing session survives is how
+ * `SharedDocumentByToken` *composes* it with the last good `resolved`, and
+ * with `useQuery`'s retry budget. Those two expressions are the whole of the
+ * `useState`/`useEffect` → 60-second-refetch rewrite's risk surface, so they
+ * are covered here directly rather than through a mounted component.
+ */
+const resolvedLink: ResolvedShareLink = {
+  documentId: "doc-1",
+  role: "editor",
+  title: "Q3 plan",
+  type: "doc",
+};
+
+// The two failures the resolve handler produces, and the two it never does.
+const verdict = new HttpError("gone", 404);
+const expired = new HttpError("gone", 410);
+const offline = new TypeError("Failed to fetch");
+const restarting = new HttpError("bad gateway", 502);
+
+describe("isShareLinkResolveFatal", () => {
+  it("keeps a live session through a refetch failure with no verdict", () => {
+    // The reachable case: an editor link is open with unsynced edits and the
+    // lid closes for three minutes. Two interval refetches fail, so `error`
+    // is set while `resolved` still holds the last good link. Evicting here
+    // would discard the edits — this is what the `!resolved` conjunct and
+    // the verdict predicate exist to prevent together.
+    for (const err of [offline, restarting]) {
+      expect(isShareLinkResolveFatal(err, resolvedLink)).toBe(false);
+    }
+  });
+
+  it("closes a live session when the server gives its verdict", () => {
+    for (const err of [verdict, expired]) {
+      expect(isShareLinkResolveFatal(err, resolvedLink)).toBe(true);
+    }
+  });
+
+  it("closes a link that never resolved, whatever the failure was", () => {
+    // The discriminating case for the `!resolved` conjunct: with it dropped,
+    // `fatal` would be `isRevokedShareLinkError(error)` alone and a first
+    // resolve that failed on a network error would render neither the
+    // "Link unavailable" message nor an editor — a blank frame with no
+    // explanation. `undefined` is what `useQuery` reports as `data` before
+    // any success.
+    for (const err of [offline, restarting, verdict, expired]) {
+      expect(isShareLinkResolveFatal(err, undefined)).toBe(true);
+    }
+  });
+
+  it("is never fatal without an error", () => {
+    // Guards against the collapse to `Boolean(error)`'s mirror image: the
+    // pre-resolve render (`isLoading` handles it) and every successful
+    // refetch must both fall through to the editor.
+    expect(isShareLinkResolveFatal(undefined, resolvedLink)).toBe(false);
+    expect(isShareLinkResolveFatal(null, resolvedLink)).toBe(false);
+    expect(isShareLinkResolveFatal(undefined, undefined)).toBe(false);
+  });
+});
+
+describe("shouldRetryShareLinkResolve", () => {
+  it("retries a failure that carries no verdict exactly once", () => {
+    for (const err of [offline, restarting]) {
+      expect(shouldRetryShareLinkResolve(0, err)).toBe(true);
+      expect(shouldRetryShareLinkResolve(1, err)).toBe(false);
+    }
+  });
+
+  it("never retries the server's verdict", () => {
+    // Re-asking an answered question only delays closing a view whose
+    // authority is gone.
+    for (const err of [verdict, expired]) {
+      expect(shouldRetryShareLinkResolve(0, err)).toBe(false);
+    }
   });
 });

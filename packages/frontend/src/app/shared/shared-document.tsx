@@ -5,7 +5,8 @@ import { YorkieProvider, useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
 import {
   resolveShareLink,
-  isRevokedShareLinkError,
+  isShareLinkResolveFatal,
+  shouldRetryShareLinkResolve,
   ResolvedShareLink,
 } from "@/api/share-links";
 import { fetchMeOptional, fetchYorkieShareToken } from "@/api/auth";
@@ -1109,7 +1110,7 @@ export function SharedDocumentByToken({ token }: { token?: string }) {
   //
   // A revoked or expired link now closes the view rather than being carried
   // for the tab's lifetime — but only when the server *said so*. See
-  // {@link isRevokedShareLinkError}: react-query keeps `data` while reporting
+  // {@link isShareLinkResolveFatal}: react-query keeps `data` while reporting
   // `error` on a background refetch, so treating any failure as fatal tore
   // down a live editing session on the first offline blip that outlasted the
   // retry.
@@ -1124,8 +1125,7 @@ export function SharedDocumentByToken({ token }: { token?: string }) {
     refetchInterval: SHARE_LINK_REVALIDATE_MS,
     refetchOnWindowFocus: true,
     staleTime: 0,
-    retry: (failureCount, err) =>
-      !isRevokedShareLinkError(err) && failureCount < 1,
+    retry: shouldRetryShareLinkResolve,
   });
 
   if (token && isLoading) {
@@ -1134,8 +1134,11 @@ export function SharedDocumentByToken({ token }: { token?: string }) {
 
   // Close the view when the link never resolved at all, or when a re-resolve
   // came back as a *verdict* on the link. A transient failure keeps the last
-  // good `resolved` and the interval keeps trying.
-  const fatal = error && (!resolved || isRevokedShareLinkError(error));
+  // good `resolved` and the interval keeps trying. Both decisions live in
+  // `share-links.ts` so they are covered by tests rather than by mounting
+  // this component and every provider under it — see
+  // {@link isShareLinkResolveFatal}.
+  const fatal = isShareLinkResolveFatal(error, resolved);
 
   if (!token || fatal || !resolved) {
     const message = !token

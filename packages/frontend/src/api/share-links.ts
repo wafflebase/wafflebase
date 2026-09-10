@@ -146,3 +146,46 @@ export function isRevokedShareLinkError(error: unknown): boolean {
     error instanceof HttpError && SHARE_LINK_VERDICT_STATUSES.has(error.status)
   );
 }
+
+/**
+ * `useQuery`'s `retry` for the periodic re-resolve: try a failed resolve once
+ * more, unless the server has already given its verdict on the link.
+ *
+ * Retrying a `404`/`410` only re-asks a question that has been answered, and
+ * delays closing a view whose authority is gone. Retrying anything else once
+ * absorbs the single-request blip that is by far the common case, and the
+ * `refetchInterval` keeps trying after that.
+ */
+export function shouldRetryShareLinkResolve(
+  failureCount: number,
+  error: unknown,
+): boolean {
+  return !isRevokedShareLinkError(error) && failureCount < 1;
+}
+
+/**
+ * Must a failed resolve close the shared-document view?
+ *
+ * This is the composition {@link isRevokedShareLinkError} exists for, split
+ * out of `SharedDocumentByToken` so it can be tested without mounting the
+ * editor and every provider under it. Two conjuncts, each load-bearing:
+ *
+ * - `!resolved` — the link never resolved *once*, so there is no session to
+ *   protect and no authority to present. Any failure closes the view,
+ *   transient or not; the alternative is a blank frame with no explanation.
+ * - `isRevokedShareLinkError(error)` — the link did resolve, so a live
+ *   session may be holding edits that have not synced. Only the server's
+ *   verdict may evict it. A background refetch that fails while `resolved`
+ *   still holds the last good link (a closed laptop lid, a backend restart)
+ *   leaves that session alone.
+ *
+ * Collapsing this to `Boolean(error)` was the original bug; dropping
+ * `!resolved` is the opposite one, and would leave a link that never resolved
+ * at all rendering nothing. `share-links.test.ts` covers both directions.
+ */
+export function isShareLinkResolveFatal(
+  error: unknown,
+  resolved: unknown,
+): boolean {
+  return Boolean(error) && (!resolved || isRevokedShareLinkError(error));
+}
