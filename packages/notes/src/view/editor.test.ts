@@ -404,4 +404,34 @@ describe('initialize', () => {
     api.dispose();
     container.remove();
   });
+
+  it('ends the divider drag when the pointer is cancelled', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 1000, height: 600 }) as DOMRect;
+    const api = initialize(container, new MemNoteStore('hi'), 'light', false, 'both');
+    const editorEl = container.querySelector<HTMLElement>('[data-role="note-editor"]')!;
+    const divider = container.querySelector<HTMLElement>('[data-role="note-divider"]')!;
+    Object.defineProperty(divider, 'offsetWidth', { value: 25, configurable: true });
+
+    divider.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: 507.5, bubbles: true }),
+    );
+    expect(document.body.style.cursor).toBe('col-resize');
+
+    // A touch drag — which `touch-action: none` on the divider enables — is
+    // cancelled by the browser rather than ended, so no `pointerup` ever
+    // arrives. Without handling it the grab cursor and the `user-select` lock
+    // stay applied to the whole page and the move listener stays attached.
+    window.dispatchEvent(new Event('pointercancel'));
+    expect(document.body.style.cursor).toBe('');
+    expect(document.body.style.userSelect).toBe('');
+
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 605 }));
+    expect(editorEl.style.flex).toBe('1 1 50.000%');
+
+    api.dispose();
+    container.remove();
+  });
 });

@@ -559,9 +559,16 @@ export function initialize(
       editorEl.style.flex = `1 1 ${(splitRatio * 100).toFixed(3)}%`;
       preview.el.style.flex = `1 1 ${((1 - splitRatio) * 100).toFixed(3)}%`;
     };
+    // `pointercancel` alongside `pointerup`: a touch drag — which the
+    // divider's `touch-action: none` enables — is *cancelled* rather than
+    // ended when the browser takes the pointer over (a system gesture, the
+    // finger leaving the digitizer), and then no `pointerup` ever arrives. The
+    // page would keep the `col-resize` cursor and the `user-select` lock, with
+    // the move listener still tracking.
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
       document.body.style.removeProperty('cursor');
       document.body.style.removeProperty('user-select');
       endDrag = null;
@@ -572,6 +579,7 @@ export function initialize(
     document.body.style.userSelect = 'none';
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
   divider.addEventListener('pointerdown', onDividerPointerDown);
 

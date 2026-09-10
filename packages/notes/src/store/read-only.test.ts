@@ -44,6 +44,15 @@ describe('readOnlyNoteStore', () => {
 
     expect(store.getText()).toBe('hello');
     expect(store.canUndo()).toBe(false);
+    // `setLocalSelection` and `recordSelectionForHistory` write no text, so
+    // the two assertions above cannot see either one forward — and forwarding
+    // is exactly what must not happen: on `YorkieNoteStore` both publish the
+    // caret through `doc.update`, the write the auth webhook refuses a viewer.
+    // `MemNoteStore` lands both in `currentSelection`, which stands in for
+    // that presence write the same way `text` stands in for the CRDT above.
+    expect(
+      (store as unknown as { currentSelection: unknown }).currentSelection,
+    ).toBeNull();
   });
 
   it('still runs a batch body, so batched reads work', () => {
