@@ -35,6 +35,21 @@ export class MemDocStore implements DocStore {
   private redoStack: Document[] = [];
   /** Depth of nested `batch()` calls; 0 outside a batch. */
   private batchDepth = 0;
+  /**
+   * A checkpoint recorded by `snapshot()` (or opened by `batch()`) that no
+   * write has claimed yet. Null when there is none.
+   *
+   * The write is what costs an undo unit, so the checkpoint is materialized
+   * onto {@link undoStack} by the first {@link willWrite} that follows —
+   * never by `snapshot()` itself. See `snapshot()` for why.
+   *
+   * **Invariant: when non-null this holds a clone equal to the current
+   * document.** It is only ever set from `cloneDocument(this.doc)`, it is
+   * consumed by the first write, and `undo()` / `redo()` — the only other
+   * things that move `this.doc` — discard it. Everything else here relies on
+   * that, which is what lets `batch()` adopt it without comparing values.
+   */
+  private pendingSnapshot: Document | null = null;
 
   constructor(doc?: Document) {
     this.doc = doc ? cloneDocument(doc) : { blocks: [] };
@@ -171,12 +186,19 @@ export class MemDocStore implements DocStore {
 
   undo(): void {
     if (!this.canUndo()) return;
+    // A checkpoint nothing has written against describes the state this is
+    // about to leave, so it cannot be the "before" of anything that comes
+    // next. Discarding it here (and in `redo`) is what upholds
+    // `pendingSnapshot`'s invariant, since these are the only two places
+    // `this.doc` moves without a write.
+    this.pendingSnapshot = null;
     this.redoStack.push(cloneDocument(this.doc));
     this.doc = this.undoStack.pop()!;
   }
 
   redo(): void {
     if (!this.canRedo()) return;
+    this.pendingSnapshot = null;
     this.undoStack.push(cloneDocument(this.doc));
     this.doc = this.redoStack.pop()!;
   }
@@ -190,33 +212,45 @@ export class MemDocStore implements DocStore {
   }
 
   /**
-   * Drop the redo history, because the document is about to change.
+   * Claim the pending checkpoint and drop the redo history, because the
+   * document is about to change.
    *
-   * A **write** is what invalidates redo here — not `snapshot()`, which only
-   * records a checkpoint. `YorkieDocStore` has that rule for free: its
-   * `snapshot()` is a no-op and `doc.history` clears redo when a change is
-   * pushed. Clearing in `snapshot()` instead made the two stores answer
+   * A **write** is what costs an undo unit and what invalidates redo here —
+   * not `snapshot()`, which only records a checkpoint.  `YorkieDocStore` has
+   * both rules for free: its `snapshot()` is a no-op, and `doc.history` takes
+   * its units from `doc.update()` and clears redo when a change is pushed.
+   * Doing either in `snapshot()` instead made the two stores answer
    * differently for the `saveSnapshot(); withUndoUnit(…)` ordering
-   * `TextEditor` requires: on a unit whose body ends up writing nothing,
-   * `YorkieDocStore` pushes no change and keeps its redo entries, while this
-   * store had already thrown them away and `batch()`'s `priorRedo` restore
-   * put back an already-emptied stack.
+   * `TextEditor` requires — see `snapshot()` and `batch()`.
    *
    * Called before the mutation rather than after, so a method that throws
-   * part-way still leaves no redo entry that could be applied on top of the
-   * partial write. Inside a batch this is what `batch()`'s `priorRedo` puts
-   * back when the body turns out to have written nothing.
+   * part-way still leaves the checkpoint that makes its partial write
+   * undoable, and no redo entry that could be applied on top of it.
    */
   private willWrite(): void {
+    if (this.pendingSnapshot !== null) {
+      this.undoStack.push(this.pendingSnapshot);
+      this.pendingSnapshot = null;
+    }
     this.redoStack = [];
   }
 
   snapshot(): void {
     // Inside a batch the checkpoint has already been taken by `batch()`
-    // itself, and it captured the true pre-batch state. Pushing again here
-    // would make one batch N undo units — the opposite of the contract.
+    // itself, and it captured the true pre-batch state. Recording again here
+    // would be harmless (the pending one already holds this state) but would
+    // discard the batch's own handle on it, so it is skipped outright.
     if (this.batchDepth > 0) return;
-    this.pushUndo();
+    // Recorded, not pushed. A checkpoint holds exactly the current document,
+    // so until something is written it is a Cmd+Z that changes nothing — and
+    // an action that snapshots and then writes nothing is ordinary (the
+    // indent button with every list item already at `MAX_LIST_LEVEL`, a
+    // find-replace with no matches). Pushing eagerly cost the user a dead
+    // Cmd+Z and, since redo survives, a dead Cmd+Shift+Z after it, leaving
+    // the real redo entry one press further away than it looks.
+    // `willWrite()` materializes it if and when a write arrives, which is
+    // also the answer `YorkieDocStore` gives.
+    this.pendingSnapshot = cloneDocument(this.doc);
   }
 
   batch(fn: () => void): void {
@@ -232,38 +266,39 @@ export class MemDocStore implements DocStore {
       }
       return;
     }
-    // Checkpoint up front rather than letting the body's first `snapshot()`
-    // do it. Deferring would mean a body that writes *before* it snapshots
-    // (every editor operation snapshots partway through, so composing two of
-    // them lands here) leaves those first writes permanently unundoable, and
-    // a body that never snapshots at all costs no undo unit — neither of
-    // which `YorkieDocStore` does, since its single `doc.update` covers the
-    // whole body regardless. Mirrors `MemSlidesStore.batch()`.
+    // Open a checkpoint for the whole body rather than letting the body's own
+    // `snapshot()` do it. A body that writes *before* it snapshots is
+    // ordinary — every editor operation snapshots partway through, so
+    // composing two of them lands here — and those first writes must not
+    // become unundoable; a body that never snapshots at all must still cost
+    // one unit. `YorkieDocStore` answers both by construction: its single
+    // `doc.update` covers the body regardless.
     //
     // A `snapshot()` taken *immediately before* the batch is the one ordering
-    // this must not double-count. The docs `TextEditor.withUndoUnit()` needs
-    // it there — on `YorkieDocStore` the snapshot also flushes the pre-edit
-    // caret into presence, and that write is dropped inside an open batch
-    // (`skipNonHistoryPresence`) — but here it has already pushed a
-    // checkpoint holding exactly this state, so pushing a second, identical
-    // one would cost a dead Cmd+Z on every edit in every MemDocStore host
-    // (slides text boxes, the docs demo, the visual harness). Adopt the
-    // checkpoint already on the stack instead: it *is* the "before" this
-    // batch wants. Compared by value for the same reason `wroteNothing` is —
-    // there is no flag a mutation could reliably clear — and only ever true
-    // when the last recorded state is the current one, i.e. when nothing has
-    // been written since it was taken.
-    const beforeClone = cloneDocument(this.doc);
-    const beforeJson = JSON.stringify(beforeClone);
-    const top = this.undoStack[this.undoStack.length - 1];
-    const adopted = top !== undefined && JSON.stringify(top) === beforeJson;
-    const before = adopted ? top : beforeClone;
+    // this must not double-count. `TextEditor.withUndoUnit()` needs it there,
+    // because on `YorkieDocStore` the snapshot also flushes the pre-edit
+    // caret into presence and that write is dropped inside an open batch
+    // (`skipNonHistoryPresence`). Here it has left a checkpoint pending which
+    // — by `pendingSnapshot`'s invariant — holds exactly this state, so it
+    // *is* the "before" this batch wants: adopt it instead of recording a
+    // second, identical one, which would cost a dead Cmd+Z on every edit in
+    // every `MemDocStore` host (slides text boxes, the docs demo, the visual
+    // harness).
+    //
+    // This is not `MemSlidesStore.batch()`'s shape. That store has no
+    // `snapshot()` seam at all — its mutators `requireBatch()` — so it pushes
+    // unconditionally and clears redo inside `batch()`, and there is no
+    // ordering for it to reconcile. The two stores agree on what a *user*
+    // sees (one batch, one undo unit); they do not share this implementation.
+    const adopted = this.pendingSnapshot !== null;
+    const before = this.pendingSnapshot ?? cloneDocument(this.doc);
+    this.pendingSnapshot = before;
+    const beforeJson = JSON.stringify(before);
     // Redo is dropped by the body's first write (`willWrite`), not here, so a
     // body that writes nothing never touches it. `priorRedo` still puts it
-    // back for a body that writes and then reverts itself, which `wroteNothing`
-    // also treats as free.
+    // back for a body that writes and then reverts itself, which
+    // `wroteNothing` also treats as free.
     const priorRedo = this.redoStack;
-    if (!adopted) this.undoStack.push(before);
     this.batchDepth++;
     try {
       fn();
@@ -283,19 +318,26 @@ export class MemDocStore implements DocStore {
       // verbatim), leaving a dead undo checkpoint behind.
       //
       // On a throw the partial writes stand (this store does not roll back),
-      // so the checkpoint is kept — that is what makes the mess undoable.
-      const wroteNothing =
-        this.undoStack[this.undoStack.length - 1] === before &&
-        beforeJson === JSON.stringify(cloneDocument(this.doc));
+      // so a materialized checkpoint is kept — that is what makes the mess
+      // undoable.
+      const wroteNothing = beforeJson === JSON.stringify(cloneDocument(this.doc));
       if (wroteNothing) {
-        // Only ever pop a checkpoint this batch pushed. An *adopted* one
-        // belongs to the `snapshot()` that ran before the batch opened, and
-        // that snapshot covers the whole action — including writes the caller
-        // makes after the unit closes. `TextEditor.handleBackspace()` is
-        // exactly that shape (`saveSnapshot()`, then `deleteSelection()`, then
-        // more writes when it returns false), so popping here would leave
+        // Give back only a checkpoint this batch opened itself. An *adopted*
+        // one belongs to the `snapshot()` that ran before the batch, and that
+        // snapshot covers the whole action — including writes the caller makes
+        // after the unit closes. `TextEditor.handleBackspace()` is exactly
+        // that shape (`saveSnapshot()`, then `deleteSelection()`, then more
+        // writes when it returns false), so dropping it here would leave
         // those trailing writes permanently unundoable.
-        if (!adopted) this.undoStack.pop();
+        if (!adopted) {
+          if (this.undoStack[this.undoStack.length - 1] === before) {
+            // The body wrote (and reverted): the checkpoint was materialized.
+            this.undoStack.pop();
+          } else if (this.pendingSnapshot === before) {
+            // The body never wrote at all, so it is still pending.
+            this.pendingSnapshot = null;
+          }
+        }
         this.redoStack = priorRedo;
       }
     }
@@ -522,7 +564,4 @@ export class MemDocStore implements DocStore {
     return undefined;
   }
 
-  private pushUndo(): void {
-    this.undoStack.push(cloneDocument(this.doc));
-  }
 }

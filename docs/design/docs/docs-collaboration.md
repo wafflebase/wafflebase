@@ -279,8 +279,9 @@ still read "in a batch" during the SDK's post-updater work (the change push
 and the synchronous `local-change` publish), which runs after the ambient
 root is already gone; a subscriber re-entering `batch()` there would take the
 fast path with no root and get one undo unit per write. `MemDocStore`, whose
-undo unit is anchored to `snapshot()` rather than to an update, satisfies the
-same contract with a depth counter plus a checkpoint taken up front. The
+undo unit is a checkpoint rather than an update, satisfies the same contract
+with a depth counter plus a checkpoint opened up front and materialized by
+the body's first write (see the `saveSnapshot()` rule below). The
 architecture is `YorkieSlidesStore`'s — see
 [slides-native-undo.md](../slides/slides-native-undo.md), whose sketch uses
 the counter for both stores.
@@ -382,35 +383,46 @@ still one unit. Two rules the helper enforces:
   would silently make undo restore the *post*-edit caret.
 
   That ordering has to cost nothing on either store. On `YorkieDocStore` it
-  is free — `snapshot()` is a no-op there. On `MemDocStore`, where the
-  checkpoint *is* the undo unit, `batch()` would otherwise push a second,
-  identical one and every batched edit would cost a dead Cmd+Z in a slides
-  text box or the demo app. `MemDocStore.batch()` therefore **adopts** a
-  checkpoint that holds exactly the current state instead of pushing its own
-  — only ever true when nothing has been written since it was taken, which is
-  precisely the `saveSnapshot(); withUndoUnit(…)` shape. `link-run.ts` solves
-  the same collision the other way (it snapshots *inside* its batch) because
-  it has no pre-edit presence to flush.
+  is free — `snapshot()` is a no-op there. On `MemDocStore` it is what forced
+  the store's one real design decision: **the write, not `snapshot()`, is
+  what costs an undo unit and what drops redo.** `snapshot()` *records* a
+  checkpoint (`pendingSnapshot`); the first mutator that follows
+  (`willWrite()`, called by every one of them) pushes it onto the undo stack
+  and clears redo. `batch()` opens a checkpoint the same way and adopts a
+  pending one rather than recording a second, identical one — which is
+  precisely the `saveSnapshot(); withUndoUnit(…)` shape, and pushing twice
+  there would cost a dead Cmd+Z on every batched edit in a slides text box or
+  the demo app. `link-run.ts` solves the same collision the other way (it
+  snapshots *inside* its batch) because it has no pre-edit presence to flush.
 
-  Adoption is a loan, not a transfer: a batch only ever pops a checkpoint it
-  pushed **itself**. An adopted one belongs to the `saveSnapshot()` before it,
-  and that snapshot covers the whole action — including writes the caller
-  makes *after* the unit closes, which is exactly the shape of
-  `handleBackspace` / `handleDelete` (snapshot, `deleteSelection()`, then more
-  writes when it returns false). Popping it because the unit itself wrote
-  nothing would leave those trailing writes unundoable.
+  Deferring is not only about the collision. A checkpoint holds exactly the
+  current document, so until something is written it is a Cmd+Z that changes
+  nothing — and an action that snapshots and then writes nothing is ordinary
+  (the indent button with every list item already at `MAX_LIST_LEVEL`, a
+  Replace All with no matches). Pushed eagerly, that action cost the user a
+  dead Cmd+Z and then, because redo survives, a dead Cmd+Shift+Z after it,
+  leaving the real redo entry one press further away than it looked.
+  `YorkieDocStore` answers "nothing to undo" there by construction, and
+  deferring is what makes this store agree. `undo()` / `redo()` discard a
+  pending checkpoint, since they are the only other things that move the
+  document and a checkpoint of the state being left cannot be the "before" of
+  what comes next.
 
-  The redo half of that parity needs the same care, and it is why a **write**
-  — not `snapshot()` — is what drops `MemDocStore`'s redo stack (`willWrite()`,
-  called by every mutator). `YorkieDocStore` gets that rule from Yorkie:
-  `snapshot()` is a no-op there and `doc.history` clears redo when a change is
-  pushed, so `saveSnapshot()` followed by a unit that writes nothing keeps its
-  redo entries. Clearing eagerly in `snapshot()` made this store lose them, and
-  `batch()`'s `priorRedo` restore could then only put back an already-emptied
-  stack. Restoring them *without* moving the clear to write time would have
-  been worse than the divergence: redo would stay armed across the writes that
-  follow the unit, and pressing it would replace the document with a state that
-  branch no longer leads to.
+  Adoption is a loan, not a transfer: a batch only ever gives back a
+  checkpoint it opened **itself**. An adopted one belongs to the
+  `saveSnapshot()` before it, and that snapshot covers the whole action —
+  including writes the caller makes *after* the unit closes, which is exactly
+  the shape of `handleBackspace` / `handleDelete` (snapshot,
+  `deleteSelection()`, then more writes when it returns false). Reclaiming it
+  because the unit itself wrote nothing would leave those trailing writes
+  unundoable.
+
+  `MemSlidesStore.batch()` is **not** the same shape, though the two stores
+  agree on what a user sees. That store has no `snapshot()` seam at all — its
+  mutators `requireBatch()`, so a write outside a batch is an error rather
+  than an undo unit — which leaves it no ordering to reconcile: it pushes
+  unconditionally and clears redo inside `batch()`. The shared contract is the
+  list above, not the implementation.
 
 ##### The undo floor is an entry, not a depth
 

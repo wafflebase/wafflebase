@@ -109,6 +109,21 @@ function setupEditor(): {
 }
 
 /**
+ * Put one real undo unit on the store's stack, so `editor.undo()` — which is
+ * gated on `docStore.canUndo()` — actually runs its caret restore.
+ *
+ * A bare `snapshot()` will not do it: the store defers the checkpoint to the
+ * first write, because an action that snapshots and then writes nothing must
+ * not cost a dead Cmd+Z (see `MemDocStore.snapshot()`). The edit is reverted
+ * by the undo under test, so the document these cases measure against is the
+ * original text either way.
+ */
+function undoableEdit(store: PresenceMemDocStore): void {
+  store.snapshot();
+  store.insertText('b1', 0, 'x');
+}
+
+/**
  * Drive the caret to the start of a continuation visual line — a real wrap
  * boundary, the only kind of offset where the reading decides which of two
  * visual lines the caret is drawn on.
@@ -239,7 +254,7 @@ describe('undo/redo restores the caret reading from presence', () => {
       offset: boundary,
       lineAffinity: 'forward',
     };
-    store.snapshot();
+    undoableEdit(store);
     editor.undo();
 
     const caret = editor._getCursorForTest();
@@ -257,7 +272,7 @@ describe('undo/redo restores the caret reading from presence', () => {
     const boundary = wrapBoundary(editor, container);
     caretAt(editor, 0);
 
-    store.snapshot();
+    undoableEdit(store);
     editor.undo();
     store.presenceCursorPos = {
       blockId: 'b1',
@@ -285,7 +300,7 @@ describe('undo/redo restores the caret reading from presence', () => {
       offset: WRAPPED_TEXT.length + 50,
       lineAffinity: 'forward',
     };
-    store.snapshot();
+    undoableEdit(store);
     editor.undo();
 
     const caret = editor._getCursorForTest();

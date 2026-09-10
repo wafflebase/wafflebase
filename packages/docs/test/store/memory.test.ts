@@ -336,20 +336,71 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
     });
 
-    it('a batch that writes nothing keeps the checkpoint it adopted', () => {
+    it('a batch that writes nothing keeps the checkpoint it adopted pending', () => {
       // Adoption is a loan: the checkpoint belongs to the `saveSnapshot()`
-      // before the batch, and that snapshot covers the whole action. Popping
-      // it because the *unit* wrote nothing would strand whatever the caller
-      // writes after it — see the `handleBackspace` case below. What the batch
-      // owes is only that it push no second, identical one.
+      // before the batch, and that snapshot covers the whole action, so the
+      // batch must not consume it for writing nothing — it would strand
+      // whatever the caller writes next (see the `handleBackspace` case
+      // below). But nothing has been written *yet*, so there is nothing to
+      // undo, exactly as `YorkieDocStore` answers here: its `snapshot()` is a
+      // no-op and an empty batch pushes no change.
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
       store.snapshot();
       store.batch(() => {});
-      expect(store.canUndo()).toBe(true);
-
-      store.undo();
       expect(store.canUndo()).toBe(false);
+
+      // The loan is still live: the next write materializes it.
+      store.insertText(block.id, 5, '!');
+      expect(store.canUndo()).toBe(true);
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('an action that snapshots but writes nothing costs no undo unit', () => {
+      // `snapshot()` records a checkpoint holding exactly the current
+      // document, so a checkpoint whose action turns out to write nothing is
+      // dead weight: the indent button with every list item already at
+      // `MAX_LIST_LEVEL` is that action. Pushed eagerly it cost the user a
+      // dead Cmd+Z and then a dead Cmd+Shift+Z to get back — with the redo
+      // entry sitting one press further away than it looks.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.canRedo()).toBe(true);
+
+      store.snapshot();
+
+      expect(store.canUndo()).toBe(false);
+      // And redo still reaches the entry in ONE press.
+      store.redo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
+    });
+
+    it('undo does not apply a checkpoint left pending by a no-op action', () => {
+      // The same shape driven through the keys: Cmd+Z after the dead action
+      // must undo the *edit*, not restore the state the document is already
+      // in. A pending checkpoint is discarded by undo/redo, which are the
+      // only other things that move `this.doc`.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+
+      store.snapshot(); // the no-op action
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+      expect(store.canUndo()).toBe(false);
+
+      // The discarded checkpoint must not resurface under the next action:
+      // its undo has to land on 'Hello', not jump forward to 'Hello!'.
+      store.snapshot();
+      store.insertText(block.id, 5, '?');
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
     });
 
     it('a write between snapshot() and batch() is not swallowed', () => {
