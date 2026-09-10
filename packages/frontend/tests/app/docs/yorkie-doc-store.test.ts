@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, expect } from 'vitest';
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell } from '@wafflebase/docs';
@@ -34,6 +34,12 @@ describe('YorkieDocStore', () => {
       });
     });
     store = new YorkieDocStore(doc);
+  });
+
+  afterEach(() => {
+    // One test spies on `doc.getUndoStackForTest`; `doc` is rebuilt per test
+    // but the spy is restored here so nothing leaks if that ever changes.
+    vi.restoreAllMocks();
   });
 
   describe('setDocument and getDocument', () => {
@@ -383,6 +389,35 @@ describe('YorkieDocStore', () => {
       // Every one of the 50 surviving entries is above the (now dropped)
       // floor. The length-vs-depth comparison stopped at 50 - floorDepth.
       expect(undone).toBe(50);
+    });
+
+    // `getUndoStackForTest()` is, by its name, not a stable contract: it
+    // returns the live array today, but an SDK that started handing back a
+    // copy of rebuilt entries would make the identity lookup miss every
+    // time, and "the floor is gone" is the *permissive* answer. So identity
+    // is verified when the floor is marked, and a store that cannot verify
+    // it falls back to the depth comparison rather than trusting a lookup
+    // it knows is meaningless.
+    it('falls back to the depth floor when the undo stack is not identity-stable', () => {
+      // Copy both the array and its entries on every read, i.e. the worst
+      // case the identity lookup could be handed.
+      const live = doc.getUndoStackForTest.bind(doc);
+      vi.spyOn(doc, 'getUndoStackForTest').mockImplementation(() =>
+        live().map((entry) => [...entry]),
+      );
+
+      const block = makeBlock('Hello');
+      const seededStore = new YorkieDocStore(doc);
+      seededStore.setDocument({ blocks: [block] });
+
+      // The floor still holds: nothing above it yet, and the identity
+      // lookup — which would have found nothing and said "undo away" — is
+      // not consulted at all.
+      expect(seededStore.canUndo()).toBe(false);
+      seededStore.insertText(block.id, 5, '!');
+      expect(seededStore.canUndo()).toBe(true);
+      seededStore.undo();
+      expect(seededStore.canUndo()).toBe(false);
     });
 
     it('undo should restore cursor position via presence', () => {

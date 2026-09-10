@@ -559,6 +559,16 @@ type UndoStackEntry = ReturnType<
   YorkieDocument<YorkieDocsRoot>['getUndoStackForTest']
 >[number];
 
+/**
+ * Mirrors the SDK's `MaxUndoRedoStackDepth`, which it does not export. Read
+ * only as "the stack can have dropped an entry" — never as an index — so
+ * drifting from the SDK is not a correctness hazard: a *larger* real cap
+ * still satisfies the comparison at the point entries start falling off, and
+ * a smaller one just leaves `canUndo()` on its depth fallback, which refuses
+ * an undo rather than allowing one past the initial load.
+ */
+const YORKIE_MAX_UNDO_DEPTH = 50;
+
 // ---------------------------------------------------------------------------
 // YorkieDocStore
 // ---------------------------------------------------------------------------
@@ -583,8 +593,36 @@ export class YorkieDocStore implements DocStore {
    * then refused undos that were still perfectly reachable (issue #1045). An
    * entry that has been dropped is simply not found, which is exactly the
    * "the floor is gone, so everything left is above it" answer.
+   *
+   * Identity is a load-bearing assumption about `getUndoStackForTest()` —
+   * that it hands back the live internal array rather than a copy of freshly
+   * built entries. It does today (`History.getUndoStackForTest` returns
+   * `this.undoStack`, and `pushUndo` stores the caller's array by reference),
+   * but the name says it is not a contract. So it is *verified* at mark time
+   * rather than trusted: see {@link undoFloorIdentityUsable}, and
+   * {@link undoFloorDepth} for what happens when it does not hold.
    */
   private undoFloorMark: UndoStackEntry | null = null;
+  /**
+   * The floor expressed as a stack depth: the number of entries at or below
+   * the floor, i.e. `canUndo()` is false at exactly this length.
+   *
+   * Kept alongside the identity mark for two reasons. It is refreshed from
+   * the mark's live index on every successful lookup, so it tracks entries
+   * shifting off the bottom instead of going stale at its load-time value;
+   * and it is the fallback whenever the mark cannot be located by identity,
+   * which is the pre-#1045 behaviour — occasionally over-restrictive, never
+   * wrong in the destructive direction.
+   */
+  private undoFloorDepth = 0;
+  /**
+   * Whether `getUndoStackForTest()` was observed to return identity-stable
+   * entries when the floor was marked. False disables the identity path
+   * entirely and leaves {@link undoFloorDepth} in charge, so an SDK that
+   * starts copying the stack degrades to refusing an undo rather than
+   * silently allowing one past the initial load.
+   */
+  private undoFloorIdentityUsable = false;
   /**
    * The live Yorkie root for the duration of a top-level `batch()`. Set
    * while the batch's single `doc.update` is open; every write routes
@@ -884,7 +922,15 @@ export class YorkieDocStore implements DocStore {
    */
   private markUndoFloor(): void {
     const stack = this.doc.getUndoStackForTest();
+    this.undoFloorDepth = stack.length;
     this.undoFloorMark = stack.length > 0 ? stack[stack.length - 1] : null;
+    // Prove the assumption instead of relying on it. A second read has to
+    // hand back the same entry object at the same index for the identity
+    // lookup in `canUndo()` to mean anything; if it does not — a copying
+    // accessor, a rebuilt entry — `undoFloorDepth` alone decides.
+    this.undoFloorIdentityUsable =
+      this.undoFloorMark !== null &&
+      this.doc.getUndoStackForTest()[stack.length - 1] === this.undoFloorMark;
   }
 
   replaceDocument(doc: Document): void {
@@ -2996,12 +3042,37 @@ export class YorkieDocStore implements DocStore {
 
   canUndo(): boolean {
     if (!this.doc.history.canUndo()) return false;
-    if (this.undoFloorMark === null) return true;
+    if (this.undoFloorMark === null && this.undoFloorDepth === 0) return true;
     const stack = this.doc.getUndoStackForTest();
-    // Where the floor is *now*, not how deep it was when it was recorded:
-    // Yorkie drops the oldest entry once the stack is full, and a floor that
-    // has itself been dropped (`-1`) leaves everything remaining undoable.
-    return stack.lastIndexOf(this.undoFloorMark) < stack.length - 1;
+    if (this.undoFloorIdentityUsable && this.undoFloorMark !== null) {
+      // Where the floor is *now*, not how deep it was when it was recorded:
+      // Yorkie drops the oldest entry once the stack is full, so the floor
+      // sinks toward index 0 as edits accumulate.
+      const index = stack.lastIndexOf(this.undoFloorMark);
+      if (index >= 0) {
+        // Cache it, so the depth fallback below is never staler than the
+        // last time the floor was actually seen.
+        this.undoFloorDepth = index + 1;
+        return stack.length > index + 1;
+      }
+      // Gone. A copying accessor is already ruled out (identity was proven
+      // at mark time), so either the entry was shifted off the bottom or the
+      // SDK rebuilt it in place. Only a stack at the cap can have dropped
+      // anything, which is what tells the two apart.
+      if (stack.length >= YORKIE_MAX_UNDO_DEPTH) {
+        // Dropped for good: the entries below the floor no longer exist, so
+        // there is nothing left to undo past. Latch it — the next call sees
+        // a shorter stack (an undo popped one) and would otherwise fall to
+        // the stale depth and start refusing reachable undos again (#1045).
+        this.undoFloorMark = null;
+        this.undoFloorDepth = 0;
+        this.undoFloorIdentityUsable = false;
+        return true;
+      }
+      // Rebuilt, then. Fall through to the depth, which is the pre-#1045
+      // behaviour: over-restrictive at worst, never destructive.
+    }
+    return stack.length > this.undoFloorDepth;
   }
 
   canRedo(): boolean {

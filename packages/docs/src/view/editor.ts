@@ -405,6 +405,14 @@ export interface EditorAPI {
   /** Clean up */
   dispose(): void;
   /**
+   * Whether {@link dispose} has run. A disposed editor is inert — every
+   * mutating method has been neutered — but a long-running async caller
+   * that captured it before disposal (an image upload, a clipboard read)
+   * cannot tell that from a successful write. Ask this after any `await`
+   * before reporting success to the user.
+   */
+  isDisposed(): boolean;
+  /**
    * Test-only: set the selection range directly. Production code drives
    * selection through pointer / keyboard events on the TextEditor; tests
    * use this to skip the input layer and exercise selection-derived APIs
@@ -1021,6 +1029,46 @@ function assertUsablePageSetup(setup: PageSetup): void {
       'Invalid page setup: top and bottom margins leave no room for content',
     );
   }
+}
+
+/**
+ * Every `EditorAPI` member that writes to the document. Kept in one place
+ * because two different conditions have to neutralize the same set: a
+ * read-only mount (never allow a write) and {@link EditorAPI.dispose} (the
+ * editor is gone, so a write from a stale holder must not land).
+ *
+ * Keep in sync when adding a mutating method.
+ */
+const MUTATING_METHODS = [
+  'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',
+  'undo', 'redo', 'setBlockType', 'setDocStyles',
+  'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
+  'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',
+  'applySpellSuggestion', 'cut', 'paste', 'insertTable', 'deleteTable',
+  'insertTableRow', 'deleteTableRow', 'insertTableColumn',
+  'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
+  'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
+  'insertPageNumber', 'setPageSetup',
+] as const;
+
+/**
+ * Replace every mutating member of `api` with a no-op, in place.
+ *
+ * In place rather than by wrapping, because the holders that matter already
+ * captured the object: an async continuation that awaited an upload or a
+ * clipboard read resumes on the *same* reference it started with.
+ */
+function neuterMutations(api: EditorAPI): void {
+  const noop = () => {};
+  for (const name of MUTATING_METHODS) {
+    // `paste`/`insertImage` are async (Promise<void>); the rest are sync
+    // void. A bare no-op satisfies both — callers only await or ignore.
+    (api as unknown as Record<string, () => void>)[name] = noop;
+  }
+  // `pasteFormat` is mutating too, but it reports whether it wrote. A bare
+  // no-op returns `undefined`, which a caller reads as "nothing applied"
+  // only by accident — be explicit so the neutered version cannot lie.
+  api.pasteFormat = () => false;
 }
 
 /**
@@ -3261,6 +3309,9 @@ export function initialize(
     // post-validation value while `get` kept returning the guard (#991).
   });
 
+  /** Set by `dispose()`; read back through `isDisposed()`. */
+  let disposed = false;
+
   const api: EditorAPI = {
     render,
     getDoc: () => doc,
@@ -4379,7 +4430,18 @@ export function initialize(
       needsScrollIntoView = true;
       render();
     },
+    isDisposed: () => disposed,
     dispose: () => {
+      // Neuter first, and unconditionally: `readOnly` is baked into this
+      // editor at construction, so an editor built while the session could
+      // still write stays writable for as long as anyone holds it. The host
+      // rebuilds the editor when the role drops to viewer and disposes this
+      // one, but an async continuation captured before the downgrade (an
+      // image upload in flight, a clipboard read) resumes on this object and
+      // would otherwise write through a permission the session no longer
+      // has. Disposal is the only moment the host can revoke it.
+      disposed = true;
+      neuterMutations(api);
       peerCursors = [];
       cursorMoveCallbacks.clear();
       lastPeerPixels = [];
@@ -4446,27 +4508,7 @@ export function initialize(
   // object it merely returns, and adding them here would have looked like
   // it did.
   if (readOnly) {
-    const MUTATING_METHODS = [
-      'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',
-      'undo', 'redo', 'setBlockType', 'setDocStyles',
-      'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
-      'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',
-      'applySpellSuggestion', 'cut', 'paste', 'insertTable', 'deleteTable',
-      'insertTableRow', 'deleteTableRow', 'insertTableColumn',
-      'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
-      'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
-      'insertPageNumber', 'setPageSetup',
-    ] as const;
-    const noop = () => {};
-    for (const name of MUTATING_METHODS) {
-      // `paste`/`insertImage` are async (Promise<void>); the rest are sync
-      // void. A bare no-op satisfies both — callers only await or ignore.
-      (api as unknown as Record<string, () => void>)[name] = noop;
-    }
-    // `pasteFormat` is mutating too, but it reports whether it wrote. A bare
-    // no-op returns `undefined`, which a caller reads as "nothing applied"
-    // only by accident — be explicit so the neutered version cannot lie.
-    api.pasteFormat = () => false;
+    neuterMutations(api);
   }
 
   return api;

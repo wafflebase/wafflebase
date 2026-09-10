@@ -34,10 +34,11 @@ function stubImageLoads(width = 320, height = 240) {
   });
 }
 
-function fakeEditor() {
+function fakeEditor(disposed = false) {
   return {
     insertImage: vi.fn(),
     focus: vi.fn(),
+    isDisposed: vi.fn().mockReturnValue(disposed),
   } as unknown as EditorAPI & { insertImage: ReturnType<typeof vi.fn> };
 }
 
@@ -134,6 +135,19 @@ describe("insertImageFromFile", () => {
   it("inserts nothing when the upload is refused", async () => {
     const editor = fakeEditor();
     const upload = vi.fn().mockRejectedValue(new Error("read-only"));
+
+    await insertImageFromFile(editor, pngFile(), undefined, upload);
+
+    expect(editor.insertImage).not.toHaveBeenCalled();
+  });
+
+  it("inserts nothing when the editor was disposed under the upload", async () => {
+    // A `/shared/:token` role drop `editor` → `viewer` rebuilds the editor
+    // read-only and disposes this one while the upload is still in flight.
+    // `readOnly` is baked in at construction, so the captured instance is
+    // still writable — disposal is what revokes it.
+    const editor = fakeEditor(true);
+    const upload = vi.fn().mockResolvedValue("/img.png");
 
     await insertImageFromFile(editor, pngFile(), undefined, upload);
 

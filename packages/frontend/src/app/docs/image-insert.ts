@@ -124,6 +124,14 @@ function loadFileDimensions(
  * `upload` defaults to the authenticated owner path; a shared-link mount
  * passes {@link shareTokenImageUploader} instead. The size is read off the
  * local file rather than the uploaded URL — see {@link loadFileDimensions}.
+ *
+ * The upload is a network round trip, so the editor this resumes on may no
+ * longer be the mounted one: a `/shared/:token` session whose role drops
+ * `editor` → `viewer` mid-flight rebuilds the editor read-only and disposes
+ * this one. `readOnly` is baked in at construction, so the captured instance
+ * cannot be downgraded in place — {@link EditorAPI.dispose} neuters its
+ * mutators instead, and {@link EditorAPI.isDisposed} is how this path tells
+ * a neutered no-op from a write that landed.
  */
 export async function insertImageFromFile(
   editor: EditorAPI,
@@ -134,6 +142,10 @@ export async function insertImageFromFile(
   try {
     const { width, height } = await loadFileDimensions(file);
     const url = await upload(file);
+    if (editor.isDisposed()) {
+      toast.error("Image not inserted: this document is no longer editable");
+      return;
+    }
     editor.insertImage(url, width, height, {
       originalWidth: width,
       originalHeight: height,
@@ -178,6 +190,12 @@ export async function insertImageFromUrl(
   }
   try {
     const { width, height } = await loadImageDimensions(trimmed);
+    // Same stale-editor check as `insertImageFromFile`: the preflight load
+    // is a network round trip, and the role can drop under it.
+    if (editor.isDisposed()) {
+      toast.error("Image not inserted: this document is no longer editable");
+      return false;
+    }
     editor.insertImage(trimmed, width, height, {
       originalWidth: width,
       originalHeight: height,
