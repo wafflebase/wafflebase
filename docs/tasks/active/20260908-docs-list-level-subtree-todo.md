@@ -126,3 +126,48 @@ behavior, untouched by the subtree rule.
   (width under the ~624 px content width, so `clampImageToWidth` scales
   nothing) silently vanishes on the next read. Wants a proportional clamp
   helper at the three read boundaries, or a height bound at insert.
+
+### Round 10
+
+A local 5-lens panel found no blocking and no confirmed-major finding. Four
+of what it did find were defects in round 9's own fixes, and two were tests
+that guarded nothing — closed here; the numeric-hardening program is not
+extended to any new attribute.
+
+- [x] **Regression: the deduped list-level ceiling dropped a coercion.**
+      Round 9 routed the PPTX exporter's `listLevelAttr` through
+      `normalizeListLevel` to remove the third copy of `[0, 8]`, but the old
+      `Math.min(8, Math.trunc(Number(...)))` coerced and `normalizeListLevel`
+      takes a `number`. A numeric-string `listLevel` — what a level is after a
+      round trip through JSON, which is how a slides text body is persisted —
+      exported at level 0. Coerced at the sink, band still shared; the JSDoc
+      no longer claims the band coerces.
+- [x] **`lineHeight` at the paste boundary.** Round 9's own band-parity claim
+      did not hold: the paste sanitizer banded `fontSize`, image size,
+      `rowHeights` and cell `padding` but not `lineHeight`, and the clipboard
+      test did not assert the gap. Reuses `normalizeLineHeight`.
+- [x] **`parseBlockStyleAttrs`'s asymmetry comment was wrong about the code.**
+      Both halves of it said a `PUT` of `lineHeight: 1e9` "is read as absent".
+      The band *clamps* a finite out-of-band value to `MAX_LINE_HEIGHT` and
+      returns it present; only a non-finite or non-positive multiple is
+      dropped. Prose corrected, band unchanged.
+- [x] **The row-split test now discriminates.** The one test added with
+      `MAX_ROW_PAGE_SPAN` passed unchanged against `origin/main`, so it
+      guarded neither line the commit added. Replaced with a row of 500
+      pages' worth of height, asserting exactly 200 fragments *and* that they
+      still sum to the published row height — verified red (500) with the
+      bound reverted.
+- [x] `docs.md` said "All six writers route through it" over a parenthetical
+      naming seven. Counted in the code: 3 in `text-editor.ts` + the
+      `indent`/`outdent` pair in each of `editor.ts` and `text-box-editor.ts`.
+- Follow-up, not built here: the DOCX importer is an unaudited *producer* of
+  the same bands. `docx-style-map.ts:50` writes `fontSize` straight from
+  `<w:sz w:val>` (half-points, so `w:val="99999"` is 49999.5 pt) and `:148`
+  writes `lineHeight = lineVal / 240` with no ceiling, so imported content
+  above the band is silently reduced by every reader. Auditing and bounding
+  an importer is its own change.
+- Deferred, unchanged from round 9: `isPaintableImageSize` dropping rather
+  than proportionally clamping a legal narrow-and-tall image.
+- Not covered on purpose: poisoned-`listLevel` tests for the pdf painter,
+  table renderer and peer-cursor paint sinks. One representative sink is
+  asserted; the rest share the reader.

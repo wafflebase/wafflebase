@@ -242,3 +242,50 @@ resolves it or not. Rejected with that evidence, plus a test that deletes the
 map entry and asserts the repaint. The lesson is about the code, not the
 lens: a dirty mark whose target is never cached is dead bookkeeping that reads
 as load-bearing, and it drew a reviewer's attention twice.
+
+### Folding two guards into one drops whatever only one of them did
+
+Round 9 replaced the PPTX exporter's `Math.min(8, Math.trunc(Number(x)))`
+with a call to the shared `normalizeListLevel(x)`. The ceiling was genuinely
+duplicated, the dedupe was right, and it still broke export: the shared band
+is typed `number | undefined` and reads anything else as non-finite, so the
+`Number(...)` — the only part of the old expression that was *not* duplicated
+— disappeared with it. A numeric-string level exported as level 0, silently,
+with the tests green, because every existing case passed a real number.
+
+The general shape: a duplicated guard is rarely a pure duplicate. Before
+folding two into one, diff them term by term and ask what each term does that
+the other does not — the extra term is usually the type coercion or the
+domain-specific default, and it is invisible in a diff that reads as "delete
+five lines, call the helper". Two follow-ups that make it cheap: keep the
+non-shared part at the call site (here, `normalizeListLevel(Number(x))`, and
+the JSDoc now enumerates what the sink adds over the band), and write the
+test for the *input shape the sink sees* — not for the band's own contract,
+which is already tested where the band lives.
+
+### A test that passes on `main` guards nothing, however true it is
+
+The round-9 commit that bounded the row-split loop shipped one test. It was
+correct, it asserted a real contract, and it passed unchanged against
+`origin/main` — its degenerate `pageSetup` gave the loop a negative page
+budget, which takes the pre-existing `fragHeight = remaining` path and never
+reaches the new bound at all. Nine rounds of review had not caught that,
+because a green test reads as coverage.
+
+The check is mechanical and takes one command: revert the line the commit
+added and watch the new test fail. Do it before claiming the test covers the
+change. The replacement here asserts both halves of what the bound promises —
+exactly `MAX_ROW_PAGE_SPAN` fragments, and fragments that still sum to the
+published row height — and was confirmed red at 500 fragments with the bound
+removed.
+
+### Prose about a band decays faster than the band
+
+Two of this round's five findings were comments that contradicted the code
+they documented: the exporter's JSDoc still said the band coerced, and both
+halves of `parseBlockStyleAttrs`'s asymmetry note said an out-of-band
+`lineHeight` "is read as absent" when `normalizeLineHeight` clamps a finite
+one and returns it present. Both were written in the same round as the code
+they describe. A band has two behaviours — clamp and drop — and a comment that
+names only one is wrong for half its inputs, so it is worth stating which
+input takes which branch rather than summarizing the band as a single verb.

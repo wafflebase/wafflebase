@@ -111,33 +111,42 @@ describe('paginateLayout — row splitting', () => {
     expect(secondPageLines.length).toBeGreaterThan(0);
   });
 
-  // `paginateLayout` is handed a `PageSetup` by its caller, and only the
-  // callers that route through `resolvePageSetup` are guaranteed to leave a
-  // usable content box. A page with no content height at all must place the
-  // row and stop, not walk `consumed` backwards forever.
-  it('terminates on a page setup that leaves no content height', () => {
-    const setup = {
-      paperSize: { name: 'Tiny', width: 816, height: 100 },
-      orientation: 'portrait' as const,
-      margins: { top: 200, bottom: 200, left: 96, right: 96 },
-    };
-    const tableBlock = createTableBlock(2, 1);
-    const td = tableBlock.tableData!;
-    td.rows[0].cells[0].blocks[0].inlines = [{ text: 'first row', style: {} }];
-    td.rows[1].cells[0].blocks[0].inlines = [{ text: 'second row', style: {} }];
+  // A row height no number of pages can hold is what `MAX_ROW_PAGE_SPAN`
+  // exists for: `computeTableLayout` derives a row's height from its cells'
+  // *content*, so one poisoned `fontSize` or `lineHeight` publishes a height
+  // asking for a million pages — a `PageLine` allocated per page. The layout's
+  // height is set directly here because reaching it through content would mean
+  // measuring ~18,000 lines.
+  it('bounds a row no number of pages can hold at MAX_ROW_PAGE_SPAN fragments', () => {
+    const setup = DEFAULT_PAGE_SETUP;
+    const { width, height: pageHeight } = getEffectiveDimensions(setup);
+    const contentHeight = pageHeight - setup.margins.top - setup.margins.bottom;
+    const contentWidth = width - setup.margins.left - setup.margins.right;
 
-    const { layout } = computeLayout([tableBlock], stubCtxWide(), 600);
+    const tableBlock = createTableBlock(1, 1);
+    tableBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [
+      { text: 'poisoned row', style: {} },
+    ];
+    const { layout } = computeLayout([tableBlock], stubCtxWide(), contentWidth);
+    const tl = layout.blocks[0].layoutTable!;
+    // 500 pages' worth — well past the 200-fragment bound.
+    tl.rowHeights[0] = contentHeight * 500;
+
     const result = paginateLayout(layout, setup);
-    const rowHeights = layout.blocks[0].layoutTable!.rowHeights;
+    const fragments = result.pages
+      .flatMap((p) => p.lines)
+      .filter((pl) => pl.lineIndex === 0);
 
-    // Every row is placed exactly once, at the height the layout published.
-    for (const ri of [0, 1]) {
-      const fragments = result.pages
-        .flatMap((p) => p.lines)
-        .filter((pl) => pl.lineIndex === ri);
-      expect(fragments).toHaveLength(1);
-      expect(fragments[0].line.height).toBe(rowHeights[ri]);
-    }
+    // Exactly `MAX_ROW_PAGE_SPAN` (200): the last fragment a row is allowed
+    // takes everything left, so the loop terminates for any height.
+    expect(fragments).toHaveLength(200);
+    // ...and the fragments still sum to the height the layout published, so
+    // the renderers, hit-tests and selection math agree with the paginator.
+    const total = fragments.reduce(
+      (sum, pl) => sum + (pl.rowSplitHeight ?? pl.line.height),
+      0,
+    );
+    expect(total).toBe(tl.rowHeights[0]);
   });
 });
 

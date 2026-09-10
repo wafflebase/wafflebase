@@ -152,7 +152,7 @@ it, so blocks in different table cells are planned as separate list
 contexts — and returns the whole `block → new level` plan *unapplied*.
 Computing it up front is what makes it correct: writing while walking
 would let a subtree's second item see its parent's new level and
-mis-detect its own parent. All six writers route through it (`handleTab`,
+mis-detect its own parent. All seven writers route through it (`handleTab`,
 `handleIndent`, `handleOutdent` in `text-editor.ts`, and the `indent` /
 `outdent` API pair in both `editor.ts` and `text-box-editor.ts`, the last
 being what Slides and Board mount).
