@@ -110,6 +110,35 @@ describe('paginateLayout — row splitting', () => {
     );
     expect(secondPageLines.length).toBeGreaterThan(0);
   });
+
+  // `paginateLayout` is handed a `PageSetup` by its caller, and only the
+  // callers that route through `resolvePageSetup` are guaranteed to leave a
+  // usable content box. A page with no content height at all must place the
+  // row and stop, not walk `consumed` backwards forever.
+  it('terminates on a page setup that leaves no content height', () => {
+    const setup = {
+      paperSize: { name: 'Tiny', width: 816, height: 100 },
+      orientation: 'portrait' as const,
+      margins: { top: 200, bottom: 200, left: 96, right: 96 },
+    };
+    const tableBlock = createTableBlock(2, 1);
+    const td = tableBlock.tableData!;
+    td.rows[0].cells[0].blocks[0].inlines = [{ text: 'first row', style: {} }];
+    td.rows[1].cells[0].blocks[0].inlines = [{ text: 'second row', style: {} }];
+
+    const { layout } = computeLayout([tableBlock], stubCtxWide(), 600);
+    const result = paginateLayout(layout, setup);
+    const rowHeights = layout.blocks[0].layoutTable!.rowHeights;
+
+    // Every row is placed exactly once, at the height the layout published.
+    for (const ri of [0, 1]) {
+      const fragments = result.pages
+        .flatMap((p) => p.lines)
+        .filter((pl) => pl.lineIndex === ri);
+      expect(fragments).toHaveLength(1);
+      expect(fragments[0].line.height).toBe(rowHeights[ri]);
+    }
+  });
 });
 
 describe('collectTableRenderRanges — split fragment + follow-up rows', () => {

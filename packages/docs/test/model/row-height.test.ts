@@ -75,6 +75,26 @@ describe('a poisoned rowHeight at the raw readers', () => {
     expect(read('40,Infinity,60')).toEqual([40, undefined, 60]);
   });
 
+  // The user-specified height is not the only way a row height goes
+  // non-finite: steps 3–4 derive one from the cell's content. `computeLayout`
+  // is the single place a row height becomes geometry, so it is the one that
+  // has to publish a number every consumer — offsets, `totalHeight`, the
+  // paginator, the renderers, the hit-tests — can use.
+  test('a non-finite content height still publishes finite geometry', () => {
+    const block = createTableBlock(1, 1);
+    block.tableData!.rows[0].cells[0].blocks[0].inlines[0].style.fontSize =
+      Infinity;
+    const layout = computeTableLayout(
+      block.tableData!,
+      'poisoned-content',
+      stubMeasurer(7),
+      300,
+    );
+    expect(Number.isFinite(layout.rowHeights[0])).toBe(true);
+    expect(Number.isFinite(layout.rowYOffsets[0])).toBe(true);
+    expect(Number.isFinite(layout.totalHeight)).toBe(true);
+  });
+
   test('computeTableLayout lays a poisoned height out at finite geometry', () => {
     const block = createTableBlock(1, 1);
     const td = block.tableData!;

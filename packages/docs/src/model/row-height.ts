@@ -37,10 +37,3 @@ export function normalizeRowHeight(raw: number | undefined): number | undefined 
   if (!Number.isFinite(raw) || raw <= 0) return undefined;
   return Math.min(MAX_ROW_HEIGHT, raw);
 }
-
-/** {@link normalizeRowHeight} over a whole `rowHeights` array. */
-export function normalizeRowHeights(
-  raw: ReadonlyArray<number | undefined>,
-): (number | undefined)[] {
-  return raw.map(normalizeRowHeight);
-}

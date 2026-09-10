@@ -61,26 +61,17 @@ export interface PaginatedLayout {
  *
  * 200 pages is far past any real row — a letter page holds ~50 lines, so this
  * is a ~10,000-line table cell — while a `1e9` px height would ask for 1.1
- * million. Content past the bound is clipped, which is the same thing the
- * band on the stored height does and the only option that terminates.
+ * million.
+ *
+ * The bound is on the number of *fragments*, not on the height: the last
+ * fragment takes whatever is left, so the fragments of a row still sum to
+ * `LayoutTable.rowHeights[r]`. Clamping the height here instead would leave
+ * this loop and the geometry the renderers, hit-tests and selection math read
+ * from the layout disagreeing about how tall the row is. The height itself is
+ * made usable in the one place it becomes geometry, `computeTableLayout` step
+ * 5d.
  */
 const MAX_ROW_PAGE_SPAN = 200;
-
-/**
- * The row height this paginator will consume: finite, non-negative, and
- * within {@link MAX_ROW_PAGE_SPAN} pages.
- *
- * A non-finite height reads as 0 rather than as the bound, so the row is
- * placed (empty) on the current page instead of claiming 200 of them for
- * geometry that is already meaningless. With no usable content height on a
- * page at all — a degenerate `pageSetup` — there is nothing to bound against,
- * and the fragment loop's own floor is what terminates it.
- */
-function paginatableRowHeight(raw: number, contentHeight: number): number {
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  if (!(contentHeight > 0)) return raw;
-  return Math.min(raw, contentHeight * MAX_ROW_PAGE_SPAN);
-}
 
 export function paginateLayout(
   layout: DocumentLayout,
@@ -129,7 +120,7 @@ export function paginateLayout(
     if (lb.block.type === 'table' && lb.layoutTable) {
       const tl = lb.layoutTable;
       for (let ri = 0; ri < tl.rowHeights.length; ri++) {
-        const rowHeight = paginatableRowHeight(tl.rowHeights[ri], contentHeight);
+        const rowHeight = tl.rowHeights[ri];
         const rowLine = { runs: [] as LayoutRun[], y: tl.rowYOffsets[ri], height: rowHeight, width: availableWidth };
 
         // Row fits on current page — place whole row
@@ -158,6 +149,7 @@ export function paginateLayout(
 
         // Emit fragments across pages
         let consumed = 0;
+        let fragments = 0;
         while (consumed < rowHeight) {
           if (consumed > 0) startNewPage();
           const remaining = rowHeight - consumed;
@@ -169,13 +161,21 @@ export function paginateLayout(
             fragHeight = sh > consumed ? sh - consumed : Math.min(remaining, pageAvail);
           }
           if (fragHeight <= 0) fragHeight = Math.min(remaining, contentHeight);
-          // Every iteration must consume height, or this loop never ends.
-          // `remaining` is > 0 by the `while` condition, so falling back to it
-          // terminates even when the page has no usable content height at all
-          // (`contentHeight <= 0` from a degenerate `pageSetup`, which the
-          // line above would otherwise turn into a *negative* fragment that
-          // walks `consumed` backwards forever).
+          // A belt-and-braces floor, not the thing that terminates the loop:
+          // `remaining` is > 0 by the `while` condition and neither branch
+          // above can return a non-positive fragment for it, so this line is
+          // unreachable today (verified by making it throw against the whole
+          // suite). It stays because a future branch that *could* produce one
+          // would otherwise leave `consumed` standing still.
           if (!(fragHeight > 0)) fragHeight = remaining;
+          // {@link MAX_ROW_PAGE_SPAN} is what bounds the loop: the last
+          // fragment a row is allowed takes everything left, so this
+          // terminates for any height (`Infinity` included, and a
+          // `contentHeight` too small to make progress) without the fragments
+          // disagreeing with `LayoutTable.rowHeights[ri]` about the total. It
+          // overflows its page, which is the honest rendering of a row no
+          // number of pages can hold.
+          if (++fragments >= MAX_ROW_PAGE_SPAN) fragHeight = remaining;
 
           const needsSplit = consumed > 0 || fragHeight < rowHeight;
           currentLines.push({

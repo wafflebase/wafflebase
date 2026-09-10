@@ -297,6 +297,27 @@ export function computeTableLayout(
     }
   }
 
+  // 5d. Publish a height every consumer can use.
+  //
+  // Step 5b bands the *user-specified* height, but steps 3–4 derive one from
+  // the cell's content — summing line heights that come from a font size, an
+  // inline image and a paragraph's line spacing, each its own untrusted Tree
+  // attribute. A non-finite one of those makes this row height, the offsets
+  // below and `totalHeight` (the scroll extent) `NaN`, which blanks the table
+  // for every reader.
+  //
+  // This is the *one* place a row height becomes geometry, so it is the only
+  // place that may substitute one: the paginator, the renderers, the
+  // hit-tests and the selection math all read `LayoutTable.rowHeights` raw
+  // and have to agree with each other, and a second clamp anywhere else is a
+  // desync. `MIN_ROW_HEIGHT` rather than 0 keeps the row visible and
+  // hit-testable rather than collapsing it to nothing.
+  for (let r = 0; r < numRows; r++) {
+    if (!(Number.isFinite(rowHeights[r]) && rowHeights[r] > 0)) {
+      rowHeights[r] = MIN_ROW_HEIGHT;
+    }
+  }
+
   // 6. Compute row Y offsets (cumulative sum)
   const rowYOffsets: number[] = [];
   let yOffset = 0;

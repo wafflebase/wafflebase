@@ -188,6 +188,32 @@ describe('paginateLayout bounds a content-derived row height', () => {
     }
   });
 
+  // The bound must not make the paginator disagree with the layout about how
+  // tall the row is: `LayoutTable.rowHeights` / `rowYOffsets` / `totalHeight`
+  // are what the renderers, the hit-tests and the selection geometry read, and
+  // they read them raw. So the fragments of a bounded row still have to sum to
+  // the row height the layout published, and each fragment's `PageLine.height`
+  // still has to *be* that row height.
+  test('a bounded row still agrees with the layout geometry', () => {
+    const block = createTableBlock(1, 1);
+    block.tableData!.rows[0].cells[0].blocks[0].inlines[0].style.fontSize = 1e9;
+    const { layout } = computeLayout([block], stubMeasurer(7), contentWidth);
+    const rowHeight = layout.blocks[0].layoutTable!.rowHeights[0];
+    const result = paginateLayout(layout, setup);
+    const fragments = result.pages
+      .flatMap((p) => p.lines)
+      .filter((l) => l.blockIndex === 0 && l.lineIndex === 0);
+
+    expect(result.pages.length).toBeLessThanOrEqual(202);
+    expect(fragments.length).toBeGreaterThan(1);
+    for (const f of fragments) expect(f.line.height).toBe(rowHeight);
+    const consumed = fragments.reduce(
+      (sum, f) => sum + (f.rowSplitHeight ?? f.line.height),
+      0,
+    );
+    expect(consumed).toBe(rowHeight);
+  });
+
   test('a genuinely tall cell still splits across pages', () => {
     const result = paginateCellWith((block) => {
       const cell = block.tableData!.rows[0].cells[0];
