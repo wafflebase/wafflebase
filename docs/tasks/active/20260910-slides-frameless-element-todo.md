@@ -37,7 +37,61 @@ There is **no `ErrorBoundary` anywhere in `packages/frontend`** (`grep` finds
 zero `componentDidCatch` / `getDerivedStateFromError`), so either throw
 unmounts the React tree and leaves an empty `#root`.
 
-## Provenance: narrowed, not proven
+## Provenance: found
+
+The deck was built in the editor, which ruled out every server-side writer
+and pointed the search at the store. A randomised soak against a real Yorkie
+server — two clients, editor-shaped operations interleaved, the invariant
+checked after every step — reproduced it.
+
+**Two mutators replaced a nested Yorkie object wholesale:**
+
+```ts
+eAny.frame = { ...eAny.frame, ...frame };                    // :1456
+eAny.data  = { ...eAny.data, blocks: clone(next ?? blocks) }; // :2219
+```
+
+`SetOperation.toReverseOperation` in `@yorkie-js/sdk` falls back to a
+`RemoveOperation` unless `previousValue !== undefined && !previousValue.isRemoved()`.
+So under concurrent editing the reverse of such a write is a *delete of the
+key*, and a later undo executes it. The loss is then committed to the server.
+`data` gone is the `reading 'blocks'` crash; `frame` gone is the
+`reading 'flipH'` one — one cause, both reported errors.
+
+It fired on that one element because the sequence hinges on the editor's
+autofit-grow commit (`editor.ts:4425`), which writes the text body and fits
+the frame height in ONE batch — and only a `grow` text box takes that path.
+That element was the deck's only `autofit: 'grow'`.
+
+### A/B, 150 seeds x 40 steps, real server
+
+| | wholesale replace | per-field |
+| --- | --- | --- |
+| corrupted runs | 6 (seeds 1051, 1060) | **0** |
+| `SERVER COPY BROKEN` | yes — a fresh client reads the damage | none |
+| `ownKeys` duplicate-key throw | 1 | 3 |
+| GC sync crash | 87 | 87 (unrelated) |
+
+The `ownKeys` throw is not a regression the fix introduces: seed 1056 hits it
+under *both* variants, and all three occurrences are local-only — a fresh
+client reading the server copy is clean (`SERVER READ OK, violations=[]`), so
+a reload clears it. Trading permanent server-side data loss for a
+reload-recoverable local throw is the right side of that exchange.
+
+### Upstream, not ours
+
+Two `@yorkie-js/sdk` defects surfaced, present in both 0.7.19 and 0.7.20:
+
+- `CRDTRoot.garbageCollect` dereferences `elementPairMapByCreatedAt.get(...)`
+  with no guard, while the sibling `getGCElementPairs()` guards the same
+  lookup. It throws inside `applyChangePack`, and **that client's sync never
+  recovers** — the editor silently stops saving. 87 occurrences in 150 runs.
+- The object proxy's `ownKeys` trap returns duplicate entries, so reading the
+  element throws.
+
+Filed upstream with reproductions.
+
+## Earlier: provenance narrowed, not proven
 
 - `PUT /api/v1/.../content` is **not** the source. `assertValidElement`
   (`docs-content.controller.ts:690`) has rejected a frameless top-level
@@ -49,11 +103,10 @@ unmounts the React tree and leaves an empty `#root`.
 - Not a PPTX import either: `meta` carries no `pxPerPt` / `unit`, the themes
   and layouts are built-ins.
 
-So how this specific element lost its `frame` is **undetermined**. What is
-determined is that the readers crash on it, that nothing repairs it, and that
-`DocumentCopyService` / template-use / revision-restore all propagate it
-verbatim. This task fixes the readers and makes the deck self-heal; it does
-not add speculative write-side validation for a writer we cannot name.
+Every one of those held up — the writer was none of them. See "Provenance:
+found" above for the one that was: a store mutator, reachable only from the
+editor. The reader hardening below still stands on its own, because it is
+what lets an already-damaged deck open at all.
 
 ## Plan
 
@@ -84,7 +137,8 @@ Two invariants, applied where they belong:
 - [x] `packages/cli/src/slides/content.ts:164` — guard `el.data`
 - [x] `pnpm verify:fast`
 - [x] Code review over the branch diff
-- [ ] PR
+- [x] PR
+- [x] Root cause found + writer-side fix (see above)
 
 ## Review outcomes folded in
 

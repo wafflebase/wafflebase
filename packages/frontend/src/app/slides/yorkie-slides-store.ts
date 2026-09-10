@@ -233,6 +233,37 @@ function hasFrame(frame: unknown): boolean {
 }
 
 /**
+ * Merge `patch` into a live `frame`, one field at a time.
+ *
+ * Never `x.frame = { ...x.frame, ...patch }`. Replacing a nested Yorkie
+ * object *wholesale* makes the operation's reverse a `RemoveOperation`
+ * rather than a restoring `SetOperation` whenever the node it displaces is
+ * already a tombstone — see `SetOperation.toReverseOperation` in
+ * `@yorkie-js/sdk`, which falls back to `RemoveOperation` unless
+ * `previousValue !== undefined && !previousValue.isRemoved()`. A later undo
+ * then deletes `frame` from the element outright.
+ *
+ * That is reproducible under concurrent editing, and the loss is committed
+ * to the server: it is how a deck ends up holding a `text` element with
+ * only `data` / `id` / `placeholderRef` / `type`, which every reader then
+ * dies on. Per-key assignment on a CRDT-backed object propagates as
+ * expected — the same argument `withShapeText` already makes for
+ * `data.text`, and what `cascadeMasterStyles` already does for
+ * `data.blocks`.
+ *
+ * Sites that replace a frame *entirely* (`computeConnectorFrame` results,
+ * group re-frames) still assign wholesale — converting those needs
+ * replace-not-merge semantics for the optional `flipH` / `flipV`, and they
+ * are not the paths the corruption was measured on. See the task doc.
+ */
+function writeFrame(target: { frame: Frame }, patch: Partial<Frame>): void {
+  const frame = target.frame as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) frame[key] = value;
+  }
+}
+
+/**
  * A stored frame as geometry every consumer can do arithmetic with:
  * `ZERO_FRAME` when it carries none, otherwise itself with a finite
  * `rotation`.
@@ -1346,7 +1377,7 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       const spec = layout.placeholders[idx];
       const oldFrame: Frame = { ...spec.frame };
-      spec.frame = { ...spec.frame, ...frame };
+      writeFrame(spec, frame);
       const newFrame: Frame = { ...spec.frame };
       // Cascade: re-flow matching placeholders that still track the slot.
       for (const slide of r.slides) {
@@ -1417,7 +1448,7 @@ export class YorkieSlidesStore implements SlidesStore {
       for (const layout of r.layouts ?? []) {
         for (const p of (layout as { placeholders?: { frame: Frame }[] })
           .placeholders ?? []) {
-          p.frame = { ...p.frame, y: p.frame.y * factor, h: p.frame.h * factor };
+          writeFrame(p, { y: p.frame.y * factor, h: p.frame.h * factor });
         }
       }
       (r.meta as unknown as { slideHeight?: number }).slideHeight = height;
@@ -1692,7 +1723,7 @@ export class YorkieSlidesStore implements SlidesStore {
       const eAny = e as { frame: Frame };
       const oldW = eAny.frame.w;
       const oldH = eAny.frame.h;
-      eAny.frame = { ...eAny.frame, ...frame };
+      writeFrame(eAny, frame);
       // Tables paint cells from `data.columnWidths` and
       // `data.rows[].height` (authoritative per design); a frame
       // resize that bypassed those would leave the painted footprint
@@ -2465,11 +2496,16 @@ export class YorkieSlidesStore implements SlidesStore {
       // MemSlidesStore where the callback receives the live reference.
       // `next ?? blocks` covers both the explicit-return path and the
       // void-mutation path with one assignment.
-      const eAny = e as { data: Record<string, unknown> };
-      eAny.data = {
-        ...eAny.data,
-        blocks: clone(next ?? blocks),
-      };
+      // Per-field, not a wholesale replace of `data` — see `writeFrame`
+      // for why replacing a nested Yorkie object turns a later undo into a
+      // key deletion. `data` losing its node is the sibling of the frame
+      // loss and is what `ensureSlidesRoot` used to die reading.
+      const eAny = e as { data?: Record<string, unknown> };
+      if (eAny.data) {
+        eAny.data.blocks = clone(next ?? blocks);
+      } else {
+        eAny.data = { blocks: clone(next ?? blocks) };
+      }
     });
   }
 
@@ -2571,7 +2607,7 @@ export class YorkieSlidesStore implements SlidesStore {
         style: {},
       }));
       e.data.rows.splice(atIndex, 0, { height, cells });
-      e.frame = { ...e.frame, h: e.frame.h + height };
+      writeFrame(e, { h: e.frame.h + height });
     });
   }
 
@@ -2595,7 +2631,7 @@ export class YorkieSlidesStore implements SlidesStore {
       for (const row of e.data.rows) {
         row.cells.splice(atIndex, 0, { body: { blocks: [] }, style: {} });
       }
-      e.frame = { ...e.frame, w: e.frame.w + inheritWidth };
+      writeFrame(e, { w: e.frame.w + inheritWidth });
     });
   }
 
@@ -2626,7 +2662,7 @@ export class YorkieSlidesStore implements SlidesStore {
         }
       }
       e.data.rows.splice(atIndex, 1);
-      e.frame = { ...e.frame, h: e.frame.h - removedHeight };
+      writeFrame(e, { h: e.frame.h - removedHeight });
     });
   }
 
@@ -2661,7 +2697,7 @@ export class YorkieSlidesStore implements SlidesStore {
         row.cells.splice(atIndex, 1);
       }
       e.data.columnWidths.splice(atIndex, 1);
-      e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+      writeFrame(e, { w: e.frame.w - removedWidth });
     });
   }
 
@@ -2787,7 +2823,7 @@ export class YorkieSlidesStore implements SlidesStore {
         e.data.columnWidths[c] = widths[c];
       }
       const total = widths.reduce((a, b) => a + b, 0);
-      e.frame = { ...e.frame, w: total };
+      writeFrame(e, { w: total });
     });
   }
 
@@ -2808,7 +2844,7 @@ export class YorkieSlidesStore implements SlidesStore {
         e.data.rows[row].height = heights[row];
       }
       const total = heights.reduce((a, b) => a + b, 0);
-      e.frame = { ...e.frame, h: total };
+      writeFrame(e, { h: total });
     });
   }
 
