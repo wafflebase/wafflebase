@@ -359,22 +359,26 @@ still one unit. Two rules the helper enforces:
   and replayed once after the outermost unit commits, including after a
   throw, so the screen always shows what the store really holds. The
   **layout is not held with it**: a held render still calls the host's
-  `requestLayoutRefresh()` (a `recomputeLayout` wrapper in `view/editor.ts`),
+  `requestLayoutRefresh()` (`recomputeLayout({ keepDirty: true })` in
+  `view/editor.ts`),
   because the remainder of the unit reads `getLayout()` — `blockParentMap`,
   which `isInCell` / `getCellInfo` and therefore the paste path branch on,
   and wrap affinity. Hosts whose own `requestRender` is already asynchronous
   (the slides text-box editor rAF-schedules it) leave the seam unwired; they
   never had a fresh mid-action layout to lose.
 
-  The wrapper exists because that mid-unit pass is now the *second* layout
+  `keepDirty` exists because that mid-unit pass is now the *second* layout
   pass of the same edit, and the two must not both be full-document ones.
   `recomputeLayout` ends by clearing `dirtyBlockIds`, and `computeLayout`
-  only consults its incremental cache while that set is non-null — so wiring
-  the seam to `recomputeLayout` directly would leave the deferred paint
-  re-measuring the whole document on every batched edit, keystrokes
-  included. The wrapper puts the set back (an `undefined` one, i.e. a
-  requested full recompute, restores as *empty*: the pass just run rebuilt
-  every cache entry), so the paint's pass stays incremental.
+  only consults its incremental cache while that set is non-null — so an
+  ordinary call here would leave the deferred paint re-measuring the whole
+  document on every batched edit, keystrokes included. The option puts the
+  set back (an `undefined` one, i.e. a requested full recompute, restores as
+  *empty*: the pass just run rebuilt every cache entry), so the paint's pass
+  stays incremental. It is an option on the layout owner rather than a
+  wrapper in the seam so that the rule about when the cache may be consulted
+  lives in one place — beside the `dirtyBlockIds` assignment it is the
+  exception to.
 - **`saveSnapshot()` is called before the unit opens, never inside it.** On
   `MemDocStore` it is just a checkpoint, but on `YorkieDocStore` it also
   flushes the *pre-edit* caret and selection into presence, which is what

@@ -3055,22 +3055,40 @@ export class YorkieDocStore implements DocStore {
         this.undoFloorDepth = index + 1;
         return stack.length > index + 1;
       }
-      // Gone. A copying accessor is already ruled out (identity was proven
-      // at mark time), so either the entry was shifted off the bottom or the
-      // SDK rebuilt it in place. Only a stack at the cap can have dropped
-      // anything, which is what tells the two apart.
+      // Gone. Three ways that can happen, and only one of them is a floor
+      // that still exists:
+      //
+      //  - `pushUndo` `shift()`ed it off the bottom, which needs a stack at
+      //    the cap. The entries below the floor no longer exist either, so
+      //    there is nothing left to undo *past* — the branch below.
+      //  - `History.clearHistory()` emptied the stack (a snapshot, or an
+      //    `initialRoot` attach). Same conclusion, and the stack is short, so
+      //    it falls through to the depth instead. Over-restrictive by the
+      //    load-time prefix, never destructive.
+      //  - It was popped by an undo — which `canUndo()` itself prevents for
+      //    the floor entry, since it only ever answers true with at least one
+      //    entry above it.
+      //
+      // What is NOT on that list is the SDK rebuilding an entry in place.
+      // Entries are the `undoOps` arrays `pushUndo` stores by reference and
+      // `getUndoStackForTest()` hands back live (proven at mark time, see
+      // `undoFloorIdentityUsable`); `reconcileCreatedAt` / `reconcileTextEdit`
+      // mutate the *operations* inside an entry but never replace the entry
+      // itself, and `redo()` builds a new array only for the entry it is
+      // re-pushing. So a found-then-missing mark means the floor is gone,
+      // which is why the cap test below is a safe latch rather than a guess.
       if (stack.length >= YORKIE_MAX_UNDO_DEPTH) {
-        // Dropped for good: the entries below the floor no longer exist, so
-        // there is nothing left to undo past. Latch it — the next call sees
-        // a shorter stack (an undo popped one) and would otherwise fall to
-        // the stale depth and start refusing reachable undos again (#1045).
+        // Dropped for good. Latch it — the next call sees a shorter stack (an
+        // undo popped one) and would otherwise fall to the stale depth and
+        // start refusing reachable undos again (#1045).
         this.undoFloorMark = null;
         this.undoFloorDepth = 0;
         this.undoFloorIdentityUsable = false;
         return true;
       }
-      // Rebuilt, then. Fall through to the depth, which is the pre-#1045
-      // behaviour: over-restrictive at worst, never destructive.
+      // Cleared, then, or an SDK that broke one of the assumptions above.
+      // Fall through to the depth, which is the pre-#1045 behaviour:
+      // over-restrictive at worst, never destructive.
     }
     return stack.length > this.undoFloorDepth;
   }

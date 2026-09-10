@@ -1576,8 +1576,26 @@ export function initialize(
    */
   let largePasteCallback: (() => () => void) | null = null;
 
-  // Compute layout helper
-  const recomputeLayout = () => {
+  /**
+   * Compute layout helper.
+   *
+   * `keepDirty` asks for a measuring pass that leaves the incremental state
+   * as it found it, for a caller that needs `getLayout()` refreshed *without*
+   * consuming the dirty set — an open undo unit reading `blockParentMap` and
+   * wrap affinity between writes, whose own deferred paint still has to
+   * repaint incrementally (`TextEditor.requestLayoutRefresh`). The knowledge
+   * of when the layout cache may be consulted stays here, next to the
+   * `dirtyBlockIds = undefined` it is the exception to, rather than in the
+   * host seam that wants it.
+   *
+   * A set that was `undefined` (a structural edit asking for a full
+   * recompute) is restored as EMPTY, not `undefined`: the pass just run
+   * rebuilt every cache entry, so a following paint has nothing left to
+   * re-measure. A later `invalidateLayout()` still clears it back to
+   * `undefined` and forces its own full pass.
+   */
+  const recomputeLayout = (opts?: { keepDirty?: boolean }) => {
+    const priorDirty = dirtyBlockIds;
     const pageSetup = resolvePageSetup(doc.document.pageSetup);
     const dims = getEffectiveDimensions(pageSetup);
     const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
@@ -1601,7 +1619,7 @@ export function initialize(
     );
     layout = result.layout;
     layoutCache = result.cache;
-    dirtyBlockIds = undefined;
+    dirtyBlockIds = opts?.keepDirty ? (priorDirty ?? new Set()) : undefined;
     paginatedLayout = paginateLayout(layout, pageSetup);
 
     // Header/footer layouts
@@ -2599,24 +2617,14 @@ export function initialize(
     // and `layout` is only reassigned by `recomputeLayout`. See
     // `TextEditor.requestLayoutRefresh`.
     //
-    // The incremental state has to survive that extra pass. `recomputeLayout`
-    // ends by clearing `dirtyBlockIds`, and `computeLayout` only consults its
-    // cache while that set is non-null (`canUseCache`) — so handing
-    // `recomputeLayout` over directly would make the unit's own deferred
-    // paint re-measure the WHOLE document, on every batched edit down to a
-    // single keystroke. Putting the set back keeps that second pass
-    // incremental; blocks dirtied later in the unit are added to it as usual.
-    //
-    // A set that was `undefined` (a structural edit asking for a full
-    // recompute) restores as EMPTY rather than `undefined`: the pass just run
-    // rebuilt every cache entry, so the deferred paint has nothing left to
-    // re-measure. A later `invalidateLayout()` inside the same unit still
-    // clears it back to `undefined` and forces its own full pass.
-    textEditor.requestLayoutRefresh = () => {
-      const dirty = dirtyBlockIds;
-      recomputeLayout();
-      dirtyBlockIds = dirty ?? new Set();
-    };
+    // `keepDirty` is what makes that extra pass affordable: `recomputeLayout`
+    // normally ends by clearing `dirtyBlockIds`, and `computeLayout` only
+    // consults its cache while that set is non-null (`canUseCache`), so a
+    // plain call here would make the unit's own deferred paint re-measure the
+    // WHOLE document on every batched edit down to a single keystroke. Blocks
+    // dirtied later in the unit are added to the preserved set as usual. The
+    // rule itself lives on the layout owner — see `recomputeLayout`.
+    textEditor.requestLayoutRefresh = () => recomputeLayout({ keepDirty: true });
 
     // Remove the selected image inline as one undo unit and return to text
     // mode. Shared by the Delete/Backspace keys and by cut, which needs the

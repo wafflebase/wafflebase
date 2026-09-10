@@ -11,8 +11,9 @@ import { HttpError } from "@/api/http-error";
  */
 describe("isRevokedShareLinkError", () => {
   it("treats the server's verdict on the link as fatal", () => {
-    // 404 revoked / never existed, 410 expired, 403 no longer permitted.
-    for (const status of [400, 401, 403, 404, 410]) {
+    // The only two the resolve handler produces: 404 revoked or never
+    // existed, 410 expired (`ShareLinkService.findByToken`).
+    for (const status of [404, 410]) {
       expect(isRevokedShareLinkError(new HttpError("gone", status))).toBe(true);
     }
   });
@@ -23,6 +24,19 @@ describe("isRevokedShareLinkError", () => {
       false,
     );
     for (const status of [408, 429, 500, 502, 503, 504]) {
+      expect(isRevokedShareLinkError(new HttpError("nope", status))).toBe(
+        false,
+      );
+    }
+  });
+
+  it("does not evict a live session for a 4xx the handler never returns", () => {
+    // These come from something in front of the handler — an auth proxy, a
+    // WAF, a CDN, a redeploy answering the wrong route — and say nothing
+    // about the link. Treating them as a verdict tore down a live editing
+    // session AND stopped the retry, which is the failure this predicate
+    // exists to avoid.
+    for (const status of [400, 401, 403, 405, 413, 431, 451]) {
       expect(isRevokedShareLinkError(new HttpError("nope", status))).toBe(
         false,
       );

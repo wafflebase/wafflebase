@@ -123,13 +123,26 @@ export async function resolveShareLink(
  * the first laptop sleep, flaky network or backend restart that outlasted the
  * retry. A 5xx, a rate-limit, a timeout, and the `TypeError` `fetch()` throws
  * when it cannot connect all say nothing about the link.
+ *
+ * Enumerated from what the handler actually answers rather than taken as "any
+ * 4xx that is not a timeout or a rate-limit". `GET /share-links/:token/resolve`
+ * is unauthenticated and its only failures are
+ * `ShareLinkService.findByToken`'s: `404` (revoked, or never existed) and
+ * `410` (expired). Every other 4xx on that request came from something in
+ * front of the handler — an auth proxy, a WAF, a CDN, a redeploy answering the
+ * wrong route — and is a request that never reached an answer, which is
+ * exactly the class this predicate exists to keep out. A `401`/`403` in
+ * particular is *not* a verdict here: there is nothing to be unauthorized
+ * for. A proxy that answers `404` is still indistinguishable from a revoked
+ * link, which is inherent; narrowing removes the cases where it is not.
  */
+const SHARE_LINK_VERDICT_STATUSES = new Set([
+  404, // revoked, or never existed
+  410, // expired
+]);
+
 export function isRevokedShareLinkError(error: unknown): boolean {
   return (
-    error instanceof HttpError &&
-    error.status >= 400 &&
-    error.status < 500 &&
-    error.status !== 408 &&
-    error.status !== 429
+    error instanceof HttpError && SHARE_LINK_VERDICT_STATUSES.has(error.status)
   );
 }
