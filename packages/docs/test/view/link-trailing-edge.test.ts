@@ -121,6 +121,33 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     );
   }
 
+  function pressClearFormatting(): void {
+    textarea().dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '\\',
+        // jsdom's navigator.platform is not a Mac, so the editor reads
+        // Ctrl as the mod key; send both so the helper is platform-proof.
+        ctrlKey: true,
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  function pressBold(): void {
+    textarea().dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'b',
+        // Same platform-proofing as `pressClearFormatting` above.
+        ctrlKey: true,
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
   function pastePlainText(text: string): void {
     const ev = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(ev, 'clipboardData', {
@@ -217,6 +244,181 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     const inlines = firstBlockInlines();
     expect(last(inlines).style.href).toBeFalsy();
     expect(last(inlines).style.bold).toBe(true);
+  });
+
+  it('Cmd+\\ at a link trailing edge still exits the link', () => {
+    editor.insertLink('https://example.com');
+    // Clear formatting keeps hyperlinks (#1051), but `pending.set`
+    // replaces rather than merges — so it must re-arm the trailing-edge
+    // `href: undefined` it just overwrote, or the next typed character
+    // would silently extend the link. A plain character, not a space or
+    // Enter: those two re-arm the exit themselves at insert time, so
+    // they hide the overwrite.
+    pressClearFormatting();
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('Cmd+\\ inside link text leaves the link on what follows', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // Caret inside the link, not at its trailing edge: clearing must not
+    // invent a link exit there.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    pressClearFormatting();
+    type('X');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('the Clear formatting button at a link trailing edge also exits the link', () => {
+    editor.insertLink('https://example.com');
+    // Same scenario as the Cmd+\ case above, through the *other* entry
+    // point: the toolbar button calls `clearInlineFormatting`, whose
+    // collapsed-caret path seeds pending from the caret style — which at
+    // the trailing edge carries the link's own `href`.
+    editor.clearInlineFormatting();
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('the Clear formatting button inside link text leaves the link alone', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // The over-reach guard for the test above: clearing inside a link must
+    // not invent an exit, so what follows the caret stays linked.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    editor.clearInlineFormatting();
+    type('X');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('the Clear formatting button keeps a link a selection covers', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // The other over-reach guard: the trailing-edge override is
+    // collapsed-caret only, so a range clear must not strip the href even
+    // when the selection ends exactly at the link's trailing edge.
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 0 },
+      focus: { blockId: block.id, offset: 'https://example.com'.length },
+    });
+    editor.clearInlineFormatting();
+
+    const inlines = firstBlockInlines();
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('a toolbar toggle at a link trailing edge does not re-arm the link', () => {
+    editor.insertLink('https://example.com');
+    // Not a Clear-formatting path at all: the *sibling* toolbar buttons
+    // go through the same collapsed-caret branch of `applyStyleImpl`,
+    // which seeds pending from the caret style — the link run's own,
+    // `href` included. Bold at the trailing edge then typing therefore
+    // used to grow the hyperlink, the exact failure the Clear-formatting
+    // override exists to prevent (round-5 review of #1052).
+    editor.applyStyle({ bold: true });
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(last(inlines).style.bold).toBe(true);
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('a toolbar toggle inside link text still keeps the link', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // Over-reach guard for the case above: the exit is armed only at the
+    // trailing edge, so a toggle *inside* the link must leave what
+    // follows linked.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    editor.applyStyle({ bold: true });
+    type('X');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('Cmd+B at a link trailing edge does not re-arm the link', () => {
+    editor.insertLink('https://example.com');
+    // The keyboard half of the toolbar case above. `TextEditor.toggleStyle`
+    // has its own collapsed-caret `pending.set`, seeded from the caret's
+    // visual style — the link run's, `href` included — so Cmd+B at the
+    // trailing edge used to grow the hyperlink even though the identical
+    // toolbar click no longer did.
+    pressBold();
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(last(inlines).style.bold).toBe(true);
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('Cmd+B inside link text still keeps the link', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // Over-reach guard: the exit is armed only at the trailing edge.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    pressBold();
+    type('X');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('httpsX://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('stepping the font size at a link trailing edge does not re-arm the link', () => {
+    editor.insertLink('https://example.com');
+    // `stepSelectionFontSize`'s collapsed branch is the other route into
+    // that same seed, so it has to be guarded by the same rule.
+    editor.stepSelectionFontSize(1, (n) => n);
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comx');
+  });
+
+  it('Clear formatting in an emptied linked paragraph does not re-arm the link', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+    // Delete the link's whole text. `normalizeInlines` collapses the
+    // block onto a single empty inline that *keeps* the style of the
+    // first one — an `href` residue on a paragraph with no text. It
+    // anchors no link (`findLinkRunAt` refuses an empty run, so
+    // `removeLink` cannot reach it) yet the caret reads it, so before
+    // this guard Clear formatting seeded pending with that stale href
+    // and the next typed character became a hyperlink the user never
+    // created. Clearing used to be the one escape from that residue.
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 0 },
+      focus: { blockId: block.id, offset: 'https://example.com'.length },
+    });
+    textarea().dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
+    );
+    expect(editor.getDoc().document.blocks[0].inlines.map((i) => i.text).join('')).toBe('');
+
+    editor.clearInlineFormatting();
+    type('x');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('x');
+    expect(inlines.every((i) => !i.style.href)).toBe(true);
   });
 
   it('pasting plain text right after an inserted link does not extend the link', () => {

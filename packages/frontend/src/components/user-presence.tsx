@@ -76,7 +76,7 @@ export function UserPresence({
       return {
         key: presenceData.clientID,
         clientID: presenceData.clientID,
-        username: username || "Anonymous",
+        username,
         photo,
         isCurrentUser,
         borderColor: isCurrentUser
@@ -84,6 +84,14 @@ export function UserPresence({
           : getPeerCursorColor(resolvedTheme, presenceData.clientID),
       };
     })
+    // A presence with no username is not a person to draw. It used to be
+    // substituted with "Anonymous", which made this filter dead code and
+    // reported a phantom participant whenever presence failed to initialize —
+    // the visible half of issue #1004, where the signed-in user's own avatar
+    // was replaced by a lone "Anonymous (You)". Genuinely anonymous
+    // share-link visitors are unaffected: `shared-document.tsx` puts the
+    // literal string "Anonymous" in their presence, so they still have a
+    // username and still render.
     .filter((user) => user.username.length > 0);
 
   const MAX_VISIBLE = 4;

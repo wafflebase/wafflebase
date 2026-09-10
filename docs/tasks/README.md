@@ -18,7 +18,14 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| agent fix timeout latch (2026-09-09) | [20260909-agent-fix-timeout-latch-todo.md](./active/20260909-agent-fix-timeout-latch-todo.md) | - |
+| yorkie 0720 bump (2026-09-09) | [20260909-yorkie-0720-bump-todo.md](./active/20260909-yorkie-0720-bump-todo.md) | [20260909-yorkie-0720-bump-lessons.md](./active/20260909-yorkie-0720-bump-lessons.md) |
+| docs highlight gaps (2026-09-07) | [20260907-docs-highlight-gaps-todo.md](./active/20260907-docs-highlight-gaps-todo.md) | [20260907-docs-highlight-gaps-lessons.md](./active/20260907-docs-highlight-gaps-lessons.md) |
+| docs link text and snap (2026-09-07) | [20260907-docs-link-text-and-snap-todo.md](./active/20260907-docs-link-text-and-snap-todo.md) | [20260907-docs-link-text-and-snap-lessons.md](./active/20260907-docs-link-text-and-snap-lessons.md) |
+| share link image upload (2026-09-07) | [20260907-share-link-image-upload-todo.md](./active/20260907-share-link-image-upload-todo.md) | [20260907-share-link-image-upload-lessons.md](./active/20260907-share-link-image-upload-lessons.md) |
+| slides panel wh rotated anchor (2026-09-07) | [20260907-slides-panel-wh-rotated-anchor-todo.md](./active/20260907-slides-panel-wh-rotated-anchor-todo.md) | [20260907-slides-panel-wh-rotated-anchor-lessons.md](./active/20260907-slides-panel-wh-rotated-anchor-lessons.md) |
 | miro import fidelity (2026-09-06) | [20260906-miro-import-fidelity-todo.md](./active/20260906-miro-import-fidelity-todo.md) | [20260906-miro-import-fidelity-lessons.md](./active/20260906-miro-import-fidelity-lessons.md) |
+| cells ref validation (2026-09-05) | [20260905-cells-ref-validation-todo.md](./active/20260905-cells-ref-validation-todo.md) | - |
 | release v0.6.9 (2026-09-05) | [20260905-release-v0.6.9-todo.md](./active/20260905-release-v0.6.9-todo.md) | [20260905-release-v0.6.9-lessons.md](./active/20260905-release-v0.6.9-lessons.md) |
 | slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./active/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./active/20260905-slides-board-touch-input-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
@@ -54,4 +61,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 585
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: miro import fidelity (2026-09-06)
+Latest active task: agent fix timeout latch (2026-09-09)
