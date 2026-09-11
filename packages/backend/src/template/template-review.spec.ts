@@ -47,6 +47,11 @@ describe('assertPublicTierOpen', () => {
 });
 
 describe('assertYorkieAuthEnforced', () => {
+  // Deliberately stricter than the webhook's own reading of the same variable
+  // (`isYorkieAuthEnforced`, where unset means enforce). This gate needs the
+  // operator to affirm that per-document access is really being enforced,
+  // which also requires the auth-webhook methods to be registered on the
+  // Yorkie project — a step outside this process that no default can attest.
   it('accepts only an explicit true', () => {
     expect(() => assertYorkieAuthEnforced('true')).not.toThrow();
     for (const value of [undefined, '', 'false', 'TRUE', '1', 'yes']) {

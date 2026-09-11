@@ -3,6 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import { AuthService } from './auth.service';
+import {
+  signYorkieServiceToken,
+  yorkieServiceTokenInjector,
+  yorkieServiceTokenInjectorFromEnv,
+} from '../yorkie/yorkie-service-token';
 
 function createMockConfig(values: Record<string, string | undefined>) {
   return {
@@ -79,6 +84,79 @@ describe('AuthService', () => {
         typ: 'yorkie-share',
         shareToken: 'share-abc',
       });
+    });
+
+    // The two halves of the backend's own identity live in different files:
+    // `signYorkieServiceToken` mints with a caller-supplied secret,
+    // `verifyYorkieToken` verifies with `JWT_SECRET`. Every server-side attach
+    // (the v1 content endpoints, document copy, template seeding) depends on
+    // them agreeing, and nothing else in the suite joins them — the webhook
+    // controller spec stubs the verifier out entirely.
+    it('accepts a service token minted by signYorkieServiceToken', () => {
+      const service = makeService();
+      const payload = service.verifyYorkieToken(
+        signYorkieServiceToken('access-secret', '10m'),
+      );
+      expect(payload).toEqual(
+        expect.objectContaining({ typ: 'yorkie-service' }),
+      );
+      // Carries no subject: there isn't one.
+      expect(payload).not.toHaveProperty('sub');
+      expect(payload).not.toHaveProperty('shareToken');
+    });
+
+    // The same path the real `yorkie.Client` takes: whatever the injector
+    // hands Yorkie is what comes back to the webhook.
+    it('accepts the token the service injector hands the Yorkie client', async () => {
+      const service = makeService();
+      const injector = yorkieServiceTokenInjector('access-secret');
+      expect(injector).toBeDefined();
+      const payload = service.verifyYorkieToken(await injector!());
+      expect(payload).toMatchObject({ typ: 'yorkie-service' });
+    });
+
+    // The other branch: with no secret there is nothing to sign with, so the
+    // injector is `undefined` and the client attaches anonymously rather than
+    // carrying a token nothing can verify. Correct only against a Yorkie whose
+    // project registered no auth-webhook methods — which is why the `FromEnv`
+    // variant warns instead of throwing: it would otherwise break a working
+    // local workflow over a token nobody reads.
+    it('hands back no injector when there is no secret to sign with', () => {
+      expect(yorkieServiceTokenInjector(undefined)).toBeUndefined();
+      expect(yorkieServiceTokenInjector('')).toBeUndefined();
+
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // `''` rather than `undefined`: the parameter defaults to
+        // `process.env.JWT_SECRET`, which a default parameter would restore.
+        expect(yorkieServiceTokenInjectorFromEnv('')).toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('JWT_SECRET is unset'),
+        );
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    // A service token from another deployment must not verify here: the whole
+    // reason the ops scripts take a per-side secret is that the two sides do
+    // not share one.
+    it('rejects a service token signed with a foreign secret', () => {
+      const service = makeService();
+      expect(() =>
+        service.verifyYorkieToken(
+          signYorkieServiceToken('someone-elses-secret', '10m'),
+        ),
+      ).toThrow();
+    });
+
+    it('rejects an expired service token', () => {
+      const service = makeService();
+      expect(() =>
+        service.verifyYorkieToken(
+          signYorkieServiceToken('access-secret', '-1s'),
+        ),
+      ).toThrow();
     });
 
     it('rejects a session access token replayed as a Yorkie token', () => {

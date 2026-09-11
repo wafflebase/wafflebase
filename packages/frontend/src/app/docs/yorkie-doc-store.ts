@@ -625,8 +625,25 @@ export class YorkieDocStore implements DocStore {
    */
   onRemoteChange?: () => void;
 
-  constructor(doc: YorkieDocument<YorkieDocsRoot>) {
+  /**
+   * A read-only mount publishes no presence. Presence is written with
+   * `doc.update()`, so the next `PushPull` carries it with verb `rw` — which
+   * the Yorkie auth webhook, enforcing by default, refuses to a share-link
+   * `viewer`, wedging that viewer's own sync. `readOnlyDocStore` bounds the
+   * *document* mutators (and only inside the engine); the cursor publish runs
+   * from `docs-view` on the raw store, so the gate has to live here.
+   *
+   * It suppresses the presence write only, never the caret **anchoring** that
+   * shares those methods: `localCursorAnchor` / `localSelectionAnchor` are
+   * view-local bookkeeping that `resolveAnchoredLocalCursor` reads to keep a
+   * viewer's caret and selection where they were across a peer's edit. See
+   * {@link updateCursorPos}.
+   */
+  private readonly readOnly: boolean;
+
+  constructor(doc: YorkieDocument<YorkieDocsRoot>, readOnly = false) {
     this.doc = doc;
+    this.readOnly = readOnly;
     // Whatever already exists in the doc when this store is constructed
     // (e.g. content set via client.attach({ initialRoot }), or a legacy
     // ensureTree() doc.update) is treated as the initial state. Users
@@ -1287,6 +1304,7 @@ export class YorkieDocStore implements DocStore {
     selection: DocRange | null;
   }): void {
     if (!resolved.cursor && !resolved.selection) return;
+    if (this.readOnly) return;
     if (this.skipNonHistoryPresence()) return;
     this.withUpdate((_, p) => {
       p.set({
@@ -3219,7 +3237,10 @@ export class YorkieDocStore implements DocStore {
       : null;
     this.localSelectionAnchor = this.anchorDocRange(clampedSelection ?? null);
     // The anchors above are view-local bookkeeping and always run; only the
-    // presence write is held back inside a batch.
+    // presence write is held back inside a batch — or on a read-only mount,
+    // where publishing it is the `rw` PushPull the auth webhook refuses a
+    // viewer (see the `readOnly` field).
+    if (this.readOnly) return;
     if (this.skipNonHistoryPresence()) return;
     this.withUpdate((_, p) => {
       p.set({

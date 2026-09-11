@@ -86,6 +86,34 @@ type ParityLeg = {
 
 const FIXTURE_ROOT = resolve(__dirname, 'fixtures/lakehouse');
 
+/**
+ * A CI runner has no bundled `LAKEHOUSE_DUCKDB_EXTENSION_DIR` (only the
+ * production image does), so the first DuckDB initialization downloads
+ * `httpfs`/`iceberg`/`delta`/`azure` — roughly 170 MB, most of it `delta`.
+ * That download happens inside `waitForInitialization`, which is charged
+ * against the *first query's* `LAKEHOUSE_QUERY_TIMEOUT_MS` (30s by default),
+ * and a timeout there also invalidates the half-built instance, so the next
+ * query pays for the rebuild too. On a slow morning that is two red tests
+ * followed by a green suite, which is a flake about the network, not about
+ * connector parity. Warm the engine once with its own generous budget so
+ * every timed test measures a query.
+ */
+const WARMUP_TIMEOUT_MS = 120_000;
+
+/**
+ * The `beforeAll` budget, stated rather than inherited from
+ * `jest.setTimeout(180_000)`.
+ *
+ * That hook does two slow things in sequence: it seeds the fixtures into MinIO
+ * / Azurite / GCS-interop, then warms DuckDB with `WARMUP_TIMEOUT_MS`. Sharing
+ * one 180s budget between them means a slow seed silently eats the warm-up's
+ * headroom — the warm-up would still be well inside its own 120s when the
+ * *hook* dies, which reads as "DuckDB is broken" rather than "seeding was
+ * slow". Give the hook the warm-up's budget plus its own for seeding, so each
+ * step has a full one and a timeout that does fire names what overran.
+ */
+const SETUP_TIMEOUT_MS = WARMUP_TIMEOUT_MS + 120_000;
+
 function baseSource(
   overrides: Partial<LakehouseSource> & Pick<LakehouseSource, 'id' | 'format'>,
 ): LakehouseSource {
@@ -277,7 +305,9 @@ describeLakehouse('Lakehouse connector parity', () => {
 
     duckDb = new DuckDbService();
     service = new LakehouseService(prisma, duckDb);
-  });
+    // Forces extension install/load now rather than inside the first read.
+    await duckDb.withConnection(async () => undefined, WARMUP_TIMEOUT_MS);
+  }, SETUP_TIMEOUT_MS);
 
   afterAll(async () => {
     await duckDb?.onModuleDestroy();

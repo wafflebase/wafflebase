@@ -155,8 +155,10 @@ collapse/expand does not visually shift the canvas.
 
 - `useDocument<YorkieSlidesRoot, SlidesPresence>()` provides the
   document handle, same as the desktop view.
-- `ensureSlidesRoot(doc)` is called once on mount — a no-op when the
-  document is already populated, a one-shot scaffold on empty decks.
+- `ensureSlidesRoot(doc, { readOnly: mode === 'view' })` is called once
+  on mount — a one-shot scaffold on empty decks, a themes/masters/guides
+  backfill on unmigrated pre-v0.5 ones, and nothing at all in `'view'`
+  mode (see **Read-only enforcement** below).
 - In `'view'` mode, the deck's slides/theme/meta are read from the
   Yorkie root into React state; `doc.subscribe((e) => ...)` triggers a
   re-snapshot on `remote-change` events. No writes are issued.
@@ -196,9 +198,18 @@ configuration:
 | Yorkie `doc.update()` from editor         | Editor is not instantiated                         |
 | Shape picker / theme panel / notes panel  | Not mounted                                        |
 
-The only write that *can* happen is `ensureSlidesRoot(doc)`, which is
-a no-op on populated decks and a one-shot scaffold on empty ones. An
-empty deck has nothing to protect.
+`ensureSlidesRoot(doc)` used to be the one write that *could* still
+happen, on the argument that an empty deck has nothing to protect. That
+argument was wrong on two counts: the function also backfills
+`themes`/`masters`/`guides`/`meta.themeId` on an **unmigrated** deck,
+which is not empty; and with the Yorkie auth webhook enforcing by
+default, a viewer's write is *refused* at the next `PushPull`, which
+takes down that viewer's own sync rather than merely leaking a write. So
+`mode === 'view'` now passes `readOnly: true` and the call writes
+nothing. Nothing downstream needs it — `YorkieSlidesStore.read()` runs
+the same backfill in memory via `migrateDocument`, so a viewer renders
+an unmigrated deck from an untouched document and the next editor to
+open it persists the migration.
 
 ### Mode B — light editing (Phase B)
 

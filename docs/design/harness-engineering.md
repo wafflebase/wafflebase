@@ -2972,6 +2972,58 @@ conclusion it already has.
 to* fire the panel; narrowing what the panel listens to broke the command without
 touching it, and nothing failed — the rerun reported success both times.
 
+### …and the same admission table made `@claude rerun` a no-op while CI is in flight
+
+The row `completed` / attempt 1 / **no** is correct, and it has a second
+consequence that took #1047 and #1052 to surface. `ciRunToRerun` can only target a
+run whose `status` is `completed`, because `reRunWorkflow` answers 422 for a run
+still in flight. So on 2026-09-09, on both PRs:
+
+1. a rebase was pushed; CI was created (attempt 1) and the panel's `requested`
+   round started ~5 seconds later, where `gate` refused it — the paged latch was
+   still on;
+2. four minutes later `@claude rerun` deleted the latch, found nothing completed,
+   and reported *"No CI run to re-run — the panel will engage on the next CI run"*;
+3. twenty minutes later CI concluded `success` on attempt 1, and the panel refused
+   that event by the table above.
+
+The round's one `requested` event was spent under the latch, its `completed` event
+was refused for being attempt 1, and the verb whose entire purpose is to produce an
+attempt 2 declined to. Both PRs sat unreviewed for five hours. `@claude loop` breaks
+the same way on a human PR whose CI is in flight: the `requested` round is refused
+for being unmanaged, and the label arrives seconds too late to change that.
+
+**The fix is a bounded wait, not a wider gate.** Both re-run steps now consult a
+second selection, `ciRunToAwait` — the newest run that is *not* completed — and poll
+it for up to 30 minutes before re-running it. Two guards close what a thirteen-minute
+wait opens: if the head moved while waiting, nothing is re-run (the push engages the
+loop on its own), and if the awaited run concluded `failure`, nothing is re-run
+either — `agent-iterate-ci.yml` has no attempt gate, so it fired on that completion,
+and its concurrency group is `cancel-in-progress` keyed on the branch, so a second
+`completed/failure` event would cancel its fixer mid-push. That is #648's failure
+mode, reachable again through the fix for a different one.
+
+Three alternatives were rejected. **Cancelling** the in-flight run reaches attempt 2
+sooner and wastes fewer CI minutes, but a recovery verb should not destroy a run the
+operator is watching, and it makes a live panel's `ci` job read `cancelled` and
+discard a ~$12 round. **Re-running the refused panel run** instead of CI is the
+elegant one — no CI cost, and the panel goes back to running in parallel — but it is
+unreachable: a `workflow_run`-triggered run reports the *default branch* as its head
+and carries no reference to the run that triggered it, so the only way to identify
+it is a time window, which would re-review whichever PR's CI started nearby.
+**Admitting `completed` on attempt 1 when nothing has reviewed this head** would
+double-fire every ordinary round, because the panel outlasts CI by ~4 minutes and has
+not written its check runs yet when CI concludes.
+
+Both walls were raised past the wait (5 → 40 minutes). A wall at or below it kills
+the job mid-poll and restores the dead end with the latch already deleted, which is
+strictly worse than not having run the verb — so `checks.test.mjs` reads the wait
+budget out of the workflow and asserts the job's timeout exceeds it. The step itself
+is extracted from the YAML and driven against stubs, one scenario per arm
+(`scripts/agent/rerun-arms.test.mjs`): the selections were already pinned, and a
+correct selection inside a step that stops when it is empty is exactly what this
+incident was.
+
 ### Label writes on a PR need `pull-requests: write`
 
 Not `issues: write`. A pull request is an issue for most of the API — its

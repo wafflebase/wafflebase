@@ -217,11 +217,24 @@ function unwrapElement(e: unknown): YorkieElement {
  * `needsRoot` branch). A pre-v0.5 doc being migrated keeps `defaultLight`
  * so we don't repaint an existing deck just because the current viewer
  * happens to be in dark mode.
+ *
+ * `readOnly` makes the whole thing a no-op. Both branches below are
+ * `doc.update()`s on the CRDT *root*, so on a share-link **viewer** mount
+ * they are writes the Yorkie auth webhook — enforcing by default — refuses
+ * at the next `PushPull`, which wedges the viewer's own sync rather than
+ * just dropping the backfill. Nothing downstream needs the write: `read()`
+ * runs the same theme/master/layout/guides backfill in memory through
+ * `migrateDocument`, so a viewer renders an unmigrated deck correctly from
+ * an untouched document. The next editor to open it persists the migration.
  */
 export function ensureSlidesRoot(
   doc: YorkieDocument<YorkieSlidesRoot>,
-  options?: { initialThemePreference?: 'light' | 'dark' },
+  options?: {
+    initialThemePreference?: 'light' | 'dark';
+    readOnly?: boolean;
+  },
 ): void {
+  if (options?.readOnly) return;
   const root = doc.getRoot();
   const needsRoot = root.meta == null || root.slides == null || root.layouts == null;
   const seedTheme =

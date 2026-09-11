@@ -25,6 +25,23 @@ const THRESHOLD = 400_000;
 let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
 let originalResizeObserver: typeof globalThis.ResizeObserver | undefined;
 
+/**
+ * Every editor `setupEditor` builds, so `afterEach` can dispose them.
+ *
+ * An editor left undisposed keeps its cursor blink interval armed. The
+ * timer is harmless while the test runs, but it outlives the file and
+ * fires against a torn-down jsdom, where `DocCanvas.resize`'s
+ * `window.devicePixelRatio` throws `window is not defined` as an
+ * unhandled error — failing the run even though all 8 tests passed. It
+ * only reproduces when teardown is slow enough for a tick to land in the
+ * gap, so it surfaced under `--coverage` in CI and not in a plain run.
+ *
+ * Collected rather than disposed at each test's tail (the convention in
+ * the sibling editor tests) because a failing `expect` would skip that
+ * line and reintroduce the leak as a confusing second error.
+ */
+const editors: EditorAPI[] = [];
+
 function installCanvasShim(): void {
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   originalResizeObserver = (globalThis as { ResizeObserver?: typeof globalThis.ResizeObserver })
@@ -69,6 +86,7 @@ function setupEditor(): {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const editor = initialize(container, store);
+  editors.push(editor);
   const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
   editor._setSelectionForTest({
     anchor: { blockId: 'b1', offset: 4 },
@@ -138,6 +156,8 @@ describe('large paste busy indicator', () => {
   });
 
   afterEach(() => {
+    // Before the shim is pulled: dispose still paints through the canvas.
+    for (const editor of editors.splice(0)) editor.dispose();
     HTMLCanvasElement.prototype.getContext = originalGetContext;
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver =
       originalResizeObserver;

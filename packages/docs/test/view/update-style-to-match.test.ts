@@ -73,12 +73,18 @@ function heading3(text = 'Details'): Block {
   return b;
 }
 
+/** See the note in `large-paste-indicator.test.ts`: an undisposed editor
+ *  leaves its cursor blink interval firing against a torn-down jsdom. */
+const editors: EditorAPI[] = [];
+
 function setupEditor(blocks: Block[]): { editor: EditorAPI; store: MemDocStore } {
   const store = new MemDocStore();
   store.setDocument({ blocks });
   const container = document.createElement('div');
   document.body.appendChild(container);
-  return { editor: initialize(container, store), store };
+  const editor = initialize(container, store);
+  editors.push(editor);
+  return { editor, store };
 }
 
 function selectWholeFirstRun(editor: EditorAPI, block: Block): void {
@@ -95,6 +101,7 @@ describe('updateStyleToMatch stores only what the document redefined', () => {
   });
 
   afterEach(() => {
+    for (const editor of editors.splice(0)) editor.dispose();
     document.body.innerHTML = '';
     // `setThemeMode` is a module-level global shared with every other view
     // suite — leaving it dark corrupts unrelated files.

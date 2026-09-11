@@ -959,9 +959,40 @@ export class Spreadsheet {
   /**
    * `recalculateCrossSheetFormulas` re-evaluates all formulas that reference
    * other sheets and re-renders. Call when another sheet's data may have changed.
+   *
+   * Recalculation *writes*: `Sheet.recalculateCrossSheetFormulas` opens a store
+   * batch and `calculate()` persists every formula's new cached value through
+   * it. On a read-only mount those are `doc.update()`s the Yorkie auth webhook
+   * — enforcing by default — refuses for a share-link `viewer`, wedging the
+   * viewer's own sync. So a read-only sheet repaints with whatever cached
+   * values the document already carries and skips the pass entirely, the same
+   * way every other mutator on this class is gated.
+   *
+   * **The trade-off, stated plainly:** a viewer displays the *persisted* cached
+   * value, so a cross-sheet formula whose inputs changed without anybody
+   * recalculating reads stale until an editor session does. That window is
+   * narrow — an editor's own edit propagates to cross-sheet dependants through
+   * `buildGlobalDependantsMap`, and the viewer repaints on the resulting
+   * remote change — but it is real for writers that do not recalculate at all,
+   * which today is the `/api/v1` cell endpoints (they clear the cache rather
+   * than recompute it, see `docs/design/rest-api.md`).
+   *
+   * Recalculating in memory and rendering *without* persisting was considered
+   * and rejected as out of proportion. The only place to hold the result is
+   * `YorkieStore`'s batch overlay, which reads take precedence over the CRDT —
+   * so retaining it past `endBatch()` needs remote-change invalidation, an
+   * unbounded lifetime, and, decisively, a way to tell a recalc write apart
+   * from a user write. Without that last distinction every ungated write on a
+   * read-only mount would land in the same overlay and *appear to succeed*
+   * locally while never saving, which is a worse failure than a stale cached
+   * value and the exact one the read-only boundary exists to remove.
    */
   public async recalculateCrossSheetFormulas(): Promise<void> {
     if (!this.sheet) return;
+    if (this._readOnly) {
+      this.worksheet.render();
+      return;
+    }
     await this.sheet.recalculateCrossSheetFormulas();
     this.worksheet.render();
   }

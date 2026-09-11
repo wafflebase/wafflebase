@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
+import { getActiveTheme } from '@wafflebase/slides';
 import type { YorkieSlidesRoot } from '../../../src/types/slides-document.ts';
 import type { Block } from '@wafflebase/docs';
 import { MAX_FONT_SIZE, MAX_LINE_HEIGHT, MAX_LIST_LEVEL } from '@wafflebase/docs';
@@ -75,6 +76,118 @@ describe('ensureSlidesRoot — initial theme preference', () => {
     const root = doc.getRoot();
     expect(root.meta.themeId).toBe('default-light');
     expect(root.themes.map((t) => t.id)).toEqual(['default-light']);
+  });
+});
+
+/**
+ * A customized deck whose `meta` pins ids its own `themes` / `masters` arrays
+ * do not carry — the shape a removed or renamed custom theme leaves behind. A
+ * writable mount repairs it in the CRDT; a read-only one must reconcile it in
+ * memory instead. Both read-only and writable cases below build *this* deck,
+ * so the pair contrasts on identical input.
+ */
+function seedCustomizedDeck(): Document<YorkieSlidesRoot> {
+  const doc = new yorkie.Document<YorkieSlidesRoot>(
+    `test-${Date.now()}-${Math.random()}`,
+  );
+  doc.update((r) => {
+    const rootAny = r as unknown as {
+      meta: { title: string; themeId: string; masterId: string };
+      slides: unknown[];
+      layouts: unknown[];
+      themes: unknown[];
+      masters: unknown[];
+    };
+    rootAny.meta = {
+      title: 'Customized deck',
+      themeId: 'a-theme-that-was-removed',
+      masterId: 'a-master-that-was-removed',
+    };
+    rootAny.slides = [];
+    rootAny.layouts = [];
+    rootAny.themes = [{ id: 'coral', name: 'Coral', colors: {}, fonts: {} }];
+    rootAny.masters = [{ id: 'custom', name: 'Custom', placeholders: [] }];
+  });
+  return doc;
+}
+
+describe('ensureSlidesRoot — read-only mounts', () => {
+  it('writes nothing at all when readOnly', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc, { readOnly: true });
+    // Not "seeds a lighter shape" — nothing. Both branches are
+    // `doc.update()`s on the CRDT root, and a share-link viewer's write is
+    // refused at the next PushPull by the Yorkie auth webhook, which wedges
+    // that viewer's own sync.
+    expect(doc.getRoot().meta).toBeUndefined();
+    expect(doc.getRoot().slides).toBeUndefined();
+    expect(doc.toJSON()).toBe('{}');
+  });
+
+  it('skips the pre-v0.5 backfill when readOnly, and reads it in memory', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    // An unmigrated deck: `meta`/`slides`/`layouts` present, but no
+    // `themes`/`masters`/`guides`. This is the shape that made a viewer's
+    // mount write.
+    doc.update((r) => {
+      const rootAny = r as unknown as {
+        meta: { title: string; themeId: string; masterId: string };
+        slides: unknown[];
+        layouts: unknown[];
+      };
+      rootAny.meta = {
+        title: 'Pre-existing deck',
+        themeId: 'default-light',
+        masterId: 'default',
+      };
+      rootAny.slides = [];
+      rootAny.layouts = [];
+    });
+
+    ensureSlidesRoot(doc, { readOnly: true });
+    expect(doc.getRoot().themes).toBeUndefined();
+    expect(doc.getRoot().masters).toBeUndefined();
+
+    // Nothing downstream needs the write: `read()` runs the same backfill in
+    // memory, so the viewer still renders the deck.
+    const out = new YorkieSlidesStore(doc).read();
+    expect(out.themes.length > 0).toBeTruthy();
+    expect(out.masters.length > 0).toBeTruthy();
+    expect(out.themes.some((t) => t.id === out.meta.themeId)).toBe(true);
+  });
+
+  it('reconciles a stale meta.themeId in memory so a viewer can render', () => {
+    // A viewer mount skips the CRDT repair, so the reconciliation has to
+    // happen on the read path or `getActiveTheme` throws and the share route
+    // renders nothing.
+    const doc = seedCustomizedDeck();
+
+    ensureSlidesRoot(doc, { readOnly: true });
+    // Untouched: the viewer wrote nothing.
+    expect(doc.getRoot().meta.themeId).toBe('a-theme-that-was-removed');
+
+    const out = new YorkieSlidesStore(doc).read();
+    expect(out.meta.themeId).toBe('coral');
+    expect(out.meta.masterId).toBe('custom');
+    expect(() => getActiveTheme(out)).not.toThrow();
+  });
+
+  it('still backfills a writable mount of the same deck', () => {
+    // The other half of the contrast: identical input, writable mount. The
+    // repair the viewer above only got in memory is persisted here — and the
+    // deck's own themes are kept, not repainted with a built-in.
+    const doc = seedCustomizedDeck();
+    ensureSlidesRoot(doc);
+    expect(doc.getRoot().meta.themeId).toBe('coral');
+    expect(doc.getRoot().meta.masterId).toBe('custom');
+    expect(doc.getRoot().themes.map((t) => t.id)).toEqual(['coral']);
+    expect(doc.getRoot().masters.map((m) => m.id)).toEqual(['custom']);
+    // The pre-ruler backfill runs on the same pass.
+    expect(doc.getRoot().guides.length).toBe(0);
   });
 });
 

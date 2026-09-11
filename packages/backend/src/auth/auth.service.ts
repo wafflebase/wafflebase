@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import type ms from 'ms';
+import {
+  YORKIE_SERVICE_TOKEN_TYPE,
+  type YorkieServiceTokenPayload,
+} from '../yorkie/yorkie-service-token';
 
 type AuthPayloadBase = {
   sub: number;
@@ -27,14 +31,17 @@ export type AuthTokens = {
 /**
  * Short-lived token handed to the Yorkie client's `authTokenInjector`, echoed
  * back to us verbatim in the auth-webhook request body. It carries only the
- * caller's identity — the webhook resolves document access from it. Two shapes:
- * an authenticated user (`sub`), or an anonymous share-link visitor whose rights
- * come from the link (`shareToken`). Never the raw session JWT — that is
- * httpOnly and must not reach client JS.
+ * caller's identity — the webhook resolves document access from it. Three
+ * shapes: an authenticated user (`sub`), an anonymous share-link visitor whose
+ * rights come from the link (`shareToken`), and this backend's own Yorkie
+ * client (`yorkie-service`, see `src/yorkie/yorkie-service-token.ts`), which
+ * has already authorized its caller before opening the document. Never the raw
+ * session JWT — that is httpOnly and must not reach client JS.
  */
 export type YorkieTokenPayload =
   | { typ: 'yorkie'; sub: number }
-  | { typ: 'yorkie-share'; shareToken: string };
+  | { typ: 'yorkie-share'; shareToken: string }
+  | YorkieServiceTokenPayload;
 
 @Injectable()
 export class AuthService {
@@ -89,7 +96,11 @@ export class AuthService {
     const payload = this.jwtService.verify<YorkieTokenPayload & object>(token, {
       secret: this.accessSecret,
     });
-    if (payload.typ !== 'yorkie' && payload.typ !== 'yorkie-share') {
+    if (
+      payload.typ !== 'yorkie' &&
+      payload.typ !== 'yorkie-share' &&
+      payload.typ !== YORKIE_SERVICE_TOKEN_TYPE
+    ) {
       throw new UnauthorizedException('Invalid Yorkie token type');
     }
     return payload;

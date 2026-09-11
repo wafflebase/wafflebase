@@ -590,7 +590,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // rule in the file header exists for: it fires synchronously from
     // inside `store.batch()` when an insert commit selects the element
     // it just added.
+    //
+    // Silent on a read-only mount, for the same reason the pointer listeners
+    // above are not even attached: `updatePresence` is a `doc.update()`, so
+    // it is a local change the next `PushPull` carries with verb `rw`, which
+    // the Yorkie auth webhook (enforcing by default) refuses for a share-link
+    // `viewer` — wedging the viewer's own sync the first time they click an
+    // element.
     const offSelection = editor.onSelectionChange(() => {
+      if (readOnly) return;
       store.updatePresence({
         selectedElementIds: editor.getSelection().slice(),
       });

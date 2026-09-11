@@ -89,6 +89,36 @@ export function migrateDocument(input: unknown): SlidesDocument {
   // so consumers downstream never see undefined and the read-path stays
   // shape-stable across pre- / post-v0.4.2 documents.
   const guides = Array.isArray(raw?.guides) ? raw.guides.map(migrateGuide) : [];
+  // Reconcile `meta.themeId` / `meta.masterId` against the arrays resolved
+  // above. `migrateMeta` alone cannot: it sees no themes, so it falls back to
+  // the hard-coded 'default-light' / 'default' ids, and a customized or
+  // partially migrated deck may carry neither — `getActiveTheme(doc)` then
+  // throws at render time. `ensureSlidesRoot` performs the same repair in the
+  // CRDT, but a share-link **viewer** mount skips it (a write the Yorkie auth
+  // webhook refuses), so this read-path pass is what keeps that mount
+  // renderable.
+  //
+  // The reconciliation target is the first entry with a *string* id, not
+  // `themes[0].id`. The arrays are forced non-empty above, so the index is
+  // safe, but their entries come off `raw` — an `any` read from the CRDT,
+  // where any collaborator can write `{ name: 'x' }` with no id at all.
+  // Assigning that `undefined` to a `string` field is worse than leaving the
+  // mismatch: `getActiveTheme` matches `undefined === undefined` and resolves
+  // the id-less entry, so a malformed deck renders from a theme with no
+  // palette instead of failing with the error that names the id. With no
+  // usable id anywhere, leave `meta` as `migrateMeta` resolved it.
+  const firstStringId = (entries: Array<{ id?: unknown }>): string | undefined =>
+    entries.find((e) => typeof e?.id === 'string' && e.id.length > 0)?.id as
+      | string
+      | undefined;
+  if (!themes.some((t: { id?: string }) => t.id === meta.themeId)) {
+    const themeId = firstStringId(themes);
+    if (themeId !== undefined) meta.themeId = themeId;
+  }
+  if (!masters.some((m: { id?: string }) => m.id === meta.masterId)) {
+    const masterId = firstStringId(masters);
+    if (masterId !== undefined) meta.masterId = masterId;
+  }
   return { meta, themes, masters, layouts, slides, guides };
 }
 

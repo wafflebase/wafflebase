@@ -69,6 +69,7 @@ import {
 export class YorkieStore implements Store {
   private doc: Document<SpreadsheetDocument, UserPresence>;
   private tabId: string;
+  private readOnly: boolean;
   private cellIndex: CellIndex = new CellIndex();
   private dirty = true;
 
@@ -77,15 +78,39 @@ export class YorkieStore implements Store {
   private batchOverlay: Map<Sref, Cell | null> | null = null;
   private batchOps: Array<(root: SpreadsheetDocument) => void> | null = null;
 
-  constructor(doc: Document<SpreadsheetDocument, UserPresence>, tabId: string) {
+  /**
+   * `readOnly` silences the three writes the grid makes without the user ever
+   * running an editing command: the mount-time presence seed below,
+   * {@link updateSelection} (every cursor move) and {@link ensureAxisOrder}
+   * (which grows `rowOrder`/`colOrder` in the CRDT *root* from that same
+   * selection path). All three are `doc.update()`s, so the next `PushPull`
+   * carries them with verb `rw` — which the Yorkie auth webhook, enforcing by
+   * default, refuses for a share-link `viewer`, wedging the viewer's own sync
+   * the moment they open the sheet or press an arrow key. The engine's own
+   * `readOnly` bounds the editing commands, not the selection publish, so the
+   * gate has to be here. Matches `board-view`'s selection presence,
+   * `slides-view`'s broadcast, `pdf-collab`'s `activePage` and
+   * `readOnlyNoteStore`'s `setLocalSelection`.
+   *
+   * Reads are untouched: `getPresences` still renders peer cursors, so a
+   * viewer sees the collaborators they cannot announce themselves to.
+   */
+  constructor(
+    doc: Document<SpreadsheetDocument, UserPresence>,
+    tabId: string,
+    readOnly = false,
+  ) {
     this.doc = doc;
     this.tabId = tabId;
+    this.readOnly = readOnly;
 
     // Keep presence aligned with the currently opened tab so peer cursors can
     // be scoped to that tab.
-    this.doc.update((_, p) => {
-      p.set({ activeTabId: this.tabId });
-    });
+    if (!this.readOnly) {
+      this.doc.update((_, p) => {
+        p.set({ activeTabId: this.tabId });
+      });
+    }
 
     // Mark index as dirty on remote changes so it gets rebuilt lazily.
     doc.subscribe((e) => {
@@ -622,6 +647,9 @@ export class YorkieStore implements Store {
     ranges: RangeAnchor[],
     activeCellRef: Ref,
   ) {
+    // A read-only mount announces nothing — see the constructor.
+    if (this.readOnly) return;
+
     // Always emit the legacy activeCell Sref so peer cursors render even
     // when activeCell sits beyond axis-ID coverage (e.g. after Cmd+Down on
     // an empty sheet). Emit `selection` only when an anchor is available.
@@ -655,6 +683,11 @@ export class YorkieStore implements Store {
   }
 
   ensureAxisOrder(minRows: number, minCols: number): void {
+    // Growing the axis is a write to the document root, not presence, and it
+    // is reached from the selection path — so on a read-only mount it is both
+    // a write a viewer must not make and one the webhook would refuse.
+    if (this.readOnly) return;
+
     // Most calls need nothing new — every arrow key re-publishes the
     // selection. Bail before `doc.update`, whose `new Set(rowOrder)` below
     // would otherwise walk the whole axis on each keystroke.
@@ -1262,11 +1295,30 @@ export class YorkieStore implements Store {
     return this.doc.history.canRedo();
   }
 
+  /**
+   * Refuse a comment write on a read-only mount.
+   *
+   * The comment mutators below are the one write path the grid exposes that
+   * does **not** run through the engine's own `readOnly` — the popover calls
+   * this store directly — so nothing else stands between a viewer-role
+   * share-link visitor and a `doc.update()` on the CRDT root. `CommentPopover`
+   * now hides the affordances (`readOnly` in `sheet-view.tsx`), but a UI gate
+   * is the wrong last line: this throws so a future caller that forgets it
+   * fails loudly instead of writing where the Yorkie auth webhook will refuse
+   * it and wedge the viewer's sync.
+   */
+  private assertWritable(action: string): void {
+    if (this.readOnly) {
+      throw new Error(`${action}: this document is open read-only`);
+    }
+  }
+
   async addThread(
     anchor: CommentAnchor,
     body: string,
     author: CommentAuthor,
   ): Promise<Thread> {
+    this.assertWritable('addThread');
     if (anchor.kind === 'sheet-cell' && anchor.tabId !== this.tabId) {
       throw new Error(
         `addThread: anchor.tabId (${anchor.tabId}) does not match store tabId (${this.tabId})`,
@@ -1292,6 +1344,7 @@ export class YorkieStore implements Store {
     body: string,
     author: CommentAuthor,
   ): Promise<Comment> {
+    this.assertWritable('addReply');
     let reply!: Comment;
     this.doc.update((root) => {
       const ws = root.sheets[this.tabId];
@@ -1311,6 +1364,7 @@ export class YorkieStore implements Store {
   }
 
   async editComment(threadId: string, commentId: string, body: string): Promise<void> {
+    this.assertWritable('editComment');
     if (body.trim().length === 0) throw new Error('Comment body cannot be empty');
     this.doc.update((root) => {
       applyEditComment(root.sheets[this.tabId], threadId, commentId, body, Date.now());
@@ -1318,6 +1372,7 @@ export class YorkieStore implements Store {
   }
 
   async deleteComment(threadId: string, commentId: string): Promise<void> {
+    this.assertWritable('deleteComment');
     this.doc.update((root) => {
       applyDeleteComment(root.sheets[this.tabId], threadId, commentId);
     });
@@ -1328,6 +1383,7 @@ export class YorkieStore implements Store {
     resolved: boolean,
     by: CommentAuthor,
   ): Promise<void> {
+    this.assertWritable('setThreadResolved');
     this.doc.update((root) => {
       applyResolveThread(root.sheets[this.tabId], threadId, resolved, by, Date.now());
     });

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { Client as PgClient } from 'pg';
 import yorkie, { Client, SyncMode } from '@yorkie-js/sdk';
 import { snapshotJsonRoot } from '../src/yorkie/yorkie-json';
+import { yorkieServiceTokenInjector } from '../src/yorkie/yorkie-service-token';
 
 type CliOptions = {
   databaseUrl: string;
@@ -14,6 +15,44 @@ type CliOptions = {
   documentIds: string[];
 };
 
+/**
+ * The auth-webhook token one side's attach carries, signed with the
+ * `JWT_SECRET` of the backend that owns *that* side.
+ *
+ * Two rules, both deliberate:
+ *
+ * - **No fallback between the sides, and none to this process's own
+ *   `JWT_SECRET`.** The source and target are different deployments with
+ *   different secrets, and a service token grants read/write on *every*
+ *   document of whichever deployment minted it. Defaulting the target to the
+ *   secret in the running shell would therefore send deployment A's
+ *   all-documents credential to deployment B's Yorkie server — silently, on
+ *   the path an operator takes when they simply do not pass the flag.
+ * - **Read from the environment, not argv.** A secret on the command line is
+ *   readable by any local process through `/proc/<pid>/cmdline` and is echoed
+ *   into shell history and CI logs.
+ *
+ * Warns rather than throws when a side's secret is missing: a copy between two
+ * local Yorkies with no webhook methods registered has nothing to
+ * authenticate to, and failing there would break a working workflow for a
+ * token nobody reads.
+ */
+function sideTokenInjector(
+  side: 'source' | 'target',
+  envVar: 'SOURCE_JWT_SECRET' | 'TARGET_JWT_SECRET',
+): (() => Promise<string>) | undefined {
+  const secret = process.env[envVar];
+  if (!secret) {
+    console.warn(
+      `${envVar} is unset, so the ${side} attach carries no auth token; it ` +
+        'will be denied wherever the Yorkie auth webhook is registered. Set ' +
+        `${envVar} to the ${side} deployment's own JWT_SECRET.`,
+    );
+    return undefined;
+  }
+  return yorkieServiceTokenInjector(secret);
+}
+
 type YorkieRoot = Record<string, unknown>;
 
 function usage(): string {
@@ -25,7 +64,15 @@ function usage(): string {
     --source-rpc-addr <source-rpc-addr> \\
     --source-api-key <source-api-key> \\
     --target-rpc-addr <target-rpc-addr> \\
-    [--limit <count>] [--document <id> ...]`;
+    [--limit <count>] [--document <id> ...]
+
+The auth-webhook token each attach carries is signed with that side's own
+JWT_SECRET, read from the environment as SOURCE_JWT_SECRET and
+TARGET_JWT_SECRET. There is no fallback between the two and none to this
+process's JWT_SECRET: a service token grants read/write on every document of
+the deployment that minted it, so a default would hand one side's credential
+to the other side's server. A side whose variable is unset attaches
+anonymously and is denied wherever the auth webhook is registered.`;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -201,12 +248,18 @@ async function copyDocument(
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  // Each attach authenticates to *its own* side's auth webhook as that
+  // backend: enforcement is the default, so an anonymous attach is refused
+  // wherever the methods are registered. The secrets never cross — see
+  // `sideTokenInjector`.
   const sourceClient = new yorkie.Client({
     rpcAddr: options.sourceRpcAddr,
     apiKey: options.sourceApiKey,
+    authTokenInjector: sideTokenInjector('source', 'SOURCE_JWT_SECRET'),
   });
   const targetClient = new yorkie.Client({
     rpcAddr: options.targetRpcAddr,
+    authTokenInjector: sideTokenInjector('target', 'TARGET_JWT_SECRET'),
   });
 
   await sourceClient.activate();
