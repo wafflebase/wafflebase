@@ -218,6 +218,20 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
       title: 'Shared roadmap',
       type: 'sheet',
     });
+
+    // The body-carrying form the periodically re-resolving share view uses,
+    // which keeps the token out of request URLs and access logs.
+    const postResolveResponse = await request(app.getHttpServer())
+      .post('/share-links/resolve')
+      .send({ token: createLinkResponse.body.token })
+      .expect(200);
+
+    expect(postResolveResponse.body).toEqual(resolveResponse.body);
+
+    await request(app.getHttpServer())
+      .post('/share-links/resolve')
+      .send({})
+      .expect(404);
   });
 
   it('runs datasource routes end-to-end with auth and ownership checks', async () => {

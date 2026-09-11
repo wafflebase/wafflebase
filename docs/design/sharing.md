@@ -50,7 +50,17 @@ to the document and creator.
 - `GET /documents/:id/share-links` — List links + caller capabilities (JWT
   required, any workspace member)
 - `DELETE /share-links/:id` — Revoke link (JWT required; see matrix)
-- `GET /share-links/:token/resolve` — Resolve token (public, no auth)
+- `POST /share-links/resolve` — Resolve token (public, no auth), token in the
+  **body**. This is what the client calls: the shared view re-resolves its
+  token every minute and on tab focus, and a path segment would write that
+  access-granting token into every access log, proxy and CDN between the
+  visitor and the backend on each of those requests. Same reasoning as
+  `POST /auth/yorkie-token/share`.
+- `GET /share-links/:token/resolve` — The same answer with the token in the
+  path (public, no auth). Kept for one-shot callers that predate the POST form
+  — an older frontend served during a rollout — and redacted in this server's
+  own logs by `SECRET_PATH_SEGMENTS` in `log-safe-url.ts`, which can do
+  nothing about anyone else's.
 
 The list endpoint returns `{ links, permissions: { canCreateEditorLink } }`,
 where each link is annotated with a server-computed `canDelete` flag, so the
@@ -229,11 +239,70 @@ constructed in read-only mode too, with every **mutating** path gated so
   `copy` event, and `Cmd/Ctrl+C` over it would do nothing. Focus mutates
   no document state; every write stays behind a `readOnly` gate
 
+### A link is a live capability, not a load-time fact
+
+A share link's role can change while a tab sits open — the link is revoked,
+it expires, or the document's manager re-mints it as `viewer` after handing
+it out as `editor`. Resolved once at page load, the view could only ever
+*loosen*: it kept the authority it opened with for the tab's lifetime.
+
+So `SharedDocumentByToken` (`app/shared/shared-document.tsx`) re-resolves its
+token on an interval — `SHARE_LINK_REVALIDATE_MS`, 60 s — and on tab focus,
+through react-query. That is one unauthenticated lookup per minute per open
+tab, which is why `resolveShareLink` posts the token rather than putting it in
+the path: repeating a credential in a URL repeats it into every access log on
+the way. react-query pauses the interval while the tab is hidden, and its
+structural sharing keeps `resolved`'s identity stable, so an unchanged link
+re-renders nothing. The interval is what bounds how long a revoked or
+downgraded link keeps presenting authority it no longer has.
+
+Two consequences the rest of the frontend has to honour:
+
+- **A verdict evicts the session; a failed request must not.** react-query
+  keeps its last good `data` while reporting `error` for every failed
+  *background* refetch, so treating any error as a revocation tore down a
+  live editing session — losing whatever had not synced — on the first laptop
+  sleep or backend restart that outlasted the retry.
+  `isRevokedShareLinkError` (`api/share-links.ts`) therefore enumerates the
+  two statuses `POST /share-links/resolve` actually answers with:
+  `404` (revoked, or never existed) and `410` (expired). Everything else — a
+  5xx, a timeout, a rate-limit, the `TypeError` a failed connection throws,
+  and any 4xx produced by a proxy in front of the handler — keeps the last
+  good resolution and keeps retrying.
+- **`readOnly` is a remount dependency, not a prop read once.** Every editor
+  captures it at `initialize()` and nothing re-arms it on a mounted
+  instance, so the docs / notes / slides views list it in their mount-effect
+  deps: a downgrade rebuilds the editor against the current permission,
+  because that is the only place the permission is applied. A rebuild
+  discards the editor's store while the Yorkie document — owned by the
+  enclosing `DocumentProvider` — stays attached, so each store needs a
+  disposal seam (`YorkieDocStore.dispose()`, `YorkieNoteStore.dispose()`,
+  `YorkieSlidesStore.dispose()`); a store left subscribed keeps driving an
+  editor that no longer exists.
+
+Rebuilding is not the same as revoking what the old editor already handed
+out. The docs `EditorAPI` gives callers long-lived objects — `getStore()` and
+`getDoc()`, which `docs-find-bar` takes once for the editor's lifetime — so
+changing what the accessors return revokes nothing for a holder that has the
+object already. `dispose()` therefore neuters them: the store handle is a
+revocable proxy whose mutators become no-ops (`revocableDocStore` in
+`packages/docs/src/store/read-only.ts`), alongside `EditorAPI`'s own mutating
+members and `EditorAPI.isDisposed()`, so a stale handle cannot write through
+the rebuild.
+
+All of this is client-side, and deliberately so: it stops the *client*
+presenting authority it no longer has. What stops a write is the Yorkie auth
+webhook — see **Server-side write enforcement, once enabled** below, and note
+that it is off in a stock deployment.
+
 ### Security
 
 - **Token entropy** — UUIDs provide 122 bits of entropy, making tokens
   unguessable.
-- **Revocation** — Deleting a ShareLink immediately invalidates the token.
+- **Revocation** — Deleting a ShareLink immediately invalidates the token for
+  any new resolution, and a mounted view gives up its authority within
+  `SHARE_LINK_REVALIDATE_MS` (above). It does not by itself reach a session
+  already attached to the Yorkie document; that is the auth webhook's job.
 - **Cascade deletion** — Deleting a document cascades to all its share links.
 - **Server-side write enforcement** — The Yorkie auth webhook enforces the
   share-link role server-side: an anonymous visitor's token is checked in

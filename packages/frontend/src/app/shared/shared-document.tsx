@@ -3,7 +3,12 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
-import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
+import {
+  resolveShareLink,
+  isShareLinkResolveFatal,
+  shouldRetryShareLinkResolve,
+  ResolvedShareLink,
+} from "@/api/share-links";
 import { fetchMeOptional, fetchYorkieShareToken } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { SharedHeaderStatus } from "@/app/shared/shared-header-status";
@@ -78,6 +83,17 @@ type PeerJumpTarget = {
   targetTabId?: UserPresenceType["activeTabId"];
   requestId: number;
 };
+
+/**
+ * How often a mounted share view re-resolves its token (see
+ * {@link SharedDocumentByToken}). Bounds how long a revoked or downgraded
+ * link keeps the authority it was opened with — one request per minute per
+ * open tab against a cheap, unauthenticated lookup. That repetition is also
+ * why `resolveShareLink` posts the token instead of spelling it into the
+ * request path: a credential in a URL is a credential in every access log
+ * between here and the backend, once per re-resolve.
+ */
+const SHARE_LINK_REVALIDATE_MS = 60_000;
 
 const DataSourceView = lazy(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
@@ -1039,38 +1055,62 @@ function SharedDocumentInner({
  * everything below already took `token` as a prop.
  */
 export function SharedDocumentByToken({ token }: { token?: string }) {
-  const [resolved, setResolved] = useState<ResolvedShareLink | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // A share link is a live capability, not a fact settled at page load: it can
+  // be revoked, expire, or be downgraded from `editor` to `viewer` while the
+  // tab sits open. Everything downstream reads its authority off `resolved`
+  // — `readOnly` here, and through it the docs editor's read-only wrapper.
+  // That wrapper is a client-side affordance, not the security boundary: per
+  // -document write authority is enforced server-side by the Yorkie auth
+  // webhook, which a deployment must switch out of its default shadow mode
+  // (`YORKIE_AUTH_WEBHOOK_ENFORCE=true`) for a downgrade or a revocation to
+  // actually stop a write. What re-resolving buys is that the *client* stops
+  // presenting authority it no longer has: resolved exactly once, the view
+  // could only ever loosen, never tighten. So re-resolve it periodically and
+  // on tab focus (react-query pauses the interval while the tab is hidden,
+  // and its structural sharing keeps `resolved`'s identity stable when
+  // nothing changed, so an unchanged link re-renders nothing).
+  //
+  // A revoked or expired link now closes the view rather than being carried
+  // for the tab's lifetime — but only when the server *said so*. See
+  // {@link isShareLinkResolveFatal}: react-query keeps `data` while reporting
+  // `error` on a background refetch, so treating any failure as fatal tore
+  // down a live editing session on the first offline blip that outlasted the
+  // retry.
+  const {
+    data: resolved,
+    error,
+    isLoading,
+  } = useQuery({
+    queryKey: ["share-link", "resolve", token],
+    queryFn: () => resolveShareLink(token as string),
+    enabled: Boolean(token),
+    refetchInterval: SHARE_LINK_REVALIDATE_MS,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    retry: shouldRetryShareLinkResolve,
+  });
 
-  useEffect(() => {
-    if (!token) {
-      setError("No share token provided");
-      setLoading(false);
-      return;
-    }
-
-    resolveShareLink(token)
-      .then((data) => {
-        setResolved(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || "Invalid or expired link");
-        setLoading(false);
-      });
-  }, [token]);
-
-  if (loading) {
+  if (token && isLoading) {
     return <Loader />;
   }
 
-  if (error || !resolved) {
+  // Close the view when the link never resolved at all, or when a re-resolve
+  // came back as a *verdict* on the link. A transient failure keeps the last
+  // good `resolved` and the interval keeps trying. Both decisions live in
+  // `share-links.ts` so they are covered by tests rather than by mounting
+  // this component and every provider under it — see
+  // {@link isShareLinkResolveFatal}.
+  const fatal = isShareLinkResolveFatal(error, resolved);
+
+  if (!token || fatal || !resolved) {
+    const message = !token
+      ? "No share token provided"
+      : (error instanceof Error && error.message) || "Invalid or expired link";
     return (
       <div className="flex h-screen w-full items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-semibold mb-2">Link unavailable</h1>
-          <p className="text-muted-foreground">{error || "Invalid or expired link"}</p>
+          <p className="text-muted-foreground">{message}</p>
         </div>
       </div>
     );

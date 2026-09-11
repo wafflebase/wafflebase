@@ -549,6 +549,26 @@ function readPageSetup(proxy: any): PageSetup {
   };
 }
 
+/**
+ * One entry of Yorkie's undo stack — the reverse operations of a single
+ * change, i.e. exactly what one Cmd+Z applies. `HistoryOperation` itself is
+ * declared but not exported by the SDK, so the type is read back off the
+ * accessor.
+ */
+type UndoStackEntry = ReturnType<
+  YorkieDocument<YorkieDocsRoot>['getUndoStackForTest']
+>[number];
+
+/**
+ * Mirrors the SDK's `MaxUndoRedoStackDepth`, which it does not export. Read
+ * only as "the stack can have dropped an entry" — never as an index — so
+ * drifting from the SDK is not a correctness hazard: a *larger* real cap
+ * still satisfies the comparison at the point entries start falling off, and
+ * a smaller one just leaves `canUndo()` on its depth fallback, which refuses
+ * an undo rather than allowing one past the initial load.
+ */
+const YORKIE_MAX_UNDO_DEPTH = 50;
+
 // ---------------------------------------------------------------------------
 // YorkieDocStore
 // ---------------------------------------------------------------------------
@@ -561,8 +581,48 @@ export class YorkieDocStore implements DocStore {
   private localCursorAnchor: AnchoredDocPosition | null = null;
   private localSelectionAnchor: AnchoredDocRange | null = null;
   private compositionStartAnchor: AnchoredDocPosition | null = null;
-  /** Undo stack depth after setDocument — users cannot undo past this point. */
-  private undoFloor = 0;
+  /**
+   * The top entry of the initial-load prefix — the boundary users must not
+   * undo past. Null when the stack was empty at load time, i.e. nothing to
+   * protect.
+   *
+   * Held by **identity**, not as a depth. Yorkie caps the undo stack at 50
+   * entries (`MaxUndoRedoStackDepth`) and `pushUndo` `shift()`s the oldest
+   * one once it is full, so a depth recorded at load time stops describing
+   * the same boundary the moment anything falls off the bottom — `canUndo()`
+   * then refused undos that were still perfectly reachable (issue #1045). An
+   * entry that has been dropped is simply not found, which is exactly the
+   * "the floor is gone, so everything left is above it" answer.
+   *
+   * Identity is a load-bearing assumption about `getUndoStackForTest()` —
+   * that it hands back the live internal array rather than a copy of freshly
+   * built entries. It does today (`History.getUndoStackForTest` returns
+   * `this.undoStack`, and `pushUndo` stores the caller's array by reference),
+   * but the name says it is not a contract. So it is *verified* at mark time
+   * rather than trusted: see {@link undoFloorIdentityUsable}, and
+   * {@link undoFloorDepth} for what happens when it does not hold.
+   */
+  private undoFloorMark: UndoStackEntry | null = null;
+  /**
+   * The floor expressed as a stack depth: the number of entries at or below
+   * the floor, i.e. `canUndo()` is false at exactly this length.
+   *
+   * Kept alongside the identity mark for two reasons. It is refreshed from
+   * the mark's live index on every successful lookup, so it tracks entries
+   * shifting off the bottom instead of going stale at its load-time value;
+   * and it is the fallback whenever the mark cannot be located by identity,
+   * which is the pre-#1045 behaviour — occasionally over-restrictive, never
+   * wrong in the destructive direction.
+   */
+  private undoFloorDepth = 0;
+  /**
+   * Whether `getUndoStackForTest()` was observed to return identity-stable
+   * entries when the floor was marked. False disables the identity path
+   * entirely and leaves {@link undoFloorDepth} in charge, so an SDK that
+   * starts copying the stack degrades to refusing an undo rather than
+   * silently allowing one past the initial load.
+   */
+  private undoFloorIdentityUsable = false;
   /**
    * The live Yorkie root for the duration of a top-level `batch()`. Set
    * while the batch's single `doc.update` is open; every write routes
@@ -580,12 +640,41 @@ export class YorkieDocStore implements DocStore {
    * to the batch's undo unit.
    */
   private activePresence: DocsPresenceProxy | null = null;
+  /**
+   * The last live-caret publish {@link skipNonHistoryPresence} held back
+   * while a batch was open, replayed once the batch commits.
+   *
+   * The skip itself is required (a plain presence write folded into the
+   * batch's change erases the reverse presence `recordHistoryPresence`
+   * staged there), but dropping the value outright loses the publish
+   * entirely: `TextEditor.withUndoUnit` now wraps `cursor.moveTo()` — whose
+   * subscriber is the view's throttled `updateCursorPos` — inside the batch,
+   * so on slow typing every leading-edge publish fell inside one and the
+   * throttle recorded it as sent, scheduling no trailing timer. Holding the
+   * last one and replaying it after the `doc.update` returns puts it in its
+   * own change, exactly where it landed before the batching.
+   */
+  private deferredCursorPublish: {
+    pos: DocPosition | null;
+    selection: DocsSelection | null;
+  } | null = null;
 
   /**
    * Optional callback invoked when a remote change is detected.
    * The host component should set this to trigger a re-render.
    */
   onRemoteChange?: () => void;
+
+  /**
+   * Unsubscribe for the document subscription opened in the constructor.
+   * Kept (rather than discarded) so {@link dispose} can release it: the
+   * Yorkie document outlives any one store — it belongs to the
+   * `CollabDocumentProvider` — so a store that is replaced while the document
+   * stays attached would otherwise keep receiving `remote-change` and keep
+   * driving the editor it was built for, long after that editor was
+   * disposed. Null once disposed.
+   */
+  private unsubscribeDoc: (() => void) | null = null;
 
   /**
    * A read-only mount publishes no presence. Presence is written with
@@ -611,15 +700,31 @@ export class YorkieDocStore implements DocStore {
     // ensureTree() doc.update) is treated as the initial state. Users
     // must not be able to undo past it — doing so would destroy blocks
     // the cursor still references.
-    this.undoFloor = this.doc.getUndoStackForTest().length;
+    this.markUndoFloor();
 
     // Invalidate cache on remote changes
-    doc.subscribe((event) => {
+    this.unsubscribeDoc = doc.subscribe((event) => {
       if (event.type === 'remote-change') {
         this.dirty = true;
         this.onRemoteChange?.();
       }
     });
+  }
+
+  /**
+   * Detach this store from the Yorkie document.
+   *
+   * Call it whenever the store is discarded while its document remains
+   * attached — the host effect rebuilding the editor (a permission change,
+   * for instance). Idempotent, and it clears `onRemoteChange` as well as the
+   * subscription so an already-queued callback cannot reach the disposed
+   * editor either. The store is unusable afterwards: reads still work off
+   * the live root, but nothing refreshes the cache, so callers must drop it.
+   */
+  dispose(): void {
+    this.unsubscribeDoc?.();
+    this.unsubscribeDoc = null;
+    this.onRemoteChange = undefined;
   }
 
   // -----------------------------------------------------------------------
@@ -822,10 +927,10 @@ export class YorkieDocStore implements DocStore {
   // -----------------------------------------------------------------------
 
   setDocument(doc: Document): void {
-    // Guarded before the write, not after: `undoFloor` below reads the undo
-    // stack once the write has landed, which inside a batch is not until the
-    // batch's single `doc.update` closes. The floor would land one unit low
-    // and the whole loaded document would become undoable. No caller does
+    // Guarded before the write, not after: `markUndoFloor()` below reads the
+    // undo stack once the write has landed, which inside a batch is not until
+    // the batch's single `doc.update` closes. The floor would land one entry
+    // low and the whole loaded document would become undoable. No caller does
     // this today, but the coupling is invisible from `batch()`, so it is
     // enforced rather than documented.
     if (this.activeRoot) {
@@ -837,11 +942,30 @@ export class YorkieDocStore implements DocStore {
     // (e.g., stale documents whose content field was a plain object).
     this.cachedDoc = cloneDocument(doc);
     this.dirty = false;
-    // Mark the undo stack depth so users cannot undo past the initial
-    // document load. Yorkie's CRDT redo of writeFullDocument can
-    // conflict with subsequent text insertions.
+    // Mark the undo floor so users cannot undo past the initial document
+    // load. Yorkie's CRDT redo of writeFullDocument can conflict with
+    // subsequent text insertions.
     // Reads the stack *after* the write — see the batch guard at the top.
-    this.undoFloor = this.doc.getUndoStackForTest().length;
+    this.markUndoFloor();
+  }
+
+  /**
+   * Re-arm the undo floor at the current top of Yorkie's undo stack:
+   * everything on it now belongs to the initial load and must stay
+   * un-undoable. See {@link undoFloorMark} for why this holds an entry
+   * rather than a depth.
+   */
+  private markUndoFloor(): void {
+    const stack = this.doc.getUndoStackForTest();
+    this.undoFloorDepth = stack.length;
+    this.undoFloorMark = stack.length > 0 ? stack[stack.length - 1] : null;
+    // Prove the assumption instead of relying on it. A second read has to
+    // hand back the same entry object at the same index for the identity
+    // lookup in `canUndo()` to mean anything; if it does not — a copying
+    // accessor, a rebuilt entry — `undoFloorDepth` alone decides.
+    this.undoFloorIdentityUsable =
+      this.undoFloorMark !== null &&
+      this.doc.getUndoStackForTest()[stack.length - 1] === this.undoFloorMark;
   }
 
   replaceDocument(doc: Document): void {
@@ -2929,8 +3053,14 @@ export class YorkieDocStore implements DocStore {
       if (!committed) {
         this.dirty = true;
         this.cachedDoc = null;
+        // The writes the held caret described never landed, so publishing it
+        // would point peers at a position this replica does not hold either.
+        this.deferredCursorPublish = null;
       }
     }
+    // Outside the `doc.update` now: replay the live-caret publish the batch
+    // held back, so a typing keystroke still broadcasts its caret.
+    this.flushDeferredCursorPublish();
   }
 
   snapshot(): void {
@@ -2953,8 +3083,56 @@ export class YorkieDocStore implements DocStore {
   }
 
   canUndo(): boolean {
-    return this.doc.history.canUndo() &&
-      this.doc.getUndoStackForTest().length > this.undoFloor;
+    if (!this.doc.history.canUndo()) return false;
+    if (this.undoFloorMark === null && this.undoFloorDepth === 0) return true;
+    const stack = this.doc.getUndoStackForTest();
+    if (this.undoFloorIdentityUsable && this.undoFloorMark !== null) {
+      // Where the floor is *now*, not how deep it was when it was recorded:
+      // Yorkie drops the oldest entry once the stack is full, so the floor
+      // sinks toward index 0 as edits accumulate.
+      const index = stack.lastIndexOf(this.undoFloorMark);
+      if (index >= 0) {
+        // Cache it, so the depth fallback below is never staler than the
+        // last time the floor was actually seen.
+        this.undoFloorDepth = index + 1;
+        return stack.length > index + 1;
+      }
+      // Gone. Three ways that can happen, and only one of them is a floor
+      // that still exists:
+      //
+      //  - `pushUndo` `shift()`ed it off the bottom, which needs a stack at
+      //    the cap. The entries below the floor no longer exist either, so
+      //    there is nothing left to undo *past* — the branch below.
+      //  - `History.clearHistory()` emptied the stack (a snapshot, or an
+      //    `initialRoot` attach). Same conclusion, and the stack is short, so
+      //    it falls through to the depth instead. Over-restrictive by the
+      //    load-time prefix, never destructive.
+      //  - It was popped by an undo — which `canUndo()` itself prevents for
+      //    the floor entry, since it only ever answers true with at least one
+      //    entry above it.
+      //
+      // What is NOT on that list is the SDK rebuilding an entry in place.
+      // Entries are the `undoOps` arrays `pushUndo` stores by reference and
+      // `getUndoStackForTest()` hands back live (proven at mark time, see
+      // `undoFloorIdentityUsable`); `reconcileCreatedAt` / `reconcileTextEdit`
+      // mutate the *operations* inside an entry but never replace the entry
+      // itself, and `redo()` builds a new array only for the entry it is
+      // re-pushing. So a found-then-missing mark means the floor is gone,
+      // which is why the cap test below is a safe latch rather than a guess.
+      if (stack.length >= YORKIE_MAX_UNDO_DEPTH) {
+        // Dropped for good. Latch it — the next call sees a shorter stack (an
+        // undo popped one) and would otherwise fall to the stale depth and
+        // start refusing reachable undos again (#1045).
+        this.undoFloorMark = null;
+        this.undoFloorDepth = 0;
+        this.undoFloorIdentityUsable = false;
+        return true;
+      }
+      // Cleared, then, or an SDK that broke one of the assumptions above.
+      // Fall through to the depth, which is the pre-#1045 behaviour:
+      // over-restrictive at worst, never destructive.
+    }
+    return stack.length > this.undoFloorDepth;
   }
 
   canRedo(): boolean {
@@ -3197,11 +3375,41 @@ export class YorkieDocStore implements DocStore {
     // where publishing it is the `rw` PushPull the auth webhook refuses a
     // viewer (see the `readOnly` field).
     if (this.readOnly) return;
-    if (this.skipNonHistoryPresence()) return;
+    if (this.skipNonHistoryPresence()) {
+      // Held, not dropped — see `deferredCursorPublish`. Last write wins:
+      // the caret the action ends on is the one peers must see.
+      this.deferredCursorPublish = {
+        pos: clampedPos ?? null,
+        selection: clampedSelection ?? null,
+      };
+      return;
+    }
     this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: clampedPos ?? undefined,
         activeSelection: clampedSelection ?? undefined,
+      });
+    });
+  }
+
+  /**
+   * Publish the caret {@link updateCursorPos} held back during a batch, in a
+   * change of its own. Called by {@link batch} after its `doc.update` has
+   * committed, so this is an ordinary non-history presence write again — the
+   * batch's own reverse presence is already sealed and cannot be erased by
+   * it, which is the whole reason the write had to wait.
+   */
+  private flushDeferredCursorPublish(): void {
+    const deferred = this.deferredCursorPublish;
+    this.deferredCursorPublish = null;
+    if (!deferred) return;
+    if (this.readOnly) return;
+    // A nested batch would put us right back where we started.
+    if (this.skipNonHistoryPresence()) return;
+    this.withUpdate((_, p) => {
+      p.set({
+        activeCursorPos: deferred.pos ?? undefined,
+        activeSelection: deferred.selection ?? undefined,
       });
     });
   }

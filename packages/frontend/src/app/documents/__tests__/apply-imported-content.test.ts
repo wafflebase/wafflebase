@@ -17,6 +17,7 @@ const h = vi.hoisted(() => {
     },
     ensureSlidesRoot: vi.fn(),
     setDocument: vi.fn(),
+    disposeDocStore: vi.fn(),
     state: {
       lastDoc: null as FakeDoc | null,
       attachedRoots: [] as unknown[],
@@ -49,7 +50,7 @@ vi.mock("@/types/docs-document", () => ({
 }));
 vi.mock("@/app/docs/yorkie-doc-store", () => ({
   YorkieDocStore: vi.fn(function () {
-    return { setDocument: h.setDocument };
+    return { setDocument: h.setDocument, dispose: h.disposeDocStore };
   }),
 }));
 vi.mock("@/app/slides/yorkie-slides-store", () => ({
@@ -107,6 +108,9 @@ describe("applyImportedContent", () => {
     expect(h.state.attachedRoots[0]).toEqual({ seed: "docs" });
     expect(YorkieDocStore).toHaveBeenCalledWith(h.state.lastDoc);
     expect(h.setDocument).toHaveBeenCalledWith(parsed);
+    // The store subscribes to the document in its constructor, so it is
+    // released before the detach — the same order the `board` branch uses.
+    expect(h.disposeDocStore).toHaveBeenCalledTimes(1);
     expect(h.client.detach).toHaveBeenCalledTimes(1);
     expect(h.client.deactivate).toHaveBeenCalledTimes(1);
   });

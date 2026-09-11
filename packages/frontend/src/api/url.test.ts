@@ -163,12 +163,18 @@ describe("route-param ids are pinned to one path segment", () => {
     });
   }
 
-  it("share-links: resolve keeps a pasted token inside its own segment", async () => {
+  it("share-links: resolve keeps the token out of the URL entirely", async () => {
     await resolveShareLink(TRAVERSAL);
-    const raw = String(vi.mocked(globalThis.fetch).mock.calls[0][0]);
-    const { pathname } = new URL(raw, "https://api.example.test");
-    expect(pathname).not.toContain("/auth/logout");
-    expect(pathname).toContain(encodeURIComponent(TRAVERSAL));
+    const [raw, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    const url = new URL(String(raw), "https://api.example.test");
+    // A token in the path is both a traversal surface and a credential
+    // written into every intervening access log, once per re-resolve. It
+    // rides the body instead, so neither question arises.
+    expect(url.pathname.endsWith("/share-links/resolve")).toBe(true);
+    expect(String(raw)).not.toContain(TRAVERSAL);
+    expect(String(raw)).not.toContain(encodeURIComponent(TRAVERSAL));
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ token: TRAVERSAL });
   });
 
   it("files: fileUrl keeps the document id inside its own segment", () => {

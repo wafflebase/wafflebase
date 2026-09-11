@@ -279,8 +279,9 @@ still read "in a batch" during the SDK's post-updater work (the change push
 and the synchronous `local-change` publish), which runs after the ambient
 root is already gone; a subscriber re-entering `batch()` there would take the
 fast path with no root and get one undo unit per write. `MemDocStore`, whose
-undo unit is anchored to `snapshot()` rather than to an update, satisfies the
-same contract with a depth counter plus a checkpoint taken up front. The
+undo unit is a checkpoint rather than an update, satisfies the same contract
+with a depth counter plus a checkpoint opened up front and materialized by
+the body's first write (see the `saveSnapshot()` rule below). The
 architecture is `YorkieSlidesStore`'s — see
 [slides-native-undo.md](../slides/slides-native-undo.md), whose sketch uses
 the counter for both stores.
@@ -302,13 +303,151 @@ The contract both implementations enforce:
   `Doc.batch()` therefore re-reads the store when the body throws, so the
   docs model never outlives writes the CRDT rejected.
 
-Today only the named-style redefinition entry points use it
-(`setDocStyles` / `updateStyleToMatch` / `resetNamedStyle` /
-`resetAllNamedStyles`, whose registry write triggers a second
-`dropStaleStyleOffAll` sweep). Every other editing path keeps the undo
-granularity it had, though all of them now route their writes through
-`withUpdate` instead of calling `doc.update` directly — a nested update
-inside an open batch would split its undo unit.
+Callers: the named-style redefinition entry points (`setDocStyles` /
+`updateStyleToMatch` / `resetNamedStyle` / `resetAllNamedStyles`, whose
+registry write triggers a second `dropStaleStyleOffAll` sweep), the link-run
+writer, and — since issue #1045 — every selection-replacing edit, through
+`TextEditor.withUndoUnit()`. All editing paths route their writes through
+`withUpdate` instead of calling `doc.update` directly; a nested update inside
+an open batch would split its undo unit.
+
+**The toolbar's paths are covered too, one by one.** `withUndoUnit()` is a
+`TextEditor` method, so it reaches only the keyboard and clipboard handlers;
+the `EditorAPI` operations behind the toolbar buttons write once per selected
+block through their own `forEachBlockInSelection` loops. Each of those loops
+is batched directly — `doc.batch(...)` around the writes, `docStore.snapshot()`
+left outside it, the same ordering the helper enforces: `applyBlockStyle`,
+`toggleList`, `indent`, `outdent`, the two cell-rectangle writers
+(`applyTableCellStyle`, and `insertLink`'s cell-range arm through
+`applyStyleToCellRange`), and `FindReplaceState.replaceActive()` /
+`replaceAll()`. Until they were, "Tab is one undo unit but the
+Increase-indent button is a hundred" was the shipped behaviour: the same
+action on the same selection got a different verdict depending on which
+control the user reached for, and past the 50-entry cap the button destroyed
+content the key did not.
+
+`insertLink`'s third selection shape — a **plain** cross-block range, which
+is what ⌘K over a select-all reaches, since `linkRunCoveringRange` matches
+only within one block — is batched for the same reason, with a smaller
+consequence: what the cap strands there is an `href` on the earliest blocks,
+and a stranded link is repairable by selecting the range and using Remove
+link. It is the same defect one severity down, not equivalent data loss.
+
+What is *not* fixed is the duplication underneath. `indent` / `outdent` /
+`toggleList` exist three times — `editor.ts`'s `EditorAPI`, `TextEditor`, and
+`text-box-editor.ts` — with the same `MAX_LIST_LEVEL` and `INDENT_STEP`, so
+the batching shape is now written in each rather than once, and a future
+change to the undo-unit rule has to be made three times. Routing the
+`EditorAPI` copies through the `TextEditor` ones is not behaviour-preserving
+(`TextEditor.toggleList()` acts on the caret's block where the `EditorAPI`
+one acts on the whole selection, and `textEditor` is absent on a read-only
+mount), so unifying them is its own change. Tracked in issue #1048.
+
+##### One user action, one undo unit
+
+`deleteSelection()` removes a multi-block selection with one store write per
+block. Outside a batch that is one undo unit per block, and the cost is not
+merely a granularity annoyance: Yorkie caps the undo stack at 50 entries
+(`MaxUndoRedoStackDepth`) and `pushUndo` `shift()`s the **oldest** entry once
+it is full. Select-all + type on a 100-paragraph document cost ~102 units, so
+the entries dropped first were the ones holding the tail of the document —
+and because the delete runs backwards, more than half the content became
+unrecoverable by any number of Cmd+Z presses (issue #1045).
+
+`TextEditor.withUndoUnit(fn)` runs `fn` inside `Doc.batch()`.
+`deleteSelection()` wraps itself in one, so every call site is at most one
+unit; the composite actions — typing, the programmatic `insertText`, paste,
+Enter, page break, the Hangul syllable commit — wrap the delete together with
+the writes that follow, and the nested batch short-circuits so the pair is
+still one unit. Two rules the helper enforces:
+
+- **The paint stays outside the batch**, the same rule
+  `withNamedStyleChange` follows. Interior `requestRender()` calls are held
+  and replayed once after the outermost unit commits, including after a
+  throw, so the screen always shows what the store really holds. The
+  **layout is not held with it**: a held render still calls the host's
+  `requestLayoutRefresh()` (`recomputeLayout({ keepDirty: true })` in
+  `view/editor.ts`),
+  because the remainder of the unit reads `getLayout()` — `blockParentMap`,
+  which `isInCell` / `getCellInfo` and therefore the paste path branch on,
+  and wrap affinity. Hosts whose own `requestRender` is already asynchronous
+  (the slides text-box editor rAF-schedules it) leave the seam unwired; they
+  never had a fresh mid-action layout to lose.
+
+  `keepDirty` exists because that mid-unit pass is now the *second* layout
+  pass of the same edit, and the two must not both be full-document ones.
+  `recomputeLayout` ends by clearing `dirtyBlockIds`, and `computeLayout`
+  only consults its incremental cache while that set is non-null — so an
+  ordinary call here would leave the deferred paint re-measuring the whole
+  document on every batched edit, keystrokes included. The option puts the
+  set back (an `undefined` one, i.e. a requested full recompute, restores as
+  *empty*: the pass just run rebuilt every cache entry), so the paint's pass
+  stays incremental. It is an option on the layout owner rather than a
+  wrapper in the seam so that the rule about when the cache may be consulted
+  lives in one place — beside the `dirtyBlockIds` assignment it is the
+  exception to.
+- **`saveSnapshot()` is called before the unit opens, never inside it.** On
+  `MemDocStore` it is just a checkpoint, but on `YorkieDocStore` it also
+  flushes the *pre-edit* caret and selection into presence, which is what
+  Yorkie records as the reverse of the change's `addToHistory` set. Inside an
+  open batch `skipNonHistoryPresence()` drops that write, so batching it
+  would silently make undo restore the *post*-edit caret.
+
+  That ordering has to cost nothing on either store. On `YorkieDocStore` it
+  is free — `snapshot()` is a no-op there. On `MemDocStore` it is what forced
+  the store's one real design decision: **the write, not `snapshot()`, is
+  what costs an undo unit and what drops redo.** `snapshot()` *records* a
+  checkpoint (`pendingSnapshot`); the first mutator that follows
+  (`willWrite()`, called by every one of them) pushes it onto the undo stack
+  and clears redo. `batch()` opens a checkpoint the same way and adopts a
+  pending one rather than recording a second, identical one — which is
+  precisely the `saveSnapshot(); withUndoUnit(…)` shape, and pushing twice
+  there would cost a dead Cmd+Z on every batched edit in a slides text box or
+  the demo app. `link-run.ts` solves the same collision the other way (it
+  snapshots *inside* its batch) because it has no pre-edit presence to flush.
+
+  Deferring is not only about the collision. A checkpoint holds exactly the
+  current document, so until something is written it is a Cmd+Z that changes
+  nothing — and an action that snapshots and then writes nothing is ordinary
+  (the indent button with every list item already at `MAX_LIST_LEVEL`, a
+  Replace All with no matches). Pushed eagerly, that action cost the user a
+  dead Cmd+Z and then, because redo survives, a dead Cmd+Shift+Z after it,
+  leaving the real redo entry one press further away than it looked.
+  `YorkieDocStore` answers "nothing to undo" there by construction, and
+  deferring is what makes this store agree. `undo()` / `redo()` discard a
+  pending checkpoint, since they are the only other things that move the
+  document and a checkpoint of the state being left cannot be the "before" of
+  what comes next.
+
+  Adoption is a loan, not a transfer: a batch only ever gives back a
+  checkpoint it opened **itself**. An adopted one belongs to the
+  `saveSnapshot()` before it, and that snapshot covers the whole action —
+  including writes the caller makes *after* the unit closes, which is exactly
+  the shape of `handleBackspace` / `handleDelete` (snapshot,
+  `deleteSelection()`, then more writes when it returns false). Reclaiming it
+  because the unit itself wrote nothing would leave those trailing writes
+  unundoable.
+
+  `MemSlidesStore.batch()` is **not** the same shape, though the two stores
+  agree on what a user sees. That store has no `snapshot()` seam at all — its
+  mutators `requireBatch()`, so a write outside a batch is an error rather
+  than an undo unit — which leaves it no ordering to reconcile: it pushes
+  unconditionally and clears redo inside `batch()`. The shared contract is the
+  list above, not the implementation.
+
+##### The undo floor is an entry, not a depth
+
+`setDocument()` re-arms an undo floor so users cannot undo past the initial
+document load. It used to record the stack's *length*, and `canUndo()`
+compared the current length against it. Once the 50-entry cap starts dropping
+entries from the bottom — the floor's own entries first — that comparison
+stops describing the same boundary, and undo stopped one press early per
+dropped entry, stranding edits still on the stack.
+
+`YorkieDocStore` therefore holds the floor by the **identity** of the stack's
+top entry at load time (`undoFloorMark`) and asks where it is now. An entry
+that has itself been dropped is simply not found, which is exactly the "the
+floor is gone, so everything left is above it" answer a depth cannot give.
 
 ### Data Flow
 

@@ -1139,16 +1139,23 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     toggleList(kind: 'ordered' | 'unordered'): void {
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item' && block.listKind === kind) {
-          const exit = unlistedBlockType(block);
-          doc.setBlockType(block.id, exit.type, exit.opts);
-        } else {
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: kind,
-            listLevel: block.listLevel ?? 0,
-          });
-        }
+      // One undo unit however many blocks the selection spans, the same rule
+      // the docs editor's `EditorAPI.toggleList` and `TextEditor` follow —
+      // one store write per block otherwise costs one Cmd+Z per block (and on
+      // a capped undo stack strands the oldest of them; issue #1045). Only
+      // the writes go inside; layout and paint read the document afterwards.
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item' && block.listKind === kind) {
+            const exit = unlistedBlockType(block);
+            doc.setBlockType(block.id, exit.type, exit.opts);
+          } else {
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: kind,
+              listLevel: block.listLevel ?? 0,
+            });
+          }
+        });
       });
       layoutCache = undefined;
       requestRender();
@@ -1159,19 +1166,22 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       const MAX_LIST_LEVEL = 8;
       const INDENT_STEP = 36;
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel >= MAX_LIST_LEVEL) return;
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel + 1,
-          });
-        } else {
-          doc.applyBlockStyle(block.id, {
-            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-          });
-        }
+      // One undo unit — see `toggleList` above (issue #1045).
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') {
+            const currentLevel = block.listLevel ?? 0;
+            if (currentLevel >= MAX_LIST_LEVEL) return;
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: block.listKind,
+              listLevel: currentLevel + 1,
+            });
+          } else {
+            doc.applyBlockStyle(block.id, {
+              marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+            });
+          }
+        });
       });
       layoutCache = undefined;
       requestRender();
@@ -1181,21 +1191,24 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     outdent(): void {
       const INDENT_STEP = 36;
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel <= 0) return;
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel - 1,
-          });
-        } else {
-          const current = block.style.marginLeft ?? 0;
-          if (current <= 0) return;
-          doc.applyBlockStyle(block.id, {
-            marginLeft: Math.max(0, current - INDENT_STEP),
-          });
-        }
+      // One undo unit — see `toggleList` above (issue #1045).
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item') {
+            const currentLevel = block.listLevel ?? 0;
+            if (currentLevel <= 0) return;
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: block.listKind,
+              listLevel: currentLevel - 1,
+            });
+          } else {
+            const current = block.style.marginLeft ?? 0;
+            if (current <= 0) return;
+            doc.applyBlockStyle(block.id, {
+              marginLeft: Math.max(0, current - INDENT_STEP),
+            });
+          }
+        });
       });
       layoutCache = undefined;
       requestRender();

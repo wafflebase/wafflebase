@@ -574,11 +574,28 @@ export function DocsView({
       unregisterDebugSurface?.();
       editorRef.current = null;
       setMountedEditor(null);
+      // Release the store's `doc.subscribe` before dropping the reference.
+      // The Yorkie document belongs to the enclosing `DocumentProvider` and
+      // outlives this effect, so a store left subscribed would keep handling
+      // `remote-change` — refreshing, restoring the cursor into and
+      // publishing presence from the editor this cleanup just disposed.
+      store.dispose();
       storeRef.current = null;
       onEditorReady?.(null);
     };
+    // `readOnly` is load-bearing here, not incidental: `initialize()` captures
+    // it once — it decides whether the store is wrapped in `readOnlyDocStore`
+    // and gates every write path inside the editor — and nothing re-arms it on
+    // a mounted editor. Left out of the deps, a session that *loses* write
+    // authority while open kept a fully writable editor over a document it may
+    // no longer write. Listing it rebuilds the editor (and its store, hence
+    // the `dispose()` above) against the current permission, which is the only
+    // place that permission is applied. The one route that flips `readOnly`
+    // mid-session is `/shared/:token`, which re-resolves its share link on an
+    // interval so an `editor` → `viewer` downgrade actually reaches here
+    // (`SHARE_LINK_REVALIDATE_MS` in `app/shared/shared-document.tsx`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [didMount, doc]);
+  }, [didMount, doc, readOnly]);
 
   // Update the editor theme when the user toggles light/dark mode.
   useEffect(() => {

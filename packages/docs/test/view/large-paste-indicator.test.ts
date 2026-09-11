@@ -110,6 +110,70 @@ function htmlOfSize(chars: number): string {
   return parts.join('');
 }
 
+/**
+ * Cmd/Ctrl+Shift+V — paste as plain text. Both modifiers are set so the
+ * handler's `mod` reads as held whichever platform `navigator.platform`
+ * reports under jsdom.
+ */
+function dispatchPastePlain(textarea: HTMLTextAreaElement): void {
+  textarea.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: 'v',
+      ctrlKey: true,
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/**
+ * Cmd/Ctrl+V — the keydown a real paste is preceded by. It writes nothing
+ * itself (the browser follows it with a `paste` event), but it does update
+ * the editor's tracked shift state, which is what decides whether the paste
+ * that follows keeps its HTML.
+ */
+function dispatchPasteKey(textarea: HTMLTextAreaElement): void {
+  textarea.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: 'v',
+      ctrlKey: true,
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/**
+ * Stub `navigator.clipboard.readText()` with a promise the test releases,
+ * standing in for a browser taking its time over the read (a permission
+ * prompt is a user interaction, so "arbitrarily long" is the real bound).
+ * Returns the resolver and a restore function.
+ */
+function installPendingClipboard(): {
+  release: (text: string) => void;
+  restore: () => void;
+} {
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  let release: (text: string) => void = () => {};
+  const pending = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { readText: () => pending },
+  });
+  return {
+    release,
+    restore: () => {
+      if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    },
+  };
+}
+
 function dispatchHtmlPaste(textarea: HTMLTextAreaElement, html: string): void {
   const event = new Event('paste', { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'clipboardData', {
@@ -346,5 +410,66 @@ describe('large paste busy indicator', () => {
       .join('\n');
     expect(text).not.toContain('한');
     expect(store.getDocument().blocks.length).toBeGreaterThan(100);
+  });
+
+  /**
+   * Cmd+Shift+V is the other write that resumes after a yield: it awaits
+   * `navigator.clipboard.readText()`, and every keydown/input/paste guard
+   * `pasting` protects has already been passed by the time it comes back. A
+   * large paste started while the read was outstanding owns the caret, so the
+   * plain-text write must drop rather than land in its yield gap.
+   */
+  test('a plain-text paste whose clipboard read resolves during the yield is refused', async () => {
+    const clipboard = installPendingClipboard();
+    try {
+      const { editor, textarea, store } = setupEditor();
+      editor.onLargePaste(() => () => {});
+
+      dispatchPastePlain(textarea);
+      // The read is outstanding: nothing written yet.
+      expect(store.getDocument().blocks.length).toBe(1);
+
+      // The user gives up waiting and starts an ordinary large Cmd+V.
+      dispatchPasteKey(textarea);
+      dispatchHtmlPaste(textarea, htmlOfSize(THRESHOLD));
+      clipboard.release('PLAIN');
+      await drainMacrotask();
+      await flushPaintedFrame();
+
+      const text = store
+        .getDocument()
+        .blocks.map((b) => b.inlines.map((i) => i.text).join(''))
+        .join('\n');
+      expect(text).not.toContain('PLAIN');
+      expect(store.getDocument().blocks.length).toBeGreaterThan(100);
+    } finally {
+      clipboard.restore();
+    }
+  });
+
+  /**
+   * The same read can outlive the editor entirely — the host unmounts while
+   * the browser is still answering it. Writing then would mutate a document
+   * nothing renders, which is why `deferPaste` re-checks `disposed` too.
+   */
+  test('a plain-text paste whose clipboard read resolves after dispose writes nothing', async () => {
+    const clipboard = installPendingClipboard();
+    try {
+      const { editor, textarea, store } = setupEditor();
+
+      dispatchPastePlain(textarea);
+      editor.dispose();
+      clipboard.release('PLAIN');
+      await drainMacrotask();
+      await drainMacrotask();
+
+      const text = store
+        .getDocument()
+        .blocks.map((b) => b.inlines.map((i) => i.text).join(''))
+        .join('\n');
+      expect(text).toBe('seed');
+    } finally {
+      clipboard.restore();
+    }
   });
 });

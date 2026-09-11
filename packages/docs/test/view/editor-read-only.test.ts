@@ -940,3 +940,178 @@ describe('read-only store and doc handles', () => {
     expect(Object.getPrototypeOf(editor.getStore())).not.toBeNull();
   });
 });
+
+/**
+ * `readOnly` is baked in at construction, so an editor built while the
+ * session could still write stays writable for as long as anyone holds it.
+ * The host rebuilds the editor when a share role drops to viewer and disposes
+ * the old one — `dispose()` is therefore the only moment the write authority
+ * of an *editable* mount can be revoked, and these tests pin that it really
+ * is revoked, on all three surfaces it is reachable through: the `EditorAPI`
+ * mutators, the live `getStore()`/`getDoc()` handles, and an already-suspended
+ * `paste()` that resumes on the captured `TextEditor`.
+ *
+ * Every mount here is `readOnly: false` on purpose — under `readOnly` the
+ * writes are already dead and every assertion would pass vacuously.
+ */
+describe('a disposed editor is inert', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = String();
+  });
+  afterEach(() => {
+    document.body.innerHTML = String();
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    if (originalResizeObserver === undefined) {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    } else {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = originalResizeObserver;
+    }
+    delete (navigator as { clipboard?: unknown }).clipboard;
+  });
+
+  function mountEditable(): {
+    editor: EditorAPI;
+    store: MemDocStore;
+    text: () => string;
+  } {
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [
+        {
+          id: 'b1',
+          type: 'paragraph',
+          inlines: [{ text: 'hello', style: {} }],
+          style: EMPTY_BLOCK_STYLE,
+        },
+      ],
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store, undefined, false);
+    return { editor, store, text: () => getBlockText(store.getDocument().blocks[0]) };
+  }
+
+  test('isDisposed() reports the transition', () => {
+    const { editor } = mountEditable();
+    expect(editor.isDisposed()).toBe(false);
+    editor.dispose();
+    expect(editor.isDisposed()).toBe(true);
+  });
+
+  test('the EditorAPI mutators are neutered', () => {
+    const { editor, store, text } = mountEditable();
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 5 },
+    });
+    editor.dispose();
+
+    editor.applyStyle({ bold: true });
+    editor.setBlockType('heading', { headingLevel: 1 });
+    editor.toggleList('unordered');
+    editor.insertTable(2, 2);
+    editor.insertLink('https://example.com');
+    editor.undo();
+
+    expect(text()).toBe('hello');
+    expect(store.getDocument().blocks).toHaveLength(1);
+    expect(store.getDocument().blocks[0].type).toBe('paragraph');
+    expect(store.getDocument().blocks[0].inlines[0].style.bold).toBeUndefined();
+  });
+
+  // `pasteFormat` reports whether it wrote, so a bare no-op returning
+  // `undefined` would be read as "nothing applied" only by accident.
+  test('pasteFormat() reports that it applied nothing', () => {
+    const { editor } = mountEditable();
+    editor.dispose();
+    expect(editor.pasteFormat()).toBe(false);
+  });
+
+  // The allowlist can only replace members of `api`; these two hand out live
+  // objects with mutators of their own, and a holder (the find bar) keeps
+  // both for the editor's whole lifetime.
+  test('getStore() / getDoc() stop writing, and keep reading', () => {
+    const { editor, store, text } = mountEditable();
+    const staleStore = editor.getStore();
+    const staleDoc = editor.getDoc();
+    editor.dispose();
+
+    // Handles fetched after disposal…
+    editor.getStore().insertText('b1', 5, ' world');
+    editor.getStore().deleteBlock('b1');
+    editor.getDoc().insertText({ blockId: 'b1', offset: 5 }, '!');
+    // …and handles captured before it. Both are the accessor's problem: the
+    // stale ones are the whole reason disposal has to revoke at all.
+    staleStore.insertText('b1', 5, ' world');
+    staleDoc.insertText({ blockId: 'b1', offset: 5 }, '!');
+
+    expect(text()).toBe('hello');
+    expect(store.getDocument().blocks).toHaveLength(1);
+
+    // Reads still work — a disposed handle that threw would turn a benign
+    // late read into a crash.
+    expect(getBlockText(editor.getStore().getDocument().blocks[0])).toBe('hello');
+    expect(getBlockText(editor.getDoc().document.blocks[0])).toBe('hello');
+  });
+
+  test('control: the same handles DO write before disposal', () => {
+    const { editor, text } = mountEditable();
+    editor.getStore().insertText('b1', 5, ' world');
+    editor.getDoc().insertText({ blockId: 'b1', offset: 11 }, '!');
+    expect(text()).toBe('hello world!');
+    editor.dispose();
+  });
+
+  /**
+   * Install a `navigator.clipboard` whose `read()` only settles when the
+   * returned `release` is called — the stand-in for a permission prompt,
+   * which is what makes this await span an editor→viewer downgrade.
+   */
+  function stubPendingClipboard(payload: string): () => void {
+    let release!: () => void;
+    const pending = new Promise<unknown[]>((resolve) => {
+      release = () =>
+        resolve([
+          {
+            types: ['text/plain'],
+            getType: () => Promise.resolve({ text: () => Promise.resolve(payload) }),
+          },
+        ]);
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { read: () => pending },
+    });
+    return release;
+  }
+
+  // `dispose()` replaces `api.paste` for *future* calls only. A call already
+  // suspended at `await navigator.clipboard.read()` resumes in its own
+  // closure, on the `TextEditor` it captured, and never passes back through
+  // `api` — so the guard has to be inside `pasteContent` itself.
+  test('a paste that resumes after disposal writes nothing', async () => {
+    const { editor, store, text } = mountEditable();
+    const release = stubPendingClipboard('PASTED');
+
+    const inFlight = editor.paste();
+    editor.dispose();
+    release();
+    await inFlight;
+
+    expect(text()).toBe('hello');
+    expect(store.getDocument().blocks).toHaveLength(1);
+  });
+
+  test('control: the same paste lands when the editor is still alive', async () => {
+    const { editor, text } = mountEditable();
+    const release = stubPendingClipboard('PASTED');
+
+    const inFlight = editor.paste();
+    release();
+    await inFlight;
+
+    expect(text()).toContain('PASTED');
+    editor.dispose();
+  });
+});
