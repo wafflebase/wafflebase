@@ -167,3 +167,63 @@ export function readOnlyDocStore(store: DocStore): DocStore {
     },
   });
 }
+
+/**
+ * A `DocStore` view that forwards everything while `isRevoked()` answers
+ * false, and behaves exactly like {@link readOnlyDocStore} from the moment it
+ * starts answering true.
+ *
+ * This exists because read-only is decided at construction and disposal is
+ * not. `view/editor.ts` bakes `readOnly` in when it builds the editor, so an
+ * editor built while the session could write stays writable for as long as
+ * anyone holds it — and `getStore()` / `getDoc()` hand out objects a caller
+ * keeps (`docs-find-bar` captures both once, for the editor's lifetime).
+ * Swapping what the *accessors return* at `dispose()` would therefore revoke
+ * nothing for the holders that matter: they already have the object. So the
+ * handle itself has to be the one that goes dead, which means wrapping at
+ * construction and flipping a flag the wrapper reads.
+ *
+ * Live behaviour is a bound, memoized pass-through rather than the bare
+ * target, so a member's identity is stable (`s.canUndo === s.canUndo`) and
+ * `this` is the real store — the same contract `pageSetupGuardedStore` keeps.
+ */
+export function revocableDocStore(store: DocStore, isRevoked: () => boolean): DocStore {
+  let dead: DocStore | null = null;
+  const revoked = (): DocStore => (dead ??= readOnlyDocStore(store));
+  const members = new Map<string | symbol, { raw: unknown; bound: unknown }>();
+
+  return new Proxy(store, {
+    get(target, prop) {
+      if (isRevoked()) return Reflect.get(revoked(), prop) as unknown;
+      const raw = Reflect.get(target, prop) as unknown;
+      if (typeof raw !== 'function') return raw;
+      const cached = members.get(prop);
+      if (cached && cached.raw === raw) return cached.bound;
+      const bound = (raw as (...args: unknown[]) => unknown).bind(target);
+      members.set(prop, { raw, bound });
+      return bound;
+    },
+    // Once revoked these mirror the read-only handle's refusals; before that
+    // they forward, because while the editor is alive this wrapper must be
+    // invisible — it is the store the editor itself writes through.
+    set: (target, prop, value) => (isRevoked() ? false : Reflect.set(target, prop, value)),
+    defineProperty: (target, prop, desc) =>
+      isRevoked() ? false : Reflect.defineProperty(target, prop, desc),
+    deleteProperty: (target, prop) =>
+      isRevoked() ? false : Reflect.deleteProperty(target, prop),
+    getPrototypeOf: (target) => (isRevoked() ? null : Reflect.getPrototypeOf(target)),
+    setPrototypeOf: (target, proto) =>
+      isRevoked() ? false : Reflect.setPrototypeOf(target, proto),
+    // Refused in both states. `Object.freeze(handle)` runs this first, and a
+    // non-extensible target would leave the hiding traps below violating a
+    // proxy invariant for the rest of the process.
+    preventExtensions: () => false,
+    isExtensible: () => true,
+    has: (target, prop) => (isRevoked() ? Reflect.has(revoked(), prop) : Reflect.has(target, prop)),
+    getOwnPropertyDescriptor: (target, prop) =>
+      isRevoked()
+        ? Reflect.getOwnPropertyDescriptor(revoked(), prop)
+        : Reflect.getOwnPropertyDescriptor(target, prop),
+    ownKeys: (target) => (isRevoked() ? Reflect.ownKeys(revoked()) : Reflect.ownKeys(target)),
+  });
+}

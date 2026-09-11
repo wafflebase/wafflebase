@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, expect } from 'vitest';
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell, MAX_CELL_PADDING, MAX_FONT_SIZE, MAX_IMAGE_SIZE, MAX_LIST_LEVEL, MAX_ROW_HEIGHT } from '@wafflebase/docs';
@@ -34,6 +34,12 @@ describe('YorkieDocStore', () => {
       });
     });
     store = new YorkieDocStore(doc);
+  });
+
+  afterEach(() => {
+    // One test spies on `doc.getUndoStackForTest`; `doc` is rebuilt per test
+    // but the spy is restored here so nothing leaks if that ever changes.
+    vi.restoreAllMocks();
   });
 
   describe('setDocument and getDocument', () => {
@@ -354,6 +360,89 @@ describe('YorkieDocStore', () => {
       expect(store.canRedo()).toBe(true);
       // After undoing the mutation, can't undo past setDocument
       expect(store.canUndo()).toBe(false);
+    });
+
+    // Yorkie caps the undo stack at 50 (`MaxUndoRedoStackDepth`) and
+    // `pushUndo` drops the OLDEST entry once it is full — the undo floor's
+    // own entries first. `canUndo()` used to compare the stack's *length*
+    // against the depth the floor was recorded at, so once entries started
+    // falling off the bottom it stopped one undo per dropped entry early,
+    // stranding edits that were still on the stack (issue #1045).
+    it('undo reaches every entry left on the stack after the cap drops the floor', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      // setDocument's own write, plus the tree-creating update in beforeEach.
+      const floorDepth = doc.getUndoStackForTest().length;
+      expect(floorDepth).toBeGreaterThan(0);
+
+      // Overflow the cap by more than the floor, so the floor is dropped.
+      const writes = 50 + floorDepth + 5;
+      for (let i = 0; i < writes; i++) store.insertText(block.id, 0, 'x');
+      expect(doc.getUndoStackForTest().length).toBe(50);
+
+      let undone = 0;
+      let safety = 200;
+      while (store.canUndo() && safety-- > 0) {
+        store.undo();
+        undone++;
+      }
+      // Every one of the 50 surviving entries is above the (now dropped)
+      // floor. The length-vs-depth comparison stopped at 50 - floorDepth.
+      expect(undone).toBe(50);
+    });
+
+    // `getUndoStackForTest()` is, by its name, not a stable contract: it
+    // returns the live array today, but an SDK that started handing back a
+    // copy of rebuilt entries would make the identity lookup miss every
+    // time, and "the floor is gone" is the *permissive* answer. So identity
+    // is verified when the floor is marked, and a store that cannot verify
+    // it falls back to the depth comparison rather than trusting a lookup
+    // it knows is meaningless.
+    it('falls back to the depth floor when the undo stack is not identity-stable', () => {
+      // Copy both the array and its entries on every read, i.e. the worst
+      // case the identity lookup could be handed.
+      const live = doc.getUndoStackForTest.bind(doc);
+      vi.spyOn(doc, 'getUndoStackForTest').mockImplementation(() =>
+        live().map((entry) => [...entry]),
+      );
+
+      const block = makeBlock('Hello');
+      const seededStore = new YorkieDocStore(doc);
+      seededStore.setDocument({ blocks: [block] });
+
+      // The floor still holds: nothing above it yet, and the identity
+      // lookup — which would have found nothing and said "undo away" — is
+      // not consulted at all.
+      expect(seededStore.canUndo()).toBe(false);
+      seededStore.insertText(block.id, 5, '!');
+      expect(seededStore.canUndo()).toBe(true);
+      seededStore.undo();
+      expect(seededStore.canUndo()).toBe(false);
+
+      // The case that separates the guard from its absence: a stack sitting
+      // exactly AT the cap with the floor still on it. The identity lookup
+      // cannot find a copied mark, and a not-found mark at the cap is the
+      // "dropped for good" latch — which clears the floor and hands back
+      // `true` until Yorkie's own history runs out, undoing the initial load
+      // itself. The guard never enters that branch, so the depth still
+      // fences the load off.
+      const floorDepth = doc.getUndoStackForTest().length;
+      const writes = 50 - floorDepth;
+      for (let i = 0; i < writes; i++) seededStore.insertText(block.id, 5, 'x');
+      expect(doc.getUndoStackForTest().length).toBe(50);
+
+      let undone = 0;
+      let safety = 200;
+      while (seededStore.canUndo() && safety-- > 0) {
+        seededStore.undo();
+        undone++;
+      }
+      expect(undone).toBe(writes);
+      // And the seeded document survived, which is the property the floor
+      // exists for.
+      const survived = seededStore.getDocument();
+      expect(survived.blocks.length).toBe(1);
+      expect(survived.blocks[0].inlines[0].text).toBe('Hello');
     });
 
     it('undo should restore cursor position via presence', () => {
@@ -855,17 +944,23 @@ describe('YorkieDocStore', () => {
       // `addToHistory` is falsy. Across two `doc.update`s that is harmless;
       // folded into one change it would erase whatever the batch's own
       // `recordHistoryPresence` staged, so undo would restore the post-edit
-      // caret. The write is skipped rather than folded — presence is
-      // last-write-wins and the next cursor move republishes.
+      // caret. The write is held out of the batch's change rather than
+      // folded in — and replayed in a change of its own once the batch
+      // commits, since `TextEditor.withUndoUnit` now wraps the
+      // `cursor.moveTo()` whose publish is the live caret peers see.
       const block = makeBlock('hello');
       store.setDocument({ blocks: [block] });
       const before = doc.getUndoStackForTest().length;
       store.batch(() => {
         store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
         store.applyStyle(block.id, 0, 5, { bold: true });
+        // Nothing published while the batch's change is still open.
+        expect(store.getPresenceCursorPos()).toBeUndefined();
       });
+      // One undo unit: the replayed presence write carries no `addToHistory`
+      // and so pushes none of its own.
       expect(doc.getUndoStackForTest().length).toBe(before + 1);
-      expect(store.getPresenceCursorPos()).toBeUndefined();
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 2 });
     });
 
     it('restores the pre-edit caret when a batch also publishes a cursor', () => {
@@ -887,6 +982,55 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
       expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 2 });
+    });
+
+    it('replays only the caret the batch ended on, selection included', () => {
+      // An undo unit publishes the caret several times (the edit's own
+      // `moveTo`, then the selection collapse); the one peers must end up
+      // with is the last, so the hold is last-write-wins rather than a queue.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.batch(() => {
+        store.updateCursorPos({ blockId: block.id, offset: 1 }, null);
+        store.updateCursorPos(
+          { blockId: block.id, offset: 4 },
+          { anchor: { blockId: block.id, offset: 2 }, focus: { blockId: block.id, offset: 4 } },
+        );
+      });
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 4 });
+      expect(store.getPresenceSelection()).toEqual({
+        anchor: { blockId: block.id, offset: 2 },
+        focus: { blockId: block.id, offset: 4 },
+      });
+    });
+
+    it('drops the held caret when the batch throws', () => {
+      // Yorkie discards the whole update on a throw, so the writes that caret
+      // described never landed — publishing it would point peers at a
+      // position this replica does not hold either.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      expect(store.getPresenceCursorPos()).toBeUndefined();
+    });
+
+    it('publishes no caret at all from a batch on a read-only mount', () => {
+      // The read-only gate is upstream of the hold: a viewer's presence write
+      // is the `rw` PushPull the auth webhook refuses, so it must not be
+      // deferred into one either.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const readOnlyStore = new YorkieDocStore(doc, true);
+      readOnlyStore.batch(() => {
+        readOnlyStore.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+      });
+      expect(readOnlyStore.getPresenceCursorPos()).toBeUndefined();
+      readOnlyStore.dispose();
     });
 
     it('rethrows and does not leave the ambient root open', () => {

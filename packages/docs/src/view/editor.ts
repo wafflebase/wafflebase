@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import { readOnlyDocStore } from '../store/read-only.js';
+import { readOnlyDocStore, revocableDocStore } from '../store/read-only.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData, PageSetup } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE, MIN_CONTENT_PX } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
@@ -407,6 +407,16 @@ export interface EditorAPI {
   resetAfterDocumentReplace(): void;
   /** Clean up */
   dispose(): void;
+  /**
+   * Whether {@link dispose} has run. A disposed editor is inert — every
+   * mutating method has been neutered, and the handles `getStore()` and
+   * `getDoc()` hand out have gone read-only, copies already taken
+   * included — but a long-running
+   * async caller that captured it before disposal (an image upload, a
+   * clipboard read) cannot tell a neutered no-op from a successful write.
+   * Ask this after any `await` before reporting success to the user.
+   */
+  isDisposed(): boolean;
   /**
    * Test-only: set the selection range directly. Production code drives
    * selection through pointer / keyboard events on the TextEditor; tests
@@ -1027,6 +1037,46 @@ function assertUsablePageSetup(setup: PageSetup): void {
 }
 
 /**
+ * Every `EditorAPI` member that writes to the document. Kept in one place
+ * because two different conditions have to neutralize the same set: a
+ * read-only mount (never allow a write) and {@link EditorAPI.dispose} (the
+ * editor is gone, so a write from a stale holder must not land).
+ *
+ * Keep in sync when adding a mutating method.
+ */
+const MUTATING_METHODS = [
+  'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',
+  'undo', 'redo', 'setBlockType', 'setDocStyles',
+  'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
+  'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',
+  'applySpellSuggestion', 'cut', 'paste', 'insertTable', 'deleteTable',
+  'insertTableRow', 'deleteTableRow', 'insertTableColumn',
+  'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
+  'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
+  'insertPageNumber', 'setPageSetup',
+] as const;
+
+/**
+ * Replace every mutating member of `api` with a no-op, in place.
+ *
+ * In place rather than by wrapping, because the holders that matter already
+ * captured the object: an async continuation that awaited an upload or a
+ * clipboard read resumes on the *same* reference it started with.
+ */
+function neuterMutations(api: EditorAPI): void {
+  const noop = () => {};
+  for (const name of MUTATING_METHODS) {
+    // `paste`/`insertImage` are async (Promise<void>); the rest are sync
+    // void. A bare no-op satisfies both — callers only await or ignore.
+    (api as unknown as Record<string, () => void>)[name] = noop;
+  }
+  // `pasteFormat` is mutating too, but it reports whether it wrote. A bare
+  // no-op returns `undefined`, which a caller reads as "nothing applied"
+  // only by accident — be explicit so the neutered version cannot lie.
+  api.pasteFormat = () => false;
+}
+
+/**
  * Initialize the document editor.
  *
  * @param container - The DOM element to mount the editor in
@@ -1075,7 +1125,21 @@ export function initialize(
   // read-only store would leave a caller's `getDoc().refresh()` updating a
   // throwaway while the editor's own cache went stale, and remote edits
   // would stop repainting for exactly the viewers this protects.
-  const readStore = readOnly ? readOnlyDocStore(docStore) : docStore;
+  /** Set by `dispose()`; read back through `isDisposed()`. */
+  let disposed = false;
+
+  // The write handle every store-backed object in this editor is built over.
+  // Transparent while the editor lives; a `readOnlyDocStore` from `dispose()`
+  // onwards. Wrapping at construction rather than swapping what `getStore()`
+  // and `getDoc()` *return* at disposal is the whole point: the holders that
+  // matter captured the handle long ago (`docs-find-bar` takes both once, for
+  // the editor's lifetime), so only the handle itself going dead revokes
+  // anything for them.
+  //
+  // `readOnly` needs no revocation — its writes were dead at construction —
+  // so it keeps the plain read-only view rather than paying for two proxies.
+  const revocableStore = readOnly ? docStore : revocableDocStore(docStore, () => disposed);
+  const readStore = readOnly ? readOnlyDocStore(docStore) : revocableStore;
   const doc = new Doc(readStore);
   const pending = createPendingStyle(doc);
 
@@ -1221,16 +1285,22 @@ export function initialize(
     }
     const range = selection.range;
 
-    // Cell-range mode: apply to all cells in range
+    // One undo unit however many blocks the selection spans. Both writes
+    // below call `store.applyStyle` once per *slice*, so the toolbar's Bold
+    // over a select-all otherwise cost one Cmd+Z per block and, past Yorkie's
+    // 50-entry cap, dropped the oldest of them for good (issue #1045). Same
+    // rule as `withNamedStyleChange` below: only the store writes go inside
+    // the batch; layout and paint read the document afterwards.
     if (range.tableCellRange) {
-      applyStyleToCellRange(range.tableCellRange, style);
-      markDirty(range.tableCellRange.blockId);
+      const cellRange = range.tableCellRange;
+      doc.batch(() => applyStyleToCellRange(cellRange, style));
+      markDirty(cellRange.blockId);
       render();
       notifyStyleApplied();
       return;
     }
 
-    doc.applyInlineStyle(range, style);
+    doc.batch(() => doc.applyInlineStyle(range, style));
     // Repaint exactly what was written — same traversal, so the two cannot
     // drift apart (see `dirtyBlockIdsForRange`).
     for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);
@@ -1542,8 +1612,26 @@ export function initialize(
    */
   let largePasteCallback: (() => () => void) | null = null;
 
-  // Compute layout helper
-  const recomputeLayout = () => {
+  /**
+   * Compute layout helper.
+   *
+   * `keepDirty` asks for a measuring pass that leaves the incremental state
+   * as it found it, for a caller that needs `getLayout()` refreshed *without*
+   * consuming the dirty set — an open undo unit reading `blockParentMap` and
+   * wrap affinity between writes, whose own deferred paint still has to
+   * repaint incrementally (`TextEditor.requestLayoutRefresh`). The knowledge
+   * of when the layout cache may be consulted stays here, next to the
+   * `dirtyBlockIds = undefined` it is the exception to, rather than in the
+   * host seam that wants it.
+   *
+   * A set that was `undefined` (a structural edit asking for a full
+   * recompute) is restored as EMPTY, not `undefined`: the pass just run
+   * rebuilt every cache entry, so a following paint has nothing left to
+   * re-measure. A later `invalidateLayout()` still clears it back to
+   * `undefined` and forces its own full pass.
+   */
+  const recomputeLayout = (opts?: { keepDirty?: boolean }) => {
+    const priorDirty = dirtyBlockIds;
     const pageSetup = resolvePageSetup(doc.document.pageSetup);
     const dims = getEffectiveDimensions(pageSetup);
     const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
@@ -1567,7 +1655,7 @@ export function initialize(
     );
     layout = result.layout;
     layoutCache = result.cache;
-    dirtyBlockIds = undefined;
+    dirtyBlockIds = opts?.keepDirty ? (priorDirty ?? new Set()) : undefined;
     paginatedLayout = paginateLayout(layout, pageSetup);
 
     // Header/footer layouts
@@ -2631,9 +2719,20 @@ export function initialize(
     // Caret-only navigation repaints from the cached layout instead of
     // re-measuring the whole document (arrow keys, Home/End).
     textEditor.requestCursorRender = renderCursorMove;
-    // The caret half of `saveSnapshot`, on its own, for the gestures that
-    // have to flush it before opening a batch (Tab / Cmd+] / Cmd+[).
-    textEditor.recordCursorForHistory = recordCursorForHistory;
+    // Measure without painting. An open undo unit holds the paint until its
+    // batch commits, but the rest of the unit still reads `getLayout()` —
+    // `blockParentMap` (the paste path branches on it) and wrap affinity —
+    // and `layout` is only reassigned by `recomputeLayout`. See
+    // `TextEditor.requestLayoutRefresh`.
+    //
+    // `keepDirty` is what makes that extra pass affordable: `recomputeLayout`
+    // normally ends by clearing `dirtyBlockIds`, and `computeLayout` only
+    // consults its cache while that set is non-null (`canUseCache`), so a
+    // plain call here would make the unit's own deferred paint re-measure the
+    // WHOLE document on every batched edit down to a single keystroke. Blocks
+    // dirtied later in the unit are added to the preserved set as usual. The
+    // rule itself lives on the layout owner — see `recomputeLayout`.
+    textEditor.requestLayoutRefresh = () => recomputeLayout({ keepDirty: true });
 
     // Remove the selected image inline as one undo unit and return to text
     // mode. Shared by the Delete/Backspace keys and by cut, which needs the
@@ -3324,9 +3423,12 @@ export function initialize(
     // a store-level write, so it deliberately does not snapshot or repaint;
     // `getStore()`'s other writes do not either.
     assertUsablePageSetup(setup);
-    docStore.setPageSetup(resolvePageSetup(setup));
+    // Through `revocableStore`, not `docStore`: this is the one member the
+    // proxy below never forwards, so writing to the raw store here would be
+    // the single page-setup-shaped hole left in a disposed handle.
+    revocableStore.setPageSetup(resolvePageSetup(setup));
   };
-  const pageSetupGuardedStore: DocStore = new Proxy(docStore, {
+  const pageSetupGuardedStore: DocStore = new Proxy(revocableStore, {
     get(target, prop) {
       if (prop === 'setPageSetup') return guardedSetPageSetup;
       const raw = Reflect.get(target, prop) as unknown;
@@ -3350,6 +3452,11 @@ export function initialize(
 
   const api: EditorAPI = {
     render,
+    // Both handles are built over `revocableStore` (see its declaration), so
+    // they stop writing at `dispose()` — including the copies a caller took
+    // while the editor was alive. Neither accessor needs a `disposed` check
+    // of its own, and a check here would not have helped the stale holders
+    // that are the actual hazard.
     getDoc: () => doc,
     getStore: () => (readOnly ? readStore : pageSetupGuardedStore),
     getSelectionStyle: (): Partial<InlineStyle> => {
@@ -3467,8 +3574,17 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        doc.applyBlockStyle(block.id, style);
+      // One undo unit however many blocks the selection spans — the rule
+      // `applyStyleImpl` above and `TextEditor.withUndoUnit` document. Each
+      // `doc.applyBlockStyle` is one store write, so the alignment and
+      // line-spacing controls over a select-all otherwise cost one Cmd+Z per
+      // block and, past Yorkie's 50-entry cap, dropped the oldest of them for
+      // good (issue #1045). Only the store writes go inside the batch;
+      // layout and paint read the document after it commits.
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          doc.applyBlockStyle(block.id, style);
+        });
       });
       render();
       notifyStyleApplied();
@@ -3628,16 +3744,19 @@ export function initialize(
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item' && block.listKind === kind) {
-          const exit = unlistedBlockType(block);
-          doc.setBlockType(block.id, exit.type, exit.opts);
-        } else {
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: kind,
-            listLevel: block.listLevel ?? 0,
-          });
-        }
+      // One undo unit — see `applyBlockStyle` above (issue #1045).
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item' && block.listKind === kind) {
+            const exit = unlistedBlockType(block);
+            doc.setBlockType(block.id, exit.type, exit.opts);
+          } else {
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: kind,
+              listLevel: block.listLevel ?? 0,
+            });
+          }
+        });
       });
       invalidateLayout();
       render();
@@ -3648,22 +3767,19 @@ export function initialize(
     },
     indent() {
       const INDENT_STEP = 36;
-      // One gesture moves a whole subtree, so it is N `setBlockType` writes
-      // — one Yorkie change and one `doc.history` entry each without this.
-      // A single Cmd+Z would then leave the subtree half-moved (and a peer
-      // would observe the parent-at-child-level state this exists to
-      // remove). `snapshot()` goes inside, as `withNamedStyleChange` does:
-      // `batch()` takes the checkpoint itself and `MemDocStore.snapshot()`
-      // is a no-op within one, so the gesture stays a single undo unit
-      // under both stores. Layout and paint stay outside the batch.
-      //
-      // The caret flush goes *before* the batch, not inside it:
-      // `YorkieDocStore` drops non-history presence published from within a
-      // batch, so an in-batch flush would leave undo reversing to whatever
-      // the throttled live publish last sent (#523).
+      // Both stay *outside* the batch. The checkpoint because that is the
+      // rule `withUndoUnit` establishes (issue #1045), and the caret flush
+      // because `YorkieDocStore` drops non-history presence published from
+      // within a batch — an in-batch flush would leave undo reversing to
+      // whatever the throttled live publish last sent (#523).
+      docStore.snapshot();
       recordCursorForHistory();
+      // One gesture moves a whole subtree, so it is N `setBlockType` writes —
+      // one Yorkie change and one `doc.history` entry each without this, and a
+      // single Cmd+Z would leave the subtree half-moved, with a peer observing
+      // the parent-at-child-level state #1050 exists to remove. The keyboard
+      // twin `TextEditor.handleIndent` wraps the identical call.
       doc.batch(() => {
-        docStore.snapshot();
         applyListLevelChanges(1);
         forEachBlockInSelection((block) => {
           if (block.type === 'list-item') return;
@@ -3680,11 +3796,12 @@ export function initialize(
     },
     outdent() {
       const INDENT_STEP = 36;
-      // One undo unit for the whole subtree, and the caret flushed before
-      // the batch rather than inside it — see `indent`.
+      // Checkpoint and caret flush both outside the batch — see `indent`.
+      docStore.snapshot();
       recordCursorForHistory();
+      // One undo unit for the whole subtree — see `indent`. The keyboard twin
+      // `TextEditor.handleOutdent` wraps the identical call.
       doc.batch(() => {
-        docStore.snapshot();
         applyListLevelChanges(-1);
         forEachBlockInSelection((block) => {
           if (block.type === 'list-item') return;
@@ -3721,8 +3838,12 @@ export function initialize(
 
         // Cell-range mode: apply to all cells in range (mirrors applyStyleImpl)
         if (range.tableCellRange) {
+          const cellRange = range.tableCellRange;
           docStore.snapshot();
-          applyStyleToCellRange(range.tableCellRange, { href: url });
+          // One store write per slice, so one undo unit for the whole
+          // rectangle — exactly as `applyStyleImpl`'s cell-range arm does
+          // (issue #1045).
+          doc.batch(() => applyStyleToCellRange(cellRange, { href: url }));
           markDirty(range.tableCellRange.blockId);
           render();
           notifyStyleApplied();
@@ -3756,7 +3877,18 @@ export function initialize(
         }
 
         docStore.snapshot();
-        doc.applyInlineStyle(range, { href: url });
+        // One store write per block, so one undo unit for the whole span —
+        // the same rule the cell-range arm above and `applyStyleImpl` follow
+        // (issue #1045). A ⌘K over a select-all is the reachable case:
+        // `linkRunCoveringRange` never matches a cross-block range, so this
+        // is the arm it lands in. The snapshot stays outside the batch to
+        // keep `TextEditor.withUndoUnit`'s ordering everywhere; here it costs
+        // one unit either way, because `YorkieDocStore.snapshot()` is a no-op
+        // and `MemDocStore.batch()` adopts a checkpoint a preceding
+        // `snapshot()` left pending (see `memory.ts`). The caret branch below
+        // keeps a *presence* write outside a batch for a load-bearing reason,
+        // which is a different one.
+        doc.batch(() => doc.applyInlineStyle(range, { href: url }));
         // Mark affected blocks as dirty (mirrors applyStyleImpl)
         for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);
         render();
@@ -4270,11 +4402,17 @@ export function initialize(
         const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
         const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
         const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
-        for (let r = minR; r <= maxR; r++) {
-          for (let c = minC; c <= maxC; c++) {
-            doc.applyCellStyle(cr.blockId, { rowIndex: r, colIndex: c }, style);
+        // One write per cell, so one undo unit for the rectangle: a cell
+        // border or background applied to a table bigger than Yorkie's
+        // 50-entry undo cap otherwise stranded the earliest cells for good
+        // (issue #1045).
+        doc.batch(() => {
+          for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+              doc.applyCellStyle(cr.blockId, { rowIndex: r, colIndex: c }, style);
+            }
           }
-        }
+        });
         markDirty(cr.blockId);
         render();
         return;
@@ -4480,7 +4618,29 @@ export function initialize(
       needsScrollIntoView = true;
       render();
     },
+    isDisposed: () => disposed,
     dispose: () => {
+      // Neuter first, and unconditionally: `readOnly` is baked into this
+      // editor at construction, so an editor built while the session could
+      // still write stays writable for as long as anyone holds it. The host
+      // rebuilds the editor when the role drops to viewer and disposes this
+      // one, but an async continuation captured before the downgrade (an
+      // image upload in flight, a clipboard read) resumes on this object and
+      // would otherwise write through a permission the session no longer
+      // has. Disposal is the only moment the host can revoke it.
+      //
+      // Three things have to be revoked, not one, because a stale holder can
+      // reach the document by three different routes: the api's own mutating
+      // members (`neuterMutations`), the live handles `getStore()`/`getDoc()`
+      // hand out (setting `disposed` is what kills those — `revocableStore`
+      // reads it, so even a handle captured before now goes dead), and —
+      // inside `TextEditor` — `pasteContent`, which `EditorAPI.paste()`
+      // reaches on the captured text editor after its clipboard `await` and
+      // so never passes back through `api` at all (that one is
+      // `this.disposed` in `text-editor.ts`, set by `textEditor.dispose()`
+      // below).
+      disposed = true;
+      neuterMutations(api);
       peerCursors = [];
       cursorMoveCallbacks.clear();
       lastPeerPixels = [];
@@ -4545,29 +4705,11 @@ export function initialize(
   // `readOnly`, so their mutators are already dead by the time this runs
   // (#989). That split is deliberate — a list of names cannot guard an
   // object it merely returns, and adding them here would have looked like
-  // it did.
+  // it did. Disposal covers the same two the same way — `revocableDocStore`
+  // turns into a `readOnlyDocStore` the moment `disposed` flips — rather
+  // than by adding names here.
   if (readOnly) {
-    const MUTATING_METHODS = [
-      'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',
-      'undo', 'redo', 'setBlockType', 'setDocStyles',
-      'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
-      'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',
-      'applySpellSuggestion', 'cut', 'paste', 'insertTable', 'deleteTable',
-      'insertTableRow', 'deleteTableRow', 'insertTableColumn',
-      'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
-      'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
-      'insertPageNumber', 'setPageSetup',
-    ] as const;
-    const noop = () => {};
-    for (const name of MUTATING_METHODS) {
-      // `paste`/`insertImage` are async (Promise<void>); the rest are sync
-      // void. A bare no-op satisfies both — callers only await or ignore.
-      (api as unknown as Record<string, () => void>)[name] = noop;
-    }
-    // `pasteFormat` is mutating too, but it reports whether it wrote. A bare
-    // no-op returns `undefined`, which a caller reads as "nothing applied"
-    // only by accident — be explicit so the neutered version cannot lie.
-    api.pasteFormat = () => false;
+    neuterMutations(api);
   }
 
   return api;

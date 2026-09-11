@@ -1242,11 +1242,20 @@ export function SlidesView({
     };
     // onEditorReady / onStoreReady are intentionally excluded — re-mounting
     // on every identity change of the parent's setter would tear down the
-    // editor. `readOnlyMount` is also excluded: it is derived from a share-
-    // link role that is fixed for the lifetime of the route, so toggling
-    // it at runtime is not a supported scenario.
+    // editor.
+    //
+    // `readOnlyMount` IS listed, and is load-bearing: `initializeEditor()`
+    // captures it once (as do the thumbnail / notes panels and the image
+    // input paths above), and nothing re-arms it on a mounted editor. A
+    // share-link role is no longer fixed for the route's lifetime — the
+    // `/shared/:token` view re-resolves its token on an interval
+    // (`SHARE_LINK_REVALIDATE_MS` in `app/shared/shared-document.tsx`), so an
+    // `editor` → `viewer` downgrade arrives mid-session. Left out of the deps,
+    // that visitor kept a fully writable deck over a link that may no longer
+    // write it. Listing it rebuilds the editor against the current permission,
+    // which is the only place that permission is applied.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [didMount, doc]);
+  }, [didMount, doc, readOnlyMount]);
 
   // Let the template gallery take this deck's picture when it is published
   // (docs/design/template-gallery.md). Registered from the view because only

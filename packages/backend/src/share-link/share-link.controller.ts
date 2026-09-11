@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Post,
   Req,
@@ -62,6 +63,29 @@ export class ShareLinkController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.shareLinkService.delete(id, Number(req.user.id));
+  }
+
+  /**
+   * Resolve a share token, with the token in the **body**.
+   *
+   * A share token is the whole of an anonymous visitor's access, and a
+   * mounted share view re-resolves it on an interval so a revoked or
+   * downgraded link stops being presented as live authority. That turns a
+   * once-per-page-load path segment into one request per minute per open tab,
+   * each writing the credential into every access log, proxy and CDN between
+   * the visitor and this handler — `logSafeUrl` redacts our own log line, and
+   * nothing else's. So the periodic caller posts it instead, the same reason
+   * `POST /auth/yorkie-token/share` takes its share token in a body.
+   *
+   * `GET /share-links/:token/resolve` below stays for the one-shot callers
+   * that already exist (an older frontend served during a rollout), and keeps
+   * its `SECRET_PATH_SEGMENTS` redaction rule.
+   */
+  @Post('share-links/resolve')
+  @HttpCode(200)
+  async resolveByBody(@Body() body: { token?: unknown }) {
+    const token = typeof body?.token === 'string' ? body.token : '';
+    return this.resolve(token);
   }
 
   @Get('share-links/:token/resolve')

@@ -1164,16 +1164,23 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     toggleList(kind: 'ordered' | 'unordered'): void {
       docStore.snapshot();
-      forEachBlockInSelection((block) => {
-        if (block.type === 'list-item' && block.listKind === kind) {
-          const exit = unlistedBlockType(block);
-          doc.setBlockType(block.id, exit.type, exit.opts);
-        } else {
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: kind,
-            listLevel: block.listLevel ?? 0,
-          });
-        }
+      // One undo unit however many blocks the selection spans, the same rule
+      // the docs editor's `EditorAPI.toggleList` and `TextEditor` follow —
+      // one store write per block otherwise costs one Cmd+Z per block (and on
+      // a capped undo stack strands the oldest of them; issue #1045). Only
+      // the writes go inside; layout and paint read the document afterwards.
+      doc.batch(() => {
+        forEachBlockInSelection((block) => {
+          if (block.type === 'list-item' && block.listKind === kind) {
+            const exit = unlistedBlockType(block);
+            doc.setBlockType(block.id, exit.type, exit.opts);
+          } else {
+            doc.setBlockType(block.id, 'list-item', {
+              listKind: kind,
+              listLevel: block.listLevel ?? 0,
+            });
+          }
+        });
       });
       layoutCache = undefined;
       requestRender();
@@ -1182,12 +1189,11 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     indent(): void {
       const INDENT_STEP = 36;
+      // `snapshot()` outside the batch, as `withUndoUnit` requires (#1045).
+      docStore.snapshot();
       // One gesture moves a whole subtree, so it is N `setBlockType` writes.
       // Batched so it stays one undo unit — see `applyListLevelChanges`.
-      // `snapshot()` goes inside: `batch()` takes the checkpoint itself and
-      // `MemDocStore.snapshot()` is a no-op within one.
       doc.batch(() => {
-        docStore.snapshot();
         applyListLevelChanges(1);
         forEachBlockInSelection((block) => {
           if (block.type === 'list-item') return;
@@ -1203,9 +1209,10 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     outdent(): void {
       const INDENT_STEP = 36;
+      // `snapshot()` outside the batch — see `indent`.
+      docStore.snapshot();
       // One undo unit for the whole gesture — see `indent`.
       doc.batch(() => {
-        docStore.snapshot();
         applyListLevelChanges(-1);
         forEachBlockInSelection((block) => {
           if (block.type === 'list-item') return;

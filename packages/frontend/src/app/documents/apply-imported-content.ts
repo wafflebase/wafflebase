@@ -221,7 +221,19 @@ export async function applyImportedContent(
       await client.attach(doc, { initialRoot: initialDocsRoot() });
       // Reuse the exact writer the docs editor uses on mount
       // (docs-view.tsx: `new YorkieDocStore(doc).setDocument(pending)`).
-      new YorkieDocStore(doc).setDocument(content.document);
+      const store = new YorkieDocStore(doc);
+      try {
+        store.setDocument(content.document);
+      } finally {
+        // The store subscribes to the doc in its constructor — release it
+        // before detaching, as the board branch below does. Not a leak on
+        // this path (store and document are both scoped to this function,
+        // and `onRemoteChange` is never set, so the callback would do
+        // nothing observable); disposed for symmetry, so `dispose()` reads
+        // as unconditional at every `new YorkieDocStore` in the repo rather
+        // than as a judgement call a future caller has to re-make.
+        store.dispose();
+      }
       await client.detach(doc);
     } else if (content.type === "board") {
       const doc = new Document<YorkieBoardRoot>(docKey);
