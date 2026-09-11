@@ -27,6 +27,7 @@ export { scaleElementHeight, scaleEndpointY } from './model/slide-size';
 export {
   deckSlideHeight,
   DEFAULT_BACKGROUND,
+  MAX_DECK_FONT_SCALE,
   MAX_RECENT_COLORS,
   pushRecent,
   resolveBackgroundFill,
@@ -59,6 +60,7 @@ export { seedPlaceholderBlocks } from './model/placeholder-blocks';
 export {
   bandElementNumerics,
   bandLayoutNumerics,
+  bandMasterNumerics,
   bandSlidesDocumentNumerics,
 } from './model/band-numerics';
 

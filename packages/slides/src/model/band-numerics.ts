@@ -1,4 +1,10 @@
-import { bandBlockNumerics, type Block } from '@wafflebase/docs';
+import {
+  bandBlockNumerics,
+  normalizeFontSize,
+  normalizeLineHeight,
+  type Block,
+} from '@wafflebase/docs';
+import { DEFAULT_MASTER } from './master';
 import type { SlidesDocument } from './presentation';
 
 /**
@@ -36,6 +42,11 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+/** A stored value a normalizer can read, or nothing. */
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 /**
@@ -97,9 +108,48 @@ export function bandLayoutNumerics<T>(layout: T): T {
 }
 
 /**
+ * Band a master's placeholder typography.
+ *
+ * A `PlaceholderStyle` is not a `Block`, but it carries the same
+ * `fontSize` / `lineHeight` pair and reaches the same sinks:
+ * `seedPlaceholderBlocks` copies both **verbatim** into a docs `Block` when a
+ * layout is applied, and the empty-placeholder hint multiplies `fontSize`
+ * straight into a canvas font. So a master stored on the Yorkie root — which
+ * any collaborator can write — is a route into `computeLayout` that the block
+ * bands above never see, and `masters` has no codec of its own either.
+ *
+ * The two normalizers are the docs ones, so the ceilings are identical to the
+ * ones a run inside a body gets; nothing new is banded here. Where they *do*
+ * differ is the drop branch: `PlaceholderStyle.fontSize` and `lineHeight` are
+ * required numbers rather than optional ones, so a value with no usable
+ * reading (`NaN`, `0`, a negative) becomes the default master's — `undefined`
+ * would paint `NaNpx` in the hint and store an undefined size in the seeded
+ * block. `placeholderStyles` is walked by whatever keys it has, not by the two
+ * named ones, because it is an open map (`caption`, `big-number`, …).
+ */
+export function bandMasterNumerics<T>(master: T): T {
+  const styles = asRecord(asRecord(master)?.placeholderStyles);
+  if (!styles) return master;
+  for (const key of Object.keys(styles)) {
+    const style = asRecord(styles[key]);
+    if (!style) continue;
+    const fallback =
+      DEFAULT_MASTER.placeholderStyles[key]
+      ?? DEFAULT_MASTER.placeholderStyles.body;
+    style.fontSize =
+      normalizeFontSize(asFiniteNumber(style.fontSize)) ?? fallback.fontSize;
+    style.lineHeight =
+      normalizeLineHeight(asFiniteNumber(style.lineHeight))
+      ?? fallback.lineHeight;
+  }
+  return master;
+}
+
+/**
  * Band every text body in a whole document — slide elements, speaker notes,
- * and layout placeholders. For readers that materialize a `SlidesDocument` in
- * one step (a parsed revision snapshot) rather than element by element.
+ * layout placeholders, and master typography. For readers that materialize a
+ * `SlidesDocument` in one step (a parsed revision snapshot) rather than
+ * element by element.
  */
 export function bandSlidesDocumentNumerics(doc: SlidesDocument): SlidesDocument {
   const root = asRecord(doc);
@@ -118,6 +168,9 @@ export function bandSlidesDocumentNumerics(doc: SlidesDocument): SlidesDocument 
   }
   if (Array.isArray(root.layouts)) {
     for (const layout of root.layouts as unknown[]) bandLayoutNumerics(layout);
+  }
+  if (Array.isArray(root.masters)) {
+    for (const master of root.masters as unknown[]) bandMasterNumerics(master);
   }
   return doc;
 }

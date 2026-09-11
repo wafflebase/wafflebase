@@ -39,6 +39,7 @@ import {
   applyInversePoint,
   applyLayoutToSlide,
   bandLayoutNumerics,
+  bandMasterNumerics,
   composeAncestorTransform,
   buildElementWorldLookup,
   computeConnectorFrame,
@@ -462,7 +463,15 @@ export class YorkieSlidesStore implements SlidesStore {
       guides?: unknown;
     };
     const themes = yorkieToPlain<Theme[]>(rootAny.themes);
-    const masters = yorkieToPlain<Master[]>(rootAny.masters);
+    // Banded like the layouts above, and for the reason a placeholder spec is:
+    // a master's `placeholderStyles` carries the same `fontSize` /
+    // `lineHeight` pair, `seedPlaceholderBlocks` copies it verbatim into a
+    // docs `Block`, and the empty-placeholder hint multiplies the size into a
+    // canvas font — so a peer's master is a route into `computeLayout` that
+    // the block band never sees.
+    const masters = yorkieToPlain<Master[]>(rootAny.masters)?.map((m) =>
+      bandMasterNumerics(m),
+    );
     const guides = yorkieToPlain<unknown[]>(rootAny.guides);
     return migrateDocument({
       meta,
@@ -1293,7 +1302,13 @@ export class YorkieSlidesStore implements SlidesStore {
       masters?: unknown;
     };
     const themes = yorkieToPlain<Theme[]>(root.themes) ?? [];
-    const masters = yorkieToPlain<Master[]>(root.masters) ?? [];
+    // Banded here as well as in `read()`, because this is the reader that
+    // actually feeds `seedPlaceholderBlocks`: without it a poisoned master's
+    // `fontSize` is *committed* to the CRDT inside the blocks a layout change
+    // seeds, where a later read band would only hide it from this client.
+    const masters = (yorkieToPlain<Master[]>(root.masters) ?? []).map((m) =>
+      bandMasterNumerics(m),
+    );
     const meta = yorkieToPlain<{ themeId?: string; masterId?: string }>(root.meta) ?? {};
     const master =
       masters.find((m) => m.id === meta.masterId)

@@ -873,4 +873,81 @@ describe('YorkieSlidesStore — the text-body numeric band', () => {
     };
     expectBanded(spec.data.blocks);
   });
+
+  it('bands the master typography a peer poisoned', () => {
+    // `Master.placeholderStyles` carries the same `fontSize` / `lineHeight`
+    // pair, and `seedPlaceholderBlocks` copies it verbatim into a docs
+    // `Block` — so an unbanded master reaches `computeLayout` by a route the
+    // block bands never see. It is also multiplied into a canvas font for the
+    // empty-placeholder hint.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      const masters = r.masters as unknown as Record<string, unknown>[];
+      masters[0].placeholderStyles = {
+        title: {
+          fontRole: 'heading',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+        body: {
+          fontRole: 'body',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+      };
+    });
+
+    const styles = store.read().masters[0].placeholderStyles;
+    for (const style of [styles.title, styles.body]) {
+      expect(style.fontSize).toBe(MAX_FONT_SIZE);
+      expect(style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    }
+  });
+
+  it('keeps a poisoned master out of the blocks a layout change seeds', () => {
+    // `resolveMasterAndTheme` is the reader that actually feeds
+    // `seedPlaceholderBlocks`: `addSlide` builds the slide's placeholder
+    // elements from it, so an unbanded master here writes `fontSize: 1e9`
+    // into a real block on the Yorkie root.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      const masters = r.masters as unknown as Record<string, unknown>[];
+      masters[0].placeholderStyles = {
+        title: {
+          fontRole: 'heading',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+        body: {
+          fontRole: 'body',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+      };
+    });
+    store.batch(() => store.addSlide('title-body'));
+
+    // Asserted against the *stored* JSON, not `read()`: the read path bands
+    // blocks on its way out, so it would hide a poisoned size that the seed
+    // had already committed to the CRDT for every other reader of the deck.
+    const stored = JSON.parse(doc.toJSON()) as {
+      slides: { elements: { type: string; data: { blocks: Block[] } }[] }[];
+    };
+    const texts = stored.slides[0].elements.filter((e) => e.type === 'text');
+    expect(texts.length).toBeGreaterThan(0);
+    for (const el of texts) {
+      expect(el.data.blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+      expect(el.data.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    }
+  });
 });
