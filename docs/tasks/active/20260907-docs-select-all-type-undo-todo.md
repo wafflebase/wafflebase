@@ -136,6 +136,23 @@ Scope was widened to close the class rather than defer it to #1048:
       and the document are both function-scoped and `onRemoteChange` is never
       set — so this is symmetry, so that `dispose()` reads as unconditional
       at every `new YorkieDocStore` in the repo.
+- [x] The live caret across a batched edit is pinned, and the claim it was
+      raised as is corrected. The finding said `cursor.moveTo` fires the
+      cursor-move callbacks from inside the unit, so peers see a typing user's
+      caret frozen at the pre-edit position. `Cursor.moveTo` (`cursor.ts:52`)
+      fires nothing; the callbacks fire from `afterCursorRender`
+      (`editor.ts:2533`), reached only from a *render*, and every interior
+      `requestRender()` is already held to after the unit commits. Measured
+      end to end with the real store and `DocsView`'s own subscriber: presence
+      holds the post-edit caret (offset 6 after typing at 5). What the batch
+      would really cost is the caret's `lineAffinity`: each store write stages
+      a bare `{blockId, offset}` for history, so with the render left inside
+      the unit peers get a caret with no wrap-boundary reading. Two cases in
+      `editor-undo-selection.test.ts` ("a batched edit publishes the caret it
+      ends at") assert presence equals the local caret exactly; both go red
+      with the hold removed. `text-box-editor.ts` has no exposure either way —
+      its host render is rAF-deferred, and its cursor-move subscribers are
+      toolbar refreshes, not presence.
 
 ## Follow-ups (found in review, deliberately not in this PR)
 

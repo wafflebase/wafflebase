@@ -9,6 +9,7 @@ import {
   FindReplaceState,
   type EditorAPI,
   type Block,
+  type DocPosition,
 } from '@wafflebase/docs';
 
 /**
@@ -23,6 +24,9 @@ import {
  * - issue #1045 (select-all then type): the whole replacement must be ONE
  *   undo unit, or a document larger than Yorkie's 50-entry undo cap loses its
  *   tail permanently.
+ * - the live caret peers see: batching an edit must not swallow the caret
+ *   publish that follows it, so presence still agrees with the local caret
+ *   once the unit commits.
  *
  * Both live in one file deliberately. Mounting the docs editor pulls in the
  * whole `@wafflebase/docs` module graph, and a second frontend test file
@@ -1174,5 +1178,114 @@ describe('named-style redefinition undo cost (DocStore.batch seam)', () => {
       focus: { blockId: untouched.id, offset: 0 },
     });
     expect(editor.getRangeStyleSummary().fontSize).not.toBe(33);
+  });
+});
+
+/**
+ * The live caret peers see, across a batched edit.
+ *
+ * An undo unit is one `doc.update()`, and inside one `YorkieDocStore` drops a
+ * presence write made without `addToHistory` (`skipNonHistoryPresence`) —
+ * folding it into the same change would erase the reverse presence
+ * `recordHistoryPresence` staged there. The caret publish is such a write, so
+ * a unit that moves the caret has to emit it *after* the unit commits, which
+ * is what `TextEditor.withUndoUnit`'s held render does: the caret publish
+ * rides on the same replayed `requestRender()` the paint does
+ * (`afterCursorRender` in `view/editor.ts` fires the `onCursorMove`
+ * subscribers, and `DocsView`'s is the one that writes presence).
+ *
+ * What this pins is the end state rather than the mechanism: after an ordinary
+ * keystroke, presence must agree with the local caret — **affinity included**.
+ * Affinity is the part only the post-unit publish carries. Each write also
+ * stages a history presence of its own, but as a bare `{blockId, offset}`
+ * (see `YorkieDocStore.insertText`), so with the publish swallowed peers get a
+ * caret with no reading of its wrap boundary and undo restores one too.
+ *
+ * The subscriber below is `DocsView`'s, reduced to its synchronous arm: at
+ * ordinary typing cadence the throttle defers instead, which lands the same
+ * publish on a timer. Either way it must not land inside the batch.
+ */
+describe('a batched edit publishes the caret it ends at', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+  let published: DocPosition[];
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    store.setDocument({ blocks: [makeBlock('Hello')] });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+    published = [];
+    editor.onCursorMove((pos, sel) => {
+      published.push(pos);
+      store.updateCursorPos(pos, sel ?? null);
+    });
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  function caretAt(offset: number): DocPosition {
+    const pos = { blockId: store.getDocument().blocks[0].id, offset };
+    editor._setSelectionForTest({ anchor: pos, focus: pos });
+    return pos;
+  }
+
+  function type(char: string): void {
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = char;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  const blockTexts = (): string[] =>
+    store.getDocument().blocks.map((b) => b.inlines.map((i) => i.text).join(''));
+
+  it('typing leaves presence on the caret after the character', () => {
+    const before = caretAt(5);
+    published = [];
+    type('X');
+
+    expect(blockTexts()).toEqual(['HelloX']);
+    // One publish for the whole action, and it happened at all.
+    expect(published).toHaveLength(1);
+    expect(published[0].offset).not.toBe(before.offset);
+    // Presence is what peers read. Exact equality, so a publish that never
+    // escaped the batch — leaving only the write's bare history presence —
+    // fails here rather than passing on a partial match.
+    expect(store.getPresenceCursorPos()).toEqual(editor._getCursorForTest());
+    expect(store.getPresenceCursorPos()).toMatchObject({
+      blockId: before.blockId,
+      offset: 6,
+    });
+  });
+
+  it('Enter leaves presence in the block it created', () => {
+    caretAt(3);
+    published = [];
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+
+    expect(blockTexts()).toEqual(['Hel', 'lo']);
+    expect(store.getPresenceCursorPos()).toEqual(editor._getCursorForTest());
+    expect(store.getPresenceCursorPos()).toMatchObject({
+      blockId: store.getDocument().blocks[1].id,
+      offset: 0,
+    });
   });
 });

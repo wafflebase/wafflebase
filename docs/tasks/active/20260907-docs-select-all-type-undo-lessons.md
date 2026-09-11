@@ -238,3 +238,46 @@ which means the author could have found them in the same few minutes.
 Corollary, and the cheaper habit: prefer the conditional phrasing at writing
 time. "Usually nothing, and here is the exception" costs one clause and cannot
 rot into a lie; "nothing at all" is a hostage to the next path someone adds.
+
+## A hazard you have named applies to the whole batched region
+
+This branch learned early that `YorkieDocStore` drops a presence write made
+without `addToHistory` while a batch is open, and it applied that knowledge
+once: `saveSnapshot()` stays *above* the unit so the pre-edit caret still
+reaches presence as the reverse of the change. Round 15 asked the obvious next
+question, which the branch had never asked itself — what about the *other*
+presence write in the same region, the live caret publish that follows the
+edit?
+
+The answer turned out to be "already covered, by accident of a different
+fix": the caret publish rides on a render, and `withUndoUnit` holds every
+interior render until the unit commits, so it lands outside. But nothing said
+so. The hold was documented as being about the paint — "so the screen always
+shows what the store really holds" — and a reader auditing presence would not
+have found it. Two things follow.
+
+First, when you identify a constraint of the form "X is impossible inside this
+region", write it down as a property of the region, not of the one call site
+that prompted it, and enumerate the other sites it governs while the reasoning
+is fresh. The cost of not doing that here was a review round, and the correct
+answer was three greps away for *either* side.
+
+Second, a mechanism that defends an invariant only as a side effect needs a
+test naming the invariant, not the mechanism. The held render had a test —
+"paints once for the whole action" — which would stay green if someone routed
+the post-unit render through `requestRenderNoCursorScroll` (a real method here,
+which does not fire the cursor callbacks) and silently took presence with it.
+The new cases assert what peers end up seeing instead, and they discriminate:
+with the hold removed they fail on the missing `lineAffinity`.
+
+## Rejecting a finding still means doing its work
+
+The finding's chain was wrong at a specific link — `Cursor.moveTo` fires no
+callbacks, `afterCursorRender` does, off a render that is already held — and
+the tempting move is to reply with that and stop. What made the reply worth
+anything was building the test the finding implied *first*, watching it pass,
+and then reverting the mechanism to watch it fail. That turned "your link 3 is
+wrong" into "here is the number, here is what moves it, and here is the
+narrower thing that would really have been lost". The `verify review findings`
+rule cuts both ways: a rejection is a claim about the code, and it gets the
+same evidence a fix does.

@@ -3916,6 +3916,20 @@ export class TextEditor {
    *   store really holds. The *layout* is not held with it: each held render
    *   still runs `requestLayoutRefresh()`, because the rest of the unit reads
    *   `getLayout()` (`blockParentMap`, wrap affinity).
+   *
+   *   That hold carries more than the paint. A render is also what fires the
+   *   host's cursor-move subscribers (`afterCursorRender` in `editor.ts`), and
+   *   the docs host publishes the *live* caret from one — a presence write
+   *   with no `addToHistory`, which is exactly the kind an open batch drops
+   *   (the ordering rule below says why). So the hold is also what gets the
+   *   caret peers see out of the batch: with the render left inside it, the
+   *   only caret published is the bare `{blockId, offset}` each store write
+   *   stages for history, and the caret's wrap-boundary reading never reaches
+   *   them. Pinned by `tests/app/docs/editor-undo-selection.test.ts` in the
+   *   frontend ("a batched edit publishes the caret it ends at"). The general
+   *   rule is worth stating once: a non-history presence write is
+   *   unpublishable *anywhere* inside a unit, not only at the one call site
+   *   that first showed it.
    * - **`saveSnapshot()` must be called before opening a unit, never inside
    *   one.** On `YorkieDocStore` it also flushes the *pre-edit* caret and
    *   selection into presence, which is what Yorkie records as the reverse of
