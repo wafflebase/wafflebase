@@ -109,6 +109,7 @@ export {
   normalizeTableSpan,
   parseColumnWidthsAttr,
   normalizeColumnRatio,
+  bandBlockNumerics,
 } from './model/numeric-attrs.js';
 export { Doc } from './model/document.js';
 export type { EditContext } from './model/document.js';

@@ -152,6 +152,7 @@ export {
   normalizeTableSpan,
   parseColumnWidthsAttr,
   normalizeColumnRatio,
+  bandBlockNumerics,
 } from './model/numeric-attrs.js';
 export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext } from './model/named-styles.js';
 export {

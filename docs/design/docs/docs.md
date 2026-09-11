@@ -259,6 +259,23 @@ Keeping only the loop bound would not do either: a `NaN` height left in
 the geometry blanks the table and, through `totalHeight`, the scroll
 extent. Band the value where it enters, bound the loop that consumes it.
 
+**Slides reach the same engine through a door with no codec behind it.**
+A docs body is written and read back through the Tree attribute codec, so
+"band at the read boundary" covers it. A slide text body — a text box's
+`data.blocks`, a shape's `data.text.blocks`, a table cell's `body.blocks`,
+a slide's `notes` — is stored as plain JSON on the Yorkie root and read
+back verbatim, and it reaches the identical `computeLayout` /
+`paginateLayout`. There is therefore no codec to hang the band on, and
+two separate writers to cover: the v1 `PUT` bands on write
+(`assertValidSlidesBody`, `api/v1/docs-content.controller.ts`), and the
+collaborative path — the one a modified client actually uses — bands on
+read in `YorkieSlidesStore`, which hands every body through
+`bandBlockNumerics()` (`model/numeric-attrs.ts`, the same normalizers the
+Tree codec calls) on the way out of the CRDT and on the way into an edit.
+Banding the read is what makes it cover the peer: nothing stops a
+collaborator calling `doc.update` with `fontSize: 1e9`, so the guarantee
+has to live where the value is consumed, not where this client writes it.
+
 ### Document manipulation
 
 The `Doc` class provides methods to manipulate the document:

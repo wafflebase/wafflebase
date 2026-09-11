@@ -12,6 +12,7 @@ import {
   normalizeLineHeight,
   normalizeTableSpan,
   parseColumnWidthsAttr,
+  bandBlockNumerics,
 } from '../../src/model/numeric-attrs.js';
 import { expandCellRangeForMerges } from '../../src/view/selection.js';
 import { treeNodeToBlock } from '../../src/model/crdt-tree.js';
@@ -23,6 +24,7 @@ import {
   DEFAULT_PAGE_SETUP,
   getEffectiveDimensions,
 } from '../../src/model/types.js';
+import type { Block } from '../../src/model/types.js';
 import { stubMeasurer } from '../view/_stub-measurer.js';
 
 /**
@@ -326,5 +328,131 @@ describe('the table structure bands', () => {
       block.tableData!,
     );
     expect(Number.isFinite(expanded.end.rowIndex)).toBe(true);
+  });
+});
+
+// The band for the bodies that reach the same layout engine through a door
+// with no attribute codec behind it: a slide's text boxes, shape text, table
+// cells and notes are stored as plain JSON and read back verbatim, so this
+// walk is what the Tree codec above is for a docs body.
+describe('bandBlockNumerics — the codec-free bodies', () => {
+  test('bands a run font size, a line height and a list level', () => {
+    const blocks = [
+      {
+        id: 'b1',
+        type: 'list-item',
+        listLevel: Infinity,
+        style: { lineHeight: 1e9 },
+        inlines: [
+          { text: 'a', style: { fontSize: 1e9 } },
+          { text: 'b', style: { fontSize: Infinity } },
+        ],
+      },
+    ] as unknown as Block[];
+
+    const out = bandBlockNumerics(blocks);
+
+    expect(out).toBe(blocks);
+    const block = out[0] as unknown as {
+      listLevel: number;
+      style: { lineHeight?: number };
+      inlines: { style: { fontSize?: number } }[];
+    };
+    expect(block.listLevel).toBe(0);
+    expect(block.style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    expect(block.inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+    // Non-finite drops rather than clamps, so the resolved default applies.
+    expect(block.inlines[1].style.fontSize).toBeUndefined();
+  });
+
+  test('drops an inline image whose size cannot be painted', () => {
+    const blocks = [
+      {
+        id: 'b1',
+        type: 'paragraph',
+        style: {},
+        inlines: [
+          { text: '', style: { image: { src: 'x', width: 1e9, height: 10 } } },
+          { text: '', style: { image: { src: 'y', width: 10, height: 10 } } },
+        ],
+      },
+    ] as unknown as Block[];
+
+    const inlines = (bandBlockNumerics(blocks)[0] as unknown as {
+      inlines: { style: { image?: unknown } }[];
+    }).inlines;
+    expect(inlines[0].style.image).toBeUndefined();
+    expect(inlines[1].style.image).toEqual({ src: 'y', width: 10, height: 10 });
+  });
+
+  test('bands a table block and recurses into its cells', () => {
+    const blocks = [
+      {
+        id: 'b1',
+        type: 'table',
+        style: {},
+        inlines: [],
+        tableData: {
+          rowHeights: [Infinity, 40],
+          columnWidths: new Array(5000).fill(0.0002).concat([Infinity]),
+          rows: [
+            {
+              cells: [
+                {
+                  style: { padding: Infinity },
+                  rowSpan: Infinity,
+                  colSpan: 1e9,
+                  blocks: [
+                    {
+                      id: 'c1',
+                      type: 'paragraph',
+                      style: {},
+                      inlines: [{ text: 'x', style: { fontSize: 1e9 } }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ] as unknown as Block[];
+
+    const table = (bandBlockNumerics(blocks)[0] as unknown as {
+      tableData: {
+        rowHeights: (number | undefined)[];
+        columnWidths: number[];
+        rows: {
+          cells: {
+            style: { padding?: number };
+            rowSpan?: number;
+            colSpan?: number;
+            blocks: { inlines: { style: { fontSize?: number } }[] }[];
+          }[];
+        }[];
+      };
+    }).tableData;
+
+    expect(table.rowHeights).toEqual([undefined, 40]);
+    expect(table.columnWidths.length).toBe(MAX_TABLE_COLUMNS);
+    const cell = table.rows[0].cells[0];
+    expect(cell.style.padding).toBeUndefined();
+    expect(cell.rowSpan).toBeUndefined();
+    expect(cell.colSpan).toBe(MAX_TABLE_SPAN);
+    expect(cell.blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+  });
+
+  test('leaves values inside the band exactly as stored', () => {
+    const blocks = [
+      {
+        id: 'b1',
+        type: 'list-item',
+        listLevel: 2,
+        style: { lineHeight: 1.5 },
+        inlines: [{ text: 'a', style: { fontSize: 11 } }],
+      },
+    ] as unknown as Block[];
+
+    expect(bandBlockNumerics(structuredClone(blocks))).toEqual(blocks);
   });
 });

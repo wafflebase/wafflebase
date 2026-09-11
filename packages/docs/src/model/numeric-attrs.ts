@@ -1,3 +1,7 @@
+import type { Block } from './types.js';
+import { normalizeListLevel } from './list-level.js';
+import { normalizeRowHeight } from './row-height.js';
+
 /**
  * Bands for the numeric Tree attributes that feed a line's height.
  *
@@ -246,4 +250,128 @@ export function normalizeColumnRatio(
   if (raw === undefined) return undefined;
   if (!Number.isFinite(raw)) return undefined;
   return Math.min(MAX_COLUMN_RATIO, Math.max(0, raw));
+}
+
+/** A stored value this model can do arithmetic with, or nothing. */
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** A stored value that can hold banded fields, or nothing. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Band, in place, every numeric a stored `Block[]` carries into the docs
+ * layout engine — the bands above plus `listLevel` and `rowHeights`, applied
+ * to a *plain* block list rather than to Tree attributes.
+ *
+ * This exists because a docs body and a slide text body reach the identical
+ * `computeLayout` / `paginateLayout` through opposite doors. A docs body is
+ * written and read back through the Tree attribute codec (`crdt-tree.ts` and
+ * the frontend `YorkieDocStore`), which bands every one of these on each
+ * read. A slide text body — a text box's `data.blocks`, a shape's
+ * `data.text.blocks`, a table cell's `body.blocks`, a slide's `notes` — is
+ * persisted *verbatim* as JSON and read back verbatim: there is no codec, so
+ * a peer who calls `doc.update` with `fontSize: 1e9` or `rowSpan: Infinity`
+ * stores it as written, and it is then a hung or blank deck for every other
+ * viewer. Handing those lists through this on read is what gives them the
+ * band the docs codec gives a docs body.
+ *
+ * In place and returning the same array, because both callers pass a list
+ * `yorkieToPlain` just materialized — a private JSON copy, never a live CRDT
+ * proxy — so there is nothing to preserve and nothing else observing it.
+ *
+ * Repairs rather than rejects, like every band here: the values are read out
+ * of documents that already exist, and a reader with no value at all still
+ * has to render something. The rule per field is its own normalizer's — see
+ * the module header for which inputs are dropped and which are clamped.
+ */
+export function bandBlockNumerics(blocks: Block[]): Block[] {
+  if (!Array.isArray(blocks)) return blocks;
+  for (const entry of blocks) {
+    const block = asRecord(entry);
+    if (block) bandOneBlock(block);
+  }
+  return blocks;
+}
+
+/** One block of {@link bandBlockNumerics}, including any table it carries. */
+function bandOneBlock(block: Record<string, unknown>): void {
+  const style = asRecord(block.style);
+  if (style) {
+    const lineHeight = normalizeLineHeight(asFiniteNumber(style.lineHeight));
+    if (lineHeight === undefined) delete style.lineHeight;
+    else style.lineHeight = lineHeight;
+  }
+  if (block.listLevel !== undefined && block.listLevel !== null) {
+    block.listLevel = normalizeListLevel(asFiniteNumber(block.listLevel));
+  }
+  if (Array.isArray(block.inlines)) {
+    for (const entry of block.inlines as unknown[]) {
+      const inlineStyle = asRecord(asRecord(entry)?.style);
+      if (!inlineStyle) continue;
+      // A run's font size becomes its line's height; so does an inline
+      // image's height (`measureSegments`), which is why the pair is
+      // dropped whole rather than clamped — see `isPaintableImageSize`.
+      const fontSize = normalizeFontSize(asFiniteNumber(inlineStyle.fontSize));
+      if (fontSize === undefined) delete inlineStyle.fontSize;
+      else inlineStyle.fontSize = fontSize;
+      const image = asRecord(inlineStyle.image);
+      if (
+        image
+        && !isPaintableImageSize(
+          asFiniteNumber(image.width) ?? NaN,
+          asFiniteNumber(image.height) ?? NaN,
+        )
+      ) {
+        delete inlineStyle.image;
+      }
+    }
+  }
+  const table = asRecord(block.tableData);
+  if (!table) return;
+  if (Array.isArray(table.rowHeights)) {
+    table.rowHeights = (table.rowHeights as unknown[]).map((height) =>
+      normalizeRowHeight(asFiniteNumber(height)),
+    );
+  }
+  if (Array.isArray(table.columnWidths)) {
+    // Capped on count as well as magnitude, and an unusable ratio becomes 0
+    // rather than being dropped, so every later column keeps its index —
+    // the same rule the v1 slides `PUT` applies to a stored array.
+    table.columnWidths = (table.columnWidths as unknown[])
+      .slice(0, MAX_TABLE_COLUMNS)
+      .map((ratio) => normalizeColumnRatio(asFiniteNumber(ratio)) ?? 0);
+  }
+  if (!Array.isArray(table.rows)) return;
+  for (const rowEntry of table.rows as unknown[]) {
+    const cells = asRecord(rowEntry)?.cells;
+    if (!Array.isArray(cells)) continue;
+    for (const cellEntry of cells as unknown[]) {
+      const cell = asRecord(cellEntry);
+      if (!cell) continue;
+      const cellStyle = asRecord(cell.style);
+      if (cellStyle) {
+        const padding = normalizeCellPadding(asFiniteNumber(cellStyle.padding));
+        if (padding === undefined) delete cellStyle.padding;
+        else cellStyle.padding = padding;
+      }
+      for (const key of ['colSpan', 'rowSpan'] as const) {
+        if (cell[key] === undefined || cell[key] === null) continue;
+        // An `Infinity` span is the sharpest of these: it becomes the bound
+        // of `expandCellRangeForMerges`' fixed-point loop, which then never
+        // terminates for anyone who selects cells in the table.
+        const span = normalizeTableSpan(asFiniteNumber(cell[key]));
+        if (span === undefined) delete cell[key];
+        else cell[key] = span;
+      }
+      if (Array.isArray(cell.blocks)) {
+        bandBlockNumerics(cell.blocks as Block[]);
+      }
+    }
+  }
 }

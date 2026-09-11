@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
 import type { YorkieSlidesRoot } from '../../../src/types/slides-document.ts';
+import type { Block } from '@wafflebase/docs';
+import { MAX_FONT_SIZE, MAX_LINE_HEIGHT, MAX_LIST_LEVEL } from '@wafflebase/docs';
 import {
   YorkieSlidesStore,
   ensureSlidesRoot,
@@ -719,5 +721,131 @@ describe('YorkieSlidesStore — withShapeText', () => {
         store.withShapeText(slideId, textId, () => undefined),
       ),
     ).toThrow(/not a shape element/);
+  });
+});
+
+describe('YorkieSlidesStore — the text-body numeric band', () => {
+  // A slide text body is plain JSON on the Yorkie root: it passes through no
+  // Tree attribute codec on the way out, unlike a docs body, so this store is
+  // the only boundary standing between a peer's `doc.update` and
+  // `computeLayout`. The v1 `PUT` bands the same values, but a modified
+  // client editing the deck collaboratively never goes through it.
+  const poisoned = () => [
+    {
+      id: 'p1',
+      type: 'list-item',
+      // Finite rather than `Infinity`: a non-finite number stored in the
+      // CRDT does not survive `yorkieToPlain`'s `JSON.parse` at all. `1e9` is
+      // the variant that *does* reach the layout engine — the million-page
+      // allocation rather than the non-terminating loop.
+      listLevel: 1e9,
+      style: { lineHeight: 1e9 },
+      inlines: [{ text: 'x', style: { fontSize: 1e9 } }],
+    },
+  ];
+
+  /** Write `mutate` straight onto the root, as a hostile peer's sync would. */
+  function withHostilePeer(
+    doc: Document<YorkieSlidesRoot>,
+    mutate: (slide: Record<string, unknown>) => void,
+  ): void {
+    doc.update((r) => {
+      mutate((r as unknown as { slides: Record<string, unknown>[] }).slides[0]);
+    });
+  }
+
+  function expectBanded(blocks: Block[]): void {
+    expect(blocks[0].listLevel).toBe(MAX_LIST_LEVEL);
+    expect(blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    expect(blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+  }
+
+  it('bands a text element body a peer poisoned', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    withHostilePeer(doc, (slide) => {
+      const els = slide.elements as Record<string, unknown>[];
+      els[0].data = { blocks: poisoned() };
+    });
+
+    const el = store.read().slides[0].elements[0] as { data: { blocks: Block[] } };
+    expectBanded(el.data.blocks);
+  });
+
+  it('bands shape text, table cell bodies and notes a peer poisoned', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    withHostilePeer(doc, (slide) => {
+      const els = slide.elements as Record<string, unknown>[];
+      els[0].data = { kind: 'rect', text: { blocks: poisoned() } };
+      els.push({
+        id: 'tbl',
+        type: 'table',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: {
+          rows: [{ cells: [{ body: { blocks: poisoned() }, style: {} }] }],
+        },
+      });
+      slide.notes = poisoned();
+    });
+
+    const slide = store.read().slides[0];
+    expectBanded(
+      (slide.elements[0] as { data: { text: { blocks: Block[] } } }).data.text.blocks,
+    );
+    expectBanded(
+      (slide.elements[1] as {
+        data: { rows: { cells: { body: { blocks: Block[] } }[] }[] };
+      }).data.rows[0].cells[0].body.blocks,
+    );
+    expectBanded(slide.notes);
+  });
+
+  it('hands the editor bridge a banded body, so an edit writes the repair back', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    let elId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      elId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    withHostilePeer(doc, (slide) => {
+      (slide.elements as Record<string, unknown>[])[0].data = {
+        blocks: poisoned(),
+      };
+    });
+
+    let seen: Block[] = [];
+    store.batch(() => {
+      store.withTextElement(slideId, elId, (blocks) => {
+        seen = blocks;
+      });
+    });
+    expectBanded(seen);
+    const el = store.read().slides[0].elements[0] as { data: { blocks: Block[] } };
+    expectBanded(el.data.blocks);
   });
 });
