@@ -1,4 +1,5 @@
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
+import { normalizeListLevel } from '../model/list-level.js';
 import type { PaginatedLayout, LayoutPage } from './pagination.js';
 import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine } from './pagination.js';
 import type { EditContext } from '../model/document.js';
@@ -596,7 +597,10 @@ export class DocCanvas {
         if (pl.lineIndex === 0 && layout) {
           const block = layout.blocks[pl.blockIndex]?.block;
           if (block?.type === 'list-item') {
-            const level = block.listLevel ?? 0;
+            // Normalized at the point of use: a poisoned level would put the
+            // marker at a NaN x (invisible) and index `UNORDERED_MARKERS`
+            // with NaN, and it has to agree with the clamped layout indent.
+            const level = normalizeListLevel(block.listLevel);
             const markerX = pageX + margins.left + LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
             const marker = block.listKind === 'unordered'
               ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]

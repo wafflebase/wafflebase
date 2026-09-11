@@ -1,6 +1,11 @@
 import type { InlineStyle, BlockStyle } from '../model/types.js';
 import { DEFAULT_BLOCK_STYLE } from '../model/types.js';
 import { twipsToPx, halfPointsToPoints } from './units.js';
+// The bands every reader of a stored docs document applies to these two
+// fields. The importer is a *producer* of them, so it has to agree: a value it
+// writes but a reader bands renders one way on import and another on the next
+// read of the same document.
+import { normalizeFontSize, normalizeLineHeight } from '../model/numeric-attrs.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -47,7 +52,19 @@ export function mapRunProperties(rPr: Element): InlineStyle {
   const sz = getW(rPr, 'sz');
   if (sz) {
     const val = getWAttr(sz, 'val');
-    if (val) style.fontSize = halfPointsToPoints(parseInt(val, 10));
+    // Banded at the boundary the value *enters* the model, with the same band
+    // every reader of the stored document applies (`normalizeFontSize`). A
+    // producer that writes past a reader's band is the same divergence the
+    // bands exist to close, arriving from the other side: the import would
+    // render at one size and every later read of the same CRDT at another,
+    // silently. `MAX_FONT_SIZE` is at Word's own ceiling or above it, so no
+    // size Word can author is altered — what this drops is a malformed `w:sz`,
+    // whose `parseInt` is `NaN` and which used to be written as a `NaN` font
+    // size.
+    if (val) {
+      const fontSize = normalizeFontSize(halfPointsToPoints(parseInt(val, 10)));
+      if (fontSize !== undefined) style.fontSize = fontSize;
+    }
   }
 
   const rFonts = getW(rPr, 'rFonts');
@@ -144,8 +161,15 @@ export function mapParagraphProperties(pPr: Element): {
     // whose leading we know we misread can still take its named style's,
     // instead of having the misreading pinned as the user's intent.
     const lineIsMultiplier = lineRule == null || lineRule === 'auto';
-    if (Number.isFinite(lineVal) && lineVal > 0) {
-      blockStyle.lineHeight = lineVal / 240;
+    // Banded for the reason `w:sz` is above: the reader bands `lineHeight` on
+    // every read, so an import past the band would be altered silently on the
+    // next reload. `MAX_LINE_HEIGHT` is `w:line`'s own ceiling read as 240ths,
+    // so no spacing Word can author is altered.
+    const lineHeight = normalizeLineHeight(
+      Number.isFinite(lineVal) ? lineVal / 240 : undefined,
+    );
+    if (lineHeight !== undefined) {
+      blockStyle.lineHeight = lineHeight;
       // `w:line="360"` is Word's "1.5 line spacing" preset and lands on
       // exactly the multiplier that reads back as "inherit"; the marker is
       // what makes a deliberate 1.5 survive.

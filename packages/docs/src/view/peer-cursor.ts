@@ -1,5 +1,6 @@
 import type { DocPosition, DocRange } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
+import { normalizeListLevel } from '../model/list-level.js';
 import type { PageLine, PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
@@ -251,7 +252,9 @@ export function resolvePositionPixel(
           if (targetLine && targetLine.runs.length === 0 && cellBlock) {
             let marginLeft = cellBlock.style.marginLeft ?? 0;
             if (cellBlock.type === 'list-item') {
-              marginLeft += LIST_INDENT_PX * ((cellBlock.listLevel ?? 0) + 1);
+              // Normalized, matching the clamped indent `table-layout` used:
+              // a NaN caret x is a caret that never paints.
+              marginLeft += LIST_INDENT_PX * (normalizeListLevel(cellBlock.listLevel) + 1);
             }
             cursorX = marginLeft;
           }
@@ -389,7 +392,8 @@ export function resolvePositionPixel(
   // Empty line — compute effective marginLeft (includes list indent)
   let marginLeft = lb.block.style.marginLeft ?? 0;
   if (lb.block.type === 'list-item') {
-    marginLeft += LIST_INDENT_PX * ((lb.block.listLevel ?? 0) + 1);
+    // Normalized, matching the clamped body indent in `layout.ts`.
+    marginLeft += LIST_INDENT_PX * (normalizeListLevel(lb.block.listLevel) + 1);
   }
   return { x: pageX + pageLine.x + marginLeft, y: pageY + pageLine.y, height: pageLine.line.height };
 }

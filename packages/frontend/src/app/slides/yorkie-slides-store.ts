@@ -38,6 +38,9 @@ import {
   applyInverseMatrix,
   applyInversePoint,
   applyLayoutToSlide,
+  bandLayoutNumerics,
+  bandMasterNumerics,
+  bandPlaceholderStyleNumerics,
   composeAncestorTransform,
   buildElementWorldLookup,
   computeConnectorFrame,
@@ -62,6 +65,7 @@ import {
   worldTightFrame,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
+import { bandBlockNumerics } from '@wafflebase/docs';
 import type { AutofitMode } from '@wafflebase/slides';
 import type { SlidesPresence } from '@/types/users';
 import type {
@@ -444,7 +448,9 @@ export class YorkieSlidesStore implements SlidesStore {
       const elements = ((s as { elements: unknown[] }).elements ?? []).map(
         (e) => this.readElement(e),
       );
-      const notes = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
+      const notes = bandBlockNumerics(
+        yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [],
+      );
       const sAny = s as { transition?: unknown; animations?: unknown };
       const transition = yorkieToPlain<SlideTransition | undefined>(sAny.transition);
       const animations = yorkieToPlain<SlideAnimation[] | undefined>(sAny.animations);
@@ -458,14 +464,28 @@ export class YorkieSlidesStore implements SlidesStore {
         ...(animations !== undefined && animations !== null ? { animations } : {}),
       };
     });
-    const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
+    // Banded like the slide elements above: a layout's placeholder specs are
+    // `ElementInit`s carrying the same codec-free `data.blocks`, they are
+    // peer-writable, and `seedPlaceholderBlocks` copies their typography into
+    // the real blocks a layout change materializes.
+    const layouts = (root.layouts ?? []).map((l) =>
+      bandLayoutNumerics(yorkieToPlain<Layout>(l)),
+    );
     const rootAny = root as {
       themes?: unknown;
       masters?: unknown;
       guides?: unknown;
     };
     const themes = yorkieToPlain<Theme[]>(rootAny.themes);
-    const masters = yorkieToPlain<Master[]>(rootAny.masters);
+    // Banded like the layouts above, and for the reason a placeholder spec is:
+    // a master's `placeholderStyles` carries the same `fontSize` /
+    // `lineHeight` pair, `seedPlaceholderBlocks` copies it verbatim into a
+    // docs `Block`, and the empty-placeholder hint multiplies the size into a
+    // canvas font — so a peer's master is a route into `computeLayout` that
+    // the block band never sees.
+    const masters = yorkieToPlain<Master[]>(rootAny.masters)?.map((m) =>
+      bandMasterNumerics(m),
+    );
     const guides = yorkieToPlain<unknown[]>(rootAny.guides);
     return migrateDocument({
       meta,
@@ -492,6 +512,36 @@ export class YorkieSlidesStore implements SlidesStore {
    * ModelElement. Group elements recurse into their `data.children`
    * array, which is itself a Yorkie proxy.
    */
+  /**
+   * Band every text body an element carries, in place, on its way out of the
+   * CRDT.
+   *
+   * A slide text body is stored as plain JSON and read back verbatim — unlike
+   * a docs body, it passes through no Tree attribute codec, so nothing else
+   * between a peer's `doc.update` and `computeLayout` bands the numerics
+   * inside it. A `fontSize: 1e9` run or an `Infinity` cell span written by one
+   * collaborator would otherwise be a hung or blank deck for every other
+   * viewer of it (the v1 `PUT` applies the same band, but it is only one of
+   * the two writers). The values arrive here as the private JSON copy
+   * `yorkieToPlain` just built, so banding in place mutates nothing shared.
+   */
+  private bandElementText(type: string, data: unknown): void {
+    const record = (data ?? {}) as Record<string, unknown>;
+    if (type === 'shape') {
+      const text = record.text as { blocks?: Block[] } | undefined;
+      if (text && Array.isArray(text.blocks)) bandBlockNumerics(text.blocks);
+      return;
+    }
+    if (type !== 'table' || !Array.isArray(record.rows)) return;
+    for (const row of record.rows as { cells?: unknown }[]) {
+      if (!row || !Array.isArray(row.cells)) continue;
+      for (const cell of row.cells as { body?: { blocks?: Block[] } }[]) {
+        const blocks = cell?.body?.blocks;
+        if (Array.isArray(blocks)) bandBlockNumerics(blocks);
+      }
+    }
+  }
+
   private readElement(e: unknown): ModelElement {
     const el = e as {
       id: string;
@@ -505,7 +555,10 @@ export class YorkieSlidesStore implements SlidesStore {
     );
     if (el.type === 'text') {
       const rawData = (el.data ?? {}) as Record<string, unknown>;
-      const blocks = yorkieToPlain<Block[]>(rawData.blocks) ?? [];
+      // Banded on the way out — see {@link bandElementText}.
+      const blocks = bandBlockNumerics(
+        yorkieToPlain<Block[]>(rawData.blocks) ?? [],
+      );
       // Preserve box-level fields (fill, stroke, …) alongside the
       // CRDT-backed `blocks` Tree. The Tree itself is bridged through
       // `withTextElement`, but ancillary `data` keys are plain values
@@ -579,12 +632,16 @@ export class YorkieSlidesStore implements SlidesStore {
         data: refSize ? { children, refSize } : { children },
       } as ModelElement;
     }
+    const data = yorkieToPlain<object>(el.data);
+    // Shape text and table cell bodies reach the same docs layout engine the
+    // text element above does, by the same codec-free door.
+    this.bandElementText(el.type, data);
     return {
       id: el.id,
       type: el.type,
       frame: yorkieToPlain<Frame>(el.frame),
       placeholderRef,
-      data: yorkieToPlain<object>(el.data),
+      data,
     } as ModelElement;
   }
 
@@ -1085,10 +1142,20 @@ export class YorkieSlidesStore implements SlidesStore {
         const data = el.data as { blocks?: unknown };
         const blocks = yorkieToPlain<Block[]>(data.blocks);
         if (!Array.isArray(blocks) || !isBlocksEmpty(blocks)) continue;
+        // Banded for the reason `resolveMasterAndTheme()` bands the master it
+        // returns: this style is read straight off the live CRDT (any
+        // collaborator can write it, and `updateMaster` hands us the unbanded
+        // object it just patched), and `seedPlaceholderBlocks` *commits* its
+        // `fontSize` / `lineHeight` into real blocks — where a later read band
+        // would only hide the poisoned value from this client.
         const style = yorkieToPlain<PlaceholderStyle>(
           (master.placeholderStyles as Record<string, unknown>)[t],
         );
-        if (style) data.blocks = clone(seedPlaceholderBlocks(style, theme));
+        if (style) {
+          data.blocks = clone(
+            seedPlaceholderBlocks(bandPlaceholderStyleNumerics(style, t), theme),
+          );
+        }
       }
     }
   }
@@ -1259,7 +1326,13 @@ export class YorkieSlidesStore implements SlidesStore {
       masters?: unknown;
     };
     const themes = yorkieToPlain<Theme[]>(root.themes) ?? [];
-    const masters = yorkieToPlain<Master[]>(root.masters) ?? [];
+    // Banded here as well as in `read()`, because this is the reader that
+    // actually feeds `seedPlaceholderBlocks`: without it a poisoned master's
+    // `fontSize` is *committed* to the CRDT inside the blocks a layout change
+    // seeds, where a later read band would only hide it from this client.
+    const masters = (yorkieToPlain<Master[]>(root.masters) ?? []).map((m) =>
+      bandMasterNumerics(m),
+    );
     const meta = yorkieToPlain<{ themeId?: string; masterId?: string }>(root.meta) ?? {};
     const master =
       masters.find((m) => m.id === meta.masterId)
@@ -1284,7 +1357,13 @@ export class YorkieSlidesStore implements SlidesStore {
       layouts?: unknown;
     };
     const layouts = yorkieToPlain<Layout[]>(root.layouts) ?? [];
-    return layouts.find((l) => l.id === layoutId) ?? getLayout(layoutId);
+    const layout = layouts.find((l) => l.id === layoutId);
+    // Banded here as well as in `read()`, and for the reason the master is
+    // banded in `resolveMasterAndTheme()`: this is the reader `addSlide` and
+    // `applyLayout` use, so a peer-poisoned placeholder spec's typography is
+    // *committed* into the real elements the layout materializes rather than
+    // merely rendered. The built-in fallback needs no band.
+    return layout ? bandLayoutNumerics(layout) : getLayout(layoutId);
   }
 
   // --- element ops ---
@@ -2220,7 +2299,12 @@ export class YorkieSlidesStore implements SlidesStore {
       if (e.type !== 'text') {
         throw new Error(`Element ${elementId} is not a text element`);
       }
-      const blocks = yorkieToPlain<Block[]>((e.data as { blocks?: unknown }).blocks) ?? [];
+      // Banded on the way in, so an edit of a body a peer poisoned writes
+      // the repaired value back rather than carrying it forward — the same
+      // band `read()` applies. See {@link bandElementText}.
+      const blocks = bandBlockNumerics(
+        yorkieToPlain<Block[]>((e.data as { blocks?: unknown }).blocks) ?? [],
+      );
       const next = fn(blocks);
       // Always write back. `yorkieToPlain` returns a plain JSON copy
       // (Yorkie proxies don't expose live nested values for non-CRDT
@@ -2264,7 +2348,8 @@ export class YorkieSlidesStore implements SlidesStore {
       }>(eAny.data.text);
       const hadTextField = priorTextPlain !== undefined;
       const priorText = priorTextPlain ?? {};
-      const priorBlocks = priorText.blocks ?? [];
+      // Banded like `withTextElement`'s body above.
+      const priorBlocks = bandBlockNumerics(priorText.blocks ?? []);
       const returned = fn(priorBlocks);
       const nextBlocks = returned !== undefined ? clone(returned) : priorBlocks;
       // Concurrency-safety: we only ever WRITE the `data.text` field
@@ -2305,7 +2390,11 @@ export class YorkieSlidesStore implements SlidesStore {
     this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const blocks = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
+      // Banded like `withTextElement`'s body above: notes are laid out by
+      // the same docs engine in the speaker-notes pane.
+      const blocks = bandBlockNumerics(
+        yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [],
+      );
       const next = fn(blocks);
       // Same rationale as withTextElement above — write back regardless
       // of whether `fn` returned a value or mutated in place.
@@ -2692,8 +2781,10 @@ export class YorkieSlidesStore implements SlidesStore {
       // live nested values for non-CRDT fields so in-place mutation
       // through the proxy alone would silently no-op, diverging from
       // MemSlidesStore where `fn` receives the live reference.
-      const priorBlocks =
-        yorkieToPlain<Block[]>(cell.body?.blocks) ?? [];
+      // Banded like `withTextElement`'s body above.
+      const priorBlocks = bandBlockNumerics(
+        yorkieToPlain<Block[]>(cell.body?.blocks) ?? [],
+      );
       const returned = fn(priorBlocks);
       const nextBlocks = returned !== undefined ? clone(returned) : clone(priorBlocks);
       const existingBody = cell.body as

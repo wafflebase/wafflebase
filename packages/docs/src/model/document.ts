@@ -89,6 +89,30 @@ function walkCellsForBlock(blocks: Block[], blockId: string): Block | undefined 
 }
 
 /**
+ * Recursively search `blocks` (and every nested table cell) for the cell
+ * array that *holds* `blockId`. The sibling counterpart of
+ * {@link walkCellsForBlock}, and the parent-map-independent fallback in
+ * `siblingBlocksOf`.
+ */
+function walkCellsForSiblings(
+  blocks: Block[],
+  blockId: string,
+): Block[] | undefined {
+  for (const b of blocks) {
+    if (b.type === 'table' && b.tableData) {
+      for (const row of b.tableData.rows) {
+        for (const cell of row.cells) {
+          if (cell.blocks.some((cb) => cb.id === blockId)) return cell.blocks;
+          const nested = walkCellsForSiblings(cell.blocks, blockId);
+          if (nested) return nested;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Document manipulation logic.
  *
  * Delegates all mutations through a DocStore. Maintains a cached
@@ -263,6 +287,44 @@ export class Doc {
     return walkCellsForBlock(this._document.blocks, blockId)
       ?? walkCellsForBlock(this._document.header?.blocks ?? [], blockId)
       ?? walkCellsForBlock(this._document.footer?.blocks ?? [], blockId);
+  }
+
+  /**
+   * The array that holds `blockId` next to the blocks it is adjacent to — a
+   * table cell's `blocks` when it lives in one, otherwise the region's
+   * top-level array. `undefined` only when the block is not in the document.
+   *
+   * List nesting is implied by adjacency inside one container (`listLevel`
+   * is a flat integer, so a cell's list is its own hierarchy), which is why
+   * the subtree planner needs the container rather than the block.
+   *
+   * Resolved the way `findBlock` resolves the block itself: the layout-time
+   * parent map first, then a full walk of the tables. Both steps are
+   * needed, because the map is only rebuilt by the layout pass — a block
+   * created since the last one (the tail block a paste splits out inside a
+   * cell) is missing from it, and a table a peer removed since then no
+   * longer resolves. Guessing the region's top-level array in either case
+   * would return an array that does not contain `blockId` at all, and a
+   * caller that looks itself up in the result silently finds nothing to do;
+   * throwing would abandon a gesture halfway through.
+   */
+  siblingBlocksOf(blockId: string): Block[] | undefined {
+    const has = (blocks: Block[] | undefined): boolean =>
+      blocks?.some((b) => b.id === blockId) ?? false;
+    if (has(this._document.blocks)) return this._document.blocks;
+    if (has(this._document.header?.blocks)) return this._document.header!.blocks;
+    if (has(this._document.footer?.blocks)) return this._document.footer!.blocks;
+
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (cellInfo) {
+      const tableBlock = this.findBlock(cellInfo.tableBlockId);
+      const cell =
+        tableBlock?.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      if (has(cell?.blocks)) return cell!.blocks;
+    }
+    return walkCellsForSiblings(this._document.blocks, blockId)
+      ?? walkCellsForSiblings(this._document.header?.blocks ?? [], blockId)
+      ?? walkCellsForSiblings(this._document.footer?.blocks ?? [], blockId);
   }
 
   /**

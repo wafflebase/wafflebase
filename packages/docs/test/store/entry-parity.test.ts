@@ -42,6 +42,13 @@ describe('docs entry parity', () => {
   it.each([
     ['block helpers', './store/block-helpers.js'],
     ['model constants', './model/types.js'],
+    // Added after `normalizeListLevel` shipped on the browser entry alone and
+    // took the frontend `.integration.ts` suites down at import time — exactly
+    // the failure the block-helpers case above describes, from a source module
+    // this allowlist did not name.
+    ['list level', './model/list-level.js'],
+    ['row height', './model/row-height.js'],
+    ['numeric attribute bands', './model/numeric-attrs.js'],
   ])('re-exports every %s from the Node entry too', (_label, source) => {
     const browser = reExports('../../src/index.ts', source);
     const node = reExports('../../src/node.ts', source);

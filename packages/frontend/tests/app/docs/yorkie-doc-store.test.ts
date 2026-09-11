@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
-import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell } from '@wafflebase/docs';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell, MAX_CELL_PADDING, MAX_FONT_SIZE, MAX_IMAGE_SIZE, MAX_LIST_LEVEL, MAX_ROW_HEIGHT } from '@wafflebase/docs';
 import type { Block, HeaderFooter, Inline, TableRow, TableCell as TCell } from '@wafflebase/docs';
 
 function makeBlock(text: string, style?: Partial<Block['style']>): Block {
@@ -3510,6 +3510,135 @@ describe('YorkieDocStore', () => {
         store.getDocument().blocks[0].inlines.map((i) => i.text),
         'cache and tree must describe the same runs',
       ).toEqual(['#abc', 'X']);
+    });
+  });
+
+  /**
+   * This store is a *duplicate* parser of `packages/docs/src/model/crdt-tree.ts`,
+   * and it is the copy that reads a collaborator's attributes in the live
+   * editor. Every number below arrives as a Tree attribute string that
+   * nothing validated — a peer's write, or a document a `PUT` filled — and
+   * each becomes geometry: a font size and a line height become a line's
+   * height, a cell's line heights are summed into its row height, and the
+   * paginator splits an oversized row one page per loop iteration. So the
+   * bands are asserted here as well as in the docs package: the two parsers
+   * have no shared test, and the frontend has no `tsc` lane to catch a band
+   * wired to the wrong field.
+   *
+   * Read back through a *second* store over the same Yorkie document, which
+   * is what a peer is: the writing store answers `getDocument()` from the
+   * document it cached on write, so it would never run the parse.
+   */
+  describe('bands the numeric attributes a peer can write', () => {
+    const peerRead = () => new YorkieDocStore(doc).getDocument();
+
+    const blockWithStyle = (style: Inline['style']): Block => ({
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: 'x', style }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    });
+
+    /** A 1×1 table, with `mutate` applied before it is written. */
+    function writeTable(mutate: (block: Block) => void): Block {
+      const table = createTableBlock(1, 1);
+      mutate(table);
+      store.setDocument({ blocks: [table] });
+      return peerRead().blocks[0];
+    }
+
+    it('bands a peer-written fontSize', () => {
+      const fontSizeOf = (fontSize: number) => {
+        store.setDocument({ blocks: [blockWithStyle({ fontSize })] });
+        return peerRead().blocks[0].inlines[0].style.fontSize;
+      };
+
+      expect(fontSizeOf(11)).toBe(11);
+      expect(fontSizeOf(MAX_FONT_SIZE)).toBe(MAX_FONT_SIZE);
+      // Non-finite or non-positive is dropped, so the resolved default
+      // applies.
+      expect(fontSizeOf(Infinity)).toBeUndefined();
+      expect(fontSizeOf(NaN)).toBeUndefined();
+      expect(fontSizeOf(0)).toBeUndefined();
+      expect(fontSizeOf(-11)).toBeUndefined();
+      // Finite but above the ceiling is clamped and kept *present*.
+      expect(fontSizeOf(1e9)).toBe(MAX_FONT_SIZE);
+    });
+
+    it('drops a peer-written image whose size is out of band', () => {
+      const imageOf = (width: number, height: number) => {
+        store.setDocument({
+          blocks: [blockWithStyle({ image: { src: 'x.png', width, height } })],
+        });
+        return peerRead().blocks[0].inlines[0].style.image;
+      };
+
+      expect(imageOf(300, 200)).toMatchObject({ width: 300, height: 200 });
+      expect(imageOf(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE)).toBeDefined();
+      expect(imageOf(300, Infinity)).toBeUndefined();
+      expect(imageOf(300, NaN)).toBeUndefined();
+      expect(imageOf(1e9, 200)).toBeUndefined();
+      expect(imageOf(300, -200)).toBeUndefined();
+    });
+
+    it('bands a peer-written cell padding', () => {
+      const paddingOf = (padding: number) =>
+        writeTable((table) => {
+          table.tableData!.rows[0].cells[0].style.padding = padding;
+        }).tableData!.rows[0].cells[0].style.padding;
+
+      expect(paddingOf(8)).toBe(8);
+      // Non-finite or negative is dropped, so the layout's default padding
+      // applies.
+      expect(paddingOf(Infinity)).toBeUndefined();
+      expect(paddingOf(NaN)).toBeUndefined();
+      expect(paddingOf(-4)).toBeUndefined();
+      // Finite but above the ceiling is clamped and kept *present*.
+      expect(paddingOf(1e9)).toBe(MAX_CELL_PADDING);
+    });
+
+    it('bands a peer-written rowHeights entry, keeping its position', () => {
+      // The read is cloned through JSON on the way out, so an entry the band
+      // dropped comes back as `null` rather than `undefined`. Both mean
+      // "auto" to every consumer (`normalizeRowHeight` rejects either), so
+      // they are compared as one value here.
+      const heightsOf = (rowHeights: (number | undefined)[]) =>
+        writeTable((table) => {
+          table.tableData!.rowHeights = rowHeights;
+        }).tableData!.rowHeights!.map((h) => h ?? undefined);
+
+      expect(heightsOf([40])).toEqual([40]);
+      expect(heightsOf([Infinity])).toEqual([undefined]);
+      expect(heightsOf([NaN])).toEqual([undefined]);
+      expect(heightsOf([-40])).toEqual([undefined]);
+      expect(heightsOf([1e9])).toEqual([MAX_ROW_HEIGHT]);
+      // A poisoned entry must not shift its neighbours onto other rows.
+      expect(heightsOf([40, Infinity, 60])).toEqual([40, undefined, 60]);
+      // An absent entry is the serializer's own "auto" marker.
+      expect(heightsOf([40, undefined])).toEqual([40, undefined]);
+    });
+
+    it('bands a peer-written listLevel', () => {
+      const levelOf = (listLevel: number) => {
+        const block: Block = {
+          ...blockWithStyle({}),
+          type: 'list-item',
+          listKind: 'unordered',
+          listLevel,
+        };
+        store.setDocument({ blocks: [block] });
+        return peerRead().blocks[0].listLevel;
+      };
+
+      expect(levelOf(2)).toBe(2);
+      expect(levelOf(MAX_LIST_LEVEL)).toBe(MAX_LIST_LEVEL);
+      // Non-finite reads as the outermost level rather than as geometry no
+      // reader can multiply: the layout indent, the marker table index, the
+      // markdown `repeat` and the PDF painter all take it raw from here.
+      expect(levelOf(Infinity)).toBe(0);
+      expect(levelOf(NaN)).toBe(0);
+      expect(levelOf(-4)).toBe(0);
+      expect(levelOf(1e9)).toBe(MAX_LIST_LEVEL);
     });
   });
 

@@ -1,5 +1,8 @@
 import type { TableData, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
+import { normalizeListLevel } from '../model/list-level.js';
+import { normalizeCellPadding } from '../model/numeric-attrs.js';
+import { normalizeRowHeight } from '../model/row-height.js';
 import type { BlockSpacingContext, DocStyles, StyleSurface } from '../model/named-styles.js';
 import type { ComposingContext, LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
@@ -30,6 +33,73 @@ const DEFAULT_CELL_PADDING = 4;
 const MIN_ROW_HEIGHT = 20;
 
 /**
+ * The height one line of default-size text occupies — what an empty cell's
+ * placeholder line gets, and so the height step 5d substitutes for a line
+ * whose own arithmetic came out unusable.
+ */
+function defaultLineHeight(): number {
+  return ptToPx(Theme.defaultFontSize) * 1.5;
+}
+
+/**
+ * Band one cell's own geometry: every line height finite, the `y` offsets
+ * that run off them, and the `height` they sum to.
+ *
+ * A line height is untrusted arithmetic — `assignLineHeights` multiplies a
+ * peer-written line-spacing multiple by a peer-written font size, or takes an
+ * inline image's height — so one `Infinity` or `NaN` propagates into
+ * `LayoutTableCell.height` and, through step 4, into the row. Repairing only
+ * the row (step 5d's original shape) leaves a finite row whose cells and
+ * lines are still unusable, and `computeMergedCellLineLayouts`, the painters,
+ * the hit-tests and the caret math all read those — a blank, untouchable cell
+ * inside a visible row.
+ *
+ * Repaired in the shape `layoutCellBlocks` produced: the substitute is the
+ * placeholder line's height and the offsets are re-flowed as the running sum,
+ * so the geometry still reads as a laid-out cell rather than a special case.
+ */
+function bandCellGeometry(cell: LayoutTableCell, padding: number): void {
+  if (cell.merged) return;
+  let repaired = !Number.isFinite(cell.height);
+  for (const line of cell.lines) {
+    if (!(Number.isFinite(line.height) && line.height >= 0)) {
+      line.height = defaultLineHeight();
+      repaired = true;
+    }
+  }
+  if (!repaired) return;
+  // The padding is the other term of the sum, and it is a stored attribute
+  // too — banded on read, but `Doc` and the DOCX importer write `tableData`
+  // without passing a read boundary, and a `NaN` padding would put the `NaN`
+  // straight back.
+  const pad = normalizeCellPadding(padding) ?? DEFAULT_CELL_PADDING;
+  let total = reflowCellLines(cell.lines);
+  // Line heights that are each finite can still sum past `Number.MAX_VALUE`
+  // — a cell whose every line is merely huge. Step 5d derives the row from
+  // this height, so returning a non-finite one would reintroduce exactly the
+  // `Infinity` row it exists to prevent: the second pass gives every line the
+  // placeholder height instead.
+  if (!Number.isFinite(total)) {
+    for (const line of cell.lines) line.height = defaultLineHeight();
+    total = reflowCellLines(cell.lines);
+  }
+  cell.height = total + pad * 2;
+}
+
+/**
+ * Re-flow a cell's line `y` offsets over their (repaired) heights, the way
+ * `layoutCellBlocks` laid them out. Returns the height they sum to.
+ */
+function reflowCellLines(lines: LayoutLine[]): number {
+  let y = 0;
+  for (const line of lines) {
+    line.y = y;
+    y += line.height;
+  }
+  return y;
+}
+
+/**
  * Layout blocks within a table cell into wrapped lines.
  * Mirrors the body-side path in `computeLayout`: list indent is merged
  * into `marginLeft`, then the shared `layoutBlock` produces lines.
@@ -46,7 +116,7 @@ function layoutCellBlocks(
   spacingCtx?: BlockSpacingContext,
 ): { lines: LayoutLine[]; blockBoundaries: number[] } {
   if (blocks.length === 0) {
-    const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
+    const defaultHeight = defaultLineHeight();
     return {
       lines: [{ runs: [], y: 0, height: defaultHeight, width: 0 }],
       blockBoundaries: [0],
@@ -88,9 +158,12 @@ function layoutCellBlocks(
       continue;
     }
 
+    // Normalized for the same reason the body indent is (`layout.ts`): a
+    // poisoned level multiplied into the indent is a NaN/Infinity
+    // `marginLeft` that blanks the block — here, one inside a table cell.
     const listIndent =
       block.type === 'list-item'
-        ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
+        ? LIST_INDENT_PX * (normalizeListLevel(block.listLevel) + 1)
         : 0;
     const effectiveBlock: Block = listIndent === 0
       ? block
@@ -237,10 +310,18 @@ export function computeTableLayout(
     }
   }
 
-  // 5b. Apply user-specified row heights as minimums
+  // 5b. Apply user-specified row heights as minimums.
+  // Normalized here as well as at the CRDT read boundaries and in the paste
+  // sanitizer: this is the one place a stored height becomes geometry, and the
+  // readers are not the only producers. `Doc.setRowHeight` writes the drag
+  // straight into the in-memory `tableData`, and the DOCX importer writes
+  // `rowHeights` from `<w:trHeight>` (`import/docx-importer.ts`) — neither
+  // passes a read boundary before layout runs. Everything downstream — the
+  // paginator's per-page row-split loop above all — reads
+  // `LayoutTable.rowHeights`, so bounding it here bounds all of them.
   if (tableData.rowHeights) {
     for (let r = 0; r < numRows; r++) {
-      const userHeight = tableData.rowHeights[r];
+      const userHeight = normalizeRowHeight(tableData.rowHeights[r]);
       if (userHeight !== undefined && userHeight > rowHeights[r]) {
         rowHeights[r] = userHeight;
       }
@@ -285,6 +366,48 @@ export function computeTableLayout(
         }
       }
     }
+  }
+
+  // 5d. Publish geometry every consumer can use.
+  //
+  // Step 5b bands the *user-specified* height, but steps 3–4 derive one from
+  // the cell's content — summing line heights that come from a font size, an
+  // inline image and a paragraph's line spacing, each its own untrusted Tree
+  // attribute. A non-finite one of those makes the cell height, this row
+  // height, the offsets below and `totalHeight` (the scroll extent) `NaN`,
+  // which blanks the table for every reader.
+  //
+  // Cell and row are repaired together because they are one number: a line
+  // height is summed into `LayoutTableCell.height`, which is maxed into the
+  // row. A row-only repair publishes a finite row whose own cells and lines
+  // are still `NaN` — and it cannot even be conditioned on the row, since a
+  // `rowSpan > 1` cell is skipped by step 4's `rowSpan === 1` pass and its
+  // `cell.height > spannedHeight` test is false for `NaN`, so a poisoned
+  // merged cell leaves every row height finite and nothing to key on.
+  //
+  // This is the *one* place a row height becomes geometry, so it is the only
+  // place that may substitute one: the paginator, the renderers, the
+  // hit-tests and the selection math all read `LayoutTable.rowHeights` raw
+  // and have to agree with each other, and a second clamp anywhere else is a
+  // desync. The substitute is re-derived from the repaired cells the way step
+  // 4 derives a healthy height, so the row still fits the geometry it
+  // publishes, with `MIN_ROW_HEIGHT` as its floor — which keeps the row
+  // visible and hit-testable rather than collapsing it to nothing.
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      bandCellGeometry(
+        cells[r][c],
+        rows[r]?.cells[c]?.style?.padding ?? DEFAULT_CELL_PADDING,
+      );
+    }
+    if (Number.isFinite(rowHeights[r]) && rowHeights[r] > 0) continue;
+    let derived = MIN_ROW_HEIGHT;
+    for (let c = 0; c < numCols; c++) {
+      const cell = cells[r][c];
+      if (cell.merged || (rows[r]?.cells[c]?.rowSpan ?? 1) !== 1) continue;
+      derived = Math.max(derived, cell.height);
+    }
+    rowHeights[r] = derived;
   }
 
   // 6. Compute row Y offsets (cumulative sum)

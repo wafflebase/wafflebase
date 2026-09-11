@@ -2,6 +2,7 @@ import type { LayoutTable, LayoutTableCell } from './table-layout.js';
 import type { LayoutRun } from './layout.js';
 import type { TableCell, TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
+import { normalizeListLevel } from '../model/list-level.js';
 import { defaultColorResolver, resolveStoredColor } from '../model/color.js';
 import { Theme, buildFont, ptToPx, lineBaselineY } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
@@ -521,7 +522,11 @@ export function renderTableContent(
             listCounters.clear();
             continue;
           }
-          const level = cellBlock.listLevel ?? 0;
+          // Normalized: this is a `Map` key as well as a marker offset, so a
+          // NaN level would never match itself on reset and would place the
+          // marker at a NaN x. It also has to agree with the clamped indent
+          // `table-layout` laid the cell out with.
+          const level = normalizeListLevel(cellBlock.listLevel);
           // Reset counters for deeper levels and when kind changes
           for (const [k] of listCounters) {
             if (k > level) listCounters.delete(k);

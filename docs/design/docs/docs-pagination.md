@@ -514,6 +514,12 @@ nested table, long text, or images):
 - rowSpan/colSpan merged cells are not yet split-aware — they render correctly
   only when the merge owner row is on the same page. Full merged-cell splitting
   is a planned future enhancement.
+- The fragment loop bounds itself: one row may claim at most
+  `MAX_ROW_PAGE_SPAN` (200) fragments, the last of which takes whatever height
+  is left. A row height is derived from peer-writable attributes, so without
+  the bound an `Infinity` one never terminates. See
+  [tables/docs-table-row-splitting.md](tables/docs-table-row-splitting.md)
+  §1.5.
 
 ### Atomic Units
 

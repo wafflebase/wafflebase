@@ -42,7 +42,8 @@ space.
 | Nested-table row | Yes — recursively |
 
 A split point is always *between* two atomic units inside a cell, never
-in the middle of one.
+in the middle of one — with one deliberate exception, the last fragment a
+row is allowed under the loop bound of §1.5.
 
 ## Proposal Details
 
@@ -99,6 +100,61 @@ interface PageLine {
 The paginator emits two (or more) `PageLine` entries for the same
 `blockIndex + lineIndex` when a row is split — one per page, each with
 its own `rowSplitOffset` / `rowSplitHeight`.
+
+#### 1.5 The loop bounds itself — `MAX_ROW_PAGE_SPAN`
+
+The fragment loop above emits one page per iteration and runs until it
+has consumed `LayoutTable.rowHeights[r]`, so the row height decides how
+much work it does. That height is not a number this editor produced: a
+row's height is the *maximum* of the user-dragged minimum and the
+content-derived height, and every input to both is a peer-writable Tree
+attribute (`rowHeights`, and a cell's `fontSize` / `lineHeight` /
+`padding` / inline image size — see [`docs.md`](../docs.md), "The other
+peer-writable numbers"). An `Infinity` never terminates; a finite `1e9`
+px against a ~864 px content height asks for ~1.1 million pages, each
+with its own `PageLine`. Either is a hung tab or an OOM for every
+*reader* of the document, caused by one writer.
+
+Two rules keep that bounded, and they are deliberately placed one layer
+apart:
+
+- **`computeTableLayout` step 5d** substitutes a usable row height for one
+  that is not finite and positive. It is the one place a row height
+  *becomes* geometry, so it is the only place allowed to substitute one:
+  the paginator, the renderers, the row hit-tests and the selection math
+  all read `LayoutTable.rowHeights` / `rowYOffsets` / `totalHeight` raw
+  and have to agree with each other. (An earlier revision clamped inside
+  `paginateLayout` instead, which desynced `PageLine.height` from
+  `rowHeights[row]` and left `totalHeight` — the scroll extent — `NaN`.)
+
+  The step repairs the *cell* geometry at the same point, because it is
+  one number: a line height is summed into `LayoutTableCell.height`
+  (and a line's `y` is the running sum before it), which is maxed into
+  the row. A row-only repair published a finite row whose own cells and
+  lines were still `NaN` — and `computeMergedCellLineLayouts`, the
+  painters, the hit-tests and the caret math read those, so the visible
+  row contained a blank, untouchable cell. A line whose height is
+  unusable takes the placeholder height an empty cell's line gets, the
+  offsets are re-flowed over it, and the substituted row height is then
+  re-derived from the repaired cells the way step 4 derives a healthy
+  one (floored at `MIN_ROW_HEIGHT`), so the row still fits the geometry
+  it publishes. The repair cannot be conditioned on a broken row height:
+  step 4 skips a `rowSpan > 1` cell in its `rowSpan === 1` pass and its
+  `cell.height > spannedHeight` test is false for `NaN`, so a poisoned
+  merged cell leaves every row height finite and nothing to key on.
+- **`MAX_ROW_PAGE_SPAN` (200)** bounds the loop by counting *fragments*,
+  not by clipping the height: the 200th fragment takes everything left.
+  So `sum(rowSplitHeight) === rowHeights[r]` still holds for every row,
+  and the loop terminates for any height, `Infinity` included.
+
+The cost is the one exception to the atomic-unit invariant above: that
+final fragment's start is wherever the 199th split landed, and it
+overflows its page rather than continuing onto more. 200 pages is far
+past any real row — a letter page holds ~50 lines, so this is a
+~10,000-line cell — and a row that cannot be laid out in 200 pages has
+no faithful pagination to preserve. The alternative, clipping the
+height, would make the paginator disagree with every renderer about how
+tall the row is.
 
 ### 2. Rendering Layer
 

@@ -5,6 +5,7 @@ import {
 } from 'pdf-lib';
 import type { Document, PageSetup, TableCell } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
+import { normalizeListLevel } from '../model/list-level.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../view/layout.js';
 import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
@@ -363,7 +364,10 @@ export class PdfPainter {
     const block = ctx.doc.blocks[pl.blockIndex];
     if (!block || block.type !== 'list-item') return;
 
-    const level = block.listLevel ?? 0;
+    // Normalized rather than read raw — the level is multiplied into the
+    // marker's x below, and a poisoned one from a peer would put NaN
+    // coordinates into pdf-lib. See `normalizeListLevel`.
+    const level = normalizeListLevel(block.listLevel);
     const marker = block.listKind === 'unordered'
       ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
       : (ctx.listCounters?.get(block.id) ?? '1.');
@@ -586,7 +590,7 @@ export class PdfPainter {
           listCounters.clear();
           continue;
         }
-        const level = cellBlock.listLevel ?? 0;
+        const level = normalizeListLevel(cellBlock.listLevel);
         for (const [k] of listCounters) {
           if (k > level) listCounters.delete(k);
         }

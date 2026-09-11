@@ -15,6 +15,7 @@
  * only as long as the list that asked for it (`releasePreviewFontLinks`).
  */
 import { useEffect } from 'react';
+import { MAX_FONT_SIZE } from '@wafflebase/docs';
 import { FONT_CATALOG_DATA } from './font-catalog.data';
 
 export type FontGroup =
@@ -71,7 +72,18 @@ export const FONT_SIZE_PRESETS = [8, 10, 12, 14, 16, 18, 20, 24, 32, 48, 64, 96]
 export type FontSizePreset = (typeof FONT_SIZE_PRESETS)[number];
 
 export const FONT_SIZE_MIN = 1;
-export const FONT_SIZE_MAX = 400;
+/**
+ * The picker's ceiling, which must stay *at or under* the model's:
+ * `MAX_FONT_SIZE` is the band every reader of a `fontSize` attribute applies
+ * (`@wafflebase/docs`, `model/numeric-attrs.ts`), so a larger number here
+ * would be a value the picker can produce and every reader then clamps —
+ * silently, and only for the peers. Under it is fine and is what this is: the
+ * model's band has to admit the largest size an *import* can carry (Word's
+ * 1638 pt, DrawingML's 4000 pt) so an imported document is not rewritten on
+ * its next read, while the picker offers the range a person types into, and
+ * 400 pt is already ~5 letter pages of cap height.
+ */
+export const FONT_SIZE_MAX = Math.min(400, MAX_FONT_SIZE);
 
 /**
  * Clamp a font size to the legal [FONT_SIZE_MIN, FONT_SIZE_MAX] range,

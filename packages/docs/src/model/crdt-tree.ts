@@ -37,6 +37,16 @@ import type {
   TableRow,
 } from './types.js';
 import { parseBlockStyleAttrs, parseMarginFromEdgeAttr } from './crdt-attrs.js';
+import { normalizeListLevel } from './list-level.js';
+import { normalizeRowHeight } from './row-height.js';
+import {
+  isPaintableImageSize,
+  normalizeCellPadding,
+  normalizeFontSize,
+  normalizeTableSpan,
+  parseColumnWidthsAttr,
+} from './numeric-attrs.js';
+import { sanitizeDocStyles } from './named-styles.js';
 
 /**
  * The structural subset of a CRDT tree node this reader needs.
@@ -67,21 +77,27 @@ function parseInlineStyle(
     style.strikethrough = attrs.strikethrough === 'true';
   if ('superscript' in attrs) style.superscript = attrs.superscript === 'true';
   if ('subscript' in attrs) style.subscript = attrs.subscript === 'true';
-  if ('fontSize' in attrs) style.fontSize = Number(attrs.fontSize);
+  // Banded for the same reason `listLevel` and `rowHeights` are, and through
+  // the same sink: a run's font size becomes its line's height, a table
+  // cell's line heights are summed into the row height, and the paginator
+  // splits an oversized row one page per loop iteration. See
+  // `normalizeFontSize`.
+  if ('fontSize' in attrs) {
+    const fontSize = normalizeFontSize(Number(attrs.fontSize));
+    if (fontSize !== undefined) style.fontSize = fontSize;
+  }
   if ('fontFamily' in attrs) style.fontFamily = attrs.fontFamily;
   if ('color' in attrs) style.color = attrs.color;
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
   if ('href' in attrs) style.href = attrs.href;
   if ('pageNumber' in attrs) style.pageNumber = attrs.pageNumber === 'true';
   if ('image.src' in attrs) {
+    // `isPaintableImageSize` adds a ceiling to the finite/positive check this
+    // already had: an image height is a line height, so a `1e9` one reaches
+    // the paginator's row-split loop the same way a font size does.
     const width = Number(attrs['image.width']);
     const height = Number(attrs['image.height']);
-    if (
-      Number.isFinite(width) &&
-      Number.isFinite(height) &&
-      width > 0 &&
-      height > 0
-    ) {
+    if (isPaintableImageSize(width, height)) {
       const image: NonNullable<Inline['style']['image']> = {
         src: attrs['image.src'],
         width,
@@ -126,7 +142,13 @@ function parseCellStyle(attrs: Record<string, string>): TableCell['style'] {
   if (attrs.backgroundColor) style.backgroundColor = attrs.backgroundColor;
   if (attrs.verticalAlign)
     style.verticalAlign = attrs.verticalAlign as 'top' | 'middle' | 'bottom';
-  if (attrs.padding) style.padding = Number(attrs.padding);
+  // Banded: `computeTableLayout` adds `padding * 2` to the cell's content
+  // height, so an `Infinity` padding is an `Infinity` row height and the
+  // paginator's row-split loop never terminates. See `normalizeCellPadding`.
+  if (attrs.padding) {
+    const padding = normalizeCellPadding(Number(attrs.padding));
+    if (padding !== undefined) style.padding = padding;
+  }
   if (attrs.borderTop) style.borderTop = parseBorderStyle(attrs.borderTop);
   if (attrs.borderBottom)
     style.borderBottom = parseBorderStyle(attrs.borderBottom);
@@ -165,8 +187,13 @@ function treeNodeToCell(node: DocsTreeNode): TableCell {
             },
           ],
     style: parseCellStyle(attrs),
-    colSpan: attrs.colSpan ? Number(attrs.colSpan) : undefined,
-    rowSpan: attrs.rowSpan ? Number(attrs.rowSpan) : undefined,
+    // Banded like every other numeric here, and for the sharpest sink of the
+    // lot: a span widens the selected rectangle in `expandCellRangeForMerges`'s
+    // fixed-point loop, so an `Infinity` one makes that loop's bound
+    // `Infinity` and hangs the tab of anyone who selects cells in the table.
+    // See `normalizeTableSpan`.
+    colSpan: attrs.colSpan ? normalizeTableSpan(Number(attrs.colSpan)) : undefined,
+    rowSpan: attrs.rowSpan ? normalizeTableSpan(Number(attrs.rowSpan)) : undefined,
   };
 }
 
@@ -187,14 +214,20 @@ export function treeNodeToBlock(node: DocsTreeNode): Block {
     const rows = (node.children ?? [])
       .filter((c) => c.type === 'row')
       .map(treeNodeToRow);
-    const cols = (attrs.cols ?? '')
-      .split(',')
-      .map(Number)
-      .filter((n) => !isNaN(n));
+    // Banded on count *and* magnitude, not merely filtered for `NaN`: the
+    // length is `computeTableLayout`'s `numCols`, which allocates a cell per
+    // (row, column) pair, and `Number('1e400')` is an `Infinity` ratio that
+    // `!isNaN` passes and the layout multiplies into `NaN` geometry. See
+    // `parseColumnWidthsAttr`.
+    const cols = parseColumnWidthsAttr(attrs.cols);
+    // Clamped here for the same reason `listLevel` is, and with more at
+    // stake: the paginator splits an oversized row one page per loop
+    // iteration, so an `Infinity` height never terminates and a `1e9` one
+    // builds a million pages. See `normalizeRowHeight`.
     const rowHeights = attrs.rowHeights
       ? attrs.rowHeights
           .split(',')
-          .map((v) => (v === '' ? undefined : Number(v)))
+          .map((v) => (v === '' ? undefined : normalizeRowHeight(Number(v))))
       : undefined;
     return {
       id: attrs.id ?? '',
@@ -240,7 +273,13 @@ export function treeNodeToBlock(node: DocsTreeNode): Block {
   if ('headingLevel' in attrs)
     block.headingLevel = Number(attrs.headingLevel) as Block['headingLevel'];
   if ('listKind' in attrs) block.listKind = attrs.listKind as Block['listKind'];
-  if ('listLevel' in attrs) block.listLevel = Number(attrs.listLevel);
+  // Clamped where the value enters the model, not at each consumer: this is
+  // the collaborative read boundary (a peer's Tree attribute, or a snapshot
+  // written by the backend's content ingest, which serializes whatever it is
+  // handed), and every downstream reader multiplies the level into geometry
+  // or repeats a string with it. See `normalizeListLevel`.
+  if ('listLevel' in attrs)
+    block.listLevel = normalizeListLevel(Number(attrs.listLevel));
   return block;
 }
 
@@ -279,7 +318,15 @@ export function docsTreeToDocument(
   // pass `JSON.parse` (via coercion) and land a non-object in `doc.styles`.
   if (typeof opts?.stylesJson === 'string' && opts.stylesJson.length > 0) {
     try {
-      doc.styles = JSON.parse(opts.stylesJson);
+      // Sanitized, not merely parsed. The registry is a peer-writable blob
+      // (`root.stylesJson`, LWW) that the v1 `PUT` validator never inspects,
+      // and it reaches the *same* sinks the attribute bands above guard:
+      // `resolveStyleBlock` spreads it into `effectiveBlockSpacing`'s
+      // `lineHeight`, and `resolveBlockInlines` merges its `inline` as the
+      // base layer of every run's style — so an unbanded `fontSize` here is
+      // an unbanded font size on every paragraph, and the bands above would
+      // be bypassable by writing one string. See `sanitizeDocStyles`.
+      doc.styles = sanitizeDocStyles(JSON.parse(opts.stylesJson));
     } catch {
       // Malformed registry → fall back to built-in styles.
     }

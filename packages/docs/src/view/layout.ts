@@ -14,6 +14,7 @@ import {
   type DocStyles,
   type StyleSurface,
 } from '../model/named-styles.js';
+import { normalizeListLevel } from '../model/list-level.js';
 import { Theme, ptToPx } from './theme.js';
 import type { ResolvedFont, TextMeasurer } from './measurer.js';
 import { computeTableLayout, type LayoutTable } from './table-layout.js';
@@ -491,7 +492,9 @@ export function computeLayout(
     // Apply list indent for list items
     let effectiveBlock = block;
     if (block.type === 'list-item') {
-      const listIndent = LIST_INDENT_PX * ((block.listLevel ?? 0) + 1);
+      // Normalized rather than read raw: a poisoned level multiplied into
+      // the indent is a NaN/Infinity `marginLeft` that blanks the block.
+      const listIndent = LIST_INDENT_PX * (normalizeListLevel(block.listLevel) + 1);
       effectiveBlock = {
         ...block,
         style: {
@@ -1086,7 +1089,12 @@ export function computeListCounters(blocks: Block[]): Map<string, string> {
       levelCounters.length = 0; // Reset on non-list block
       continue;
     }
-    const level = block.listLevel ?? 0;
+    // Normalized rather than read raw: `levelCounters.length = NaN` is a
+    // `RangeError: Invalid array length` that takes the whole layout down,
+    // and a large finite level allocates an array that size. The value can
+    // arrive poisoned from a peer, and this pass runs on first render —
+    // before any gesture could repair it.
+    const level = normalizeListLevel(block.listLevel);
     // Trim counters above this level
     levelCounters.length = Math.max(levelCounters.length, level + 1);
     if (levelCounters[level] === undefined) levelCounters[level] = 0;

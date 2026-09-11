@@ -38,6 +38,7 @@ export { scaleElementHeight, scaleEndpointY } from './model/slide-size';
 export {
   deckSlideHeight,
   DEFAULT_BACKGROUND,
+  MAX_DECK_FONT_SCALE,
   MAX_RECENT_COLORS,
   pushRecent,
   resolveBackgroundFill,
@@ -55,6 +56,13 @@ export type { Master, MasterBackground, MasterBackgroundImage } from './model/ma
 // Kept in sync with the browser entry (`src/index.ts`).
 export { DEFAULT_MASTER } from './model/master';
 export { seedPlaceholderBlocks } from './model/placeholder-blocks';
+export {
+  bandElementNumerics,
+  bandLayoutNumerics,
+  bandMasterNumerics,
+  bandPlaceholderStyleNumerics,
+  bandSlidesDocumentNumerics,
+} from './model/band-numerics';
 
 export type {
   Crop,

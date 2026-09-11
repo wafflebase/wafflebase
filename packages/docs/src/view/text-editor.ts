@@ -22,6 +22,7 @@ import { resolveNestedTableLayout } from './table-layout.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
+import { planListLevelChanges } from '../model/list-level.js';
 import { caretInlineStyle, caretStyleDefaults, isAtLinkTrailingEdge } from '../model/caret-style.js';
 import { yieldToPaintedFrame } from '../export/yield.js';
 
@@ -2766,25 +2767,41 @@ export class TextEditor {
     const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
     if (cursorBlock.type !== 'list-item') return;
 
-    // One write per selected list item, so one undo unit for the lot — see
-    // `withUndoUnit`. `saveSnapshot()` stays above it.
+    // `saveSnapshot()` stays above the unit, never inside it: it also flushes
+    // the pre-edit caret into presence, and that write is dropped inside an
+    // open batch — see `withUndoUnit`.
     this.saveSnapshot();
+    // One Tab moves a whole subtree, so it is N `setBlockType` writes — see
+    // `applyListLevelChanges` for why they have to share one undo unit.
     this.withUndoUnit(() => {
-      this.forEachBlockInSelection((b) => {
-        if (b.type !== 'list-item') return;
-        const currentLevel = b.listLevel ?? 0;
-        const newLevel = shift
-          ? Math.max(0, currentLevel - 1)
-          : Math.min(8, currentLevel + 1);
-        if (newLevel === currentLevel) return;
-        this.doc.setBlockType(b.id, 'list-item', {
-          listKind: b.listKind,
-          listLevel: newLevel,
-        });
-      });
+      this.applyListLevelChanges(shift ? -1 : 1);
     });
     this.invalidateLayout();
     this.requestRender();
+  }
+
+  /**
+   * Move every selected list item's level by `delta`, carrying its nested
+   * children so the subtree's relative depth survives (#1050). The plan
+   * is computed from the pre-edit levels before anything is written.
+   *
+   * Callers must wrap this in `doc.batch()`: it writes once per block in
+   * the subtree, and `YorkieDocStore.setBlockType` opens its own
+   * `withUpdate`, so unbatched each carried child would be its own Yorkie
+   * change and its own `doc.history` entry — one Cmd+Z would leave the
+   * subtree half-moved.
+   */
+  private applyListLevelChanges(delta: 1 | -1): void {
+    const changes = planListLevelChanges(
+      (fn) => this.forEachBlockInSelection(fn),
+      delta,
+    );
+    for (const change of changes) {
+      this.doc.setBlockType(change.block.id, 'list-item', {
+        listKind: change.block.listKind,
+        listLevel: change.listLevel,
+      });
+    }
   }
 
   private handleAlign(alignment: 'left' | 'center' | 'right' | 'justify'): void {
@@ -2813,24 +2830,17 @@ export class TextEditor {
   }
 
   private handleIndent(): void {
-    const MAX_LIST_LEVEL = 8;
     const INDENT_STEP = 36;
-    // One write per selected block, one undo unit — see `withUndoUnit`.
+    // `saveSnapshot()` above the unit — see `withUndoUnit`.
     this.saveSnapshot();
+    // One undo unit for the whole gesture — see `applyListLevelChanges`.
     this.withUndoUnit(() => {
+      this.applyListLevelChanges(1);
       this.forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel >= MAX_LIST_LEVEL) return;
-          this.doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel + 1,
-          });
-        } else {
-          this.doc.applyBlockStyle(block.id, {
-            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-          });
-        }
+        if (block.type === 'list-item') return;
+        this.doc.applyBlockStyle(block.id, {
+          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+        });
       });
     });
     this.invalidateLayout();
@@ -2839,24 +2849,18 @@ export class TextEditor {
 
   private handleOutdent(): void {
     const INDENT_STEP = 36;
-    // One write per selected block, one undo unit — see `withUndoUnit`.
+    // `saveSnapshot()` above the unit — see `withUndoUnit`.
     this.saveSnapshot();
+    // One undo unit for the whole gesture — see `applyListLevelChanges`.
     this.withUndoUnit(() => {
+      this.applyListLevelChanges(-1);
       this.forEachBlockInSelection((block) => {
-        if (block.type === 'list-item') {
-          const currentLevel = block.listLevel ?? 0;
-          if (currentLevel <= 0) return;
-          this.doc.setBlockType(block.id, 'list-item', {
-            listKind: block.listKind,
-            listLevel: currentLevel - 1,
-          });
-        } else {
-          const current = block.style.marginLeft ?? 0;
-          if (current <= 0) return;
-          this.doc.applyBlockStyle(block.id, {
-            marginLeft: Math.max(0, current - INDENT_STEP),
-          });
-        }
+        if (block.type === 'list-item') return;
+        const current = block.style.marginLeft ?? 0;
+        if (current <= 0) return;
+        this.doc.applyBlockStyle(block.id, {
+          marginLeft: Math.max(0, current - INDENT_STEP),
+        });
       });
     });
     this.invalidateLayout();
@@ -2864,10 +2868,14 @@ export class TextEditor {
   }
 
   /**
-   * Invoke fn for every leaf block in the current selection.
+   * Invoke fn for every leaf block in the current selection, with the
+   * sibling array that contains it — list nesting is implied by adjacency
+   * within one container, so callers that walk a subtree need both.
    * Handles cell-internal blocks, cross-table selections, and cursor-only.
    */
-  private forEachBlockInSelection(fn: (block: Block) => void): void {
+  private forEachBlockInSelection(
+    fn: (block: Block, siblings: ReadonlyArray<Block>) => void,
+  ): void {
     if (this.selection.hasSelection() && this.selection.range) {
       const range = this.selection.range;
       // Cell-range selection
@@ -2884,7 +2892,7 @@ export class TextEditor {
               const cell = tableBlock.tableData.rows[r]?.cells[c];
               if (!cell || cell.colSpan === 0) continue;
               for (const cellBlock of cell.blocks) {
-                fn(cellBlock);
+                fn(cellBlock, cell.blocks);
               }
             }
           }
@@ -2905,7 +2913,7 @@ export class TextEditor {
         const lo = Math.min(aIdx, fIdx);
         const hi = Math.max(aIdx, fIdx);
         for (let i = lo; i <= hi; i++) {
-          fn(cell.blocks[i]);
+          fn(cell.blocks[i], cell.blocks);
         }
         return;
       }
@@ -2915,25 +2923,53 @@ export class TextEditor {
       if (startIdx >= 0 && endIdx >= 0) {
         const lo = Math.min(startIdx, endIdx);
         const hi = Math.max(startIdx, endIdx);
+        // `getContextBlocks()`, not `document.blocks`: `getBlockIndex` above
+        // resolves against the *active* context, so a header/footer selection
+        // yields indices into the header/footer array. Reading the body array
+        // with them would visit unrelated body blocks — or `undefined` past
+        // its end — instead of the selected header items. Same container the
+        // cursor-only fallback resolves through (`siblingsOf`), and the same
+        // one `editor.ts`'s equivalent walker uses.
+        const contextBlocks = this.doc.getContextBlocks();
         for (let i = lo; i <= hi; i++) {
-          const b = this.doc.document.blocks[i];
+          const b = contextBlocks[i];
           if (b.type === 'table' && b.tableData) {
             for (const row of b.tableData.rows) {
               for (const cell of row.cells) {
                 if (cell.colSpan === 0) continue;
                 for (const cellBlock of cell.blocks) {
-                  fn(cellBlock);
+                  fn(cellBlock, cell.blocks);
                 }
               }
             }
           } else {
-            fn(b);
+            fn(b, contextBlocks);
           }
         }
         return;
       }
     }
-    fn(this.doc.getBlock(this.cursor.position.blockId));
+    const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
+    fn(cursorBlock, this.siblingsOf(cursorBlock));
+  }
+
+  /**
+   * The array that holds `block` next to its neighbours — the cell it
+   * lives in, or its region's top-level blocks.
+   *
+   * `Doc.siblingBlocksOf`, not a parent-map lookup here: the caret can sit
+   * in a header/footer list, whose blocks live outside the body array, and
+   * the map is only as fresh as the last layout pass. Guessing the region's
+   * top-level array when the map misses hands back an array that does not
+   * contain `block`, and the subtree planner then finds nothing to do —
+   * silently turning the whole gesture into a no-op. The model's lookup
+   * keeps the same full-walk fallback `findBlock` does, and resolves the
+   * parent table without throwing, so a table a peer removed since the last
+   * layout cannot escape the middle of a Tab. Same helper `editor.ts`'s
+   * equivalent walker uses, so the two cannot drift.
+   */
+  private siblingsOf(block: Block): ReadonlyArray<Block> {
+    return this.doc.siblingBlocksOf(block.id) ?? [block];
   }
 
   private tryAutoConvert(blockId: string): boolean {

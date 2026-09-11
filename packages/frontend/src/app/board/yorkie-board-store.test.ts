@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { GroupElement, SlidesStore } from '@wafflebase/slides';
+import type { Block } from '@wafflebase/docs';
+import { MAX_FONT_SIZE, MAX_LINE_HEIGHT, MAX_LIST_LEVEL } from '@wafflebase/docs';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import { YorkieBoardStore } from './yorkie-board-store';
 import { makeYorkieBoardDoc, makeShapeInit } from './__testkit__';
@@ -381,5 +383,141 @@ describe('YorkieBoardStore', () => {
       });
       expect(seen).toEqual([1]);
     });
+  });
+});
+
+describe('YorkieBoardStore — the text-body numeric band', () => {
+  // A board stores the identical codec-free docs blocks a slide does, and
+  // renders them through the same `text-renderer` → `computeLayout`. This
+  // store is a verbatim port of the slides reader, so it needs the port of
+  // its band too — the backend `PUT` bands, but a collaborating client's
+  // `doc.update` never goes through it.
+  //
+  // Finite rather than `Infinity`: a non-finite number stored in the CRDT
+  // does not survive `yorkieToPlain`'s `JSON.parse` at all. `1e9` is the
+  // variant that *does* reach the layout engine.
+  const poisoned = () => [
+    {
+      id: 'p1',
+      type: 'list-item',
+      listLevel: 1e9,
+      style: { lineHeight: 1e9 },
+      inlines: [{ text: 'x', style: { fontSize: 1e9 } }],
+    },
+  ];
+
+  function expectBanded(blocks: Block[]): void {
+    expect(blocks[0].listLevel).toBe(MAX_LIST_LEVEL);
+    expect(blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    expect(blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+  }
+
+  /** Write straight onto the root, as a hostile peer's sync would. */
+  function withHostilePeer(
+    doc: ReturnType<typeof makeYorkieBoardDoc>,
+    mutate: (elements: Record<string, unknown>[]) => void,
+  ): void {
+    doc.update((r) => {
+      mutate(r.elements as unknown as Record<string, unknown>[]);
+    });
+  }
+
+  it('bands a text element body a peer poisoned', () => {
+    const doc = makeYorkieBoardDoc();
+    const store: SlidesStore = new YorkieBoardStore(doc);
+    withHostilePeer(doc, (els) => {
+      els.push({
+        id: 'txt',
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { blocks: poisoned() },
+      });
+    });
+    const el = store.read().slides[0].elements[0] as {
+      data: { blocks: Block[] };
+    };
+    expectBanded(el.data.blocks);
+  });
+
+  it('bands a shape body — the sticky note path — through the generic tail', () => {
+    const doc = makeYorkieBoardDoc();
+    const store: SlidesStore = new YorkieBoardStore(doc);
+    withHostilePeer(doc, (els) => {
+      els.push({
+        id: 'sticky',
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { kind: 'roundRect', text: { blocks: poisoned() } },
+      });
+    });
+    const el = store.read().slides[0].elements[0] as {
+      data: { text: { blocks: Block[] } };
+    };
+    expectBanded(el.data.text.blocks);
+  });
+
+  it('bands a group child, not just a top-level element', () => {
+    const doc = makeYorkieBoardDoc();
+    const store: SlidesStore = new YorkieBoardStore(doc);
+    withHostilePeer(doc, (els) => {
+      els.push({
+        id: 'grp',
+        type: 'group',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: {
+          children: [
+            {
+              id: 'child',
+              type: 'text',
+              frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+              data: { blocks: poisoned() },
+            },
+          ],
+        },
+      });
+    });
+    const group = store.read().slides[0].elements[0] as GroupElement;
+    expectBanded(
+      (group.data.children[0] as { data: { blocks: Block[] } }).data.blocks,
+    );
+  });
+
+  it('hands the editor bridges a banded body, so an edit writes the repair back', () => {
+    const doc = makeYorkieBoardDoc();
+    const store: SlidesStore = new YorkieBoardStore(doc);
+    withHostilePeer(doc, (els) => {
+      // One `push` per element: the Yorkie array proxy takes a single value.
+      els.push({
+        id: 'txt',
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { blocks: poisoned() },
+      });
+      els.push({
+        id: 'sticky',
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { kind: 'roundRect', text: { blocks: poisoned() } },
+      });
+    });
+
+    let fromText: Block[] = [];
+    let fromShape: Block[] = [];
+    store.batch(() => {
+      store.withTextElement(SYNTHETIC_SLIDE_ID, 'txt', (blocks) => {
+        fromText = blocks;
+      });
+      store.withShapeText(SYNTHETIC_SLIDE_ID, 'sticky', (blocks) => {
+        fromShape = blocks;
+      });
+    });
+    expectBanded(fromText);
+    expectBanded(fromShape);
+
+    const read = store.read().slides[0].elements;
+    expectBanded((read[0] as { data: { blocks: Block[] } }).data.blocks);
+    expectBanded(
+      (read[1] as { data: { text: { blocks: Block[] } } }).data.text.blocks,
+    );
   });
 });

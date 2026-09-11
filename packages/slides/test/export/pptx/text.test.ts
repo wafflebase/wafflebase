@@ -367,6 +367,10 @@ describe('textBodyToXml', () => {
     expect(withLevel(99)).toContain('lvl="8"');
     expect(withLevel(2.7)).toContain('lvl="2"');
     expect(withLevel(-3)).not.toContain('lvl=');
+    // A numeric *string* is the shape a level takes after a round trip
+    // through JSON, so it must export at its real level rather than
+    // silently flattening to the outermost one.
+    expect(withLevel('2')).toContain('lvl="2"');
   });
 
   it('emits unordered list bullet', () => {

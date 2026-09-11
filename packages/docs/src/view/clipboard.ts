@@ -3,6 +3,20 @@ import type {
   HeadingLevel, TableCell, TableData, CellStyle,
 } from '../model/types.js';
 import type { StoredColor } from '../model/color.js';
+// The `[0, MAX_LIST_LEVEL]` band every reader of a `Block.listLevel` applies;
+// keeps a payload from inventing a level.
+import { normalizeListLevel } from '../model/list-level.js';
+// The bands the CRDT read boundaries apply to the same fields. This
+// sanitizer is the other *producer* of them, so it has to agree: a value it
+// admitted but a reader bands leaves the pasting client rendering something
+// no peer — and no later reload of the same document — will reproduce.
+import {
+  isPaintableImageSize,
+  normalizeCellPadding,
+  normalizeFontSize,
+  normalizeLineHeight,
+} from '../model/numeric-attrs.js';
+import { normalizeRowHeight } from '../model/row-height.js';
 import {
   generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_BORDER_STYLE, DEFAULT_CELL_STYLE,
   inlineStylesEqual, createTableBlock, normalizeTableMerges,
@@ -53,8 +67,6 @@ const STRIKE_STYLES = ['single', 'double'] as const;
 const VERTICAL_ALIGNS = ['top', 'middle', 'bottom'] as const;
 const BORDER_KINDS = ['solid', 'none'] as const;
 
-/** Matches the editors' indent ceiling; keeps a payload from inventing a level. */
-const MAX_LIST_LEVEL = 8;
 /** Nested tables are legal but a payload could nest them without bound. */
 const MAX_TABLE_DEPTH = 8;
 
@@ -112,7 +124,12 @@ function sanitizeImageData(value: unknown): ImageData | undefined {
   const src = asString(value.src);
   const width = asNumber(value.width);
   const height = asNumber(value.height);
+  // Same band, and the same drop-rather-than-clamp answer, as both CRDT
+  // readers: an image height is a line height, so a `1e9` one reaches the
+  // paginator's row-split loop, and clamping one edge of a pair would
+  // restretch the picture.
   if (src === undefined || width === undefined || height === undefined) return undefined;
+  if (!isPaintableImageSize(width, height)) return undefined;
   const image: ImageData = { src, width, height };
   const alt = asString(value.alt);
   if (alt !== undefined) image.alt = alt;
@@ -138,11 +155,16 @@ function sanitizeInlineStyle(value: unknown): InlineStyle {
     const flag = asBoolean(value[key]);
     if (flag !== undefined) style[key] = flag;
   }
-  const numericKeys = ['letterSpacing', 'fontSize'] as const;
-  for (const key of numericKeys) {
-    const n = asNumber(value[key]);
-    if (n !== undefined) style[key] = n;
-  }
+  const letterSpacing = asNumber(value.letterSpacing);
+  if (letterSpacing !== undefined) style.letterSpacing = letterSpacing;
+  // `fontSize` needs more than finiteness: it becomes its line's height, a
+  // table cell's line heights are summed into the row height, and the
+  // paginator splits an oversized row one page per iteration. Banded exactly
+  // as `crdt-tree.ts` and `yorkie-doc-store.ts` band it, so the pasting
+  // client and every other reader agree. `letterSpacing` reaches no such
+  // sink and stays finite-only.
+  const fontSize = normalizeFontSize(asNumber(value.fontSize));
+  if (fontSize !== undefined) style.fontSize = fontSize;
   const fontFamily = asString(value.fontFamily);
   if (fontFamily !== undefined) style.fontFamily = fontFamily;
   const href = asString(value.href);
@@ -181,12 +203,24 @@ function sanitizeBlockStyle(value: unknown): BlockStyle {
   const alignment = asOneOf(value.alignment, ALIGNMENTS);
   if (alignment !== undefined) style.alignment = alignment;
   const numericKeys = [
-    'lineHeight', 'marginTop', 'marginBottom', 'textIndent', 'marginLeft',
+    'marginTop', 'marginBottom', 'textIndent', 'marginLeft',
   ] as const;
   for (const key of numericKeys) {
     const n = asNumber(value[key]);
     if (n !== undefined) style[key] = n;
   }
+  // `lineHeight` needs more than finiteness for the same reason `fontSize`
+  // does, one step removed: it is a *multiplier* that scales every font size
+  // in the paragraph into a line height, and a table cell's line heights are
+  // summed into its row height. Banded exactly as `parseBlockStyleAttrs` bands
+  // it, so the pasting client and every other reader agree: a finite multiple
+  // above `MAX_LINE_HEIGHT` is clamped to it and kept, and only a non-finite
+  // or non-positive one is dropped — leaving `DEFAULT_BLOCK_STYLE`'s 1.5 here,
+  // which the block's resolved spacing then treats as inherited (or as
+  // authored, if the marker below says so). The offsets in the loop above
+  // reach no such sink and stay finite-only.
+  const lineHeight = normalizeLineHeight(asNumber(value.lineHeight));
+  if (lineHeight !== undefined) style.lineHeight = lineHeight;
   // Authored-spacing markers ride the internal docs→docs payload too. Without
   // them, copying a paragraph whose leading was deliberately set to 1.5 (or a
   // Word-imported heading with `w:before="0"`) and pasting it elsewhere would
@@ -231,7 +265,12 @@ function sanitizeCellStyle(value: unknown): CellStyle {
   if (backgroundColor !== undefined) style.backgroundColor = backgroundColor;
   const verticalAlign = asOneOf(value.verticalAlign, VERTICAL_ALIGNS);
   if (verticalAlign !== undefined) style.verticalAlign = verticalAlign;
-  const padding = asNumber(value.padding);
+  // Banded like the CRDT readers band it: `computeTableLayout` adds
+  // `padding * 2` to the cell's content height, so an out-of-band padding is
+  // an out-of-band row height. A finite padding above `MAX_CELL_PADDING` is
+  // clamped to it and kept; only a non-finite or negative one is dropped, and
+  // then `DEFAULT_CELL_STYLE`'s padding stands.
+  const padding = normalizeCellPadding(asNumber(value.padding));
   if (padding !== undefined) style.padding = padding;
   const borderKeys = ['borderTop', 'borderBottom', 'borderLeft', 'borderRight'] as const;
   for (const key of borderKeys) {
@@ -295,7 +334,13 @@ function sanitizeTableData(value: unknown, depth: number): TableData | undefined
   const table: TableData = { rows, columnWidths };
   if (Array.isArray(value.rowHeights)) {
     const rawHeights = value.rowHeights as unknown[];
-    table.rowHeights = sourceIndices.map((i) => asNumber(rawHeights[i]));
+    // Banded, not merely finite: a stored row height is the one the paginator
+    // splits across pages, and `normalizeRowHeight` is what every reader of
+    // the same document applies to it. Without this a pasted `1e9` persisted
+    // into the CRDT unaltered and was only masked at layout time.
+    table.rowHeights = sourceIndices.map((i) =>
+      normalizeRowHeight(asNumber(rawHeights[i])),
+    );
   }
   // Restore the `colSpan: 0` covered-cell markers from the surviving anchors.
   // `sanitizeCell` keeps only spans `> 1`, and the whole-table paste path
@@ -345,10 +390,11 @@ function sanitizeBlock(value: unknown, depth: number): Block | null {
   }
   if (type === 'list-item') {
     block.listKind = asOneOf(record.listKind, LIST_KINDS) ?? 'unordered';
-    const level = asNumber(record.listLevel);
-    block.listLevel = level === undefined
-      ? 0
-      : Math.min(MAX_LIST_LEVEL, Math.max(0, Math.trunc(level)));
+    // The shared band, not a fourth open-coded copy of `[0, MAX_LIST_LEVEL]`:
+    // `asNumber` has already rejected everything non-finite, and `Math.trunc`
+    // and `Math.floor` cannot differ once `Math.max(0, …)` has run, so this is
+    // the same function the CRDT readers and the PPTX exporter call.
+    block.listLevel = normalizeListLevel(asNumber(record.listLevel));
     const marker = sanitizeMarker(record.marker);
     if (marker !== undefined) block.marker = marker;
   }
@@ -502,7 +548,16 @@ function resolveInlineCSS(el: Element, style: InlineStyle): void {
     const match = el.style.fontSize.match(/^(\d+(?:\.\d+)?)(px|pt)$/);
     if (match) {
       const value = parseFloat(match[1]);
-      style.fontSize = match[2] === 'px' ? (value * 72) / 96 : value;
+      // Banded like the JSON payload's `fontSize` above, and from input that
+      // is no more trustworthy: this is external HTML off the system
+      // clipboard, and the regex admits any magnitude — `999999999px` is
+      // ~7.5e8 pt, which becomes a line height and reaches the paginator's
+      // row-split loop. Dropping an out-of-band size leaves the run at the
+      // block's resolved default, which is what an absent one already means.
+      const fontSize = normalizeFontSize(
+        match[2] === 'px' ? (value * 72) / 96 : value,
+      );
+      if (fontSize !== undefined) style.fontSize = fontSize;
     }
   }
   if (el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight) >= 700) {

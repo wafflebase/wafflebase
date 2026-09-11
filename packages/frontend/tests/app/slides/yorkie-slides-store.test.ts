@@ -3,6 +3,8 @@ import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
 import { getActiveTheme } from '@wafflebase/slides';
 import type { YorkieSlidesRoot } from '../../../src/types/slides-document.ts';
+import type { Block } from '@wafflebase/docs';
+import { MAX_FONT_SIZE, MAX_LINE_HEIGHT, MAX_LIST_LEVEL } from '@wafflebase/docs';
 import {
   YorkieSlidesStore,
   ensureSlidesRoot,
@@ -832,5 +834,306 @@ describe('YorkieSlidesStore — withShapeText', () => {
         store.withShapeText(slideId, textId, () => undefined),
       ),
     ).toThrow(/not a shape element/);
+  });
+});
+
+describe('YorkieSlidesStore — the text-body numeric band', () => {
+  // A slide text body is plain JSON on the Yorkie root: it passes through no
+  // Tree attribute codec on the way out, unlike a docs body, so this store is
+  // the only boundary standing between a peer's `doc.update` and
+  // `computeLayout`. The v1 `PUT` bands the same values, but a modified
+  // client editing the deck collaboratively never goes through it.
+  const poisoned = () => [
+    {
+      id: 'p1',
+      type: 'list-item',
+      // Finite rather than `Infinity`: a non-finite number stored in the
+      // CRDT does not survive `yorkieToPlain`'s `JSON.parse` at all. `1e9` is
+      // the variant that *does* reach the layout engine — the million-page
+      // allocation rather than the non-terminating loop.
+      listLevel: 1e9,
+      style: { lineHeight: 1e9 },
+      inlines: [{ text: 'x', style: { fontSize: 1e9 } }],
+    },
+  ];
+
+  /** Write `mutate` straight onto the root, as a hostile peer's sync would. */
+  function withHostilePeer(
+    doc: Document<YorkieSlidesRoot>,
+    mutate: (slide: Record<string, unknown>) => void,
+  ): void {
+    doc.update((r) => {
+      mutate((r as unknown as { slides: Record<string, unknown>[] }).slides[0]);
+    });
+  }
+
+  function expectBanded(blocks: Block[]): void {
+    expect(blocks[0].listLevel).toBe(MAX_LIST_LEVEL);
+    expect(blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    expect(blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+  }
+
+  it('bands a text element body a peer poisoned', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    withHostilePeer(doc, (slide) => {
+      const els = slide.elements as Record<string, unknown>[];
+      els[0].data = { blocks: poisoned() };
+    });
+
+    const el = store.read().slides[0].elements[0] as { data: { blocks: Block[] } };
+    expectBanded(el.data.blocks);
+  });
+
+  it('bands shape text, table cell bodies and notes a peer poisoned', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    withHostilePeer(doc, (slide) => {
+      const els = slide.elements as Record<string, unknown>[];
+      els[0].data = { kind: 'rect', text: { blocks: poisoned() } };
+      els.push({
+        id: 'tbl',
+        type: 'table',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: {
+          rows: [{ cells: [{ body: { blocks: poisoned() }, style: {} }] }],
+        },
+      });
+      slide.notes = poisoned();
+    });
+
+    const slide = store.read().slides[0];
+    expectBanded(
+      (slide.elements[0] as { data: { text: { blocks: Block[] } } }).data.text.blocks,
+    );
+    expectBanded(
+      (slide.elements[1] as {
+        data: { rows: { cells: { body: { blocks: Block[] } }[] }[] };
+      }).data.rows[0].cells[0].body.blocks,
+    );
+    expectBanded(slide.notes);
+  });
+
+  it('hands the editor bridge a banded body, so an edit writes the repair back', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    let elId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      elId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    withHostilePeer(doc, (slide) => {
+      (slide.elements as Record<string, unknown>[])[0].data = {
+        blocks: poisoned(),
+      };
+    });
+
+    let seen: Block[] = [];
+    store.batch(() => {
+      store.withTextElement(slideId, elId, (blocks) => {
+        seen = blocks;
+      });
+    });
+    expectBanded(seen);
+    const el = store.read().slides[0].elements[0] as { data: { blocks: Block[] } };
+    expectBanded(el.data.blocks);
+  });
+
+  it('bands a layout placeholder spec a peer poisoned', () => {
+    // A `PlaceholderSpec` is an `ElementInit`, so a text placeholder carries
+    // the same codec-free `data.blocks` a slide element does — and
+    // `seedPlaceholderBlocks` copies that typography into the real blocks a
+    // layout change materializes.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      const layouts = r.layouts as unknown as Record<string, unknown>[];
+      layouts[0].placeholders = [
+        {
+          type: 'text',
+          frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+          placeholder: { type: 'body' },
+          data: { blocks: poisoned() },
+        },
+      ];
+    });
+
+    const spec = store.read().layouts[0].placeholders[0] as unknown as {
+      data: { blocks: Block[] };
+    };
+    expectBanded(spec.data.blocks);
+  });
+
+  it('bands the master typography a peer poisoned', () => {
+    // `Master.placeholderStyles` carries the same `fontSize` / `lineHeight`
+    // pair, and `seedPlaceholderBlocks` copies it verbatim into a docs
+    // `Block` — so an unbanded master reaches `computeLayout` by a route the
+    // block bands never see. It is also multiplied into a canvas font for the
+    // empty-placeholder hint.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      const masters = r.masters as unknown as Record<string, unknown>[];
+      masters[0].placeholderStyles = {
+        title: {
+          fontRole: 'heading',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+        body: {
+          fontRole: 'body',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+      };
+    });
+
+    const styles = store.read().masters[0].placeholderStyles;
+    for (const style of [styles.title, styles.body]) {
+      expect(style.fontSize).toBe(MAX_FONT_SIZE);
+      expect(style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    }
+  });
+
+  it('keeps a poisoned master out of the blocks a layout change seeds', () => {
+    // `resolveMasterAndTheme` is the reader that actually feeds
+    // `seedPlaceholderBlocks`: `addSlide` builds the slide's placeholder
+    // elements from it, so an unbanded master here writes `fontSize: 1e9`
+    // into a real block on the Yorkie root.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      const masters = r.masters as unknown as Record<string, unknown>[];
+      masters[0].placeholderStyles = {
+        title: {
+          fontRole: 'heading',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+        body: {
+          fontRole: 'body',
+          fontSize: 1e9,
+          colorRole: 'text',
+          align: 'left',
+          lineHeight: 1e9,
+        },
+      };
+    });
+    store.batch(() => store.addSlide('title-body'));
+
+    // Asserted against the *stored* JSON, not `read()`: the read path bands
+    // blocks on its way out, so it would hide a poisoned size that the seed
+    // had already committed to the CRDT for every other reader of the deck.
+    const stored = JSON.parse(doc.toJSON()) as {
+      slides: { elements: { type: string; data: { blocks: Block[] } }[] }[];
+    };
+    const texts = stored.slides[0].elements.filter((e) => e.type === 'text');
+    expect(texts.length).toBeGreaterThan(0);
+    for (const el of texts) {
+      expect(el.data.blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+      expect(el.data.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    }
+  });
+  it('keeps a poisoned master style out of the blocks a cascade re-seeds', () => {
+    // `updateMaster` hands `cascadeMasterStyles` the live, just-patched
+    // master, so that reader — not `resolveMasterAndTheme` — is what feeds
+    // `seedPlaceholderBlocks` on this path, and it *commits* the result into
+    // every empty placeholder of the patched type.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    store.batch(() => store.addSlide('title-body'));
+    const masterId = (JSON.parse(doc.toJSON()) as { masters: { id: string }[] })
+      .masters[0].id;
+    store.batch(() =>
+      store.updateMaster(masterId, {
+        placeholderStyles: { body: { fontSize: 1e9, lineHeight: 1e9 } },
+      }),
+    );
+
+    const stored = JSON.parse(doc.toJSON()) as {
+      slides: {
+        elements: {
+          type: string;
+          placeholderRef?: { type: string };
+          data: { blocks: Block[] };
+        }[];
+      }[];
+    };
+    const bodies = stored.slides
+      .flatMap((s) => s.elements)
+      .filter((e) => e.type === 'text' && e.placeholderRef?.type === 'body');
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const el of bodies) {
+      expect(el.data.blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+      expect(el.data.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    }
+  });
+
+  it('keeps a poisoned layout placeholder out of the slide it materializes', () => {
+    // `resolveLayout` is the write-side twin of the `read()` layout band:
+    // `addSlide` copies a non-text placeholder's `data` verbatim onto the new
+    // slide, so an unbanded layout stores the peer's numbers in a real
+    // element.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      (r as unknown as { layouts: unknown[] }).layouts.push({
+        id: 'hostile',
+        masterId: 'default',
+        name: 'Hostile',
+        placeholders: [
+          {
+            placeholder: { type: 'body' },
+            type: 'shape',
+            frame: { x: 0, y: 0, w: 100, h: 100 },
+            data: { kind: 'rect', text: { blocks: poisoned() } },
+          },
+        ],
+        staticElements: [],
+      });
+    });
+    store.batch(() => store.addSlide('hostile'));
+
+    const stored = JSON.parse(doc.toJSON()) as {
+      slides: {
+        layoutId: string;
+        elements: { type: string; data: { text?: { blocks: Block[] } } }[];
+      }[];
+    };
+    const slide = stored.slides.find((s) => s.layoutId === 'hostile');
+    const shape = slide?.elements.find((e) => e.type === 'shape');
+    expect(shape?.data.text?.blocks[0].inlines[0].style.fontSize).toBe(
+      MAX_FONT_SIZE,
+    );
+    expect(shape?.data.text?.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
   });
 });

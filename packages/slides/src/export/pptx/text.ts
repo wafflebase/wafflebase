@@ -1,6 +1,6 @@
 import type { Block, BlockMarker, Inline } from '@wafflebase/docs';
 import type { StoredColor } from '@wafflebase/docs';
-import { toRgbHexColor } from '@wafflebase/docs';
+import { toRgbHexColor, normalizeListLevel } from '@wafflebase/docs';
 import type { AutofitMode, TextBody, VerticalAnchorMode } from '../../model/element.js';
 import type { ColorRole, ThemeColor } from '../../model/theme.js';
 import { escapeXmlText, escapeXmlAttr } from './xml.js';
@@ -78,11 +78,29 @@ const ALGN = new Map<string, string>([
  * model value is untrusted (content PUT API, PPTX import), so it is coerced
  * and clamped rather than interpolated; anything non-numeric drops the
  * attribute and the paragraph renders at the outermost level.
+ *
+ * The `[0, MAX_LIST_LEVEL]` band itself is `normalizeListLevel`'s, shared with
+ * every other reader of a `Block.listLevel` rather than kept as a third copy
+ * of the ceiling. This sink adds the two things that band does not do:
+ * omitting level 0 (which is `<a:pPr>`'s default), and the `Number(...)`
+ * coercion.
+ *
+ * The coercion is load-bearing *here specifically*, for the reason `ALGN`
+ * above gives: a slide text body is persisted verbatim as JSON by
+ * `writeSlidesRoot`, and unlike a docs block it passes no attribute codec on
+ * read — `treeNodeToBlock` is what runs `normalizeListLevel(Number(...))` on
+ * the docs path, and slides has no equivalent. The v1 content `PUT`'s slides
+ * arm (`assertValidSlideBlocks`, `api/v1/docs-content.controller.ts`) checks a
+ * block's `style`, `inlines` and nested table cells and never looks at
+ * `listLevel`, so `{"type": "list-item", "listLevel": "2"}` is stored as the
+ * *string* it was sent as and arrives here with that type.
+ * `normalizeListLevel` takes a `number` and reads anything else as
+ * non-finite, so without the coercion such a level would flatten to 0 and the
+ * exported deck would lose its nesting silently.
  */
 function listLevelAttr(listLevel: number | undefined): string {
-  const n = Math.trunc(Number(listLevel));
-  if (!Number.isFinite(n) || n <= 0) return '';
-  return ` lvl="${Math.min(8, n)}"`;
+  const n = normalizeListLevel(Number(listLevel));
+  return n > 0 ? ` lvl="${n}"` : '';
 }
 
 /**

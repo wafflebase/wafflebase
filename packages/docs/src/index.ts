@@ -82,6 +82,7 @@ export {
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  sanitizeDocStyles,
   omitBuiltinStyleDefaults,
   effectiveBlockSpacing,
   STYLE_OWNED_SPACING_DEFAULTS,
@@ -91,6 +92,25 @@ export {
   materializeBlockSpacing,
   rematerializeDocSpacing,
 } from './model/named-styles.js';
+export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
+export { MAX_ROW_HEIGHT, normalizeRowHeight } from './model/row-height.js';
+export {
+  MAX_FONT_SIZE,
+  MAX_LINE_HEIGHT,
+  MAX_CELL_PADDING,
+  MAX_IMAGE_SIZE,
+  MAX_TABLE_SPAN,
+  MAX_TABLE_COLUMNS,
+  MAX_COLUMN_RATIO,
+  normalizeFontSize,
+  normalizeLineHeight,
+  normalizeCellPadding,
+  isPaintableImageSize,
+  normalizeTableSpan,
+  parseColumnWidthsAttr,
+  normalizeColumnRatio,
+  bandBlockNumerics,
+} from './model/numeric-attrs.js';
 export { Doc } from './model/document.js';
 export type { EditContext } from './model/document.js';
 export type { StoredColor, ColorResolver } from './model/color.js';

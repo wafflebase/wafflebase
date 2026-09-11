@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TableCell } from '../../src/model/types.js';
-import { createTableBlock } from '../../src/model/types.js';
+import { createTableBlock, DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE } from '../../src/model/types.js';
+import { MAX_CELL_PADDING, MAX_FONT_SIZE, MAX_IMAGE_SIZE, MAX_LINE_HEIGHT } from '../../src/model/numeric-attrs.js';
+import { MAX_ROW_HEIGHT } from '../../src/model/row-height.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
@@ -376,6 +378,84 @@ describe('clipboard payload validation', () => {
     expect(td.rows[0].cells[0].colSpan).toBe(3);
     expect(td.rows[0].cells[1].colSpan).toBe(0);
     expect(td.rows[0].cells[2].colSpan).toBe(0);
+  });
+
+  // The sanitizer is a *producer* of the same fields the CRDT read boundaries
+  // band (`model/numeric-attrs.ts`, `model/row-height.ts`). Admitting any
+  // finite number here would leave the pasting client holding a value every
+  // other reader — a peer, the same user after reload, the PDF painter — reads
+  // banded: a divergent render, and for an image a silent drop.
+  describe('bands the numbers the CRDT readers band', () => {
+    const styleOf = (style: unknown) =>
+      parseOne({ type: 'paragraph', inlines: [{ text: 'x', style }] }).inlines[0].style;
+
+    it('bands a pasted fontSize', () => {
+      expect(styleOf({ fontSize: 11 }).fontSize).toBe(11);
+      expect(styleOf({ fontSize: 1e9 }).fontSize).toBe(MAX_FONT_SIZE);
+      expect(styleOf({ fontSize: 0 }).fontSize).toBeUndefined();
+      expect(styleOf({ fontSize: -11 }).fontSize).toBeUndefined();
+      // `letterSpacing` shares the loop but not the sink; it stays finite-only.
+      expect(styleOf({ letterSpacing: -2 }).letterSpacing).toBe(-2);
+    });
+
+    // The *other* paste path into the same field. `text/html` off the system
+    // clipboard is no more trustworthy than the JSON flavour, and its regex
+    // admits any magnitude — `999999999px` is ~7.5e8 pt.
+    it('bands a font-size from external HTML CSS', () => {
+      const sizeOf = (css: string) =>
+        parseHtmlToBlocks(`<p><span style="font-size: ${css}">x</span></p>`)[0]
+          .inlines[0].style.fontSize;
+
+      expect(sizeOf('12pt')).toBe(12);
+      expect(sizeOf('999999999px')).toBe(MAX_FONT_SIZE);
+      expect(sizeOf('0pt')).toBeUndefined();
+    });
+
+    it('bands a pasted lineHeight', () => {
+      const lineHeightOf = (lineHeight: unknown) =>
+        parseOne({ type: 'paragraph', style: { lineHeight } }).style.lineHeight;
+      expect(lineHeightOf(1.5)).toBe(1.5);
+      expect(lineHeightOf(1e9)).toBe(MAX_LINE_HEIGHT);
+      // Above the ceiling is clamped and kept (the line above); only a
+      // non-positive multiple is dropped, leaving `DEFAULT_BLOCK_STYLE`'s.
+      expect(lineHeightOf(0)).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+      expect(lineHeightOf(-2)).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+      // The other numerics in the same loop reach no such sink and stay
+      // finite-only.
+      expect(parseOne({ type: 'paragraph', style: { marginTop: -8 } }).style.marginTop).toBe(-8);
+    });
+
+    it('drops a pasted image whose size is out of band', () => {
+      const image = (width: number, height: number) =>
+        styleOf({ image: { src: 'https://example.com/a.png', width, height } }).image;
+      expect(image(120, 80)).toMatchObject({ width: 120, height: 80 });
+      expect(image(1e9, 80)).toBeUndefined();
+      expect(image(120, MAX_IMAGE_SIZE + 1)).toBeUndefined();
+      expect(image(120, -80)).toBeUndefined();
+    });
+
+    it('bands a pasted rowHeights entry', () => {
+      const heights = (rowHeights: unknown[]) =>
+        parseOne({
+          type: 'table',
+          tableData: { rows: [{ cells: [{}] }, { cells: [{}] }], rowHeights },
+        }).tableData!.rowHeights;
+      expect(heights([40, 60])).toEqual([40, 60]);
+      expect(heights([1e9, -40])).toEqual([MAX_ROW_HEIGHT, undefined]);
+    });
+
+    it('bands a pasted cell padding', () => {
+      const padding = (value: unknown) =>
+        parseOne({
+          type: 'table',
+          tableData: { rows: [{ cells: [{ style: { padding: value } }] }] },
+        }).tableData!.rows[0].cells[0].style.padding;
+      expect(padding(8)).toBe(8);
+      expect(padding(0)).toBe(0);
+      expect(padding(1e9)).toBe(MAX_CELL_PADDING);
+      // A negative one is dropped rather than clamped, so the default stands.
+      expect(padding(-4)).toBe(DEFAULT_CELL_STYLE.padding);
+    });
   });
 
   it('validates the tableCells half of the payload too', () => {

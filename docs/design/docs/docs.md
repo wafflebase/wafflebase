@@ -133,6 +133,170 @@ interface InlineStyle {
   "Normal text" / paragraph command still clears the level, because it
   sets the type directly rather than exiting a list.
 
+#### Changing a list level carries the subtree
+
+`listLevel` is a flat integer on the block (the shape OOXML's `w:ilvl`
+has), so hierarchy is implied by adjacency and there is no parent pointer
+to follow. Every list-level gesture therefore re-derives the subtree at
+the moment it runs: **the children of a list item are the following
+contiguous run of `list-item` blocks whose `listLevel` is strictly
+greater than its own**, stopping at the first block that is not a list
+item or is at the same-or-shallower level — the rule Word and Google Docs
+use to *render* the nesting. Moving an item alone left a parent on its own
+child's level and destroyed the hierarchy (issue #1050).
+
+`planListLevelChanges()` (`packages/docs/src/model/list-level.ts`) is the
+one implementation. It takes the caller's own selection walker — which
+hands each covered block together with the **sibling array** containing
+it, so blocks in different table cells are planned as separate list
+contexts — and returns the whole `block → new level` plan *unapplied*.
+Computing it up front is what makes it correct: writing while walking
+would let a subtree's second item see its parent's new level and
+mis-detect its own parent. All seven writers route through it (`handleTab`,
+`handleIndent`, `handleOutdent` in `text-editor.ts`, and the `indent` /
+`outdent` API pair in both `editor.ts` and `text-box-editor.ts`, the last
+being what Slides and Board mount).
+
+Boundaries apply to the **subtree as a unit**, not per block: outdent is
+refused when the root is already at level 0, and indent when the
+subtree's *deepest* member is already at `MAX_LIST_LEVEL` (8). Clamping a
+single member instead — which is what a per-block clamp does — would
+collapse the depth gap and reproduce the bug, so the invariant is
+"relative depth is preserved, or the subtree does not move". A selected
+block already *moved* as part of an earlier item's subtree is skipped, so
+every child moves exactly once.
+
+A refused subtree suppresses only itself. Its members stay eligible, so a
+deeper one the user also selected is reconsidered as a subtree root in its
+own right and moves if it has room — otherwise select-all + Shift+Tab
+would be a no-op on any document whose first list item is a root, since
+that root's subtree covers everything under it. The two rules divide along
+what the user asked for: a child is *carried* by its parent, so a parent
+that cannot move keeps it; a child the user selected asked to move on its
+own account. Non-list blocks keep their independent `marginLeft ± 36`
+behavior.
+
+Levels that are *already* inconsistent (a level-3 item directly under a
+level-0 one) are read as-is rather than normalized; the gesture preserves
+whatever relative depth it finds.
+
+The *numeric* band is a different matter, and is an invariant of the
+model rather than of the gesture: `listLevel` is a finite integer in
+`[0, MAX_LIST_LEVEL]`. It arrives unvalidated — a peer's Tree attribute
+is read through a bare `Number(...)`, and the backend's content ingest
+serializes whatever it is handed — so `normalizeListLevel()` clamps it at
+both read boundaries (`treeNodeToBlock` and `YorkieDocStore`'s block
+parser). The raw readers clamp again at the point of use, because they
+are the ones that break rather than merely misrender: the layout pass
+does `levelCounters.length = level + 1` (a `RangeError` on `NaN`) and the
+markdown serializer `'  '.repeat(level)` (a `RangeError` past the string
+limit), and both run before any gesture could repair the value — layout
+on first render, the serializer on export. Without that, one collaborator
+could blank the document, or its `--format md` export, for every other
+reader.
+
+#### The other peer-writable numbers, and the loop that consumes them
+
+`listLevel` is not the only Tree attribute read through a bare
+`Number(...)`, and it is not the worst one. The **paginator** is what
+raises the stakes: `paginateLayout` splits an oversized table row with
+`while (consumed < rowHeight)`, emitting one page — and one `PageLine` —
+per iteration. An `Infinity` row height never terminates, and a finite
+`1e9` px against a ~864 px content height is ~1.1 million pages. Either
+is a hung tab or an OOM for every *reader* of the document, caused by one
+writer.
+
+So the height that loop consumes is bounded twice, and both halves are
+load-bearing:
+
+1. **Bands where the values enter the model.** `normalizeRowHeight()`
+   (`model/row-height.ts`) for the user-dragged minimum, and
+   `model/numeric-attrs.ts` for the attributes that make up a row's
+   *content* height — `fontSize`, a paragraph's `lineHeight`, a cell's
+   `padding`, and an inline image's `width`/`height`. Steps 3–4 of
+   `computeTableLayout` derive `rowHeights[r]` from
+   `lines.reduce((s, l) => s + l.height, 0) + padding * 2`, so each of
+   those reaches the loop exactly as a poisoned `rowHeights` entry does.
+   Every band is applied at both read boundaries (`treeNodeToBlock` and
+   `YorkieDocStore`'s parsers; `lineHeight` in the block-style codec
+   `crdt-attrs.ts` they share) and is set at the range the editor's own
+   controls can produce, so nothing a gesture can make is altered.
+
+   Each band has **two** branches, and reading it as a single verb gets
+   half its inputs wrong. A **non-finite or non-positive** value is
+   *dropped* — read as absent, "take the resolved default" — because
+   there is no edge to clamp it towards. A **finite value above the
+   ceiling** is *clamped to the ceiling and kept present*, so a
+   merely-large one renders large rather than vanishing.
+   `normalizeRowHeight` splits on the same line;
+   `normalizeListLevel` clamps at both ends (0 is its floor, not a
+   rejection); `isPaintableImageSize` is the one that drops at both,
+   because a width/height *pair* cannot be clamped on one edge without
+   restretching the picture.
+
+   One wrinkle where "the resolved default" is not the named style's:
+   `effectiveBlockSpacing` consults the style only while a block's
+   spacing reads as *inherited*, and `authoredLineHeight` — itself a
+   peer-writable attribute — makes it read as authored. So a dropped
+   `lineHeight` on a block marked `authoredLineHeight: '1'` resolves the
+   hardcoded `DEFAULT_BLOCK_STYLE.lineHeight` (1.5) instead. Both
+   outcomes are a legible paragraph, which is all the band promises.
+
+   The paste sanitizer (`view/clipboard.ts`) is a *producer* of the same
+   fields rather than a reader, and it calls the same bands: a value it
+   admitted but a reader banded would leave the pasting client rendering
+   something no peer, and no later reload, reproduces.
+2. **A bound on the loop itself**, because a band alone is bypassable —
+   a row height is also *derived* from content, and a future attribute
+   would have to remember to join the list above. That half belongs to
+   the paginator and is designed in
+   [`tables/docs-table-row-splitting.md`](tables/docs-table-row-splitting.md)
+   §1.5, together with the one place a row height may be substituted
+   (`computeTableLayout` step 5d) and what the bound costs the
+   atomic-unit invariant.
+
+Keeping only the loop bound would not do either: a `NaN` height left in
+the geometry blanks the table and, through `totalHeight`, the scroll
+extent. Band the value where it enters, bound the loop that consumes it.
+
+**Slides reach the same engine through a door with no codec behind it.**
+A docs body is written and read back through the Tree attribute codec, so
+"band at the read boundary" covers it. A slide text body — a text box's
+`data.blocks`, a shape's `data.text.blocks`, a table cell's `body.blocks`,
+a slide's `notes` — is stored as plain JSON on the Yorkie root and read
+back verbatim, and it reaches the identical `computeLayout` /
+`paginateLayout`. There is therefore no codec to hang the band on, and
+two separate writers to cover: the v1 `PUT` bands on write
+(`assertValidSlidesBody`, `api/v1/docs-content.controller.ts`), and the
+collaborative path — the one a modified client actually uses — bands on
+read in `YorkieSlidesStore`, which hands every body through
+`bandBlockNumerics()` (`model/numeric-attrs.ts`, the same normalizers the
+Tree codec calls) on the way out of the CRDT and on the way into an edit.
+Banding the read is what makes it cover the peer: nothing stops a
+collaborator calling `doc.update` with `fontSize: 1e9`, so the guarantee
+has to live where the value is consumed, not where this client writes it.
+
+That argument names the store only because it was the reader in front of
+us; it applies to **every** reader of that shape, and there are three
+more. A board stores the identical blocks under a synthetic slide
+(`YorkieBoardStore` is a verbatim port of the slides reader), the
+revision-preview adapters parse the same JSON out of a stored snapshot
+and hand it to `MemSlidesStore`, which bands nothing of its own, and a
+`Layout`'s placeholder specs are `ElementInit`s carrying `data.blocks`
+that `seedPlaceholderBlocks` copies into real blocks. So the walk lives
+in one place — `bandSlidesDocumentNumerics` / `bandElementNumerics` /
+`bandLayoutNumerics` (`@wafflebase/slides`, `model/band-numerics.ts`) —
+and each reader calls it, rather than each reader being a fresh chance to
+forget. The group recursion is depth-capped at 32, matching the element
+walk: a `data.children` chain is peer-written too, and a band that blew
+the stack would be its own denial of service. `bandBlockNumerics` carries
+the same cap on its own nested-table recursion (`MAX_BLOCK_DEPTH`, a copy
+because the dependency runs slides → docs), for the sharper version of
+that reason: a `RangeError` raised *inside* the band fails the whole
+`read()`, so an uncapped guard turns one mis-rendered table into a
+document nobody can open. At the cap both walks stop descending and leave
+what is below as stored.
+
 ### Document manipulation
 
 The `Doc` class provides methods to manipulate the document:

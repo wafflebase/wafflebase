@@ -45,7 +45,16 @@ import {
   AUTHORED_SPACING_FIELDS,
   BLOCK_ALIGNMENTS,
   BLOCK_STYLE_NUMERIC_FIELDS,
+  MAX_TABLE_COLUMNS,
   isBlockAlignment,
+  isPaintableImageSize,
+  normalizeCellPadding,
+  normalizeColumnRatio,
+  normalizeFontSize,
+  normalizeLineHeight,
+  normalizeListLevel,
+  normalizeRowHeight,
+  normalizeTableSpan,
 } from '@wafflebase/docs';
 
 import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
@@ -426,7 +435,16 @@ function assertValidBlockStyle(
   }
 }
 
-function assertValidBlock(block: unknown, path: string): void {
+function assertValidBlock(block: unknown, path: string, depth = 0): void {
+  // A table cell holds blocks of its own, so this walk recurses through
+  // `tableData.rows[].cells[]` exactly as the element walk recurses through
+  // `data.children` — and for the same reason it is capped at the same
+  // ceiling. See {@link MAX_ELEMENT_DEPTH}.
+  if (depth > MAX_ELEMENT_DEPTH) {
+    throw new BadRequestException(
+      `Invalid block at ${path}: blocks are nested too deeply`,
+    );
+  }
   if (!block || typeof block !== 'object') {
     throw new BadRequestException(`Invalid block at ${path}: not an object`);
   }
@@ -470,6 +488,7 @@ function assertValidBlock(block: unknown, path: string): void {
           assertValidBlock(
             cell.blocks[cb],
             `${path}.tableData.rows[${r}].cells[${c}].blocks[${cb}]`,
+            depth + 1,
           );
         }
         // `serializeCellStyle` dereferences `cell.style` unconditionally, so
@@ -556,12 +575,63 @@ export function assertValidSlidesBody(body: unknown): asserts body is SlidesDocu
   // `slides[*].elements` would leave a hole that accepts through `layouts`
   // exactly what it rejects through `slides`.
   //
-  // `masters` needs no walk: a `Master` is `{ id, themeId, background,
-  // placeholderStyles }` (packages/slides/src/model/master.ts) — it carries
-  // no elements and no `Block`s, so there is nothing of this shape inside it.
+  // A `Master` is `{ id, themeId, background, placeholderStyles }`
+  // (packages/slides/src/model/master.ts), so it needs no *element* walk — it
+  // carries no elements and no `Block`s. It does carry the numerics that
+  // *become* one: every `PlaceholderStyle` holds a `fontSize` and a
+  // `lineHeight`, and `seedPlaceholderBlocks` copies both verbatim into a docs
+  // `Block` the moment someone types in a placeholder
+  // (packages/slides/src/model/placeholder-blocks.ts). They reach the same
+  // layout engine through a different door, so they take the same band.
+  const masters = b.masters as unknown[];
+  for (let i = 0; i < masters.length; i++) {
+    bandMasterPlaceholderStyles(masters[i], `masters[${i}]`);
+  }
   const layouts = b.layouts as unknown[];
   for (let i = 0; i < layouts.length; i++) {
     assertValidLayout(layouts[i], `layouts[${i}]`);
+  }
+}
+
+/**
+ * Band the typography one `Master.placeholderStyles` carries.
+ *
+ * Only the two numerics that reach the docs layout engine, and only through
+ * the shared normalizers — the collection is stored verbatim and was never
+ * validated here, so anything else about a master's shape is left exactly as
+ * it was rather than newly demanded. A style entry that is not a record is
+ * skipped for the same reason: there is nothing in it to band.
+ *
+ * The rule is the one {@link normalizeSlideInlines} applies: a wrong-typed
+ * value is a 400 naming the field, and a number out of band is repaired by its
+ * own normalizer (clamped at the ceiling; dropped when there is no edge to
+ * clamp toward, which leaves the placeholder on the resolved default).
+ */
+function bandMasterPlaceholderStyles(master: unknown, path: string): void {
+  if (!master || typeof master !== 'object' || Array.isArray(master)) return;
+  const styles = (master as Record<string, unknown>).placeholderStyles;
+  if (!styles || typeof styles !== 'object' || Array.isArray(styles)) return;
+  for (const [slot, entry] of Object.entries(
+    styles as Record<string, unknown>,
+  )) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const style = entry as Record<string, unknown>;
+    const slotPath = `${path}.placeholderStyles.${slot}`;
+    for (const field of ['fontSize', 'lineHeight'] as const) {
+      const raw = style[field];
+      if (raw === undefined || raw === null) continue;
+      if (typeof raw !== 'number') {
+        throw new BadRequestException(
+          `Invalid master at ${slotPath}: '${field}' must be a number`,
+        );
+      }
+      const banded =
+        field === 'fontSize'
+          ? normalizeFontSize(asFiniteNumber(raw))
+          : normalizeLineHeight(asFiniteNumber(raw));
+      if (banded === undefined) delete style[field];
+      else style[field] = banded;
+    }
   }
 }
 
@@ -723,6 +793,15 @@ function assertValidNestedElement(
  * any real deck (PPTX and Google Slides both keep it shallow), but the walk
  * recurses through `data.children` and the JSON body limit is 25 MB — enough
  * for a compact payload to exhaust the stack on an authenticated endpoint.
+ *
+ * The two *block* walks share it, because they recurse the same way and cost
+ * the same: a table cell holds blocks of its own, so `assertValidBlock` and
+ * `assertValidSlideBlocks` → `assertValidTextBodyBlocks` descend through
+ * `tableData.rows[].cells[]` without bound. One nested level is ~50 bytes of
+ * JSON, so ~50k levels — well under the body limit — is a `RangeError` from
+ * inside `PUT /content` rather than a 400. The counters are independent (a
+ * block cannot contain an element), which is why nesting both at their ceiling
+ * still costs a few hundred frames rather than their product.
  */
 const MAX_ELEMENT_DEPTH = 32;
 
@@ -871,6 +950,21 @@ function assertValidTableData(data: Record<string, unknown>, path: string): void
     throw new BadRequestException(
       `Invalid element at ${path}.data: 'columnWidths' must be an array`,
     );
+  } else {
+    // Capped on count for the reason a docs *block* table's `columnWidths` is
+    // (see `bandSlideBlockNumerics`): this array's length is
+    // `computeTableLayout`'s `nCols`, which allocates `nCols + 1` offsets and
+    // then loops once per (row, column) pair whether or not a cell exists
+    // there — so a compact `[0,0,0,…]` in a 25 MB body is a hung paint for
+    // every viewer of the stored deck. A width with no usable reading becomes
+    // `0` rather than being dropped, so every later column keeps its index
+    // (`colX` is a running sum, and one `NaN` poisons every boundary after
+    // it). No magnitude ceiling: unlike the docs ratios these are absolute
+    // slide units, where a legitimate full-bleed column is wider than any
+    // ratio band allows and an absurd finite one paints offscreen.
+    data.columnWidths = (widths as unknown[])
+      .slice(0, MAX_TABLE_COLUMNS)
+      .map((width) => Math.max(0, asFiniteNumber(width) ?? 0));
   }
   const rows = data.rows;
   if (rows === undefined || rows === null) {
@@ -939,7 +1033,7 @@ function assertValidTableData(data: Record<string, unknown>, path: string): void
   }
 }
 
-function assertValidTextBody(body: unknown, path: string): void {
+function assertValidTextBody(body: unknown, path: string, depth = 0): void {
   // An array is rejected rather than walked: `typeof [] === 'object'`, so the
   // `blocks` repair below would land as an array expando that JSON
   // serialization drops, storing the crashing shape anyway.
@@ -948,7 +1042,7 @@ function assertValidTextBody(body: unknown, path: string): void {
       `Invalid element at ${path}: text body must be an object`,
     );
   }
-  assertValidTextBodyBlocks(body as Record<string, unknown>, path);
+  assertValidTextBodyBlocks(body as Record<string, unknown>, path, depth);
 }
 
 /**
@@ -976,6 +1070,7 @@ function assertValidTextBody(body: unknown, path: string): void {
 function assertValidTextBodyBlocks(
   body: Record<string, unknown>,
   path: string,
+  depth = 0,
 ): void {
   const blocks = body.blocks;
   if (blocks === undefined || blocks === null) {
@@ -987,15 +1082,106 @@ function assertValidTextBodyBlocks(
       `Invalid element at ${path}: 'blocks' must be an array`,
     );
   }
-  assertValidSlideBlocks(blocks, `${path}.blocks`);
+  assertValidSlideBlocks(blocks, `${path}.blocks`, depth);
+}
+
+/** A payload value this model can do arithmetic with, or nothing. */
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Band the numerics a stored slide block carries into the docs layout engine.
+ *
+ * This walk is the *only* boundary that can do it. A docs body is written and
+ * read back through the Tree attribute codec, which bands `fontSize`,
+ * `lineHeight`, cell `padding`, `rowHeights`, the column ratios, the merge
+ * spans and `listLevel` on every read (`@wafflebase/docs`,
+ * `model/crdt-tree.ts`). A slide text body is persisted *verbatim* as JSON by
+ * `writeSlidesRoot` and read back verbatim — it passes through no codec at all
+ * — while reaching the very same `computeLayout` / `paginateLayout`. So a
+ * `PUT` carrying `fontSize: 1e9`, or a `rowSpan` of `Infinity`, is stored as
+ * written and is then a hung or blank render for every viewer of that deck,
+ * not just for the caller. The bands the docs codec applies on read are
+ * applied here on write instead.
+ *
+ * Repaired rather than rejected, unlike the present-but-wrong values around
+ * it: the endpoint echoes this same object back, so what the caller sees is
+ * what is stored, and a `GET` → edit → `PUT` of a deck that *already* holds an
+ * out-of-band value has to keep working. The repair is the same one every
+ * reader of a docs document would have applied anyway.
+ */
+function bandSlideBlockNumerics(block: Record<string, unknown>): void {
+  const style = block.style;
+  if (style && typeof style === 'object' && !Array.isArray(style)) {
+    const record = style as Record<string, unknown>;
+    const lineHeight = normalizeLineHeight(asFiniteNumber(record.lineHeight));
+    if (lineHeight === undefined) delete record.lineHeight;
+    else record.lineHeight = lineHeight;
+  }
+  if (block.listLevel !== undefined && block.listLevel !== null) {
+    block.listLevel = normalizeListLevel(asFiniteNumber(block.listLevel));
+  }
+  const tableData = block.tableData;
+  if (!tableData || typeof tableData !== 'object' || Array.isArray(tableData)) {
+    return;
+  }
+  const table = tableData as Record<string, unknown>;
+  if (Array.isArray(table.rowHeights)) {
+    table.rowHeights = (table.rowHeights as unknown[]).map((height) =>
+      normalizeRowHeight(asFiniteNumber(height)),
+    );
+  }
+  if (Array.isArray(table.columnWidths)) {
+    // Capped on count as well as magnitude: the length is
+    // `computeTableLayout`'s `numCols`, which allocates a cell per
+    // (row, column) pair. An unusable ratio becomes 0 rather than being
+    // dropped, so every later column keeps its index.
+    table.columnWidths = (table.columnWidths as unknown[])
+      .slice(0, MAX_TABLE_COLUMNS)
+      .map((ratio) => normalizeColumnRatio(asFiniteNumber(ratio)) ?? 0);
+  }
+}
+
+/** Band the numerics one stored table cell carries. See {@link bandSlideBlockNumerics}. */
+function bandSlideCellNumerics(cell: Record<string, unknown>): void {
+  const style = cell.style;
+  if (style && typeof style === 'object' && !Array.isArray(style)) {
+    const record = style as Record<string, unknown>;
+    const padding = normalizeCellPadding(asFiniteNumber(record.padding));
+    if (padding === undefined) delete record.padding;
+    else record.padding = padding;
+  }
+  for (const key of ['colSpan', 'rowSpan'] as const) {
+    if (cell[key] === undefined || cell[key] === null) continue;
+    // An `Infinity` span is the sharpest of these: it becomes the bound of
+    // `expandCellRangeForMerges`' fixed-point loop, which then never
+    // terminates for anyone who selects cells in the table.
+    const span = normalizeTableSpan(asFiniteNumber(cell[key]));
+    if (span === undefined) delete cell[key];
+    else cell[key] = span;
+  }
 }
 
 /**
  * Walk a list of docs `Block`s stored inside a deck — a text body's `blocks`,
  * or a slide's `notes`. `path` names the list itself; entries are reported as
  * `${path}[i]`.
+ *
+ * `depth` counts the table-cell nesting this walk has already descended
+ * through, since a cell's body re-enters it. Capped for the reason the element
+ * walk is — see {@link MAX_ELEMENT_DEPTH}.
  */
-function assertValidSlideBlocks(blocks: unknown, path: string): void {
+function assertValidSlideBlocks(
+  blocks: unknown,
+  path: string,
+  depth = 0,
+): void {
+  if (depth > MAX_ELEMENT_DEPTH) {
+    throw new BadRequestException(
+      `Invalid block at ${path}: blocks are nested too deeply`,
+    );
+  }
   if (!Array.isArray(blocks)) return;
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i] as Record<string, unknown> | null;
@@ -1025,6 +1211,7 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
       );
     }
     normalizeSlideInlines(block, `${path}[${i}]`);
+    bandSlideBlockNumerics(block);
     // A docs table block inside a slide text body holds blocks of its own.
     const rows = (block.tableData as { rows?: unknown } | undefined)?.rows;
     if (!Array.isArray(rows)) continue;
@@ -1044,7 +1231,8 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
             `Invalid block at ${cellPath}: not an object`,
           );
         }
-        assertValidTextBodyBlocks(cell, cellPath);
+        bandSlideCellNumerics(cell);
+        assertValidTextBodyBlocks(cell, cellPath, depth + 1);
       }
     }
   }
@@ -1111,6 +1299,47 @@ function normalizeSlideInlines(
       throw new BadRequestException(
         `Invalid block at ${path}.inlines[${i}]: 'style' must be an object`,
       );
+    }
+    // A run's font size becomes its line's height, and nothing downstream of
+    // here bands it for a deck — see {@link bandSlideBlockNumerics}.
+    //
+    // A *wrong-typed* size is refused rather than deleted: deleting it
+    // discards content the caller sent, and every other numeric in this file
+    // answers a non-number with a 400 naming the field
+    // (`assertValidBlockStyle`). Only a *number* out of band is repaired,
+    // which is the band's own rule — and one the readers already apply, so
+    // a `GET` → edit → `PUT` cannot be 400ed by it.
+    const style = inline.style as Record<string, unknown>;
+    if (
+      style.fontSize !== undefined &&
+      style.fontSize !== null &&
+      typeof style.fontSize !== 'number'
+    ) {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'style.fontSize' must be a number`,
+      );
+    }
+    const fontSize = normalizeFontSize(asFiniteNumber(style.fontSize));
+    if (fontSize === undefined) delete style.fontSize;
+    else style.fontSize = fontSize;
+    // An inline image's height becomes its line's height too
+    // (`measureSegments`), so the band the readers apply to the pair belongs
+    // here as well — `bandBlockNumerics`, this walk's client-side twin, drops
+    // it, and without it a `PUT` stores a 1e9-pixel image every reader then
+    // has to drop. *Dropped* rather than clamped, matching that reader: one
+    // edge of a pair cannot be clamped without restretching the picture
+    // (see `isPaintableImageSize`).
+    const image = style.image;
+    if (image && typeof image === 'object' && !Array.isArray(image)) {
+      const size = image as Record<string, unknown>;
+      if (
+        !isPaintableImageSize(
+          asFiniteNumber(size.width) ?? NaN,
+          asFiniteNumber(size.height) ?? NaN,
+        )
+      ) {
+        delete style.image;
+      }
     }
   }
 }

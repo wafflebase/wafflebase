@@ -29,6 +29,7 @@ import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel
 import type { ColorResolver } from '../model/color.js';
 import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js';
 import { createEmptyBlock, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
+import { planListLevelChanges } from '../model/list-level.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
@@ -796,7 +797,9 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   // ── Helper: iterate every block covered by the current selection. ──────────
   // Text-boxes don't have tables, so the implementation is simpler than the
   // full-document equivalent in editor.ts.
-  const forEachBlockInSelection = (fn: (block: Block) => void): void => {
+  const forEachBlockInSelection = (
+    fn: (block: Block, siblings: ReadonlyArray<Block>) => void,
+  ): void => {
     if (selection.hasSelection() && selection.range) {
       const range = selection.range;
       const startIdx = doc.getBlockIndex(range.anchor.blockId);
@@ -805,14 +808,36 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         const lo = Math.min(startIdx, endIdx);
         const hi = Math.max(startIdx, endIdx);
         for (let i = lo; i <= hi; i++) {
-          fn(doc.document.blocks[i]);
+          fn(doc.document.blocks[i], doc.document.blocks);
         }
         return;
       }
     }
     // Cursor-only: operate on the block at cursor.
     const block = doc.findBlock(cursor.position.blockId);
-    if (block) fn(block);
+    if (block) fn(block, doc.document.blocks);
+  };
+
+  /**
+   * Move every selected list item's level by `delta`, carrying its nested
+   * children so the subtree's relative depth survives (#1050). The plan
+   * is computed from the pre-edit levels before anything is written.
+   *
+   * Callers must wrap this in `doc.batch()`: it writes once per block in
+   * the subtree, so unbatched a single Cmd+Z would leave the subtree
+   * half-moved.
+   */
+  const applyListLevelChanges = (delta: 1 | -1): void => {
+    const changes = planListLevelChanges(
+      (fn) => forEachBlockInSelection(fn),
+      delta,
+    );
+    for (const change of changes) {
+      doc.setBlockType(change.block.id, 'list-item', {
+        listKind: change.block.listKind,
+        listLevel: change.listLevel,
+      });
+    }
   };
 
   /**
@@ -1163,24 +1188,18 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
 
     indent(): void {
-      const MAX_LIST_LEVEL = 8;
       const INDENT_STEP = 36;
+      // `snapshot()` outside the batch, as `withUndoUnit` requires (#1045).
       docStore.snapshot();
-      // One undo unit — see `toggleList` above (issue #1045).
+      // One gesture moves a whole subtree, so it is N `setBlockType` writes.
+      // Batched so it stays one undo unit — see `applyListLevelChanges`.
       doc.batch(() => {
+        applyListLevelChanges(1);
         forEachBlockInSelection((block) => {
-          if (block.type === 'list-item') {
-            const currentLevel = block.listLevel ?? 0;
-            if (currentLevel >= MAX_LIST_LEVEL) return;
-            doc.setBlockType(block.id, 'list-item', {
-              listKind: block.listKind,
-              listLevel: currentLevel + 1,
-            });
-          } else {
-            doc.applyBlockStyle(block.id, {
-              marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-            });
-          }
+          if (block.type === 'list-item') return;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+          });
         });
       });
       layoutCache = undefined;
@@ -1190,24 +1209,18 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     outdent(): void {
       const INDENT_STEP = 36;
+      // `snapshot()` outside the batch — see `indent`.
       docStore.snapshot();
-      // One undo unit — see `toggleList` above (issue #1045).
+      // One undo unit for the whole gesture — see `indent`.
       doc.batch(() => {
+        applyListLevelChanges(-1);
         forEachBlockInSelection((block) => {
-          if (block.type === 'list-item') {
-            const currentLevel = block.listLevel ?? 0;
-            if (currentLevel <= 0) return;
-            doc.setBlockType(block.id, 'list-item', {
-              listKind: block.listKind,
-              listLevel: currentLevel - 1,
-            });
-          } else {
-            const current = block.style.marginLeft ?? 0;
-            if (current <= 0) return;
-            doc.applyBlockStyle(block.id, {
-              marginLeft: Math.max(0, current - INDENT_STEP),
-            });
-          }
+          if (block.type === 'list-item') return;
+          const current = block.style.marginLeft ?? 0;
+          if (current <= 0) return;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: Math.max(0, current - INDENT_STEP),
+          });
         });
       });
       layoutCache = undefined;

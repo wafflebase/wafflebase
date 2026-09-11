@@ -1,5 +1,6 @@
 import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
+import { normalizeListLevel } from '../model/list-level.js';
 import type { ColorResolver } from '../model/color.js';
 import { defaultColorResolver, resolveStoredColor } from '../model/color.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
@@ -195,7 +196,8 @@ function paintBlock(
     // List markers paint on the first line of each list-item block,
     // mirroring DocCanvas's body loop.
     if (li === 0 && block.type === 'list-item') {
-      const level = block.listLevel ?? 0;
+      // Normalized, mirroring the clamped layout indent — see `doc-canvas`.
+      const level = normalizeListLevel(block.listLevel);
       const markerX = blockX + LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
       const marker =
         block.listKind === 'unordered'

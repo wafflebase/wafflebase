@@ -414,6 +414,7 @@ describe('TextBoxEditorAPI — formatting surface', () => {
     expect(onLinkRequest).toHaveBeenCalledTimes(1);
     api.detach();
   });
+
 });
 
 /**
@@ -540,6 +541,145 @@ describe('initializeTextBox — verticalAnchor', () => {
       style: {},
     } as Block;
   }
+
+  /**
+   * The text-box editor is what Slides and Board mount, so it carries a
+   * list item's nested children the same way the docs editor does
+   * (issue #1050). Lives in this describe for its canvas stubs — a
+   * non-empty mount needs a working measurer.
+   */
+  it('indent / outdent carry a list item\'s nested children', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const listItem = (id: string, listLevel: number): Block => ({
+      id,
+      type: 'list-item',
+      listKind: 'unordered',
+      listLevel,
+      inlines: [{ text: id, style: {} }],
+      style: {},
+    } as Block);
+    const onCommit = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [listItem('a', 0), listItem('b', 1)],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit,
+    });
+
+    // `detach` only flushes onCommit while focused.
+    api.focus();
+    // Cursor-only on the parent: the child goes down with it, then back up.
+    api.indent();
+    api.outdent();
+    api.indent();
+    api.detach();
+
+    const committed = onCommit.mock.calls.at(-1)?.[0] as Block[];
+    expect(committed.map((b) => b.listLevel)).toEqual([1, 2]);
+  });
+
+  /**
+   * One Cmd+Z reverses the whole subtree, not the last carried child on its
+   * own — the state #1050 exists to remove.
+   *
+   * What this *cannot* see is the `doc.batch()` wrapper itself: this editor
+   * owns its `MemDocStore`, whose undo units come from the explicit
+   * `snapshot()` call rather than from the batch, so the assertion holds with
+   * the batch removed (verified by removing it). The batch matters to
+   * `YorkieDocStore`, where each unbatched write is its own `doc.history`
+   * entry; the docs editor asserts that directly with a tracing store it can
+   * be constructed with, which `initializeTextBox` takes no option for. So
+   * this guards the snapshot placement and the user-visible outcome only.
+   *
+   * It also has to *observe the indented state* before undoing. Asserting
+   * only the restored `[0, 1]` re-states the input, so it passed verbatim
+   * against `origin/main` — where `indent()` moves the caret's own block
+   * alone, giving `[1, 1]` and undoing to the same `[0, 1]` — and would stay
+   * green if `indent()` became a no-op.
+   */
+  it('one undo reverses the whole indented subtree', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const listItem = (id: string, listLevel: number): Block => ({
+      id,
+      type: 'list-item',
+      listKind: 'unordered',
+      listLevel,
+      inlines: [{ text: id, style: {} }],
+      style: {},
+    } as Block);
+    const onCommit = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [listItem('a', 0), listItem('b', 1)],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit,
+    });
+
+    api.focus();
+    // Cursor on the parent only: the carried child makes this `[1, 2]`, not
+    // the `[1, 1]` a caret-block-only indent would produce. `blur` is how the
+    // indented state is *observed* — `onCommit` fires on the focusout path,
+    // not per gesture — and it leaves `docStore`'s undo stack alone.
+    api.indent();
+    api.blur();
+    expect(
+      (onCommit.mock.calls.at(-1)?.[0] as Block[]).map((b) => b.listLevel),
+    ).toEqual([1, 2]);
+
+    // One undo, not two, puts the whole subtree back.
+    api.focus();
+    api.undo();
+    api.detach();
+
+    const committed = onCommit.mock.calls.at(-1)?.[0] as Block[];
+    expect(committed.map((b) => b.listLevel)).toEqual([0, 1]);
+  });
+
+  /**
+   * The same gesture on a block that is not a list item moves its left
+   * margin instead, and that branch shares the batch with the list one.
+   */
+  it('indent / outdent move a non-list block by its margin', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const onCommit = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [makeBlock('plain text')],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit,
+    });
+
+    api.focus();
+    api.indent();
+    api.indent();
+    api.outdent();
+    api.detach();
+
+    const committed = onCommit.mock.calls.at(-1)?.[0] as Block[];
+    expect(committed[0].style.marginLeft).toBe(36);
+    expect(committed[0].listLevel).toBeUndefined();
+  });
 
   /**
    * With verticalAnchor absent (default 'top'), originY = 0. The text

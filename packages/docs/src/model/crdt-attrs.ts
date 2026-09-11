@@ -18,6 +18,7 @@ import {
   normalizeBlockStyle,
   type BlockStyle,
 } from './types.js';
+import { normalizeLineHeight } from './numeric-attrs.js';
 
 /** The alignments a block style may carry. Mirrors `BlockStyle['alignment']`. */
 export const BLOCK_ALIGNMENTS: ReadonlyArray<NonNullable<BlockStyle['alignment']>> =
@@ -122,9 +123,21 @@ export function serializeBlockStyleAttrs(
  * An attribute the writer above would never emit — a non-finite number, an
  * alignment outside {@link BLOCK_ALIGNMENTS} — reads as the default rather
  * than reaching the layout engine: `normalizeBlockStyle` is a bare spread and
- * would keep whatever it is handed. This also keeps the v1 REST endpoint's
- * `GET` → `PUT` identity intact, since the validator on the write side
- * rejects exactly the values dropped here.
+ * would keep whatever it is handed. That keeps the v1 REST endpoint's `GET` →
+ * `PUT` identity intact: a `GET` never emits a value this reader drops, so
+ * putting a body back unchanged changes nothing.
+ *
+ * The write validator is *not* the exact inverse of this reader, and the
+ * difference is `lineHeight`: `assertValidBlockStyle`
+ * (`api/v1/docs-content.controller.ts`) accepts any finite number, while the
+ * band below admits only `(0, MAX_LINE_HEIGHT]`. So a `PUT` of
+ * `lineHeight: 1e9` is accepted and then read *clamped* to
+ * `MAX_LINE_HEIGHT`, and one of `0` or `-2` is accepted and then read as
+ * absent — a `GET` after either does not echo what was `PUT`. Deliberately
+ * not reconciled at the writer: that one validator also guards *slides* text-body
+ * blocks, which are persisted as plain JSON and never pass through this
+ * codec, so rejecting the value there would refuse a paragraph the slides
+ * renderer honours. Read-side banding is the narrower half.
  */
 export function parseBlockStyleAttrs(
   attrs: Record<string, string> | undefined,
@@ -136,6 +149,26 @@ export function parseBlockStyleAttrs(
     if (!(field in attrs)) continue;
     const value = Number(attrs[field]);
     if (Number.isFinite(value)) partial[field] = value;
+  }
+  // `lineHeight` needs more than finiteness, because it is a *multiplier*
+  // rather than an offset: it scales every font size in the paragraph into a
+  // line height, a table cell's line heights are summed into the row height,
+  // and the paginator splits an oversized row one page per loop iteration. A
+  // finite `1e9` here is the same million-page allocation a poisoned
+  // `rowHeights` entry produces, so it is clamped to `MAX_LINE_HEIGHT` — large
+  // still renders large. A non-finite or non-positive multiple is nothing to
+  // clamp towards, so it is dropped and the block falls back to its resolved
+  // default spacing. *Which* default is decided by the other peer-writable
+  // attribute read below, not by this one: `effectiveBlockSpacing` consults
+  // the named style only while the spacing reads as inherited, and
+  // `authoredLineHeight === '1'` makes it read as authored — so a dropped
+  // multiple on a marked block resolves the hardcoded
+  // `DEFAULT_BLOCK_STYLE.lineHeight` (1.5) and the named style is never
+  // consulted. See `normalizeLineHeight`.
+  if (partial.lineHeight !== undefined) {
+    const banded = normalizeLineHeight(partial.lineHeight);
+    if (banded === undefined) delete partial.lineHeight;
+    else partial.lineHeight = banded;
   }
   // An absent marker attribute stays `undefined` on the model (the legacy "no
   // information" state); anything present is read as a boolean, so a

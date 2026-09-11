@@ -121,6 +121,39 @@ export {
   treeNodeToBlock,
 } from './model/crdt-tree.js';
 export type { DocsTreeNode } from './model/crdt-tree.js';
+// The `listLevel` band and its normalizer. `model/list-level.js` imports
+// nothing but the `Block` type, so it is DOM-free. It belongs here for both
+// reasons the file header gives: `YorkieDocStore` calls `normalizeListLevel`
+// on every attribute read and runs under Node in the docs `.integration.ts`
+// suites, which resolve to this entry; and the Node-side readers that would
+// otherwise hardcode the ceiling (the markdown serializer's `repeat`, the
+// layout counters) need to be able to name it.
+export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
+// The table row-height band, here for the same reason: `YorkieDocStore`'s
+// own table reader calls `normalizeRowHeight` on every attribute read, and
+// `model/row-height.js` imports nothing at all, so it is DOM-free.
+export { MAX_ROW_HEIGHT, normalizeRowHeight } from './model/row-height.js';
+// The bands for the numeric attributes that feed a line's height, here for
+// the same reason again: `YorkieDocStore` reads `fontSize`, cell `padding`
+// and the inline image size on every attribute read, and
+// `model/numeric-attrs.js` imports nothing at all, so it is DOM-free.
+export {
+  MAX_FONT_SIZE,
+  MAX_LINE_HEIGHT,
+  MAX_CELL_PADDING,
+  MAX_IMAGE_SIZE,
+  MAX_TABLE_SPAN,
+  MAX_TABLE_COLUMNS,
+  MAX_COLUMN_RATIO,
+  normalizeFontSize,
+  normalizeLineHeight,
+  normalizeCellPadding,
+  isPaintableImageSize,
+  normalizeTableSpan,
+  parseColumnWidthsAttr,
+  normalizeColumnRatio,
+  bandBlockNumerics,
+} from './model/numeric-attrs.js';
 export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,
@@ -128,6 +161,7 @@ export {
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  sanitizeDocStyles,
   effectiveBlockSpacing,
   STYLE_OWNED_SPACING_DEFAULTS,
   STYLE_OWNED_SPACING_MARKERS,
