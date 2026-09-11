@@ -25,10 +25,11 @@ roles per document, per verb.
 (`packages/backend/src/document/yorkie-auth.controller.ts`), the two token
 endpoints, the `tokenType === 'access'` replay guard, the shared rawBody scope,
 and both frontend injectors are all implemented and wired. What remains
-operational (not code) is the staged rollout: enforcement is gated by
-`YORKIE_AUTH_WEBHOOK_ENFORCE` (shadow-mode default) and by registering the
-webhook methods on the Yorkie project. The sections below describe the design
-as built.
+operational (not code) is registering the webhook methods on the Yorkie
+project. Enforcement itself is the **default**: `YORKIE_AUTH_WEBHOOK_ENFORCE`
+selects shadow mode only when it is set to the literal `false`, so an install
+that registers the methods and configures nothing else denies. The sections
+below describe the design as built.
 
 ## Goals / Non-Goals
 
@@ -77,7 +78,7 @@ enforce a subset:
 | Method | Handling |
 | --- | --- |
 | `ActivateClient` / `DeactivateClient` | No document. Validate token only (is it a live session / valid share?). |
-| `AttachDocument` | Enforce: resolve docKey → doc; require access; `rw` needs write role. |
+| `AttachDocument` | Enforce **read**: resolve docKey → doc; require access. Its verb is always `rw` and so carries no write intent — see the verb risk below. |
 | `PushPull` | Enforce (the real read/write gate; `verb` reflects sync mode). |
 | `Watch` (+ deprecated `WatchDocument`) | Enforce read access. |
 | `Broadcast` | Enforce read access (presence). |
@@ -116,6 +117,40 @@ injector *can* hold:
 
 The webhook decodes the token to `{ userId }` or `{ shareToken }` and resolves
 access from there. Identity is thus **backend-signed**, not client-asserted.
+
+**The backend is a third identity.** `YorkieService.withDocument` attaches
+server-side for the v1 content endpoints, `DocumentCopyService` and the template
+seed, and it is not any user: some of those paths run from a command line with
+no session at all. It supplies its own `{ typ: 'yorkie-service' }` token
+(`packages/backend/src/yorkie/yorkie-service-token.ts`), which `decide()`
+allows without resolving a user or a link. That is the layer *above* the
+permission model rather than a hole in it — every one of those paths authorized
+its caller against Postgres (workspace membership, document manager, API-key
+`write` scope) before opening the document, and none of that authority is
+recoverable from a document key inside the webhook. Before it existed, a
+deployment that registered the webhook methods 401'd every server-side attach,
+which is the whole reason enforce-by-default could not have shipped without it.
+
+**It is scoped to one document.** The token is signed with `JWT_SECRET`, so
+only a secret compromise can produce one — and a secret compromise already
+mints a session for any user. But it does **not** stay inside the process: the
+SDK sends it to whichever Yorkie server the client is pointed at, on every RPC,
+over whatever transport `YORKIE_RPC_ADDR` names (and in
+`scripts/copy-yorkie-documents.ts`, to a *foreign* deployment's). So it carries
+a `key` claim naming the single document key it authorizes, and
+`decideService()` refuses it for any other — bounding an intercepted or logged
+token to the one document the request that minted it was already authorized
+for, for the ten minutes it lives, rather than to every document in the
+deployment. `YorkieService.withDocument` builds its client per document and
+therefore always sets it, which covers every request path. The **ops scripts**
+under `scripts/` are the exception: they walk many documents through one
+long-lived client, and the SDK refreshes the token when the server asks rather
+than per attach, so a key pinned at construction would be the wrong one by the
+second document. Their token stays unscoped — an operator-run, one-shot
+credential held by whoever already has the deployment's `JWT_SECRET`. Pinned by
+`yorkie-auth.controller.spec.ts` (scoped allow / cross-document 403 / unscoped
+blanket allow) and `yorkie.service.spec.ts` (the minted key tracks the doc-key
+prefix).
 
 **Token-replay hardening.** The Yorkie token is signed with `JWT_SECRET` (same
 key as the session access token) but, unlike the httpOnly session cookie, it is
@@ -197,17 +232,40 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
 
 1. **Endpoint + token endpoints + frontend injectors** — shipped. With the
    webhook URL **unregistered** there is no enforcement, but tokens flow.
-2. **Shadow mode** (default): register the webhook with
-   `YORKIE_AUTH_WEBHOOK_ENFORCE` unset/`false` — the handler computes the
+2. **Shadow mode** (opt-in, for the rollout window only): register the webhook
+   with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` — the handler computes the
    decision, logs the one it *would* have made, but always returns `allowed`.
    Watch for false denials (token gaps, key-parse misses, share edge cases).
-3. **Enforce**: set `YORKIE_AUTH_WEBHOOK_ENFORCE=true` so the handler honors the
-   computed decision.
+3. **Enforce** (the default): unset `YORKIE_AUTH_WEBHOOK_ENFORCE` so the handler
+   honors the computed decision. Registering the methods with the variable
+   unset goes straight here, which is the intended path for a new deployment.
 4. Reversible at every step: flip the flag back, or unregister the webhook
    methods to fully disable.
 
 ## Risks and Mitigation
 
+- **Shadow mode reads as protection and is not** → it computes a decision and
+  allows the request anyway, so a deployment left in it is *observably* running
+  the webhook while enforcing nothing. This matters most for share-link
+  **viewers**:
+  a viewer's write is refused here and nowhere else, and a viewer holds both
+  halves needed to skip us — their share token, which mints a Yorkie token at
+  `GET /auth/yorkie-token`, and the project's public key, which ships in every
+  visitor's bundle. Client-side read-only mounts (`readOnlyNoteStore`,
+  `readOnlyDocStore`, the editors' `readOnly` state) therefore bound *our app's*
+  write paths and no one else's; they are correctness boundaries, not access
+  control, and no feature should be reviewed as if they were. **Mitigation:**
+  shadow mode is no longer the default — `isYorkieAuthEnforced`
+  (`src/yorkie/yorkie-auth-enforcement.ts`) reads only the literal `false` as
+  shadow, so registering the methods and configuring nothing else denies, and a
+  typo lands on the side that denies rather than the side that opens. Shadow
+  stays reachable because it is the instrument for the verb question below, but
+  it must now be asked for. On top of that the controller logs its posture at
+  boot — `SHADOW mode — … per-document access is NOT enforced` — so an install
+  that did opt out sees the gap in its own logs rather than inferring it from
+  the absence of denials; and features whose safety depends on the distinction
+  (the public template tier, revision history) assert enforcement themselves
+  through the same helper rather than assuming it.
 - **Bug denies all access** → staged shadow→enforce rollout; `DetachDocument`
   always allowed; instant rollback by unregistering webhook methods.
 - **Token/session expiry mid-session** → short-lived token + `401`-driven
@@ -227,20 +285,43 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
   `metadata.userID` is never trusted for access decisions.
 - **Forged webhook calls** → mandatory HMAC via `YorkieSignatureGuard`; endpoint
   refuses when `YORKIE_SECRET_KEY` is unset (same posture as the event webhook).
-- **Read-only viewers and the attach/PushPull verb** → yorkie derives the verb
-  from the client's change pack, not the sync mode: `AccessAttributes(pack)` is
-  `r` when `pack.HasChanges()` is false, `rw` otherwise
-  (`server/rpc/auth/auth.go`). A viewer who never edits a doc that already has
-  content pushes no changes → verb `r` → allowed. The risk is a "read-only"
-  client that still emits a local change on load (e.g. a lazy data migration or
-  field initialization) → verb `rw` → the webhook denies it under enforcement.
-  The React `DocumentProvider` does not currently expose a read-only/`syncMode`
-  attach option, so this can't be forced from the frontend today. **Mitigation:**
-  shadow mode is exactly the instrument for this — the rollout must confirm
-  viewer-link attach/PushPull requests actually carry verb `r` (watch the shadow
-  logs) before flipping `YORKIE_AUTH_WEBHOOK_ENFORCE=true`. If viewers do emit
-  `rw`, the fix is a read-only attach path in the SDK wrapper (follow-up), not a
-  webhook change.
+- **Read-only viewers and the attach/PushPull verb** → for `PushPull` yorkie
+  derives the verb from the client's change pack, not the sync mode:
+  `AccessAttributes(pack)` is `r` when `pack.HasChanges()` is false, `rw`
+  otherwise (`server/rpc/auth/auth.go`). A viewer who never edits a doc that
+  already has content pushes no changes → verb `r` → allowed.
+  **`AttachDocument` does not follow that rule**: it carries `rw`
+  unconditionally, confirmed against a real yorkie server by inspecting the
+  webhook body it sends for a brand-new local `Document` with zero local
+  changes attaching to an already-populated remote one
+  (`packages/backend/test/revision-history.e2e-spec.ts`, which omits
+  `AttachDocument` from its registered set for exactly this reason). Honoring
+  that verb would deny a share-link viewer their *very first attach*, so with
+  enforcement the default every viewer link would break on any deployment that
+  registered the method — which is what the earlier "watch the shadow logs
+  first" mitigation, written while shadow was the default, quietly deferred.
+  **Mitigation (in code):** `READ_GATED_METHODS` in
+  `yorkie-auth.controller.ts` authorizes `AttachDocument` as a **read**
+  whatever verb it carries, leaving `PushPull` — whose verb is truthful — the
+  write gate this document already calls "the real read/write gate". A viewer
+  therefore attaches and reads, and every write is refused one RPC later.
+  Pinned by `yorkie-auth.controller.spec.ts` ("lets a share viewer attach even
+  though attach claims rw", plus the two cases showing attach is not a blanket
+  allow and the viewer's `PushPull` write is still 403). The **residual** is a
+  change pack carried by the attach itself: a hand-rolled client could smuggle
+  one *pack* past that method, and nothing stops it from detaching and
+  attaching again, so the bound is per attach rather than per client. What
+  enforcement buys is therefore narrower than "a viewer cannot write": no
+  visitor's *browser* can — our editors mount read-only and every write after
+  the attach is refused at `PushPull` — while a non-browser client that
+  re-attaches per write still can. Features resting on this bound it rather
+  than close it, and say so where they assert it (the public template tier's
+  `assertYorkieAuthEnforced`). Closing it
+  needs a truthful verb from yorkie (upstream follow-up) — not a wider webhook
+  denial, which costs every viewer their access to buy back one pack. A client
+  that emits a local change on *load* under `PushPull` (a lazy migration, field
+  initialization) is still denied under enforcement; shadow mode remains the
+  instrument for finding one, and it is now asked for rather than assumed.
 - **Authenticated access is workspace-membership only** → the `PrivateRoute`
   path injects a *user* token, so the webhook authorizes canonical document URLs
   purely by `assertMember`. A logged-in non-member opening a canonical URL is

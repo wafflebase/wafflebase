@@ -1444,6 +1444,18 @@ describe('public-tier preconditions and the review window', () => {
     // an edit returns a listing to review, one request per card would empty
     // the gallery into a queue only a human can drain.
     openPublicTier();
+    const { service } = makeService({ yorkieEnforce: 'false' });
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // The webhook's own default is enforce, but that says nothing about whether
+  // its methods were ever registered on the Yorkie project — with none
+  // registered the webhook is never called and the preview token still writes.
+  // So this gate wants the operator's affirmation, not a default.
+  it('refuses an unset YORKIE_AUTH_WEBHOOK_ENFORCE, default or not', async () => {
+    openPublicTier();
     const { service } = makeService({ yorkieEnforce: undefined });
     await expect(
       service.submit('tpl-1', 7, { acceptLicense: true }),

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
 import { MemNoteStore } from '../store/memory.js';
+import type { NoteRemoteChange } from '../store/store.js';
 import { initialize } from './editor.js';
 import { NotePreview } from './preview.js';
 
@@ -28,6 +29,57 @@ describe('initialize', () => {
     document.body.appendChild(container);
     const api = initialize(container, new MemNoteStore('x'), 'light', true);
     expect(container.querySelector('.cm-content')?.getAttribute('contenteditable')).toBe('false');
+    api.dispose();
+    container.remove();
+  });
+
+  it('lets no write reach the store on a read-only mount', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('hello');
+    const editText = vi.spyOn(store, 'editText');
+    const undo = vi.spyOn(store, 'undo');
+    const api = initialize(container, store, 'light', true, 'edit');
+
+    // `EditorView.editable` only drops contenteditable; every path below is
+    // programmatic and would otherwise dispatch a document change that
+    // `noteSync` forwards to the CRDT.
+    api.toggleBold();
+    api.toggleTaskList();
+    api.insertTable(2, 2);
+    api.insertCodeBlock();
+    api.undo();
+    api.redo();
+
+    expect(api.getText()).toBe('hello');
+    expect(store.getText()).toBe('hello');
+    expect(editText).not.toHaveBeenCalled();
+    expect(undo).not.toHaveBeenCalled();
+    expect(api.canUndo()).toBe(false);
+    expect(api.canRedo()).toBe(false);
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('still applies remote changes on a read-only mount', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('hello');
+    let emit: ((change: NoteRemoteChange) => void) | null = null;
+    const subscribe = store.subscribeRemote.bind(store);
+    vi.spyOn(store, 'subscribeRemote').mockImplementation((listener) => {
+      emit = listener;
+      return subscribe(listener);
+    });
+    const api = initialize(container, store, 'light', true, 'edit');
+
+    // A peer's edit arrives through the store's remote subscription; the
+    // read-only filter must let it through — that is what the viewer is reading.
+    emit!({ type: 'edits', changes: [{ from: 5, to: 5, insert: ' world' }] });
+
+    expect(api.getText()).toBe('hello world');
+
     api.dispose();
     container.remove();
   });
@@ -313,6 +365,71 @@ describe('initialize', () => {
     expect(api.getText()).toBe('hi');
     api.setKeymap('default');
     expect(api.getKeymap()).toBe('default');
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('drags the split divider from where it was grabbed', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // jsdom lays nothing out, so the two measurements the drag handler takes
+    // have to be supplied: the container's box and the divider's own width.
+    container.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 1000, height: 600 }) as DOMRect;
+    const api = initialize(container, new MemNoteStore('hi'), 'light', false, 'both');
+    const editorEl = container.querySelector<HTMLElement>('[data-role="note-editor"]')!;
+    const divider = container.querySelector<HTMLElement>('[data-role="note-divider"]')!;
+    Object.defineProperty(divider, 'offsetWidth', { value: 25, configurable: true });
+
+    // The panes share the container minus the divider, so the track is 975 and
+    // the divider's leading edge starts at 0.5 * 975 = 487.5.
+    expect(editorEl.style.flex).toBe('1 1 50.000%');
+
+    // Grab 20px into the 25px divider and do not move: the split must not
+    // shift. Before the grab offset was recorded, the first pointermove
+    // re-centred the divider on the pointer, jumping the split by up to the
+    // divider's own width.
+    divider.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: 507.5, bubbles: true }),
+    );
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 507.5 }));
+    expect(editorEl.style.flex).toBe('1 1 50.000%');
+
+    // Now a real 97.5px drag is exactly one tenth of the track.
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 605 }));
+    expect(editorEl.style.flex).toBe('1 1 60.000%');
+    window.dispatchEvent(new MouseEvent('pointerup', {}));
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('ends the divider drag when the pointer is cancelled', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 1000, height: 600 }) as DOMRect;
+    const api = initialize(container, new MemNoteStore('hi'), 'light', false, 'both');
+    const editorEl = container.querySelector<HTMLElement>('[data-role="note-editor"]')!;
+    const divider = container.querySelector<HTMLElement>('[data-role="note-divider"]')!;
+    Object.defineProperty(divider, 'offsetWidth', { value: 25, configurable: true });
+
+    divider.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: 507.5, bubbles: true }),
+    );
+    expect(document.body.style.cursor).toBe('col-resize');
+
+    // A touch drag — which `touch-action: none` on the divider enables — is
+    // cancelled by the browser rather than ended, so no `pointerup` ever
+    // arrives. Without handling it the grab cursor and the `user-select` lock
+    // stay applied to the whole page and the move listener stays attached.
+    window.dispatchEvent(new Event('pointercancel'));
+    expect(document.body.style.cursor).toBe('');
+    expect(document.body.style.userSelect).toBe('');
+
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 605 }));
+    expect(editorEl.style.flex).toBe('1 1 50.000%');
 
     api.dispose();
     container.remove();

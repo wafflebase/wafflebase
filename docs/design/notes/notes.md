@@ -235,11 +235,113 @@ are frontend-only — the `@wafflebase/notes` engine has no viewport branch.
   A mode picked *on* a phone is session-local for the same reason: persisting
   it would destroy a stored `both` the phone could not have offered.
 
-`SharedNotesLayout` is deliberately **not** demoted, though it is the same
-cramped split. That route mounts no toolbar, so the split is the only thing
-that renders a preview there at all — demoting it would trade a cramped
-preview for none, with no control to switch back. Making it good needs a
-mode control on that surface, which is a feature rather than a layout fix.
+`SharedNotesLayout` gets the same demotion. It used to be the exception, and
+the reason was real: that route mounted no toolbar, so the split was the only
+thing rendering a preview there at all, and demoting it would have traded a
+cramped preview for none with no control to switch back. Issue #1044 removed
+the premise instead of the conclusion — the share-link route now mounts
+`NotesToolbar` too (see **Share-link parity** below), so the demotion is
+reversible from the view menu and the two entry paths finally agree.
+
+### Share-link parity
+
+Notes was the only editable document type whose share-link route differed from
+its workspace route: sheets and board keep their toolbar because it lives
+*inside* the view, docs and slides mount theirs explicitly on both paths, and
+notes mounted none. `app/shared/shared-notes-layout.tsx` (split out of
+`shared-document.tsx` so it can hold state and be tested without importing
+every engine) now mounts `NotesToolbar` lazily — the `SlidesToolbar`
+precedent — and owns the `viewMode` / `keymap` / `showAuthors` trio the
+workspace route owns.
+
+Two deliberate differences from the workspace route:
+
+- **It reads the per-browser preferences, and never writes them.** A visitor's
+  own vim keymap and blame-gutter setting still apply on arrival, because
+  ignoring them would be its own bug; but nothing an anonymous share-link
+  visitor changes is persisted back over a preference they may not own. Same
+  reasoning as the phone's session-local mode above, applied to the whole trio.
+  The stored **view mode** is read on an editor-role mount only: a viewer opens
+  on the rendered markdown regardless of what they last chose, since arriving
+  in the source view of a note you cannot edit is the wrong default, and the
+  view menu is right there to reach it. So a viewer mount reads two of the
+  three keys — the contract is "reads, never writes", not "reads all three".
+- **A viewer keeps the toolbar.** `canFormat = !readOnly && mode !== "view"`
+  drops the formatting group by itself, which leaves exactly the view menu — so
+  a read-only visitor gains a preview/source switch and loses nothing. The
+  "View only" badge still comes from `SharedHeaderStatus`.
+
+**A read-only mount is enforced at the state, not at the DOM.** Mounting the
+toolbar for a viewer hands them the same live `NoteEditorAPI` an editor gets,
+and `EditorView.editable` only removes `contenteditable` — it stops typing and
+nothing else, so any programmatic `view.dispatch` (a toolbar command, a paste
+handler, a preview checkbox) still produced a document change, and `noteSync`
+forwards **any** non-remote change to `store.editText()`, which is a CRDT write.
+So `initialize()` adds two state-level gates when `readOnly`:
+
+- `EditorState.readOnly` — the facet every CodeMirror command consults
+  (`@codemirror/commands`, autocomplete, the vim keymap), so they decline
+  instead of mutating.
+- An `EditorState.changeFilter` that admits only transactions annotated
+  `Transaction.remote`. A local change never becomes a transaction, so it never
+  reaches `noteSync`, and every *transaction-shaped* write path is inert by
+  construction rather than by each caller remembering to check. Remote changes
+  still apply, which is what the viewer is there to read.
+
+Both of those only see CodeMirror transactions, and the store's own mutators
+are reachable without one — `undo`/`redo` call `store.undo()` **directly**, and
+so does the selection publish. So the boundary is the **store**, closed the way
+the docs package closes it: `readOnlyNoteStore`
+(`packages/notes/src/store/read-only.ts`, the sibling of
+`packages/docs/src/store/read-only.ts`) is a `Proxy` whose reads and
+subscriptions forward and whose writes — `editText`,
+`recordSelectionForHistory`, `setLocalSelection`, `undo`/`redo` (returning
+`null`) — do nothing. It is an allowlist of *readers*, so a mutator added later
+is neutered by default rather than forwarded by omission; `batch(fn)` runs `fn`
+(so batched reads work) with every write inside it neutered on its own way
+through the same proxy; data properties are hidden, because
+`YorkieNoteStore.doc` is the raw CRDT handle and `doc.update()` is a wider hole
+than any method; and the prototype / `set` / `defineProperty` /
+`setPrototypeOf` traps refuse, since a class-prototype method or a planted
+accessor would otherwise reach the real store. `initialize()` wraps the store
+it is handed when `readOnly`, and the frontend mount wraps the one it retains
+(`notes-view.tsx`); the wrapper is idempotent, so neither has to know what the
+other did.
+
+**What that wrapper is not.** An earlier draft of this section claimed that
+because the Yorkie auth webhook ships in shadow (allow-all) mode by default,
+the proxy *is* the write boundary on a default install. That was wrong, and
+worth recording as wrong: a share-link viewer who does not run our code is not
+bounded by our code. They hold their share token, which mints a Yorkie token at
+`GET /auth/yorkie-token`, and the project's public key ships in every visitor's
+bundle — so they can attach with a bare SDK client and write, and the only
+thing that refuses them is `hasAccess()` in
+`packages/backend/src/document/yorkie-auth.controller.ts`, which a deployment
+in shadow mode never consults. The two gates answer different questions and
+neither covers for the other:
+
+| | bounds | needs |
+| --- | --- | --- |
+| `readOnlyNoteStore` + the state gates | this app's own write paths, including the next one somebody adds without checking a flag | nothing; it ships in the bundle |
+| The Yorkie auth webhook | every client, ours or not | the methods registered on the Yorkie project; enforcement is the default, so only an explicit `YORKIE_AUTH_WEBHOOK_ENFORCE=false` turns it back off |
+
+So "viewer means read-only" is a property of a *deployment*, not of this
+feature. On a deployment that opted into shadow mode a viewer share link should
+be treated as write-capable no matter what the editor mounts; the webhook logs its
+posture at boot (`SHADOW mode — … per-document access is NOT enforced`) so that
+is visible without reading this document. See
+[`yorkie-auth-webhook.md`](../yorkie-auth-webhook.md).
+
+`runHistory()` keeps its own `readOnly` refusal on top, so the toolbar's
+undo/redo decline locally and visibly, and `canUndo()`/`canRedo()` report
+`false`.
+
+The **divider** was fixed in the engine rather than per route, since it helps
+both: `padding` widens its hit area from 7px to 25px around the same 1px
+hairline (`background-clip: content-box` means the padding is pure hit area),
+and `touch-action: none` stops the browser claiming a horizontal drag on it as
+a scroll gesture — without which the split panes could not be resized by
+finger at all.
 
 ### Risks and Mitigation
 
@@ -343,10 +445,18 @@ When the payload carries no image the handlers decline the event rather than
 
 The engine never imports the frontend: `initialize()` takes an optional
 `uploadImage` in its options bag, and a read-only mount never receives one, so
-the extension is simply absent rather than guarded per event. **Known
-limitation:** the same rule disables image upload behind an editable share
-link, because an anonymous share-link editor has no workspace membership and
-the image endpoint requires an authenticated caller.
+the extension is simply absent rather than guarded per event.
+
+An **editable share link** uploads too (issue #1044). It was recorded here as a
+known limitation on the grounds that an anonymous share-link editor has no
+workspace membership, which was already out of date: `shareTokenImageUploader`
+(added for the docs share surface) posts to the workspace image spine with the
+share token, the backend derives the workspace from the token and refuses a
+viewer-role one, and the *read* half — the notes engine's share-token image-URL
+resolver — was already installed for this mount by `shared-document.tsx`. So
+`SharedNotesLayout` passes the token-scoped uploader and the paste/drop/pick
+path behaves as it does for a member. An authenticated caller was never the
+requirement; an authorized one was.
 
 **CLI (shipped).** A `notes` namespace (alias `note`) in `@wafflebase/cli`
 brings notes to parity with the `docs`/`slides` namespaces:
@@ -694,9 +804,10 @@ says in as many words that names are recorded and who can see them. Nothing is
 erased retroactively: rewriting a shared document's runs to strip a name is not
 something one client may do to it.
 
-Both `NotesView` mounts pass the preference — the authenticated note page from
-its view menu, the share-link page (which has no menu) from the same
-per-browser `wafflebase:notes:showAuthors` value, read once at mount.
+Both `NotesView` mounts pass the preference, each from its own view menu — the
+share-link page has one since #1044 — seeded from the same per-browser
+`wafflebase:notes:showAuthors` value, read once at mount. The share-link page
+never writes it back.
 
 Authorship rides on the existing `root.content` `Text` as **per-run
 attributes**, written by `YorkieNoteStore.editText`:

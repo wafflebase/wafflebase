@@ -48,7 +48,11 @@ jobs:
     needs: [route]
     if: needs.route.outputs.command == 'loop'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Above the 30-minute wait the enable step may spend on an in-flight CI run.
+    # A wall at or below the wait would label the PR `agent:managed` and then be
+    # killed before re-running anything — a loop that is enabled and never
+    # starts, which is the failure this wait exists to remove.
+    timeout-minutes: 40
     permissions:
       pull-requests: write # apply the agent:managed label
       issues: write # post the confirmation / fork-fallback comment
@@ -103,6 +107,8 @@ jobs:
 
       - name: Enable the loop (label + re-run CI), or fall back on forks
         id: enable
+        env:
+          PLACEHOLDER_ID: ${{ steps.placeholder.outputs.id }}
         uses: actions/github-script@v7
         with:
           retries: 3
@@ -137,12 +143,14 @@ jobs:
             // Re-run the latest CI run for the head SHA so the loop engages now
             // (a green run → review panel; a red run → CI-fix arm). Best-effort:
             // if there's nothing to re-run, the label still engages the next CI run.
-            let reran = false;
+            let ciNote = "\n\nIt will engage on the next CI run.";
             try {
-              // Mirrors `ciRunToRerun` in scripts/agent/checks.mjs, where the rule
-              // is unit-tested — this step runs before any checkout and cannot
-              // import it, the same constraint that makes agent-review-panel.yml
-              // mirror `ciRunDecision` inline. checks.test.mjs pins both copies.
+              // Mirrors `ciRunToRerun` / `ciRunToAwait` in scripts/agent/checks.mjs,
+              // where the rules are unit-tested — this step runs before any
+              // checkout and cannot import them, the same constraint that makes
+              // agent-review-panel.yml mirror `ciRunDecision` inline.
+              // checks.test.mjs extracts both selections from this file and runs
+              // them against the exported functions.
               //
               // Exactly ONE run — the newest COMPLETED one. That is the run whose
               // conclusion gate 1 reads, and re-running it bumps run_attempt,
@@ -152,20 +160,88 @@ jobs:
               // conclusions, and a re-run REPLACES one) and emit a completion per
               // run into a cancel-in-progress group, cancelling the fixer
               // mid-push. COMPLETED because the API answers 422 for a run still
-              // in flight — which emits its own completion event anyway.
+              // in flight.
               const all = await github.paginate(github.rest.actions.listWorkflowRuns, {
                 owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 100,
               });
               const completed = all.filter((r) => r.status === 'completed');
               const run = completed.reduce((n, r) => (n === null || r.id > n.id ? r : n), null);
-              if (run) { await github.rest.actions.reRunWorkflow({ owner, repo, run_id: run.id }); reran = true; }
+              // NOT completed, rather than queued/in_progress: a status this
+              // pipeline has never heard of must read as "still going", the
+              // direction where we wait and then re-run.
+              const pending = all.filter((r) => r.status !== 'completed');
+              const awaited = pending.reduce((n, r) => (n === null || r.id > n.id ? r : n), null);
+
+              let target = run;
+              if (!target && awaited) {
+                // THE DEAD ZONE THIS WAIT EXISTS FOR — see agent-rerun.yml, which
+                // carries the same block and the incident it was written from.
+                // Here the round's `requested` panel was refused for being
+                // unmanaged rather than paged: the label lands seconds too late,
+                // and the panel admits a `completed` event only on
+                // `run_attempt > 1`. Without the wait, "@claude loop" on a PR
+                // whose CI is in flight enables a loop that never starts.
+                target = await (async () => {
+                  const deadline = Date.now() + 30 * 60 * 1000;
+                  // Best-effort: tell the operator what the 15-minute silence is.
+                  // GITHUB_TOKEN editing an App-authored comment; if it 403s the
+                  // final edit still lands.
+                  try {
+                    await github.rest.issues.updateComment({
+                      owner, repo, comment_id: Number(process.env.PLACEHOLDER_ID),
+                      body: `🤖 \`@claude loop\` — this PR is now \`agent:managed\`. CI run [${awaited.id}](${awaited.html_url}) ` +
+                        'is still in flight; waiting for it to finish before re-running it (up to 30 min).',
+                    });
+                  } catch (e) { core.warning(`Could not update the placeholder (${e.message}).`); }
+                  while (Date.now() < deadline) {
+                    await new Promise((r) => setTimeout(r, 20000));
+                    // A blip must not end a thirty-minute wait: one 5xx would
+                    // otherwise throw out to the outer catch and leave the round
+                    // exactly where this change found it.
+                    try {
+                      const { data: cur } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: awaited.id });
+                      if (cur.status === 'completed') return cur;
+                    } catch (e) { core.warning(`Could not read CI run ${awaited.id} (${e.message}); still waiting.`); }
+                  }
+                  core.warning(`CI run ${awaited.id} did not finish within the wait budget.`);
+                  ciNote = `\n\n⚠️ CI run [${awaited.id}](${awaited.html_url}) was still running after 30 minutes, so nothing was re-run — comment \`@claude rerun\` once it finishes.`;
+                  return null;
+                })();
+
+                if (target) {
+                  // A lot can land in thirteen minutes. Re-running a run whose sha
+                  // is no longer the head runs CI against a stale commit, and the
+                  // push that moved it engages the loop on its own.
+                  const { data: fresh } = await github.rest.pulls.get({ owner, repo, pull_number: pr_number });
+                  if (fresh.head.sha !== pr.head.sha) {
+                    ciNote = '\n\nA new commit landed while CI was running, so nothing was re-run here — that push engages the loop on its own.';
+                    target = null;
+                  } else if (target.conclusion === 'failure') {
+                    // agent-iterate-ci.yml has no attempt gate, so it fired on
+                    // this completion and its fixer may be pushing right now. Its
+                    // concurrency group is cancel-in-progress keyed on the branch,
+                    // so a second `completed/failure` event would cancel that
+                    // fixer mid-push — #648's failure mode, re-entered through the
+                    // fix for a different one.
+                    ciNote = '\n\nCI failed, and the CI-fix arm engaged on that completion — re-running it here would cancel its fixer mid-push, so nothing was re-run.';
+                    target = null;
+                  } else {
+                    ciNote = '\n\nWaited for the in-flight CI run to finish, then re-ran it to engage the loop.';
+                  }
+                }
+              } else if (target) {
+                ciNote = '\n\nRe-running CI now to engage the loop.';
+              }
+
+              if (target) await github.rest.actions.reRunWorkflow({ owner, repo, run_id: target.id });
             } catch (e) {
               core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);
+              ciNote = `\n\n⚠️ Could not re-run CI (${e.message}) — re-run it by hand, or push to the branch.`;
             }
             core.setOutput('outcome',
               "🔁 Loop enabled — this PR is now `agent:managed`. On green CI the review panel runs and can promote it; " +
               "on red CI the fixer pushes a follow-up commit. Bounded by the pipeline's round/attempt caps; a human approval is still required to merge." +
-              (reran ? "\n\nRe-running CI now to engage the loop." : "\n\nIt will engage on the next CI run."));
+              ciNote);
 
       # Edit the placeholder into the final result. always() so a failure in the
       # enable step still replaces the "working on it" note instead of stranding it.

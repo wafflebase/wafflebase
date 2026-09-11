@@ -1,5 +1,5 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, ImageData, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
@@ -22,7 +22,7 @@ import { resolveNestedTableLayout } from './table-layout.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
-import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
+import { caretInlineStyle, caretStyleDefaults, isAtLinkTrailingEdge } from '../model/caret-style.js';
 import { yieldToPaintedFrame } from '../export/yield.js';
 
 /**
@@ -3491,30 +3491,65 @@ export class TextEditor {
     this.requestRender();
   }
 
+  /**
+   * Cmd/Ctrl+\ — the keyboard half of Clear formatting.
+   *
+   * Shares `CLEAR_INLINE_STYLE` with the toolbar button
+   * (`EditorAPI.clearInlineFormatting`) and the slides text-box entry, so
+   * all three clear exactly the same keys. This used to keep its own
+   * hand-rolled list, which had drifted — it omitted `fontSize`,
+   * `fontFamily`, `color` and `backgroundColor`, so the shortcut cleared
+   * strictly less than the button, and it carried `href`, so it deleted
+   * hyperlinks (issue #1051).
+   */
   private clearFormatting(): void {
-    const clearStyle: Partial<InlineStyle> = {
-      bold: undefined,
-      italic: undefined,
-      underline: undefined,
-      underlineStyle: undefined,
-      underlineColor: undefined,
-      strikethrough: undefined,
-      strikeStyle: undefined,
-      letterSpacing: undefined,
-      superscript: undefined,
-      subscript: undefined,
-      href: undefined,
-    };
-
     if (!this.selection.hasSelection() || !this.selection.range) {
       // Collapsed caret — pending the cleared style so the next typed
-      // run is plain.
-      this.pending?.set(clearStyle, this.cursor.position);
+      // run is plain. Same key set as the range path, so typing after
+      // the caret lands wherever the range write would have left it.
+      //
+      // With one addition. `pending.set` *replaces* the pending state
+      // rather than merging into it, and `CLEAR_INLINE_STYLE` no longer
+      // carries an `href` key at all — so at a link's trailing edge this
+      // would wipe the `href: undefined` that `exitLinkIfAtTrailingEdge`
+      // armed, and the next typed character would inherit the link from
+      // the run behind the caret. Not removing a hyperlink is the point
+      // of #1051; silently *extending* one is not, so re-arm the exit
+      // (`setPendingStyleGuarded`).
+      this.setPendingStyleGuarded(CLEAR_INLINE_STYLE);
       this.requestRender();
       return;
     }
     this.saveSnapshot();
-    this.applyStyleToSelection(this.selection.range, clearStyle);
+    this.applyStyleToSelection(this.selection.range, CLEAR_INLINE_STYLE);
+  }
+
+  /**
+   * `pending.set` for a collapsed caret, with the link-extension guard.
+   *
+   * Every collapsed-caret seed here is derived from the caret's own run
+   * style, and at a hyperlink's trailing edge that run *is* the link — so
+   * the seed carries its `href` and the next typed character silently
+   * extends the hyperlink. `pending.set` also replaces rather than merges,
+   * so an unguarded write discards the `href: undefined` that
+   * `exitLinkIfAtTrailingEdge` already armed there.
+   *
+   * The docs toolbar half solves this on its own shared seed
+   * (`pendingStyleFor` in `view/editor.ts`); this is the keyboard half, so
+   * Cmd+B/I/U/S and Cmd+\ agree with it on where a link ends. Both read the
+   * same `isAtLinkTrailingEdge`. No caller here ever writes an `href` of its
+   * own — insert/remove-link goes through the link commands, not pending —
+   * so there is no "the write means it" case to exempt.
+   */
+  private setPendingStyleGuarded(seed: Partial<InlineStyle>): void {
+    const prev = this.pending?.get();
+    const exitsLink =
+      isAtLinkTrailingEdge(this.doc, this.cursor.position) ||
+      !!(prev && 'href' in prev && prev.href === undefined);
+    this.pending?.set(
+      exitsLink ? { ...seed, href: undefined } : seed,
+      this.cursor.position,
+    );
   }
 
   private toggleStyle(style: Partial<InlineStyle>): void {
@@ -3557,8 +3592,10 @@ export class TextEditor {
     if (!this.selection.hasSelection() || !this.selection.range) {
       // Collapsed caret — record the toggle in pending so the next
       // typed character picks it up. Mirrors the toolbar's collapsed
-      // path through editor.applyStyle.
-      this.pending?.set({ ...visual, ...resolved }, this.cursor.position);
+      // path through editor.applyStyle, guard included: `visual` is
+      // caret-derived, so at a link's trailing edge it carries the link's
+      // `href` and Cmd+B would re-arm the hyperlink the caret just left.
+      this.setPendingStyleGuarded({ ...visual, ...resolved });
       this.requestRender();
       return;
     }
@@ -3661,7 +3698,7 @@ export class TextEditor {
    *
    * `image`, `pageNumber` and `href` are dropped: they are structural inline
    * kinds — *what the run is* — not how it looks, which is why
-   * `CLEAR_INLINE_STYLE` leaves the first two out too. The buffer is merged
+   * `CLEAR_INLINE_STYLE` leaves all three out too. The buffer is merged
    * over every run of the target selection, so carrying them would graft the
    * source's image / page-number field / hyperlink onto each of those runs.
    */
@@ -6085,29 +6122,6 @@ export class TextEditor {
   }
 
   /**
-   * True if `pos` sits exactly at the trailing edge of a hyperlink run —
-   * not merely inside one. Guards against a link split across adjacent
-   * runs (e.g. a bold portion of the same URL) by checking the next run
-   * doesn't continue the same href.
-   */
-  private isAtLinkTrailingEdge(pos: DocPosition): boolean {
-    let block: Block;
-    try { block = this.doc.getBlock(pos.blockId); } catch { return false; }
-
-    let start = 0;
-    for (let i = 0; i < block.inlines.length; i++) {
-      const inline = block.inlines[i];
-      const end = start + inline.text.length;
-      if (pos.offset === end && pos.offset > start && inline.style.href) {
-        const next = block.inlines[i + 1];
-        return !(next && next.style.href === inline.style.href);
-      }
-      start = end;
-    }
-    return false;
-  }
-
-  /**
    * If the caret sits at the trailing edge of a hyperlink, arm the
    * pending style with `href: undefined` so the next typed character
    * (first char of a new paragraph on Enter, or a typed space) exits
@@ -6118,7 +6132,7 @@ export class TextEditor {
    * standalone Slides text boxes, which don't call `setPendingStyle`.
    */
   private exitLinkIfAtTrailingEdge(pos: DocPosition): void {
-    if (!this.isAtLinkTrailingEdge(pos)) return;
+    if (!isAtLinkTrailingEdge(this.doc, pos)) return;
     const base = this.getStyleAtCursor();
     const visual = this.pending?.has() ? { ...base, ...this.pending.get()! } : base;
     this.pending?.set({ ...visual, href: undefined }, pos);

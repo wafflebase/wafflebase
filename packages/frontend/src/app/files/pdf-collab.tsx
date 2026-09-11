@@ -121,9 +121,18 @@ export function PdfCollabStateProvider({
   };
 
   // Broadcast the active page (deduped) for presence.
+  //
+  // Not on a read-only mount. A presence publish is a `doc.update()` like any
+  // other, so it is a local change the next `PushPull` carries with verb `rw`
+  // — which the Yorkie auth webhook, enforcing by default, refuses for a
+  // share-link `viewer`. Publishing here would therefore not just fail: it
+  // would wedge the viewer's whole sync at the first page scroll, the same
+  // failure the `initialRoot` seed below avoids. Losing it costs a viewer's
+  // avatar its page number in peers' presence; keeping the document readable
+  // is worth more.
   const lastPageRef = useRef<number>(-1);
   const onActivePageChange = (pageIndex: number) => {
-    if (!doc || pageIndex === lastPageRef.current) return;
+    if (readOnly || !doc || pageIndex === lastPageRef.current) return;
     lastPageRef.current = pageIndex;
     doc.update((_r, p) => p.set({ activePage: pageIndex }));
   };
@@ -189,7 +198,18 @@ export function PdfCollabProvider({
   return (
     <CollabDocumentProvider<YorkiePdfRoot, PdfPresence>
       docKey={`pdf-${documentId}`}
-      initialRoot={initialPdfRoot()}
+      // A read-only mount — a share-link `viewer` — must not seed the root.
+      // The SDK writes every absent `initialRoot` key in a `doc.update()`
+      // *after* the attach RPC returns, so a seed is a local change the next
+      // `PushPull` carries; its verb is then `rw`, which the Yorkie auth
+      // webhook refuses for a viewer. Seeding would therefore both write to
+      // the document as the one role that must not, and leave the viewer's
+      // sync denied. Safe to skip: every `root.comments` read is
+      // existence-guarded (`pdf-comment-store.ts`) and a viewer cannot add a
+      // comment at all, while the LWW argument for seeding the container is
+      // about two *editors* racing on the first comment — and editors still
+      // seed. Same rule as `docsInitialRootForRole` and its siblings.
+      initialRoot={readOnly ? {} : initialPdfRoot()}
       initialPresence={presence}
       enableDevtools={import.meta.env.DEV}
     >

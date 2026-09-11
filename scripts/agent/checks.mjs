@@ -213,10 +213,12 @@ function newestRun(runs) {
  * COMPLETED because the API answers 422 for a run still in flight. Note this is
  * NOT always the run `ciConclusion` reads: with a newer run still in flight,
  * gate 1 already answers `null` ("not known yet") and this returns the finished
- * one underneath it. That is the right pair anyway — the in-flight run will
- * emit its own completion, so re-running the finished one adds the
- * `run_attempt > 1` event the panel re-engages on without waiting, and gate 1
- * reads whichever ends up newest when it next runs.
+ * one underneath it. That is the right pair anyway — re-running the finished
+ * one adds the `run_attempt > 1` event the panel re-engages on without waiting,
+ * and gate 1 reads whichever ends up newest when it next runs.
+ *
+ * When NOTHING is completed, the answer is null and the caller must not stop
+ * there — see `ciRunToAwait`.
  *
  * `workflowRuns` is expected to be already scoped to the CI workflow file by
  * the caller's `workflow_id: 'ci.yml'`, so this does not re-filter by path.
@@ -230,6 +232,32 @@ function newestRun(runs) {
  */
 export function ciRunToRerun(workflowRuns) {
   return newestRun((workflowRuns || []).filter((r) => r?.status === "completed"));
+}
+
+/**
+ * The run `@claude rerun` / `@claude loop` must WAIT for before it can re-run
+ * anything, or null. Only consulted when `ciRunToRerun` found nothing.
+ *
+ * An in-flight run used to end the verb: "No CI run to re-run — the panel will
+ * engage on the next CI run." There is no next CI run. The round's one
+ * `requested` event was spent while the PR was still latched (the panel's
+ * `gate` fires ~5s after CI is created, and the operator types the comment
+ * minutes later), and the panel refuses a `completed` event on `run_attempt`
+ * 1 — so the only thing that could re-engage the round is the attempt 2 this
+ * verb declined to produce. #1047 and #1052 both sat unreviewed for five hours
+ * on exactly that, while the comment said the loop was resuming.
+ *
+ * NOT COMPLETED, rather than an allow-list of `queued` / `in_progress`:
+ * GitHub has added run statuses before (`waiting`, `pending`, `requested`), and
+ * a status this pipeline has never heard of has to read as "still going" —
+ * which makes the caller wait and then re-run — not as "nothing here", which is
+ * the bug above. The two selections therefore partition the listing.
+ *
+ * MIRRORED INLINE at both call sites for the same reason `ciRunToRerun` is,
+ * and pinned by the same test.
+ */
+export function ciRunToAwait(workflowRuns) {
+  return newestRun((workflowRuns || []).filter((r) => r?.status !== "completed"));
 }
 
 /**

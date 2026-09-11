@@ -8,6 +8,7 @@ export type {
   NoteSelection,
 } from './store/store.js';
 export { MemNoteStore } from './store/memory.js';
+export { readOnlyNoteStore } from './store/read-only.js';
 export type { Unsubscribe } from './types.js';
 export {
   MAX_DISPLAY_NAME_LENGTH,

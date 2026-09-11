@@ -26,7 +26,7 @@ import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt, linkRunCoveringRange, rewriteLinkHrefInPlace } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
-import { caretInlineStyle } from '../model/caret-style.js';
+import { caretInlineStyle, isAtLinkTrailingEdge } from '../model/caret-style.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
 import { LocalSpellProvider } from '../spell/local-provider.js';
@@ -93,9 +93,11 @@ export interface EditorAPI {
   /**
    * Strip all character-level inline styles (bold, italic, underline,
    * strikethrough, super/subscript, font size, font family, color,
-   * background color, href) from the current selection. Block-level
+   * background color) from the current selection. Block-level
    * formatting and structural inlines (page-number, image) are
-   * preserved. No-op when nothing is selected.
+   * preserved, and so is a run's `href` — a hyperlink is content, not
+   * character formatting, and `removeLink` is the separate command that
+   * drops one (issue #1051). No-op when nothing is selected.
    */
   clearInlineFormatting(): void;
   /** Apply block style to the block containing the cursor */
@@ -1226,10 +1228,43 @@ export function initialize(
     return caretInlineStyle(doc, cursor.position, withStyleDefaults);
   }
 
+  /**
+   * The pending style a *collapsed caret* records for `style`.
+   *
+   * Seeded from the caret's own run style so a single-key write (Bold, a
+   * colour, a font-size step) keeps the rest of the formatting the caret
+   * carries. That seed is also the trap: at a hyperlink's trailing edge the
+   * caret run *is* the link, so the seed carries its `href` and the next
+   * typed character silently extends the hyperlink — and because
+   * `pending.set` replaces rather than merges, the seed also discards an
+   * `href: undefined` that `exitLinkIfAtTrailingEdge` already armed there.
+   *
+   * Keeping a hyperlink through Clear formatting is the point of issue
+   * #1051; *growing* one is not. The rule therefore lives here, on the one
+   * seed every collapsed-caret write shares, rather than on the Clear
+   * formatting entry point alone — Bold and the font-size steppers reach
+   * this same branch and would otherwise re-arm the link the guard just
+   * dropped. Off the shared `isAtLinkTrailingEdge` test, so the toolbar and
+   * the Cmd+\ half (`TextEditor.clearFormatting`) agree on where a link
+   * ends.
+   *
+   * `style` wins when it names `href` itself: a write that sets a link
+   * (`insertLink`) means it.
+   */
+  function pendingStyleFor(style: Partial<InlineStyle>): Partial<InlineStyle> {
+    const seed = { ...getSelectionStyleImpl(), ...style };
+    if ('href' in style) return seed;
+    const prev = pending.get();
+    const exitsLink =
+      isAtLinkTrailingEdge(doc, cursor.position) ||
+      !!(prev && 'href' in prev && prev.href === undefined);
+    return exitsLink ? { ...seed, href: undefined } : seed;
+  }
+
   function applyStyleImpl(style: Partial<InlineStyle>): void {
     if (!(selection.hasSelection() && selection.range)) {
       // Collapsed caret — record the style for the next typed run.
-      pending.set({ ...getSelectionStyleImpl(), ...style }, cursor.position);
+      pending.set(pendingStyleFor(style), cursor.position);
       render();
       notifyStyleApplied();
       return;
@@ -3454,6 +3489,14 @@ export function initialize(
       // and dirty-marking all flow through the same logic as ordinary
       // inline-style writes. CLEAR_INLINE_STYLE is the single source of
       // truth for which keys count as "character formatting".
+      //
+      // A collapsed caret at a hyperlink's trailing edge needs an `href:
+      // undefined` on the pending style, or the next typed character
+      // extends the link this change deliberately preserves. That is not
+      // special-cased here: it belongs to the collapsed-caret seed itself
+      // (`pendingStyleFor`), which Bold, the colour pickers and the
+      // font-size steppers share — patching it at this one entry point
+      // left every sibling button re-arming the link.
       applyStyleImpl(CLEAR_INLINE_STYLE);
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {

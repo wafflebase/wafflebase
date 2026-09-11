@@ -35,7 +35,7 @@ import { CanvasTextMeasurer } from './canvas-measurer.js';
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt, rewriteLinkHrefInPlace } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
-import { caretInlineStyle } from '../model/caret-style.js';
+import { caretInlineStyle, isAtLinkTrailingEdge } from '../model/caret-style.js';
 import {
   computeLayout,
   type ComposingContext,
@@ -263,9 +263,10 @@ export interface TextBoxEditorAPI {
   /**
    * Strip all character-level inline styles (bold, italic, underline,
    * strikethrough, super/subscript, font size, font family, color,
-   * background color, href) from the current selection. Block-level
-   * formatting and structural inlines are preserved — matches the docs
-   * `EditorAPI.clearInlineFormatting` contract.
+   * background color) from the current selection. Block-level
+   * formatting, structural inlines and a run's `href` are preserved;
+   * matches the docs `EditorAPI.clearInlineFormatting` contract,
+   * `removeLink` being the way to drop a hyperlink.
    */
   clearInlineFormatting(): void;
 
@@ -304,7 +305,11 @@ export interface TextBoxEditorAPI {
   /** Insert a hyperlink on the current selection (or insert URL text if no selection). */
   insertLink(url: string): void;
 
-  /** Remove the hyperlink at the current cursor position. */
+  /**
+   * Drop a hyperlink, leaving its text in place. With a selection, every
+   * `href` the selection covers goes; with a bare caret, the link run the
+   * caret touches. No-op when neither finds one.
+   */
   removeLink(): void;
 
   /** Get the href of the link at the current cursor position, if any. */
@@ -880,7 +885,21 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       const current = effective.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
       const next = clamp(current + delta);
       if (!Number.isFinite(next) || next === current) return;
-      pending.set({ ...base, fontSize: next }, cursor.position);
+      // `base` is caret-derived, so at a hyperlink's trailing edge it carries
+      // the link run's `href` and the next typed character would extend the
+      // hyperlink. Same rule, same shared test, as the docs toolbar's
+      // `pendingStyleFor` and the keyboard's `setPendingStyleGuarded` — and
+      // it matters most here, because a slides text box has no link popover
+      // to undo it with. `pending.set` replaces rather than merges, so an
+      // already-armed `href: undefined` has to be carried over too.
+      const seed = { ...base, fontSize: next };
+      const exitsLink =
+        isAtLinkTrailingEdge(doc, cursor.position) ||
+        ('href' in staged && staged.href === undefined);
+      pending.set(
+        exitsLink ? { ...seed, href: undefined } : seed,
+        cursor.position,
+      );
       requestRender();
       notifyStyleApplied();
       return;
@@ -1244,6 +1263,25 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
 
     removeLink(): void {
+      // A selection wins over the caret. The Slides text-edit toolbar
+      // renders Remove link as an ordinary button (docs offers it only
+      // from the link popover, which opens on a caret), and the gesture
+      // that reaches for it is "drag over the linked text, click Remove
+      // link". After such a drag the caret sits at the selection's focus —
+      // *past* the link whenever the selection reaches beyond it — so a
+      // caret-only lookup made the click a silent no-op, on the one
+      // surface where this button is the only way to drop a hyperlink
+      // (Clear formatting keeps them since issue #1051).
+      //
+      // Routed through `applyStyleImpl` so the snapshot / layout / render
+      // bookkeeping is the one the style writes already use. A partial
+      // selection unlinks exactly what it covers: dragging cannot produce
+      // one (`TextEditor.setSnappedRange` expands a range out to whole
+      // links), so it only arises from a deliberate keyboard selection.
+      if (selection.hasSelection() && selection.range) {
+        applyStyleImpl({ href: undefined });
+        return;
+      }
       const block = doc.findBlock(cursor.position.blockId);
       if (!block) return;
       const link = findLinkRunAt(block, cursor.position.offset);

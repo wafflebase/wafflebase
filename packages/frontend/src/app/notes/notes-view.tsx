@@ -1,5 +1,7 @@
 import {
   initialize,
+  readOnlyNoteStore,
+  type NoteStore,
   type NoteEditorAPI,
   type ThemeMode,
   type NoteViewMode,
@@ -36,8 +38,13 @@ interface NotesViewProps {
    * Show the blame gutter (who last edited each line). Display only — every
    * client records authorship regardless, so what one reader sees does not
    * depend on what the writers had switched on. Omitted, it falls back to the
-   * viewer's own stored preference, which is how the share-link mount (no view
-   * menu of its own) gets the gutter at all.
+   * viewer's own stored preference — the same value both mounting routes seed
+   * their own state from. Both of them do pass it (each owns a view menu), so
+   * the fallback is unreached today; it is kept so that adding a third mount
+   * cannot silently turn the gutter off for a reader who has it on. Note the
+   * revision preview is not such a mount: it calls the notes engine's
+   * `initialize()` directly (`components/history/revision-preview.tsx`) and
+   * never renders this component.
    */
   showAuthors?: boolean;
   /**
@@ -107,7 +114,10 @@ export function NotesView({
   const gutterOn = showAuthors ?? storedShowAuthors;
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
-  const storeRef = useRef<YorkieNoteStore | null>(null);
+  // `NoteStore`, not `YorkieNoteStore`: on a read-only mount this holds the
+  // write-neutered view of it (see the effect below), and the only thing read
+  // through it here is `getText()` for the thumbnail.
+  const storeRef = useRef<NoteStore | null>(null);
   // The editor is initialized once (see the [didMount, doc] effect below), but
   // `uploadImage` changes identity as the document query resolves the
   // workspace id. Reading it through a ref hands the engine a stable callback
@@ -132,7 +142,18 @@ export function NotesView({
     // no write permission — the auth webhook would reject the update).
     if (!readOnly) ensureText(doc);
 
-    const store = new YorkieNoteStore(doc);
+    // A viewer mount holds a WRITE-NEUTERED handle, not the raw CRDT store.
+    // The editor's read-only mode stops typing and (via `EditorState.readOnly`
+    // plus a remote-only `changeFilter`) every CodeMirror transaction, but a
+    // store handle reaches around all of that — `editText`, `batch`, `undo`
+    // and the presence publish are `doc.update` calls that pass through no
+    // transaction at all. `readOnlyNoteStore` closes that at the store, the
+    // same boundary `readOnlyDocStore` is for docs, so nothing this component
+    // (or the engine) can be handed is a writable handle on a viewer mount.
+    // `initialize()` wraps too and the wrapper is idempotent, so the guarantee
+    // does not depend on which of the two remembers.
+    const raw = new YorkieNoteStore(doc);
+    const store = readOnly ? readOnlyNoteStore(raw) : raw;
     storeRef.current = store;
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor = initialize(container, store, theme, readOnly, viewMode, {
@@ -152,11 +173,18 @@ export function NotesView({
       editorRef.current = null;
       // Release the store's `doc.subscribe` before dropping the reference, the
       // same reason `docs-view` does: the Yorkie document belongs to the
-      // enclosing `DocumentProvider` and outlives this effect, so a store left
-      // subscribed keeps handling events for an editor that no longer exists.
-      // This effect re-runs on a `readOnly` flip, so without it every
+      // enclosing `CollabDocumentProvider` and outlives this effect, so a store
+      // left subscribed keeps handling events for an editor that no longer
+      // exists. This effect re-runs on a `readOnly` flip, so without it every
       // mid-session downgrade leaks one subscription.
-      store.dispose();
+      //
+      // `raw`, not `store`: on a read-only mount `store` is the
+      // `readOnlyNoteStore` proxy, whose reader allowlist covers the seven
+      // non-mutating `NoteStore` members and therefore neuters `dispose` to a
+      // no-op — so disposing through it would leak the very subscription this
+      // line exists to release. Disposal is lifecycle, not a document
+      // mutation, so it belongs on the real store either way.
+      raw.dispose();
       storeRef.current = null;
       onEditorReady?.(null);
     };

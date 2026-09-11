@@ -353,7 +353,15 @@ export function DocsView({
     // early-returns, so an absent tree is a blank page rather than a crash.
     if (!readOnly && !ensureTree(doc)) return;
 
-    const store = new YorkieDocStore(doc);
+    // `readOnly` here silences *presence*: this component publishes the local
+    // caret on the raw store (`onCursorMove` below, and the remote-change
+    // handler's `publishResolvedLocalCursor`), which `readOnlyDocStore` inside
+    // the engine never sees. A presence write is a `doc.update()`, so the next
+    // `PushPull` carries verb `rw` and the auth webhook — enforcing by default
+    // — refuses it for a share-link viewer, wedging their own sync on the
+    // first click. The store keeps anchoring the caret locally, so a viewer's
+    // selection still survives a peer's edit.
+    const store = new YorkieDocStore(doc, Boolean(readOnly));
     storeRef.current = store;
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor: EditorAPI = initialize(container, store, theme, readOnly);

@@ -16,6 +16,56 @@ describe('migrateDocument', () => {
     expect(out.layouts.find((l) => l.id === 'blank')).toBeDefined();
   });
 
+  it("reconciles meta ids onto the deck's own themes/masters", () => {
+    // A customized deck whose `meta` pins ids its arrays no longer carry.
+    // `migrateMeta` alone answers 'default-light' / 'default', which
+    // `getActiveTheme` refuses — the read path has to reconcile, because a
+    // share-link viewer mount never runs the CRDT repair.
+    const customized = {
+      meta: { title: 'Deck', themeId: 'gone', masterId: 'gone' },
+      slides: [],
+      layouts: [],
+      themes: [{ id: 'coral', name: 'Coral' }],
+      masters: [{ id: 'custom', name: 'Custom', placeholders: [] }],
+    } as any;
+    const out = migrateDocument(customized);
+    expect(out.meta.themeId).toBe('coral');
+    expect(out.meta.masterId).toBe('custom');
+  });
+
+  it('does not reconcile onto a themes entry with no string id', () => {
+    // `themes` / `masters` are read off the CRDT, where a collaborator can
+    // write an entry carrying no `id`. Reconciling onto it would assign
+    // `undefined` to a `string` field, and `getActiveTheme` would then match
+    // `undefined === undefined` and resolve a theme with no palette — a
+    // malformed deck rendering from nothing instead of reporting the id.
+    const malformed = {
+      meta: { title: 'Deck', themeId: 'gone', masterId: 'gone' },
+      slides: [],
+      layouts: [],
+      themes: [{ name: 'No id' }, { id: 42 }],
+      masters: [{ name: 'No id either' }],
+    } as any;
+    const out = migrateDocument(malformed);
+    expect(out.meta.themeId).toBe('gone');
+    expect(out.meta.masterId).toBe('gone');
+    expect(typeof out.meta.themeId).toBe('string');
+    expect(typeof out.meta.masterId).toBe('string');
+  });
+
+  it('reconciles onto the first entry that does carry a string id', () => {
+    const partial = {
+      meta: { title: 'Deck', themeId: 'gone', masterId: 'gone' },
+      slides: [],
+      layouts: [],
+      themes: [{ name: 'No id' }, { id: 'coral', name: 'Coral' }],
+      masters: [{ id: '' }, { id: 'custom', name: 'Custom' }],
+    } as any;
+    const out = migrateDocument(partial);
+    expect(out.meta.themeId).toBe('coral');
+    expect(out.meta.masterId).toBe('custom');
+  });
+
   it('remaps legacy layoutId "title" to "title-slide"', () => {
     const legacy = {
       meta: { title: 'Old' },

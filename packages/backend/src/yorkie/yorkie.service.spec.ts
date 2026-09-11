@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { YorkieService } from './yorkie.service';
 
 // Mock the @yorkie-js/sdk module
@@ -31,9 +32,15 @@ jest.mock('@yorkie-js/sdk', () => {
   };
 });
 
+const JWT_SECRET = 'test-secret';
+
 function createMockConfigService(): ConfigService {
   return {
-    get: jest.fn().mockReturnValue('http://localhost:8080'),
+    get: jest.fn((key: string) => {
+      if (key === 'JWT_SECRET') return JWT_SECRET;
+      if (key === 'YORKIE_TOKEN_EXPIRES_IN') return undefined;
+      return 'http://localhost:8080';
+    }),
   } as unknown as ConfigService;
 }
 
@@ -160,6 +167,47 @@ describe('YorkieService', () => {
       );
       expect(mockDetach).toHaveBeenCalled();
       expect(mockDeactivate).toHaveBeenCalled();
+    });
+
+    // The auth webhook enforces by default, and a client with no token is
+    // exactly what it refuses — so every server-side attach has to identify
+    // itself as this backend or 401 on any deployment that registered the
+    // webhook methods.
+    // ...and the token names the one document key this client attaches to, so
+    // a token that leaves the process (it is sent to whatever Yorkie server
+    // `YORKIE_RPC_ADDR` points at, on every RPC) is worth that document
+    // rather than every document in the deployment.
+    it('attaches with a backend service token scoped to the document', async () => {
+      const { Client } = jest.requireMock('@yorkie-js/sdk') as {
+        Client: jest.Mock;
+      };
+
+      await service.withDocument('doc-1', () => 'ok');
+
+      const injector = Client.mock.calls[0][0].authTokenInjector as () =>
+        | Promise<string>
+        | undefined;
+      expect(injector).toBeInstanceOf(Function);
+      const token = await injector();
+      expect(
+        new JwtService().verify(token!, { secret: JWT_SECRET }),
+      ).toMatchObject({ typ: 'yorkie-service', key: 'sheet-doc-1' });
+    });
+
+    it('scopes the token to the requested doc key prefix', async () => {
+      const { Client } = jest.requireMock('@yorkie-js/sdk') as {
+        Client: jest.Mock;
+      };
+
+      await service.withDocument('doc-1', () => 'ok', { docKeyPrefix: 'doc-' });
+
+      const injector = Client.mock.calls[0][0].authTokenInjector as () =>
+        | Promise<string>
+        | undefined;
+      const token = await injector();
+      expect(
+        new JwtService().verify(token!, { secret: JWT_SECRET }),
+      ).toMatchObject({ key: 'doc-doc-1' });
     });
 
     it('concurrent calls to the same document should not conflict', async () => {

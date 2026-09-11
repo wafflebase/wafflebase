@@ -273,14 +273,18 @@ export function SlidesView({
       }
     }
 
-    // Known gap (intentional in this PR): `ensureSlidesRoot` may run a
-    // `doc.update()` migration block when a viewer mounts an
-    // unmigrated pre-v0.5 deck, contradicting the empty-deck-seed
-    // policy below. Fixing it properly (gating the migration on a
-    // role, or migrating server-side) is owned by the doc-migration
-    // workstream — not the share-link toolbar work.
+    // Seed / backfill the root only when this mount may write. On a
+    // read-only (share-link viewer) mount `ensureSlidesRoot` would run a
+    // `doc.update()` on the CRDT root — the seed for an empty deck, or the
+    // themes/masters/guides/`meta.themeId` backfill for an unmigrated
+    // pre-v0.5 one — which the Yorkie auth webhook, enforcing by default,
+    // refuses at the next `PushPull` and so wedges the viewer's sync. The
+    // store's `read()` performs the same backfill in memory, so a viewer
+    // still renders an unmigrated deck; the next editor persists it.
+    // Matches the empty-deck seed gate below and `mobile-slides-view`.
     ensureSlidesRoot(doc, {
       initialThemePreference: resolvedThemeRef.current,
+      readOnly: readOnlyMount,
     });
 
     // Build the canvas + overlay DOM into the container. The slides
@@ -736,9 +740,18 @@ export function SlidesView({
       // their pre-font-load fallback widths stop showing through.
       onFontsLoaded: () => thumbHandle?.refreshContent(),
       // onLinkRequest is still intentionally unwired — the link popover
-      // needs a richer TextBoxEditorAPI (insertLink / getLinkAtCursor)
-      // before it can drive the docs text-box. Cmd+K no-ops at the
-      // editor level until then.
+      // needs an on-canvas anchor (it positions off DOM rects, which a
+      // text box inside the slide canvas has none of) before it can
+      // drive the docs text-box. Cmd+K no-ops at the editor level until
+      // then, so *inserting* a link here is not yet possible.
+      //
+      // *Removing* one is, and has to be: a run can pick up an href
+      // without this path — autolink-on-space in the shared docs
+      // `TextEditor`, or a PPTX import — and Clear formatting stopped
+      // dropping hyperlinks in issue #1051. The text-edit toolbar
+      // therefore renders a Remove link button
+      // (`toolbar/text-edit-section.tsx`, `showRemoveLink`) wired to the
+      // text box's `removeLink()`.
     });
     editorRef.current = editor;
     onEditorReady?.(editor);
@@ -1126,7 +1139,15 @@ export function SlidesView({
     // slides-specific fields. The username/email/photo were seeded by
     // SlidesDetail via `initialPresence` and stay intact across these
     // partial updates.
+    //
+    // Silent on a read-only mount. `updatePresence` is a `doc.update()`, so
+    // it is a local change the next `PushPull` carries with verb `rw` — which
+    // the auth webhook, enforcing by default, refuses for a share-link
+    // `viewer`. So a viewer merely clicking through slides would wedge their
+    // own sync; the cost of staying quiet is that their avatar carries no
+    // slide/selection, which is what a read-only visitor has anyway.
     const broadcast = () => {
+      if (readOnlyMount) return;
       // Table cell-range presence: map the editor's local cell selection
       // to the wire shape, or `undefined` to clear it (Presence.set
       // merges, and peers guard on the field — so undefined reads the

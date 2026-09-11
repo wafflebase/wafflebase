@@ -51,7 +51,11 @@ jobs:
     needs: [route]
     if: needs.route.outputs.command == 'rerun'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Above the 30-minute wait the re-run step may spend on an in-flight CI run,
+    # with room for the API work either side of it. A wall at or below the wait
+    # would kill the job mid-poll and re-create the dead end this verb exists to
+    # clear: latch deleted, nothing re-run, and the operator told neither.
+    timeout-minutes: 40
     permissions:
       # WRITE, not read. Label operations on a PULL REQUEST need
       # `pull-requests: write`; `issues: write` covers its COMMENTS but not its
@@ -113,6 +117,8 @@ jobs:
 
       - name: Clear the block and re-run CI
         id: rerun
+        env:
+          PLACEHOLDER_ID: ${{ steps.placeholder.outputs.id }}
         uses: actions/github-script@v7
         with:
           retries: 3
@@ -182,11 +188,14 @@ jobs:
             // mechanism agent-loop.yml uses to engage the loop. Best-effort — if there
             // is nothing to re-run, the cleared latch still lets the next CI run through.
             let reran = false;
+            let ciNote = "No CI run for this head — the panel will engage on the next CI run.";
             try {
-              // Mirrors `ciRunToRerun` in scripts/agent/checks.mjs, where the rule
-              // is unit-tested — this step runs before any checkout and cannot
-              // import it, the same constraint that makes agent-review-panel.yml
-              // mirror `ciRunDecision` inline. checks.test.mjs pins both copies.
+              // Mirrors `ciRunToRerun` / `ciRunToAwait` in scripts/agent/checks.mjs,
+              // where the rules are unit-tested — this step runs before any
+              // checkout and cannot import them, the same constraint that makes
+              // agent-review-panel.yml mirror `ciRunDecision` inline.
+              // checks.test.mjs extracts both selections from this file and runs
+              // them against the exported functions.
               //
               // Exactly ONE run — the newest COMPLETED one. That is the run whose
               // conclusion gate 1 reads, and re-running it bumps run_attempt,
@@ -196,18 +205,92 @@ jobs:
               // conclusions, and a re-run REPLACES one) and emit a completion per
               // run into a cancel-in-progress group, cancelling the fixer
               // mid-push. COMPLETED because the API answers 422 for a run still
-              // in flight — which emits its own completion event anyway.
+              // in flight.
               const all = await github.paginate(github.rest.actions.listWorkflowRuns, {
                 owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 100,
               });
               const completed = all.filter((r) => r.status === 'completed');
               const run = completed.reduce((n, r) => (n === null || r.id > n.id ? r : n), null);
-              if (run) { await github.rest.actions.reRunWorkflow({ owner, repo, run_id: run.id }); reran = true; }
+              // NOT completed, rather than queued/in_progress: a status this
+              // pipeline has never heard of must read as "still going", the
+              // direction where we wait and then re-run.
+              const pending = all.filter((r) => r.status !== 'completed');
+              const awaited = pending.reduce((n, r) => (n === null || r.id > n.id ? r : n), null);
+
+              let target = run;
+              if (!target && awaited) {
+                // THE DEAD ZONE THIS WAIT EXISTS FOR. An in-flight run used to end
+                // the verb with "the panel will engage on the next CI run" — and
+                // there is no next CI run. This round's one `requested` event was
+                // spent seconds after CI was created, while the paged latch we
+                // just deleted was still refusing the panel, and the panel admits
+                // a `completed` event only on `run_attempt > 1`. So the attempt 2
+                // this step declined to produce was the only thing that could
+                // re-engage the round. #1047 and #1052 both sat unreviewed for
+                // five hours that way while the comment said they were resuming.
+                target = await (async () => {
+                  const deadline = Date.now() + 30 * 60 * 1000;
+                  // Best-effort: tell the operator what the 15-minute silence is.
+                  // GITHUB_TOKEN editing an App-authored comment; if it 403s the
+                  // final edit still lands.
+                  try {
+                    await github.rest.issues.updateComment({
+                      owner, repo, comment_id: Number(process.env.PLACEHOLDER_ID),
+                      body: `🤖 \`@claude rerun\` — paged latches cleared. CI run [${awaited.id}](${awaited.html_url}) ` +
+                        'is still in flight; waiting for it to finish before re-running it (up to 30 min).',
+                    });
+                  } catch (e) { core.warning(`Could not update the placeholder (${e.message}).`); }
+                  while (Date.now() < deadline) {
+                    await new Promise((r) => setTimeout(r, 20000));
+                    // A blip must not end a thirty-minute wait: one 5xx would
+                    // otherwise throw out to the outer catch and leave the round
+                    // exactly where this change found it.
+                    try {
+                      const { data: cur } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: awaited.id });
+                      if (cur.status === 'completed') return cur;
+                    } catch (e) { core.warning(`Could not read CI run ${awaited.id} (${e.message}); still waiting.`); }
+                  }
+                  core.warning(`CI run ${awaited.id} did not finish within the wait budget.`);
+                  ciNote = `⚠️ CI run [${awaited.id}](${awaited.html_url}) was still running after 30 minutes, so nothing was re-run — comment \`@claude rerun\` again once it finishes.`;
+                  return null;
+                })();
+
+                if (target) {
+                  // A lot can land in thirteen minutes. Re-running a run whose sha
+                  // is no longer the head runs CI against a stale commit, and the
+                  // push that moved it engaged the loop on its own.
+                  const { data: fresh } = await github.rest.pulls.get({ owner, repo, pull_number: pr_number });
+                  if (fresh.head.sha !== pr.head.sha) {
+                    ciNote = 'A new commit landed while CI was running, so nothing was re-run here — that push engages the loop on its own.';
+                    target = null;
+                  } else if (target.conclusion === 'failure') {
+                    // agent-iterate-ci.yml has no attempt gate, so it fired on
+                    // this completion and its fixer may be pushing right now. Its
+                    // concurrency group is cancel-in-progress keyed on the branch,
+                    // so a second `completed/failure` event would cancel that
+                    // fixer mid-push — #648's failure mode, re-entered through the
+                    // fix for a different one.
+                    ciNote = 'CI failed, and the CI-fix arm engaged on that completion — re-running it here would cancel its fixer mid-push, so nothing was re-run.';
+                    target = null;
+                  } else {
+                    ciNote = 'Waited for the in-flight CI run to finish, then re-ran it; the review panel will run again and can promote or fix this PR.';
+                  }
+                }
+              } else if (target) {
+                ciNote = 'Re-running CI now; the review panel will run again and can promote or fix this PR.';
+              }
+
+              if (target) {
+                await github.rest.actions.reRunWorkflow({ owner, repo, run_id: target.id });
+                reran = true;
+              }
             } catch (e) {
               core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);
+              ciNote = `⚠️ Could not re-run CI (${e.message}) — re-run it by hand, or push to the branch.`;
             }
 
             core.setOutput('engaged', 'true');
+            core.setOutput('reran', String(reran));
             core.setOutput('outcome',
               `🔁 Rerun engaged — cleared ${clearedLatch} paged marker(s). ` +
               (labelDropped === true
@@ -215,9 +298,7 @@ jobs:
                 : labelDropped === null
                   ? '`agent:blocked` was not set. '
                   : '⚠️ Could NOT drop `agent:blocked` — remove it by hand; the loop is otherwise unblocked. ') +
-              (reran
-                ? "Re-running CI now; the review panel will run again and can promote or fix this PR."
-                : "No CI run to re-run — the panel will engage on the next CI run.") +
+              ciNote +
               " The review→fix round budget restarts from here; the CI-fix arm's own" +
               " attempt bound (counted from prior failed CI runs) is NOT reset, and a human" +
               " approval is still required to merge.");
@@ -261,9 +342,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.issue.number }}
+          # The note said "CI re-running" whether or not anything was — the same
+          # class of claim the outcome comment above was fixed for.
+          RERAN: ${{ steps.rerun.outputs.reran }}
         run: |
           [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          if [ "$RERAN" = "true" ]; then
+            CI_NOTE="CI re-running"
+          else
+            CI_NOTE="no CI run was re-run — see the rerun comment for why"
+          fi
           node ./scripts/agent/loop-status.mjs update "$PR" \
             --event rerun \
-            --note "A maintainer ran @claude rerun — paged latches cleared, agent:blocked dropped, CI re-running; the review-fix round budget restarts from here." \
+            --note "A maintainer ran @claude rerun — paged latches cleared, agent:blocked dropped, $CI_NOTE; the review-fix round budget restarts from here." \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
