@@ -88,7 +88,10 @@ type PeerJumpTarget = {
  * How often a mounted share view re-resolves its token (see
  * {@link SharedDocumentByToken}). Bounds how long a revoked or downgraded
  * link keeps the authority it was opened with — one request per minute per
- * open tab against a cheap, unauthenticated lookup.
+ * open tab against a cheap, unauthenticated lookup. That repetition is also
+ * why `resolveShareLink` posts the token instead of spelling it into the
+ * request path: a credential in a URL is a credential in every access log
+ * between here and the backend, once per re-resolve.
  */
 const SHARE_LINK_REVALIDATE_MS = 60_000;
 

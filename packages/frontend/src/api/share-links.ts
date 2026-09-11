@@ -95,12 +95,25 @@ export async function deleteShareLink(id: string): Promise<void> {
 
 /**
  * Resolves share link.
+ *
+ * POST with the token in the body, not in the path, so this access-granting
+ * token stays out of request URLs and the access logs of everything between
+ * the visitor and the backend — the same reason `fetchYorkieShareToken` posts
+ * it. That matters more here than for a one-shot lookup: `SharedDocumentByToken`
+ * re-resolves on an interval and on tab focus, so a path segment would write
+ * the live credential into those logs once a minute per open tab for as long
+ * as the document stays open.
  */
 export async function resolveShareLink(
   token: string
 ): Promise<ResolvedShareLink> {
   const response = await fetch(
-    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${seg(token)}/resolve`
+    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }
   );
   await assertOk(response, "Invalid share link", {
     statusMessages: {
@@ -125,7 +138,7 @@ export async function resolveShareLink(
  * when it cannot connect all say nothing about the link.
  *
  * Enumerated from what the handler actually answers rather than taken as "any
- * 4xx that is not a timeout or a rate-limit". `GET /share-links/:token/resolve`
+ * 4xx that is not a timeout or a rate-limit". `POST /share-links/resolve`
  * is unauthenticated and its only failures are
  * `ShareLinkService.findByToken`'s: `404` (revoked, or never existed) and
  * `410` (expired). Every other 4xx on that request came from something in

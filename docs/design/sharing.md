@@ -50,7 +50,17 @@ to the document and creator.
 - `GET /documents/:id/share-links` — List links + caller capabilities (JWT
   required, any workspace member)
 - `DELETE /share-links/:id` — Revoke link (JWT required; see matrix)
-- `GET /share-links/:token/resolve` — Resolve token (public, no auth)
+- `POST /share-links/resolve` — Resolve token (public, no auth), token in the
+  **body**. This is what the client calls: the shared view re-resolves its
+  token every minute and on tab focus, and a path segment would write that
+  access-granting token into every access log, proxy and CDN between the
+  visitor and the backend on each of those requests. Same reasoning as
+  `POST /auth/yorkie-token/share`.
+- `GET /share-links/:token/resolve` — The same answer with the token in the
+  path (public, no auth). Kept for one-shot callers that predate the POST form
+  — an older frontend served during a rollout — and redacted in this server's
+  own logs by `SECRET_PATH_SEGMENTS` in `log-safe-url.ts`, which can do
+  nothing about anyone else's.
 
 The list endpoint returns `{ links, permissions: { canCreateEditorLink } }`,
 where each link is annotated with a server-computed `canDelete` flag, so the
@@ -201,7 +211,9 @@ it out as `editor`. Resolved once at page load, the view could only ever
 So `SharedDocumentByToken` (`app/shared/shared-document.tsx`) re-resolves its
 token on an interval — `SHARE_LINK_REVALIDATE_MS`, 60 s — and on tab focus,
 through react-query. That is one unauthenticated lookup per minute per open
-tab; react-query pauses the interval while the tab is hidden, and its
+tab, which is why `resolveShareLink` posts the token rather than putting it in
+the path: repeating a credential in a URL repeats it into every access log on
+the way. react-query pauses the interval while the tab is hidden, and its
 structural sharing keeps `resolved`'s identity stable, so an unchanged link
 re-renders nothing. The interval is what bounds how long a revoked or
 downgraded link keeps presenting authority it no longer has.
@@ -214,7 +226,7 @@ Two consequences the rest of the frontend has to honour:
   live editing session — losing whatever had not synced — on the first laptop
   sleep or backend restart that outlasted the retry.
   `isRevokedShareLinkError` (`api/share-links.ts`) therefore enumerates the
-  two statuses `GET /share-links/:token/resolve` actually answers with:
+  two statuses `POST /share-links/resolve` actually answers with:
   `404` (revoked, or never existed) and `410` (expired). Everything else — a
   5xx, a timeout, a rate-limit, the `TypeError` a failed connection throws,
   and any 4xx produced by a proxy in front of the handler — keeps the last
