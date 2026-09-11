@@ -3,6 +3,7 @@ import { computeTableLayout } from '../../src/view/table-layout.js';
 import { DOCS_LAYOUT_OPTIONS } from '../../src/view/layout.js';
 import { computeMergedCellLineLayouts } from '../../src/view/table-renderer.js';
 import { createTableBlock, DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
+import type { Block } from '../../src/model/types.js';
 import { stubMeasurer } from './_stub-measurer.js';
 import { ptToPx } from '../../src/view/theme.js';
 
@@ -203,5 +204,107 @@ describe('computeTableLayout', () => {
     // that does not hand it a pre-resolved `BlockSpacing`, so this is the
     // regression guard for that branch. 20pt -> 26.67px, x1.2 = 32px.
     expect(headingHeight).toBeCloseTo(ptToPx(20) * 1.15, 5);
+  });
+
+  /**
+   * Step 5d publishes a usable row height, and the geometry *derived from the
+   * same line heights* has to be usable with it. A cell height is
+   * `lines.reduce((s, l) => s + l.height, 0) + padding * 2` and a line's `y`
+   * is the running sum of the heights before it, so one non-finite line height
+   * leaves the row finite while the cell and every line in it stay `NaN` —
+   * the renderers, the hit-tests and `computeMergedCellLineLayouts` all read
+   * those, so a half-repaired row is a blank cell inside a visible row.
+   */
+  it('publishes finite cell geometry when a line height cannot be measured', () => {
+    // Two of the three inputs 5d names, each reaching the sum a different
+    // way: an unbanded run size through `getLineMaxFontSizePx`, and an
+    // unbanded line-spacing multiple through `assignLineHeights`. (A `NaN`
+    // font size is not one of them — `getLineMaxFontSizePx`'s `size > max`
+    // is false for it, so it already falls back to the block's own size.)
+    const poison = (cellBlock: Block, kind: 'fontSize' | 'lineHeight') => {
+      if (kind === 'fontSize') {
+        cellBlock.inlines = [{ text: 'X', style: { fontSize: Infinity } }];
+      } else {
+        cellBlock.inlines = [{ text: 'X', style: {} }];
+        cellBlock.style = { ...DEFAULT_BLOCK_STYLE, lineHeight: NaN };
+      }
+    };
+
+    for (const kind of ['fontSize', 'lineHeight'] as const) {
+      const block = createTableBlock(1, 1);
+      poison(block.tableData!.rows[0].cells[0].blocks[0], kind);
+
+      const result = computeTableLayout(block.tableData!, 'tbl', stubCtx(), 200);
+
+      expect(Number.isFinite(result.rowHeights[0])).toBe(true);
+      expect(Number.isFinite(result.totalHeight)).toBe(true);
+      const cell = result.cells[0][0];
+      expect(Number.isFinite(cell.height)).toBe(true);
+      for (const line of cell.lines) {
+        expect(Number.isFinite(line.height)).toBe(true);
+        expect(Number.isFinite(line.y)).toBe(true);
+      }
+      // The row still fits the geometry it publishes: the substitute is
+      // derived from the repaired cells the way step 4 derives a healthy one.
+      expect(result.rowHeights[0]).toBeGreaterThanOrEqual(cell.height);
+    }
+  });
+
+  /**
+   * The row height 5d publishes is now derived from the repaired cells, so
+   * the cell repair may not itself hand back a non-finite height — and line
+   * heights that are each finite can still sum past `Number.MAX_VALUE`.
+   */
+  it('publishes finite cell geometry when the line heights sum past MAX_VALUE', () => {
+    const block = createTableBlock(1, 1);
+    const cell = block.tableData!.rows[0].cells[0];
+    // A multiplier of exactly 1 keeps each line finite (1.5 x 6e307 is
+    // already `Infinity`, which the per-line branch would catch instead), so
+    // it is the *sum* of the three that overflows.
+    cell.blocks = [0, 1, 2].map((i) => ({
+      id: `huge${i}`,
+      type: 'paragraph' as const,
+      style: { ...DEFAULT_BLOCK_STYLE, lineHeight: 1 },
+      inlines: [{ text: 'X', style: { fontSize: 6e307 } }],
+    }));
+
+    const result = computeTableLayout(block.tableData!, 'tbl', stubCtx(), 200);
+
+    const laidOut = result.cells[0][0];
+    expect(laidOut.lines.length).toBeGreaterThan(1);
+    expect(Number.isFinite(laidOut.height)).toBe(true);
+    expect(Number.isFinite(result.rowHeights[0])).toBe(true);
+    expect(Number.isFinite(result.totalHeight)).toBe(true);
+    for (const line of laidOut.lines) {
+      expect(Number.isFinite(line.height)).toBe(true);
+      expect(Number.isFinite(line.y)).toBe(true);
+    }
+  });
+
+  /**
+   * The same poison inside a `rowSpan > 1` cell leaves *every* row height
+   * finite — step 4 skips such a cell in its `rowSpan === 1` pass, and its
+   * `cell.height > spannedHeight` test is false for `NaN` — so nothing about
+   * the row heights reveals that the cell's own geometry is unusable. The
+   * repair cannot be conditioned on a broken row height.
+   */
+  it('publishes finite geometry for a row-spanning cell as well', () => {
+    const block = createTableBlock(2, 1);
+    const td = block.tableData!;
+    td.rows[0].cells[0].rowSpan = 2;
+    td.rows[0].cells[0].blocks[0].inlines = [
+      { text: 'X', style: { fontSize: Infinity } },
+    ];
+    td.rows[1].cells[0].blocks[0].inlines = [{ text: 'plain', style: {} }];
+
+    const result = computeTableLayout(td, 'tbl', stubCtx(), 200);
+
+    const cell = result.cells[0][0];
+    expect(Number.isFinite(cell.height)).toBe(true);
+    for (const line of cell.lines) {
+      expect(Number.isFinite(line.height)).toBe(true);
+      expect(Number.isFinite(line.y)).toBe(true);
+    }
+    expect(Number.isFinite(result.totalHeight)).toBe(true);
   });
 });

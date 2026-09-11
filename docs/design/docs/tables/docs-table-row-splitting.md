@@ -118,15 +118,30 @@ with its own `PageLine`. Either is a hung tab or an OOM for every
 Two rules keep that bounded, and they are deliberately placed one layer
 apart:
 
-- **`computeTableLayout` step 5d** substitutes `MIN_ROW_HEIGHT` for a row
-  height that is not finite and positive. It is the one place a row
-  height *becomes* geometry, so it is the only place allowed to
-  substitute one: the paginator, the renderers, the row hit-tests and the
-  selection math all read `LayoutTable.rowHeights` / `rowYOffsets` /
-  `totalHeight` raw and have to agree with each other. (An earlier
-  revision clamped inside `paginateLayout` instead, which desynced
-  `PageLine.height` from `rowHeights[row]` and left `totalHeight` — the
-  scroll extent — `NaN`.)
+- **`computeTableLayout` step 5d** substitutes a usable row height for one
+  that is not finite and positive. It is the one place a row height
+  *becomes* geometry, so it is the only place allowed to substitute one:
+  the paginator, the renderers, the row hit-tests and the selection math
+  all read `LayoutTable.rowHeights` / `rowYOffsets` / `totalHeight` raw
+  and have to agree with each other. (An earlier revision clamped inside
+  `paginateLayout` instead, which desynced `PageLine.height` from
+  `rowHeights[row]` and left `totalHeight` — the scroll extent — `NaN`.)
+
+  The step repairs the *cell* geometry at the same point, because it is
+  one number: a line height is summed into `LayoutTableCell.height`
+  (and a line's `y` is the running sum before it), which is maxed into
+  the row. A row-only repair published a finite row whose own cells and
+  lines were still `NaN` — and `computeMergedCellLineLayouts`, the
+  painters, the hit-tests and the caret math read those, so the visible
+  row contained a blank, untouchable cell. A line whose height is
+  unusable takes the placeholder height an empty cell's line gets, the
+  offsets are re-flowed over it, and the substituted row height is then
+  re-derived from the repaired cells the way step 4 derives a healthy
+  one (floored at `MIN_ROW_HEIGHT`), so the row still fits the geometry
+  it publishes. The repair cannot be conditioned on a broken row height:
+  step 4 skips a `rowSpan > 1` cell in its `rowSpan === 1` pass and its
+  `cell.height > spannedHeight` test is false for `NaN`, so a poisoned
+  merged cell leaves every row height finite and nothing to key on.
 - **`MAX_ROW_PAGE_SPAN` (200)** bounds the loop by counting *fragments*,
   not by clipping the height: the 200th fragment takes everything left.
   So `sum(rowSplitHeight) === rowHeights[r]` still holds for every row,
