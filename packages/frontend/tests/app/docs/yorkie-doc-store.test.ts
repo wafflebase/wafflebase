@@ -944,17 +944,23 @@ describe('YorkieDocStore', () => {
       // `addToHistory` is falsy. Across two `doc.update`s that is harmless;
       // folded into one change it would erase whatever the batch's own
       // `recordHistoryPresence` staged, so undo would restore the post-edit
-      // caret. The write is skipped rather than folded — presence is
-      // last-write-wins and the next cursor move republishes.
+      // caret. The write is held out of the batch's change rather than
+      // folded in — and replayed in a change of its own once the batch
+      // commits, since `TextEditor.withUndoUnit` now wraps the
+      // `cursor.moveTo()` whose publish is the live caret peers see.
       const block = makeBlock('hello');
       store.setDocument({ blocks: [block] });
       const before = doc.getUndoStackForTest().length;
       store.batch(() => {
         store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
         store.applyStyle(block.id, 0, 5, { bold: true });
+        // Nothing published while the batch's change is still open.
+        expect(store.getPresenceCursorPos()).toBeUndefined();
       });
+      // One undo unit: the replayed presence write carries no `addToHistory`
+      // and so pushes none of its own.
       expect(doc.getUndoStackForTest().length).toBe(before + 1);
-      expect(store.getPresenceCursorPos()).toBeUndefined();
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 2 });
     });
 
     it('restores the pre-edit caret when a batch also publishes a cursor', () => {
@@ -976,6 +982,55 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
       expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 2 });
+    });
+
+    it('replays only the caret the batch ended on, selection included', () => {
+      // An undo unit publishes the caret several times (the edit's own
+      // `moveTo`, then the selection collapse); the one peers must end up
+      // with is the last, so the hold is last-write-wins rather than a queue.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.batch(() => {
+        store.updateCursorPos({ blockId: block.id, offset: 1 }, null);
+        store.updateCursorPos(
+          { blockId: block.id, offset: 4 },
+          { anchor: { blockId: block.id, offset: 2 }, focus: { blockId: block.id, offset: 4 } },
+        );
+      });
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 4 });
+      expect(store.getPresenceSelection()).toEqual({
+        anchor: { blockId: block.id, offset: 2 },
+        focus: { blockId: block.id, offset: 4 },
+      });
+    });
+
+    it('drops the held caret when the batch throws', () => {
+      // Yorkie discards the whole update on a throw, so the writes that caret
+      // described never landed — publishing it would point peers at a
+      // position this replica does not hold either.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      expect(store.getPresenceCursorPos()).toBeUndefined();
+    });
+
+    it('publishes no caret at all from a batch on a read-only mount', () => {
+      // The read-only gate is upstream of the hold: a viewer's presence write
+      // is the `rw` PushPull the auth webhook refuses, so it must not be
+      // deferred into one either.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const readOnlyStore = new YorkieDocStore(doc, true);
+      readOnlyStore.batch(() => {
+        readOnlyStore.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+      });
+      expect(readOnlyStore.getPresenceCursorPos()).toBeUndefined();
+      readOnlyStore.dispose();
     });
 
     it('rethrows and does not leave the ambient root open', () => {

@@ -640,6 +640,24 @@ export class YorkieDocStore implements DocStore {
    * to the batch's undo unit.
    */
   private activePresence: DocsPresenceProxy | null = null;
+  /**
+   * The last live-caret publish {@link skipNonHistoryPresence} held back
+   * while a batch was open, replayed once the batch commits.
+   *
+   * The skip itself is required (a plain presence write folded into the
+   * batch's change erases the reverse presence `recordHistoryPresence`
+   * staged there), but dropping the value outright loses the publish
+   * entirely: `TextEditor.withUndoUnit` now wraps `cursor.moveTo()` — whose
+   * subscriber is the view's throttled `updateCursorPos` — inside the batch,
+   * so on slow typing every leading-edge publish fell inside one and the
+   * throttle recorded it as sent, scheduling no trailing timer. Holding the
+   * last one and replaying it after the `doc.update` returns puts it in its
+   * own change, exactly where it landed before the batching.
+   */
+  private deferredCursorPublish: {
+    pos: DocPosition | null;
+    selection: DocsSelection | null;
+  } | null = null;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -3035,8 +3053,14 @@ export class YorkieDocStore implements DocStore {
       if (!committed) {
         this.dirty = true;
         this.cachedDoc = null;
+        // The writes the held caret described never landed, so publishing it
+        // would point peers at a position this replica does not hold either.
+        this.deferredCursorPublish = null;
       }
     }
+    // Outside the `doc.update` now: replay the live-caret publish the batch
+    // held back, so a typing keystroke still broadcasts its caret.
+    this.flushDeferredCursorPublish();
   }
 
   snapshot(): void {
@@ -3351,11 +3375,41 @@ export class YorkieDocStore implements DocStore {
     // where publishing it is the `rw` PushPull the auth webhook refuses a
     // viewer (see the `readOnly` field).
     if (this.readOnly) return;
-    if (this.skipNonHistoryPresence()) return;
+    if (this.skipNonHistoryPresence()) {
+      // Held, not dropped — see `deferredCursorPublish`. Last write wins:
+      // the caret the action ends on is the one peers must see.
+      this.deferredCursorPublish = {
+        pos: clampedPos ?? null,
+        selection: clampedSelection ?? null,
+      };
+      return;
+    }
     this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: clampedPos ?? undefined,
         activeSelection: clampedSelection ?? undefined,
+      });
+    });
+  }
+
+  /**
+   * Publish the caret {@link updateCursorPos} held back during a batch, in a
+   * change of its own. Called by {@link batch} after its `doc.update` has
+   * committed, so this is an ordinary non-history presence write again — the
+   * batch's own reverse presence is already sealed and cannot be erased by
+   * it, which is the whole reason the write had to wait.
+   */
+  private flushDeferredCursorPublish(): void {
+    const deferred = this.deferredCursorPublish;
+    this.deferredCursorPublish = null;
+    if (!deferred) return;
+    if (this.readOnly) return;
+    // A nested batch would put us right back where we started.
+    if (this.skipNonHistoryPresence()) return;
+    this.withUpdate((_, p) => {
+      p.set({
+        activeCursorPos: deferred.pos ?? undefined,
+        activeSelection: deferred.selection ?? undefined,
       });
     });
   }

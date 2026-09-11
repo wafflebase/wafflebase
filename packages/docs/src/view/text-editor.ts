@@ -3919,9 +3919,14 @@ export class TextEditor {
    * - **`saveSnapshot()` must be called before opening a unit, never inside
    *   one.** On `YorkieDocStore` it also flushes the *pre-edit* caret and
    *   selection into presence, which is what Yorkie records as the reverse of
-   *   the change; inside an open batch that presence write is dropped
-   *   (`skipNonHistoryPresence`) and undo would restore the post-edit caret.
-   *   That ordering costs nothing on `YorkieDocStore` (its `snapshot()` is a
+   *   the change; inside an open batch that presence write is held back
+   *   (`skipNonHistoryPresence`) until after the change commits, so it is not
+   *   what Yorkie reverses and undo would restore the post-edit caret. The
+   *   hold is what keeps the *end-of-action* caret this unit's own
+   *   `cursor.moveTo()` publishes — the live broadcast peers see — from
+   *   erasing that reverse presence; it is replayed once the batch commits
+   *   (`YorkieDocStore.flushDeferredCursorPublish`), which only does the right
+   *   thing for a caret the action ended on. That ordering costs nothing on `YorkieDocStore` (its `snapshot()` is a
    *   no-op) and nothing on `MemDocStore` either: `MemDocStore.batch()` adopts
    *   a checkpoint taken immediately before it rather than pushing a second,
    *   identical one — see the comment there, and
