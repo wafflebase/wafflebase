@@ -6,7 +6,9 @@ import { AuthService, YorkieTokenPayload } from '../auth/auth.service';
 import { DocumentService } from './document.service';
 import { ShareLinkService } from '../share-link/share-link.service';
 import { WorkspaceService } from '../workspace/workspace.service';
+import { isYorkieAuthEnforced } from '../yorkie/yorkie-auth-enforcement';
 import { parseYorkieDocKey } from '../yorkie/yorkie-doc-key';
+import { YORKIE_SERVICE_TOKEN_TYPE } from '../yorkie/yorkie-service-token';
 import { YorkieSignatureGuard } from './yorkie-signature.guard';
 
 /**
@@ -37,6 +39,17 @@ interface AuthDecision {
   allowed: boolean;
   reason: string;
 }
+
+/**
+ * The identities whose access is resolved per document: an end user, or an
+ * anonymous share-link visitor. The backend's own service token is answered in
+ * {@link YorkieAuthController.decide} before it reaches here, so it is not part
+ * of this union.
+ */
+type DocumentScopedIdentity = Exclude<
+  YorkieTokenPayload,
+  { typ: typeof YORKIE_SERVICE_TOKEN_TYPE }
+>;
 
 const ALLOW: AuthDecision = { status: 200, allowed: true, reason: 'ok' };
 const UNAUTHENTICATED: AuthDecision = {
@@ -70,6 +83,31 @@ const CLIENT_METHODS = new Set(['ActivateClient', 'DeactivateClient']);
 const REVISION_READ_METHODS = new Set(['ListRevisions', 'GetRevision']);
 
 /**
+ * Methods whose verb does not mean what it says, and are therefore authorized
+ * as a **read** whatever verb they carry.
+ *
+ * `AttachDocument` is sent with `rw` unconditionally — empirically so even for
+ * a brand-new local `Document` with zero local changes attaching to an
+ * already-populated remote one, recorded against a real Yorkie server in
+ * `test/revision-history.e2e-spec.ts`. Only `PushPull` derives its verb from
+ * the change pack (`AccessAttributes(pack)`, `server/rpc/auth/auth.go`), which
+ * is why the design doc calls it "the real read/write gate".
+ *
+ * Taking attach's verb at face value would deny a share-link **viewer** their
+ * very first attach, so with enforcement the default every viewer link would
+ * break on any deployment that registered the method — a denial the verb never
+ * meant to express. The residual is a change pack carried by the attach
+ * itself: a hand-rolled client could smuggle one *pack* past this method, and
+ * since nothing stops it from detaching and attaching again, the bound is per
+ * attach rather than per client — what is refused is every write it tries
+ * *after* the attach, at `PushPull`. So enforcement narrows a viewer's write
+ * path to a non-browser client that re-attaches per write; it does not close
+ * it. Closing it needs a truthful verb from Yorkie; see
+ * `docs/design/yorkie-auth-webhook.md` § Risks.
+ */
+const READ_GATED_METHODS = new Set(['AttachDocument']);
+
+/**
  * Yorkie **auth** webhook: server-enforced per-document read/write access. On
  * privileged RPCs Yorkie POSTs `{ token, method, attributes:[{key, verb}] }`
  * here; we resolve the token to an identity and check it against the Postgres
@@ -79,9 +117,29 @@ const REVISION_READ_METHODS = new Set(['ListRevisions', 'GetRevision']);
  * the event webhook) — the signature proves the caller is Yorkie; the `token`
  * in the body proves who the end user is.
  *
- * Rollout: while `YORKIE_AUTH_WEBHOOK_ENFORCE` is not `true`, the computed
- * decision is logged but never enforced (always returns allow), so the webhook
- * can be registered and observed before it starts denying traffic.
+ * **Enforcing is the default**, because this is the only place a *write* by a
+ * share-link `viewer` is refused (`hasAccess`: `link.role === 'editor'`), and a
+ * viewer holds both halves needed to reach Yorkie directly — their share token,
+ * which mints a Yorkie token at `GET /auth/yorkie-token`, and the project's
+ * public key, which every visitor's bundle carries. So a client that is not our
+ * frontend attaches and writes regardless of what our editors mount: the
+ * read-only mounts on the share routes (`readOnlyNoteStore`, `readOnlyDocStore`,
+ * the editors' own `readOnly` state) keep *this app* from writing where it must
+ * not, which is a correctness boundary, not an access-control one. A default
+ * that allowed the write would leave viewer-means-read-only true only of
+ * well-behaved clients.
+ *
+ * Shadow mode — computing the decision, logging it, and allowing the request
+ * anyway — remains available for the rollout window, but only by asking for it:
+ * `YORKIE_AUTH_WEBHOOK_ENFORCE=false` and nothing else
+ * ({@link isYorkieAuthEnforced}). It is an observation instrument, not a
+ * posture, so {@link logPosture} says at boot which one this deployment is in
+ * rather than leaving the gap to be inferred from a quiet log.
+ *
+ * Registering the methods on the Yorkie project is still a separate, manual
+ * step: with none registered Yorkie never calls this endpoint and nothing here
+ * runs. That is the switch that disables the feature; the variable only chooses
+ * whether a computed denial is honored.
  */
 @Controller('internal/yorkie')
 @SkipThrottle()
@@ -97,8 +155,32 @@ export class YorkieAuthController {
     private readonly shareLinkService: ShareLinkService,
     configService: ConfigService,
   ) {
-    this.enforce =
-      configService.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE') === 'true';
+    this.enforce = isYorkieAuthEnforced(
+      configService.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE'),
+    );
+    this.logPosture();
+  }
+
+  /**
+   * Say at boot which posture this deployment is in. Shadow mode otherwise
+   * announces itself only through a `[shadow] would deny` line, which appears
+   * when somebody is *already* doing the thing that is not being refused — so
+   * an install that is unprotected looks identical to one that is protected
+   * until the day it matters.
+   */
+  private logPosture(): void {
+    if (this.enforce) {
+      this.logger.log('yorkie auth webhook: enforcing per-document access');
+      return;
+    }
+    this.logger.warn(
+      'yorkie auth webhook: SHADOW mode — every request is allowed and ' +
+        'per-document access is NOT enforced, because ' +
+        'YORKIE_AUTH_WEBHOOK_ENFORCE is set to false. A share-link viewer can ' +
+        'write to a document by attaching with their own Yorkie client; the ' +
+        "editors' read-only mounts do not bound anything but this app. Unset " +
+        'the variable when the rollout window is over.',
+    );
   }
 
   @Post('auth')
@@ -111,8 +193,15 @@ export class YorkieAuthController {
     if (!this.enforce && !decision.allowed) {
       // Shadow mode: surface what we *would* have done, but let the request
       // through so a resolver bug can't lock everyone out during rollout.
+      // The target is logged with it — a denied `rw` on a named document is a
+      // write this deployment just let through, and telling that apart from a
+      // stale token needs the key and the verb, which the token must never
+      // join (it is a bearer credential).
+      const target = (body?.attributes ?? [])
+        .map((attr) => `${attr?.key ?? '?'}:${attr?.verb ?? '?'}`)
+        .join(',');
       this.logger.warn(
-        `[shadow] would deny method=${body?.method} status=${decision.status} reason=${decision.reason}`,
+        `[shadow] would deny method=${body?.method} target=${target} status=${decision.status} reason=${decision.reason}`,
       );
       res.status(ALLOW.status);
       return { allowed: ALLOW.allowed, reason: 'shadow' };
@@ -138,6 +227,19 @@ export class YorkieAuthController {
       identity = this.authService.verifyYorkieToken(body?.token ?? '');
     } catch {
       return UNAUTHENTICATED;
+    }
+
+    // This backend's own Yorkie client (`YorkieService`). Every server-side
+    // path — the v1 content endpoints, `DocumentCopyService`, template
+    // publish/seed — authorized its caller against Postgres before opening the
+    // document, and none of that authority is recoverable from a document key
+    // here; some of those paths (a seed command) have no user at all. The
+    // token is signed with `JWT_SECRET`, so nothing outside this server can
+    // produce one — but it *is* sent to whichever Yorkie server the client is
+    // pointed at, so it is bounded to the document it was minted for wherever
+    // the minter knows one. See `src/yorkie/yorkie-service-token.ts`.
+    if (identity.typ === YORKIE_SERVICE_TOKEN_TYPE) {
+      return this.decideService(identity, method, body?.attributes ?? []);
     }
 
     // Client-scoped methods carry no document; a valid token is enough.
@@ -166,9 +268,56 @@ export class YorkieAuthController {
     return ALLOW;
   }
 
+  /**
+   * The backend's own service token. It stands in for authority already
+   * checked against Postgres, so there is nothing left to resolve here — the
+   * only question is *scope*.
+   *
+   * A token minted with a `key` (every {@link YorkieService.withDocument}
+   * call, which is every request path) authorizes that document key and no
+   * other, so the credential the SDK puts on the wire is worth one document
+   * rather than the deployment. A token with no `key` is the unscoped
+   * operator credential the ops scripts under `scripts/` mint, and keeps the
+   * blanket allow they need to walk many documents through one client — see
+   * `yorkie-service-token.ts`.
+   */
+  private decideService(
+    identity: { key?: string },
+    method: string,
+    attributes: AuthAttribute[],
+  ): AuthDecision {
+    if (!identity.key) {
+      return ALLOW;
+    }
+    // `ActivateClient` / `DeactivateClient` name no document; the scoped
+    // token is still the right identity for them.
+    if (CLIENT_METHODS.has(method)) {
+      return ALLOW;
+    }
+    // Fail closed on a document-scoped method with nothing to compare, the
+    // same way the user/share path does.
+    if (!attributes.length) {
+      return {
+        status: 403,
+        allowed: false,
+        reason: 'missing document attributes',
+      };
+    }
+    for (const attr of attributes) {
+      if (attr.key !== identity.key) {
+        return {
+          status: 403,
+          allowed: false,
+          reason: 'service token is scoped to another document',
+        };
+      }
+    }
+    return ALLOW;
+  }
+
   /** Returns a deny decision, or `null` when the attribute is allowed. */
   private async checkAttribute(
-    identity: YorkieTokenPayload,
+    identity: DocumentScopedIdentity,
     attr: AuthAttribute,
     method: string,
   ): Promise<AuthDecision | null> {
@@ -178,7 +327,11 @@ export class YorkieAuthController {
     }
     // Reading a document's history needs editor-or-member authority even
     // though Yorkie asks for it with verb `r` — see REVISION_READ_METHODS.
-    const needWrite = attr.verb === 'rw' || REVISION_READ_METHODS.has(method);
+    // Conversely `AttachDocument` always claims `rw`, so its verb is ignored
+    // and read access is enough — see READ_GATED_METHODS.
+    const needWrite = REVISION_READ_METHODS.has(method)
+      ? true
+      : attr.verb === 'rw' && !READ_GATED_METHODS.has(method);
     const ok = await this.hasAccess(identity, parsed.id, needWrite);
     return ok
       ? null
@@ -186,7 +339,7 @@ export class YorkieAuthController {
   }
 
   private async hasAccess(
-    identity: YorkieTokenPayload,
+    identity: DocumentScopedIdentity,
     documentId: string,
     needWrite: boolean,
   ): Promise<boolean> {

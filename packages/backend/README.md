@@ -98,10 +98,14 @@ YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
 YORKIE_TOKEN_EXPIRES_IN=10m             # Optional, lifetime of the short-lived
                                         # Yorkie auth-webhook token minted by
                                         # GET /auth/yorkie-token.
-YORKIE_AUTH_WEBHOOK_ENFORCE=false       # Optional. false (default) = shadow
-                                        # mode: log the access decision but
-                                        # never deny. true = enforce per-doc
-                                        # access at the Yorkie auth webhook.
+YORKIE_AUTH_WEBHOOK_ENFORCE=            # Optional. Unset (the default) =
+                                        # enforce per-document access at the
+                                        # Yorkie auth webhook. The literal
+                                        # `false`, and only that, selects
+                                        # shadow mode: log the access decision
+                                        # but never deny. A typo therefore
+                                        # enforces rather than opening the
+                                        # door.
 WAFFLEBASE_API_ORIGIN=                  # Optional, this deployment's own public
                                         # API origin (scheme + host + port).
                                         # Used to decide whether an absolute
@@ -215,6 +219,17 @@ yorkie project update <project> \
   --auth-webhook-method-add RestoreRevision
 ```
 
+`AttachDocument` is safe to register but is authorized as a **read**: Yorkie
+sends it with verb `rw` unconditionally — even for a fresh local document with
+no local changes — so honoring that verb would refuse a share-link viewer their
+very first attach and break every viewer link on the deployment.
+`READ_GATED_METHODS` in `yorkie-auth.controller.ts` therefore ignores attach's
+verb, and `PushPull`, whose verb does reflect the change pack, stays the write
+gate. The residual is a write smuggled inside the attach's own change pack by a
+hand-rolled client; see
+[`docs/design/yorkie-auth-webhook.md`](../../docs/design/yorkie-auth-webhook.md)
+§ Risks.
+
 **Do not add `CreateRevision`.** Yorkie calls the webhook for it with
 `attributes: null` — no document key, no verb — for every caller, and
 `decide()` fails closed on a document-scoped method with no attributes. So
@@ -245,13 +260,25 @@ share-link *editors* keep their history; only viewers lose it, matching Google
 Docs and the panel's own client-side gating. An ordinary `r` (`PushPull`,
 `Watch`) is untouched — a viewer can still read the document itself.
 
-Roll out with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` first (shadow mode — logs the
-decision it *would* make), confirm no false denials, then flip to `true`.
-Unregister the methods (`--auth-webhook-method-rm ALL`) to disable. Shadow mode
-allows every request regardless of the computed decision, so a deployment that
-registers the revision methods but leaves `YORKIE_AUTH_WEBHOOK_ENFORCE=false`
-is not protected — an anonymous viewer share link can still list, read, and
-restore a document's revision history until enforcement is flipped on.
+Registering the methods is the whole switch: with `YORKIE_AUTH_WEBHOOK_ENFORCE`
+unset the backend enforces the decision it computes. If you want to watch first,
+opt into shadow mode with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` (logs the decision
+it *would* make), confirm no false denials, then **unset it again**. Unregister
+the methods (`--auth-webhook-method-rm ALL`) to disable. Shadow mode allows
+every request regardless of the computed decision, so a deployment left in it is
+not protected — an anonymous viewer share link can still list, read, and restore
+a document's revision history.
+
+The same holds for ordinary **writes**, and it is the more important half: this
+webhook is the only place a share-link `viewer` is refused one, and a viewer
+holds what it takes to skip us — their share token mints a Yorkie token at
+`GET /auth/yorkie-token`, and the project's public key ships in every visitor's
+bundle, so a bare SDK client attaches and writes. The read-only mounts the
+editors use on share routes bound *this app's* write paths, not anybody else's;
+treat a viewer link on a shadow-mode deployment as write-capable. The
+controller says which posture it is in at boot — `yorkie auth webhook:
+enforcing per-document access`, or a `SHADOW mode … per-document access is NOT
+enforced` warning — so check the log rather than the absence of denials.
 
 ### Development
 
@@ -445,10 +472,17 @@ and `approve` — a setting can change between a submission and its decision:
 
 - `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` must name somebody. No reviewers means no
   review pipeline.
-- `YORKIE_AUTH_WEBHOOK_ENFORCE` must be `true`. In shadow mode the preview
-  token a public card hands every visitor also grants *write* access to the
-  document, and since an edit returns a listing to review, one request per card
-  would empty the gallery into a queue only a human can drain.
+- `YORKIE_AUTH_WEBHOOK_ENFORCE` must be the literal `true`. Unless the webhook
+  actually refuses them, the preview token a public card hands every visitor
+  also grants *write* access to the document, and since an edit returns a
+  listing to review, one request per card would empty the gallery into a queue
+  only a human can drain. This is deliberately stricter than the webhook's own
+  reading of the same variable (where unset means enforce), because the gate is
+  asking a different question: whether per-document access is *actually* being
+  enforced here, which also needs the auth-webhook methods to have been
+  registered on the Yorkie project — a manual step no environment variable can
+  attest. So the operator affirms it, and a typo shuts the gallery instead of
+  opening it.
 
 `PUBLIC_TIER_OPEN` (`src/template/template-review.ts`) stays as a constant
 rather than being deleted: it is the one line to flip if the gallery has to be
@@ -488,14 +522,14 @@ running frontend and API. It is **not** idempotent — a document that already
 has a listing is skipped, since the dialog shows the listing form rather than
 the publish block once one exists; `--reset` unpublishes first.
 
-**Order these against the Yorkie auth webhook.** `register:templates` requires
-`YORKIE_AUTH_WEBHOOK_ENFORCE=true` (a public listing's preview token would
-otherwise also grant write access), while `seed:templates` writes content
-through `YorkieService`, whose client carries no auth token — so with the
-webhook methods registered *and* enforcement on, its writes are denied. This is
-not specific to seeding; it applies to the v1 content endpoints and
-`DocumentCopyService` too. Seed the documents before registering the webhook
-methods on the Yorkie project, or unregister them for the duration.
+**`register:templates` requires the webhook to be enforcing** — the same
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true` the server demands, because a public
+listing's preview token would otherwise also grant write access. `seed:templates`
+needs no such ordering: it writes content through `YorkieService`, which
+authenticates to the webhook as this backend
+(`src/yorkie/yorkie-service-token.ts`), so its writes survive enforcement. The
+same token is what keeps the v1 content endpoints and `DocumentCopyService`
+working with the webhook methods registered.
 
 Both commands also require `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` to name the
 `--author`, who approves their own submissions — which is what a seed is, and

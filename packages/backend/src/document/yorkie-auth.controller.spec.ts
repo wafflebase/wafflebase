@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import { YorkieAuthController } from './yorkie-auth.controller';
@@ -50,9 +50,14 @@ function makeController(opts: {
     }),
   } as unknown as ShareLinkService;
 
+  // Enforcing is the default, so "shadow" is the case that has to say so:
+  // `enforce: false` sets the variable to the literal `'false'`, and leaving
+  // it out leaves the variable unset — which enforces.
   const configService = {
     get: jest.fn((k: string) =>
-      k === 'YORKIE_AUTH_WEBHOOK_ENFORCE' && opts.enforce ? 'true' : undefined,
+      k === 'YORKIE_AUTH_WEBHOOK_ENFORCE' && opts.enforce === false
+        ? 'false'
+        : undefined,
     ),
   } as unknown as ConfigService;
 
@@ -64,6 +69,22 @@ function makeController(opts: {
     configService,
   );
 }
+
+// The controller states its enforcement posture at construction, so every
+// `makeController` below would print it. Silence both levels by default; the
+// posture tests read the spies instead.
+let logSpy: jest.SpyInstance;
+let warnSpy: jest.SpyInstance;
+
+beforeEach(() => {
+  logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+  warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  logSpy.mockRestore();
+  warnSpy.mockRestore();
+});
 
 describe('YorkieAuthController.decide', () => {
   it('always allows DetachDocument, even with a bad token', async () => {
@@ -93,6 +114,98 @@ describe('YorkieAuthController.decide', () => {
       status: 200,
       allowed: true,
     });
+  });
+
+  // The backend's own client (`YorkieService`) carries a `yorkie-service`
+  // token. Without this branch, enforcement denies every server-side attach —
+  // the v1 content endpoints, document copy, template seeding — because there
+  // is no user or share link behind them to resolve.
+  // An *unscoped* service token — no `key` — is the operator credential the
+  // ops scripts mint: they walk many documents through one long-lived client,
+  // so there is no single key to pin.
+  it('allows an unscoped backend service token on any document, read or write', async () => {
+    const c = makeController({ identity: { typ: 'yorkie-service' } });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [{ key: 'sheet-anything', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  // Every request path (`YorkieService.withDocument`) mints a token bound to
+  // the one document its client attaches to, so the credential the SDK puts
+  // on the wire is worth that document and nothing else.
+  it('allows a scoped service token on its own document', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [{ key: 'sheet-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  it('403s a scoped service token on another document', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [{ key: 'sheet-2', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('403s a scoped service token when one of several keys is foreign', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'service',
+        attributes: [
+          { key: 'sheet-1', verb: 'r' },
+          { key: 'sheet-2', verb: 'r' },
+        ],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('403s a scoped service token on a doc method with no attributes', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({ method: 'PushPull', token: 'service' }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('allows a scoped service token to activate its client', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-service', key: 'sheet-1' },
+    });
+    expect(
+      await c.decide({ method: 'ActivateClient', token: 'service' }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  it('still refuses a service token that does not verify', async () => {
+    const c = makeController({ identity: 'throw' });
+    expect(
+      await c.decide({
+        method: 'PushPull',
+        token: 'forged',
+        attributes: [{ key: 'sheet-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 401, allowed: false });
   });
 
   it('grants a workspace member read+write', async () => {
@@ -158,6 +271,59 @@ describe('YorkieAuthController.decide', () => {
         attributes: [{ key: 'sheet-1', verb: 'rw' }],
       }),
     ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  // Yorkie sends `AttachDocument` with verb `rw` unconditionally (see
+  // READ_GATED_METHODS and test/revision-history.e2e-spec.ts), so honoring
+  // that verb under enforcement would deny a viewer share link its very first
+  // attach — breaking viewer links outright on any deployment that registered
+  // the method. Attach is therefore gated on read.
+  it('lets a share viewer attach even though attach claims rw', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      doc: { id: '1', workspaceId: 'ws' },
+      share: { documentId: '1', role: 'viewer' },
+    });
+    expect(
+      await c.decide({
+        method: 'AttachDocument',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 200, allowed: true });
+  });
+
+  // Read-gating attach must not turn it into a blanket allow: somebody with no
+  // access at all is still refused, and PushPull still refuses the viewer's
+  // writes.
+  it('still 403s an attach by a share token bound to another document', async () => {
+    const c = makeController({
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      doc: { id: '1', workspaceId: 'ws' },
+      share: { documentId: 'other', role: 'viewer' },
+    });
+    expect(
+      await c.decide({
+        method: 'AttachDocument',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
+  it('keeps refusing a viewer PushPull write after a permitted attach', async () => {
+    const base = {
+      identity: { typ: 'yorkie-share', shareToken: 's' } as YorkieTokenPayload,
+      doc: { id: '1', workspaceId: 'ws' },
+      share: { documentId: '1', role: 'viewer' },
+    };
+    expect(
+      await makeController(base).decide({
+        method: 'PushPull',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      }),
+    ).toMatchObject({ status: 403, allowed: false });
   });
 
   it('403s a share token bound to a different document', async () => {
@@ -237,6 +403,62 @@ describe('YorkieAuthController.handleAuth (shadow vs enforce)', () => {
     expect(body.allowed).toBe(false);
   });
 
+  // The default decides whether a share-link viewer's write is refused on a
+  // deployment that registered the webhook methods and configured nothing
+  // else. It is the only place that write is refused at all, so the default
+  // has to be the one that refuses it: shadow mode is opt-in, not the floor.
+  it('enforces when YORKIE_AUTH_WEBHOOK_ENFORCE is unset', async () => {
+    const c = new YorkieAuthController(
+      { verifyYorkieToken: () => ({ typ: 'yorkie-share', shareToken: 's' }) } as unknown as AuthService,
+      { document: jest.fn() } as unknown as DocumentService,
+      {} as unknown as WorkspaceService,
+      {
+        findByToken: () => ({ documentId: '1', role: 'viewer' }),
+      } as unknown as ShareLinkService,
+      { get: () => undefined } as unknown as ConfigService,
+    );
+    const { res, status } = mockRes();
+    const body = await c.handleAuth(
+      {
+        method: 'PushPull',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      },
+      res,
+    );
+    expect(status).toHaveBeenCalledWith(403);
+    expect(body.allowed).toBe(false);
+  });
+
+  // A mistyped opt-out must land on the side that denies: a denial gets
+  // noticed, an accidental bypass does not.
+  it.each([
+    ['FALSE', false],
+    [' false ', false],
+    ['0', true],
+    ['flase', true],
+    ['', true],
+    ['true', true],
+  ])('reads %p as enforcing=%p', async (raw, enforcing) => {
+    const c = new YorkieAuthController(
+      { verifyYorkieToken: () => { throw new Error('invalid'); } } as unknown as AuthService,
+      {} as unknown as DocumentService,
+      {} as unknown as WorkspaceService,
+      {} as unknown as ShareLinkService,
+      { get: () => raw } as unknown as ConfigService,
+    );
+    const { res, status } = mockRes();
+    await c.handleAuth(
+      {
+        method: 'PushPull',
+        token: 'bad',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      },
+      res,
+    );
+    expect(status).toHaveBeenCalledWith(enforcing ? 401 : 200);
+  });
+
   it('lets denied traffic through (200) in shadow mode', async () => {
     const c = makeController({ enforce: false, identity: 'throw' });
     const { res, status } = mockRes();
@@ -250,6 +472,48 @@ describe('YorkieAuthController.handleAuth (shadow vs enforce)', () => {
     );
     expect(status).toHaveBeenCalledWith(200);
     expect(body.allowed).toBe(true);
+  });
+
+  // A shadow-mode install enforces nothing, and the write it lets through is
+  // the one nothing else refuses: a share-link viewer's. Both of these pin the
+  // *signal*, not the policy — a deployment must be able to tell from its own
+  // logs that it is unprotected, rather than inferring it from an absence of
+  // denials. See docs/design/yorkie-auth-webhook.md § Risks.
+  it('says at construction that shadow mode enforces nothing', () => {
+    makeController({ enforce: false });
+    const said = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(said).toContain('SHADOW mode');
+    expect(said).toContain('NOT enforced');
+  });
+
+  it('says at construction when it is enforcing, and does not warn', () => {
+    makeController({ enforce: true });
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'enforcing per-document access',
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('names the document and verb it would have denied', async () => {
+    const c = makeController({
+      enforce: false,
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      share: { documentId: '1', role: 'viewer' },
+    });
+    const { res } = mockRes();
+    await c.handleAuth(
+      {
+        method: 'PushPull',
+        token: 't',
+        attributes: [{ key: 'note-1', verb: 'rw' }],
+      },
+      res,
+    );
+    const said = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(said).toContain('[shadow] would deny');
+    expect(said).toContain('target=note-1:rw');
+    // The token is a bearer credential and must never join the target in a log.
+    expect(said).not.toContain('token=');
   });
 });
 

@@ -399,8 +399,9 @@ export function NotesToolbar({
   const current = MODES.find((m) => m.mode === mode) ?? MODES[1];
   // Split lays the two panes out at a fixed 50/50 (`packages/notes`
   // `editor.ts`), which is ~187px each on a 375px screen. Below the mobile
-  // breakpoint the mode is not offered; `notes-detail` demotes a stored
-  // `both` to `edit` so nobody arrives in a layout they cannot leave.
+  // breakpoint the mode is not offered; both mounting routes (`notes-detail`
+  // and `shared-notes-layout`) demote a stored `both` to `edit` so nobody
+  // arrives in a layout they cannot leave.
   const visibleModes = isMobile
     ? MODES.filter((m) => m.mode !== "both")
     : MODES;

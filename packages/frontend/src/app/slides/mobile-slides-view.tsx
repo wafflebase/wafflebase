@@ -144,8 +144,14 @@ export function MobileSlidesView({
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   useEffect(() => {
     if (!didMount || !doc) return;
+    // `mode="view"` is the share-link viewer path, which must not write the
+    // CRDT root: the seed/backfill `doc.update()` inside `ensureSlidesRoot`
+    // is refused by the Yorkie auth webhook (enforcing by default) and takes
+    // the viewer's sync down with it. See `slides-view.tsx` for the desktop
+    // twin and why skipping the write still renders an unmigrated deck.
     ensureSlidesRoot(doc, {
       initialThemePreference: resolvedThemeRef.current,
+      readOnly: mode === "view",
     });
     const s = new YorkieSlidesStore(doc);
     setStore(s);
@@ -155,7 +161,7 @@ export function MobileSlidesView({
       setStore(null);
       onStoreReadyRef.current?.(null);
     };
-  }, [didMount, doc]);
+  }, [didMount, doc, mode]);
 
   // Snapshot of the slide list the mobile shell renders. Refreshed
   // whenever the store fires `onChange` so the footer indicator and

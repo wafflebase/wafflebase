@@ -1009,7 +1009,7 @@ export function SheetView({
     let overlayFrame: number | null = null;
     let recalcFrame: number | null = null;
 
-    const store = new YorkieStore(doc, tabId);
+    const store = new YorkieStore(doc, tabId, readOnly);
     storeRef.current = store;
     initialize(container, {
       theme,
@@ -1297,7 +1297,24 @@ export function SheetView({
 
       // Recalculate cross-sheet formulas on initial load (tab switch)
       // so that any changes made in other sheets are reflected immediately.
-      runRemoteSync(true);
+      //
+      // Never on a read-only mount: the recalc pass persists each formula's
+      // new cached value through the store, so a share-link viewer's mount
+      // would write the CRDT root — a write the Yorkie auth webhook (now
+      // enforcing by default) refuses, wedging the viewer's sync. Passing
+      // `false` keeps the dimension reload + repaint and drops only the
+      // write; `Spreadsheet.recalculateCrossSheetFormulas` refuses it at the
+      // engine too, so neither this call site nor a future one can leak it.
+      // That engine gate is the tested one
+      // (`packages/sheets/test/view/spreadsheet-readonly-recalc.test.ts`),
+      // which is what makes this gate an optimization — it saves a viewer the
+      // wasted dependency pass — rather than the boundary itself.
+      //
+      // The cost is that a viewer renders the *persisted* cached value, which
+      // is stale for as long as nobody recalculates it; the engine method's doc
+      // comment states that trade-off and why recalculating in memory without
+      // persisting was rejected.
+      runRemoteSync(!readOnly);
 
       // Re-render on any remote change. Cell/merge/tab-name changes also
       // trigger cross-sheet formula recalculation; all other changes
@@ -1309,7 +1326,9 @@ export function SheetView({
           const ops = (
             e as { value?: { operations?: Array<{ path?: string }> } }
           ).value?.operations;
-          scheduleRemoteSync(needsRecalc(ops));
+          // Same read-only rule as the initial pass above: a remote edit
+          // must repaint a viewer's grid, not make them write it back.
+          scheduleRemoteSync(readOnly ? false : needsRecalc(ops));
         }),
       );
       unsubs.push(doc.subscribe("presence", scheduleOverlayRender));
@@ -1719,6 +1738,13 @@ export function SheetView({
             <CommentPopover
               threads={activeCellThreads}
               currentUser={commentAuthor}
+              // A read-only mount reads threads and writes none. Without
+              // this the popover only disabled its write affordances for an
+              // *anonymous* visitor (`currentUser === null`), so a signed-in
+              // non-member on a viewer-role share link got the full compose /
+              // reply / resolve / edit / delete UI, every button of which is
+              // a `doc.update()` on the CRDT root.
+              readOnly={readOnly}
               members={mentionMembers}
               onAddThread={handleCommentAddThread}
               onReply={handleCommentReply}

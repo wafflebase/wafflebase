@@ -665,13 +665,25 @@ not:
   **frozen while `pending`** (`409`), which is the honest shape: a submission
   under review is a fixed thing, and a decision is coming.
 - **Who can trigger it.** A public listing hands `previewToken` to every
-  visitor, and with `YORKIE_AUTH_WEBHOOK_ENFORCE` unset the auth webhook only
-  *shadows* — it logs the decision it would have made and allows the write. That
-  would make an anonymous visitor able to edit any public template, and since an
-  edit returns a listing to review, one cheap request per card would empty the
-  gallery into a queue only a human on the allowlist can drain. The public tier
-  therefore **refuses to operate unless enforcement is on**, checked at both
-  `submit` and `approve` rather than documented and hoped for.
+  visitor, and unless the auth webhook actually refuses that token's writes it
+  is enough to *write* to the document. That would make an anonymous visitor
+  able to edit any public template, and since an edit returns a listing to
+  review, one cheap request per card would empty the gallery into a queue only
+  a human on the allowlist can drain. The public tier therefore **refuses to
+  operate unless enforcement is on**, checked at both `submit` and `approve`
+  rather than documented and hoped for.
+
+  That gate demands the **literal `true`**, which is deliberately stricter than
+  the webhook's own reading of the same variable — where unset means enforce
+  (`isYorkieAuthEnforced`, `packages/backend/src/yorkie/yorkie-auth-enforcement.ts`).
+  The two ask different questions. The webhook asks "when I am called, do I
+  honor my own denial?", and the safe default for an unconfigured deployment is
+  yes. This gate asks "is per-document access actually being enforced here?",
+  which additionally requires that the auth-webhook methods were registered on
+  the Yorkie project — a manual step outside this process that no environment
+  variable can attest and nothing in the app can observe. An unset variable
+  means nobody has affirmed it, so the public tier stays shut
+  (`assertYorkieAuthEnforced`, `packages/backend/src/template/template-review.ts`).
 
 This is the cheaper half of a trade worth naming. [Frozen-copy
 promotion](#frozen-copy-promotion) below would let an approved listing keep

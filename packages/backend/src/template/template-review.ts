@@ -59,26 +59,55 @@ export function assertPublicTierOpen(): void {
 }
 
 /**
- * The public tier additionally requires the Yorkie auth webhook to be
- * **enforcing**, not merely configured.
+ * The public tier additionally requires an explicit
+ * `YORKIE_AUTH_WEBHOOK_ENFORCE=true`.
  *
- * Publishing publicly hands `previewToken` to every visitor, and in the
- * webhook's default shadow mode that token is enough to *write* to the
- * document — Yorkie logs the decision it would have made and allows the push
- * anyway. Two consequences, and the second is the one that decides this:
+ * Publishing publicly hands `previewToken` to every visitor, and unless the
+ * auth webhook actually refuses that token's writes, it is enough to *write* to
+ * the document. Two consequences, and the second is the one that decides this:
  * anonymous visitors could edit the content of every public template, and
  * because an edit returns a listing to review, one cheap request per card would
  * empty the gallery into a queue only a human on the allowlist can drain.
  *
- * So the gallery's safety rests on a setting that lives outside this feature,
- * and the honest thing is to refuse rather than to document the dependency and
- * hope. Checked at `submit` and `approve` alongside {@link assertPublicTierOpen}.
+ * **This is deliberately stricter than `isYorkieAuthEnforced`
+ * (`src/yorkie/yorkie-auth-enforcement.ts`), which the webhook itself uses.**
+ * The two questions are not the same. The webhook asks
+ * "when I am called, do I honor my own denial?", and there the safe default for
+ * an unconfigured deployment is yes. This gate asks "is per-document access
+ * actually being enforced on this deployment?" — which additionally requires
+ * that the auth-webhook methods were registered on the Yorkie project, a manual
+ * step happening outside this process that no environment variable can attest
+ * and nothing here can observe. An unset variable means nobody has considered
+ * the question, which is precisely the deployment where the methods are least
+ * likely to be registered and where the webhook is therefore never invoked at
+ * all. So the operator has to affirm it, and a typo shuts the gallery rather
+ * than opening it — the same direction every other gate in this feature fails
+ * in.
+ *
+ * **What enforcement actually buys here is narrower than "the writes are
+ * refused".** `AttachDocument` is authorized as a read (`READ_GATED_METHODS`,
+ * `src/document/yorkie-auth.controller.ts`) because Yorkie sends it with verb
+ * `rw` unconditionally, so a client that puts its change pack in the attach
+ * itself gets that pack applied, and re-attaching repeats it. The gate still
+ * decides this tier, because the consequence it exists to prevent is the cheap
+ * one: with the webhook enforcing, no *visitor's browser* can write — our
+ * editors mount read-only on a viewer token and every write they would make
+ * after the attach is refused at `PushPull` — so emptying the gallery into the
+ * review queue now takes a hand-rolled client that re-attaches per edit rather
+ * than one request per card. Shadow mode refuses nothing at all, which is the
+ * distinction being asserted. The remaining path closes with a truthful attach
+ * verb from Yorkie (`docs/design/yorkie-auth-webhook.md` § Risks); until then
+ * this gate is a bound on the residual, not its removal.
+ *
+ * Checked at `submit` and `approve` alongside {@link assertPublicTierOpen}.
  */
 export function assertYorkieAuthEnforced(enforce: string | undefined): void {
   if (enforce === 'true') return;
   throw new BadRequestException(
-    'The public template gallery requires YORKIE_AUTH_WEBHOOK_ENFORCE=true: ' +
-      'without it a preview token also grants write access to the document',
+    'The public template gallery requires YORKIE_AUTH_WEBHOOK_ENFORCE=true, ' +
+      'affirming that the auth-webhook methods are registered on the Yorkie ' +
+      'project: without the webhook refusing them, a preview token also ' +
+      'grants write access to the document',
   );
 }
 
