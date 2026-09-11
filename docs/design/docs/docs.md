@@ -289,7 +289,13 @@ in one place — `bandSlidesDocumentNumerics` / `bandElementNumerics` /
 and each reader calls it, rather than each reader being a fresh chance to
 forget. The group recursion is depth-capped at 32, matching the element
 walk: a `data.children` chain is peer-written too, and a band that blew
-the stack would be its own denial of service.
+the stack would be its own denial of service. `bandBlockNumerics` carries
+the same cap on its own nested-table recursion (`MAX_BLOCK_DEPTH`, a copy
+because the dependency runs slides → docs), for the sharper version of
+that reason: a `RangeError` raised *inside* the band fails the whole
+`read()`, so an uncapped guard turns one mis-rendered table into a
+document nobody can open. At the cap both walks stop descending and leave
+what is below as stored.
 
 ### Document manipulation
 

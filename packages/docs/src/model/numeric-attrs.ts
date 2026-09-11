@@ -95,6 +95,22 @@ export const MAX_TABLE_SPAN = 1000;
 export const MAX_TABLE_COLUMNS = 256;
 
 /**
+ * Nesting cap for {@link bandBlockNumerics}' own walk.
+ *
+ * A table cell's `blocks` can hold another table, whose cells hold another —
+ * a chain a peer can write to any depth — so an uncapped walk blows the stack,
+ * and a `RangeError` raised *inside the band* fails the whole `read()` rather
+ * than mis-rendering one table: a guard that turns a render bug into a total
+ * read failure is worse than the thing it guards. At the cap the walk stops
+ * descending and leaves what is below as stored, which is what
+ * `bandElementNumerics` (`@wafflebase/slides`, `model/band-numerics.ts`) does
+ * with a group chain at its own `MAX_GROUP_DEPTH`. The value is that constant:
+ * the two walks interleave (a slide's table cell holds a docs body), and the
+ * dependency runs slides → docs, so the copy lives here.
+ */
+export const MAX_BLOCK_DEPTH = 32;
+
+/**
  * Largest column width ratio any reader will honour.
  *
  * Deliberately far above the `1 / cols` every writer here produces (a ratio is
@@ -223,9 +239,18 @@ export function normalizeTableSpan(
  *   every reader. Non-finite entries are dropped, the behaviour the old
  *   `isNaN` filter already had for `NaN`, and a finite one is clamped into
  *   `[0, MAX_COLUMN_RATIO]`.
+ *
+ * What is *not* bounded here is the count downwards. A missing or empty
+ * attribute answers `[0]` — one zero-width column — because that is what the
+ * replaced parsers answered: both read it as `(attrs.cols ?? '').split(',')`,
+ * and `Number('')` is `0`, which their `!isNaN` filter kept. The answer
+ * matters because `columnWidths.length` *is* `computeTableLayout`'s `numCols`:
+ * an empty array lays out no cells at all, so the row's content never reaches
+ * the layout or `blockParentMap` and becomes unreachable rather than merely
+ * narrow. A band may repair a number; it may not delete a column.
  */
 export function parseColumnWidthsAttr(attr: string | undefined): number[] {
-  if (!attr) return [];
+  if (!attr) return [0];
   const widths: number[] = [];
   for (const part of attr.split(',')) {
     if (widths.length >= MAX_TABLE_COLUMNS) break;
@@ -289,18 +314,26 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
  * of documents that already exist, and a reader with no value at all still
  * has to render something. The rule per field is its own normalizer's — see
  * the module header for which inputs are dropped and which are clamped.
+ *
+ * Bounded on nesting depth as well as on every value — see
+ * {@link MAX_BLOCK_DEPTH}.
  */
 export function bandBlockNumerics(blocks: Block[]): Block[] {
+  return bandBlockList(blocks, 0);
+}
+
+/** {@link bandBlockNumerics} at a known nesting depth. */
+function bandBlockList(blocks: Block[], depth: number): Block[] {
   if (!Array.isArray(blocks)) return blocks;
   for (const entry of blocks) {
     const block = asRecord(entry);
-    if (block) bandOneBlock(block);
+    if (block) bandOneBlock(block, depth);
   }
   return blocks;
 }
 
 /** One block of {@link bandBlockNumerics}, including any table it carries. */
-function bandOneBlock(block: Record<string, unknown>): void {
+function bandOneBlock(block: Record<string, unknown>, depth: number): void {
   const style = asRecord(block.style);
   if (style) {
     const lineHeight = normalizeLineHeight(asFiniteNumber(style.lineHeight));
@@ -369,8 +402,11 @@ function bandOneBlock(block: Record<string, unknown>): void {
         if (span === undefined) delete cell[key];
         else cell[key] = span;
       }
-      if (Array.isArray(cell.blocks)) {
-        bandBlockNumerics(cell.blocks as Block[]);
+      // Capped rather than trusted: a nested-table chain a peer wrote is
+      // unbounded, and the stack this walk would blow is the reader's whole
+      // `read()`. See {@link MAX_BLOCK_DEPTH}.
+      if (Array.isArray(cell.blocks) && depth < MAX_BLOCK_DEPTH) {
+        bandBlockList(cell.blocks as Block[], depth + 1);
       }
     }
   }

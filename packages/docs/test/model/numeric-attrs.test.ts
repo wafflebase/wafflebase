@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
+  MAX_BLOCK_DEPTH,
   MAX_CELL_PADDING,
   MAX_FONT_SIZE,
   MAX_IMAGE_SIZE,
@@ -17,6 +18,7 @@ import {
 import { expandCellRangeForMerges } from '../../src/view/selection.js';
 import { treeNodeToBlock } from '../../src/model/crdt-tree.js';
 import { computeLayout } from '../../src/view/layout.js';
+import { computeTableLayout } from '../../src/view/table-layout.js';
 import { paginateLayout } from '../../src/view/pagination.js';
 import {
   createTableBlock,
@@ -259,8 +261,53 @@ describe('the table structure bands', () => {
     expect(normalizeTableSpan(1e9)).toBe(MAX_TABLE_SPAN);
   });
 
+  // The input the replaced parser is the specification for. Both boundaries
+  // read the attribute as `(attrs.cols ?? '').split(',').map(Number)`, and
+  // `Number('')` is `0`, so a missing or empty `cols` has always produced one
+  // zero-width column — never zero columns. `columnWidths.length` *is*
+  // `computeTableLayout`'s `numCols`, so an empty array lays out no cells at
+  // all: the row's content is dropped from the layout and from
+  // `blockParentMap`, which is what makes it unreachable rather than merely
+  // narrow.
+  test('parseColumnWidthsAttr keeps the empty attribute one column', () => {
+    expect(parseColumnWidthsAttr('')).toEqual([0]);
+    expect(parseColumnWidthsAttr(undefined)).toEqual([0]);
+  });
+
+  test('an empty cols attribute still lays out its cell', () => {
+    const block = treeNodeToBlock({
+      type: 'block',
+      attributes: { type: 'table', cols: '' },
+      children: [
+        {
+          type: 'row',
+          children: [
+            {
+              type: 'cell',
+              attributes: {},
+              children: [
+                {
+                  type: 'block',
+                  attributes: { type: 'paragraph', id: 'p1' },
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const layout = computeTableLayout(
+      block.tableData!,
+      block.id,
+      stubMeasurer(7),
+      400,
+    );
+    expect(layout.cells[0]).toHaveLength(1);
+    expect(layout.blockParentMap.has('p1')).toBe(true);
+  });
+
   test('parseColumnWidthsAttr bounds the count and the magnitude', () => {
-    expect(parseColumnWidthsAttr(undefined)).toEqual([]);
     expect(parseColumnWidthsAttr('0.5,0.5')).toEqual([0.5, 0.5]);
     // `Number('1e400')` is `Infinity`, which the old `!isNaN` filter passed.
     expect(parseColumnWidthsAttr('1e400,0.5')).toEqual([0.5]);
@@ -440,6 +487,67 @@ describe('bandBlockNumerics — the codec-free bodies', () => {
     expect(cell.rowSpan).toBeUndefined();
     expect(cell.colSpan).toBe(MAX_TABLE_SPAN);
     expect(cell.blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+  });
+
+  /**
+   * The band must not become the denial of service it guards against. A cell's
+   * `blocks` may hold another table, whose cells hold another — a chain a peer
+   * can write to any depth — and an uncapped walk blows the stack. A
+   * `RangeError` thrown *here* is worse than the geometry bug it prevents: it
+   * fails the whole `read()`, so every reader loses the entire document rather
+   * than one mis-rendered table. `bandElementNumerics` caps its own group
+   * recursion at the same depth for the same reason.
+   */
+  test('caps its own recursion instead of blowing the stack', () => {
+    const nest = (blocks: unknown[], depth: number): unknown[] => [
+      {
+        id: `t${depth}`,
+        type: 'table',
+        style: {},
+        inlines: [],
+        tableData: {
+          rowHeights: [Infinity],
+          columnWidths: [1],
+          rows: [{ cells: [{ blocks }] }],
+        },
+      },
+    ];
+
+    let blocks: unknown[] = [
+      {
+        id: 'leaf',
+        type: 'paragraph',
+        style: {},
+        inlines: [{ text: 'x', style: { fontSize: Infinity } }],
+      },
+    ];
+    // Deeper than any stack this walk could get: the unbounded version threw
+    // `RangeError: Maximum call stack size exceeded` on a chain this long.
+    for (let d = 20000; d > 0; d--) blocks = nest(blocks, d);
+
+    expect(() => bandBlockNumerics(blocks as Block[])).not.toThrow();
+
+    // At the cap it stops descending and leaves what is below as stored —
+    // the sibling walk's behaviour, and the only one that keeps the read
+    // working: nothing here may substitute a value it never looked at.
+    const rowHeightsAt = (level: number): unknown => {
+      let current = blocks as unknown[];
+      for (let d = 0; d < level; d++) {
+        const table = current[0] as {
+          tableData: {
+            rowHeights: (number | undefined)[];
+            rows: { cells: { blocks: unknown[] }[] }[];
+          };
+        };
+        if (d === level - 1) return table.tableData.rowHeights;
+        current = table.tableData.rows[0].cells[0].blocks;
+      }
+      return undefined;
+    };
+
+    expect(rowHeightsAt(1)).toEqual([undefined]);
+    expect(rowHeightsAt(MAX_BLOCK_DEPTH + 1)).toEqual([undefined]);
+    expect(rowHeightsAt(MAX_BLOCK_DEPTH + 2)).toEqual([Infinity]);
   });
 
   test('leaves values inside the band exactly as stored', () => {
