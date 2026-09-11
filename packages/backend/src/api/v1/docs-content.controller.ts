@@ -950,6 +950,21 @@ function assertValidTableData(data: Record<string, unknown>, path: string): void
     throw new BadRequestException(
       `Invalid element at ${path}.data: 'columnWidths' must be an array`,
     );
+  } else {
+    // Capped on count for the reason a docs *block* table's `columnWidths` is
+    // (see `bandSlideBlockNumerics`): this array's length is
+    // `computeTableLayout`'s `nCols`, which allocates `nCols + 1` offsets and
+    // then loops once per (row, column) pair whether or not a cell exists
+    // there — so a compact `[0,0,0,…]` in a 25 MB body is a hung paint for
+    // every viewer of the stored deck. A width with no usable reading becomes
+    // `0` rather than being dropped, so every later column keeps its index
+    // (`colX` is a running sum, and one `NaN` poisons every boundary after
+    // it). No magnitude ceiling: unlike the docs ratios these are absolute
+    // slide units, where a legitimate full-bleed column is wider than any
+    // ratio band allows and an absurd finite one paints offscreen.
+    data.columnWidths = (widths as unknown[])
+      .slice(0, MAX_TABLE_COLUMNS)
+      .map((width) => Math.max(0, asFiniteNumber(width) ?? 0));
   }
   const rows = data.rows;
   if (rows === undefined || rows === null) {

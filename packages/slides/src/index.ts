@@ -61,6 +61,7 @@ export {
   bandElementNumerics,
   bandLayoutNumerics,
   bandMasterNumerics,
+  bandPlaceholderStyleNumerics,
   bandSlidesDocumentNumerics,
 } from './model/band-numerics';
 

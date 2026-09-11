@@ -1,4 +1,5 @@
 import {
+  MAX_TABLE_COLUMNS,
   bandBlockNumerics,
   normalizeFontSize,
   normalizeLineHeight,
@@ -50,6 +51,32 @@ function asFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
+ * Band a table element's `data.columnWidths`, in place.
+ *
+ * The array's *length* is `computeTableLayout`'s `nCols`
+ * (`packages/slides/src/view/canvas/table-renderer.ts`): it allocates
+ * `nCols + 1` offsets and then loops once per (row, column) pair — whether or
+ * not a cell exists there. So a peer-written `columnWidths` of a million
+ * entries is a hung paint for every other viewer, exactly like the docs block
+ * table's own `columnWidths` the docs codec already caps at
+ * `MAX_TABLE_COLUMNS`. This is that cap's twin for the slides *element*
+ * shape, which passes through no codec at all.
+ *
+ * A width that cannot be used becomes `0` rather than being dropped, so every
+ * later column keeps its index (`colX` is a running sum, and one `NaN` entry
+ * would otherwise poison every boundary after it). Unlike the docs ratios,
+ * these are absolute slide units, so there is no magnitude ceiling to apply —
+ * a legitimate full-bleed column is wider than any ratio band would allow, and
+ * an absurdly wide finite one paints offscreen rather than hanging.
+ */
+function bandTableColumnWidths(data: Record<string, unknown>): void {
+  if (!Array.isArray(data.columnWidths)) return;
+  data.columnWidths = (data.columnWidths as unknown[])
+    .slice(0, MAX_TABLE_COLUMNS)
+    .map((width) => Math.max(0, asFiniteNumber(width) ?? 0));
+}
+
+/**
  * Band the text bodies of one element (or `ElementInit`), recursing into a
  * group's children. Typed as pass-through so a caller can wrap the object it
  * is already returning.
@@ -70,6 +97,7 @@ export function bandElementNumerics<T>(element: T, depth = 0): T {
     return element;
   }
   if (el.type === 'table') {
+    bandTableColumnWidths(data);
     if (!Array.isArray(data.rows)) return element;
     for (const rowEntry of data.rows as unknown[]) {
       const cells = asRecord(rowEntry)?.cells;
@@ -131,18 +159,44 @@ export function bandMasterNumerics<T>(master: T): T {
   const styles = asRecord(asRecord(master)?.placeholderStyles);
   if (!styles) return master;
   for (const key of Object.keys(styles)) {
-    const style = asRecord(styles[key]);
-    if (!style) continue;
-    const fallback =
-      DEFAULT_MASTER.placeholderStyles[key]
-      ?? DEFAULT_MASTER.placeholderStyles.body;
-    style.fontSize =
-      normalizeFontSize(asFiniteNumber(style.fontSize)) ?? fallback.fontSize;
-    style.lineHeight =
-      normalizeLineHeight(asFiniteNumber(style.lineHeight))
-      ?? fallback.lineHeight;
+    bandPlaceholderStyleNumerics(styles[key], key);
   }
   return master;
+}
+
+/**
+ * Band **one** placeholder style, in place, the way {@link bandMasterNumerics}
+ * bands each of a master's.
+ *
+ * Split out because the master is not always the object a caller holds: the
+ * store's `cascadeMasterStyles` pulls a single style out of the live CRDT by
+ * placeholder type and feeds it straight to `seedPlaceholderBlocks`, which
+ * *commits* the numbers into real slide blocks. Banding the whole master there
+ * would mean materializing one, so it bands the slot it reads instead.
+ *
+ * `type` selects the default-master fallback for a value with no usable
+ * reading; an unknown one falls back to `body`.
+ */
+export function bandPlaceholderStyleNumerics<T>(style: T, type: string): T {
+  const record = asRecord(style);
+  if (!record) return style;
+  const defaults = DEFAULT_MASTER.placeholderStyles as Record<
+    string,
+    { fontSize: number; lineHeight: number } | undefined
+  >;
+  // `Object.prototype.hasOwnProperty` rather than a bare index: `type` comes
+  // out of the CRDT, so `constructor` or `__proto__` would otherwise read a
+  // prototype member and defeat the band for that slot.
+  const fallback =
+    (Object.prototype.hasOwnProperty.call(defaults, type)
+      ? defaults[type]
+      : undefined) ?? DEFAULT_MASTER.placeholderStyles.body;
+  record.fontSize =
+    normalizeFontSize(asFiniteNumber(record.fontSize)) ?? fallback.fontSize;
+  record.lineHeight =
+    normalizeLineHeight(asFiniteNumber(record.lineHeight))
+    ?? fallback.lineHeight;
+  return style;
 }
 
 /**

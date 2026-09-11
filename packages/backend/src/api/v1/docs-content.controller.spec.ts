@@ -1478,6 +1478,52 @@ describe('ApiV1DocsContentController', () => {
         expect(data.rows[0].cells[1]).toEqual({ body: { blocks: [] }, style: {} });
       });
 
+      it('caps a table element columnWidths on count and repairs each width', async () => {
+        // The array's length is `computeTableLayout`'s `nCols`: it allocates
+        // `nCols + 1` offsets and loops once per (row, column) pair whether
+        // or not a cell is there, so an uncapped one is a hung paint for
+        // every viewer. `colX` is a running sum, so a non-numeric entry has
+        // to become 0 rather than disappear.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [
+                {
+                  id: 'e1',
+                  type: 'table',
+                  frame: {},
+                  data: {
+                    columnWidths: [
+                      100,
+                      Number.POSITIVE_INFINITY,
+                      -5,
+                      'wide',
+                      ...new Array(400).fill(1),
+                    ],
+                    rows: [],
+                  },
+                },
+              ],
+              notes: [],
+            },
+          ] as unknown as [],
+        }) as {
+          slides: Array<{ elements: Array<{ data: { columnWidths: number[] } }> }>;
+        };
+        await expect(
+          putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        const widths = body.slides[0].elements[0].data.columnWidths;
+        expect(widths).toHaveLength(256);
+        expect(widths.slice(0, 4)).toEqual([100, 0, 0, 0]);
+      });
+
       it('rejects a table cell that is not an object', async () => {
         // Previously skipped with `continue`, which stored the crashing
         // shape: an array cell is truthy, so `isCovered(cell)` is false and

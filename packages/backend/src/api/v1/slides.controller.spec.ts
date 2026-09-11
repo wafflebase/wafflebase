@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { MAX_FONT_SIZE, MAX_LINE_HEIGHT } from '@wafflebase/docs';
 import { MemSlidesStore } from '@wafflebase/slides';
 import type { Slide } from '@wafflebase/slides';
 import { ApiV1SlidesController } from './slides.controller';
@@ -86,6 +87,32 @@ describe('ApiV1SlidesController', () => {
       await expect(
         controller.add(WS, DOC, { index: 0 }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('bands a poisoned master before seeding the new slide', async () => {
+      // `addSlide` seeds every placeholder from the master's
+      // `placeholderStyles`, which any collaborator can write and which
+      // passes through no codec — so without a band this writer *commits*
+      // `fontSize: 1e9` into real blocks on `root.slides`.
+      const { controller, root, slides } = harness();
+      const masters = root.masters as { placeholderStyles: Record<string, Record<string, number>> }[];
+      for (const style of Object.values(masters[0].placeholderStyles)) {
+        style.fontSize = 1e9;
+        style.lineHeight = 1e9;
+      }
+
+      const res = await controller.add(WS, DOC, { layoutId: 'title-body' });
+      const added = slides().find((s) => s.id === res.id);
+      const texts = (added?.elements ?? []).filter((e) => e.type === 'text');
+      expect(texts.length).toBeGreaterThan(0);
+      for (const el of texts) {
+        const blocks = (el.data as { blocks: {
+          style: { lineHeight?: number };
+          inlines: { style: { fontSize?: number } }[];
+        }[] }).blocks;
+        expect(blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+        expect(blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+      }
     });
 
     it('keeps a concurrent edit to another slide', async () => {

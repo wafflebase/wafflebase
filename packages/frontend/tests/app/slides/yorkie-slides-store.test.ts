@@ -1063,4 +1063,77 @@ describe('YorkieSlidesStore — the text-body numeric band', () => {
       expect(el.data.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
     }
   });
+  it('keeps a poisoned master style out of the blocks a cascade re-seeds', () => {
+    // `updateMaster` hands `cascadeMasterStyles` the live, just-patched
+    // master, so that reader — not `resolveMasterAndTheme` — is what feeds
+    // `seedPlaceholderBlocks` on this path, and it *commits* the result into
+    // every empty placeholder of the patched type.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    store.batch(() => store.addSlide('title-body'));
+    const masterId = (JSON.parse(doc.toJSON()) as { masters: { id: string }[] })
+      .masters[0].id;
+    store.batch(() =>
+      store.updateMaster(masterId, {
+        placeholderStyles: { body: { fontSize: 1e9, lineHeight: 1e9 } },
+      }),
+    );
+
+    const stored = JSON.parse(doc.toJSON()) as {
+      slides: {
+        elements: {
+          type: string;
+          placeholderRef?: { type: string };
+          data: { blocks: Block[] };
+        }[];
+      }[];
+    };
+    const bodies = stored.slides
+      .flatMap((s) => s.elements)
+      .filter((e) => e.type === 'text' && e.placeholderRef?.type === 'body');
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const el of bodies) {
+      expect(el.data.blocks[0].inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+      expect(el.data.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    }
+  });
+
+  it('keeps a poisoned layout placeholder out of the slide it materializes', () => {
+    // `resolveLayout` is the write-side twin of the `read()` layout band:
+    // `addSlide` copies a non-text placeholder's `data` verbatim onto the new
+    // slide, so an unbanded layout stores the peer's numbers in a real
+    // element.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      (r as unknown as { layouts: unknown[] }).layouts.push({
+        id: 'hostile',
+        masterId: 'default',
+        name: 'Hostile',
+        placeholders: [
+          {
+            placeholder: { type: 'body' },
+            type: 'shape',
+            frame: { x: 0, y: 0, w: 100, h: 100 },
+            data: { kind: 'rect', text: { blocks: poisoned() } },
+          },
+        ],
+        staticElements: [],
+      });
+    });
+    store.batch(() => store.addSlide('hostile'));
+
+    const stored = JSON.parse(doc.toJSON()) as {
+      slides: {
+        layoutId: string;
+        elements: { type: string; data: { text?: { blocks: Block[] } } }[];
+      }[];
+    };
+    const slide = stored.slides.find((s) => s.layoutId === 'hostile');
+    const shape = slide?.elements.find((e) => e.type === 'shape');
+    expect(shape?.data.text?.blocks[0].inlines[0].style.fontSize).toBe(
+      MAX_FONT_SIZE,
+    );
+    expect(shape?.data.text?.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
+  });
 });

@@ -31,7 +31,10 @@ import {
   listLayouts,
   moveSlide,
 } from '../../yorkie/slide-ops';
-import { BUILT_IN_LAYOUTS } from '@wafflebase/slides';
+import {
+  BUILT_IN_LAYOUTS,
+  bandSlidesDocumentNumerics,
+} from '@wafflebase/slides';
 
 const SLIDES_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.slides;
 
@@ -171,7 +174,19 @@ export class ApiV1SlidesController {
     >(
       documentId,
       (doc) => {
-        const result = op(readSlidesRoot(doc.getRoot()));
+        // Banded before the op runs, for the reason the frontend store bands
+        // `resolveMasterAndTheme()`: `addSlide` seeds a new slide's
+        // placeholders from the master's `placeholderStyles` and the layout's
+        // placeholder specs, both of which any collaborator can write and
+        // neither of which passes through a codec. Unbanded, this writer
+        // *commits* a peer's `fontSize: 1e9` into the real blocks it splices
+        // onto `root.slides`, where a reader's band can only hide it. Nothing
+        // else is written by banding: on a live root `readSlidesRoot` returns
+        // a plain snapshot parsed out of the proxies, and the update below
+        // writes only `result.change`.
+        const result = op(
+          bandSlidesDocumentNumerics(readSlidesRoot(doc.getRoot())),
+        );
         if (!result.ok) {
           if (result.reason === 'not_found') {
             throw new NotFoundException('Slide not found');

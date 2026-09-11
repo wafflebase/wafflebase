@@ -40,6 +40,7 @@ import {
   applyLayoutToSlide,
   bandLayoutNumerics,
   bandMasterNumerics,
+  bandPlaceholderStyleNumerics,
   composeAncestorTransform,
   buildElementWorldLookup,
   computeConnectorFrame,
@@ -1141,10 +1142,20 @@ export class YorkieSlidesStore implements SlidesStore {
         const data = el.data as { blocks?: unknown };
         const blocks = yorkieToPlain<Block[]>(data.blocks);
         if (!Array.isArray(blocks) || !isBlocksEmpty(blocks)) continue;
+        // Banded for the reason `resolveMasterAndTheme()` bands the master it
+        // returns: this style is read straight off the live CRDT (any
+        // collaborator can write it, and `updateMaster` hands us the unbanded
+        // object it just patched), and `seedPlaceholderBlocks` *commits* its
+        // `fontSize` / `lineHeight` into real blocks — where a later read band
+        // would only hide the poisoned value from this client.
         const style = yorkieToPlain<PlaceholderStyle>(
           (master.placeholderStyles as Record<string, unknown>)[t],
         );
-        if (style) data.blocks = clone(seedPlaceholderBlocks(style, theme));
+        if (style) {
+          data.blocks = clone(
+            seedPlaceholderBlocks(bandPlaceholderStyleNumerics(style, t), theme),
+          );
+        }
       }
     }
   }
@@ -1346,7 +1357,13 @@ export class YorkieSlidesStore implements SlidesStore {
       layouts?: unknown;
     };
     const layouts = yorkieToPlain<Layout[]>(root.layouts) ?? [];
-    return layouts.find((l) => l.id === layoutId) ?? getLayout(layoutId);
+    const layout = layouts.find((l) => l.id === layoutId);
+    // Banded here as well as in `read()`, and for the reason the master is
+    // banded in `resolveMasterAndTheme()`: this is the reader `addSlide` and
+    // `applyLayout` use, so a peer-poisoned placeholder spec's typography is
+    // *committed* into the real elements the layout materializes rather than
+    // merely rendered. The built-in fallback needs no band.
+    return layout ? bandLayoutNumerics(layout) : getLayout(layoutId);
   }
 
   // --- element ops ---
