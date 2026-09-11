@@ -23,6 +23,7 @@ import {
   applyInverseMatrix,
   applyInversePoint,
   bakeGroupScale,
+  bandElementNumerics,
   buildElementWorldLookup,
   composeAncestorTransform,
   computeConnectorFrame,
@@ -35,6 +36,7 @@ import {
   worldTightFrame,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
+import { bandBlockNumerics } from '@wafflebase/docs';
 import { boardToSlidesDocument } from '@wafflebase/board';
 import type { BoardPresence, YorkieBoardRoot } from '@/types/board-document';
 import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document';
@@ -357,6 +359,13 @@ export class YorkieBoardStore implements SlidesStore {
    * ModelElement. Verbatim port of `readElement` in
    * `yorkie-slides-store.ts` (table/chart branches dropped — a board's
    * `YorkieElement` union never includes them).
+   *
+   * Text bodies are banded on the way out, exactly as the slides twin does:
+   * a board stores the identical codec-free docs blocks and renders them
+   * through the same `text-renderer` → `computeLayout`, so an
+   * `Infinity` line height a peer wrote is the same hung canvas here.
+   * `bandElementNumerics` covers the shape branch too (a sticky note is a
+   * `roundRect` shape with a body), which falls through to the generic tail.
    */
   private readElement(e: unknown): ModelElement {
     const el = e as {
@@ -371,7 +380,9 @@ export class YorkieBoardStore implements SlidesStore {
     );
     if (el.type === 'text') {
       const rawData = (el.data ?? {}) as Record<string, unknown>;
-      const blocks = yorkieToPlain<Block[]>(rawData.blocks) ?? [];
+      const blocks = bandBlockNumerics(
+        yorkieToPlain<Block[]>(rawData.blocks) ?? [],
+      );
       const extras: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(rawData)) {
         if (k === 'blocks') continue;
@@ -428,13 +439,13 @@ export class YorkieBoardStore implements SlidesStore {
         data: refSize ? { children, refSize } : { children },
       } as ModelElement;
     }
-    return {
+    return bandElementNumerics({
       id: el.id,
       type: el.type,
       frame: yorkieToPlain<Frame>(el.frame),
       placeholderRef,
       data: yorkieToPlain<object>(el.data),
-    } as ModelElement;
+    } as ModelElement);
   }
 
   // --- batch + undo (verbatim port of YorkieSlidesStore's scaffolding) ---
@@ -1316,7 +1327,12 @@ export class YorkieBoardStore implements SlidesStore {
       if (e.type !== 'text') {
         throw new Error(`Element ${elementId} is not a text element`);
       }
-      const blocks = yorkieToPlain<Block[]>((e.data as { blocks?: unknown }).blocks) ?? [];
+      // Banded on the way in, so an edit of a body a peer poisoned writes the
+      // repaired value back rather than carrying it forward — the same band
+      // `readElement` applies. Mirrors `YorkieSlidesStore.withTextElement`.
+      const blocks = bandBlockNumerics(
+        yorkieToPlain<Block[]>((e.data as { blocks?: unknown }).blocks) ?? [],
+      );
       const next = fn(blocks);
       const eAny = e as { data: Record<string, unknown> };
       eAny.data = {
@@ -1348,7 +1364,8 @@ export class YorkieBoardStore implements SlidesStore {
       }>(eAny.data.text);
       const hadTextField = priorTextPlain !== undefined;
       const priorText = priorTextPlain ?? {};
-      const priorBlocks = priorText.blocks ?? [];
+      // Banded like `withTextElement`'s body above.
+      const priorBlocks = bandBlockNumerics(priorText.blocks ?? []);
       const returned = fn(priorBlocks);
       const nextBlocks = returned !== undefined ? clone(returned) : priorBlocks;
       if (isBlocksEmpty(nextBlocks) && !hadTextField) return;

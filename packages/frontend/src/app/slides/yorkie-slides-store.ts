@@ -38,6 +38,7 @@ import {
   applyInverseMatrix,
   applyInversePoint,
   applyLayoutToSlide,
+  bandLayoutNumerics,
   composeAncestorTransform,
   buildElementWorldLookup,
   computeConnectorFrame,
@@ -448,7 +449,13 @@ export class YorkieSlidesStore implements SlidesStore {
         ...(animations !== undefined && animations !== null ? { animations } : {}),
       };
     });
-    const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
+    // Banded like the slide elements above: a layout's placeholder specs are
+    // `ElementInit`s carrying the same codec-free `data.blocks`, they are
+    // peer-writable, and `seedPlaceholderBlocks` copies their typography into
+    // the real blocks a layout change materializes.
+    const layouts = (root.layouts ?? []).map((l) =>
+      bandLayoutNumerics(yorkieToPlain<Layout>(l)),
+    );
     const rootAny = root as {
       themes?: unknown;
       masters?: unknown;

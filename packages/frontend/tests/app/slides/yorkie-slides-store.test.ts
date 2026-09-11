@@ -848,4 +848,29 @@ describe('YorkieSlidesStore — the text-body numeric band', () => {
     const el = store.read().slides[0].elements[0] as { data: { blocks: Block[] } };
     expectBanded(el.data.blocks);
   });
+
+  it('bands a layout placeholder spec a peer poisoned', () => {
+    // A `PlaceholderSpec` is an `ElementInit`, so a text placeholder carries
+    // the same codec-free `data.blocks` a slide element does — and
+    // `seedPlaceholderBlocks` copies that typography into the real blocks a
+    // layout change materializes.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    doc.update((r) => {
+      const layouts = r.layouts as unknown as Record<string, unknown>[];
+      layouts[0].placeholders = [
+        {
+          type: 'text',
+          frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+          placeholder: { type: 'body' },
+          data: { blocks: poisoned() },
+        },
+      ];
+    });
+
+    const spec = store.read().layouts[0].placeholders[0] as unknown as {
+      data: { blocks: Block[] };
+    };
+    expectBanded(spec.data.blocks);
+  });
 });

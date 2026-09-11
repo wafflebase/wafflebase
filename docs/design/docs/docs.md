@@ -276,6 +276,21 @@ Banding the read is what makes it cover the peer: nothing stops a
 collaborator calling `doc.update` with `fontSize: 1e9`, so the guarantee
 has to live where the value is consumed, not where this client writes it.
 
+That argument names the store only because it was the reader in front of
+us; it applies to **every** reader of that shape, and there are three
+more. A board stores the identical blocks under a synthetic slide
+(`YorkieBoardStore` is a verbatim port of the slides reader), the
+revision-preview adapters parse the same JSON out of a stored snapshot
+and hand it to `MemSlidesStore`, which bands nothing of its own, and a
+`Layout`'s placeholder specs are `ElementInit`s carrying `data.blocks`
+that `seedPlaceholderBlocks` copies into real blocks. So the walk lives
+in one place — `bandSlidesDocumentNumerics` / `bandElementNumerics` /
+`bandLayoutNumerics` (`@wafflebase/slides`, `model/band-numerics.ts`) —
+and each reader calls it, rather than each reader being a fresh chance to
+forget. The group recursion is depth-capped at 32, matching the element
+walk: a `data.children` chain is peer-written too, and a band that blew
+the stack would be its own denial of service.
+
 ### Document manipulation
 
 The `Doc` class provides methods to manipulate the document:

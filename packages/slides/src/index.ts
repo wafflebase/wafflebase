@@ -56,6 +56,11 @@ export type {
 } from './model/master';
 export { DEFAULT_MASTER } from './model/master';
 export { seedPlaceholderBlocks } from './model/placeholder-blocks';
+export {
+  bandElementNumerics,
+  bandLayoutNumerics,
+  bandSlidesDocumentNumerics,
+} from './model/band-numerics';
 
 export type {
   AnimCategory,

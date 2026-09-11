@@ -6,6 +6,7 @@ import {
 } from '@wafflebase/docs';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import type { Element, SlidesDocument } from '@wafflebase/slides';
+import { bandSlidesDocumentNumerics } from '@wafflebase/slides';
 import { boardToSlidesDocument } from '@wafflebase/board';
 import type { YorkieBoardRoot } from '@/types/board-document';
 import { unwrapYsonScalars } from './unwrap-yson';
@@ -41,8 +42,17 @@ export function parseSheetSnapshot(snapshot: string): SpreadsheetDocument {
   return unwrapYsonScalars<SpreadsheetDocument>(YSON.parse(snapshot));
 }
 
+/**
+ * Banded like the live reader (`YorkieSlidesStore.read()`): the snapshot holds
+ * the same codec-free text bodies a peer wrote, and the preview hands the
+ * result to `MemSlidesStore` → the same `computeLayout`, which has no band of
+ * its own. Without it a `lineHeight: Infinity` any collaborator once wrote is
+ * a hung or blank preview for whoever opens that revision.
+ */
 export function parseSlidesSnapshot(snapshot: string): SlidesDocument {
-  return unwrapYsonScalars<SlidesDocument>(YSON.parse(snapshot));
+  return bandSlidesDocumentNumerics(
+    unwrapYsonScalars<SlidesDocument>(YSON.parse(snapshot)),
+  );
 }
 
 /**
@@ -60,7 +70,9 @@ export function parseSlidesSnapshot(snapshot: string): SlidesDocument {
  */
 export function parseBoardSnapshot(snapshot: string): SlidesDocument {
   const root = unwrapYsonScalars<Partial<YorkieBoardRoot>>(YSON.parse(snapshot));
-  return boardToSlidesDocument({
+  // Banded after synthesis rather than before, so the walk sees the elements
+  // where the renderer does — see {@link parseSlidesSnapshot}.
+  return bandSlidesDocumentNumerics(boardToSlidesDocument({
     // Mirrors `YorkieBoardStore.read()`'s defaults: a board that was never
     // edited has no `meta` at all (a viewer attaches with an empty initial
     // root — see `boardInitialRootForRole`).
@@ -72,7 +84,7 @@ export function parseBoardSnapshot(snapshot: string): SlidesDocument {
     // Unwrapped above, so these are already the plain `Element` objects the
     // model wants — every `frame` number a number, no proxy left to detach.
     elements: (root.elements ?? []) as unknown as Element[],
-  });
+  }));
 }
 
 /**

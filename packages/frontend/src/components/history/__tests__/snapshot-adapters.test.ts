@@ -3,6 +3,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MemStore } from '@wafflebase/sheets';
 import { MemSlidesStore } from '@wafflebase/slides';
+import type { Block } from '@wafflebase/docs';
+import {
+  MAX_FONT_SIZE,
+  MAX_LINE_HEIGHT,
+  MAX_LIST_LEVEL,
+} from '@wafflebase/docs';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import {
   parseBoardSnapshot,
@@ -364,5 +370,61 @@ describe('YSON parse limits', () => {
     expect(
       parseNoteSnapshot('{"content":Text([{"val":"Fix issue 3] later"}])}'),
     ).toBe('Fix issue 3] later');
+  });
+});
+
+// A revision snapshot holds the same codec-free text bodies a live document
+// does, and `RevisionPreview` hands the parsed result to `MemSlidesStore`,
+// whose `read()` bands nothing. So the guarantee `YorkieSlidesStore.read()`
+// gives a live deck has to be given here too — otherwise a body a peer
+// poisoned before the revision was captured hangs or blanks the preview for
+// whoever opens it.
+describe('the revision-preview numeric band', () => {
+  const POISONED_BLOCK =
+    '{"id":"p1","type":"list-item","listLevel":1e9,' +
+    '"style":{"lineHeight":1e9},' +
+    '"inlines":[{"text":"x","style":{"fontSize":1e9}}]}';
+
+  function expectBanded(blocks: unknown): void {
+    const b = (blocks as Block[])[0];
+    expect(b.listLevel).toBe(MAX_LIST_LEVEL);
+    expect(b.style.lineHeight).toBe(MAX_LINE_HEIGHT);
+    expect(b.inlines[0].style.fontSize).toBe(MAX_FONT_SIZE);
+  }
+
+  it('bands a slides snapshot text body', () => {
+    const snapshot =
+      '{"meta":{"title":"t"},"slides":[{"id":"s1","layoutId":"blank",' +
+      '"background":{},"notes":[' + POISONED_BLOCK + '],"elements":[' +
+      '{"id":"e1","type":"text","frame":{"x":0,"y":0,"w":100,"h":50,' +
+      '"rotation":0},"data":{"blocks":[' + POISONED_BLOCK + ']}}]}]}';
+    const doc = parseSlidesSnapshot(snapshot);
+    expectBanded(
+      (doc.slides[0].elements[0] as { data: { blocks: Block[] } }).data.blocks,
+    );
+    expectBanded(doc.slides[0].notes);
+  });
+
+  it('bands a board snapshot text body', () => {
+    const snapshot =
+      '{"meta":{"title":"b"},"elements":[' +
+      '{"id":"e1","type":"text","frame":{"x":0,"y":0,"w":100,"h":50,' +
+      '"rotation":0},"data":{"blocks":[' + POISONED_BLOCK + ']}}]}';
+    const doc = parseBoardSnapshot(snapshot);
+    expectBanded(
+      (doc.slides[0].elements[0] as { data: { blocks: Block[] } }).data.blocks,
+    );
+  });
+
+  it('survives MemSlidesStore, the path the preview mounts it through', () => {
+    const snapshot =
+      '{"meta":{"title":"t"},"slides":[{"id":"s1","layoutId":"blank",' +
+      '"background":{},"notes":[],"elements":[' +
+      '{"id":"e1","type":"text","frame":{"x":0,"y":0,"w":100,"h":50,' +
+      '"rotation":0},"data":{"blocks":[' + POISONED_BLOCK + ']}}]}]}';
+    const read = new MemSlidesStore(parseSlidesSnapshot(snapshot)).read();
+    expectBanded(
+      (read.slides[0].elements[0] as { data: { blocks: Block[] } }).data.blocks,
+    );
   });
 });

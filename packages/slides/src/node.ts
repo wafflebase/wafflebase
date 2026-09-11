@@ -55,6 +55,11 @@ export type { Master, MasterBackground, MasterBackgroundImage } from './model/ma
 // Kept in sync with the browser entry (`src/index.ts`).
 export { DEFAULT_MASTER } from './model/master';
 export { seedPlaceholderBlocks } from './model/placeholder-blocks';
+export {
+  bandElementNumerics,
+  bandLayoutNumerics,
+  bandSlidesDocumentNumerics,
+} from './model/band-numerics';
 
 export type {
   Crop,
