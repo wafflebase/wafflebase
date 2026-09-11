@@ -132,15 +132,46 @@ export function pushRecent(list: readonly string[], hex: string): string[] {
 export const DOCS_PX_PER_PT = 96 / 72;
 
 /**
+ * Largest {@link deckFontScale} any reader will honour.
+ *
+ * `pxPerPt` is a real typographic setting, but it has exactly one producer —
+ * the PPTX importer's `SLIDE_WIDTH / (slideWidthInches × 72)` — and OOXML
+ * bounds its input: `ST_SlideSizeCoordinate` bottoms out at 914400 EMU, a
+ * 1-inch-wide slide. That narrowest importable deck is `1920 / 72 ≈ 26.67`
+ * px/pt, which is this scale once divided by the docs baseline. So the ceiling
+ * sits exactly at the largest value a producer we accept can author — no
+ * legitimate deck is scaled down by it, the rule the docs bands state for
+ * `MAX_FONT_SIZE` and `MAX_LINE_HEIGHT`.
+ *
+ * Spelled as the literal `20` rather than `SLIDE_WIDTH / 72 / DOCS_PX_PER_PT`
+ * because {@link SLIDE_WIDTH} is declared further down this module, so the
+ * computed form would read it inside its own temporal dead zone.
+ */
+export const MAX_DECK_FONT_SCALE = 20;
+
+/**
  * Multiplier slides text painters apply to font sizes / margins before
  * calling into docs. Equals `1` when `pxPerPt` is absent so existing
  * decks render exactly as they used to.
+ *
+ * Bounded, because `meta` lives on the Yorkie root with no codec and no band
+ * of its own: `migrateMeta` keeps any finite positive `pxPerPt`, and this
+ * multiplier is then applied to every font size, shape text, table and chart
+ * the renderer hands docs. A peer's `pxPerPt: 1e9` would turn an
+ * already-banded `MAX_FONT_SIZE` run into a ~3e12 px line — the same blank or
+ * huge-allocation render the block bands exist to prevent, reached through the
+ * multiplier rather than the value. Bounding it here rather than at each read
+ * boundary is what makes every consumer inherit it.
+ *
+ * The two branches are the bands' own split: a non-finite or non-positive
+ * value has no usable reading and falls back to the neutral `1`, while a
+ * merely-too-large one is clamped so a deck renders large rather than wrong.
  */
 export function deckFontScale(meta: Pick<Meta, 'pxPerPt'>): number {
   if (meta.pxPerPt == null || !Number.isFinite(meta.pxPerPt) || meta.pxPerPt <= 0) {
     return 1;
   }
-  return meta.pxPerPt / DOCS_PX_PER_PT;
+  return Math.min(MAX_DECK_FONT_SCALE, meta.pxPerPt / DOCS_PX_PER_PT);
 }
 
 export type GuideAxis = 'x' | 'y';

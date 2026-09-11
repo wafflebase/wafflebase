@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   DOCS_PX_PER_PT,
+  MAX_DECK_FONT_SCALE,
   MAX_RECENT_COLORS,
+  SLIDE_WIDTH,
   deckFontScale,
   pushRecent,
 } from '../../src/model/presentation';
@@ -30,6 +32,28 @@ describe('deckFontScale', () => {
     expect(deckFontScale({ pxPerPt: -1 })).toBe(1);
     expect(deckFontScale({ pxPerPt: NaN })).toBe(1);
     expect(deckFontScale({ pxPerPt: Infinity })).toBe(1);
+  });
+
+  it(`clamps a finite pxPerPt at MAX_DECK_FONT_SCALE (${MAX_DECK_FONT_SCALE})`, () => {
+    // `meta` is peer-writable on the Yorkie root and survives `migrateMeta`
+    // as long as it is finite and positive, and this scale multiplies every
+    // font size the renderer hands docs. Without a ceiling a `pxPerPt: 1e9`
+    // turns an already-banded MAX_FONT_SIZE run into a ~3e12 px line — the
+    // same blank / huge-allocation render the block bands exist to prevent,
+    // reached through the multiplier instead of the value.
+    expect(deckFontScale({ pxPerPt: 1e9 })).toBe(MAX_DECK_FONT_SCALE);
+  });
+
+  it('leaves the narrowest deck OOXML can express unclamped', () => {
+    // `ST_SlideSizeCoordinate` bottoms out at 914400 EMU (1 inch), so the
+    // largest scale the PPTX importer — the only producer of `pxPerPt` — can
+    // compute is for a 1-inch-wide deck. The ceiling sits exactly there, so
+    // no importable deck is scaled down by it.
+    const narrowest = SLIDE_WIDTH / (1 * 72);
+    expect(deckFontScale({ pxPerPt: narrowest })).toBeCloseTo(
+      MAX_DECK_FONT_SCALE,
+      9,
+    );
   });
 });
 
