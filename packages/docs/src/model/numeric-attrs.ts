@@ -25,14 +25,27 @@
  * every reader. Band the value where it enters the model *and* bound the loop
  * that consumes it.
  *
- * Every band is the range the editor's own controls can reach, so nothing a
- * gesture can produce is altered:
+ * Every band covers the range of every *producer* whose output we accept, not
+ * just the range this editor's own controls can reach. That distinction is
+ * load-bearing: a band narrower than a producer turns a legitimate import into
+ * content that renders at one size for the importer and a smaller one for
+ * every later reader of the same document — the silent divergence these bands
+ * exist to prevent, arriving from the other direction. So the two fields DOCX
+ * can express take Word's ceilings rather than the editor's:
  *
- * - `MAX_FONT_SIZE` is the font-size picker's own ceiling
- *   (`FONT_SIZE_MAX`, `components/text-formatting/font-catalog.ts`).
- * - `MAX_LINE_HEIGHT` is far above the line-spacing menu's largest entry (2).
+ * - `MAX_FONT_SIZE` is the largest size any producer here can author — above
+ *   Word's 1638 pt (`w:sz`, half points, which `import/docx-style-map.ts`
+ *   imports) and at DrawingML's, which a slide text body carries. The
+ *   *picker's* ceiling is a separate, smaller UI choice (`FONT_SIZE_MAX`,
+ *   `components/text-formatting/font-catalog.ts`).
+ * - `MAX_LINE_HEIGHT` is Word's largest "Multiple" line spacing — `w:line`'s
+ *   22-inch ceiling read as 240ths, which is also DrawingML's `lnSpc`
+ *   percentage ceiling — and far above the line-spacing menu's largest entry
+ *   (2).
  * - `MAX_CELL_PADDING` is far above the 4 px default; no control sets it.
  * - `MAX_IMAGE_SIZE` is ~25× the widest page an insert clamps an image to.
+ * - `MAX_TABLE_SPAN` and `MAX_TABLE_COLUMNS` are far above the grid any
+ *   producer here builds (Word itself stops at 63 columns).
  *
  * Every band has *two* branches, and which one an input takes is the whole
  * contract — a band summarized as a single verb is wrong for half its inputs:
@@ -52,17 +65,41 @@
  * ceiling — see its own note for why a *pair* cannot be clamped.
  */
 
-/** Largest inline font size (pt) any reader will honour. */
-export const MAX_FONT_SIZE = 400;
+/**
+ * Largest inline font size (pt) any reader will honour — the largest any
+ * producer here can author: DrawingML's `ST_TextFontSize` ceiling (400000
+ * hundredths), which is above Word's 1638 pt.
+ */
+export const MAX_FONT_SIZE = 4000;
 
-/** Largest paragraph line-height multiple any reader will honour. */
-export const MAX_LINE_HEIGHT = 20;
+/**
+ * Largest paragraph line-height multiple any reader will honour — Word's
+ * `w:line` ceiling (31680 twips) read as 240ths, i.e. its largest "Multiple".
+ */
+export const MAX_LINE_HEIGHT = 132;
 
 /** Largest table-cell padding (px) any reader will honour. */
 export const MAX_CELL_PADDING = 500;
 
 /** Largest inline-image edge (px) any reader will honour. */
 export const MAX_IMAGE_SIZE = 20000;
+
+/** Largest `rowSpan` / `colSpan` any reader will honour. */
+export const MAX_TABLE_SPAN = 1000;
+
+/** Most columns any reader will materialize for one table. */
+export const MAX_TABLE_COLUMNS = 256;
+
+/**
+ * Largest column width ratio any reader will honour.
+ *
+ * Deliberately far above the `1 / cols` every writer here produces (a ratio is
+ * a fraction of the content width) rather than at `1`: the band's job is to
+ * keep the geometry finite, and a document stored by some earlier writer with
+ * absolute widths in it should keep rendering exactly as it does today rather
+ * than collapse to a single content width.
+ */
+export const MAX_COLUMN_RATIO = 1000;
 
 /**
  * One `fontSize` attribute as a number every reader can trust: a finite size
@@ -133,4 +170,80 @@ export function isPaintableImageSize(width: number, height: number): boolean {
     width <= MAX_IMAGE_SIZE &&
     height <= MAX_IMAGE_SIZE
   );
+}
+
+/**
+ * One `colSpan` / `rowSpan` attribute as a number every reader can trust: an
+ * integer inside `[0, MAX_TABLE_SPAN]`, or `undefined` for "no span declared".
+ *
+ * `0` is in band and is *not* a rejection: it is the covered-cell marker
+ * `computeTableLayout` and `normalizeTableMerges` key on, so dropping it would
+ * take the merge apart. A non-finite or negative span is dropped (a cell with
+ * no span reads as `1`, the neutral value); a finite one above the ceiling is
+ * clamped and kept, like every other band here.
+ *
+ * The sink is worse than geometry. `expandCellRangeForMerges`
+ * (`view/selection.ts`) runs a fixed-point `while (changed)` loop that widens
+ * the selected rectangle to `r + rowSpan - 1`; with `rowSpan = Infinity` the
+ * rectangle's end becomes `Infinity` and the `for (r = rowStart; r <= rowEnd;
+ * r++)` inside it never terminates — a permanently hung tab for anyone who
+ * selects cells in that table, from one peer's attribute. A finite `1e9` is
+ * the same loop running a billion times.
+ */
+export function normalizeTableSpan(
+  raw: number | undefined,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!Number.isFinite(raw) || raw < 0) return undefined;
+  return Math.min(MAX_TABLE_SPAN, Math.trunc(raw));
+}
+
+/**
+ * The `cols` attribute — a comma-joined list of column width *ratios* — as the
+ * `tableData.columnWidths` array every reader can trust.
+ *
+ * Shared by both CRDT read boundaries, which is the point: each used to parse
+ * it with its own `split(',').map(Number).filter((n) => !isNaN(n))`, and
+ * `Number('1e400')` is `Infinity`, which `!isNaN` happily passes. Two things
+ * are bounded here that the open-coded version was not:
+ *
+ * - **The count.** `columnWidths.length` is `computeTableLayout`'s `numCols`,
+ *   and its `for (r) for (c)` loop allocates a `LayoutTableCell` per pair — so
+ *   a `cols` string of a million entries is a million allocations *per row*,
+ *   from an attribute a peer can write. Entries past `MAX_TABLE_COLUMNS` are
+ *   dropped.
+ * - **The magnitude.** A ratio is a fraction of the content width (the writer
+ *   fills `1 / cols`), and it is multiplied by it: `Infinity * width` is
+ *   `Infinity`, and a mixed-sign pair reaches `NaN` cumulative offsets, which
+ *   blanks the table — and, through `totalHeight`, the scroll extent — for
+ *   every reader. Non-finite entries are dropped, the behaviour the old
+ *   `isNaN` filter already had for `NaN`, and a finite one is clamped into
+ *   `[0, MAX_COLUMN_RATIO]`.
+ */
+export function parseColumnWidthsAttr(attr: string | undefined): number[] {
+  if (!attr) return [];
+  const widths: number[] = [];
+  for (const part of attr.split(',')) {
+    if (widths.length >= MAX_TABLE_COLUMNS) break;
+    const ratio = normalizeColumnRatio(Number(part));
+    if (ratio === undefined) continue;
+    widths.push(ratio);
+  }
+  return widths;
+}
+
+/**
+ * One column width ratio as a number every reader can trust: a finite ratio
+ * inside `[0, MAX_COLUMN_RATIO]`, or `undefined` for one that cannot be used
+ * as geometry at all. See {@link parseColumnWidthsAttr}, which is this applied
+ * to the `cols` attribute; the slides content validator applies it to a stored
+ * `columnWidths` array, where a dropped entry keeps its index as `0` so the
+ * later columns do not shift.
+ */
+export function normalizeColumnRatio(
+  raw: number | undefined,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!Number.isFinite(raw)) return undefined;
+  return Math.min(MAX_COLUMN_RATIO, Math.max(0, raw));
 }

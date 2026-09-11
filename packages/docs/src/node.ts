@@ -142,10 +142,16 @@ export {
   MAX_LINE_HEIGHT,
   MAX_CELL_PADDING,
   MAX_IMAGE_SIZE,
+  MAX_TABLE_SPAN,
+  MAX_TABLE_COLUMNS,
+  MAX_COLUMN_RATIO,
   normalizeFontSize,
   normalizeLineHeight,
   normalizeCellPadding,
   isPaintableImageSize,
+  normalizeTableSpan,
+  parseColumnWidthsAttr,
+  normalizeColumnRatio,
 } from './model/numeric-attrs.js';
 export type { StyleId, NamedStyleDef, DocStyles, BlockSpacing, BlockSpacingContext } from './model/named-styles.js';
 export {
@@ -154,6 +160,7 @@ export {
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  sanitizeDocStyles,
   effectiveBlockSpacing,
   STYLE_OWNED_SPACING_DEFAULTS,
   STYLE_OWNED_SPACING_MARKERS,

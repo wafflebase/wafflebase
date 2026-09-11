@@ -548,7 +548,16 @@ function resolveInlineCSS(el: Element, style: InlineStyle): void {
     const match = el.style.fontSize.match(/^(\d+(?:\.\d+)?)(px|pt)$/);
     if (match) {
       const value = parseFloat(match[1]);
-      style.fontSize = match[2] === 'px' ? (value * 72) / 96 : value;
+      // Banded like the JSON payload's `fontSize` above, and from input that
+      // is no more trustworthy: this is external HTML off the system
+      // clipboard, and the regex admits any magnitude — `999999999px` is
+      // ~7.5e8 pt, which becomes a line height and reaches the paginator's
+      // row-split loop. Dropping an out-of-band size leaves the run at the
+      // block's resolved default, which is what an absent one already means.
+      const fontSize = normalizeFontSize(
+        match[2] === 'px' ? (value * 72) / 96 : value,
+      );
+      if (fontSize !== undefined) style.fontSize = fontSize;
     }
   }
   if (el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight) >= 700) {

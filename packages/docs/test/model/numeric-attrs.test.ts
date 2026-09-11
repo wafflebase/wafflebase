@@ -4,11 +4,16 @@ import {
   MAX_FONT_SIZE,
   MAX_IMAGE_SIZE,
   MAX_LINE_HEIGHT,
+  MAX_TABLE_COLUMNS,
+  MAX_TABLE_SPAN,
   isPaintableImageSize,
   normalizeCellPadding,
   normalizeFontSize,
   normalizeLineHeight,
+  normalizeTableSpan,
+  parseColumnWidthsAttr,
 } from '../../src/model/numeric-attrs.js';
+import { expandCellRangeForMerges } from '../../src/view/selection.js';
 import { treeNodeToBlock } from '../../src/model/crdt-tree.js';
 import { computeLayout } from '../../src/view/layout.js';
 import { paginateLayout } from '../../src/view/pagination.js';
@@ -230,5 +235,96 @@ describe('paginateLayout bounds a content-derived row height', () => {
       }));
     });
     expect(result.pages.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/**
+ * The table *structure* attributes are bands of their own, and their sinks are
+ * worse than a tall row: a span is the bound of a fixed-point loop, and the
+ * column count is the inner bound of an allocation loop.
+ */
+describe('the table structure bands', () => {
+  test('normalizeTableSpan keeps the covered-cell marker', () => {
+    // `0` is the marker `computeTableLayout` and `normalizeTableMerges` key
+    // on — dropping it would take every merged table apart.
+    expect(normalizeTableSpan(0)).toBe(0);
+    expect(normalizeTableSpan(2)).toBe(2);
+    expect(normalizeTableSpan(2.7)).toBe(2);
+    expect(normalizeTableSpan(undefined)).toBeUndefined();
+    expect(normalizeTableSpan(NaN)).toBeUndefined();
+    expect(normalizeTableSpan(Infinity)).toBeUndefined();
+    expect(normalizeTableSpan(-1)).toBeUndefined();
+    expect(normalizeTableSpan(1e9)).toBe(MAX_TABLE_SPAN);
+  });
+
+  test('parseColumnWidthsAttr bounds the count and the magnitude', () => {
+    expect(parseColumnWidthsAttr(undefined)).toEqual([]);
+    expect(parseColumnWidthsAttr('0.5,0.5')).toEqual([0.5, 0.5]);
+    // `Number('1e400')` is `Infinity`, which the old `!isNaN` filter passed.
+    expect(parseColumnWidthsAttr('1e400,0.5')).toEqual([0.5]);
+    expect(parseColumnWidthsAttr('-1,2')).toEqual([0, 2]);
+    expect(
+      parseColumnWidthsAttr(new Array(5000).fill('0.001').join(',')).length,
+    ).toBe(MAX_TABLE_COLUMNS);
+  });
+
+  test('the CRDT read boundary bands a peer-written span', () => {
+    const cellOf = (attributes: Record<string, string>) =>
+      treeNodeToBlock({
+        type: 'block',
+        attributes: { type: 'table', cols: '1' },
+        children: [
+          { type: 'row', children: [{ type: 'cell', attributes, children: [] }] },
+        ],
+      }).tableData!.rows[0].cells[0];
+
+    expect(cellOf({ colSpan: '2' }).colSpan).toBe(2);
+    expect(cellOf({ colSpan: '0' }).colSpan).toBe(0);
+    expect(cellOf({ rowSpan: 'Infinity' }).rowSpan).toBeUndefined();
+    expect(cellOf({ rowSpan: '1e9' }).rowSpan).toBe(MAX_TABLE_SPAN);
+  });
+
+  test('the CRDT read boundary bands a peer-written cols attribute', () => {
+    const colsOf = (cols: string) =>
+      treeNodeToBlock({
+        type: 'block',
+        attributes: { type: 'table', cols },
+        children: [],
+      }).tableData!.columnWidths;
+
+    expect(colsOf('0.5,0.5')).toEqual([0.5, 0.5]);
+    expect(colsOf('1e400')).toEqual([]);
+    expect(colsOf(new Array(5000).fill('0.001').join(',')).length).toBe(
+      MAX_TABLE_COLUMNS,
+    );
+  });
+
+  // The regression this band exists for: `expandCellRangeForMerges` widens the
+  // selected rectangle to `r + rowSpan - 1` inside a `while (changed)` loop,
+  // so an unbanded `Infinity` makes `rowEnd` infinite and the `for` inside it
+  // never terminates — a permanently hung tab for anyone who selects cells.
+  test('a table read from a poisoned tree can still be cell-selected', () => {
+    const block = treeNodeToBlock({
+      type: 'block',
+      attributes: { type: 'table', cols: '0.5,0.5' },
+      children: [
+        {
+          type: 'row',
+          children: [
+            { type: 'cell', attributes: { rowSpan: 'Infinity' }, children: [] },
+            { type: 'cell', attributes: {}, children: [] },
+          ],
+        },
+      ],
+    });
+    const expanded = expandCellRangeForMerges(
+      {
+        blockId: block.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: 0, colIndex: 1 },
+      },
+      block.tableData!,
+    );
+    expect(Number.isFinite(expanded.end.rowIndex)).toBe(true);
   });
 });

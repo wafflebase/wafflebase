@@ -398,6 +398,19 @@ describe('clipboard payload validation', () => {
       expect(styleOf({ letterSpacing: -2 }).letterSpacing).toBe(-2);
     });
 
+    // The *other* paste path into the same field. `text/html` off the system
+    // clipboard is no more trustworthy than the JSON flavour, and its regex
+    // admits any magnitude — `999999999px` is ~7.5e8 pt.
+    it('bands a font-size from external HTML CSS', () => {
+      const sizeOf = (css: string) =>
+        parseHtmlToBlocks(`<p><span style="font-size: ${css}">x</span></p>`)[0]
+          .inlines[0].style.fontSize;
+
+      expect(sizeOf('12pt')).toBe(12);
+      expect(sizeOf('999999999px')).toBe(MAX_FONT_SIZE);
+      expect(sizeOf('0pt')).toBeUndefined();
+    });
+
     it('bands a pasted lineHeight', () => {
       const lineHeightOf = (lineHeight: unknown) =>
         parseOne({ type: 'paragraph', style: { lineHeight } }).style.lineHeight;

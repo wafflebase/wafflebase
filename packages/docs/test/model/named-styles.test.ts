@@ -5,6 +5,7 @@ import {
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  sanitizeDocStyles,
   effectiveBlockSpacing,
   markAuthoredSpacing,
   clearAuthoredSpacing,
@@ -22,6 +23,7 @@ import {
 } from '../../src/model/types.js';
 import type { Document } from '../../src/model/types.js';
 import { ptToPx } from '../../src/view/theme.js';
+import { MAX_FONT_SIZE, MAX_LINE_HEIGHT } from '../../src/model/numeric-attrs.js';
 
 describe('blockStyleId', () => {
   it('maps paragraph and list-item to normal', () => {
@@ -759,5 +761,60 @@ describe('effectiveBlockSpacing is a no-op without a registry (slides / board)',
     b.style.marginBottom = 0;
     b.style.authoredMarginBottom = false;
     expect(effectiveBlockSpacing(b).marginBottom).toBe(0);
+  });
+});
+
+describe('sanitizeDocStyles', () => {
+  it('bands the registry through the same numerics a Tree attribute passes', () => {
+    // The registry is one peer-writable LWW string that reaches every run's
+    // base style and every paragraph's leading, so an unbanded value here
+    // would bypass `normalizeFontSize` / `normalizeLineHeight` document-wide.
+    const styles = sanitizeDocStyles({
+      normal: {
+        inline: { fontSize: 1e9, bold: true },
+        block: { lineHeight: 1e9, marginTop: 12 },
+      },
+      title: {
+        inline: { fontSize: Infinity },
+        block: { lineHeight: -2, marginBottom: Infinity },
+      },
+    });
+
+    expect(styles.normal?.inline?.fontSize).toBe(MAX_FONT_SIZE);
+    expect(styles.normal?.inline?.bold).toBe(true);
+    expect(styles.normal?.block?.lineHeight).toBe(MAX_LINE_HEIGHT);
+    expect(styles.normal?.block?.marginTop).toBe(12);
+    // Non-finite is dropped, so the built-in supplies the value.
+    expect(styles.title?.inline?.fontSize).toBeUndefined();
+    expect(styles.title?.block?.lineHeight).toBeUndefined();
+    expect(styles.title?.block?.marginBottom).toBeUndefined();
+  });
+
+  it('leaves a key no reader could resolve alone, and refuses non-objects', () => {
+    // Unreachable (`resolveStyleInline` looks entries up by `StyleId`) but
+    // kept: the registry is written straight back out, so dropping a key it
+    // does not recognise would delete a stored document's data on save.
+    expect(sanitizeDocStyles({ Normal: { fontSize: 11 } })).toEqual({
+      Normal: { fontSize: 11 },
+    });
+    expect(sanitizeDocStyles(['normal'])).toEqual({});
+    expect(sanitizeDocStyles(null)).toEqual({});
+    expect(sanitizeDocStyles(42)).toEqual({});
+  });
+
+  it('drops a sub-object stored as something other than an object', () => {
+    // `resolveStyleInline` spreads `inline`; a string there would spread
+    // character by character into every run's style.
+    expect(sanitizeDocStyles({ normal: { inline: 'bold', block: 7 } })).toEqual({
+      normal: {},
+    });
+    expect(sanitizeDocStyles({ normal: 'bold' })).toEqual({});
+  });
+
+  it('keeps inlineDark colour-only, as its type promises', () => {
+    const styles = sanitizeDocStyles({
+      'heading-1': { inlineDark: { color: '#fff', fontSize: 300, bold: true } },
+    });
+    expect(styles['heading-1']?.inlineDark).toEqual({ color: '#fff' });
   });
 });

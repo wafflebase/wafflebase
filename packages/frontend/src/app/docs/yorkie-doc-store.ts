@@ -52,6 +52,9 @@ import {
   normalizeFontSize,
   normalizeCellPadding,
   isPaintableImageSize,
+  normalizeTableSpan,
+  parseColumnWidthsAttr,
+  sanitizeDocStyles,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -449,8 +452,13 @@ function treeNodeToCell(node: TreeNode): TableCell {
       ? blocks
       : [{ id: '', type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
     style: parseCellStyle(attrs),
-    colSpan: attrs.colSpan ? Number(attrs.colSpan) : undefined,
-    rowSpan: attrs.rowSpan ? Number(attrs.rowSpan) : undefined,
+    // Banded like `rowHeights` below, and for a sharper sink still: a span
+    // widens the rectangle `expandCellRangeForMerges` grows in a fixed-point
+    // loop, so a peer-written `Infinity` makes that loop's bound `Infinity`
+    // and hangs the tab of anyone who selects cells in the table. See
+    // `normalizeTableSpan`.
+    colSpan: attrs.colSpan ? normalizeTableSpan(Number(attrs.colSpan)) : undefined,
+    rowSpan: attrs.rowSpan ? normalizeTableSpan(Number(attrs.rowSpan)) : undefined,
   };
 }
 
@@ -464,7 +472,12 @@ function treeNodeToBlock(node: TreeNode): Block {
     const rows = (el.children ?? [])
       .filter((c) => c.type === 'row')
       .map(treeNodeToRow);
-    const cols = (attrs.cols ?? '').split(',').map(Number).filter(n => !isNaN(n));
+    // Banded on count *and* magnitude rather than merely filtered for `NaN`:
+    // the length is `computeTableLayout`'s `numCols`, which allocates a cell
+    // per (row, column) pair, and `Number('1e400')` is an `Infinity` ratio
+    // that `!isNaN` passes straight into `NaN` geometry. Shared with the
+    // engine reader so both boundaries parse it identically.
+    const cols = parseColumnWidthsAttr(attrs.cols);
     const rowHeightsAttr = attrs.rowHeights;
     // Clamped like `listLevel` below, and for a sharper reason: the
     // paginator splits an oversized row one page per loop iteration, so a
@@ -689,7 +702,13 @@ export class YorkieDocStore implements DocStore {
     const json = root.stylesJson;
     if (!json) return {};
     try {
-      return JSON.parse(json) as DocStyles;
+      // Sanitized, not merely parsed: the registry is a peer-writable LWW
+      // string that reaches the same line-height sinks the attribute bands
+      // above guard — `resolveStyleBlock`'s `lineHeight` and, as the base
+      // layer of every run, `resolveStyleInline`'s `fontSize`. Without the
+      // band here one string bypasses all of them at once. Mirrors
+      // `docsTreeToDocument`'s boundary in the engine.
+      return sanitizeDocStyles(JSON.parse(json));
     } catch {
       return {};
     }

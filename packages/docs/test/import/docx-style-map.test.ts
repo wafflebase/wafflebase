@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { mapRunProperties, mapParagraphProperties, mapTableCellProperties, mapHighlightColor } from '../../src/import/docx-style-map.js';
+import { MAX_FONT_SIZE, MAX_LINE_HEIGHT } from '../../src/model/numeric-attrs.js';
 
 describe('mapRunProperties', () => {
   it('should map bold', () => {
@@ -303,5 +304,47 @@ describe('w:lineRule decides whether the leading is authored', () => {
       expect(r.blockStyle?.lineHeight).toBe(1);
       expect(r.blockStyle?.authoredLineHeight).toBeUndefined();
     }
+  });
+});
+
+/**
+ * The importer is a *producer* of two fields every reader of the stored
+ * document bands. A value it writes past that band would render at one size
+ * on import and another on the next read of the same CRDT — the divergence
+ * the bands exist to close, arriving from the producer side.
+ */
+describe('the imported values agree with the reader bands', () => {
+  const rPr = (inner: string) =>
+    new DOMParser().parseFromString(
+      `<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${inner}</w:rPr>`,
+      'text/xml',
+    ).documentElement;
+  const pPr = (inner: string) =>
+    new DOMParser().parseFromString(
+      `<w:pPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${inner}</w:pPr>`,
+      'text/xml',
+    ).documentElement;
+
+  it('keeps the largest size Word can author', () => {
+    // 1638 pt — Word's own ceiling — must survive unaltered.
+    expect(mapRunProperties(rPr('<w:sz w:val="3276"/>')).fontSize).toBe(1638);
+  });
+
+  it('clamps a size past the band instead of writing it', () => {
+    expect(mapRunProperties(rPr('<w:sz w:val="99999999"/>')).fontSize).toBe(
+      MAX_FONT_SIZE,
+    );
+  });
+
+  it('drops a malformed w:sz rather than writing NaN', () => {
+    expect(mapRunProperties(rPr('<w:sz w:val="huge"/>')).fontSize).toBeUndefined();
+  });
+
+  it('keeps the largest line spacing Word can author, and bands past it', () => {
+    // `w:line="31680"` is Word's ceiling read as 240ths.
+    expect(mapParagraphProperties(pPr('<w:spacing w:line="31680"/>')).blockStyle.lineHeight)
+      .toBe(MAX_LINE_HEIGHT);
+    expect(mapParagraphProperties(pPr('<w:spacing w:line="99999999"/>')).blockStyle.lineHeight)
+      .toBe(MAX_LINE_HEIGHT);
   });
 });

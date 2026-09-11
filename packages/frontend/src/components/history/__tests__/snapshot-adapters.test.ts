@@ -324,6 +324,11 @@ describe('parseDocsSnapshot', () => {
       orientation: 'portrait',
       paperSize: { name: 'Letter', width: 816, height: 1056 },
     });
+    // A key no `StyleId` names is unreachable — `resolveStyleInline` looks
+    // entries up by id — but it is kept rather than dropped: this fixture is a
+    // captured snapshot, so such keys exist in stored documents, and the
+    // sanitizer's job is to band the values a reader *can* reach, not to
+    // rewrite a registry it does not recognise.
     expect(parsed.styles).toEqual({
       Normal: { fontSize: 11, fontFamily: 'Arial' },
     });

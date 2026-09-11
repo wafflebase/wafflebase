@@ -37,6 +37,7 @@
 
 import { DEFAULT_BLOCK_STYLE } from './types.js';
 import type { Block, BlockStyle, Document, HeadingLevel, InlineStyle } from './types.js';
+import { normalizeFontSize, normalizeLineHeight } from './numeric-attrs.js';
 
 /**
  * Stable identifier for each built-in named style.
@@ -114,6 +115,124 @@ export interface NamedStyleDef {
  * `inline`/`block` sub-key) resolves to the built-in default.
  */
 export type DocStyles = Partial<Record<StyleId, Partial<NamedStyleDef>>>;
+
+/** A value that is a number this model can do arithmetic with, or nothing. */
+function finiteOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** Block-style numerics a registry entry may carry, all pure geometry. */
+const REGISTRY_BLOCK_NUMERICS = [
+  'marginTop',
+  'marginBottom',
+  'marginLeft',
+  'textIndent',
+] as const;
+
+function sanitizeRegistryInline(raw: unknown): Partial<InlineStyle> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const inline: Partial<InlineStyle> = { ...(raw as Partial<InlineStyle>) };
+  const fontSize = normalizeFontSize(finiteOrUndefined(inline.fontSize));
+  if (fontSize === undefined) delete inline.fontSize;
+  else inline.fontSize = fontSize;
+  if (finiteOrUndefined(inline.letterSpacing) === undefined) {
+    delete inline.letterSpacing;
+  }
+  // A named style is character defaults for *text*; an `image` here would be
+  // painted under every run of every paragraph the style covers, which no
+  // writer of the registry produces and no reader wants.
+  delete inline.image;
+  return inline;
+}
+
+function sanitizeRegistryBlock(raw: unknown): Partial<BlockStyle> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const block: Partial<BlockStyle> = { ...(raw as Partial<BlockStyle>) };
+  const lineHeight = normalizeLineHeight(finiteOrUndefined(block.lineHeight));
+  if (lineHeight === undefined) delete block.lineHeight;
+  else block.lineHeight = lineHeight;
+  for (const key of REGISTRY_BLOCK_NUMERICS) {
+    if (finiteOrUndefined(block[key]) === undefined) delete block[key];
+  }
+  return block;
+}
+
+/**
+ * One parsed `stylesJson` blob as a registry every reader can trust.
+ *
+ * The registry crosses the same trust boundary a Tree attribute does and is
+ * held to the same bands — that is the whole point of this function. It is
+ * stored as a single peer-writable LWW string on the Yorkie root, the v1
+ * `PUT` validator never inspects it, and it reaches the *identical* sinks the
+ * attribute bands guard: `resolveStyleBlock` spreads the entry's `block` into
+ * `effectiveBlockSpacing`, whose `lineHeight` scales every line in the
+ * paragraph, and `resolveStyleInline` merges its `inline` as the base layer of
+ * every run in `resolveBlockInlines`. So a registry holding
+ * `{"normal":{"inline":{"fontSize":1e9},"block":{"lineHeight":1e9}}}` would
+ * put an unbanded height on every line of the document — one string that
+ * bypasses `normalizeFontSize` and `normalizeLineHeight` everywhere at once —
+ * unless it passes through them here.
+ *
+ * What it is *not* is a schema: a key no `StyleId` names is passed through
+ * untouched, and so are the non-numeric properties inside a known entry
+ * (colours, `bold`, `fontFamily` — none of them reach a numeric sink). Both
+ * for the same reason: this runs on documents that already exist, an
+ * unrecognised key is unreachable anyway (`resolveStyleInline` looks entries
+ * up by `StyleId`), and the registry is written straight back out — so
+ * dropping what it does not recognise would quietly delete a stored
+ * document's data on the next save. Band what a reader can reach; leave the
+ * rest alone.
+ */
+export function sanitizeDocStyles(raw: unknown): DocStyles {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return {};
+  }
+  const source = raw as Record<string, unknown>;
+  const styles = { ...source } as DocStyles & Record<string, unknown>;
+  for (const id of STYLE_IDS) {
+    const def = source[id];
+    if (def === undefined) continue;
+    if (typeof def !== 'object' || def === null || Array.isArray(def)) {
+      delete styles[id];
+      continue;
+    }
+    const record = def as Record<string, unknown>;
+    const entry: Partial<NamedStyleDef> = {};
+    const inline = sanitizeRegistryInline(record.inline);
+    if (inline) entry.inline = inline;
+    const inlineDark = sanitizeRegistryInline(record.inlineDark);
+    if (inlineDark) {
+      // `inlineDark` is deliberately colour-only (see `NamedStyleDef`): a
+      // metric there would change the painted glyphs without changing the
+      // measured line, so dark and light pages would paginate differently.
+      // The type says so; this is what makes a stored blob obey it.
+      entry.inlineDark = {
+        ...(inlineDark.color !== undefined ? { color: inlineDark.color } : {}),
+        ...(inlineDark.backgroundColor !== undefined
+          ? { backgroundColor: inlineDark.backgroundColor }
+          : {}),
+      };
+    }
+    const block = sanitizeRegistryBlock(record.block);
+    if (block) entry.block = block;
+    // Every property a *reader* of the registry looks at is now in `entry`;
+    // anything else the stored entry carried rides along untouched, so a
+    // registry written by a newer client survives this unchanged. The three
+    // sub-objects are re-supplied from `entry` alone, so one stored as a
+    // non-object (which `resolveStyleInline` would spread character by
+    // character) is dropped rather than passed on.
+    const rest: Record<string, unknown> = { ...record };
+    delete rest.inline;
+    delete rest.inlineDark;
+    delete rest.block;
+    styles[id] = { ...rest, ...entry } as Partial<NamedStyleDef>;
+  }
+  return styles;
+}
 
 /**
  * Built-in style definitions, refreshed to Google Docs defaults.

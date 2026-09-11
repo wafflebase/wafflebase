@@ -4,7 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ApiV1DocsContentController } from './docs-content.controller';
+import {
+  ApiV1DocsContentController,
+  assertValidSlidesBody,
+} from './docs-content.controller';
 import { DocumentService } from '../../document/document.service';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
@@ -14,6 +17,14 @@ import type {
   DocsDocument,
   SlidesDocument,
 } from '../../yorkie/yorkie.types';
+import {
+  MAX_CELL_PADDING,
+  MAX_COLUMN_RATIO,
+  MAX_FONT_SIZE,
+  MAX_LINE_HEIGHT,
+  MAX_LIST_LEVEL,
+  MAX_ROW_HEIGHT,
+} from '@wafflebase/docs';
 
 function makeDocFixture(): DocsDocument {
   return {
@@ -1799,5 +1810,119 @@ describe('ApiV1DocsContentController', () => {
         expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
       });
     });
+  });
+});
+
+/**
+ * A slide text body is persisted verbatim by `writeSlidesRoot` and read back
+ * verbatim — it passes through no attribute codec, so the bands the docs Tree
+ * codec applies on *read* have to be applied here, on write, or a deck stores
+ * the poisoned value and every viewer of it renders from that. Repaired rather
+ * than rejected: the endpoint echoes the same object back, and a `GET` → edit
+ * → `PUT` of a deck that already holds one has to keep working.
+ */
+describe('assertValidSlidesBody bands the numerics that reach docs layout', () => {
+  function deckWith(data: unknown): Record<string, unknown> {
+    return {
+      ...(makeSlidesFixture() as unknown as Record<string, unknown>),
+      slides: [
+        {
+          id: 's1',
+          layoutId: 'l',
+          background: {},
+          elements: [{ id: 'e1', type: 'text', frame: {}, data }],
+          notes: [],
+        },
+      ],
+    };
+  }
+
+  function firstBlock(deck: Record<string, unknown>): Record<string, unknown> {
+    const slides = deck.slides as Array<Record<string, unknown>>;
+    const element = (slides[0].elements as Array<Record<string, unknown>>)[0];
+    const body = element.data as Record<string, unknown>;
+    return (body.blocks as Array<Record<string, unknown>>)[0];
+  }
+
+  it('bands an inline fontSize and a block lineHeight', () => {
+    const deck = deckWith({
+      blocks: [
+        {
+          id: 'b1',
+          type: 'paragraph',
+          style: { lineHeight: 1e9 },
+          inlines: [{ text: 'x', style: { fontSize: 1e9 } }],
+        },
+      ],
+    });
+    assertValidSlidesBody(deck);
+    const block = firstBlock(deck);
+    const inline = (block.inlines as Array<Record<string, unknown>>)[0];
+    expect((inline.style as Record<string, unknown>).fontSize).toBe(MAX_FONT_SIZE);
+    expect((block.style as Record<string, unknown>).lineHeight).toBe(
+      MAX_LINE_HEIGHT,
+    );
+  });
+
+  it('drops a non-finite fontSize rather than storing it', () => {
+    const deck = deckWith({
+      blocks: [
+        {
+          id: 'b1',
+          type: 'paragraph',
+          style: {},
+          inlines: [{ text: 'x', style: { fontSize: null } }],
+        },
+      ],
+    });
+    assertValidSlidesBody(deck);
+    const inline = (firstBlock(deck).inlines as Array<Record<string, unknown>>)[0];
+    expect((inline.style as Record<string, unknown>).fontSize).toBeUndefined();
+  });
+
+  it('bands a listLevel, a rowHeight, a column ratio and a merge span', () => {
+    const deck = deckWith({
+      blocks: [
+        {
+          id: 'b1',
+          type: 'table',
+          style: {},
+          inlines: [],
+          listLevel: 1e9,
+          tableData: {
+            columnWidths: [1e9, -1],
+            rowHeights: [1e9, Infinity],
+            rows: [
+              {
+                cells: [
+                  {
+                    rowSpan: Infinity,
+                    style: { padding: 1e9 },
+                    blocks: [{ id: 'c1', type: 'paragraph', style: {}, inlines: [] }],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    assertValidSlidesBody(deck);
+    const block = firstBlock(deck);
+    const table = block.tableData as Record<string, unknown>;
+    const cell = (
+      (table.rows as Array<Record<string, unknown>>)[0].cells as Array<
+        Record<string, unknown>
+      >
+    )[0];
+
+    expect(block.listLevel).toBe(MAX_LIST_LEVEL);
+    expect(table.columnWidths).toEqual([MAX_COLUMN_RATIO, 0]);
+    expect(table.rowHeights).toEqual([MAX_ROW_HEIGHT, undefined]);
+    expect((cell.style as Record<string, unknown>).padding).toBe(
+      MAX_CELL_PADDING,
+    );
+    // An `Infinity` span is the bound of `expandCellRangeForMerges`' loop.
+    expect(cell.rowSpan).toBeUndefined();
   });
 });

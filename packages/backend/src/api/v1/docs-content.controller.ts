@@ -45,7 +45,15 @@ import {
   AUTHORED_SPACING_FIELDS,
   BLOCK_ALIGNMENTS,
   BLOCK_STYLE_NUMERIC_FIELDS,
+  MAX_TABLE_COLUMNS,
   isBlockAlignment,
+  normalizeCellPadding,
+  normalizeColumnRatio,
+  normalizeFontSize,
+  normalizeLineHeight,
+  normalizeListLevel,
+  normalizeRowHeight,
+  normalizeTableSpan,
 } from '@wafflebase/docs';
 
 import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
@@ -990,6 +998,84 @@ function assertValidTextBodyBlocks(
   assertValidSlideBlocks(blocks, `${path}.blocks`);
 }
 
+/** A payload value this model can do arithmetic with, or nothing. */
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Band the numerics a stored slide block carries into the docs layout engine.
+ *
+ * This walk is the *only* boundary that can do it. A docs body is written and
+ * read back through the Tree attribute codec, which bands `fontSize`,
+ * `lineHeight`, cell `padding`, `rowHeights`, the column ratios, the merge
+ * spans and `listLevel` on every read (`@wafflebase/docs`,
+ * `model/crdt-tree.ts`). A slide text body is persisted *verbatim* as JSON by
+ * `writeSlidesRoot` and read back verbatim — it passes through no codec at all
+ * — while reaching the very same `computeLayout` / `paginateLayout`. So a
+ * `PUT` carrying `fontSize: 1e9`, or a `rowSpan` of `Infinity`, is stored as
+ * written and is then a hung or blank render for every viewer of that deck,
+ * not just for the caller. The bands the docs codec applies on read are
+ * applied here on write instead.
+ *
+ * Repaired rather than rejected, unlike the present-but-wrong values around
+ * it: the endpoint echoes this same object back, so what the caller sees is
+ * what is stored, and a `GET` → edit → `PUT` of a deck that *already* holds an
+ * out-of-band value has to keep working. The repair is the same one every
+ * reader of a docs document would have applied anyway.
+ */
+function bandSlideBlockNumerics(block: Record<string, unknown>): void {
+  const style = block.style;
+  if (style && typeof style === 'object' && !Array.isArray(style)) {
+    const record = style as Record<string, unknown>;
+    const lineHeight = normalizeLineHeight(asFiniteNumber(record.lineHeight));
+    if (lineHeight === undefined) delete record.lineHeight;
+    else record.lineHeight = lineHeight;
+  }
+  if (block.listLevel !== undefined && block.listLevel !== null) {
+    block.listLevel = normalizeListLevel(asFiniteNumber(block.listLevel));
+  }
+  const tableData = block.tableData;
+  if (!tableData || typeof tableData !== 'object' || Array.isArray(tableData)) {
+    return;
+  }
+  const table = tableData as Record<string, unknown>;
+  if (Array.isArray(table.rowHeights)) {
+    table.rowHeights = (table.rowHeights as unknown[]).map((height) =>
+      normalizeRowHeight(asFiniteNumber(height)),
+    );
+  }
+  if (Array.isArray(table.columnWidths)) {
+    // Capped on count as well as magnitude: the length is
+    // `computeTableLayout`'s `numCols`, which allocates a cell per
+    // (row, column) pair. An unusable ratio becomes 0 rather than being
+    // dropped, so every later column keeps its index.
+    table.columnWidths = (table.columnWidths as unknown[])
+      .slice(0, MAX_TABLE_COLUMNS)
+      .map((ratio) => normalizeColumnRatio(asFiniteNumber(ratio)) ?? 0);
+  }
+}
+
+/** Band the numerics one stored table cell carries. See {@link bandSlideBlockNumerics}. */
+function bandSlideCellNumerics(cell: Record<string, unknown>): void {
+  const style = cell.style;
+  if (style && typeof style === 'object' && !Array.isArray(style)) {
+    const record = style as Record<string, unknown>;
+    const padding = normalizeCellPadding(asFiniteNumber(record.padding));
+    if (padding === undefined) delete record.padding;
+    else record.padding = padding;
+  }
+  for (const key of ['colSpan', 'rowSpan'] as const) {
+    if (cell[key] === undefined || cell[key] === null) continue;
+    // An `Infinity` span is the sharpest of these: it becomes the bound of
+    // `expandCellRangeForMerges`' fixed-point loop, which then never
+    // terminates for anyone who selects cells in the table.
+    const span = normalizeTableSpan(asFiniteNumber(cell[key]));
+    if (span === undefined) delete cell[key];
+    else cell[key] = span;
+  }
+}
+
 /**
  * Walk a list of docs `Block`s stored inside a deck — a text body's `blocks`,
  * or a slide's `notes`. `path` names the list itself; entries are reported as
@@ -1025,6 +1111,7 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
       );
     }
     normalizeSlideInlines(block, `${path}[${i}]`);
+    bandSlideBlockNumerics(block);
     // A docs table block inside a slide text body holds blocks of its own.
     const rows = (block.tableData as { rows?: unknown } | undefined)?.rows;
     if (!Array.isArray(rows)) continue;
@@ -1044,6 +1131,7 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
             `Invalid block at ${cellPath}: not an object`,
           );
         }
+        bandSlideCellNumerics(cell);
         assertValidTextBodyBlocks(cell, cellPath);
       }
     }
@@ -1112,5 +1200,11 @@ function normalizeSlideInlines(
         `Invalid block at ${path}.inlines[${i}]: 'style' must be an object`,
       );
     }
+    // A run's font size becomes its line's height, and nothing downstream of
+    // here bands it for a deck — see {@link bandSlideBlockNumerics}.
+    const style = inline.style as Record<string, unknown>;
+    const fontSize = normalizeFontSize(asFiniteNumber(style.fontSize));
+    if (fontSize === undefined) delete style.fontSize;
+    else style.fontSize = fontSize;
   }
 }
