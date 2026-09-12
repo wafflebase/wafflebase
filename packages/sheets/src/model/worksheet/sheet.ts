@@ -3,9 +3,11 @@ import { calculate } from './calculator';
 import {
   cloneRange,
   inRange,
+  isCollapsedRange,
   isIntersectRanges,
   isRangeInRange,
   isSameRef,
+  rangeOf,
   toRange,
   toSref,
   toSrefs,
@@ -226,6 +228,7 @@ function withoutSetDefaults(
 export type RangeOpRefusal =
   | 'merge-source-split'
   | 'merge-dest-partial'
+  | 'merge-paste-partial'
   | 'merge-autofill';
 
 /**
@@ -365,11 +368,18 @@ export class Sheet {
   /**
    * `copyBuffer` stores the source range and grid from the last copy operation.
    * Used for internal formula-aware paste with reference relocation.
+   *
+   * `merges` holds the merged blocks that were inside the copied range at copy
+   * time. Like `grid`, `rangeStyles` and `text`, it is a snapshot of that
+   * moment: unmerging afterwards does not retro-edit the clipboard, so the
+   * paste reproduces the layout that was copied just as it reproduces the
+   * values that were copied.
    */
   private copyBuffer?: {
     sourceRange: Range;
     grid: Grid;
     rangeStyles: RangeStylePatch[];
+    merges: Array<{ anchor: Ref; span: MergeSpan }>;
     text: string;
     isCut: boolean;
   };
@@ -2138,8 +2148,16 @@ export class Sheet {
     const range: Range = this.getRangeOrActiveCell();
     const grid = await this.fetchGrid(range);
     const rangeStyles = clipRangeStylePatches(this.rangeStyles, range);
+    const merges = this.snapshotMergesIn(range);
     const text = grid2string(grid);
-    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text, isCut: false };
+    this.copyBuffer = {
+      sourceRange: range,
+      grid,
+      rangeStyles,
+      merges,
+      text,
+      isCut: false,
+    };
     return { text };
   }
 
@@ -2151,9 +2169,34 @@ export class Sheet {
     const range: Range = this.getRangeOrActiveCell();
     const grid = await this.fetchGrid(range);
     const rangeStyles = clipRangeStylePatches(this.rangeStyles, range);
+    const merges = this.snapshotMergesIn(range);
     const text = grid2string(grid);
-    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text, isCut: true };
+    this.copyBuffer = {
+      sourceRange: range,
+      grid,
+      rangeStyles,
+      merges,
+      text,
+      isCut: true,
+    };
     return { text };
+  }
+
+  /**
+   * `snapshotMergesIn` returns the merged blocks that lie entirely inside
+   * `range`, as the copy buffer records them. A block the range only clips is
+   * left out: its layout cannot be reproduced from a partial copy, and a copy
+   * — unlike a drag-move — destroys nothing at the source, so there is nothing
+   * to refuse. (`getRangeOrActiveCell` expands a selection to merged
+   * boundaries, so the UI cannot reach that case; the filter guards a
+   * programmatic caller.)
+   */
+  private snapshotMergesIn(
+    range: Range,
+  ): Array<{ anchor: Ref; span: MergeSpan }> {
+    return this.getMergesIntersecting(range)
+      .filter((m) => isRangeInRange(m.range, range))
+      .map((m) => ({ anchor: m.anchor, span: m.span }));
   }
 
   /**
@@ -2161,6 +2204,12 @@ export class Sheet {
    * 1. Internal paste (copyBuffer matches clipboard text) — relocates formula references
    * 2. Spreadsheet HTML paste (Google Sheets / Excel) — parses HTML table with styles
    * 3. Plain TSV paste — existing behavior
+   *
+   * Merged blocks travel with an internal paste only: the copy buffer knows
+   * which blocks were copied and which region they came from. An external
+   * grid carries no merge metadata, and its bounding box is not the region
+   * the user pasted, so external pastes leave the merge layout alone (see
+   * `docs/design/sheets/sheet.md`).
    */
   public async paste(options: { text?: string; html?: string }): Promise<void> {
     if (this.pivotDefinition) return;
@@ -2172,6 +2221,14 @@ export class Sheet {
     let isCut = false;
     let cutSourceRange: Range | undefined;
     let cutRefMap: Map<Sref, Sref> | undefined;
+    // Merged blocks the paste re-creates at the destination, and the ones it
+    // replaces there. Both stay empty for an external paste.
+    let pastedMerges: Array<{ anchor: Ref; span: MergeSpan }> = [];
+    let replacedMerges: Array<{
+      anchorSref: Sref;
+      anchor: Ref;
+      span: MergeSpan;
+    }> = [];
 
     if (this.copyBuffer && text === this.copyBuffer.text) {
       // Internal paste: relocate formulas based on position delta
@@ -2188,6 +2245,24 @@ export class Sheet {
         deltaCol,
       );
 
+      const plan = this.planPasteMerges(
+        this.copyBuffer.sourceRange,
+        this.copyBuffer.merges,
+        deltaRow,
+        deltaCol,
+        grid.size > 0,
+      );
+      // A paste that would split a merged block at the destination is refused
+      // whole rather than corrupting the merge map — the rule `moveRangeTo`
+      // follows. Nothing has been written yet, so returning here leaves the
+      // sheet untouched.
+      if (!plan) {
+        this.refuse('merge-paste-partial');
+        return;
+      }
+      pastedMerges = plan.pasted;
+      replacedMerges = plan.replaced;
+
       if (this.copyBuffer.isCut) {
         isCut = true;
         cutSourceRange = this.copyBuffer.sourceRange;
@@ -2196,6 +2271,14 @@ export class Sheet {
           deltaRow,
           deltaCol,
         );
+        // A cut moves the blocks, so they are dropped at the source too.
+        for (const merge of this.copyBuffer.merges) {
+          replacedMerges.push({
+            anchorSref: toSref(merge.anchor),
+            anchor: merge.anchor,
+            span: merge.span,
+          });
+        }
         // Cut pastes only once
         this.copyBuffer = undefined;
       }
@@ -2236,9 +2319,31 @@ export class Sheet {
       for (const [sref] of grid) {
         changedSrefs.add(sref);
       }
-      if (changedSrefs.size > 0) {
+
+      // Anchors whose blocker the paste cleared — they get another attempt at
+      // spilling, the same contract `removeData` follows.
+      const unblockedAnchors = new Set<Sref>();
+
+      // Propagate merges before the recalculation below, which expands changed
+      // refs through merge aliases and so must see the new layout.
+      await this.applyPasteMerges(
+        pastedMerges,
+        replacedMerges,
+        grid,
+        changedSrefs,
+        unblockedAnchors,
+      );
+
+      if (changedSrefs.size > 0 || unblockedAnchors.size > 0) {
         const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
         const dependantsMap = await this.store.buildDependantsMap(expanded);
+
+        // Include previously-blocked anchors so they can re-attempt the spill.
+        for (const anchor of unblockedAnchors) {
+          expanded.add(anchor);
+          if (!dependantsMap.has(anchor)) dependantsMap.set(anchor, new Set());
+        }
+
         await calculate(this, dependantsMap, expanded);
       }
 
@@ -2272,33 +2377,179 @@ export class Sheet {
   }
 
   /**
+   * `planPasteMerges` decides what an internal paste does to the merge map:
+   * which copied blocks it re-creates at the destination, and which blocks it
+   * replaces there. Returns `undefined` when the paste would only partially
+   * overwrite a destination block — splitting it — which the caller refuses.
+   *
+   * The destination region is the copied *range* translated by the paste
+   * delta, not the pasted grid's bounding box: a merged block's covered cells
+   * hold nothing, so the grid omits them and its box is smaller than the
+   * block being reproduced.
+   */
+  private planPasteMerges(
+    sourceRange: Range,
+    sourceMerges: Array<{ anchor: Ref; span: MergeSpan }>,
+    deltaRow: number,
+    deltaCol: number,
+    hasContent: boolean,
+  ):
+    | {
+        pasted: Array<{ anchor: Ref; span: MergeSpan }>;
+        replaced: Array<{ anchorSref: Sref; anchor: Ref; span: MergeSpan }>;
+      }
+    | undefined {
+    // A paste that carries neither content nor merge layout writes nothing, so
+    // it must not drop a destination block either.
+    if (!hasContent && sourceMerges.length === 0) {
+      return { pasted: [], replaced: [] };
+    }
+
+    const destRange: Range = [
+      { r: sourceRange[0].r + deltaRow, c: sourceRange[0].c + deltaCol },
+      { r: sourceRange[1].r + deltaRow, c: sourceRange[1].c + deltaCol },
+    ];
+
+    const pasted = sourceMerges.map((m) => ({
+      anchor: { r: m.anchor.r + deltaRow, c: m.anchor.c + deltaCol },
+      span: m.span,
+    }));
+
+    // A single-cell destination is exempt: it writes through the merge anchor
+    // (every path that sets `activeCell` normalizes it with
+    // `normalizeRefToAnchor`), so the block keeps its layout and pasting a
+    // value into a merged cell keeps working.
+    if (isCollapsedRange(destRange)) {
+      return { pasted, replaced: [] };
+    }
+
+    const replaced = this.getMergesIntersecting(destRange);
+    if (replaced.some((m) => !isRangeInRange(m.range, destRange))) {
+      return undefined;
+    }
+
+    return {
+      pasted,
+      replaced: replaced.map((m) => ({
+        anchorSref: m.anchorSref,
+        anchor: m.anchor,
+        span: m.span,
+      })),
+    };
+  }
+
+  /**
+   * `applyPasteMerges` drops the blocks the paste replaces, re-creates the
+   * copied ones at the destination, and clears the cells they newly hide.
+   * Every deleted and created block's covered srefs land in `changedSrefs`:
+   * they stop (or start) aliasing an anchor, so formulas reading through the
+   * alias need recalculating even where no cell object changed.
+   */
+  private async applyPasteMerges(
+    pasted: Array<{ anchor: Ref; span: MergeSpan }>,
+    replaced: Array<{ anchorSref: Sref; anchor: Ref; span: MergeSpan }>,
+    written: Grid,
+    changedSrefs: Set<Sref>,
+    unblockedAnchors: Set<Sref>,
+  ): Promise<void> {
+    if (pasted.length === 0 && replaced.length === 0) return;
+
+    // A cut whose destination overlaps its source can name the same block
+    // twice; deleting it once is enough.
+    const dropped = new Map<Sref, { anchor: Ref; span: MergeSpan }>();
+    for (const merge of replaced) {
+      dropped.set(merge.anchorSref, { anchor: merge.anchor, span: merge.span });
+    }
+    for (const [anchorSref, merge] of dropped) {
+      for (const sref of this.mergeCoveredSrefs(merge.anchor, merge.span)) {
+        changedSrefs.add(sref);
+      }
+      await this.store.deleteMerge(merge.anchor);
+      this.merges.delete(anchorSref);
+    }
+
+    for (const merge of pasted) {
+      await this.store.setMerge(merge.anchor, merge.span);
+      this.merges.set(toSref(merge.anchor), merge.span);
+      await this.clearCellsUnderMerge(
+        merge.anchor,
+        merge.span,
+        written,
+        changedSrefs,
+        unblockedAnchors,
+      );
+    }
+
+    this.rebuildMergeCoverMap();
+  }
+
+  /**
+   * `clearCellsUnderMerge` empties the cells a newly created merged block
+   * covers. Covered cells hold no content — the invariant `mergeSelection`
+   * establishes — so cells the operation did not itself write are cleared;
+   * otherwise they stay hidden under the merge and reappear when it is
+   * removed. Cell styles survive, as they do on `mergeSelection`.
+   */
+  private async clearCellsUnderMerge(
+    anchor: Ref,
+    span: MergeSpan,
+    written: Grid,
+    changedSrefs: Set<Sref>,
+    unblockedAnchors: Set<Sref>,
+  ): Promise<void> {
+    const anchorSref = toSref(anchor);
+    for (const sref of this.mergeCoveredSrefs(anchor, span)) {
+      // The block now aliases these cells to the anchor.
+      changedSrefs.add(sref);
+      if (sref === anchorSref || written.has(sref)) continue;
+      const ref = parseRef(sref);
+      const cell = await this.store.get(ref);
+      if (!cell) continue;
+      // Ghost cells are read-only; their anchor owns their lifetime.
+      if (cell.spillAnchor) continue;
+      // Clearing a spill anchor would orphan its ghosts, so drop them first —
+      // the same cleanup contract `removeData` follows.
+      if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
+        this.clearSpillBlockers(sref);
+        for (let dr = 0; dr < cell.spillRows; dr++) {
+          for (let dc = 0; dc < cell.spillCols; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+            const ghostCell = await this.store.get(ghostRef);
+            if (ghostCell?.spillAnchor === sref) {
+              await this.store.delete(ghostRef);
+              changedSrefs.add(toSref(ghostRef));
+            }
+          }
+        }
+      } else if (cell.spillBlocked) {
+        this.clearSpillBlockers(sref);
+      }
+      if (cell.s && Object.keys(cell.s).length > 0) {
+        await this.store.set(ref, { s: cell.s });
+      } else {
+        await this.store.delete(ref);
+      }
+      const blockedAnchor = this.consumeSpillBlocker(sref);
+      if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
+    }
+  }
+
+  /**
    * `selectPastedRange` computes the bounding box of a pasted grid and selects it.
    */
   private selectPastedRange(grid: Grid): void {
     if (grid.size === 0) return;
 
-    let minR = Infinity,
-      maxR = -Infinity;
-    let minC = Infinity,
-      maxC = -Infinity;
-    for (const sref of grid.keys()) {
-      const ref = parseRef(sref);
-      if (ref.r < minR) minR = ref.r;
-      if (ref.r > maxR) maxR = ref.r;
-      if (ref.c < minC) minC = ref.c;
-      if (ref.c > maxC) maxC = ref.c;
-    }
+    const [from, to] = rangeOf(grid);
 
-    if (minR === maxR && minC === maxC) {
+    if (from.r === to.r && from.c === to.c) {
       // Single cell pasted — just move active cell there
-      this.selectStart({ r: minR, c: minC });
+      this.selectStart(from);
     } else {
       this.selectionType = 'cell';
-      this.activeCell = { r: minR, c: minC };
-      this.ranges = [[
-        { r: minR, c: minC },
-        { r: maxR, c: maxC },
-      ]];
+      this.activeCell = from;
+      this.ranges = [[from, to]];
       this.syncSelectionToPresence();
     }
   }
@@ -2438,49 +2689,15 @@ export class Sheet {
             r: merge.anchor.r + deltaRow,
             c: merge.anchor.c + deltaCol,
           };
-          const anchorSref = toSref(anchor);
           await this.store.setMerge(anchor, merge.span);
-          this.merges.set(anchorSref, merge.span);
-
-          // Covered cells hold no content (the same invariant `mergeSelection`
-          // establishes), so destination cells the move did not overwrite are
-          // cleared — otherwise they stay hidden under the merge and reappear
-          // when it is removed.
-          for (const sref of this.mergeCoveredSrefs(anchor, merge.span)) {
-            // The block now aliases these cells to the new anchor.
-            changedSrefs.add(sref);
-            if (sref === anchorSref || movedGrid.has(sref)) continue;
-            const ref = parseRef(sref);
-            const cell = await this.store.get(ref);
-            if (!cell) continue;
-            // Ghost cells are read-only; their anchor owns their lifetime.
-            if (cell.spillAnchor) continue;
-            // Clearing a spill anchor would orphan its ghosts, so drop them
-            // first — the same cleanup contract `removeData` follows.
-            if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
-              this.clearSpillBlockers(sref);
-              for (let dr = 0; dr < cell.spillRows; dr++) {
-                for (let dc = 0; dc < cell.spillCols; dc++) {
-                  if (dr === 0 && dc === 0) continue;
-                  const ghostRef = { r: ref.r + dr, c: ref.c + dc };
-                  const ghostCell = await this.store.get(ghostRef);
-                  if (ghostCell?.spillAnchor === sref) {
-                    await this.store.delete(ghostRef);
-                    changedSrefs.add(toSref(ghostRef));
-                  }
-                }
-              }
-            } else if (cell.spillBlocked) {
-              this.clearSpillBlockers(sref);
-            }
-            if (cell.s && Object.keys(cell.s).length > 0) {
-              await this.store.set(ref, { s: cell.s });
-            } else {
-              await this.store.delete(ref);
-            }
-            const blockedAnchor = this.consumeSpillBlocker(sref);
-            if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
-          }
+          this.merges.set(toSref(anchor), merge.span);
+          await this.clearCellsUnderMerge(
+            anchor,
+            merge.span,
+            movedGrid,
+            changedSrefs,
+            unblockedAnchors,
+          );
         }
         this.rebuildMergeCoverMap();
       }

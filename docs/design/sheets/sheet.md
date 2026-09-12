@@ -93,6 +93,23 @@ all cell, selection, and navigation operations.
   `paste` parses it back and recalculates dependants from all changed refs
   (including plain-value pastes). External pastes (TSV/HTML) run through the
   same conservative input inference as `setData` before persistence.
+  Merged blocks travel with an **internal** paste: `copy`/`cut` snapshot the
+  blocks lying entirely inside the copied range, `paste` re-creates them at
+  the destination (a cut also drops them at the source), drops the
+  destination blocks the paste fully covers, and clears the cells the new
+  blocks hide so nothing resurfaces as stale data on unmerge. The destination
+  region is the copied *range* translated by the paste delta, not the pasted
+  grid's bounding box — a merged block's covered cells hold nothing, so the
+  box is smaller than the block being reproduced. A paste that would only
+  partially overwrite a block is refused whole (`merge-paste-partial`,
+  reported on the same `setOnRefusal` → `onNotice` channel as the drag-move
+  refusals); a single-cell destination is exempt, since it writes through the
+  merge anchor. The copy buffer's merge snapshot is clipboard-at-copy-time,
+  like its grid and styles: unmerging after the copy does not retro-edit it.
+  **External pastes deliberately leave the merge layout alone** — a foreign
+  grid carries no merge metadata to propagate, and refusing one would trade
+  writing hidden data for doing nothing silently on the most common paste
+  there is.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
   pattern across the expanded range. The fill is constrained to a single axis
   (vertical or horizontal) based on whichever direction the drag extends

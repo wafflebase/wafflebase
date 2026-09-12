@@ -104,6 +104,11 @@ function refusalMessage(refusal: RangeOpRefusal): string {
         "Can't drop onto part of a merged cell. " +
         'Unmerge the destination first.'
       );
+    case 'merge-paste-partial':
+      return (
+        "Can't paste over part of a merged cell. " +
+        'Unmerge the destination first.'
+      );
     case 'merge-autofill':
       return "Can't autofill across merged cells. Unmerge them first.";
   }
