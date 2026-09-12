@@ -85,6 +85,47 @@ describe('Sheet merge + structural edits', () => {
     expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('A');
     expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('A');
   });
+
+  it('should drop the copy buffer when rows are inserted', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 3, c: 1 }, '10');
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    const { text } = await sheet.copy();
+    expect(sheet.getCopyRange()).toEqual([
+      { r: 3, c: 1 },
+      { r: 3, c: 2 },
+    ]);
+
+    // The insert renumbers A3:B3 to A4:B4, so the buffer's source range and
+    // merge snapshot now describe cells that moved. Relocating from them
+    // would re-create the block from stale coordinates.
+    await sheet.insertRows(1, 1);
+    expect(sheet.getCopyRange()).toBeUndefined();
+
+    // The clipboard text still pastes — as an external grid, with no merge.
+    sheet.selectStart({ r: 8, c: 1 });
+    await sheet.paste({ text });
+    expect(sheet.getMerges().has('A8')).toBe(false);
+    expect(await sheet.toDisplayString({ r: 8, c: 1 })).toBe('10');
+  });
+
+  it('should drop the copy buffer when rows are reordered', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 3, c: 1 }, '10');
+
+    sheet.selectStart({ r: 3, c: 1 });
+    const { text } = await sheet.copy();
+
+    await sheet.moveRows(3, 1, 8);
+    expect(sheet.getCopyRange()).toBeUndefined();
+    expect(text).toBe('10');
+  });
 });
 
 describe('Sheet merge + drag-move', () => {
@@ -742,6 +783,71 @@ describe('Sheet merge and the freeze boundary', () => {
     expect(merges.get('A7')).toEqual({ rs: 2, cs: 1 });
     expect(await sheet.toDisplayString({ r: 7, c: 1 })).toBe('10');
   });
+
+  it('should snap the freeze past a block it would cut in half', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 1 }, '10');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+
+    // Freezing row 2 would leave A2:A4 straddling the boundary — the state
+    // the paste and drag-move paths refuse to create. The line snaps to the
+    // bottom of the block instead.
+    await sheet.setFreezePane(2, 0);
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 4, frozenCols: 0 });
+
+    // And the block is now movable again, which a straddling one never is.
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+    await sheet.moveRangeTo(
+      [
+        { r: 2, c: 1 },
+        { r: 4, c: 1 },
+      ],
+      { r: 6, c: 1 },
+    );
+    expect(refusals).toEqual([]);
+    expect(sheet.getMerges().get('A6')).toEqual({ rs: 3, cs: 1 });
+  });
+
+  it('should keep the freeze clear of a block when rows are inserted', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 1 }, '10');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+    await sheet.setFreezePane(2, 0);
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 4, frozenCols: 0 });
+
+    // The insert lands inside the frozen region, so both the boundary and the
+    // block move down by one and the block stays whole on the frozen side.
+    await sheet.insertRows(1, 1);
+    expect(sheet.getMerges().get('A3')).toEqual({ rs: 3, cs: 1 });
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 5, frozenCols: 0 });
+  });
+
+  it('should refuse a row reorder that lands a block across the boundary', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setFreezePane(2, 0);
+    await sheet.setData({ r: 5, c: 1 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 5, c: 1 });
+    sheet.selectEnd({ r: 6, c: 1 });
+    await sheet.mergeSelection();
+
+    // Reordering rows 5-6 to before row 2 would park A5:A6 at A2:A3, across
+    // the frozen boundary — the same state the drag-move path refuses.
+    await sheet.moveRows(5, 2, 2);
+
+    expect(refusals).toEqual(['merge-move-frozen']);
+    expect(sheet.getMerges().get('A5')).toEqual({ rs: 2, cs: 1 });
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('10');
+  });
 });
 
 describe('Sheet.paste destination normalization', () => {
@@ -853,5 +959,79 @@ describe('Sheet.paste destination normalization', () => {
     expect(merges.get('A3')).toEqual({ rs: 1, cs: 2 });
     expect(merges.get('A5')).toEqual({ rs: 1, cs: 2 });
     expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('10');
+  });
+
+  it('should not shift a multi-cell paste off the selected row', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 1 }, '20');
+    await sheet.setData({ r: 8, c: 1 }, 'x');
+    await sheet.setData({ r: 8, c: 2 }, 'y');
+    await sheet.setData({ r: 8, c: 3 }, 'z');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 8, c: 1 });
+    sheet.selectEnd({ r: 8, c: 3 });
+    const { text } = await sheet.copy();
+
+    // `selectRow(3)` leaves the active cell on A3, which A2:A4 covers. Only a
+    // single-cell paste moves to the anchor; sliding a whole row up to row 2
+    // would write over cells the user never selected. The row the user did
+    // select cuts the block in half, so the paste is refused instead.
+    sheet.selectRow(3);
+    await sheet.paste({ text });
+
+    expect(refusals).toEqual(['merge-paste-partial']);
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 3 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('20');
+  });
+
+  it('should not shift a multi-cell external paste off the selected row', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 1 }, '20');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+
+    // A3 is covered by A2:A4, so the old normalization moved the whole grid up
+    // to row 2: it overwrote the block's own anchor with 'x' and wrote 'y'
+    // into B2, a cell nothing selected.
+    sheet.selectRow(3);
+    await sheet.paste({ text: 'x\ty' });
+
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('y');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('20');
+  });
+
+  it('should select the whole pasted region when a block is re-created', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 3 });
+    const { text } = await sheet.copy();
+
+    // The pasted grid holds only the anchor — the covered cells carry nothing
+    // — so its bounding box is one cell. The selection has to cover the block
+    // the paste actually re-created.
+    sheet.selectStart({ r: 5, c: 1 });
+    await sheet.paste({ text });
+
+    expect(sheet.getMerges().get('A5')).toEqual({ rs: 2, cs: 3 });
+    expect(sheet.getRange()).toEqual([
+      { r: 5, c: 1 },
+      { r: 6, c: 3 },
+    ]);
   });
 });

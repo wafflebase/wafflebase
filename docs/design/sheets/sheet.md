@@ -113,16 +113,41 @@ all cell, selection, and navigation operations.
   rule `canMergeSelection` enforces for the merge button and the one the
   renderer assumes when it paints a frozen pane and the scrolling body from a
   single block.
-  A paste starts at the **merge anchor**: `paste` normalizes `activeCell` with
-  `normalizeRefToAnchor` before computing its delta, because `selectRow` /
+  That invariant binds **every** path that can move a block or the boundary,
+  not only the two that refuse. A row/column reorder (`moveCells`) is refused
+  with the same `merge-move-frozen` when the merge map it would produce
+  straddles. Freezing, though, moves the line rather than a block, so it
+  *snaps* instead of refusing: `setFreezePane` pushes the boundary to the far
+  edge of any block it would cut in half (`snapFreezePastMerges`, repeated
+  until stable), and the freeze adjustment inside `shiftCells` runs the same
+  snap after the insert/delete has moved both the boundary and the merge map.
+  The whole block ends up frozen — what the user asked for, plus the rows the
+  layout makes inseparable from them — rather than a gesture silently
+  declining. A straddling block loaded from outside the engine (an `.xlsx`
+  import writing the freeze through the store) is healed by the first
+  structural edit; refusing every move of such a block, with no way to create
+  it in-app, would otherwise strand it.
+  A **single-cell** paste starts at the merge anchor: `paste` normalizes
+  `activeCell` with `normalizeRefToAnchor`, because `selectRow` /
   `selectColumn` / `selectAllCells` leave the active cell at the head of the
   selection without normalizing, and a value written to a covered cell is
-  invisible under the block until an unmerge brings it back.
+  invisible under the block until an unmerge brings it back. A multi-cell
+  paste keeps `activeCell` as its top-left: it has a shape, and sliding the
+  whole grid up or left to an anchor would land it off the cells the user
+  selected and overwrite unrelated ones. Such a paste necessarily clips the
+  block covering its head cell (the block's anchor is above or left of the
+  destination's origin, so the block is not contained in it), and is refused
+  as `merge-paste-partial` rather than misplaced.
   The **copy buffer outlives its paste**: the view clears it only through
   Escape, and `paste` itself drops a cut once consumed. Clearing it after
   every paste demoted the second paste of a copy to an external one — no
   formula relocation and no merge propagation — and discarded the buffer on a
-  refusal, precisely when the user needs it to unmerge and retry.
+  refusal, precisely when the user needs it to unmerge and retry. Because it
+  now outlives the gesture, every edit that renumbers the cells it
+  snapshotted invalidates it: `shiftCells` (row/column insert and delete) and
+  `moveCells` (row/column reorder) call `clearCopyBuffer`, so a later paste
+  can never relocate — or re-create a merged block — from coordinates that
+  have since moved.
   The copy buffer's merge snapshot is clipboard-at-copy-time,
   like its grid and styles: unmerging after the copy does not retro-edit it.
   That snapshot decides what is *re-created*, never what is *deleted* — a cut

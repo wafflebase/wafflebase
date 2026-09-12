@@ -510,11 +510,53 @@ export class Sheet {
 
   /**
    * `setFreezePane` sets the freeze pane position.
+   *
+   * The boundary is pushed past any merged block it would cut in half: a block
+   * that straddles it is not drawable (the renderer paints the frozen pane and
+   * the scrolling body from a single block), and it is the state
+   * `canMergeSelection`, `planPasteMerges` and `moveRangeTo` all refuse to
+   * create. Freezing is the one path that can reach it without moving a block,
+   * so it snaps the line rather than refusing the gesture — the whole block
+   * ends up frozen, which is what the user asked for plus the rows the layout
+   * makes inseparable from them.
    */
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
-    this.frozenRows = frozenRows;
-    this.frozenCols = frozenCols;
-    await this.store.setFreezePane(frozenRows, frozenCols);
+    const snapped = this.snapFreezePastMerges(frozenRows, frozenCols);
+    this.frozenRows = snapped.frozenRows;
+    this.frozenCols = snapped.frozenCols;
+    await this.store.setFreezePane(this.frozenRows, this.frozenCols);
+  }
+
+  /**
+   * `snapFreezePastMerges` grows the given freeze counts until no merged block
+   * straddles either boundary. Growing one boundary can pull a further block
+   * across it, so it repeats until stable; each pass only ever increases a
+   * count, bounded by the lowest/rightmost merged block, so it terminates.
+   */
+  private snapFreezePastMerges(
+    frozenRows: number,
+    frozenCols: number,
+  ): { frozenRows: number; frozenCols: number } {
+    let rows = frozenRows;
+    let cols = frozenCols;
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [anchorSref, span] of this.merges) {
+        const range = toMergeRange(parseRef(anchorSref), span);
+        if (rows > 0 && range[0].r <= rows && range[1].r > rows) {
+          rows = range[1].r;
+          changed = true;
+        }
+        if (cols > 0 && range[0].c <= cols && range[1].c > cols) {
+          cols = range[1].c;
+          changed = true;
+        }
+      }
+    }
+
+    return { frozenRows: rows, frozenCols: cols };
   }
 
   /**
@@ -1296,6 +1338,11 @@ export class Sheet {
     count: number,
   ): Promise<void> {
     this.invalidateCrossSheetCache();
+    // A structural edit renumbers the cells the copy buffer snapshotted, so
+    // its source range, grid and merge snapshot no longer describe anything on
+    // this sheet. Drop it rather than let a later paste relocate — and now
+    // re-create merged blocks — from stale coordinates.
+    this.clearCopyBuffer();
     await this.store.shiftCells(axis, index, count);
 
     // Shift dimension custom sizes
@@ -1343,6 +1390,7 @@ export class Sheet {
       }
 
       // Adjust freeze pane when inserting/deleting near the freeze boundary
+      const frozenBefore = { rows: this.frozenRows, cols: this.frozenCols };
       const frozen = axis === 'row' ? this.frozenRows : this.frozenCols;
       if (frozen > 0) {
         if (count > 0 && index <= frozen) {
@@ -1353,7 +1401,6 @@ export class Sheet {
           } else {
             this.frozenCols = newFrozen;
           }
-          await this.store.setFreezePane(this.frozenRows, this.frozenCols);
         } else if (count < 0) {
           const absCount = Math.abs(count);
           // Delete within frozen area: shrink frozen region
@@ -1365,9 +1412,24 @@ export class Sheet {
             } else {
               this.frozenCols = newFrozen;
             }
-            await this.store.setFreezePane(this.frozenRows, this.frozenCols);
           }
         }
+      }
+
+      // Both the boundary and the merge map have moved, so either edge can now
+      // cut a block in half — the state `planPasteMerges` and `moveRangeTo`
+      // refuse to create. Snap the boundary past it, as `setFreezePane` does.
+      const snapped = this.snapFreezePastMerges(
+        this.frozenRows,
+        this.frozenCols,
+      );
+      this.frozenRows = snapped.frozenRows;
+      this.frozenCols = snapped.frozenCols;
+      if (
+        frozenBefore.rows !== this.frozenRows ||
+        frozenBefore.cols !== this.frozenCols
+      ) {
+        await this.store.setFreezePane(this.frozenRows, this.frozenCols);
       }
 
       await this.recalculateAllFormulaCells();
@@ -1482,6 +1544,23 @@ export class Sheet {
       }
     }
 
+    // A reordered block may not land across a freeze boundary — the invariant
+    // `canMergeSelection` enforces for the merge button, `planPasteMerges` for
+    // a paste and `moveRangeTo` for a drag-move. The reorder does not move the
+    // boundary, so the check runs against the merge map the move would
+    // produce, before anything is written.
+    const movedMerges = moveMergeMap(this.merges, axis, src, count, dst);
+    for (const [anchorSref, span] of movedMerges) {
+      if (this.crossesFreezePane(toMergeRange(parseRef(anchorSref), span))) {
+        this.refuse('merge-move-frozen');
+        return;
+      }
+    }
+
+    // The reorder renumbers the cells the copy buffer snapshotted; see
+    // `shiftCells`.
+    this.clearCopyBuffer();
+
     await this.store.moveCells(axis, src, count, dst);
 
     // Move dimension custom sizes
@@ -1513,7 +1592,7 @@ export class Sheet {
       count,
       dst,
     );
-    this.merges = moveMergeMap(this.merges, axis, src, count, dst);
+    this.merges = movedMerges;
     this.rebuildMergeCoverMap();
     this.moveFilterState(axis, src, count, dst);
     this.moveUserHiddenState(axis, src, count, dst);
@@ -2135,7 +2214,11 @@ export class Sheet {
   }
 
   /**
-   * `clearCopyBuffer` clears the internal copy buffer.
+   * `clearCopyBuffer` clears the internal copy buffer. A paste no longer
+   * clears it — repeat pastes stay internal — so the buffer outlives the
+   * gesture that filled it, and every edit that renumbers the cells it
+   * snapshotted (`shiftCells`, `moveCells`) must call this. Escape clears it
+   * from the view.
    */
   public clearCopyBuffer(): void {
     this.copyBuffer = undefined;
@@ -2232,23 +2315,29 @@ export class Sheet {
       span: MergeSpan;
     }> = [];
 
-    // A paste starts at the merge anchor, never at a cell a block covers: a
-    // value written to a covered cell is hidden under the block and resurfaces
-    // only on unmerge. `activeCell` is not always an anchor — `selectRow`,
-    // `selectColumn` and `selectAllCells` place it at the head of the
-    // selection without normalizing — so the paste normalizes it here rather
-    // than assuming its callers did.
-    const destStart = this.normalizeRefToAnchor(this.activeCell);
+    // The region the paste wrote, for the post-paste selection. An internal
+    // paste knows it exactly; an external one only has its grid's bounding box.
+    let pastedRange: Range | undefined;
+
+    // A paste that writes a *single* cell starts at the merge anchor, never at
+    // a cell a block covers: a value written to a covered cell is hidden under
+    // the block and resurfaces only on unmerge. A multi-cell paste keeps
+    // `activeCell` as its top-left — `selectRow`, `selectColumn` and
+    // `selectAllCells` place `activeCell` at the head of the selection without
+    // normalizing, so normalizing here would slide the whole grid up or left
+    // off the cells the user selected and overwrite unrelated ones.
+    const anchorStart = this.normalizeRefToAnchor(this.activeCell);
 
     if (this.copyBuffer && text === this.copyBuffer.text) {
+      const sourceRange = this.copyBuffer.sourceRange;
+      const destStart = isCollapsedRange(sourceRange)
+        ? anchorStart
+        : this.activeCell;
+
       // Internal paste: relocate formulas based on position delta
-      grid = relocateGrid(
-        this.copyBuffer.grid,
-        this.copyBuffer.sourceRange,
-        destStart,
-      );
-      const deltaRow = destStart.r - this.copyBuffer.sourceRange[0].r;
-      const deltaCol = destStart.c - this.copyBuffer.sourceRange[0].c;
+      grid = relocateGrid(this.copyBuffer.grid, sourceRange, destStart);
+      const deltaRow = destStart.r - sourceRange[0].r;
+      const deltaCol = destStart.c - sourceRange[0].c;
       rangeStylePatches = translateRangeStylePatches(
         this.copyBuffer.rangeStyles,
         deltaRow,
@@ -2256,7 +2345,7 @@ export class Sheet {
       );
 
       const plan = this.planPasteMerges(
-        this.copyBuffer.sourceRange,
+        sourceRange,
         this.copyBuffer.merges,
         deltaRow,
         deltaCol,
@@ -2274,24 +2363,36 @@ export class Sheet {
       pastedMerges = plan.pasted;
       replacedMerges = plan.replaced;
 
+      // The pasted region is the copied *range* translated by the delta, not
+      // the grid's bounding box: a merged block's covered cells hold nothing,
+      // so the grid omits them and its box is smaller than what was pasted.
+      if (grid.size > 0 || pastedMerges.length > 0) {
+        pastedRange = [
+          { r: sourceRange[0].r + deltaRow, c: sourceRange[0].c + deltaCol },
+          { r: sourceRange[1].r + deltaRow, c: sourceRange[1].c + deltaCol },
+        ];
+      }
+
       if (this.copyBuffer.isCut) {
         isCut = true;
-        cutSourceRange = this.copyBuffer.sourceRange;
-        cutRefMap = buildCutRefMap(
-          this.copyBuffer.sourceRange,
-          deltaRow,
-          deltaCol,
-        );
+        cutSourceRange = sourceRange;
+        cutRefMap = buildCutRefMap(sourceRange, deltaRow, deltaCol);
         // Cut pastes only once
         this.copyBuffer = undefined;
       }
     } else if (html && isSpreadsheetHtml(html)) {
       // Spreadsheet HTML paste (Google Sheets / Excel)
-      grid = html2grid(html, destStart);
+      grid = this.normalizeSingleCellGrid(
+        html2grid(html, this.activeCell),
+        anchorStart,
+      );
       shouldInferPastedInput = true;
     } else if (text) {
       // Plain TSV paste
-      grid = string2grid(destStart, text);
+      grid = this.normalizeSingleCellGrid(
+        string2grid(this.activeCell, text),
+        anchorStart,
+      );
       shouldInferPastedInput = true;
     } else {
       return;
@@ -2376,7 +2477,24 @@ export class Sheet {
     }
 
     // Select the pasted range
-    this.selectPastedRange(grid);
+    this.selectPastedRange(grid, pastedRange);
+  }
+
+  /**
+   * `normalizeSingleCellGrid` re-keys a one-cell grid onto `anchor`, the merge
+   * anchor of the cell it landed on. Only a single-cell write is moved this
+   * way: it has no shape to distort, and writing it to a covered cell would
+   * hide it under the block until an unmerge. A grid of more than one cell
+   * keeps the origin the caller chose.
+   */
+  private normalizeSingleCellGrid(grid: Grid, anchor: Ref): Grid {
+    if (grid.size !== 1) return grid;
+    const anchorSref = toSref(anchor);
+    for (const [sref, cell] of grid) {
+      if (sref === anchorSref) return grid;
+      return new Map([[anchorSref, cell]]);
+    }
+    return grid;
   }
 
   /**
@@ -2444,10 +2562,10 @@ export class Sheet {
       span: m.span,
     }));
 
-    // A single-cell destination is exempt: `paste` normalizes its start with
-    // `normalizeRefToAnchor`, so the write lands on the merge anchor, the
-    // block keeps its layout, and pasting a value into a merged cell keeps
-    // working.
+    // A single-cell destination is exempt: a collapsed destination means a
+    // collapsed source, which is the one case `paste` starts at the merge
+    // anchor, so the write lands on the anchor, the block keeps its layout,
+    // and pasting a value into a merged cell keeps working.
     if (isCollapsedRange(destRange)) {
       return { ok: true, pasted, replaced: droppedAtSource };
     }
@@ -2607,12 +2725,15 @@ export class Sheet {
   }
 
   /**
-   * `selectPastedRange` computes the bounding box of a pasted grid and selects it.
+   * `selectPastedRange` selects the region a paste wrote. `pastedRange` is the
+   * region when the caller knows it — an internal paste does, and its grid's
+   * bounding box would be too small, since a re-created merged block
+   * contributes only its anchor to the grid. Otherwise the box is all there is.
    */
-  private selectPastedRange(grid: Grid): void {
-    if (grid.size === 0) return;
+  private selectPastedRange(grid: Grid, pastedRange?: Range): void {
+    if (!pastedRange && grid.size === 0) return;
 
-    const [from, to] = rangeOf(grid);
+    const [from, to] = pastedRange ?? rangeOf(grid);
 
     if (from.r === to.r && from.c === to.c) {
       // Single cell pasted — just move active cell there
