@@ -118,6 +118,16 @@ Blocking findings from the correctness and blast-radius review lanes:
       retry. The buffer now lives until Escape; `paste` still drops a consumed
       cut itself.
 
+## Review follow-up (round 2)
+
+- [x] The v1 `POST .../insert` / `POST .../delete` path was the one writer left
+      that could persist a merged block across a frozen boundary: it moves the
+      boundary and the merge map independently but had no snap, unlike
+      `Sheet.shiftCells`. The snap now lives in `shiftWorksheetViewState`, next
+      to the freeze adjustment that creates the state, so both callers of
+      `applyWorksheetShift` — the controller and the editor's `YorkieStore` —
+      get it. Covered at the engine, the `Sheet` and the controller levels.
+
 Not taken (non-blocking): the `Math.max` spread in the formula MAX/MIN
 aggregate path, `setFreezePane` / the XLSX importer accepting a straddling
 block, and `rangeOf`'s empty-grid bounds — all outside this change's paths.

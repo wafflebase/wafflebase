@@ -857,6 +857,25 @@ describe('Sheet merge and the freeze boundary', () => {
     });
   });
 
+  it('should snap the freeze past a straddling block after a delete', async () => {
+    // The delete branch of the same adjustment: the boundary shrinks by the
+    // rows removed from inside the frozen band while the block only slides up,
+    // so the two do not move together and the block can stay across the line.
+    const store = new MemStore();
+    await store.setMerge({ r: 3, c: 1 }, { rs: 4, cs: 1 });
+    await store.setFreezePane(5, 0);
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+    await sheet.loadFreezePane();
+
+    // Deleting row 1 pulls the boundary to 4 and A3:A6 up to A2:A5, which
+    // still straddles it; the snap pushes the line to the bottom of the block.
+    await sheet.deleteRows(1, 1);
+    expect(sheet.getMerges().get('A2')).toEqual({ rs: 4, cs: 1 });
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 5, frozenCols: 0 });
+  });
+
   it('should snap the freeze past a straddling block on the column axis', async () => {
     const store = new MemStore();
     await store.setMerge({ r: 1, c: 2 }, { rs: 1, cs: 3 });

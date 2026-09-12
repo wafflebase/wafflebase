@@ -501,6 +501,70 @@ describe('ApiV1WorksheetStructureController row/column edits', () => {
       expect(doc.getRoot().sheets[TAB].frozenRows).toBe(1);
     });
 
+    it('snaps the freeze past a block an insert leaves straddling it', async () => {
+      // The boundary and the merge map move independently: the insert pushes
+      // the line from 3 to 4 and A3:A5 down to A4:A6, which still straddles it.
+      // `Sheet.shiftCells` snaps in exactly this case, and without the same
+      // snap here insert/delete would be the one remaining door into a merged
+      // block across a freeze — the state `PUT merges`, `PUT freeze` and
+      // `POST move` all refuse to create.
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenRows = 3;
+        ws.merges = { A3: { rs: 3, cs: 1 } };
+      });
+
+      await controller.insertAxis(WS, DOC, TAB, {
+        axis: 'row',
+        index: 1,
+        count: 1,
+      });
+
+      const ws = doc.getRoot().sheets[TAB];
+      expect(ws.merges?.A4).toEqual({ rs: 3, cs: 1 });
+      expect(ws.frozenRows).toBe(6);
+    });
+
+    it('snaps the freeze past a block a delete leaves straddling it', async () => {
+      // Deleting column A shrinks the frozen band to 1 and pulls B1:D1 to
+      // A1:C1, whose right edge is still past the boundary.
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenCols = 2;
+        ws.merges = { B1: { rs: 1, cs: 3 } };
+      });
+
+      await controller.deleteAxis(WS, DOC, TAB, {
+        axis: 'column',
+        index: 1,
+        count: 1,
+      });
+
+      const ws = doc.getRoot().sheets[TAB];
+      expect(ws.merges?.A1).toEqual({ rs: 1, cs: 3 });
+      expect(ws.frozenCols).toBe(3);
+    });
+
+    it('leaves the freeze alone when no block straddles it', async () => {
+      // The snap only ever grows the boundary past a block it cuts; an insert
+      // that leaves every block on one side must not move it further.
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenRows = 2;
+        ws.merges = { A5: { rs: 2, cs: 1 } };
+      });
+
+      await controller.insertAxis(WS, DOC, TAB, {
+        axis: 'row',
+        index: 4,
+        count: 1,
+      });
+
+      const ws = doc.getRoot().sheets[TAB];
+      expect(ws.merges?.A6).toEqual({ rs: 2, cs: 1 });
+      expect(ws.frozenRows).toBe(2);
+    });
+
     it('clears cached formula values it cannot recalculate', async () => {
       // The calculator needs a live `Sheet` and is async; this runs inside a
       // synchronous `doc.update`. `null` beats a number that no longer matches

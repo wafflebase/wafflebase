@@ -132,9 +132,16 @@ all cell, selection, and navigation operations.
   block across the freeze (409, beside the existing merge-split refusal),
   `PUT .../freeze` snaps past a block it would cut and answers with the
   boundary it actually stored, and `PUT .../merges` refuses a map that would
-  straddle the tab's freeze. The snap itself is one implementation
-  (`snapFreezePastMerges` in `model/worksheet/merging.ts`) shared by the engine
-  and the controller, so the two cannot drift.
+  straddle the tab's freeze. `POST .../insert` and `POST .../delete` neither
+  refuse nor need to: the snap lives in `shiftWorksheetViewState`
+  (`model/workbook/worksheet-structure.ts`), beside the freeze adjustment it
+  repairs, so every caller of `applyWorksheetShift` — the API controller and
+  the editor's `YorkieStore` alike — snaps without asking. `Sheet.shiftCells`
+  snaps its own in-memory copy for the same reason it recomputes the rest of
+  the view state: it is an absolute write of a value it derived itself, so
+  applying it in both places lands on the same boundary. The snap itself is one
+  implementation (`snapFreezePastMerges` in `model/worksheet/merging.ts`)
+  shared by the engine and the controller, so the two cannot drift.
   A **single-cell** paste starts at the merge anchor: `paste` normalizes
   `activeCell` with `normalizeRefToAnchor`, because `selectRow` /
   `selectColumn` / `selectAllCells` leave the active cell at the head of the

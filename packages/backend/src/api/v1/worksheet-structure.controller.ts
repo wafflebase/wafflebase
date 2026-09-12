@@ -63,6 +63,14 @@ import {
  *   boundary, is refused with 409.** The editor silently no-ops on the first
  *   and reports a refusal the user sees on the second; for an API, silence is
  *   indistinguishable from success.
+ *
+ * An insert or delete is *not* refused for the same reason, because it can
+ * repair itself: it moves the freeze boundary and the merge map independently,
+ * so either edge can come to rest inside a merged block, and
+ * `shiftWorksheetViewState` then snaps the boundary past that block — the same
+ * repair `setFreezePane` and `Sheet.shiftCells` apply. So a successful insert
+ * or delete may leave the tab with more frozen rows or columns than it had;
+ * read them back with `GET .../freeze` if that matters to the caller.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
