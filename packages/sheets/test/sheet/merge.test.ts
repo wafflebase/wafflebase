@@ -549,6 +549,100 @@ describe('Sheet merge + copy-paste', () => {
     expect(merges.size).toBe(1);
     expect(merges.get('D2')).toEqual({ rs: 1, cs: 2 });
     expect(await sheet.toDisplayString({ r: 2, c: 4 })).toBe('10');
+    // The block left the source with its content: nothing stale stays behind
+    // in the region the cut vacated.
+    expect(sheet.getMerges().get('B2')).toBeUndefined();
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
+  });
+
+  it('should refuse a cut that clips a block it does not move', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 3, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 2 }, '20');
+    await sheet.setData({ r: 3, c: 3 }, '30');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 3, c: 3 });
+    sheet.selectEnd({ r: 3, c: 4 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    const { text } = await sheet.cut();
+
+    // A3:B3 pasted at B3 spans B3:C3, which clips the C3:D3 block. That block
+    // is not part of the cut, so nothing deletes it and the paste is refused.
+    sheet.selectStart({ r: 3, c: 2 });
+    await sheet.paste({ text });
+
+    expect(refusals).toEqual(['merge-paste-partial']);
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('C3')).toEqual({ rs: 1, cs: 2 });
+    // The refusal is whole: the cut source still holds its content.
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 3, c: 3 })).toBe('30');
+  });
+
+  it('should refuse a cut whose recorded block was unmerged before pasting', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 3, c: 1 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    const { text } = await sheet.cut();
+
+    // The layout is edited under the clipboard: A3 now anchors a wider block
+    // than the one the cut recorded, so the cut no longer removes it and it
+    // must be treated like any other destination block.
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.unmergeSelection();
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    expect(refusals).toEqual(['merge-paste-partial']);
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 3 });
+  });
+
+  it('should refuse a paste that lands a block across a frozen row', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setFreezePane(2, 0);
+    await sheet.setData({ r: 5, c: 1 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 5, c: 1 });
+    sheet.selectEnd({ r: 6, c: 1 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 5, c: 1 });
+    sheet.selectEnd({ r: 6, c: 1 });
+    const { text } = await sheet.copy();
+
+    // A5:A6 pasted at A2 would span A2:A3, straddling the frozen-row boundary
+    // — a block `canMergeSelection` would never let the user create there.
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.paste({ text });
+
+    expect(refusals).toEqual(['merge-paste-frozen']);
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A5')).toEqual({ rs: 2, cs: 1 });
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
   });
 
   it('should keep a destination block when a blank range is pasted', async () => {

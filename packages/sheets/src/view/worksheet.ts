@@ -109,6 +109,8 @@ function refusalMessage(refusal: RangeOpRefusal): string {
         "Can't paste over part of a merged cell. " +
         'Unmerge the destination first.'
       );
+    case 'merge-paste-frozen':
+      return "Can't paste a merged cell across a frozen row or column.";
     case 'merge-autofill':
       return "Can't autofill across merged cells. Unmerge them first.";
   }

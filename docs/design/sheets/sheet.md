@@ -104,8 +104,19 @@ all cell, selection, and navigation operations.
   partially overwrite a block is refused whole (`merge-paste-partial`,
   reported on the same `setOnRefusal` → `onNotice` channel as the drag-move
   refusals); a single-cell destination is exempt, since it writes through the
-  merge anchor. The copy buffer's merge snapshot is clipboard-at-copy-time,
+  merge anchor. A **cut's own blocks are exempt too** — the paste deletes them
+  at the source whatever the destination clips, so they cannot be split by it,
+  the exclusion `moveRangeTo` makes with `movedAnchors`. A paste that would
+  land a block across a freeze boundary is refused as well
+  (`merge-paste-frozen`): merges may not straddle a frozen row or column, the
+  rule `canMergeSelection` enforces for the merge button.
+  The copy buffer's merge snapshot is clipboard-at-copy-time,
   like its grid and styles: unmerging after the copy does not retro-edit it.
+  That snapshot decides what is *re-created*, never what is *deleted* — a cut
+  drops a recorded block at the source, and treats it as travelling, only
+  while the live merge map still holds it unchanged, so a layout edited
+  between the cut and the paste cannot make the paste delete a block it never
+  copied.
   **External pastes deliberately leave the merge layout alone** — a foreign
   grid carries no merge metadata to propagate, and refusing one would trade
   writing hidden data for doing nothing silently on the most common paste

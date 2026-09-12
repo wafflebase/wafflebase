@@ -229,6 +229,7 @@ export type RangeOpRefusal =
   | 'merge-source-split'
   | 'merge-dest-partial'
   | 'merge-paste-partial'
+  | 'merge-paste-frozen'
   | 'merge-autofill';
 
 /**
@@ -2253,12 +2254,12 @@ export class Sheet {
         grid.size > 0,
         this.copyBuffer.isCut,
       );
-      // A paste that would split a merged block at the destination is refused
-      // whole rather than corrupting the merge map — the rule `moveRangeTo`
-      // follows. Nothing has been written yet, so returning here leaves the
-      // sheet untouched.
-      if (!plan) {
-        this.refuse('merge-paste-partial');
+      // A paste that would split a merged block at the destination, or land one
+      // across a freeze boundary, is refused whole rather than corrupting the
+      // merge map — the rule `moveRangeTo` follows. Nothing has been written
+      // yet, so returning here leaves the sheet untouched.
+      if (!plan.ok) {
+        this.refuse(plan.refusal);
         return;
       }
       pastedMerges = plan.pasted;
@@ -2272,14 +2273,6 @@ export class Sheet {
           deltaRow,
           deltaCol,
         );
-        // A cut moves the blocks, so they are dropped at the source too.
-        for (const merge of this.copyBuffer.merges) {
-          replacedMerges.push({
-            anchorSref: toSref(merge.anchor),
-            anchor: merge.anchor,
-            span: merge.span,
-          });
-        }
         // Cut pastes only once
         this.copyBuffer = undefined;
       }
@@ -2380,8 +2373,10 @@ export class Sheet {
   /**
    * `planPasteMerges` decides what an internal paste does to the merge map:
    * which copied blocks it re-creates at the destination, and which blocks it
-   * replaces there. Returns `undefined` when the paste would only partially
-   * overwrite a destination block — splitting it — which the caller refuses.
+   * replaces — at the destination, and, for a cut, at the source it vacates.
+   * It reports a refusal instead when the paste would only partially overwrite
+   * a destination block (splitting it), or would land a block across a freeze
+   * boundary; the caller refuses the paste whole.
    *
    * The destination region is the copied *range* translated by the paste
    * delta, not the pasted grid's bounding box: a merged block's covered cells
@@ -2397,14 +2392,15 @@ export class Sheet {
     isCut: boolean,
   ):
     | {
+        ok: true;
         pasted: Array<{ anchor: Ref; span: MergeSpan }>;
         replaced: Array<{ anchorSref: Sref; anchor: Ref; span: MergeSpan }>;
       }
-    | undefined {
+    | { ok: false; refusal: RangeOpRefusal } {
     // A paste that carries neither content nor merge layout writes nothing, so
     // it must not drop a destination block either.
     if (!hasContent && sourceMerges.length === 0) {
-      return { pasted: [], replaced: [] };
+      return { ok: true, pasted: [], replaced: [] };
     }
 
     const destRange: Range = [
@@ -2417,36 +2413,91 @@ export class Sheet {
       span: m.span,
     }));
 
+    // A merged block may not straddle a freeze boundary — the rule
+    // `canMergeSelection` enforces for the merge button, and the one the
+    // renderer assumes when it paints a frozen pane and the scrolling body
+    // from a single block.
+    if (
+      pasted.some((m) => this.crossesFreezePane(toMergeRange(m.anchor, m.span)))
+    ) {
+      return { ok: false, refusal: 'merge-paste-frozen' };
+    }
+
+    // A cut vacates its source, so the blocks it moves are dropped there. Only
+    // blocks the live merge map still holds exactly as recorded are dropped:
+    // the copy buffer is a snapshot, and the layout can be edited under it
+    // between the cut and the paste, so a recorded anchor may now be gone or
+    // hold a different block that this paste has no business deleting.
+    const sourceDrops = isCut ? this.liveMergesAmong(sourceMerges) : [];
+    const droppedAtSource = sourceDrops.map((m) => ({
+      anchorSref: toSref(m.anchor),
+      anchor: m.anchor,
+      span: m.span,
+    }));
+
     // A single-cell destination is exempt: it writes through the merge anchor
     // (every path that sets `activeCell` normalizes it with
     // `normalizeRefToAnchor`), so the block keeps its layout and pasting a
     // value into a merged cell keeps working.
     if (isCollapsedRange(destRange)) {
-      return { pasted, replaced: [] };
+      return { ok: true, pasted, replaced: droppedAtSource };
     }
 
-    // A cut's own blocks are deleted at the source whatever the destination
-    // clips, so they cannot be split by it — the exclusion `moveRangeTo`
-    // makes with `movedAnchors`. A copy's blocks survive, so they stay in the
-    // check.
-    const travelling = new Set<Sref>(
-      isCut ? sourceMerges.map((m) => toSref(m.anchor)) : [],
-    );
+    // A block this paste deletes at the source cannot be split by the
+    // destination clipping it — the exclusion `moveRangeTo` makes with
+    // `movedAnchors`. A copy's blocks survive, so they stay in the check, and
+    // so does any block the cut no longer actually removes.
+    const travelling = new Set<Sref>(droppedAtSource.map((m) => m.anchorSref));
     const replaced = this.getMergesIntersecting(destRange).filter(
       (m) => !travelling.has(m.anchorSref),
     );
     if (replaced.some((m) => !isRangeInRange(m.range, destRange))) {
-      return undefined;
+      return { ok: false, refusal: 'merge-paste-partial' };
     }
 
     return {
+      ok: true,
       pasted,
-      replaced: replaced.map((m) => ({
-        anchorSref: m.anchorSref,
-        anchor: m.anchor,
-        span: m.span,
-      })),
+      replaced: [
+        ...droppedAtSource,
+        ...replaced.map((m) => ({
+          anchorSref: m.anchorSref,
+          anchor: m.anchor,
+          span: m.span,
+        })),
+      ],
     };
+  }
+
+  /**
+   * `liveMergesAmong` keeps the recorded blocks the live merge map still holds
+   * unchanged — same anchor, same span. A block that was unmerged, or replaced
+   * by a different one at the same anchor, is not one this operation may treat
+   * as its own.
+   */
+  private liveMergesAmong(
+    merges: Array<{ anchor: Ref; span: MergeSpan }>,
+  ): Array<{ anchor: Ref; span: MergeSpan }> {
+    return merges.filter((m) => {
+      const live = this.merges.get(toSref(m.anchor));
+      return !!live && live.rs === m.span.rs && live.cs === m.span.cs;
+    });
+  }
+
+  /**
+   * `crossesFreezePane` returns whether the given range straddles a frozen
+   * row or column boundary.
+   */
+  private crossesFreezePane(range: Range): boolean {
+    const crossesRows =
+      this.frozenRows > 0 &&
+      range[0].r <= this.frozenRows &&
+      range[1].r > this.frozenRows;
+    const crossesCols =
+      this.frozenCols > 0 &&
+      range[0].c <= this.frozenCols &&
+      range[1].c > this.frozenCols;
+    return crossesRows || crossesCols;
   }
 
   /**
@@ -4599,15 +4650,7 @@ export class Sheet {
     const isCollapsed =
       selection[0].r === selection[1].r && selection[0].c === selection[1].c;
     if (isCollapsed) return false;
-    const crossesFrozenRows =
-      this.frozenRows > 0 &&
-      selection[0].r <= this.frozenRows &&
-      selection[1].r > this.frozenRows;
-    const crossesFrozenCols =
-      this.frozenCols > 0 &&
-      selection[0].c <= this.frozenCols &&
-      selection[1].c > this.frozenCols;
-    if (crossesFrozenRows || crossesFrozenCols) return false;
+    if (this.crossesFreezePane(selection)) return false;
     return this.getMergesIntersecting(selection).length === 0;
   }
 
