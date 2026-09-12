@@ -525,6 +525,32 @@ describe('Sheet merge + copy-paste', () => {
     expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('10');
   });
 
+  it('should not refuse a cut whose destination clips its own block', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 2 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 2, c: 2 });
+    sheet.selectEnd({ r: 2, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    const { text } = await sheet.cut();
+
+    // A1:C3 pasted at C1 spans C1:E3, which clips the B2:C2 block — but the
+    // cut deletes that block at the source, so nothing is split.
+    sheet.selectStart({ r: 1, c: 3 });
+    await sheet.paste({ text });
+
+    expect(refusals).toEqual([]);
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('D2')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 2, c: 4 })).toBe('10');
+  });
+
   it('should keep a destination block when a blank range is pasted', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 3, c: 1 }, '30');

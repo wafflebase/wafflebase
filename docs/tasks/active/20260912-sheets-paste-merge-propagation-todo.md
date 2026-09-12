@@ -53,26 +53,32 @@ suggested shape for this attempt:
 - **A single-cell destination is exempt from the reject rule.** It writes
   through the merge anchor (every path that sets `activeCell` normalizes it
   with `normalizeRefToAnchor`), so the block keeps its layout.
+- **A cut's own blocks are excluded from the reject check** — they are
+  deleted at the source whatever the destination clips, so they cannot be
+  split by it. This is the exclusion `moveRangeTo` makes with `movedAnchors`;
+  without it, cutting `A1:C3` (containing a `B2:C2` block) and pasting at
+  `C1` refused a paste that is perfectly well defined. Found in self-review,
+  covered by a regression test.
 
 ## Plan
 
 - [x] Read `paste` / `moveRangeTo` / the merge helpers and the #941 review.
-- [ ] `copyBuffer` gains `merges` — blocks fully inside the copied range at
+- [x] `copyBuffer` gains `merges` — blocks fully inside the copied range at
       copy/cut time.
-- [ ] Extract `clearCellsUnderMerge(anchor, span, written, changed, unblocked)`
+- [x] Extract `clearCellsUnderMerge(anchor, span, written, changed, unblocked)`
       from `moveRangeTo`'s destination-clearing loop; call it from both.
-- [ ] Internal paste: compute the destination range as the translated source
+- [x] Internal paste: compute the destination range as the translated source
       range (not the grid's bounding box — a merged block's covered cells are
       empty, so its box is smaller than the block).
-- [ ] Refuse an internal paste that would only partially overwrite a merged
+- [x] Refuse an internal paste that would only partially overwrite a merged
       block, with a new `merge-paste-partial` reason + view message.
-- [ ] Propagate: drop the overwritten destination blocks (and, on a cut, the
+- [x] Propagate: drop the overwritten destination blocks (and, on a cut, the
       source blocks), re-create the copied blocks at the destination, clear
       the cells they newly hide, feed every deleted/created block's covered
       srefs into `changedSrefs` before the recalculation.
-- [ ] `selectPastedRange` uses `rangeOf` instead of its own bounding box.
-- [ ] Tests in `packages/sheets/test/sheet/merge.test.ts`.
-- [ ] Update `docs/design/sheets/sheet.md` (copy/paste bullet).
+- [x] `selectPastedRange` uses `rangeOf` instead of its own bounding box.
+- [x] Tests in `packages/sheets/test/sheet/merge.test.ts`.
+- [x] Update `docs/design/sheets/sheet.md` (copy/paste bullet).
 
 ## Test plan
 

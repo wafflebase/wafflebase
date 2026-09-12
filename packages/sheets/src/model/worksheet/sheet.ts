@@ -2251,6 +2251,7 @@ export class Sheet {
         deltaRow,
         deltaCol,
         grid.size > 0,
+        this.copyBuffer.isCut,
       );
       // A paste that would split a merged block at the destination is refused
       // whole rather than corrupting the merge map — the rule `moveRangeTo`
@@ -2393,6 +2394,7 @@ export class Sheet {
     deltaRow: number,
     deltaCol: number,
     hasContent: boolean,
+    isCut: boolean,
   ):
     | {
         pasted: Array<{ anchor: Ref; span: MergeSpan }>;
@@ -2423,7 +2425,16 @@ export class Sheet {
       return { pasted, replaced: [] };
     }
 
-    const replaced = this.getMergesIntersecting(destRange);
+    // A cut's own blocks are deleted at the source whatever the destination
+    // clips, so they cannot be split by it — the exclusion `moveRangeTo`
+    // makes with `movedAnchors`. A copy's blocks survive, so they stay in the
+    // check.
+    const travelling = new Set<Sref>(
+      isCut ? sourceMerges.map((m) => toSref(m.anchor)) : [],
+    );
+    const replaced = this.getMergesIntersecting(destRange).filter(
+      (m) => !travelling.has(m.anchorSref),
+    );
     if (replaced.some((m) => !isRangeInRange(m.range, destRange))) {
       return undefined;
     }
