@@ -73,6 +73,20 @@ Confirmed against `@yorkie-js/sdk` 0.7.8 and the Docs/Sheets stores:
   `ensureSlidesRoot` note about the reverted Phase 5a Tree migration).
   Every Slides mutation is therefore a plain object/array op that
   Yorkie can reverse.
+
+  **Reversible is not the same as restoring.** A `set` that *replaces an
+  existing nested object* reverses to a `RemoveOperation`, not to a
+  restoring `set`, whenever the node it displaces is already a tombstone —
+  `SetOperation.toReverseOperation` in `@yorkie-js/sdk` only builds the
+  restoring form when `previousValue !== undefined && !previousValue.isRemoved()`.
+  Under concurrent editing that is reachable, and undoing such a change
+  then deletes the key outright and commits the loss to the server. It is
+  how a deck ended up holding a `text` element with no `frame`, which every
+  reader died on. So a mutator must never write
+  `el.frame = { ...el.frame, ...patch }` (or the same shape for `data` /
+  `data.refSize`): write the fields, not the object. `writeFrame` /
+  `replaceFrame` / `writeRefSize` in `yorkie-slides-store.ts` are the
+  helpers, and their doc comments carry the full argument.
 - **Collaborative semantics**: undo reverts only the *local client's*
   ops from the last unit, not absolute state. A peer's concurrent edit
   that landed in between is preserved. This is a net improvement over

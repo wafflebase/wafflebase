@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
-import { getActiveTheme } from '@wafflebase/slides';
+import { getActiveTheme, type TextElement } from '@wafflebase/slides';
 import type { YorkieSlidesRoot } from '../../../src/types/slides-document.ts';
 import type { Block } from '@wafflebase/docs';
 import { MAX_FONT_SIZE, MAX_LINE_HEIGHT, MAX_LIST_LEVEL } from '@wafflebase/docs';
@@ -188,6 +188,290 @@ describe('ensureSlidesRoot — read-only mounts', () => {
     expect(doc.getRoot().masters.map((m) => m.id)).toEqual(['custom']);
     // The pre-ruler backfill runs on the same pass.
     expect(doc.getRoot().guides.length).toBe(0);
+  });
+});
+
+describe('ensureSlidesRoot — structurally incomplete elements', () => {
+  /**
+   * Build a `caption` slide holding exactly `element`. Omitting `frame` or
+   * `data` from it reproduces the shapes found in the wild (see
+   * `docs/tasks/active/20260910-slides-frameless-element-todo.md`).
+   *
+   * Written straight onto the root, bypassing `addSlide`, because no store
+   * mutator can produce these shapes — they arrive with the document.
+   */
+  function docWithElement(
+    element: Record<string, unknown>,
+  ): Document<YorkieSlidesRoot> {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc);
+    doc.update((r) => {
+      (r as unknown as { slides: unknown[] }).slides.push({
+        id: 'slide-1',
+        layoutId: 'caption',
+        background: {},
+        elements: [element],
+        notes: [],
+      });
+    });
+    return doc;
+  }
+
+  const CAPTION_BODY_FRAME = { x: 80, y: 80, w: 1760, h: 720, rotation: 0 };
+
+  it('restores a missing frame from the slide layout placeholder', () => {
+    // The reported deck: a `caption` slide whose body placeholder lost its
+    // `frame`. The renderer's `!!frame.flipH` throws on it, blanking the
+    // page. The element's typed text must survive the repair.
+    const doc = docWithElement({
+      id: 'e4f7414b',
+      type: 'text',
+      placeholderRef: { type: 'body', index: 0 },
+      data: { autofit: 'grow', blocks: [] },
+    });
+
+    ensureSlidesRoot(doc);
+
+    const el = doc.getRoot().slides[0].elements[0] as unknown as {
+      frame: { x: number; y: number; w: number; h: number; rotation: number };
+      data: { autofit?: string };
+    };
+    expect(el.frame).toEqual(CAPTION_BODY_FRAME);
+    expect(el.data.autofit).toBe('grow');
+  });
+
+  it('falls back to a zero frame when no placeholder resolves', () => {
+    // No `placeholderRef` (or one the layout no longer offers) leaves
+    // nothing to restore the geometry from. A zero frame paints nothing
+    // rather than dropping the deck.
+    const doc = docWithElement({
+      id: 'orphan',
+      type: 'text',
+      data: { blocks: [] },
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual({
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+      rotation: 0,
+    });
+  });
+
+  it('repairs a frame that is an object but carries no geometry', () => {
+    // `{}` and `{ x: 10 }` pass every `typeof` check and then feed
+    // `undefined` into `frame.x + frame.w / 2` — the element lands
+    // somewhere NaN instead of somewhere wrong. Same class of defect as a
+    // missing frame, only silent.
+    const doc = docWithElement({
+      id: 'partial',
+      type: 'text',
+      frame: { x: 10 },
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual(
+      CAPTION_BODY_FRAME,
+    );
+  });
+
+  it('heals a missing rotation in place, keeping the position it has', () => {
+    // Replacing the whole frame would lose real geometry over one absent
+    // field; leaving `rotation` undefined would reach
+    // `applyGroupTransformMatrix` / `frameCorners` and turn a group's AABB
+    // into NaN.
+    const doc = docWithElement({
+      id: 'no-rotation',
+      type: 'text',
+      frame: { x: 10, y: 20, w: 30, h: 40 },
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual({
+      x: 10,
+      y: 20,
+      w: 30,
+      h: 40,
+      rotation: 0,
+    });
+  });
+
+  it('recovers a zero frame when the layout placeholder is malformed too', () => {
+    // A stored layout is document state like any other — copying a
+    // malformed placeholder frame would just relocate the defect.
+    const doc = docWithElement({
+      id: 'e4f7414b',
+      type: 'text',
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+    doc.update((r) => {
+      const layouts = r.layouts as unknown as {
+        id: string;
+        placeholders: { frame?: unknown }[];
+      }[];
+      const caption = layouts.find((l) => l.id === 'caption')!;
+      caption.placeholders[0].frame = { x: 80 };
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual({
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+      rotation: 0,
+    });
+  });
+
+  it('groups a frameless child without producing a NaN group frame', () => {
+    // `ensureSlidesRoot` repairs only top-level `slide.elements`, so
+    // `group()` can still meet the shape this guard exists for. Reading the
+    // candidate frames raw fed `undefined` to `applyGroupTransformMatrix`.
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc);
+    doc.update((r) => {
+      (r as unknown as { slides: unknown[] }).slides.push({
+        id: 'slide-1',
+        layoutId: 'blank',
+        background: {},
+        elements: [
+          {
+            id: 'ok',
+            type: 'shape',
+            frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+            data: { kind: 'rect' },
+          },
+          { id: 'broken', type: 'shape', data: { kind: 'rect' } },
+        ],
+        notes: [],
+      });
+    });
+    const store = new YorkieSlidesStore(doc);
+
+    let groupId = '';
+    expect(() => {
+      store.batch(() => {
+        groupId = store.group('slide-1', ['ok', 'broken']).groupId;
+      });
+    }).not.toThrow();
+
+    const group = store
+      .read()
+      .slides[0].elements.find((e) => e.id === groupId)!;
+    for (const n of [
+      group.frame.x,
+      group.frame.y,
+      group.frame.w,
+      group.frame.h,
+      group.frame.rotation,
+    ]) {
+      expect(Number.isFinite(n)).toBe(true);
+    }
+  });
+
+  it('does not write a frame onto a frameless connector', () => {
+    // A connector's `frame` is a derived selection bbox that
+    // `computeConnectorFrame` recomputes from its endpoints, and it never
+    // carries a `placeholderRef` — so the repair could only persist a zero
+    // bbox, which is what the read path already supplies anyway. Writing it
+    // would make a wrong bbox look authoritative to `combinedBoundingBox`.
+    const doc = docWithElement({
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'free', x: 0, y: 0 },
+      end: { kind: 'free', x: 100, y: 100 },
+      arrowheads: {},
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toBeUndefined();
+  });
+
+  it('leaves a well-formed frame untouched', () => {
+    const frame = { x: 10, y: 20, w: 30, h: 40, rotation: 0.5 };
+    const doc = docWithElement({
+      id: 'ok',
+      type: 'text',
+      frame,
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+
+    ensureSlidesRoot(doc);
+
+    expect(doc.getRoot().slides[0].elements[0].frame).toEqual(frame);
+  });
+
+  it('repairs an element with no data instead of throwing', () => {
+    // The other half of the same report: `ensureSlidesRoot` dereferenced
+    // `el.data.blocks` unguarded, so a data-less element threw before the
+    // repair on the next line could run.
+    const doc = docWithElement({
+      id: 'no-data',
+      type: 'text',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+    });
+
+    expect(() => ensureSlidesRoot(doc)).not.toThrow();
+    const el = new YorkieSlidesStore(doc).read().slides[0].elements[0];
+    expect(el.type).toBe('text');
+    expect((el as TextElement).data.blocks).toEqual([]);
+  });
+
+  it('seeds blocks in place, keeping the rest of an element data', () => {
+    // Reassigning the whole `data` object to repair `blocks` drops every
+    // sibling key — the drop `withTextElement` was reviewed and fixed for
+    // in #263.
+    const doc = docWithElement({
+      id: 'no-blocks',
+      type: 'text',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      data: { autofit: 'shrink', verticalAnchor: 'middle' },
+    });
+
+    ensureSlidesRoot(doc);
+
+    const el = doc.getRoot().slides[0].elements[0] as unknown as {
+      data: { autofit?: string; verticalAnchor?: string };
+    };
+    expect(el.data.autofit).toBe('shrink');
+    expect(el.data.verticalAnchor).toBe('middle');
+    const read = new YorkieSlidesStore(doc).read().slides[0].elements[0];
+    expect((read as TextElement).data.blocks).toEqual([]);
+  });
+
+  it('reads a frameless element as a zero frame without repairing it', () => {
+    // A read-only (share-link viewer) mount skips `ensureSlidesRoot`
+    // altogether, so the read path carries its own fallback — the rest of
+    // the deck must still render.
+    const doc = docWithElement({
+      id: 'e4f7414b',
+      type: 'text',
+      placeholderRef: { type: 'body', index: 0 },
+      data: { blocks: [] },
+    });
+    const store = new YorkieSlidesStore(doc);
+
+    const el = store.read().slides[0].elements[0];
+
+    expect(el.frame).toEqual({ x: 0, y: 0, w: 0, h: 0, rotation: 0 });
   });
 });
 

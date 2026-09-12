@@ -96,6 +96,20 @@ export function drawElement(
   anim?: AnimState,
 ): void {
   if (anim?.hidden) return;
+  // `Element.frame` and `Element.data` are both required by the model, but
+  // decks holding an element without one exist and every path below
+  // dereferences them unconditionally — `element.frame.x` for the animation
+  // centre and `!!frame.flipH` in `drawElementBody` for the frame,
+  // `element.data.effects?.shadow` for the data, which runs for shape /
+  // image / text / table / chart alike. There is no error boundary above the
+  // canvas, so the throw blanks the entire app rather than losing one
+  // element — skip it.
+  //
+  // Connectors are exempt from both: they return before either deref,
+  // painting from their endpoints, and carry no `data` sub-object at all.
+  if (element.type !== 'connector' && (!element.frame || !element.data)) {
+    return;
+  }
   const hasAnim =
     !!anim &&
     (anim.opacity !== 1 ||
@@ -103,7 +117,11 @@ export function drawElement(
       anim.dx !== 0 ||
       anim.dy !== 0 ||
       anim.rotation !== 0);
-  if (!hasAnim) {
+  // `!element.frame` can only still be true for a connector, which the
+  // guard above lets through — but the animation transform below needs a
+  // frame centre regardless of type. Paint it un-animated rather than
+  // throw; a connector is drawn from its endpoints either way.
+  if (!hasAnim || !element.frame) {
     drawElementBody(
       ctx, element, doc, theme, onAssetLoad,
       elementsLookup, parentFlip, parentTransform,
