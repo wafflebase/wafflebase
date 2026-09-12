@@ -18,7 +18,9 @@ services:
       - "8081:8081"
 
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # quay.io, not Docker Hub: MinIO withdrew the `minio/minio` repository
+    # there, so an unqualified pull is denied. Do not "normalize" this back.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: always
     ports:
       - "9000:9000"
