@@ -10,14 +10,17 @@ import {
 import {
   applyWorksheetMove,
   applyWorksheetShift,
+  crossesFreezePane,
   getWorksheetCell,
   initialSpreadsheetDocument,
   isMergeSplitByMove,
   moveCrossTabDataRanges,
+  moveMergeMap,
   normalizeStoredCell,
   parseRef,
   safeWorksheetRecordEntries,
   shiftCrossTabDataRanges,
+  toMergeRange,
   toRefsFromRanges,
   writeWorksheetCell,
 } from '@wafflebase/sheets';
@@ -56,8 +59,10 @@ import {
  *   edited tab until an editor session opens the document and recalculates.
  *   Serving a stale number that no longer matches the formula beside it would
  *   be worse.
- * - **A move that would split a merged range is refused with 409.** The editor
- *   silently no-ops; for an API, silence is indistinguishable from success.
+ * - **A move that would split a merged range, or leave one across a frozen
+ *   boundary, is refused with 409.** The editor silently no-ops on the first
+ *   and reports a refusal the user sees on the second; for an API, silence is
+ *   indistinguishable from success.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
@@ -152,6 +157,44 @@ export class ApiV1WorksheetStructureController {
     }
   }
 
+  /**
+   * Refuse a move that would park a merged block across a frozen boundary.
+   *
+   * `Sheet.moveCells` refuses the same reorder (`merge-move-frozen`): the
+   * renderer paints the frozen pane and the scrolling body from a single
+   * block, so a straddling one is not drawable, and merging, pasting and
+   * drag-moving all refuse to create it. Without this check the API is the one
+   * door into a state the editor cannot paint.
+   *
+   * The reorder does not move the boundary, so the check runs against the
+   * merge map the move *would* produce — before `applyWorksheetMove` writes
+   * anything, since a throw inside `doc.update` rolls the whole update back.
+   */
+  private assertMoveKeepsMergesOffFreeze(
+    ws: Worksheet,
+    axis: Axis,
+    srcIndex: number,
+    count: number,
+    dstIndex: number,
+  ) {
+    const frozenRows = ws.frozenRows ?? 0;
+    const frozenCols = ws.frozenCols ?? 0;
+    if (frozenRows === 0 && frozenCols === 0) return;
+
+    const merges = new Map(safeWorksheetRecordEntries(ws.merges ?? {}));
+    const moved = moveMergeMap(merges, axis, srcIndex, count, dstIndex);
+    for (const [anchorSref, span] of moved) {
+      const range = toMergeRange(parseRef(anchorSref), span);
+      if (crossesFreezePane(range, frozenRows, frozenCols)) {
+        throw new ConflictException(
+          `The move would leave the merged range anchored at ${anchorSref} ` +
+            `across the frozen rows or columns; move it to one side of the ` +
+            `freeze, or unfreeze first.`,
+        );
+      }
+    }
+  }
+
   @Post('clear')
   async clearRange(
     @Param('workspaceId') workspaceId: string,
@@ -241,6 +284,13 @@ export class ApiV1WorksheetStructureController {
             Math.max(current, srcIndex + count - 1, dstIndex - 1),
           );
           this.assertMoveKeepsMerges(ws, axis, srcIndex, count);
+          this.assertMoveKeepsMergesOffFreeze(
+            ws,
+            axis,
+            srcIndex,
+            count,
+            dstIndex,
+          );
           applyWorksheetMove({
             ws,
             axis,

@@ -812,7 +812,7 @@ describe('Sheet merge and the freeze boundary', () => {
     expect(sheet.getMerges().get('A6')).toEqual({ rs: 3, cs: 1 });
   });
 
-  it('should keep the freeze clear of a block when rows are inserted', async () => {
+  it('should carry a frozen block down with an insert above it', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 2, c: 1 }, '10');
 
@@ -822,11 +822,71 @@ describe('Sheet merge and the freeze boundary', () => {
     await sheet.setFreezePane(2, 0);
     expect(sheet.getFreezePane()).toEqual({ frozenRows: 4, frozenCols: 0 });
 
-    // The insert lands inside the frozen region, so both the boundary and the
-    // block move down by one and the block stays whole on the frozen side.
+    // The insert lands inside the frozen region, so the pre-existing boundary
+    // adjustment moves the line and the block down by one together and the
+    // block stays whole on the frozen side — no snapping needed.
     await sheet.insertRows(1, 1);
     expect(sheet.getMerges().get('A3')).toEqual({ rs: 3, cs: 1 });
     expect(sheet.getFreezePane()).toEqual({ frozenRows: 5, frozenCols: 0 });
+  });
+
+  it('should snap the freeze past a straddling block after an insert', async () => {
+    // A block already across the boundary is a state this replica cannot
+    // create — `setFreezePane` snaps and every block-moving path refuses — but
+    // a peer or the v1 settings API can write one into the document, and it
+    // arrives here through the load path. Seed it the same way.
+    const store = new MemStore();
+    await store.setMerge({ r: 3, c: 1 }, { rs: 3, cs: 1 });
+    await store.setFreezePane(3, 0);
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+    await sheet.loadFreezePane();
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 3, frozenCols: 0 });
+
+    // The insert moves the boundary to 4 and the block to A4:A6, which still
+    // straddles — the boundary adjustment alone does not repair it. The snap
+    // inside `shiftCells` pushes the line to the bottom of the block.
+    await sheet.insertRows(1, 1);
+    expect(sheet.getMerges().get('A4')).toEqual({ rs: 3, cs: 1 });
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 6, frozenCols: 0 });
+    // Persisted, not just repaired in memory.
+    expect(await store.getFreezePane()).toEqual({
+      frozenRows: 6,
+      frozenCols: 0,
+    });
+  });
+
+  it('should snap the freeze past a straddling block on the column axis', async () => {
+    const store = new MemStore();
+    await store.setMerge({ r: 1, c: 2 }, { rs: 1, cs: 3 });
+    await store.setFreezePane(0, 2);
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+    await sheet.loadFreezePane();
+
+    // Inserting a column inside the frozen band moves the line to 3 and the
+    // block to C1:E1, which still straddles it.
+    await sheet.insertColumns(1, 1);
+    expect(sheet.getMerges().get('C1')).toEqual({ rs: 1, cs: 3 });
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 0, frozenCols: 5 });
+  });
+
+  it('should cascade the freeze snap through a chain of blocks', async () => {
+    const sheet = new Sheet(new MemStore());
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+    sheet.selectStart({ r: 4, c: 2 });
+    sheet.selectEnd({ r: 7, c: 2 });
+    await sheet.mergeSelection();
+
+    // Freezing row 2 cuts A2:A4, so the line moves to 4 — which now cuts
+    // B4:B7, so it moves again. One pass would have stopped at 4.
+    await sheet.setFreezePane(2, 0);
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 7, frozenCols: 0 });
   });
 
   it('should refuse a row reorder that lands a block across the boundary', async () => {
@@ -1033,5 +1093,93 @@ describe('Sheet.paste destination normalization', () => {
       { r: 5, c: 1 },
       { r: 6, c: 3 },
     ]);
+  });
+});
+
+describe('Sheet copy-buffer lifetime', () => {
+  it('should report whether a row reorder actually happened', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setFreezePane(2, 0);
+    await sheet.setData({ r: 5, c: 1 }, '10');
+
+    sheet.selectStart({ r: 5, c: 1 });
+    sheet.selectEnd({ r: 6, c: 1 });
+    await sheet.mergeSelection();
+
+    // Refused: A5:A6 would land at A2:A3, across the frozen boundary. The
+    // caller has to be able to tell that from success — the drag-reorder
+    // handler re-selects the drop position only when the rows moved.
+    expect(await sheet.moveRows(5, 2, 2)).toBe(false);
+    expect(await sheet.moveRows(5, 2, 8)).toBe(true);
+    expect(sheet.getMerges().get('A6')).toEqual({ rs: 2, cs: 1 });
+  });
+
+  it('should drop the copy buffer on undo and redo', async () => {
+    // MemStore has no history, so stand in a store whose undo/redo succeed:
+    // what is under test is the sheet dropping the buffer, not the replay.
+    class HistoryStore extends MemStore {
+      override async undo(): Promise<{ success: boolean }> {
+        return { success: true };
+      }
+      override async redo(): Promise<{ success: boolean }> {
+        return { success: true };
+      }
+    }
+
+    const sheet = new Sheet(new HistoryStore());
+    await sheet.setData({ r: 5, c: 1 }, '10');
+
+    sheet.selectStart({ r: 5, c: 1 });
+    await sheet.copy();
+    expect(sheet.getCopyRange()).toEqual([
+      { r: 5, c: 1 },
+      { r: 5, c: 1 },
+    ]);
+
+    // An undone step may be a row insert, delete or reorder, which renumbers
+    // the cells the buffer snapshotted; pasting from it afterwards would
+    // relocate — and re-create merged blocks — from stale coordinates.
+    await sheet.undo();
+    expect(sheet.getCopyRange()).toBeUndefined();
+
+    sheet.selectStart({ r: 5, c: 1 });
+    await sheet.copy();
+    await sheet.redo();
+    expect(sheet.getCopyRange()).toBeUndefined();
+  });
+
+  it('should drop the copy buffer when a peer renumbers the copied rows', async () => {
+    // MemStore has no axis IDs, so stand one up: `revalidateCopyBuffer` reads
+    // the order arrays a remote structural edit rewrites.
+    class AxisIdStore extends MemStore {
+      public rowIds = ['r1', 'r2', 'r3', 'r4', 'r5'];
+      public colIds = ['c1', 'c2', 'c3'];
+      override getRowOrder(): string[] {
+        return this.rowIds;
+      }
+      override getColOrder(): string[] {
+        return this.colIds;
+      }
+    }
+
+    const store = new AxisIdStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 2, c: 1 }, '10');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.copy();
+
+    // A peer edits a cell: nothing is renumbered, so the clipboard survives.
+    sheet.revalidateCopyBuffer();
+    expect(sheet.getCopyRange()).toEqual([
+      { r: 2, c: 1 },
+      { r: 2, c: 1 },
+    ]);
+
+    // A peer inserts a row above: 'r2' is now row 3, so the index-keyed buffer
+    // no longer describes what it copied.
+    store.rowIds = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5'];
+    sheet.revalidateCopyBuffer();
+    expect(sheet.getCopyRange()).toBeUndefined();
   });
 });

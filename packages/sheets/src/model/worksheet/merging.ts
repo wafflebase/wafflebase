@@ -176,6 +176,63 @@ export function moveMergeMap(
 }
 
 /**
+ * `crossesFreezePane` returns whether a range straddles a frozen row or column
+ * boundary. A merged block that does is not drawable — the renderer paints the
+ * frozen pane and the scrolling body from a single block — so it is the state
+ * merging, pasting, moving and reordering all refuse to create.
+ */
+export function crossesFreezePane(
+  range: Range,
+  frozenRows: number,
+  frozenCols: number,
+): boolean {
+  const crossesRows =
+    frozenRows > 0 && range[0].r <= frozenRows && range[1].r > frozenRows;
+  const crossesCols =
+    frozenCols > 0 && range[0].c <= frozenCols && range[1].c > frozenCols;
+  return crossesRows || crossesCols;
+}
+
+/**
+ * `snapFreezePastMerges` grows the given freeze counts until no merged block
+ * straddles either boundary. Growing one boundary can pull a further block
+ * across it, so it repeats until stable; each pass only ever increases a count,
+ * bounded by the lowest/rightmost merged block, so it terminates.
+ *
+ * Freezing is the one path that reaches a straddling block without moving one,
+ * so it snaps the line rather than refusing the gesture: the whole block ends
+ * up frozen, which is what the user asked for plus the rows the layout makes
+ * inseparable from them.
+ */
+export function snapFreezePastMerges(
+  merges: Iterable<[Sref, MergeSpan]>,
+  frozenRows: number,
+  frozenCols: number,
+): { frozenRows: number; frozenCols: number } {
+  const entries = [...merges];
+  let rows = frozenRows;
+  let cols = frozenCols;
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [anchorSref, span] of entries) {
+      const range = toMergeRange(parseRef(anchorSref), span);
+      if (rows > 0 && range[0].r <= rows && range[1].r > rows) {
+        rows = range[1].r;
+        changed = true;
+      }
+      if (cols > 0 && range[0].c <= cols && range[1].c > cols) {
+        cols = range[1].c;
+        changed = true;
+      }
+    }
+  }
+
+  return { frozenRows: rows, frozenCols: cols };
+}
+
+/**
  * `isMergeSplitByMove` returns true when move source partially intersects a merge.
  */
 export function isMergeSplitByMove(

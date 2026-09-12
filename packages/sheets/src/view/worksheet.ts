@@ -4658,7 +4658,13 @@ export class Worksheet {
             ? this.sheet!.moveRows(srcIndex, count, dropIndex)
             : this.sheet!.moveColumns(srcIndex, count, dropIndex);
 
-        movePromise.then(() => {
+        movePromise.then((moved) => {
+          // A reorder that would split a merged block, or land one across a
+          // frozen boundary, is refused and writes nothing. Re-selecting the
+          // drop position then would show the selection at a destination the
+          // rows never reached.
+          if (!moved) return;
+
           // Update selection to new position
           const newStart = dropIndex < srcIndex ? dropIndex : dropIndex - count;
           if (axis === 'row') {
@@ -5232,6 +5238,14 @@ export class Worksheet {
 
     // Re-resolve axis-ID-based selection after structural changes
     this.sheet!.resolveAnchorsToRefs();
+
+    // The copy buffer is index-keyed, and a remote insert, delete or reorder
+    // renumbers the cells it snapshotted without ever calling `shiftCells` /
+    // `moveCells`, which are what drop it for local edits. Drop it here too
+    // when its axis IDs no longer sit where it recorded them — a pasted grid
+    // would otherwise relocate, and re-create merged blocks, from stale
+    // coordinates. A remote edit that renumbers nothing leaves it alone.
+    this.sheet!.revalidateCopyBuffer();
 
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();

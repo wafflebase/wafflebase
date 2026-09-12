@@ -127,6 +127,14 @@ all cell, selection, and navigation operations.
   import writing the freeze through the store) is healed by the first
   structural edit; refusing every move of such a block, with no way to create
   it in-app, would otherwise strand it.
+  The **v1 worksheet API** is held to the same invariant, since it is the other
+  writer of these fields: `POST .../move` refuses a reorder that would park a
+  block across the freeze (409, beside the existing merge-split refusal),
+  `PUT .../freeze` snaps past a block it would cut and answers with the
+  boundary it actually stored, and `PUT .../merges` refuses a map that would
+  straddle the tab's freeze. The snap itself is one implementation
+  (`snapFreezePastMerges` in `model/worksheet/merging.ts`) shared by the engine
+  and the controller, so the two cannot drift.
   A **single-cell** paste starts at the merge anchor: `paste` normalizes
   `activeCell` with `normalizeRefToAnchor`, because `selectRow` /
   `selectColumn` / `selectAllCells` leave the active cell at the head of the
@@ -144,10 +152,22 @@ all cell, selection, and navigation operations.
   formula relocation and no merge propagation — and discarded the buffer on a
   refusal, precisely when the user needs it to unmerge and retry. Because it
   now outlives the gesture, every edit that renumbers the cells it
-  snapshotted invalidates it: `shiftCells` (row/column insert and delete) and
-  `moveCells` (row/column reorder) call `clearCopyBuffer`, so a later paste
-  can never relocate — or re-create a merged block — from coordinates that
-  have since moved.
+  snapshotted invalidates it: `shiftCells` (row/column insert and delete),
+  `moveCells` (row/column reorder), `sortFilterByColumn` (which rewrites cells
+  to new row positions) and `undo` / `redo` (which replay any of them, and are
+  not told which kind of step they replayed) all call `clearCopyBuffer`, so a
+  later paste can never relocate — or re-create a merged block — from
+  coordinates that have since moved. A **peer's** structural edit never calls
+  any of them: it arrives as a reload (`Worksheet.reloadDimensions`), so the
+  buffer additionally records the axis IDs of its source range's corners, and
+  the reload runs `revalidateCopyBuffer` to drop it when those IDs no longer
+  sit at the indices it recorded. Keying on axis IDs rather than on "a remote
+  change happened" is what keeps a peer typing in a cell from emptying the
+  user's clipboard.
+  A reorder that is refused writes nothing, so `moveRows` / `moveColumns`
+  return whether the rows actually moved — the drag-reorder handler re-selects
+  the drop position only on `true`, rather than showing a selection at a
+  destination the rows never reached.
   The copy buffer's merge snapshot is clipboard-at-copy-time,
   like its grid and styles: unmerging after the copy does not retro-edit it.
   That snapshot decides what is *re-created*, never what is *deleted* — a cut

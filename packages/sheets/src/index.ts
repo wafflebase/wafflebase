@@ -125,6 +125,8 @@ import {
   shiftMergeMap,
   moveMergeMap,
   isMergeSplitByMove,
+  crossesFreezePane,
+  snapFreezePastMerges,
 } from './model/worksheet/merging';
 import { DimensionIndex } from './model/worksheet/dimensions';
 import { type Store } from './store/store';
@@ -353,6 +355,8 @@ export {
   shiftMergeMap,
   moveMergeMap,
   isMergeSplitByMove,
+  crossesFreezePane,
+  snapFreezePastMerges,
   resolveSystemLocale,
   resolveCurrencyForLocale,
   buildLocaleFormatPreview,

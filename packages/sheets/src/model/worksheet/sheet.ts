@@ -49,9 +49,11 @@ import {
   redirectFormula,
 } from './shifting';
 import {
+  crossesFreezePane,
   isMergeSplitByMove,
   moveMergeMap,
   shiftMergeMap,
+  snapFreezePastMerges as snapFreezePastMergesOf,
   toMergeRange,
 } from './merging';
 import {
@@ -376,9 +378,16 @@ export class Sheet {
    * moment: unmerging afterwards does not retro-edit the clipboard, so the
    * paste reproduces the layout that was copied just as it reproduces the
    * values that were copied.
+   *
+   * `sourceAnchors` records the axis IDs of the source range's corners, which
+   * is how `revalidateCopyBuffer` notices that a *remote* structural edit has
+   * renumbered the snapshotted cells out from under the index-based
+   * `sourceRange`. It is absent when the copied range sits past axis-ID
+   * coverage, the same condition the selection anchors fall back on.
    */
   private copyBuffer?: {
     sourceRange: Range;
+    sourceAnchors?: { start: CellAnchor; end: CellAnchor };
     grid: Grid;
     rangeStyles: RangeStylePatch[];
     merges: Array<{ anchor: Ref; span: MergeSpan }>;
@@ -529,34 +538,16 @@ export class Sheet {
 
   /**
    * `snapFreezePastMerges` grows the given freeze counts until no merged block
-   * straddles either boundary. Growing one boundary can pull a further block
-   * across it, so it repeats until stable; each pass only ever increases a
-   * count, bounded by the lowest/rightmost merged block, so it terminates.
+   * straddles either boundary. The algorithm is shared with the backend's
+   * worksheet settings API (`snapFreezePastMergesOf` in `merging.ts`), so a
+   * freeze written through `PUT .../freeze` lands on the same boundary the
+   * editor would have chosen.
    */
   private snapFreezePastMerges(
     frozenRows: number,
     frozenCols: number,
   ): { frozenRows: number; frozenCols: number } {
-    let rows = frozenRows;
-    let cols = frozenCols;
-
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const [anchorSref, span] of this.merges) {
-        const range = toMergeRange(parseRef(anchorSref), span);
-        if (rows > 0 && range[0].r <= rows && range[1].r > rows) {
-          rows = range[1].r;
-          changed = true;
-        }
-        if (cols > 0 && range[0].c <= cols && range[1].c > cols) {
-          cols = range[1].c;
-          changed = true;
-        }
-      }
-    }
-
-    return { frozenRows: rows, frozenCols: cols };
+    return snapFreezePastMergesOf(this.merges, frozenRows, frozenCols);
   }
 
   /**
@@ -1316,17 +1307,22 @@ export class Sheet {
   }
 
   /**
-   * `moveRows` moves `count` rows starting at `src` to before `dst`.
+   * `moveRows` moves `count` rows starting at `src` to before `dst`. Returns
+   * whether the rows actually moved: the reorder is refused when it would
+   * split a merged block or land one across a frozen boundary, and a caller
+   * that repositions the selection afterwards has to be able to tell that from
+   * success.
    */
-  async moveRows(src: number, count: number, dst: number): Promise<void> {
-    await this.moveCells('row', src, count, dst);
+  async moveRows(src: number, count: number, dst: number): Promise<boolean> {
+    return this.moveCells('row', src, count, dst);
   }
 
   /**
    * `moveColumns` moves `count` columns starting at `src` to before `dst`.
+   * Returns whether the columns actually moved; see `moveRows`.
    */
-  async moveColumns(src: number, count: number, dst: number): Promise<void> {
-    await this.moveCells('column', src, count, dst);
+  async moveColumns(src: number, count: number, dst: number): Promise<boolean> {
+    return this.moveCells('column', src, count, dst);
   }
 
   /**
@@ -1522,7 +1518,11 @@ export class Sheet {
   }
 
   /**
-   * `moveCells` moves cells along the given axis, then recalculates all formulas.
+   * `moveCells` moves cells along the given axis, then recalculates all
+   * formulas. Returns whether anything moved: a no-op destination, a split
+   * merged block and a block that would land across a frozen boundary all
+   * leave the sheet untouched, and the caller has to be able to tell that from
+   * a move that happened.
    */
   private async moveCells(
     axis: Axis,
@@ -1530,17 +1530,17 @@ export class Sheet {
     count: number,
     dst: number,
     options?: { skipPostRecalculate?: boolean },
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.invalidateCrossSheetCache();
     // No-op if source and destination are the same
     if (dst >= src && dst <= src + count) {
-      return;
+      return false;
     }
 
     for (const [anchorSref, span] of this.merges) {
       const anchor = parseRef(anchorSref);
       if (isMergeSplitByMove(anchor, span, axis, src, count)) {
-        return;
+        return false;
       }
     }
 
@@ -1553,7 +1553,7 @@ export class Sheet {
     for (const [anchorSref, span] of movedMerges) {
       if (this.crossesFreezePane(toMergeRange(parseRef(anchorSref), span))) {
         this.refuse('merge-move-frozen');
-        return;
+        return false;
       }
     }
 
@@ -1613,7 +1613,7 @@ export class Sheet {
     }
 
     if (options?.skipPostRecalculate) {
-      return;
+      return true;
     }
 
     // Batch the formula recalculation
@@ -1626,6 +1626,7 @@ export class Sheet {
     } finally {
       this.store.endBatch();
     }
+    return true;
   }
 
   /**
@@ -2217,11 +2218,60 @@ export class Sheet {
    * `clearCopyBuffer` clears the internal copy buffer. A paste no longer
    * clears it — repeat pastes stay internal — so the buffer outlives the
    * gesture that filled it, and every edit that renumbers the cells it
-   * snapshotted (`shiftCells`, `moveCells`) must call this. Escape clears it
-   * from the view.
+   * snapshotted must call this: `shiftCells`, `moveCells`,
+   * `sortFilterByColumn`, and `undo` / `redo`, which replay any of them.
+   * Edits made by *peers* arrive as a reload rather than a call, so they are
+   * caught by `revalidateCopyBuffer` instead. Escape clears it from the view.
    */
   public clearCopyBuffer(): void {
     this.copyBuffer = undefined;
+  }
+
+  /**
+   * `anchorsForRange` records the axis IDs at a range's corners, so a later
+   * pass can tell whether the rows and columns it named are still the ones at
+   * those indices. Returns undefined past axis-ID coverage, where there is
+   * nothing to compare against.
+   */
+  private anchorsForRange(
+    range: Range,
+  ): { start: CellAnchor; end: CellAnchor } | undefined {
+    const rowOrder = this.store.getRowOrder();
+    const colOrder = this.store.getColOrder();
+    const start = refToAnchor(range[0], rowOrder, colOrder);
+    const end = refToAnchor(range[1], rowOrder, colOrder);
+    return start && end ? { start, end } : undefined;
+  }
+
+  /**
+   * `revalidateCopyBuffer` drops the copy buffer when the rows or columns it
+   * snapshotted have been renumbered underneath it — the same invariant
+   * `shiftCells` and `moveCells` keep by clearing outright, but for edits this
+   * replica did not make: a peer's row insert or reorder arrives as a reload,
+   * not as a call into those methods, and the buffer's `sourceRange` is plain
+   * indices. Pasting from a stale one relocates formulas — and now re-creates
+   * merged blocks — at the wrong place.
+   *
+   * A remote edit that renumbers nothing (a cell value, a style) leaves the
+   * anchors resolving to the same refs, so the buffer survives: a peer typing
+   * must not empty the user's clipboard.
+   */
+  public revalidateCopyBuffer(): void {
+    const buffer = this.copyBuffer;
+    if (!buffer?.sourceAnchors) return;
+
+    const rowOrder = this.store.getRowOrder();
+    const colOrder = this.store.getColOrder();
+    const start = anchorToRef(buffer.sourceAnchors.start, rowOrder, colOrder);
+    const end = anchorToRef(buffer.sourceAnchors.end, rowOrder, colOrder);
+    if (
+      !start ||
+      !end ||
+      !isSameRef(start, buffer.sourceRange[0]) ||
+      !isSameRef(end, buffer.sourceRange[1])
+    ) {
+      this.clearCopyBuffer();
+    }
   }
 
   /**
@@ -2237,6 +2287,7 @@ export class Sheet {
     const text = grid2string(grid);
     this.copyBuffer = {
       sourceRange: range,
+      sourceAnchors: this.anchorsForRange(range),
       grid,
       rangeStyles,
       merges,
@@ -2258,6 +2309,7 @@ export class Sheet {
     const text = grid2string(grid);
     this.copyBuffer = {
       sourceRange: range,
+      sourceAnchors: this.anchorsForRange(range),
       grid,
       rangeStyles,
       merges,
@@ -2616,15 +2668,7 @@ export class Sheet {
    * row or column boundary.
    */
   private crossesFreezePane(range: Range): boolean {
-    const crossesRows =
-      this.frozenRows > 0 &&
-      range[0].r <= this.frozenRows &&
-      range[1].r > this.frozenRows;
-    const crossesCols =
-      this.frozenCols > 0 &&
-      range[0].c <= this.frozenCols &&
-      range[1].c > this.frozenCols;
-    return crossesRows || crossesCols;
+    return crossesFreezePane(range, this.frozenRows, this.frozenCols);
   }
 
   /**
@@ -3958,6 +4002,11 @@ export class Sheet {
       { r: dataStart, c: colStart },
       { r: dataEnd, c: colEnd },
     ];
+
+    // The sort rewrites cells to new row positions, which renumbers the cells
+    // the copy buffer snapshotted just as a structural edit does; see
+    // `clearCopyBuffer`.
+    this.clearCopyBuffer();
 
     this.store.beginBatch();
     try {
@@ -5307,6 +5356,13 @@ export class Sheet {
     const result = await this.store.undo();
     if (result.success) {
       this.invalidateCrossSheetCache();
+      // An undone step may be a row/column insert, delete or reorder, which
+      // renumbers the cells the copy buffer snapshotted — the invariant
+      // `clearCopyBuffer` records. The store's undo entry does not say which
+      // kind of step it replayed, so the buffer goes either way rather than
+      // letting a later paste relocate, and re-create merged blocks, from
+      // stale coordinates.
+      this.clearCopyBuffer();
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadMerges();
@@ -5339,6 +5395,8 @@ export class Sheet {
     const result = await this.store.redo();
     if (result.success) {
       this.invalidateCrossSheetCache();
+      // A redone step renumbers the same way an undone one does; see `undo`.
+      this.clearCopyBuffer();
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadMerges();
