@@ -247,14 +247,16 @@ function hasFrame(frame: unknown): boolean {
  * to the server: it is how a deck ends up holding a `text` element with
  * only `data` / `id` / `placeholderRef` / `type`, which every reader then
  * dies on. Per-key assignment on a CRDT-backed object propagates as
- * expected — the same argument `withShapeText` already makes for
- * `data.text`, and what `cascadeMasterStyles` already does for
- * `data.blocks`.
+ * expected, which is what `cascadeMasterStyles` already does for
+ * `data.blocks`. `withShapeText` reaches the same rule from a different
+ * direction — a concurrent-LWW race that wipes a peer's typing, not this
+ * reverse-op mechanism — so they are two independent reasons for it, not
+ * one argument.
  *
- * Sites that replace a frame *entirely* (`computeConnectorFrame` results,
- * group re-frames) still assign wholesale — converting those needs
- * replace-not-merge semantics for the optional `flipH` / `flipV`, and they
- * are not the paths the corruption was measured on. See the task doc.
+ * Two bare assignments are legitimate and remain: creating a `frame` key
+ * that is absent (no node to displace), and setting one on a plain object
+ * before it is pushed into the CRDT. Everything else goes through this or
+ * `replaceFrame`.
  */
 function writeFrame(target: { frame: Frame }, patch: Partial<Frame>): void {
   const frame = target.frame as unknown as Record<string, unknown>;
@@ -273,6 +275,31 @@ function writeFrame(target: { frame: Frame }, patch: Partial<Frame>): void {
  * leaves, so the reverse of removing one is a restoring set, not the
  * key-deleting reverse `writeFrame` exists to avoid.
  */
+/**
+ * Write a group's reference size field by field — the `writeFrame` rule
+ * applied to the other nested object a group carries.
+ *
+ * Losing `refSize` is not cosmetic. Every reader takes
+ * `data.refSize?.w ?? frame.w`, so an absent one reads as "scale 1 against
+ * the current frame" — which silently stretches every child the moment the
+ * group's frame has diverged from its true reference size. That is the
+ * glyph-and-shape distortion #360 and #441 were written to eliminate;
+ * reaching it again through a lost key would regress those fixes, not
+ * degrade gracefully.
+ */
+function writeRefSize(
+  group: { data: { refSize?: { w: number; h: number } } },
+  next: { w: number; h: number },
+): void {
+  const existing = group.data.refSize;
+  if (existing) {
+    existing.w = next.w;
+    existing.h = next.h;
+  } else {
+    group.data.refSize = { ...next };
+  }
+}
+
 function replaceFrame(target: { frame: Frame }, next: Frame): void {
   writeFrame(target, next);
   const frame = target.frame as unknown as Record<string, unknown>;
@@ -454,11 +481,22 @@ export function ensureSlidesRoot(
         // `combinedBoundingBox` (align / distribute / multi-select).
         if (el.type !== 'connector') {
           if (!hasFrame(el.frame)) {
-            el.frame = recoverFrame(
+            const recovered = recoverFrame(
               el,
               (slide as { layoutId?: unknown }).layoutId,
               r.layouts,
-            ) as unknown as typeof el.frame;
+            );
+            if (el.frame == null) {
+              // Nothing to displace: this creates the key, so there is no
+              // node whose removal a reverse op could target. The one
+              // shape a bare set is right for.
+              el.frame = recovered as unknown as typeof el.frame;
+            } else {
+              // A frame object exists, it just carries no usable geometry
+              // (`{}`, `{ x: 10 }`). Replacing it wholesale would be the
+              // very write `replaceFrame` exists to avoid.
+              replaceFrame(el as unknown as { frame: Frame }, recovered);
+            }
           } else if (!Number.isFinite(el.frame.rotation)) {
             // Geometry is intact, only `rotation` is missing — heal that
             // field alone rather than replacing the frame and losing the
@@ -689,10 +727,11 @@ export class YorkieSlidesStore implements SlidesStore {
    * absent.
    *
    * `ensureSlidesRoot` repairs the document itself, which is the durable
-   * fix — but its write is a write, and a share-link viewer's can be
-   * denied by the Yorkie auth webhook. Carrying the fallback here too
-   * means such a viewer still sees the rest of the deck instead of a blank
-   * page. Mirrors the `el.data ?? {}` guard the text branch already has.
+   * fix — but it is a write, so a read-only (share-link viewer) mount skips
+   * it entirely. Carrying the fallback here too is what lets such a viewer
+   * see the rest of the deck instead of a blank page, and it covers the
+   * revision preview and `MemSlidesStore` besides. Mirrors the
+   * `el.data ?? {}` guard the text branch already has.
    */
   private readFrame(frame: unknown): Frame {
     return normalizeFrame(yorkieToPlain<Frame>(frame));
@@ -2288,7 +2327,7 @@ export class YorkieSlidesStore implements SlidesStore {
         data: { refSize: { w: number; h: number }; children: ProxyArray };
       };
       replaceFrame(gAny, newFrame);
-      gAny.data.refSize = { ...newRefSize };
+      writeRefSize(gAny, newRefSize);
 
       gAny.data.children.forEach((ch) => {
         const chAny = ch as unknown as {
@@ -2332,7 +2371,7 @@ export class YorkieSlidesStore implements SlidesStore {
     };
 
     if (plainGroup.data.children.length === 0) {
-      gAny.data.refSize = { w: plainGroup.frame.w, h: plainGroup.frame.h };
+      writeRefSize(gAny, { w: plainGroup.frame.w, h: plainGroup.frame.h });
       return;
     }
 
@@ -2348,10 +2387,10 @@ export class YorkieSlidesStore implements SlidesStore {
       gAny.data.children.forEach((ch, i) => {
         const plainCh = plainGroup.data.children[i];
         if (plainCh.type === 'group' && !plainCh.data.refSize) {
-          (ch as unknown as { data: { refSize: { w: number; h: number } } }).data.refSize = {
-            w: plainCh.frame.w,
-            h: plainCh.frame.h,
-          };
+          writeRefSize(
+            ch as unknown as { data: { refSize?: { w: number; h: number } } },
+            { w: plainCh.frame.w, h: plainCh.frame.h },
+          );
         }
       });
     }
@@ -2373,7 +2412,7 @@ export class YorkieSlidesStore implements SlidesStore {
         }
       });
     }
-    gAny.data.refSize = refSize;
+    writeRefSize(gAny, refSize);
 
     // Child groups were frame-scaled but keep their stale refSize, so they
     // now carry the parent's scale — settle them too (DFS).

@@ -458,9 +458,9 @@ describe('ensureSlidesRoot — structurally incomplete elements', () => {
   });
 
   it('reads a frameless element as a zero frame without repairing it', () => {
-    // A share-link viewer's repair write can be denied by the Yorkie auth
-    // webhook, so the read path carries its own fallback — the rest of the
-    // deck must still render.
+    // A read-only (share-link viewer) mount skips `ensureSlidesRoot`
+    // altogether, so the read path carries its own fallback — the rest of
+    // the deck must still render.
     const doc = docWithElement({
       id: 'e4f7414b',
       type: 'text',

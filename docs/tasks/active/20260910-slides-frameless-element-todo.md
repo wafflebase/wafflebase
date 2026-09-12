@@ -72,13 +72,21 @@ That element was the deck's only `autofit: 'grow'`.
 | `ownKeys` duplicate-key throw | 1 | 3 |
 | GC sync crash | 87 | 87 (unrelated) |
 
-Every live-proxy frame write now goes through one of two helpers:
-`writeFrame` for a merge, `replaceFrame` for a full replace (which deletes
-the optional `flipH` / `flipV` the replacement omits — safe, because those
-are leaves, so removing one reverses to a restoring set rather than the
-key-deleting reverse the helpers exist to avoid). The only direct
-assignment left is on a plain object built before it is pushed into the
-CRDT, which has no node to displace.
+Every live-proxy write of a nested object now goes through a helper:
+`writeFrame` for a frame merge, `replaceFrame` for a full frame replace,
+`writeRefSize` for a group's reference size. `replaceFrame` deletes the
+optional `flipH` / `flipV` its replacement omits — safe, because those are
+leaves, so removing one reverses to a restoring set rather than the
+key-deleting reverse the helpers exist to avoid. Two bare assignments
+remain and are correct: creating a key that is absent (no node to
+displace), and setting one on a plain object before it is pushed into the
+CRDT.
+
+`refSize` is in that set rather than deferred, because losing it is not a
+graceful degradation: every reader takes `data.refSize?.w ?? frame.w`, so
+an absent one reads as "scale 1 against the current frame" and silently
+stretches every child — the distortion #360 and #441 were written to
+eliminate.
 
 The `ownKeys` throw is not a regression the fix introduces: seed 1056 hits it
 under *both* variants, and all three occurrences are local-only — a fresh
@@ -133,8 +141,9 @@ Two invariants, applied where they belong:
       This is what permanently fixes the reported document: the caption body
       returns to its designed position, text intact.
 - [x] `readElement` (`:482`) — one frame fallback across its four return
-      sites, so a read-only share-link viewer (whose repair write the Yorkie
-      auth webhook may deny) still renders the rest of the deck
+      sites. A read-only (share-link viewer) mount skips `ensureSlidesRoot`
+      entirely, so this is what lets such a viewer render the rest of the
+      deck; it covers the revision preview and `MemSlidesStore` besides
 - [x] `cascadeMasterStyles` (`:1072`) — same `el.data` guard; it is the next
       unguarded deref after line 291
 - [x] `isElementEmpty` (`packages/slides/src/model/element.ts:640`) — guard
