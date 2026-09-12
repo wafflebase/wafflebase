@@ -119,7 +119,7 @@ docker run --rm --name wafflebase-fixture-minio \
   -p 19000:9000 \
   -e MINIO_ROOT_USER=minioadmin \
   -e MINIO_ROOT_PASSWORD=minioadmin \
-  minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+  quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
 ```
 
 Keep that MinIO process running and generate into a new staging path from a
