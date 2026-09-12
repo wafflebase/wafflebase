@@ -111,6 +111,8 @@ function refusalMessage(refusal: RangeOpRefusal): string {
       );
     case 'merge-paste-frozen':
       return "Can't paste a merged cell across a frozen row or column.";
+    case 'merge-move-frozen':
+      return "Can't move a merged cell across a frozen row or column.";
     case 'merge-autofill':
       return "Can't autofill across merged cells. Unmerge them first.";
   }
@@ -4936,8 +4938,13 @@ export class Worksheet {
         text = await navigator.clipboard.readText();
       }
 
+      // The copy buffer is not cleared here. `paste` discards it itself once a
+      // cut has been consumed, and clearing it unconditionally made every
+      // paste after the first an external one — no formula relocation, no
+      // merge propagation — and threw away the user's clipboard whenever a
+      // paste was refused, exactly when they need it to retry. Escape clears
+      // the marching ants, as it does in Google Sheets.
       await this.sheet!.paste({ text, html });
-      this.sheet!.clearCopyBuffer();
       this.render();
     } catch (err) {
       console.error('Failed to paste cell content: ', err);

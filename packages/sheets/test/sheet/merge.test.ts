@@ -685,3 +685,173 @@ describe('Sheet merge + copy-paste', () => {
     expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('1');
   });
 });
+
+describe('Sheet merge and the freeze boundary', () => {
+  it('should refuse a drag-move that lands a block across a frozen row', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setFreezePane(2, 0);
+    await sheet.setData({ r: 5, c: 1 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 5, c: 1 });
+    sheet.selectEnd({ r: 6, c: 1 });
+    await sheet.mergeSelection();
+
+    // A5:A6 dropped at A2 would span A2:A3, straddling the frozen-row
+    // boundary — the block `planPasteMerges` refuses on the paste path and
+    // `canMergeSelection` would never let the user create with the button.
+    await sheet.moveRangeTo(
+      [
+        { r: 5, c: 1 },
+        { r: 6, c: 1 },
+      ],
+      { r: 2, c: 1 },
+    );
+
+    expect(refusals).toEqual(['merge-move-frozen']);
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A5')).toEqual({ rs: 2, cs: 1 });
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+  });
+
+  it('should allow a drag-move that stays on one side of the boundary', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setFreezePane(2, 0);
+    await sheet.setData({ r: 5, c: 1 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 5, c: 1 });
+    sheet.selectEnd({ r: 6, c: 1 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 5, c: 1 },
+        { r: 6, c: 1 },
+      ],
+      { r: 7, c: 1 },
+    );
+
+    expect(refusals).toEqual([]);
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A7')).toEqual({ rs: 2, cs: 1 });
+    expect(await sheet.toDisplayString({ r: 7, c: 1 })).toBe('10');
+  });
+});
+
+describe('Sheet.paste destination normalization', () => {
+  it('should paste into the anchor when the active cell is covered', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 1 }, '20');
+    await sheet.setData({ r: 1, c: 3 }, '99');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 3 });
+    const { text } = await sheet.copy();
+
+    // `selectRow` puts the active cell at the head of the row without
+    // normalizing it, so row 3 leaves it on A3 — a cell the A2:A4 block
+    // covers. Writing the pasted value there would hide it under the block
+    // until an unmerge brought it back.
+    sheet.selectRow(3);
+    await sheet.paste({ text });
+
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('99');
+
+    // Unmerging is what would expose a value written to the covered cell.
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.unmergeSelection();
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('');
+  });
+
+  it('should paste an external grid from the anchor too', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 1 }, '20');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+
+    sheet.selectRow(3);
+    await sheet.paste({ text: '7' });
+
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('7');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.unmergeSelection();
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('');
+  });
+
+  it('should keep the copy buffer when a paste is refused', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 1 }, '30');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    const { text } = await sheet.cut();
+
+    // The paste would split the wider A3:C3 block, so it is refused whole.
+    // The cut has to survive it: the user unmerges and pastes again.
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+    expect(sheet.getCopyRange()).toEqual([
+      { r: 1, c: 1 },
+      { r: 1, c: 2 },
+    ]);
+    expect(sheet.isCutMode()).toBe(true);
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.unmergeSelection();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(sheet.getCopyRange()).toBeUndefined();
+  });
+
+  it('should propagate merges on a second paste from the same copy', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    const { text } = await sheet.copy();
+
+    // A copy pastes as many times as the user asks, and every paste carries
+    // the same layout: the view no longer drops the buffer after the first.
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+    sheet.selectStart({ r: 5, c: 1 });
+    await sheet.paste({ text });
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(3);
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(merges.get('A5')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('10');
+  });
+});

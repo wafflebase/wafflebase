@@ -99,3 +99,25 @@ block:
   the covered cell reads empty.
 - copied blank range over a merged block → block survives.
 - external TSV paste over a merged block → unchanged behavior, no refusal.
+
+## Review follow-up (round 1)
+
+Blocking findings from the correctness and blast-radius review lanes:
+
+- [x] `moveRangeTo` re-created a moved block at a translated anchor with no
+      freeze check, so a drag reached exactly the state `planPasteMerges` now
+      refuses. New `merge-move-frozen` refusal + view message.
+- [x] The single-cell-destination exemption assumed `activeCell` is always a
+      merge anchor. `selectRow` / `selectColumn` / `selectAllCells` do not
+      normalize, so a single-cell paste onto a covered cell wrote a value
+      hidden under the block. `paste` now normalizes its start ref, which
+      covers the external paths too.
+- [x] Both view paste paths cleared the copy buffer unconditionally, so merge
+      propagation (and formula relocation) only ran on the first paste after a
+      copy, and a refused paste threw away the clipboard the user needed to
+      retry. The buffer now lives until Escape; `paste` still drops a consumed
+      cut itself.
+
+Not taken (non-blocking): the `Math.max` spread in the formula MAX/MIN
+aggregate path, `setFreezePane` / the XLSX importer accepting a straddling
+block, and `rangeOf`'s empty-grid bounds — all outside this change's paths.

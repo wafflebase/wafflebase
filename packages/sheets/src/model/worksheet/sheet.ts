@@ -230,6 +230,7 @@ export type RangeOpRefusal =
   | 'merge-dest-partial'
   | 'merge-paste-partial'
   | 'merge-paste-frozen'
+  | 'merge-move-frozen'
   | 'merge-autofill';
 
 /**
@@ -2231,15 +2232,23 @@ export class Sheet {
       span: MergeSpan;
     }> = [];
 
+    // A paste starts at the merge anchor, never at a cell a block covers: a
+    // value written to a covered cell is hidden under the block and resurfaces
+    // only on unmerge. `activeCell` is not always an anchor — `selectRow`,
+    // `selectColumn` and `selectAllCells` place it at the head of the
+    // selection without normalizing — so the paste normalizes it here rather
+    // than assuming its callers did.
+    const destStart = this.normalizeRefToAnchor(this.activeCell);
+
     if (this.copyBuffer && text === this.copyBuffer.text) {
       // Internal paste: relocate formulas based on position delta
       grid = relocateGrid(
         this.copyBuffer.grid,
         this.copyBuffer.sourceRange,
-        this.activeCell,
+        destStart,
       );
-      const deltaRow = this.activeCell.r - this.copyBuffer.sourceRange[0].r;
-      const deltaCol = this.activeCell.c - this.copyBuffer.sourceRange[0].c;
+      const deltaRow = destStart.r - this.copyBuffer.sourceRange[0].r;
+      const deltaCol = destStart.c - this.copyBuffer.sourceRange[0].c;
       rangeStylePatches = translateRangeStylePatches(
         this.copyBuffer.rangeStyles,
         deltaRow,
@@ -2278,11 +2287,11 @@ export class Sheet {
       }
     } else if (html && isSpreadsheetHtml(html)) {
       // Spreadsheet HTML paste (Google Sheets / Excel)
-      grid = html2grid(html, this.activeCell);
+      grid = html2grid(html, destStart);
       shouldInferPastedInput = true;
     } else if (text) {
       // Plain TSV paste
-      grid = string2grid(this.activeCell, text);
+      grid = string2grid(destStart, text);
       shouldInferPastedInput = true;
     } else {
       return;
@@ -2435,10 +2444,10 @@ export class Sheet {
       span: m.span,
     }));
 
-    // A single-cell destination is exempt: it writes through the merge anchor
-    // (every path that sets `activeCell` normalizes it with
-    // `normalizeRefToAnchor`), so the block keeps its layout and pasting a
-    // value into a merged cell keeps working.
+    // A single-cell destination is exempt: `paste` normalizes its start with
+    // `normalizeRefToAnchor`, so the write lands on the merge anchor, the
+    // block keeps its layout, and pasting a value into a merged cell keeps
+    // working.
     if (isCollapsedRange(destRange)) {
       return { ok: true, pasted, replaced: droppedAtSource };
     }
@@ -2666,6 +2675,22 @@ export class Sheet {
     );
     if (overwrittenMerges.some((m) => !isRangeInRange(m.range, destRange))) {
       this.refuse('merge-dest-partial');
+      return;
+    }
+    // A moved block may not land across a freeze boundary, the same invariant
+    // `canMergeSelection` enforces for the merge button and `planPasteMerges`
+    // for a paste: the renderer paints a frozen pane and the scrolling body
+    // from a single block, so a straddling one is not drawable. Checked on the
+    // translated range, since only the destination can straddle.
+    if (
+      movedMerges.some((m) =>
+        this.crossesFreezePane([
+          { r: m.range[0].r + deltaRow, c: m.range[0].c + deltaCol },
+          { r: m.range[1].r + deltaRow, c: m.range[1].c + deltaCol },
+        ]),
+      )
+    ) {
+      this.refuse('merge-move-frozen');
       return;
     }
 

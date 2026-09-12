@@ -108,8 +108,21 @@ all cell, selection, and navigation operations.
   at the source whatever the destination clips, so they cannot be split by it,
   the exclusion `moveRangeTo` makes with `movedAnchors`. A paste that would
   land a block across a freeze boundary is refused as well
-  (`merge-paste-frozen`): merges may not straddle a frozen row or column, the
-  rule `canMergeSelection` enforces for the merge button.
+  (`merge-paste-frozen`), and so is the drag-move that would do the same
+  (`merge-move-frozen`): merges may not straddle a frozen row or column, the
+  rule `canMergeSelection` enforces for the merge button and the one the
+  renderer assumes when it paints a frozen pane and the scrolling body from a
+  single block.
+  A paste starts at the **merge anchor**: `paste` normalizes `activeCell` with
+  `normalizeRefToAnchor` before computing its delta, because `selectRow` /
+  `selectColumn` / `selectAllCells` leave the active cell at the head of the
+  selection without normalizing, and a value written to a covered cell is
+  invisible under the block until an unmerge brings it back.
+  The **copy buffer outlives its paste**: the view clears it only through
+  Escape, and `paste` itself drops a cut once consumed. Clearing it after
+  every paste demoted the second paste of a copy to an external one — no
+  formula relocation and no merge propagation — and discarded the buffer on a
+  refusal, precisely when the user needs it to unmerge and retry.
   The copy buffer's merge snapshot is clipboard-at-copy-time,
   like its grid and styles: unmerging after the copy does not retro-edit it.
   That snapshot decides what is *re-created*, never what is *deleted* — a cut
