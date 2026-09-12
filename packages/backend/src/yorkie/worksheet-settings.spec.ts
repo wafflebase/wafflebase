@@ -108,6 +108,21 @@ describe('worksheet-settings validators', () => {
       });
     });
 
+    // Capping the cells per merge says nothing about how many merges there
+    // are, and every merge-walking path — the load-time cover map, the freeze
+    // snap, the move check — is driven by that count.
+    it('rejects a map holding more merges than the ceiling', () => {
+      const build = (count: number) => {
+        const merges: Record<string, { rs: number; cs: number }> = {};
+        for (let r = 1; r <= count; r += 1) {
+          merges[`A${r}`] = { rs: 1, cs: 1 };
+        }
+        return { merges };
+      };
+      expect(() => parseMerges(build(10001))).toThrow(BadRequestException);
+      expect(Object.keys(parseMerges(build(10000)))).toHaveLength(10000);
+    });
+
     it('rejects a span that runs past the end of the grid', () => {
       expect(() =>
         parseMerges({ merges: { A1000000: { rs: 2, cs: 1 } } }),

@@ -196,8 +196,18 @@ export function crossesFreezePane(
 /**
  * `snapFreezePastMerges` grows the given freeze counts until no merged block
  * straddles either boundary. Growing one boundary can pull a further block
- * across it, so it repeats until stable; each pass only ever increases a count,
- * bounded by the lowest/rightmost merged block, so it terminates.
+ * across it, so a naive version repeats until stable — but that is quadratic in
+ * the merge count, and the merge map is caller-supplied (the v1 worksheet API
+ * writes it wholesale), while this runs synchronously inside `doc.update` on
+ * every freeze and on every insert/delete that shifts view state. So it sweeps
+ * each axis once in start order instead.
+ *
+ * That one sweep is exact: the line only ever grows, and it grows only from a
+ * block whose start is already at or before it. Once the sweep reaches a block
+ * starting past the line, every remaining block starts no earlier, so none of
+ * them can straddle and the line is settled — hence the `break`. Every block
+ * already visited ended at or before the line when it was visited, and the line
+ * has only grown since.
  *
  * Freezing is the one path that reaches a straddling block without moving one,
  * so it snaps the line rather than refusing the gesture: the whole block ends
@@ -209,27 +219,37 @@ export function snapFreezePastMerges(
   frozenRows: number,
   frozenCols: number,
 ): { frozenRows: number; frozenCols: number } {
-  const entries = [...merges];
-  let rows = frozenRows;
-  let cols = frozenCols;
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [anchorSref, span] of entries) {
-      const range = toMergeRange(parseRef(anchorSref), span);
-      if (rows > 0 && range[0].r <= rows && range[1].r > rows) {
-        rows = range[1].r;
-        changed = true;
-      }
-      if (cols > 0 && range[0].c <= cols && range[1].c > cols) {
-        cols = range[1].c;
-        changed = true;
-      }
-    }
+  const ranges: Array<Range> = [];
+  for (const [anchorSref, span] of merges) {
+    ranges.push(toMergeRange(parseRef(anchorSref), span));
   }
 
-  return { frozenRows: rows, frozenCols: cols };
+  const sweep = (
+    line: number,
+    start: (range: Range) => number,
+    end: (range: Range) => number,
+  ): number => {
+    if (line <= 0) return line;
+    let snapped = line;
+    for (const range of [...ranges].sort((a, b) => start(a) - start(b))) {
+      if (start(range) > snapped) break;
+      if (end(range) > snapped) snapped = end(range);
+    }
+    return snapped;
+  };
+
+  return {
+    frozenRows: sweep(
+      frozenRows,
+      (range) => range[0].r,
+      (range) => range[1].r,
+    ),
+    frozenCols: sweep(
+      frozenCols,
+      (range) => range[0].c,
+      (range) => range[1].c,
+    ),
+  };
 }
 
 /**

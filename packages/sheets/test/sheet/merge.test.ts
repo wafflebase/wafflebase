@@ -908,6 +908,24 @@ describe('Sheet merge and the freeze boundary', () => {
     expect(sheet.getFreezePane()).toEqual({ frozenRows: 7, frozenCols: 0 });
   });
 
+  it('should cascade the snap whatever order the blocks were merged in', async () => {
+    const sheet = new Sheet(new MemStore());
+
+    // The same chain as above, created bottom-up. The snap sweeps each axis
+    // once in start order rather than repeating until stable, so this is the
+    // case that fails if the sort is dropped: visiting B4:B7 first, while the
+    // line is still 2, finds nothing to grow past.
+    sheet.selectStart({ r: 4, c: 2 });
+    sheet.selectEnd({ r: 7, c: 2 });
+    await sheet.mergeSelection();
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 4, c: 1 });
+    await sheet.mergeSelection();
+
+    await sheet.setFreezePane(2, 0);
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 7, frozenCols: 0 });
+  });
+
   it('should refuse a row reorder that lands a block across the boundary', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setFreezePane(2, 0);
