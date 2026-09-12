@@ -22,6 +22,26 @@ const MaxColumns = 18278;
  */
 const MaxMergedCells = 100000;
 
+/**
+ * Ceiling on how many merges one worksheet's map may hold.
+ *
+ * {@link MaxMergedCells} bounds a single span; it says nothing about how many
+ * spans there are, and every merge-walking path is driven by that count:
+ * `rebuildMergeCoverMap` walks it on each load, `snapFreezePastMerges` walks it
+ * repeatedly on each freeze and on each insert/delete that shifts view state,
+ * and `assertMoveKeepsMergesOffFreeze` walks it per move. Without a cap the
+ * only bound is the 25 MB JSON body limit — roughly a million entries — so one
+ * `PUT merges` buys an attacker an arbitrarily long synchronous walk inside
+ * `doc.update`, which blocks the whole Node process, on every later request
+ * that touches the tab.
+ *
+ * 10,000 is `MaxAxisEntries` in `worksheet-structure.ts`, itself the engine's
+ * `MaxAxisCoverage`: the same order as the structural budget already granted
+ * per call, far above any hand-built sheet, and small enough that the
+ * merge-walking paths stay in milliseconds.
+ */
+const MaxMergeEntries = 10000;
+
 function assertInt(
   value: unknown,
   name: string,
@@ -117,8 +137,14 @@ export function parseMerges(body: unknown): Record<string, MergeSpan> {
   // first: `__proto__` is not a cell reference, so it is rejected before it
   // could assign a prototype instead of an own key. Do not relax the key check
   // without revisiting that.
+  const entries = Object.entries(merges);
+  if (entries.length > MaxMergeEntries) {
+    throw new BadRequestException(
+      `'merges' holds ${entries.length} entries, above the ${MaxMergeEntries} limit`,
+    );
+  }
   const out: Record<string, MergeSpan> = {};
-  for (const [ref, span] of Object.entries(merges)) {
+  for (const [ref, span] of entries) {
     let anchor: { r: number; c: number };
     try {
       anchor = parseRef(ref);

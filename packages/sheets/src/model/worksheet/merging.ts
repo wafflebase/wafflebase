@@ -176,6 +176,83 @@ export function moveMergeMap(
 }
 
 /**
+ * `crossesFreezePane` returns whether a range straddles a frozen row or column
+ * boundary. A merged block that does is not drawable — the renderer paints the
+ * frozen pane and the scrolling body from a single block — so it is the state
+ * merging, pasting, moving and reordering all refuse to create.
+ */
+export function crossesFreezePane(
+  range: Range,
+  frozenRows: number,
+  frozenCols: number,
+): boolean {
+  const crossesRows =
+    frozenRows > 0 && range[0].r <= frozenRows && range[1].r > frozenRows;
+  const crossesCols =
+    frozenCols > 0 && range[0].c <= frozenCols && range[1].c > frozenCols;
+  return crossesRows || crossesCols;
+}
+
+/**
+ * `snapFreezePastMerges` grows the given freeze counts until no merged block
+ * straddles either boundary. Growing one boundary can pull a further block
+ * across it, so a naive version repeats until stable — but that is quadratic in
+ * the merge count, and the merge map is caller-supplied (the v1 worksheet API
+ * writes it wholesale), while this runs synchronously inside `doc.update` on
+ * every freeze and on every insert/delete that shifts view state. So it sweeps
+ * each axis once in start order instead.
+ *
+ * That one sweep is exact: the line only ever grows, and it grows only from a
+ * block whose start is already at or before it. Once the sweep reaches a block
+ * starting past the line, every remaining block starts no earlier, so none of
+ * them can straddle and the line is settled — hence the `break`. Every block
+ * already visited ended at or before the line when it was visited, and the line
+ * has only grown since.
+ *
+ * Freezing is the one path that reaches a straddling block without moving one,
+ * so it snaps the line rather than refusing the gesture: the whole block ends
+ * up frozen, which is what the user asked for plus the rows the layout makes
+ * inseparable from them.
+ */
+export function snapFreezePastMerges(
+  merges: Iterable<[Sref, MergeSpan]>,
+  frozenRows: number,
+  frozenCols: number,
+): { frozenRows: number; frozenCols: number } {
+  const ranges: Array<Range> = [];
+  for (const [anchorSref, span] of merges) {
+    ranges.push(toMergeRange(parseRef(anchorSref), span));
+  }
+
+  const sweep = (
+    line: number,
+    start: (range: Range) => number,
+    end: (range: Range) => number,
+  ): number => {
+    if (line <= 0) return line;
+    let snapped = line;
+    for (const range of [...ranges].sort((a, b) => start(a) - start(b))) {
+      if (start(range) > snapped) break;
+      if (end(range) > snapped) snapped = end(range);
+    }
+    return snapped;
+  };
+
+  return {
+    frozenRows: sweep(
+      frozenRows,
+      (range) => range[0].r,
+      (range) => range[1].r,
+    ),
+    frozenCols: sweep(
+      frozenCols,
+      (range) => range[0].c,
+      (range) => range[1].c,
+    ),
+  };
+}
+
+/**
  * `isMergeSplitByMove` returns true when move source partially intersects a merge.
  */
 export function isMergeSplitByMove(

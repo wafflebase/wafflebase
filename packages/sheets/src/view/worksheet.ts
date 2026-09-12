@@ -104,6 +104,15 @@ function refusalMessage(refusal: RangeOpRefusal): string {
         "Can't drop onto part of a merged cell. " +
         'Unmerge the destination first.'
       );
+    case 'merge-paste-partial':
+      return (
+        "Can't paste over part of a merged cell. " +
+        'Unmerge the destination first.'
+      );
+    case 'merge-paste-frozen':
+      return "Can't paste a merged cell across a frozen row or column.";
+    case 'merge-move-frozen':
+      return "Can't move a merged cell across a frozen row or column.";
     case 'merge-autofill':
       return "Can't autofill across merged cells. Unmerge them first.";
   }
@@ -4649,7 +4658,13 @@ export class Worksheet {
             ? this.sheet!.moveRows(srcIndex, count, dropIndex)
             : this.sheet!.moveColumns(srcIndex, count, dropIndex);
 
-        movePromise.then(() => {
+        movePromise.then((moved) => {
+          // A reorder that would split a merged block, or land one across a
+          // frozen boundary, is refused and writes nothing. Re-selecting the
+          // drop position then would show the selection at a destination the
+          // rows never reached.
+          if (!moved) return;
+
           // Update selection to new position
           const newStart = dropIndex < srcIndex ? dropIndex : dropIndex - count;
           if (axis === 'row') {
@@ -4929,8 +4944,13 @@ export class Worksheet {
         text = await navigator.clipboard.readText();
       }
 
+      // The copy buffer is not cleared here. `paste` discards it itself once a
+      // cut has been consumed, and clearing it unconditionally made every
+      // paste after the first an external one — no formula relocation, no
+      // merge propagation — and threw away the user's clipboard whenever a
+      // paste was refused, exactly when they need it to retry. Escape clears
+      // the marching ants, as it does in Google Sheets.
       await this.sheet!.paste({ text, html });
-      this.sheet!.clearCopyBuffer();
       this.render();
     } catch (err) {
       console.error('Failed to paste cell content: ', err);
@@ -5218,6 +5238,14 @@ export class Worksheet {
 
     // Re-resolve axis-ID-based selection after structural changes
     this.sheet!.resolveAnchorsToRefs();
+
+    // The copy buffer is index-keyed, and a remote insert, delete or reorder
+    // renumbers the cells it snapshotted without ever calling `shiftCells` /
+    // `moveCells`, which are what drop it for local edits. Drop it here too
+    // when its axis IDs no longer sit where it recorded them — a pasted grid
+    // would otherwise relocate, and re-create merged blocks, from stale
+    // coordinates. A remote edit that renumbers nothing leaves it alone.
+    this.sheet!.revalidateCopyBuffer();
 
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();

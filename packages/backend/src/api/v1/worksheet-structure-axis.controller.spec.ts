@@ -396,6 +396,49 @@ describe('ApiV1WorksheetStructureController row/column edits', () => {
       expect(doc.getRoot().sheets[TAB].merges?.A1).toEqual({ rs: 3, cs: 1 });
     });
 
+    it('refuses a move that would park a merged block across the freeze', async () => {
+      // A5:A6 moved to before row 2 lands at A2:A3, across a boundary frozen
+      // at row 2 — the state the renderer cannot paint and `Sheet.moveCells`
+      // refuses with `merge-move-frozen`.
+      seed({ A5: 'five', A6: 'six' });
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenRows = 2;
+        ws.merges = { A5: { rs: 2, cs: 1 } };
+      });
+
+      await expect(
+        controller.moveAxis(WS, DOC, TAB, {
+          axis: 'row',
+          srcIndex: 5,
+          count: 2,
+          dstIndex: 2,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(read('A5')).toBe('five');
+      expect(doc.getRoot().sheets[TAB].merges?.A5).toEqual({ rs: 2, cs: 1 });
+    });
+
+    it('allows a move that keeps a merged block on one side of the freeze', async () => {
+      seed({ A5: 'five', A6: 'six' });
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenRows = 2;
+        ws.merges = { A5: { rs: 2, cs: 1 } };
+      });
+
+      await expect(
+        controller.moveAxis(WS, DOC, TAB, {
+          axis: 'row',
+          srcIndex: 5,
+          count: 2,
+          dstIndex: 8,
+        }),
+      ).resolves.toBeDefined();
+      expect(doc.getRoot().sheets[TAB].merges?.A6).toEqual({ rs: 2, cs: 1 });
+    });
+
     it('allows a move that carries a whole merged block', async () => {
       seed({ A1: 'one', A2: 'two', A3: 'three' });
       doc.update((root) => {
@@ -456,6 +499,70 @@ describe('ApiV1WorksheetStructureController row/column edits', () => {
       });
 
       expect(doc.getRoot().sheets[TAB].frozenRows).toBe(1);
+    });
+
+    it('snaps the freeze past a block an insert leaves straddling it', async () => {
+      // The boundary and the merge map move independently: the insert pushes
+      // the line from 3 to 4 and A3:A5 down to A4:A6, which still straddles it.
+      // `Sheet.shiftCells` snaps in exactly this case, and without the same
+      // snap here insert/delete would be the one remaining door into a merged
+      // block across a freeze — the state `PUT merges`, `PUT freeze` and
+      // `POST move` all refuse to create.
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenRows = 3;
+        ws.merges = { A3: { rs: 3, cs: 1 } };
+      });
+
+      await controller.insertAxis(WS, DOC, TAB, {
+        axis: 'row',
+        index: 1,
+        count: 1,
+      });
+
+      const ws = doc.getRoot().sheets[TAB];
+      expect(ws.merges?.A4).toEqual({ rs: 3, cs: 1 });
+      expect(ws.frozenRows).toBe(6);
+    });
+
+    it('snaps the freeze past a block a delete leaves straddling it', async () => {
+      // Deleting column A shrinks the frozen band to 1 and pulls B1:D1 to
+      // A1:C1, whose right edge is still past the boundary.
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenCols = 2;
+        ws.merges = { B1: { rs: 1, cs: 3 } };
+      });
+
+      await controller.deleteAxis(WS, DOC, TAB, {
+        axis: 'column',
+        index: 1,
+        count: 1,
+      });
+
+      const ws = doc.getRoot().sheets[TAB];
+      expect(ws.merges?.A1).toEqual({ rs: 1, cs: 3 });
+      expect(ws.frozenCols).toBe(3);
+    });
+
+    it('leaves the freeze alone when no block straddles it', async () => {
+      // The snap only ever grows the boundary past a block it cuts; an insert
+      // that leaves every block on one side must not move it further.
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenRows = 2;
+        ws.merges = { A5: { rs: 2, cs: 1 } };
+      });
+
+      await controller.insertAxis(WS, DOC, TAB, {
+        axis: 'row',
+        index: 4,
+        count: 1,
+      });
+
+      const ws = doc.getRoot().sheets[TAB];
+      expect(ws.merges?.A6).toEqual({ rs: 2, cs: 1 });
+      expect(ws.frozenRows).toBe(2);
     });
 
     it('clears cached formula values it cannot recalculate', async () => {

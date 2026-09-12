@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { createSpreadsheetDocument } from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import { ApiV1WorksheetController } from './worksheet.controller';
@@ -69,6 +69,32 @@ describe('ApiV1WorksheetController', () => {
       merges: { A1: { rs: 2, cs: 2 } },
     });
     expect(ws().merges).toEqual({ A1: { rs: 2, cs: 2 } });
+  });
+
+  // A merged block that straddles a frozen boundary is not drawable — the
+  // renderer paints the frozen pane and the scrolling body from a single
+  // block — so the engine keeps the two apart. This surface mirrors it on
+  // both writes: freezing snaps past the block, merging is refused.
+  it('setFreeze snaps past a block the requested boundary would cut', async () => {
+    await controller.setMerges(WS, DOC, 'tab-1', {
+      merges: { A2: { rs: 3, cs: 1 } },
+    });
+
+    const r = await controller.setFreeze(WS, DOC, 'tab-1', { rows: 2, cols: 0 });
+    expect(r).toEqual({ rows: 4, cols: 0 });
+    expect(ws().frozenRows).toBe(4);
+  });
+
+  it('setMerges refuses a block that would straddle the freeze', async () => {
+    await controller.setFreeze(WS, DOC, 'tab-1', { rows: 2, cols: 0 });
+
+    await expect(
+      controller.setMerges(WS, DOC, 'tab-1', {
+        merges: { A2: { rs: 3, cs: 1 } },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    // Refused before the field is replaced, so the tab keeps its own merges.
+    expect(ws().merges).toEqual({});
   });
 
   it('rejects an invalid freeze before opening the doc', async () => {

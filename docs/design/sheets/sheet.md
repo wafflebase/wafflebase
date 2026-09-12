@@ -93,6 +93,99 @@ all cell, selection, and navigation operations.
   `paste` parses it back and recalculates dependants from all changed refs
   (including plain-value pastes). External pastes (TSV/HTML) run through the
   same conservative input inference as `setData` before persistence.
+  Merged blocks travel with an **internal** paste: `copy`/`cut` snapshot the
+  blocks lying entirely inside the copied range, `paste` re-creates them at
+  the destination (a cut also drops them at the source), drops the
+  destination blocks the paste fully covers, and clears the cells the new
+  blocks hide so nothing resurfaces as stale data on unmerge. The destination
+  region is the copied *range* translated by the paste delta, not the pasted
+  grid's bounding box — a merged block's covered cells hold nothing, so the
+  box is smaller than the block being reproduced. A paste that would only
+  partially overwrite a block is refused whole (`merge-paste-partial`,
+  reported on the same `setOnRefusal` → `onNotice` channel as the drag-move
+  refusals); a single-cell destination is exempt, since it writes through the
+  merge anchor. A **cut's own blocks are exempt too** — the paste deletes them
+  at the source whatever the destination clips, so they cannot be split by it,
+  the exclusion `moveRangeTo` makes with `movedAnchors`. A paste that would
+  land a block across a freeze boundary is refused as well
+  (`merge-paste-frozen`), and so is the drag-move that would do the same
+  (`merge-move-frozen`): merges may not straddle a frozen row or column, the
+  rule `canMergeSelection` enforces for the merge button and the one the
+  renderer assumes when it paints a frozen pane and the scrolling body from a
+  single block.
+  That invariant binds **every** path that can move a block or the boundary,
+  not only the two that refuse. A row/column reorder (`moveCells`) is refused
+  with the same `merge-move-frozen` when the merge map it would produce
+  straddles. Freezing, though, moves the line rather than a block, so it
+  *snaps* instead of refusing: `setFreezePane` pushes the boundary to the far
+  edge of any block it would cut in half (`snapFreezePastMerges`, repeated
+  until stable), and the freeze adjustment inside `shiftCells` runs the same
+  snap after the insert/delete has moved both the boundary and the merge map.
+  The whole block ends up frozen — what the user asked for, plus the rows the
+  layout makes inseparable from them — rather than a gesture silently
+  declining. A straddling block loaded from outside the engine (an `.xlsx`
+  import writing the freeze through the store) is healed by the first
+  structural edit; refusing every move of such a block, with no way to create
+  it in-app, would otherwise strand it.
+  The **v1 worksheet API** is held to the same invariant, since it is the other
+  writer of these fields: `POST .../move` refuses a reorder that would park a
+  block across the freeze (409, beside the existing merge-split refusal),
+  `PUT .../freeze` snaps past a block it would cut and answers with the
+  boundary it actually stored, and `PUT .../merges` refuses a map that would
+  straddle the tab's freeze. `POST .../insert` and `POST .../delete` neither
+  refuse nor need to: the snap lives in `shiftWorksheetViewState`
+  (`model/workbook/worksheet-structure.ts`), beside the freeze adjustment it
+  repairs, so every caller of `applyWorksheetShift` — the API controller and
+  the editor's `YorkieStore` alike — snaps without asking. `Sheet.shiftCells`
+  snaps its own in-memory copy for the same reason it recomputes the rest of
+  the view state: it is an absolute write of a value it derived itself, so
+  applying it in both places lands on the same boundary. The snap itself is one
+  implementation (`snapFreezePastMerges` in `model/worksheet/merging.ts`)
+  shared by the engine and the controller, so the two cannot drift.
+  A **single-cell** paste starts at the merge anchor: `paste` normalizes
+  `activeCell` with `normalizeRefToAnchor`, because `selectRow` /
+  `selectColumn` / `selectAllCells` leave the active cell at the head of the
+  selection without normalizing, and a value written to a covered cell is
+  invisible under the block until an unmerge brings it back. A multi-cell
+  paste keeps `activeCell` as its top-left: it has a shape, and sliding the
+  whole grid up or left to an anchor would land it off the cells the user
+  selected and overwrite unrelated ones. Such a paste necessarily clips the
+  block covering its head cell (the block's anchor is above or left of the
+  destination's origin, so the block is not contained in it), and is refused
+  as `merge-paste-partial` rather than misplaced.
+  The **copy buffer outlives its paste**: the view clears it only through
+  Escape, and `paste` itself drops a cut once consumed. Clearing it after
+  every paste demoted the second paste of a copy to an external one — no
+  formula relocation and no merge propagation — and discarded the buffer on a
+  refusal, precisely when the user needs it to unmerge and retry. Because it
+  now outlives the gesture, every edit that renumbers the cells it
+  snapshotted invalidates it: `shiftCells` (row/column insert and delete),
+  `moveCells` (row/column reorder), `sortFilterByColumn` (which rewrites cells
+  to new row positions) and `undo` / `redo` (which replay any of them, and are
+  not told which kind of step they replayed) all call `clearCopyBuffer`, so a
+  later paste can never relocate — or re-create a merged block — from
+  coordinates that have since moved. A **peer's** structural edit never calls
+  any of them: it arrives as a reload (`Worksheet.reloadDimensions`), so the
+  buffer additionally records the axis IDs of its source range's corners, and
+  the reload runs `revalidateCopyBuffer` to drop it when those IDs no longer
+  sit at the indices it recorded. Keying on axis IDs rather than on "a remote
+  change happened" is what keeps a peer typing in a cell from emptying the
+  user's clipboard.
+  A reorder that is refused writes nothing, so `moveRows` / `moveColumns`
+  return whether the rows actually moved — the drag-reorder handler re-selects
+  the drop position only on `true`, rather than showing a selection at a
+  destination the rows never reached.
+  The copy buffer's merge snapshot is clipboard-at-copy-time,
+  like its grid and styles: unmerging after the copy does not retro-edit it.
+  That snapshot decides what is *re-created*, never what is *deleted* — a cut
+  drops a recorded block at the source, and treats it as travelling, only
+  while the live merge map still holds it unchanged, so a layout edited
+  between the cut and the paste cannot make the paste delete a block it never
+  copied.
+  **External pastes deliberately leave the merge layout alone** — a foreign
+  grid carries no merge metadata to propagate, and refusing one would trade
+  writing hidden data for doing nothing silently on the most common paste
+  there is.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
   pattern across the expanded range. The fill is constrained to a single axis
   (vertical or horizontal) based on whichever direction the drag extends

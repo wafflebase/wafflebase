@@ -1,5 +1,20 @@
-import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
-import { initialSpreadsheetDocument } from '@wafflebase/sheets';
+import {
+  Body,
+  ConflictException,
+  Controller,
+  Get,
+  Param,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  crossesFreezePane,
+  initialSpreadsheetDocument,
+  parseRef,
+  safeWorksheetRecordEntries,
+  snapFreezePastMerges,
+  toMergeRange,
+} from '@wafflebase/sheets';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
@@ -18,6 +33,20 @@ import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
  * rows/columns, and merged cells. Each is a direct field on the worksheet, so
  * a PUT validates then replaces the field and a GET returns it as plain JSON
  * (a Yorkie array/object serializes via toJSON to a *string* otherwise).
+ *
+ * Freeze and merges are not independent: a merged block that straddles a
+ * frozen boundary is not drawable, because the renderer paints the frozen pane
+ * and the scrolling body from a single block. The engine keeps the two apart in
+ * two different ways, and both writes here mirror the engine rather than
+ * inventing a third rule:
+ *
+ * - **Freezing snaps.** `Sheet.setFreezePane` pushes the boundary past any
+ *   block it would cut in half, so `PUT freeze` does the same (shared
+ *   `snapFreezePastMerges`) and answers with the boundary it actually stored,
+ *   which may be past the one asked for.
+ * - **Merging is refused.** `canMergeSelection` says no to a block that would
+ *   straddle, so `PUT merges` answers 409 rather than quietly moving the
+ *   caller's freeze line out from under them.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
@@ -69,12 +98,27 @@ export class ApiV1WorksheetController {
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
+        let stored = { rows, cols };
         doc.update((root) => {
-          const ws = worksheetOrThrow(root, tabId);
-          ws.frozenRows = rows;
-          ws.frozenCols = cols;
+          const ws = worksheetOrThrow<{
+            frozenRows?: number;
+            frozenCols?: number;
+            merges?: Record<string, { rs: number; cs: number }>;
+          }>(root, tabId);
+          // Snap past any block the requested boundary would cut in half, the
+          // same way `Sheet.setFreezePane` does, and report what was stored:
+          // for an API, a silently different boundary is worse than a visibly
+          // adjusted one.
+          const snapped = snapFreezePastMerges(
+            safeWorksheetRecordEntries(ws.merges ?? {}),
+            rows,
+            cols,
+          );
+          ws.frozenRows = snapped.frozenRows;
+          ws.frozenCols = snapped.frozenCols;
+          stored = { rows: snapped.frozenRows, cols: snapped.frozenCols };
         });
-        return { rows, cols };
+        return stored;
       },
       { initialRoot: initialSpreadsheetDocument() },
     );
@@ -127,6 +171,34 @@ export class ApiV1WorksheetController {
     );
   }
 
+  /**
+   * Refuse a merge map that would leave a block across the tab's frozen
+   * boundary — the state `canMergeSelection` refuses in the editor and the
+   * renderer cannot paint. Checked before the field is replaced; a throw
+   * inside `doc.update` rolls the whole update back.
+   *
+   * 409 rather than 400 for the reason the structure controller's merge check
+   * uses it: the body is legal in isolation and only conflicts with the
+   * document's current freeze.
+   */
+  private assertMergesClearOfFreeze(
+    merges: Record<string, { rs: number; cs: number }>,
+    frozenRows: number,
+    frozenCols: number,
+  ) {
+    if (frozenRows === 0 && frozenCols === 0) return;
+    for (const [anchorSref, span] of Object.entries(merges)) {
+      const range = toMergeRange(parseRef(anchorSref), span);
+      if (crossesFreezePane(range, frozenRows, frozenCols)) {
+        throw new ConflictException(
+          `The merged range anchored at ${anchorSref} would straddle the ` +
+            `frozen rows or columns; keep it on one side of the freeze, or ` +
+            `move the freeze first.`,
+        );
+      }
+    }
+  }
+
   // Merged cells
   @Get('merges')
   async getMerges(
@@ -164,7 +236,16 @@ export class ApiV1WorksheetController {
       documentId,
       (doc) => {
         doc.update((root) => {
-          const ws = worksheetOrThrow(root, tabId);
+          const ws = worksheetOrThrow<{
+            frozenRows?: number;
+            frozenCols?: number;
+            merges?: Record<string, { rs: number; cs: number }>;
+          }>(root, tabId);
+          this.assertMergesClearOfFreeze(
+            merges,
+            ws.frozenRows ?? 0,
+            ws.frozenCols ?? 0,
+          );
           ws.merges = merges;
         });
         return { merges };
