@@ -123,8 +123,8 @@ importers:
         specifier: workspace:*
         version: link:../slides
       '@yorkie-js/sdk':
-        specifier: 0.7.20
-        version: 0.7.20
+        specifier: 0.7.21
+        version: 0.7.21
       body-parser:
         specifier: 1.20.6
         version: 1.20.6
@@ -714,8 +714,8 @@ importers:
         specifier: workspace:*
         version: link:../slides
       '@yorkie-js/react':
-        specifier: 0.7.20
-        version: 0.7.20(react@19.1.0)
+        specifier: 0.7.21
+        version: 0.7.21(react@19.1.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -805,8 +805,8 @@ importers:
         specifier: 0.9.12
         version: 0.9.12
       '@yorkie-js/sdk':
-        specifier: 0.7.20
-        version: 0.7.20
+        specifier: 0.7.21
+        version: 0.7.21
       eslint:
         specifier: ^9.21.0
         version: 9.24.0(jiti@2.6.1)
@@ -877,8 +877,8 @@ importers:
         specifier: ^1.1.1
         version: 1.1.2
       '@yorkie-js/sdk':
-        specifier: 0.7.20
-        version: 0.7.20
+        specifier: 0.7.21
+        version: 0.7.21
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
@@ -5678,16 +5678,16 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
-  '@yorkie-js/react@0.7.20':
-    resolution: {integrity: sha512-wEwhJYITjosVhOXM6b5jZkilP87Q16w1RF6CsotYUXa/d8HEo66fQSgmJ5ZVUrk4cU6TqFKiPndhNBbDEXj1uQ==}
+  '@yorkie-js/react@0.7.21':
+    resolution: {integrity: sha512-671RDcyUtsDXxvVEmEgAv937GLaAzAw53ezHSGh2BUogc73psLIhL8Q8MUPNxDQAx6FiHdRsIRw4Otoja0bm6Q==}
     peerDependencies:
       react: ^18 || ^19
 
-  '@yorkie-js/schema@0.7.20':
-    resolution: {integrity: sha512-xEtrXRk1h1gNjXUraQTGWgygITLtfyKuLn++RBl0wDbG1GINVJz4l8+hljM0T5nKkLo2NUvqKZ4uPAjEqdqVHA==}
+  '@yorkie-js/schema@0.7.21':
+    resolution: {integrity: sha512-YGP06KYOVI+luD2LhbFagZbjZRkM1FZYjLkObmAAEHruY8fLQct5p6YRe8i0F+QTAG1nY9K2Ti6U6a2aKCdoUQ==}
 
-  '@yorkie-js/sdk@0.7.20':
-    resolution: {integrity: sha512-90pqW4nW89XGV16/1JjIIsjGPJZHH1jHRxNHcxySVnNeFOKfz6Lt9uB74QTQHdBB7eDab7QDgcf2UdFLJa0eOQ==}
+  '@yorkie-js/sdk@0.7.21':
+    resolution: {integrity: sha512-u0maF8CHpjGfFS9eF/1/mpRMgAA9lxJNkLtf1pDGwjEn4bf0NRCSSpXdtV23YBIJELUeMQ2el+PaaTzFD5KORA==}
     engines: {node: ^20.19.0 || >=22.12.0, npm: '>=7.1.0', pnpm: '>=9.6.0'}
 
   accepts@2.0.0:
@@ -15246,19 +15246,19 @@ snapshots:
 
   '@xtuc/long@4.2.2': {}
 
-  '@yorkie-js/react@0.7.20(react@19.1.0)':
+  '@yorkie-js/react@0.7.21(react@19.1.0)':
     dependencies:
-      '@yorkie-js/sdk': 0.7.20
+      '@yorkie-js/sdk': 0.7.21
       react: 19.1.0
 
-  '@yorkie-js/schema@0.7.20': {}
+  '@yorkie-js/schema@0.7.21': {}
 
-  '@yorkie-js/sdk@0.7.20':
+  '@yorkie-js/sdk@0.7.21':
     dependencies:
       '@bufbuild/protobuf': 2.11.0
       '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)
       '@connectrpc/connect-web': 2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
-      '@yorkie-js/schema': 0.7.20
+      '@yorkie-js/schema': 0.7.21
 
   accepts@2.0.0:
     dependencies:
