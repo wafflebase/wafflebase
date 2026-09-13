@@ -3,6 +3,103 @@ import { parseRef, toSref } from '../core/coordinates';
 import { remapIndex } from './shifting';
 
 /**
+ * Ceiling on the cells one merge may cover.
+ *
+ * `Sheet.rebuildMergeCoverMap()` walks `rs * cs` on every document load and
+ * puts one Map entry per covered cell, so an unbounded span is not a large
+ * merge — it is a document nobody can open again. The grid bound alone does not
+ * help: a single `rs: 1000000, cs: 18278` span is inside the grid and still
+ * 1.8e10 iterations.
+ */
+export const MaxMergedCells = 100000;
+
+/**
+ * Ceiling on how many merges one worksheet's map may hold.
+ *
+ * {@link MaxMergedCells} bounds a single span; it says nothing about how many
+ * spans there are, and every merge-walking path is driven by that count:
+ * `rebuildMergeCoverMap` walks it on each load, `snapFreezePastMerges` walks it
+ * on each freeze and on each insert/delete that shifts view state, and
+ * `assertMoveKeepsMergesOffFreeze` walks it per move.
+ *
+ * 10,000 is `MaxAxisEntries` in `worksheet-structure.ts`, itself the engine's
+ * `MaxAxisCoverage`: the same order as the structural budget already granted
+ * per call, far above any hand-built sheet, and small enough that the
+ * merge-walking paths stay in milliseconds.
+ */
+export const MaxMergeEntries = 10000;
+
+/**
+ * Ceiling on the cells the whole map may cover.
+ *
+ * Neither bound above constrains their product: 10,000 anchors each spanning
+ * 100,000 cells satisfies both and still asks `rebuildMergeCoverMap` for 1e9
+ * Map entries — the unopenable tab {@link MaxMergedCells} exists to prevent,
+ * reached by multiplying instead of by one big span. So the sum is bounded too,
+ * an order above the largest single span and still a cover map that builds in
+ * well under a second.
+ */
+export const MaxMergeCoveredCells = 1000000;
+
+/**
+ * `MergeBudget` is what the caps above are spent against: how many merges a map
+ * holds and how many cells they cover between them.
+ */
+export type MergeBudget = { entries: number; coveredCells: number };
+
+/**
+ * `mergeBudgetOf` totals the spans of a merge map.
+ */
+export function mergeBudgetOf(spans: Iterable<MergeSpan>): MergeBudget {
+  let entries = 0;
+  let coveredCells = 0;
+  for (const span of spans) {
+    entries++;
+    coveredCells += span.rs * span.cs;
+  }
+  return { entries, coveredCells };
+}
+
+/**
+ * `mergeBudgetError` returns why a merge map is over budget, or null when it is
+ * inside every cap. The message is user-facing: the v1 API answers a rejected
+ * `PUT merges` with it.
+ */
+export function mergeBudgetError(budget: MergeBudget): string | null {
+  if (budget.entries > MaxMergeEntries) {
+    return `the merge map holds ${budget.entries} entries, above the ${MaxMergeEntries} limit`;
+  }
+  if (budget.coveredCells > MaxMergeCoveredCells) {
+    return `the merge map covers ${budget.coveredCells} cells, above the ${MaxMergeCoveredCells} limit`;
+  }
+  return null;
+}
+
+/**
+ * `mergeBudgetAdmits` returns whether a map already spending `budget` can take
+ * the given new spans and stay inside every cap. Every writer of the merge map
+ * asks this — the editor before merging or pasting, the XLSX importer per
+ * `mergeCell`, the collaborative store before it touches the CRDT, and the v1
+ * API for a whole body — so no path can grow the map past what the load-time
+ * walks can afford.
+ */
+export function mergeBudgetAdmits(
+  budget: MergeBudget,
+  added: Iterable<MergeSpan>,
+): boolean {
+  let entries = budget.entries;
+  let coveredCells = budget.coveredCells;
+  // One pass: `added` may be an iterator, and a second walk would see nothing.
+  for (const span of added) {
+    const cells = span.rs * span.cs;
+    if (cells > MaxMergedCells) return false;
+    entries++;
+    coveredCells += cells;
+  }
+  return mergeBudgetError({ entries, coveredCells }) === null;
+}
+
+/**
  * `toMergeRange` returns the covered range for a merge anchor and span.
  */
 export function toMergeRange(anchor: Ref, span: MergeSpan): Range {

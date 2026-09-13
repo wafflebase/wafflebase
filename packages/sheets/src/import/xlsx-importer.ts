@@ -1,5 +1,9 @@
 import JSZip from 'jszip';
 import { parseRef, toSref } from '../model/core/coordinates';
+import {
+  mergeBudgetAdmits,
+  mergeBudgetOf,
+} from '../model/worksheet/merging';
 import type { Cell, CellStyle, Ref } from '../model/core/types';
 import {
   createWorksheet,
@@ -238,6 +242,12 @@ function convertDateSerial(
 }
 
 function applyMergeRanges(worksheet: Worksheet, worksheetRoot: Document): void {
+  // An imported `.xlsx` is a file the importer does not control, so it spends
+  // the same merge budget every other writer does (`Sheet.canMergeSelection`,
+  // the collaborative store, the v1 `PUT merges` validator). A file naming more
+  // merges than the load-time cover-map walk can afford imports without them
+  // rather than producing a document nobody can open.
+  let budget = mergeBudgetOf(Object.values(worksheet.merges ?? {}));
   for (const merge of childrenByLocalName(worksheetRoot, 'mergeCell')) {
     const range = merge.getAttribute('ref');
     if (!range) {
@@ -255,11 +265,17 @@ function applyMergeRanges(worksheet: Worksheet, worksheetRoot: Document): void {
       continue;
     }
 
-    worksheet.merges ??= {};
-    worksheet.merges[toSref(startRef)] = {
-      rs: rowSpan,
-      cs: columnSpan,
+    const span = { rs: rowSpan, cs: columnSpan };
+    if (!mergeBudgetAdmits(budget, [span])) {
+      continue;
+    }
+    budget = {
+      entries: budget.entries + 1,
+      coveredCells: budget.coveredCells + rowSpan * columnSpan,
     };
+
+    worksheet.merges ??= {};
+    worksheet.merges[toSref(startRef)] = span;
   }
 }
 

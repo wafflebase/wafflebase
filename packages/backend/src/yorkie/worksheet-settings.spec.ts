@@ -123,6 +123,24 @@ describe('worksheet-settings validators', () => {
       expect(Object.keys(parseMerges(build(10000)))).toHaveLength(10000);
     });
 
+    // Per-span and per-count are two ceilings with an unbounded product
+    // between them: 10,000 anchors of 100,000 cells each satisfies both, fits
+    // in a few hundred KB of body, and still asks `rebuildMergeCoverMap` for
+    // 1e9 Map entries on the next load.
+    it('rejects a map whose spans cover more cells than the ceiling', () => {
+      const build = (count: number, rs: number) => {
+        const merges: Record<string, { rs: number; cs: number }> = {};
+        for (let i = 1; i <= count; i += 1) {
+          merges[`${String.fromCharCode(64 + i)}1`] = { rs, cs: 1 };
+        }
+        return { merges };
+      };
+      // Each span is inside the per-span cap and the count inside the entry
+      // cap; only their sum is over.
+      expect(() => parseMerges(build(11, 100000))).toThrow(BadRequestException);
+      expect(Object.keys(parseMerges(build(10, 100000)))).toHaveLength(10);
+    });
+
     it('rejects a span that runs past the end of the grid', () => {
       expect(() =>
         parseMerges({ merges: { A1000000: { rs: 2, cs: 1 } } }),

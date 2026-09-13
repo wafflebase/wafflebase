@@ -51,10 +51,13 @@ import {
 import {
   crossesFreezePane,
   isMergeSplitByMove,
+  mergeBudgetAdmits,
+  mergeBudgetOf,
   moveMergeMap,
   shiftMergeMap,
   snapFreezePastMerges as snapFreezePastMergesOf,
   toMergeRange,
+  type MergeBudget,
 } from './merging';
 import {
   grid2string,
@@ -327,6 +330,14 @@ export class Sheet {
    * `mergeCoverMap` maps covered non-anchor srefs to their anchor sref.
    */
   private mergeCoverMap: Map<Sref, Sref> = new Map();
+
+  /**
+   * `mergeBudget` is what {@link rebuildMergeCoverMap} just paid: the map's
+   * entry count and the cells it covers between them. Kept so the writers below
+   * can refuse to grow the map past what that walk can afford without walking
+   * it again themselves — `canMergeSelection` is asked on every toolbar render.
+   */
+  private mergeBudget: MergeBudget = { entries: 0, coveredCells: 0 };
 
   /**
    * `filterRange` represents the filtered table range (header row included).
@@ -850,7 +861,9 @@ export class Sheet {
    */
   private rebuildMergeCoverMap(): void {
     this.mergeCoverMap.clear();
+    let coveredCells = 0;
     for (const [anchorSref, span] of this.merges) {
+      coveredCells += span.rs * span.cs;
       const anchor = parseRef(anchorSref);
       for (let r = anchor.r; r < anchor.r + span.rs; r++) {
         for (let c = anchor.c; c < anchor.c + span.cs; c++) {
@@ -860,6 +873,7 @@ export class Sheet {
         }
       }
     }
+    this.mergeBudget = { entries: this.merges.size, coveredCells };
   }
 
   /**
@@ -2701,7 +2715,18 @@ export class Sheet {
       this.merges.delete(anchorSref);
     }
 
+    // A paste is the one gesture that adds many blocks at once, so it is where
+    // the map's budget is most easily overspent. Spend it against what survives
+    // the deletions above, and drop the blocks that no longer fit rather than
+    // storing a map the next load cannot walk: the cells still paste, only
+    // their merge does not.
+    let budget = mergeBudgetOf(this.merges.values());
     for (const merge of pasted) {
+      if (!mergeBudgetAdmits(budget, [merge.span])) continue;
+      budget = {
+        entries: budget.entries + 1,
+        coveredCells: budget.coveredCells + merge.span.rs * merge.span.cs,
+      };
       await this.store.setMerge(merge.anchor, merge.span);
       this.merges.set(toSref(merge.anchor), merge.span);
       await this.clearCellsUnderMerge(
@@ -4846,6 +4871,16 @@ export class Sheet {
       selection[0].r === selection[1].r && selection[0].c === selection[1].c;
     if (isCollapsed) return false;
     if (this.crossesFreezePane(selection)) return false;
+    // The merge map is bounded in count and in the cells it covers, because
+    // `rebuildMergeCoverMap` pays for both on every load. The API validator
+    // spends the same budget on a `PUT merges` body; refusing the gesture here
+    // is what keeps that cap from locking a client out of a document the
+    // editor was allowed to build.
+    const span: MergeSpan = {
+      rs: selection[1].r - selection[0].r + 1,
+      cs: selection[1].c - selection[0].c + 1,
+    };
+    if (!mergeBudgetAdmits(this.mergeBudget, [span])) return false;
     return this.getMergesIntersecting(selection).length === 0;
   }
 

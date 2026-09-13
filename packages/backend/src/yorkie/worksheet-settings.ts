@@ -1,5 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
-import { parseRef, toSref, type MergeSpan } from '@wafflebase/sheets';
+import {
+  MaxMergedCells,
+  mergeBudgetError,
+  parseRef,
+  toSref,
+  type MergeSpan,
+} from '@wafflebase/sheets';
 
 /**
  * The engine's grid bounds (`Dimensions` in `sheets/model/worksheet/sheet.ts`).
@@ -10,37 +16,15 @@ import { parseRef, toSref, type MergeSpan } from '@wafflebase/sheets';
 const MaxRows = 1000000;
 const MaxColumns = 18278;
 
-/**
- * Ceiling on the cells one merge may cover.
- *
- * `Sheet.rebuildMergeCoverMap()` walks `rs * cs` on every document load and
- * puts one Map entry per covered cell, so an unbounded span is not a large
- * merge — it is a document nobody can open again. The grid bound alone does
- * not help: a single `rs: 1000000, cs: 18278` span is inside the grid and
- * still 1.8e10 iterations. This is far above any merge the editor can produce
- * from a drag, and low enough that the worst case stays interactive.
+/*
+ * The merge map's ceilings — `MaxMergedCells` per span, `MaxMergeEntries` for
+ * the count, `MaxMergeCoveredCells` for the sum — live in the engine
+ * (`sheets/model/worksheet/merging.ts`), because this is not the only writer:
+ * the editor's collaborative store and the XLSX importer reach the same field
+ * and spend the same budget through `mergeBudgetAdmits`. Restating them here
+ * would let one copy drift, which is the shape of a cap that locks an API
+ * client out of a document another writer was allowed to create.
  */
-const MaxMergedCells = 100000;
-
-/**
- * Ceiling on how many merges one worksheet's map may hold.
- *
- * {@link MaxMergedCells} bounds a single span; it says nothing about how many
- * spans there are, and every merge-walking path is driven by that count:
- * `rebuildMergeCoverMap` walks it on each load, `snapFreezePastMerges` walks it
- * repeatedly on each freeze and on each insert/delete that shifts view state,
- * and `assertMoveKeepsMergesOffFreeze` walks it per move. Without a cap the
- * only bound is the 25 MB JSON body limit — roughly a million entries — so one
- * `PUT merges` buys an attacker an arbitrarily long synchronous walk inside
- * `doc.update`, which blocks the whole Node process, on every later request
- * that touches the tab.
- *
- * 10,000 is `MaxAxisEntries` in `worksheet-structure.ts`, itself the engine's
- * `MaxAxisCoverage`: the same order as the structural budget already granted
- * per call, far above any hand-built sheet, and small enough that the
- * merge-walking paths stay in milliseconds.
- */
-const MaxMergeEntries = 10000;
 
 function assertInt(
   value: unknown,
@@ -138,12 +122,17 @@ export function parseMerges(body: unknown): Record<string, MergeSpan> {
   // could assign a prototype instead of an own key. Do not relax the key check
   // without revisiting that.
   const entries = Object.entries(merges);
-  if (entries.length > MaxMergeEntries) {
-    throw new BadRequestException(
-      `'merges' holds ${entries.length} entries, above the ${MaxMergeEntries} limit`,
-    );
+  // Checked before the loop as well as after it: the per-entry work below is
+  // `parseRef` on every key, and a body may name a million of them.
+  const overCount = mergeBudgetError({
+    entries: entries.length,
+    coveredCells: 0,
+  });
+  if (overCount) {
+    throw new BadRequestException(`'merges' is rejected: ${overCount}`);
   }
   const out: Record<string, MergeSpan> = {};
+  let coveredCells = 0;
   for (const [ref, span] of entries) {
     let anchor: { r: number; c: number };
     try {
@@ -176,8 +165,19 @@ export function parseMerges(body: unknown): Record<string, MergeSpan> {
         `merges['${ref}'] covers ${rs * cs} cells, above the ${MaxMergedCells} limit`,
       );
     }
+    coveredCells += rs * cs;
 
     out[ref] = { rs, cs };
+  }
+
+  // Per-span and per-count are two ceilings with an unbounded product between
+  // them: 10,000 anchors of 100,000 cells each passes both, serialises to a
+  // few hundred KB — nowhere near the body limit — and still asks
+  // `rebuildMergeCoverMap` for 1e9 Map entries on the next load. The sum is
+  // the quantity that walk actually pays, so it is bounded too.
+  const overBudget = mergeBudgetError({ entries: entries.length, coveredCells });
+  if (overBudget) {
+    throw new BadRequestException(`'merges' is rejected: ${overBudget}`);
   }
   return out;
 }

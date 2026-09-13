@@ -47,6 +47,15 @@ import { findWorksheet, worksheetOrThrow } from './worksheet-lookup.util';
  * - **Merging is refused.** `canMergeSelection` says no to a block that would
  *   straddle, so `PUT merges` answers 409 rather than quietly moving the
  *   caller's freeze line out from under them.
+ *
+ * `PUT merges` replaces the whole map, so it is also where the map's size is
+ * checked (`parseMerges` → `mergeBudgetError`). Those ceilings are the engine's
+ * (`sheets/model/worksheet/merging.ts`), not this endpoint's, and the editor's
+ * store and the XLSX importer spend the same budget: a bound only this writer
+ * honored would let the other two grow a map this wholesale replace could never
+ * express again, and there is no per-anchor form to fall back to. Shrinking an
+ * over-budget map stays possible either way — the check reads the body, never
+ * what is already stored.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)

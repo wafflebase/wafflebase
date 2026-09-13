@@ -22,6 +22,8 @@ import {
   safeWorksheetRecordEntries,
   createThread,
   addReply,
+  mergeBudgetAdmits,
+  mergeBudgetOf,
 } from "@wafflebase/sheets";
 import type {
   Store,
@@ -958,26 +960,51 @@ export class YorkieStore implements Store {
     );
   }
 
+  /**
+   * `setMerge` stores one merged block, bounded by the same merge budget every
+   * other writer of this field spends — `Sheet.canMergeSelection` before the
+   * toolbar gesture, the XLSX importer per `mergeCell`, the v1 API for a whole
+   * `PUT merges` body. The engine refuses first, so this is the floor under a
+   * path that reaches the CRDT directly: without it the cap would be a rule the
+   * REST client obeys and the editor does not, which is how an API caller ends
+   * up locked out of a document the editor was allowed to grow.
+   *
+   * The check is made against `root` rather than a cached count so the batched
+   * branch — a paste, which can add many blocks in one update — sees the blocks
+   * queued ahead of it. Its cost is one walk of a map this very check keeps
+   * under `MaxMergeEntries`.
+   */
+  private applyMerge(
+    root: SpreadsheetDocument,
+    tabId: string,
+    sref: Sref,
+    span: MergeSpan,
+  ): void {
+    const ws = root.sheets[tabId];
+    if (!ws.merges) {
+      ws.merges = {};
+    }
+    if (
+      !ws.merges[sref] &&
+      !mergeBudgetAdmits(mergeBudgetOf(Object.values(ws.merges)), [span])
+    ) {
+      return;
+    }
+    ws.merges[sref] = { ...span };
+  }
+
   async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {
+    const tabId = this.tabId;
+    const sref = toSref(anchor);
     if (this.batchOps) {
-      const tabId = this.tabId;
-      const sref = toSref(anchor);
       this.batchOps.push((root) => {
-        if (!root.sheets[tabId].merges) {
-          root.sheets[tabId].merges = {};
-        }
-        root.sheets[tabId].merges[sref] = { ...span };
+        this.applyMerge(root, tabId, sref, span);
       });
       return;
     }
 
-    const tabId = this.tabId;
-    const sref = toSref(anchor);
     this.doc.update((root) => {
-      if (!root.sheets[tabId].merges) {
-        root.sheets[tabId].merges = {};
-      }
-      root.sheets[tabId].merges[sref] = { ...span };
+      this.applyMerge(root, tabId, sref, span);
     });
   }
 

@@ -118,8 +118,8 @@ all cell, selection, and navigation operations.
   with the same `merge-move-frozen` when the merge map it would produce
   straddles. Freezing, though, moves the line rather than a block, so it
   *snaps* instead of refusing: `setFreezePane` pushes the boundary to the far
-  edge of any block it would cut in half (`snapFreezePastMerges`, repeated
-  until stable), and the freeze adjustment inside `shiftCells` runs the same
+  edge of any block it would cut in half (`snapFreezePastMerges`, one sweep per
+  axis in start order), and the freeze adjustment inside `shiftCells` runs the same
   snap after the insert/delete has moved both the boundary and the merge map.
   The whole block ends up frozen — what the user asked for, plus the rows the
   layout makes inseparable from them — rather than a gesture silently
@@ -142,6 +142,23 @@ all cell, selection, and navigation operations.
   applying it in both places lands on the same boundary. The snap itself is one
   implementation (`snapFreezePastMerges` in `model/worksheet/merging.ts`)
   shared by the engine and the controller, so the two cannot drift.
+  The merge map is also **bounded**, and bounded in one place for the same
+  reason. `rebuildMergeCoverMap` puts one Map entry per covered cell on every
+  load, so the quantity that has to stay affordable is the cells the whole map
+  covers — which neither a per-span cap nor an entry count bounds on its own,
+  since 10,000 anchors of 100,000 cells each satisfies both and still asks for
+  1e9 entries. `model/worksheet/merging.ts` therefore holds all three ceilings
+  (`MaxMergedCells`, `MaxMergeEntries`, `MaxMergeCoveredCells`) and one
+  predicate, `mergeBudgetAdmits`, and **every** writer of the field spends
+  against it: `canMergeSelection` for the toolbar gesture, `applyPasteMerges`
+  per pasted block, the XLSX importer per `mergeCell`, `YorkieStore.setMerge`
+  as the floor under the CRDT, and `parseMerges` for a whole `PUT merges` body.
+  A cap the REST validator obeyed alone would be worse than none: the editor
+  and the importer would keep growing a map the API could then no longer
+  replace, since `PUT merges` is wholesale and has no per-anchor form. With the
+  budget shared, a map that large cannot be created in the first place, and a
+  legacy one can always be *shrunk* through the same endpoint, because the cap
+  reads the body rather than what is stored.
   A **single-cell** paste starts at the merge anchor: `paste` normalizes
   `activeCell` with `normalizeRefToAnchor`, because `selectRow` /
   `selectColumn` / `selectAllCells` leave the active cell at the head of the

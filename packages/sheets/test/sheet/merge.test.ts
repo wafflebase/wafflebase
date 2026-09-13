@@ -1,6 +1,54 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/model/worksheet/sheet';
+import {
+  MaxMergeCoveredCells,
+  MaxMergeEntries,
+  MaxMergedCells,
+  mergeBudgetAdmits,
+  mergeBudgetError,
+} from '../../src/model/worksheet/merging';
+
+// The merge map is what `rebuildMergeCoverMap` walks on every load, so it is
+// bounded three ways — per span, by entry count, and by the cells the whole map
+// covers, since the first two have an unbounded product between them. Every
+// writer spends the same budget: the toolbar gesture here, the paste path, the
+// XLSX importer, the collaborative store, and the v1 `PUT merges` validator.
+describe('merge budget', () => {
+  it('bounds the map by count, by span, and by their product', () => {
+    expect(
+      mergeBudgetError({ entries: MaxMergeEntries, coveredCells: 0 }),
+    ).toBeNull();
+    expect(
+      mergeBudgetError({ entries: MaxMergeEntries + 1, coveredCells: 0 }),
+    ).not.toBeNull();
+
+    // 11 spans of 100,000 cells: every span inside the per-span cap, the count
+    // far inside the entry cap, and 1.1e6 covered cells between them.
+    const budget = { entries: 10, coveredCells: 10 * MaxMergedCells };
+    expect(mergeBudgetError(budget)).toBeNull();
+    expect(mergeBudgetAdmits(budget, [{ rs: MaxMergedCells, cs: 1 }])).toBe(
+      false,
+    );
+    expect(budget.coveredCells + MaxMergedCells).toBeGreaterThan(
+      MaxMergeCoveredCells,
+    );
+
+    expect(
+      mergeBudgetAdmits({ entries: 0, coveredCells: 0 }, [
+        { rs: MaxMergedCells + 1, cs: 1 },
+      ]),
+    ).toBe(false);
+  });
+
+  it('refuses a selection the budget cannot afford', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: MaxMergedCells + 1, c: 1 });
+    expect(sheet.canMergeSelection()).toBe(false);
+    expect(await sheet.mergeSelection()).toBe(false);
+  });
+});
 
 describe('Sheet.mergeSelection', () => {
   it('should merge selected cells and alias covered cells to anchor', async () => {
