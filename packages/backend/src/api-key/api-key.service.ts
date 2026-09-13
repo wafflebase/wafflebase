@@ -1,6 +1,21 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { createHash, randomBytes } from 'crypto';
+
+/**
+ * Narrows a listing or a revocation to one creator's own keys.
+ *
+ * A key authenticates as the user who minted it (`ApiKeyStrategy` puts
+ * `createdBy` in the request identity), so "your keys" is a real boundary and
+ * not a cosmetic one: another member's key is another member's authority.
+ * Callers pass `{ createdBy }` for an ordinary member and `{}` for a workspace
+ * owner, who administers every key in the workspace.
+ */
+type KeyScope = { createdBy?: number };
 
 @Injectable()
 export class ApiKeyService {
@@ -37,17 +52,21 @@ export class ApiKeyService {
     };
   }
 
-  async list(workspaceId: string) {
+  async list(workspaceId: string, scope: KeyScope = {}) {
     return this.prisma.apiKey.findMany({
       where: {
         workspaceId,
         revokedAt: null,
+        ...(scope.createdBy === undefined
+          ? {}
+          : { createdBy: scope.createdBy }),
       },
       select: {
         id: true,
         name: true,
         prefix: true,
         scopes: true,
+        createdBy: true,
         createdAt: true,
         expiresAt: true,
         lastUsedAt: true,
@@ -55,11 +74,29 @@ export class ApiKeyService {
     });
   }
 
-  async revoke(id: string, workspaceId: string) {
-    return this.prisma.apiKey.update({
-      where: { id, workspaceId },
+  /**
+   * Revokes a key, refusing one the caller does not own when `scope` names a
+   * creator.
+   *
+   * A key outside the scope answers 404 rather than 403: whether this
+   * workspace holds another member's integration is itself information, and
+   * the miss and the refusal are indistinguishable to the caller either way.
+   */
+  async revoke(id: string, workspaceId: string, scope: KeyScope = {}) {
+    const result = await this.prisma.apiKey.updateMany({
+      where: {
+        id,
+        workspaceId,
+        ...(scope.createdBy === undefined
+          ? {}
+          : { createdBy: scope.createdBy }),
+      },
       data: { revokedAt: new Date() },
     });
+
+    if (result.count === 0) {
+      throw new NotFoundException('API key not found');
+    }
   }
 
   async validateKey(rawKey: string) {

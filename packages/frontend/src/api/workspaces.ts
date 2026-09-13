@@ -166,6 +166,12 @@ export interface ApiKey {
   name: string;
   prefix: string;
   scopes: string[];
+  /**
+   * The member who minted the key, and whose authority it carries. A member
+   * only ever sees their own; an owner sees the whole workspace's, which is
+   * the case this field is here to label.
+   */
+  createdBy: number;
   createdAt: string;
   expiresAt: string | null;
   lastUsedAt: string | null;
