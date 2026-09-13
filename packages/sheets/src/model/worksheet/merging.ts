@@ -118,6 +118,97 @@ export function mergeBudgetAdmits(
 }
 
 /**
+ * `isCountableMergeSpan` returns whether a span can be walked at all.
+ *
+ * The budget bounds `rs * cs`, and every comparison against a `NaN` product is
+ * false — so a span whose `rs` is `undefined`, a string or a fraction slips
+ * past every cap and then poisons the running total, after which nothing else
+ * is refused either. The merge map is a plain CRDT field any `rw` collaborator
+ * can write directly, so "the span is two positive integers" is checked rather
+ * than assumed wherever a stored map is read.
+ */
+function isCountableMergeSpan(span: MergeSpan | undefined): span is MergeSpan {
+  return (
+    !!span &&
+    typeof span === 'object' &&
+    Number.isSafeInteger(span.rs) &&
+    Number.isSafeInteger(span.cs) &&
+    span.rs >= 1 &&
+    span.cs >= 1
+  );
+}
+
+/**
+ * `buildMergeCoverMap` turns a stored merge map into the covered-cell → anchor
+ * lookup every merge-aware read needs, spending {@link MergeBudget} as it goes
+ * and dropping what it cannot afford.
+ *
+ * This is the *reader* side of the caps. Every enforcement point upstream is a
+ * writer — the toolbar, the paste planner, the XLSX importer, the collaborative
+ * store, the v1 `PUT merges` validator — and the field they all write is a
+ * plain CRDT object: the Yorkie auth webhook authorizes a write by (document,
+ * verb) and never inspects an op's content, so anyone holding `rw` on the
+ * document can put an arbitrary merge map into it directly. Read defensively
+ * and a map like that costs this client the merges it cannot afford; read it
+ * trustingly and it costs every collaborator the tab, on every open,
+ * permanently.
+ *
+ * So it lives here rather than in `Sheet`: the engine is not the only reader —
+ * the frontend's cross-sheet formula resolver walks the same raw CRDT map to
+ * fold covered refs onto their anchors — and a clamp only one reader applies is
+ * a clamp the other reader's tab hangs without.
+ *
+ * `admitted` is the subset of the input that survived, so a caller holding the
+ * map can keep the two from disagreeing about what is merged. Nothing is
+ * written back: this is one client clamping what it will render, not a repair
+ * of the document, and a repair written from here would race every other
+ * replica reading the same map.
+ */
+export function buildMergeCoverMap(merges: Iterable<[Sref, MergeSpan]>): {
+  coverToAnchor: Map<Sref, Sref>;
+  admitted: Map<Sref, MergeSpan>;
+  budget: MergeBudget;
+} {
+  const coverToAnchor = new Map<Sref, Sref>();
+  const admitted = new Map<Sref, MergeSpan>();
+  const budget: MergeBudget = { entries: 0, coveredCells: 0 };
+
+  for (const [anchorSref, span] of merges) {
+    // Checked before the nested walk below, so an unaffordable or unwalkable
+    // span costs one comparison rather than its own area.
+    if (!isCountableMergeSpan(span)) continue;
+    if (!mergeBudgetAdmits(budget, [span])) continue;
+
+    let anchor: Ref;
+    try {
+      anchor = parseRef(anchorSref);
+    } catch {
+      // A key that is not a cell reference cannot be an anchor. `parseRef`
+      // throwing here is the same unopenable tab the budget guards against,
+      // reached with one malformed key instead of a large span.
+      continue;
+    }
+    // `parseRef` is lenient — `"A1:B2"` parses as `A1` — and a key that does
+    // not round-trip would seed the cover map with an anchor no cell ever
+    // matches, exactly as `parseMerges` explains on the API path.
+    if (toSref(anchor) !== anchorSref) continue;
+
+    budget.entries++;
+    budget.coveredCells += span.rs * span.cs;
+    admitted.set(anchorSref, span);
+    for (let r = anchor.r; r < anchor.r + span.rs; r++) {
+      for (let c = anchor.c; c < anchor.c + span.cs; c++) {
+        const sref = toSref({ r, c });
+        if (sref === anchorSref) continue;
+        coverToAnchor.set(sref, anchorSref);
+      }
+    }
+  }
+
+  return { coverToAnchor, admitted, budget };
+}
+
+/**
  * `toMergeRange` returns the covered range for a merge anchor and span.
  */
 export function toMergeRange(anchor: Ref, span: MergeSpan): Range {
@@ -374,6 +465,44 @@ export function snapFreezePastMerges(
       (range) => range[1].c,
     ),
   };
+}
+
+/**
+ * `moveStraddlingFreeze` returns the anchor of a merged block the move would
+ * *newly* leave across a frozen boundary, or null when the reorder creates no
+ * such block.
+ *
+ * A block that already straddles is deliberately not a refusal. Straddling
+ * merges were freely creatable before this invariant existed, and `remapIndex`
+ * leaves a block outside both the moved range and the shift window at the
+ * indices it already had — so refusing on "any entry of the moved map
+ * straddles" would refuse *every* row and column reorder on such a document,
+ * forever, including moves nowhere near the block. The invariant this guards is
+ * "no writer creates one", which is what the before/after comparison asks: the
+ * block is compared with itself, so only a move that carries it across the line
+ * (or shifts the cells under it so it lands across one) is refused.
+ */
+export function moveStraddlingFreeze(
+  merges: Iterable<[Sref, MergeSpan]>,
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+  frozenRows: number,
+  frozenCols: number,
+): Sref | null {
+  if (frozenRows === 0 && frozenCols === 0) return null;
+  for (const [anchorSref, span] of merges) {
+    const anchor = parseRef(anchorSref);
+    const moved = moveMerge(anchor, span, axis, src, count, dst);
+    if (!moved) continue;
+    const after = toMergeRange(moved.anchor, moved.span);
+    if (!crossesFreezePane(after, frozenRows, frozenCols)) continue;
+    const before = toMergeRange(anchor, span);
+    if (crossesFreezePane(before, frozenRows, frozenCols)) continue;
+    return toSref(moved.anchor);
+  }
+  return null;
 }
 
 /**

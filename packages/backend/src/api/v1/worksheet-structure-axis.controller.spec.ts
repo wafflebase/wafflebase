@@ -439,6 +439,29 @@ describe('ApiV1WorksheetStructureController row/column edits', () => {
       expect(doc.getRoot().sheets[TAB].merges?.A6).toEqual({ rs: 2, cs: 1 });
     });
 
+    it('allows a move elsewhere when a block already straddles the freeze', async () => {
+      // A1:A4 already crosses a boundary frozen at row 2 — freely creatable
+      // before this invariant existed. Moving row 8, which the block never
+      // touches, leaves it exactly where it was, so refusing here would refuse
+      // every reorder on the document permanently. `Sheet.moveCells` allows it.
+      seed({ A8: 'eight' });
+      doc.update((root) => {
+        const ws = root.sheets[TAB];
+        ws.frozenRows = 2;
+        ws.merges = { A1: { rs: 4, cs: 1 } };
+      });
+
+      await expect(
+        controller.moveAxis(WS, DOC, TAB, {
+          axis: 'row',
+          srcIndex: 8,
+          count: 1,
+          dstIndex: 10,
+        }),
+      ).resolves.toBeDefined();
+      expect(doc.getRoot().sheets[TAB].merges?.A1).toEqual({ rs: 4, cs: 1 });
+    });
+
     it('allows a move that carries a whole merged block', async () => {
       seed({ A1: 'one', A2: 'two', A3: 'three' });
       doc.update((root) => {

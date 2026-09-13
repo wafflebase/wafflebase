@@ -10,17 +10,15 @@ import {
 import {
   applyWorksheetMove,
   applyWorksheetShift,
-  crossesFreezePane,
   getWorksheetCell,
   initialSpreadsheetDocument,
   isMergeSplitByMove,
   moveCrossTabDataRanges,
-  moveMergeMap,
+  moveStraddlingFreeze,
   normalizeStoredCell,
   parseRef,
   safeWorksheetRecordEntries,
   shiftCrossTabDataRanges,
-  toMergeRange,
   toRefsFromRanges,
   writeWorksheetCell,
 } from '@wafflebase/sheets';
@@ -177,6 +175,12 @@ export class ApiV1WorksheetStructureController {
    * The reorder does not move the boundary, so the check runs against the
    * merge map the move *would* produce — before `applyWorksheetMove` writes
    * anything, since a throw inside `doc.update` rolls the whole update back.
+   *
+   * Only a block the move *newly* leaves straddling is refused, which is the
+   * engine's rule too (`moveStraddlingFreeze`): a block that already straddles
+   * is left where the reorder leaves it, because refusing on its account would
+   * refuse every row and column move on the document for good, including the
+   * ones nowhere near it.
    */
   private assertMoveKeepsMergesOffFreeze(
     ws: Worksheet,
@@ -185,21 +189,21 @@ export class ApiV1WorksheetStructureController {
     count: number,
     dstIndex: number,
   ) {
-    const frozenRows = ws.frozenRows ?? 0;
-    const frozenCols = ws.frozenCols ?? 0;
-    if (frozenRows === 0 && frozenCols === 0) return;
-
-    const merges = new Map(safeWorksheetRecordEntries(ws.merges ?? {}));
-    const moved = moveMergeMap(merges, axis, srcIndex, count, dstIndex);
-    for (const [anchorSref, span] of moved) {
-      const range = toMergeRange(parseRef(anchorSref), span);
-      if (crossesFreezePane(range, frozenRows, frozenCols)) {
-        throw new ConflictException(
-          `The move would leave the merged range anchored at ${anchorSref} ` +
-            `across the frozen rows or columns; move it to one side of the ` +
-            `freeze, or unfreeze first.`,
-        );
-      }
+    const anchorSref = moveStraddlingFreeze(
+      safeWorksheetRecordEntries(ws.merges ?? {}),
+      axis,
+      srcIndex,
+      count,
+      dstIndex,
+      ws.frozenRows ?? 0,
+      ws.frozenCols ?? 0,
+    );
+    if (anchorSref !== null) {
+      throw new ConflictException(
+        `The move would leave the merged range anchored at ${anchorSref} ` +
+          `across the frozen rows or columns; move it to one side of the ` +
+          `freeze, or unfreeze first.`,
+      );
     }
   }
 

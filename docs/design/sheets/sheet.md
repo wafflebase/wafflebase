@@ -115,8 +115,14 @@ all cell, selection, and navigation operations.
   single block.
   That invariant binds **every** path that can move a block or the boundary,
   not only the two that refuse. A row/column reorder (`moveCells`) is refused
-  with the same `merge-move-frozen` when the merge map it would produce
-  straddles. Freezing, though, moves the line rather than a block, so it
+  with the same `merge-move-frozen` when it would *newly* leave a block
+  straddling — each block compared with its own position before the move
+  (`moveStraddlingFreeze`), not the moved map read on its own. A block that
+  already straddles is not the reorder's doing: `remapIndex` leaves anything
+  outside the moved range and the shift window at the indices it already had,
+  so reading the moved map alone would refuse *every* row and column reorder on
+  such a document — including moves nowhere near the block — and the invariant
+  being defended is that no writer creates one. Freezing, though, moves the line rather than a block, so it
   *snaps* instead of refusing: `setFreezePane` pushes the boundary to the far
   edge of any block it would cut in half (`snapFreezePastMerges`, one sweep per
   axis in start order), and the freeze adjustment inside `shiftCells` runs the same
@@ -174,10 +180,18 @@ all cell, selection, and navigation operations.
   while `merges` is a plain CRDT object: the Yorkie auth webhook authorizes a
   write by (document, verb) and never inspects an op's content, so anyone
   holding `rw` on the document can put a map in it that no writer here would
-  have created. So `rebuildMergeCoverMap` — the walk the budget exists to
+  have created. So the cover-map build — the walk the budget exists to
   protect — spends the budget itself on the way in, dropping a span it cannot
-  afford (and a key that is not a plain cell reference, which `parseRef` would
-  otherwise throw on) from the in-memory map and the cover map together. Read
+  afford (a span that is not two positive integers, whose `rs * cs` is `NaN`
+  and so passes every comparison; and a key that is not a plain cell reference,
+  which `parseRef` would otherwise throw on) from the in-memory map and the
+  cover map together. That build is `buildMergeCoverMap` in
+  `model/worksheet/merging.ts` rather than a private of `Sheet`, because the
+  engine is not the only **reader**: the frontend's cross-sheet formula resolver
+  (`sheet-view.tsx`) folds covered refs onto their anchors by walking the same
+  raw CRDT map, and a clamp only one reader applied is a clamp the other
+  reader's tab hangs without. `Sheet.rebuildMergeCoverMap` is now that call plus
+  the bookkeeping only it has (`Sheet.merges`, `mergeBudget`). Read
   defensively, a hostile map costs this client the merges it cannot afford;
   read trustingly, it costs every collaborator the tab, on every open,
   permanently. Nothing is written back: this is one client clamping what it

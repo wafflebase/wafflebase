@@ -629,6 +629,7 @@ Returns `{ axis, srcIndex, count, dstIndex }`.
 | Move cost | **Two separate bounds.** `count` alone must be ≤ 10,000 — a move splices the block out and spreads it back in, so it costs `count` even when the axis already spans it, and this is checked before the document is opened. *And* the axis is back-filled to cover both ends of the move, so `max(current, srcIndex + count - 1, dstIndex - 1)` is checked for growth like an insert. A far-offset move with a tiny `count` — say `srcIndex: 500000, count: 1` on a short axis — is refused for growth even though only one entry moves |
 | Delete cost | Bounded by the grid only. A delete materializes nothing, so `{ index: 1, count: 1000000 }` — "delete every row" — stays a single legal call |
 | Merge split (move only) | `409`, naming the merged range's anchor |
+| Merge across the freeze (move only) | `409`, naming the anchor, when the reorder would *newly* leave a merged block across the tab's frozen rows or columns. A block that already straddles is not a refusal — it is left where the reorder leaves it, so a document that already has one can still be reordered |
 | Non-sheet tab (insert/delete/move) | `400 Row and column edits are only available on sheet tabs; "<tab>" is a "<type>" tab.` — this is what refuses `datasource` and `lakehouse` tabs, whose grid is re-materialized from their query |
 | Pivot-output tab (insert/delete/move) | `400 "<tab>" is a pivot-output tab; its rows and columns are regenerated from the pivot definition.` |
 
@@ -647,10 +648,16 @@ PUT  /api/v1/workspaces/:wid/documents/:did/tabs/:tid/freeze
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `rows` | integer 0..1000000 | No, default `0` | Frozen row count |
-| `cols` | integer 0..18278 | No, default `0` | Frozen column count |
+| `rows` | integer 0..1000 | No, default `0` | Frozen row count |
+| `cols` | integer 0..1000 | No, default `0` | Frozen column count |
 
-Both default to `0` when absent, so `PUT {}` unfreezes. `GET` returns `{ "rows", "cols" }`.
+Both default to `0` when absent, so `PUT {}` unfreezes.
+
+The bound is **1,000 per axis, not the grid's** — the frozen quadrants are painted in full on every frame with no viewport clipping, so a deeper freeze is not a large freeze, it is a tab that never paints again and whose freeze menu the user can no longer reach to undo it. Above it is a `400`.
+
+`PUT` **may store a boundary past the one you asked for.** A merged block that straddles a frozen boundary is not drawable, so the write snaps the line out past any block it would cut in half — the same thing the editor's own freeze does. The response is the boundary that was actually stored, so compare it with what you sent rather than assuming they match. When a block is tall enough that snapping past it would exceed the 1,000 ceiling, that axis is **released to `0`** instead: no boundary straddles nothing.
+
+`GET` returns `{ "rows", "cols" }` as stored. A document whose freeze was set by an editor before this bound existed can therefore return a value deeper than 1,000, which this endpoint will not accept back — `PUT` a value inside the bound, or `0`.
 
 ### Hidden rows and columns
 
@@ -690,7 +697,12 @@ curl -X PUT \
 | Key format | Must round-trip as a plain cell reference (`"A1"`). `"A1:B2"` is refused even though it parses |
 | Key bounds | Anchor must be inside the grid |
 | `rs` / `cs` | Integers ≥ 1, and the span must not run off the grid from its anchor |
-| Span area | `rs * cs` at most **100,000** cells — an unbounded span is not a large merge, it is a document nobody can open again |
+| Span area | `rs * cs` at most **100,000** cells — an unbounded span is not a large merge, it is a document nobody can open again. `400` |
+| Map size | At most **10,000** entries. `400` |
+| Map area | The spans may cover at most **1,000,000** cells between them — 10,000 anchors of 100,000 cells each satisfies both rules above and still asks the load-time walk for 1e9 entries. `400` |
+| Freeze straddle | `409`, naming the anchor, when a block in the body would cross the tab's current frozen rows or columns — the state the renderer cannot paint and the editor's merge button refuses. Move the freeze first (`PUT freeze`), or keep the block on one side of it |
+
+The three size rules are the engine's, shared with the editor's collaborative store and the XLSX importer, so no writer can grow a map this wholesale replace could not express again. They read the **body**, never what is stored, so shrinking an already-oversized map is always possible.
 
 `GET` returns `{ "merges": { ... } }`.
 

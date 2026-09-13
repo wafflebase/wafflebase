@@ -1163,6 +1163,31 @@ describe('Sheet merge and the freeze boundary', () => {
     expect(sheet.getMerges().get('A5')).toEqual({ rs: 2, cs: 1 });
     expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('10');
   });
+
+  it('should allow a reorder elsewhere when a block already straddles', async () => {
+    // A straddling block was freely creatable before this invariant existed,
+    // and a reorder that does not touch it leaves it exactly where it was. So
+    // refusing on "any block straddles after the move" would refuse every row
+    // reorder on such a document for good — including this one, which moves a
+    // row nowhere near the block.
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    // Freeze first, then bring the block in from the store: the snap is what
+    // keeps `setFreezePane` from creating this state, and `loadMerges` is the
+    // path a document written by any other replica arrives through.
+    await sheet.setFreezePane(2, 0);
+    await store.setMerge({ r: 1, c: 1 }, { rs: 4, cs: 1 });
+    await sheet.loadMerges();
+    await sheet.setData({ r: 8, c: 2 }, '10');
+
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    expect(await sheet.moveRows(8, 1, 10)).toBe(true);
+    expect(refusals).toEqual([]);
+    // The straddling block is untouched, not repaired and not refused over.
+    expect(sheet.getMerges().get('A1')).toEqual({ rs: 4, cs: 1 });
+  });
 });
 
 describe('Sheet.paste destination normalization', () => {
