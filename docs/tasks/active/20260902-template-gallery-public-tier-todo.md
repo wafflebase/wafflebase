@@ -164,23 +164,46 @@ and what makes the tier safe to open without promotion:
       documented limitation instead of success.
 - [ ] Remove `DELETE /images/:id` from `image.controller.ts`; keep
       `ImageService.delete` for in-process callers. Confirm no client calls it.
-- [ ] Promotion on `approve`, in this order — re-scan `assertContentIsShareable`
-      → copy origin into `WAFFLEBASE_TEMPLATE_WORKSPACE_ID` → re-host images →
-      mint a new non-expiring `viewer` link on the frozen copy → single
-      transaction re-pointing `documentId`/`originId`/`visibility`/`status`/
-      `shareLinkId` → **then** revoke the old link and delete the superseded
-      frozen copy.
-- [ ] The frozen copy is authored by the **publisher**, not the reviewer — it is
-      what keeps `assertManager`/`isManagerOf`/`canManage` answering yes for the
-      publisher after the document moves to the system workspace, so `unpublish`
-      and `update` keep working without an "authority document" concept.
-- [ ] Regression test for that ordering: deleting before re-pointing cascades the
-      listing away. Assert the listing survives a republish.
-- [ ] `findByDocument` matches `documentId` **or** `originId` — a `findFirst`
-      with an `OR`, not `findUnique`, since `originId` is not unique.
-- [ ] `unpublish` deletes the frozen copy too.
-- [ ] Seed/config check for `WAFFLEBASE_TEMPLATE_WORKSPACE_ID`; a missing or
-      unresolvable value makes `approve` fail loudly, not silently list.
+      **v0.6.10 audit: this box is safe to execute, and the v0.6.9 lessons
+      file's claim that it is not has been retracted there.** That claim named
+      `wafflebase images delete` as a caller; it is not one.
+      `HttpClient.deleteImage` (`packages/cli/src/client/http-client.ts:1071`)
+      issues `DELETE /images/:id` *relative to* `this.base` =
+      `apiV1Base(config)` = `/api/v1/workspaces/:wid`, so it reaches
+      `packages/backend/src/api/v1/images.controller.ts:91`, not the browser
+      route at `packages/backend/src/image/image.controller.ts:158` this box
+      names. `packages/frontend/src/api/images.ts` exports no delete at all.
+      The confirmation step this box asks for must resolve `this.base` — a
+      grep for `"/images/"` in `packages/cli` produces two false positives.
+
+### Dropped — frozen-copy promotion
+
+Promotion was **deferred in favour of re-review-on-change**, as this file's own
+Review below records. These six boxes describe the design that replaced, so
+they are struck rather than ticked — ticking claims work shipped, and none of
+it did. Re-derived at the v0.6.10 audit: `WAFFLEBASE_TEMPLATE_WORKSPACE_ID` has
+zero occurrences under `packages/`, `originId` exists only as
+`packages/backend/prisma/schema.prisma:364` plus its migration and a
+`originId: null` spec fixture with **no writer** in `template.service.ts`, and
+`findByDocument` carries no `OR`.
+
+- ~~Promotion on `approve`, in this order — re-scan `assertContentIsShareable`
+  → copy origin into `WAFFLEBASE_TEMPLATE_WORKSPACE_ID` → re-host images →
+  mint a new non-expiring `viewer` link on the frozen copy → single
+  transaction re-pointing `documentId`/`originId`/`visibility`/`status`/
+  `shareLinkId` → **then** revoke the old link and delete the superseded
+  frozen copy.~~
+- ~~The frozen copy is authored by the **publisher**, not the reviewer — it is
+  what keeps `assertManager`/`isManagerOf`/`canManage` answering yes for the
+  publisher after the document moves to the system workspace, so `unpublish`
+  and `update` keep working without an "authority document" concept.~~
+- ~~Regression test for that ordering: deleting before re-pointing cascades the
+  listing away. Assert the listing survives a republish.~~
+- ~~`findByDocument` matches `documentId` **or** `originId` — a `findFirst`
+  with an `OR`, not `findUnique`, since `originId` is not unique.~~
+- ~~`unpublish` deletes the frozen copy too.~~
+- ~~Seed/config check for `WAFFLEBASE_TEMPLATE_WORKSPACE_ID`; a missing or
+  unresolvable value makes `approve` fail loudly, not silently list.~~
 
 ## PR 3c — Public browse
 

@@ -132,6 +132,16 @@ visible today.
 - [ ] Research (separate, no code): heading weight contrast, the 96-char
       measure, and the irregular type scale — parity-with-Google-Docs vs
       differentiate. Findings land in the lessons file / a design doc.
+      **v0.6.10 audit: genuinely unshipped, and it is not a browser smoke.**
+      Neither landing site exists — there is no
+      `20260904-docs-typography-rhythm-lessons.md`, and `grep -rn "96-char\|type
+      scale\|heading weight" docs/design/docs/` returns zero hits. This is open
+      research with no owner, so it will not close the way the other one-box
+      tasks in this batch will. Either fund it or convert it to dropped scope;
+      leaving it as a checkbox makes the task read as almost-done at every
+      future audit. (The code half held: `named-styles.ts:103` `inlineDark`,
+      `:309`–`:315` the dark catalog entries, `:390` the `resolveStyleInline`
+      branch, `:484` `omitBuiltinStyleDefaults`, `:563` `contextualListSpacing`.)
 
 ## Review
 

@@ -91,13 +91,32 @@ archived during the v0.6.9 cut.
 
 ## Step 6: Class B, if the bench justifies it
 
-Each needs backend endpoints first; file separately with bench evidence.
+~~Each needs backend endpoints first; file separately with bench evidence.~~
+**All five shipped in #1022** (`20260904-class-b-backend-endpoints`), ahead of
+the bench rather than after it, so the preamble and every parenthetical below
+was stale. Ticked at the v0.6.10 audit against the controllers, not the PR.
 
-- [ ] Comments (6) — no REST surface; comments live in the Yorkie CRDT
-- [ ] Slide granular editing (5) — add / duplicate / delete / move / layouts
-- [ ] Tab rearrange (3) — no DELETE on `tabs.controller.ts`
-- [ ] Sheet floating images (2)
-- [ ] Board programmatic access (2) — `docs-content.controller.ts:94` rejects it
+- [x] Comments (6) — ~~no REST surface; comments live in the Yorkie CRDT~~
+      `packages/backend/src/api/v1/comments.controller.ts:113`, seven routes:
+      `@Get()` :218, `@Post()` :261, `@Post(':threadId/replies')` :348,
+      `@Patch(':threadId')` :379, `@Patch(':threadId/comments/:commentId')` :409,
+      `@Delete(':threadId')` :442, `@Delete(':threadId/comments/:commentId')` :472.
+      CLI `packages/cli/src/commands/comments.ts`.
+- [x] Slide granular editing (5) — add / duplicate / delete / move / layouts.
+      `packages/backend/src/api/v1/slides.controller.ts`: `@Get('layouts')` :79,
+      `@Post('slides')` :96, `@Post('slides/:slideId/duplicate')` :113,
+      `@Post('slides/:slideId/move')` :125, `@Delete('slides/:slideId')` :142 —
+      exactly the five named. CLI `commands/slides-edit.ts`.
+- [x] Tab rearrange (3) — ~~no DELETE on `tabs.controller.ts`~~
+      `packages/backend/src/api/v1/tabs.controller.ts:161` `@Delete(':tabId')`,
+      `:211` `@Post(':tabId/reorder')`, `:242` `@Post(':tabId/duplicate')`.
+- [x] Sheet floating images (2) —
+      `packages/backend/src/api/v1/worksheet-images.controller.ts:53`
+      `@Get('images')`, `:80` `@Put('images')`. CLI `commands/sheets-images.ts`.
+- [x] Board programmatic access (2) — ~~`docs-content.controller.ts:94` rejects it~~
+      `packages/backend/src/api/v1/docs-content.controller.ts:80` now types
+      `ContentType = 'doc' | 'slides' | 'note' | 'board'`, with board branches at
+      :122, :149, :193, :232 and the validator at :639. CLI `commands/board.ts`.
 
 ## Review
 

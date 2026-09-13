@@ -186,9 +186,44 @@ and each half is mutation-checked.
 - [x] Review (CodeRabbit): stop the generic page from double-paging the
       no-credential path, and move the state write into that path's own page
 - [x] `pnpm verify:fast`
-- [ ] Re-trigger #1047 / #1052 / #1053 by hand (`@claude fix`) — the fix cannot
-      rescue a round that already died
+- ~~Re-trigger #1047 / #1052 / #1053 by hand (`@claude fix`) — the fix cannot
+  rescue a round that already died~~ — **dropped (moot), v0.6.10 audit.** All
+  three merged before anyone ran it: #1052 on 2026-09-10T04:34:55Z, #1047 on
+  2026-09-11T12:22:26Z, #1053 on 2026-09-11T16:13:59Z (two of them are
+  `fdac76129` and `beecee7b7` in this repo's history). Posting `@claude fix` on
+  a merged PR dispatches the fixer at a closed branch, so this box is **not
+  safe to execute as written** and is struck rather than ticked — ticking would
+  claim work that never happened.
 
 ## Review
 
-(filled in at merge)
+Filled in at the v0.6.10 cut, from the workflow files rather than from the PR —
+the placeholder had survived the merge, which is the same "shipped with the
+boxes never ticked" shape the release audit exists to catch.
+
+Shipped as #1054, "Page when a fix round hits its wall, and widen it to 90":
+
+- The page's condition now admits a cancelled fixer.
+  `.github/workflows/agent-review-panel.yml:1975` is `id: fixer`, and the
+  "Page if the fix produced no commit" step at `:2192` guards on
+  `always() && steps.guard.outputs.proceed == 'true' && (steps.fixer.outcome ==
+  'success' || steps.fixer.outcome == 'cancelled')` (`:2193-2195`). The old
+  form carried only the `proceed` clause, so it inherited GitHub's implicit
+  `success()` and went false the moment the step before it was cancelled.
+- Both walls are 90 minutes: `agent-review-panel.yml:1648` and
+  `agent-fix.yml:73`, each `timeout-minutes: 90`.
+- The page says which wall it hit and what to do about it — `:2254` names
+  **90 minutes** explicitly and tells the operator to push partial progress
+  before it, so the number appears in all three places rather than drifting
+  between the wall and the message that explains it.
+
+The fix is inside the `fix` job rather than in the `stalled` net, as planned.
+Claiming `cancelled` in `stalled` would double-page every timeout.
+
+**One box was struck, not ticked** (see above): re-triggering #1047 / #1052 /
+#1053 by hand. All three merged on 2026-09-10/11 before anyone ran it, so the
+instruction became unsafe rather than outstanding — `@claude fix` on a merged PR
+dispatches the fixer at a closed branch.
+
+No lessons file: nothing was learned here beyond what the todo already records,
+and inventing one at archive time would be worse than its absence.

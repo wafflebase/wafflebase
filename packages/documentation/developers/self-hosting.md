@@ -606,8 +606,9 @@ Unregister with `--auth-webhook-method-rm ALL` to disable.
 > While `YORKIE_AUTH_WEBHOOK_ENFORCE=false` everything is allowed regardless of
 > the computed decision — including an anonymous share-link viewer writing to
 > the document, and listing, reading and restoring its full revision history.
-> Only the literal `false` selects it, so a typo enforces rather than silently
-> opening the door.
+> Only the word `false` selects it — trimmed and compared case-insensitively,
+> so `FALSE` and ` false ` also select it, and nothing else does. A typo in any
+> other direction enforces rather than silently opening the door.
 
 > [!WARNING]
 > **Do not register `CreateRevision`.** Yorkie calls the webhook for it with

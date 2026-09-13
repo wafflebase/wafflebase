@@ -452,26 +452,34 @@ marking "editable but ephemeral", though nothing enforces it.
 path.** A canvas hit has no `className` to write, so nothing here needs a new
 mutation kind, a new endpoint, or any server change.
 
-- [ ] A **probe registry** in `frame-picker.ts`: when a click's stamped node is a
-      registered canvas host, ask an engine probe `(x, y) → CanvasHit | null`
-      instead of stopping at the container `<div>`.
-- [ ] `src/scenes/canvas/probes/*.ts` — one per engine, each calling that engine's
-      OWN exported hit-test (finding 4). `CanvasHit = { kind, label, rect (frame
-      px), themeKeys[], detail }`.
-- [ ] New `wb:canvas-select` frame→host message alongside `wb:select`. The existing
-      `data-wb-overlay` boxes and `onSelectionHostRect` anchoring are reused
-      unchanged — the overlay is already DOM-not-outline (§7.11), so the rect just
-      comes from engine geometry instead of `getBoundingClientRect()`.
-- [ ] `FloatingClassEditor` gains a **canvas variant**: the engine theme keys that
-      painted this object, each editable as an existing `palette-value` /
-      `token-value` intent, plus read-only geometry. No Tailwind class controls —
-      offering them would be a lie about where the edit lands.
-- [ ] Generalise the CP3.5 click-to-cycle: cell → range → the canvas host node, so
-      **the last step of the canvas cycle drops you back into DOM-land**. Slides'
-      `hitTestSlide` already returns a path through groups, giving a natural
-      ancestor chain; sheets has none, so it escapes in one step.
-- [ ] Picking ON must keep `preventDefault` so the engine does not also scroll or
-      select. Already the behaviour — confirm it survives the probe path.
+**Dropped (cancelled by design), v0.6.10 audit.** The CP4.4 parent above is
+already struck `**deferred**` and says these are "kept for the spec, not as
+work" — but they were still live checkboxes, which is what the tooling and every
+audit reads. Confirmed unbuilt: no `probes/` directory exists under
+`packages/design-sandbox/src/scenes/canvas/` (its contents are `seed-notes.ts`,
+`seed-docs.ts`, `seed-sheets.ts`, `yorkie-offline.tsx`, `engine-modules.d.ts`).
+Struck rather than ticked.
+
+- ~~A **probe registry** in `frame-picker.ts`: when a click's stamped node is a
+  registered canvas host, ask an engine probe `(x, y) → CanvasHit | null`
+  instead of stopping at the container `<div>`.~~
+- ~~`src/scenes/canvas/probes/*.ts` — one per engine, each calling that engine's
+  OWN exported hit-test (finding 4). `CanvasHit = { kind, label, rect (frame
+  px), themeKeys[], detail }`.~~
+- ~~New `wb:canvas-select` frame→host message alongside `wb:select`. The existing
+  `data-wb-overlay` boxes and `onSelectionHostRect` anchoring are reused
+  unchanged — the overlay is already DOM-not-outline (§7.11), so the rect just
+  comes from engine geometry instead of `getBoundingClientRect()`.~~
+- ~~`FloatingClassEditor` gains a **canvas variant**: the engine theme keys that
+  painted this object, each editable as an existing `palette-value` /
+  `token-value` intent, plus read-only geometry. No Tailwind class controls —
+  offering them would be a lie about where the edit lands.~~
+- ~~Generalise the CP3.5 click-to-cycle: cell → range → the canvas host node, so
+  **the last step of the canvas cycle drops you back into DOM-land**. Slides'
+  `hitTestSlide` already returns a path through groups, giving a natural
+  ancestor chain; sheets has none, so it escapes in one step.~~
+- ~~Picking ON must keep `preventDefault` so the engine does not also scroll or
+  select. Already the behaviour — confirm it survives the probe path.~~
 
 ### CP4.5 — The theme bridge
 
@@ -495,8 +503,19 @@ mutation kind, a new endpoint, or any server change.
 
 ### CP4.6 — Verification + doc closeout
 
-- [ ] `scripts/smoke-canvas.ts` — pure logic, no DOM: probe-registry dispatch,
-      theme-delta substitution, seeder → root shape. Added to `pnpm … smoke`.
+- ~~`scripts/smoke-canvas.ts` — pure logic, no DOM: probe-registry dispatch,
+  theme-delta substitution, seeder → root shape. Added to `pnpm … smoke`.~~ —
+  **dropped (superseded), v0.6.10 audit.** The file does not exist and the
+  script it names does not either: `packages/design-sandbox/package.json:7-14`
+  declares only `verify:tokens` and `verify:scenes`, no `smoke`.
+  `docs/tasks/archive/2026/08/20260819-design-sandbox-scene-half-todo.md:136`
+  records `scripts/{smoke-scene,smoke-canvas,smoke-layout}.ts` as superseded by
+  `verify-consumer` + `verify-frame` + `verify-scenes`. Dangling references to
+  the deleted file survive in
+  `packages/design-sandbox/src/scenes/canvas/yorkie-offline.tsx:131` and
+  `seed-sheets.ts:37,65`, and in
+  `docs/design/design-editor/design-editor-engine.md:64,2035,2046` — worth a
+  separate sweep, not this release's.
 - [x] A pinned check that the detached-document invariants of finding 1 still hold,
       so a Yorkie bump fails loudly here instead of silently in every canvas scene.
 - [ ] Extend `verify:frame` and `verify-bridge.mjs` to the canvas frames; new
