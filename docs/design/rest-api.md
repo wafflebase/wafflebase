@@ -18,8 +18,8 @@ which consumes this surface — lives in [cli.md](cli.md).
 
 - Let external systems (scripts, integrations, other services) access
   document and cell data without a browser session.
-- Provide a workspace-scoped API key that owners can create, list, and
-  revoke from the web UI.
+- Provide a workspace-scoped API key that any member can create, list, and
+  revoke from the web UI, carrying that member's own authority.
 - Expose full CRUD for documents, tabs, and cells through a stable,
   versioned REST API.
 - Provide read/write access to word-processor (Docs) content via a
@@ -69,13 +69,35 @@ at creation time. Only the SHA-256 hash is stored.
 ### 2. API Key Management Endpoints
 
 All management endpoints require JWT authentication (existing
-`JwtAuthGuard`) and workspace owner role.
+`JwtAuthGuard`) and workspace **membership**.
 
 ```
 POST   /workspaces/:workspaceId/api-keys       Create key (returns raw key once)
 GET    /workspaces/:workspaceId/api-keys       List keys (prefix only, no hash)
 DELETE /workspaces/:workspaceId/api-keys/:id   Revoke key (sets revokedAt)
 ```
+
+Membership, rather than ownership, is the right bar because of step 5 of the
+authentication flow below: a key's request identity is `createdBy`, so it acts
+as **the member who minted it** and not as the workspace. `WorkspaceScopeGuard`
+re-checks that membership per request, and `/api/v1` carries no
+workspace-administration routes, so a member's key reaches nothing that member
+cannot already reach through the web UI. An owner-only gate therefore prevented
+no privilege, and only kept members off the CLI and the v1 API.
+
+What the role does decide is **whose** keys you administer. The controller
+reads it off the member row `assertMember` already returns and passes a scope
+down to the service:
+
+| Caller | `GET` returns | `DELETE` accepts |
+| --- | --- | --- |
+| member | keys they minted | keys they minted |
+| owner | every key in the workspace | any key in the workspace |
+
+A key outside the caller's scope answers `404`, not `403`. The two are
+indistinguishable to a caller who cannot see the key either way, and `403`
+would confirm that another member's integration exists — workspace information
+that a scoping rule has no business disclosing.
 
 ### 3. Authentication Flow
 
@@ -533,10 +555,12 @@ Renaming is open to any member; moving and deleting are manager-only
 (workspace owner or the folder's author). An API key is **not** waved past
 that bar: it carries the authority of the user who minted it
 (`ApiKey.createdBy`), resolved against their membership at request time rather
-than at mint time. A key is mintable only by a workspace owner
-(`assertOwner`), so a live owner's key manages the whole tree as before, while
-a key whose minter was demoted or removed no longer moves or deletes other
-people's folders.
+than at mint time. So a live owner's key manages the whole tree, a plain
+member's key renames but does not move or delete somebody else's folder, and a
+key whose minter was demoted or removed does neither — the same answer the web
+UI gives each of them. That per-request resolution is exactly why minting is
+open to every member (§2): the bar a key clears is its minter's, not its
+mint-time role's.
 
 The removal half is enforced twice, deliberately.
 `WorkspaceService.removeMember` revokes (`revokedAt`) every key the removed

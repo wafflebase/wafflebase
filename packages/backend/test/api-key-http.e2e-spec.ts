@@ -152,7 +152,7 @@ describeDb('API Key HTTP integration', () => {
       .expect(401);
   });
 
-  it('rejects API key management for non-owners', async () => {
+  it('scopes API key management to the minter, and to the owner', async () => {
     const owner = await createUser();
     const member = await createUser();
     const workspace = await createWorkspace(prisma, owner.id);
@@ -160,18 +160,72 @@ describeDb('API Key HTTP integration', () => {
       data: { workspaceId: workspace.id, userId: member.id, role: 'member' },
     });
 
-    // Member cannot create API keys
-    await request(app.getHttpServer())
+    // A plain member mints their own key. The key carries that member's
+    // authority and nothing more, so ownership is not the bar here.
+    const memberKey = await request(app.getHttpServer())
       .post(`/workspaces/${workspace.id}/api-keys`)
       .set('Cookie', authCookie(member))
-      .send({ name: 'unauthorized' })
-      .expect(403);
+      .send({ name: 'member key' })
+      .expect(201);
 
-    // Member can list API keys
-    await request(app.getHttpServer())
+    const ownerKey = await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/api-keys`)
+      .set('Cookie', authCookie(owner))
+      .send({ name: 'owner key' })
+      .expect(201);
+
+    // The member sees only what they minted...
+    const memberList = await request(app.getHttpServer())
       .get(`/workspaces/${workspace.id}/api-keys`)
       .set('Cookie', authCookie(member))
       .expect(200);
+    expect(memberList.body.map((k: { name: string }) => k.name)).toEqual([
+      'member key',
+    ]);
+
+    // ...while the owner administers every key in the workspace.
+    const ownerList = await request(app.getHttpServer())
+      .get(`/workspaces/${workspace.id}/api-keys`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(ownerList.body.map((k: { name: string }) => k.name).sort()).toEqual([
+      'member key',
+      'owner key',
+    ]);
+
+    // Somebody else's key answers 404, not 403: whether this workspace holds
+    // another member's integration is itself workspace information.
+    await request(app.getHttpServer())
+      .delete(`/workspaces/${workspace.id}/api-keys/${ownerKey.body.id}`)
+      .set('Cookie', authCookie(member))
+      .expect(404);
+
+    // The member revokes their own, and the owner revokes anyone's.
+    await request(app.getHttpServer())
+      .delete(`/workspaces/${workspace.id}/api-keys/${memberKey.body.id}`)
+      .set('Cookie', authCookie(member))
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete(`/workspaces/${workspace.id}/api-keys/${ownerKey.body.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+  });
+
+  it('rejects API key management for non-members', async () => {
+    const owner = await createUser();
+    const outsider = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
+
+    await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/api-keys`)
+      .set('Cookie', authCookie(outsider))
+      .send({ name: 'unauthorized' })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get(`/workspaces/${workspace.id}/api-keys`)
+      .set('Cookie', authCookie(outsider))
+      .expect(403);
   });
 
   it('v1 documents endpoint works with JWT auth too', async () => {

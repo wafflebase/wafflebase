@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import { ApiKeyService } from './api-key.service';
 import { createHash } from 'crypto';
@@ -10,6 +10,7 @@ function createMockPrisma() {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
 }
@@ -87,23 +88,81 @@ describe('ApiKeyService', () => {
           name: true,
           prefix: true,
           scopes: true,
+          createdBy: true,
           createdAt: true,
           expiresAt: true,
           lastUsedAt: true,
         },
       });
     });
+
+    it('narrows to the caller when a creator scope is given', async () => {
+      prisma.apiKey.findMany.mockResolvedValue([]);
+
+      await service.list('ws-1', { createdBy: 7 });
+
+      expect(prisma.apiKey.findMany.mock.calls[0][0].where).toEqual({
+        workspaceId: 'ws-1',
+        revokedAt: null,
+        createdBy: 7,
+      });
+    });
+
+    it('does not narrow when the scope is empty, as it is for an owner', async () => {
+      prisma.apiKey.findMany.mockResolvedValue([]);
+
+      await service.list('ws-1', {});
+
+      expect(prisma.apiKey.findMany.mock.calls[0][0].where).toEqual({
+        workspaceId: 'ws-1',
+        revokedAt: null,
+      });
+    });
   });
 
   describe('revoke', () => {
     it('sets revokedAt on the key', async () => {
-      prisma.apiKey.update.mockResolvedValue({ id: 'k1', revokedAt: new Date() });
+      prisma.apiKey.updateMany.mockResolvedValue({ count: 1 });
+      prisma.apiKey.findUnique.mockResolvedValue({ id: 'k1' });
 
       await service.revoke('k1', 'ws-1');
 
-      const updateArg = prisma.apiKey.update.mock.calls[0][0];
+      const updateArg = prisma.apiKey.updateMany.mock.calls[0][0];
       expect(updateArg.where).toEqual({ id: 'k1', workspaceId: 'ws-1' });
       expect(updateArg.data.revokedAt).toBeInstanceOf(Date);
+    });
+
+    it('returns the revoked key without its hash, which callers report', async () => {
+      prisma.apiKey.updateMany.mockResolvedValue({ count: 1 });
+      prisma.apiKey.findUnique.mockResolvedValue({ id: 'k1', name: 'CI' });
+
+      const result = await service.revoke('k1', 'ws-1');
+
+      expect(result).toEqual({ id: 'k1', name: 'CI' });
+      expect(
+        prisma.apiKey.findUnique.mock.calls[0][0].select.hashedKey,
+      ).toBeUndefined();
+    });
+
+    it('revokes only the caller-owned key when a creator scope is given', async () => {
+      prisma.apiKey.updateMany.mockResolvedValue({ count: 1 });
+      prisma.apiKey.findUnique.mockResolvedValue({ id: 'k1' });
+
+      await service.revoke('k1', 'ws-1', { createdBy: 7 });
+
+      expect(prisma.apiKey.updateMany.mock.calls[0][0].where).toEqual({
+        id: 'k1',
+        workspaceId: 'ws-1',
+        createdBy: 7,
+      });
+    });
+
+    it("answers 404 rather than 403 for another member's key", async () => {
+      prisma.apiKey.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.revoke('k1', 'ws-1', { createdBy: 7 }),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 

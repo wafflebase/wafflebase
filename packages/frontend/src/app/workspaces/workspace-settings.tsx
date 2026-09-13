@@ -140,11 +140,19 @@ export default function WorkspaceSettings() {
     onError: () => toast.error("Failed to remove member"),
   });
 
+  // Every member mints and manages their own keys, so this is not gated on
+  // ownership. The server narrows the listing to the caller's own keys unless
+  // they own the workspace, in which case it returns all of them.
   const { data: apiKeys = [] } = useQuery<ApiKey[]>({
     queryKey: ["workspaces", workspaceId, "api-keys"],
     queryFn: () => fetchApiKeys(workspaceId!),
-    enabled: !!workspaceId && !!isOwner,
+    enabled: !!workspaceId,
   });
+
+  /** Resolves a key's creator to a display name for the owner-only column. */
+  const creatorName = (userId: number) =>
+    workspace?.members.find((m) => m.user.id === userId)?.user.username ??
+    "Unknown";
 
   const createApiKeyMutation = useMutation({
     mutationFn: (data: { name: string }) => createApiKey(workspaceId!, data),
@@ -422,78 +430,79 @@ export default function WorkspaceSettings() {
       )}
 
       {/* API Keys */}
-      {isOwner && (
-        <>
-          <Separator />
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">API Keys</h2>
-                <p className="text-sm text-muted-foreground">
-                  Create API keys for programmatic access via the CLI or REST
-                  API.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => setCreateKeyDialogOpen(true)}
-                className="flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Create API Key
-              </Button>
-            </div>
-            {apiKeys.length > 0 ? (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Key</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Last Used</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {apiKeys.map((apiKey) => (
-                      <TableRow key={apiKey.id}>
-                        <TableCell>{apiKey.name}</TableCell>
-                        <TableCell className="font-mono text-sm text-muted-foreground">
-                          {apiKey.prefix}...
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {new Date(apiKey.createdAt).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {apiKey.lastUsedAt
-                            ? new Date(apiKey.lastUsedAt).toLocaleDateString()
-                            : "Never"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            aria-label="Revoke API key"
-                            onClick={() =>
-                              revokeApiKeyMutation.mutate(apiKey.id)
-                            }
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No API keys.</p>
-            )}
-          </section>
-        </>
-      )}
+      <Separator />
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">API Keys</h2>
+            <p className="text-sm text-muted-foreground">
+              {isOwner
+                ? "Create API keys for programmatic access via the CLI or REST API. As the workspace owner you can see and revoke every member's keys."
+                : "Create API keys for programmatic access via the CLI or REST API. A key acts as you, and only you and the workspace owner can see it."}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setCreateKeyDialogOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Create API Key
+          </Button>
+        </div>
+        {apiKeys.length > 0 ? (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Key</TableHead>
+                  {isOwner && <TableHead>Created by</TableHead>}
+                  <TableHead>Created</TableHead>
+                  <TableHead>Last Used</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {apiKeys.map((apiKey) => (
+                  <TableRow key={apiKey.id}>
+                    <TableCell>{apiKey.name}</TableCell>
+                    <TableCell className="font-mono text-sm text-muted-foreground">
+                      {apiKey.prefix}...
+                    </TableCell>
+                    {isOwner && (
+                      <TableCell className="text-sm text-muted-foreground">
+                        {creatorName(apiKey.createdBy)}
+                      </TableCell>
+                    )}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {new Date(apiKey.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {apiKey.lastUsedAt
+                        ? new Date(apiKey.lastUsedAt).toLocaleDateString()
+                        : "Never"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        aria-label="Revoke API key"
+                        onClick={() => revokeApiKeyMutation.mutate(apiKey.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No API keys.</p>
+        )}
+      </section>
 
       {/* Danger Zone */}
       {isOwner && <Separator />}

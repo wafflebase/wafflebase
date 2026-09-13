@@ -336,9 +336,11 @@ wafflebase api-keys create "CI Key"   # create key using JWT
    Or in config.yaml / environment variable
 ```
 
-The web UI already supports API key create, list, copy, and revoke
-(owner-only, at
-`packages/frontend/src/app/workspaces/workspace-settings.tsx`).
+The web UI already supports API key create, list, copy, and revoke for any
+workspace member, at
+`packages/frontend/src/app/workspaces/workspace-settings.tsx`. A member sees
+and revokes the keys they minted; the workspace owner sees and revokes all of
+them.
 
 #### 3.3 Auth resolution order
 

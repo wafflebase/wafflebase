@@ -178,9 +178,10 @@ export class ApiV1DocumentsController {
     });
     // Only a manager — the workspace owner or the document's author — may
     // delete. An API key carries the authority of the user who minted it,
-    // resolved against their membership *now*: a key is minted by a workspace
-    // owner (`assertOwner`), so this costs a live owner's key nothing, and a
-    // key whose minter was demoted or removed no longer deletes anything.
+    // resolved against their membership *now* rather than at mint time. Any
+    // member may mint one, so the role is read here and not assumed: a live
+    // owner's key deletes as before, a plain member's key deletes only their
+    // own documents, and a key whose minter was removed deletes nothing.
     // `ApiKeyWriteScopeGuard` has already rejected a key without the `write`
     // scope before this handler runs; that is a separate gate.
     const userId = Number(req.user.id);

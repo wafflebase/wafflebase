@@ -670,9 +670,27 @@ All API key endpoints require JWT authentication.
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `POST` | `/workspaces/:wid/api-keys` | JWT (Owner) | Create API key (returns raw key once) |
-| `GET` | `/workspaces/:wid/api-keys` | JWT (Member) | List non-revoked API keys |
-| `DELETE` | `/workspaces/:wid/api-keys/:id` | JWT (Owner) | Revoke API key (soft-delete) |
+| `POST` | `/workspaces/:wid/api-keys` | JWT (Member) | Create API key (returns raw key once) |
+| `GET` | `/workspaces/:wid/api-keys` | JWT (Member) | List non-revoked API keys — own, or all for an owner |
+| `DELETE` | `/workspaces/:wid/api-keys/:id` | JWT (Member) | Revoke API key (soft-delete) — own, or any for an owner |
+
+Minting is open to **any member**, not just the owner. A key authenticates as
+the user who created it (`ApiKeyStrategy` puts `createdBy` into the request
+identity) and `WorkspaceScopeGuard` re-checks that membership on every request,
+so a member's key carries exactly the authority that member already holds in the
+web UI — and `/api/v1` exposes no workspace administration for it to reach.
+Gating minting on ownership bought no safety; it only shut members out of the
+CLI and the v1 API.
+
+Visibility and revocation are scoped by creator instead: a member sees and
+revokes their own keys, an owner administers every key in the workspace. A
+member naming somebody else's key gets **404, not 403** — whether this
+workspace holds another member's integration is itself workspace information,
+and there is no reason to leak it in order to justify a refusal.
+
+A key dies with the membership that justified it:
+`WorkspaceService.removeMember` revokes the departing member's keys outright,
+and `WorkspaceScopeGuard` refuses any that survive out of band.
 
 ### REST API v1 (`/api/v1/`)
 
