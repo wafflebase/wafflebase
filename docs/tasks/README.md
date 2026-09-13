@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| release v0.6.10 (2026-09-13) | [20260913-release-v0.6.10-todo.md](./active/20260913-release-v0.6.10-todo.md) | [20260913-release-v0.6.10-lessons.md](./active/20260913-release-v0.6.10-lessons.md) |
 | slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./active/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./active/20260905-slides-board-touch-input-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
 | class b backend endpoints (2026-09-04) | [20260904-class-b-backend-endpoints-todo.md](./active/20260904-class-b-backend-endpoints-todo.md) | [20260904-class-b-backend-endpoints-lessons.md](./active/20260904-class-b-backend-endpoints-lessons.md) |
@@ -50,7 +49,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 602
+- Archived task count: 603
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.6.10 (2026-09-13)
+Latest active task: slides board touch input (2026-09-05)

@@ -212,11 +212,11 @@ No command can close these.
 
 | Area | Items | Evidence |
 | --- | --- | --- |
-| Comments | 6 | No comment controller under `/api/v1`; comments live in the Yorkie CRDT and never pass through the backend |
-| Slide granular editing | 5 | No add / duplicate / delete / move-slide or list-layouts endpoint — only the whole-document `PUT content` |
-| Tab rearrange | 3 | `tabs.controller.ts` declares `@Get` · `@Post` · `@Patch(':tabId')` (rename) only — there is no DELETE |
-| Sheet floating images | 2 | `/api/v1` has workspace image upload/read only; no per-worksheet image endpoint |
-| Board | 2 | `docs-content.controller.ts:94` rejects any type that is not `doc` / `slides` / `note` |
+| Comments | 6 | ~~No comment controller under `/api/v1`~~ — **closed by #1022.** `api/v1/comments.controller.ts:113`, seven routes (list, create, reply, patch thread, patch comment, delete thread, delete comment). Threads still live in the Yorkie CRDT; the controller reaches them through `yorkie/comment-ops.ts` |
+| Slide granular editing | 5 | ~~No add / duplicate / delete / move-slide or list-layouts endpoint~~ — **closed by #1022.** `api/v1/slides.controller.ts`: `@Get('layouts')` :79, `@Post('slides')` :96, `duplicate` :113, `move` :125, `@Delete` :142 |
+| Tab rearrange | 3 | ~~there is no DELETE~~ — **closed by #1022.** `api/v1/tabs.controller.ts:161` `@Delete(':tabId')`, `:211` `@Post(':tabId/reorder')`, `:242` `@Post(':tabId/duplicate')` |
+| Sheet floating images | 2 | ~~no per-worksheet image endpoint~~ — **closed by #1022.** `api/v1/worksheet-images.controller.ts:53` `@Get('images')`, `:80` `@Put('images')` |
+| Board | 2 | ~~`docs-content.controller.ts:94` rejects any type that is not `doc` / `slides` / `note`~~ — **closed by #1022.** `api/v1/docs-content.controller.ts:80` now types `ContentType = 'doc' | 'slides' | 'note' | 'board'` |
 
 #### C — host-dependent (2)
 

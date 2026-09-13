@@ -1,5 +1,19 @@
 # TODO — External Data Sources (Epic index)
 
+> **Do not archive this file without first rewriting three design docs.**
+> `docs/design/sheets/{file-import,bigquery-connector,mysql-connector}.md` each
+> link to it twice by the relative path `../../tasks/active/20260625-sheets-external-data-sources-todo.md`.
+> `scripts/verify-doc-links.mjs` walks the graph reachable from `CLAUDE.md` /
+> `AGENTS.md` / `README.md`, which reaches those docs, and `pnpm verify:doc-links`
+> is a lane of `pnpm verify:fast`. So moving this file does not merely strand a
+> link — it **fails the pre-commit gate**. Retarget those six links in the same
+> commit as the move.
+>
+> The remaining box is also gated on all four sub-roadmaps (file-import,
+> lakehouse, bigquery, mysql), every one of which still has open boxes, and it
+> is self-referential: it instructs the archive it is blocking.
+
+
 Umbrella for the three "Connected Sheets over the open stack" roadmaps. This
 file is the **map**: strategy, master dependency graph, and links to each
 roadmap's design doc (architecture) and task doc (execution).
