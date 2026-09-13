@@ -6,12 +6,28 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 585
+Total archived tasks: 601
 
-## 2026/09 (10 tasks)
+## 2026/09 (26 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| member api keys (2026-09-13) | [20260913-member-api-keys-todo.md](./2026/09/20260913-member-api-keys-todo.md) | - |
+| sheets paste merge propagation (2026-09-12) | [20260912-sheets-paste-merge-propagation-todo.md](./2026/09/20260912-sheets-paste-merge-propagation-todo.md) | [20260912-sheets-paste-merge-propagation-lessons.md](./2026/09/20260912-sheets-paste-merge-propagation-lessons.md) |
+| agent rerun inflight ci (2026-09-10) | [20260910-agent-rerun-inflight-ci-todo.md](./2026/09/20260910-agent-rerun-inflight-ci-todo.md) | [20260910-agent-rerun-inflight-ci-lessons.md](./2026/09/20260910-agent-rerun-inflight-ci-lessons.md) |
+| agent fix timeout latch (2026-09-09) | [20260909-agent-fix-timeout-latch-todo.md](./2026/09/20260909-agent-fix-timeout-latch-todo.md) | - |
+| yorkie 0720 bump (2026-09-09) | [20260909-yorkie-0720-bump-todo.md](./2026/09/20260909-yorkie-0720-bump-todo.md) | [20260909-yorkie-0720-bump-lessons.md](./2026/09/20260909-yorkie-0720-bump-lessons.md) |
+| docs clear formatting keeps links (2026-09-08) | [20260908-docs-clear-formatting-keeps-links-todo.md](./2026/09/20260908-docs-clear-formatting-keeps-links-todo.md) | [20260908-docs-clear-formatting-keeps-links-lessons.md](./2026/09/20260908-docs-clear-formatting-keeps-links-lessons.md) |
+| docs list level subtree (2026-09-08) | [20260908-docs-list-level-subtree-todo.md](./2026/09/20260908-docs-list-level-subtree-todo.md) | [20260908-docs-list-level-subtree-lessons.md](./2026/09/20260908-docs-list-level-subtree-lessons.md) |
+| docs highlight gaps (2026-09-07) | [20260907-docs-highlight-gaps-todo.md](./2026/09/20260907-docs-highlight-gaps-todo.md) | [20260907-docs-highlight-gaps-lessons.md](./2026/09/20260907-docs-highlight-gaps-lessons.md) |
+| docs link text and snap (2026-09-07) | [20260907-docs-link-text-and-snap-todo.md](./2026/09/20260907-docs-link-text-and-snap-todo.md) | [20260907-docs-link-text-and-snap-lessons.md](./2026/09/20260907-docs-link-text-and-snap-lessons.md) |
+| docs select all type undo (2026-09-07) | [20260907-docs-select-all-type-undo-todo.md](./2026/09/20260907-docs-select-all-type-undo-todo.md) | [20260907-docs-select-all-type-undo-lessons.md](./2026/09/20260907-docs-select-all-type-undo-lessons.md) |
+| notes share toolbar (2026-09-07) | [20260907-notes-share-toolbar-todo.md](./2026/09/20260907-notes-share-toolbar-todo.md) | [20260907-notes-share-toolbar-lessons.md](./2026/09/20260907-notes-share-toolbar-lessons.md) |
+| share link image upload (2026-09-07) | [20260907-share-link-image-upload-todo.md](./2026/09/20260907-share-link-image-upload-todo.md) | [20260907-share-link-image-upload-lessons.md](./2026/09/20260907-share-link-image-upload-lessons.md) |
+| slides panel wh rotated anchor (2026-09-07) | [20260907-slides-panel-wh-rotated-anchor-todo.md](./2026/09/20260907-slides-panel-wh-rotated-anchor-todo.md) | [20260907-slides-panel-wh-rotated-anchor-lessons.md](./2026/09/20260907-slides-panel-wh-rotated-anchor-lessons.md) |
+| miro import fidelity (2026-09-06) | [20260906-miro-import-fidelity-todo.md](./2026/09/20260906-miro-import-fidelity-todo.md) | [20260906-miro-import-fidelity-lessons.md](./2026/09/20260906-miro-import-fidelity-lessons.md) |
+| cells ref validation (2026-09-05) | [20260905-cells-ref-validation-todo.md](./2026/09/20260905-cells-ref-validation-todo.md) | - |
+| release v0.6.9 (2026-09-05) | [20260905-release-v0.6.9-todo.md](./2026/09/20260905-release-v0.6.9-todo.md) | [20260905-release-v0.6.9-lessons.md](./2026/09/20260905-release-v0.6.9-lessons.md) |
 | loading indicator unification (2026-09-04) | [20260904-loading-indicator-unification-todo.md](./2026/09/20260904-loading-indicator-unification-todo.md) | [20260904-loading-indicator-unification-lessons.md](./2026/09/20260904-loading-indicator-unification-lessons.md) |
 | template gallery seed (2026-09-04) | [20260904-template-gallery-seed-todo.md](./2026/09/20260904-template-gallery-seed-todo.md) | [20260904-template-gallery-seed-lessons.md](./2026/09/20260904-template-gallery-seed-lessons.md) |
 | templates gallery marketing skin (2026-09-04) | [20260904-templates-gallery-marketing-skin-todo.md](./2026/09/20260904-templates-gallery-marketing-skin-todo.md) | [20260904-templates-gallery-marketing-skin-lessons.md](./2026/09/20260904-templates-gallery-marketing-skin-lessons.md) |

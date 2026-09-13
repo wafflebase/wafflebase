@@ -27,8 +27,10 @@ endpoints, the `tokenType === 'access'` replay guard, the shared rawBody scope,
 and both frontend injectors are all implemented and wired. What remains
 operational (not code) is registering the webhook methods on the Yorkie
 project. Enforcement itself is the **default**: `YORKIE_AUTH_WEBHOOK_ENFORCE`
-selects shadow mode only when it is set to the literal `false`, so an install
-that registers the methods and configures nothing else denies. The sections
+selects shadow mode only when it is set to `false` (trimmed and compared
+case-insensitively, so `FALSE` and ` false ` select it too — nothing else
+does), so an install that registers the methods and configures nothing else
+denies. The sections
 below describe the design as built.
 
 ## Goals / Non-Goals
@@ -256,8 +258,10 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
   write paths and no one else's; they are correctness boundaries, not access
   control, and no feature should be reviewed as if they were. **Mitigation:**
   shadow mode is no longer the default — `isYorkieAuthEnforced`
-  (`src/yorkie/yorkie-auth-enforcement.ts`) reads only the literal `false` as
-  shadow, so registering the methods and configuring nothing else denies, and a
+  (`src/yorkie/yorkie-auth-enforcement.ts`) reads only `false` as shadow —
+  `raw?.trim().toLowerCase() !== 'false'`, so the spelling is case- and
+  whitespace-insensitive but nothing other than that word turns enforcement
+  off — so registering the methods and configuring nothing else denies, and a
   typo lands on the side that denies rather than the side that opens. Shadow
   stays reachable because it is the instrument for the verb question below, but
   it must now be asked for. On top of that the controller logs its posture at

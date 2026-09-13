@@ -100,12 +100,14 @@ YORKIE_TOKEN_EXPIRES_IN=10m             # Optional, lifetime of the short-lived
                                         # GET /auth/yorkie-token.
 YORKIE_AUTH_WEBHOOK_ENFORCE=            # Optional. Unset (the default) =
                                         # enforce per-document access at the
-                                        # Yorkie auth webhook. The literal
-                                        # `false`, and only that, selects
+                                        # Yorkie auth webhook. The word
+                                        # `false` — trimmed and matched
+                                        # case-insensitively, so `FALSE`
+                                        # counts — and nothing else selects
                                         # shadow mode: log the access decision
-                                        # but never deny. A typo therefore
-                                        # enforces rather than opening the
-                                        # door.
+                                        # but never deny. A typo in any other
+                                        # direction therefore enforces rather
+                                        # than opening the door.
 WAFFLEBASE_API_ORIGIN=                  # Optional, this deployment's own public
                                         # API origin (scheme + host + port).
                                         # Used to decide whether an absolute

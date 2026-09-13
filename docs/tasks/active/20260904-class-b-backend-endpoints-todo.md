@@ -21,27 +21,42 @@ attaches to.
 
 ## Steps
 
-1. [x] Plan (this file) + design-doc status note.
-2. [ ] `yorkie/comment-ops.ts` (pure) + `api/v1/comments.controller.ts` —
-       sheet (`sheets[tab].comments`), doc and pdf (`root.comments`) storage.
-       Author resolved from the authenticated caller; timestamps written
-       through the same BigInt boundary the frontend stores use.
-3. [ ] `yorkie/slide-ops.ts` (pure, over `MemSlidesStore`) +
-       `api/v1/slides.controller.ts`. Persist `root.slides` only, so the
-       `meta` fields `readSlidesRoot` drops are not lost.
-4. [ ] `yorkie/tab-ops.ts` gains delete / move / duplicate resolutions +
-       routes on `tabs.controller.ts`.
-5. [ ] `yorkie/worksheet-images.ts` (`parseImages`) +
-       `api/v1/worksheet-images.controller.ts`.
-6. [ ] `yorkie/board-tree.ts` + a `board` arm in `docs-content.controller.ts`.
-7. [ ] CLI: `comments` namespace, `slides slides|layouts`,
-       `sheets tabs delete|move|duplicate`, `sheets images`,
-       `board content|set-content`; one `schema/registry.ts` entry each.
-8. [ ] Unit tests for every pure op + controller specs; CLI command tests.
-9. [ ] Docs: `docs/design/agentic-office-workflow.md` class-B status note,
-       `docs/design/cli.md`, `docs/design/rest-api.md`,
-       `packages/backend/README.md`, `packages/cli/README.md` if it lists
-       commands.
+> **v0.6.10 audit — the markers changed, the claims did not.** These steps were
+> written as an ordered list (`1. [x]`), which `scripts/tasks-archive.mjs` could
+> not see: its `uncheckedTodoPattern` required a `-` bullet, so a task with eight
+> open steps read to the tooling as a task with none, and the next
+> `pnpm tasks:archive` would have filed it as finished. The scanner now accepts
+> every CommonMark list marker, and these steps are rewritten as bullets so the
+> two agree. Steps 2–8 are ticked because the code was found and read (evidence
+> inline); step 1 is **un**ticked and step 9 stays open, because the design-doc
+> status note both of them promise does not exist.
+
+- [ ] Plan (this file) + design-doc status note. The plan half is done — this
+      file. The status-note half is not, and it is the same artifact step 9
+      asks for, so this box cannot be ticked until step 9 is:
+      `docs/design/agentic-office-workflow.md:215` still states in the present
+      tense that there is "No comment controller under `/api/v1`", which has
+      been false since #1022 merged.
+- [x] `yorkie/comment-ops.ts` (pure) + `api/v1/comments.controller.ts` —
+      sheet (`sheets[tab].comments`), doc and pdf (`root.comments`) storage.
+      Author resolved from the authenticated caller; timestamps written
+      through the same BigInt boundary the frontend stores use.
+- [x] `yorkie/slide-ops.ts` (pure, over `MemSlidesStore`) +
+      `api/v1/slides.controller.ts`. Persist `root.slides` only, so the
+      `meta` fields `readSlidesRoot` drops are not lost.
+- [x] `yorkie/tab-ops.ts` gains delete / move / duplicate resolutions +
+      routes on `tabs.controller.ts`.
+- [x] `yorkie/worksheet-images.ts` (`parseImages`) +
+      `api/v1/worksheet-images.controller.ts`.
+- [x] `yorkie/board-tree.ts` + a `board` arm in `docs-content.controller.ts`.
+- [x] CLI: `comments` namespace, `slides slides|layouts`,
+      `sheets tabs delete|move|duplicate`, `sheets images`,
+      `board content|set-content`; one `schema/registry.ts` entry each.
+- [x] Unit tests for every pure op + controller specs; CLI command tests.
+- [ ] Docs: `docs/design/agentic-office-workflow.md` class-B status note,
+      `docs/design/cli.md`, `docs/design/rest-api.md`,
+      `packages/backend/README.md`, `packages/cli/README.md` if it lists
+      commands.
 
 ## Decisions
 

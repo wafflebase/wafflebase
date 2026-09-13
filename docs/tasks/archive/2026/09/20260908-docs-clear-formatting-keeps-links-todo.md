@@ -41,9 +41,14 @@ a cleared link simply falls back to the default link rendering.
 
 ## Acceptance criteria
 
-- [ ] Clear formatting over a range covering a link keeps the `href`.
-- [ ] Clear formatting still wipes bold/italic/underline/color/size, including
+- [x] Clear formatting over a range covering a link keeps the `href`.
+      **v0.6.10 audit — verified by reading the code:** `packages/docs/src/model/types.ts:300` `CLEAR_INLINE_STYLE` — 14 keys, no `href`; decision recorded at :283-298. Tests `test/view/editor-clear-formatting.test.ts:179,211`.
+- [x] Clear formatting still wipes bold/italic/underline/color/size, including
       a custom colour or underline authored on the linked run.
-- [ ] Toolbar button and Cmd+\ shortcut behave identically.
-- [ ] Same behaviour in the slides text-box editor.
-- [ ] `removeLink` is still the way to drop a hyperlink.
+      **v0.6.10 audit — verified by reading the code:** same literal, `types.ts:301-314`: bold/italic/underline/underlineStyle/underlineColor/strikethrough/strikeStyle/letterSpacing/fontSize/fontFamily/color/backgroundColor/superscript/subscript all `undefined`.
+- [x] Toolbar button and Cmd+\ shortcut behave identically.
+      **v0.6.10 audit — verified by reading the code:** both read the one constant: `view/editor.ts:3573` and `view/text-editor.ts:3541` → :3555 / :3560. The drifted hand-rolled list is gone (comment :3535-3539).
+- [x] Same behaviour in the slides text-box editor.
+      **v0.6.10 audit — verified by reading the code:** `packages/docs/src/view/text-box-editor.ts:1124`. Tests `test/view/text-box-clear-formatting.test.ts:143,230`.
+- [x] `removeLink` is still the way to drop a hyperlink.
+      **v0.6.10 audit — verified by reading the code:** `view/editor.ts:218`/:3951 and `view/text-box-editor.ts:314`/:1278. Tests `text-box-clear-formatting.test.ts:158,168,185`.

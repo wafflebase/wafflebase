@@ -9,7 +9,13 @@ const activeDir = path.resolve(tasksDir, 'active');
 const archiveDir = path.resolve(tasksDir, 'archive');
 
 const taskFilePattern = /^(\d{8})-(.+)-(todo|lessons)\.md$/;
-const uncheckedTodoPattern = /^\s*-\s*\[ \]/m;
+// An open box keeps a task active. Markdown lets a task list item hang off an
+// ordered marker (`1. [ ]`) as readily as a bullet, and GitHub renders both
+// identically, so matching only `-` made a task with nine numbered steps look
+// like a task with no steps at all: `20260904-class-b-backend-endpoints-todo.md`
+// had eight of them open and this script would have archived it as finished.
+// Accept every list marker CommonMark does — `-`, `*`, `+`, `N.` and `N)`.
+const uncheckedTodoPattern = /^\s*(?:[-*+]|\d{1,9}[.)])\s*\[ \]/m;
 
 function parseTaskFilename(filename) {
   const match = filename.match(taskFilePattern);

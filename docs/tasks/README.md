@@ -18,21 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| member api keys (2026-09-13) | [20260913-member-api-keys-todo.md](./active/20260913-member-api-keys-todo.md) | - |
-| agent rerun inflight ci (2026-09-10) | [20260910-agent-rerun-inflight-ci-todo.md](./active/20260910-agent-rerun-inflight-ci-todo.md) | [20260910-agent-rerun-inflight-ci-lessons.md](./active/20260910-agent-rerun-inflight-ci-lessons.md) |
-| agent fix timeout latch (2026-09-09) | [20260909-agent-fix-timeout-latch-todo.md](./active/20260909-agent-fix-timeout-latch-todo.md) | - |
-| yorkie 0720 bump (2026-09-09) | [20260909-yorkie-0720-bump-todo.md](./active/20260909-yorkie-0720-bump-todo.md) | [20260909-yorkie-0720-bump-lessons.md](./active/20260909-yorkie-0720-bump-lessons.md) |
-| docs clear formatting keeps links (2026-09-08) | [20260908-docs-clear-formatting-keeps-links-todo.md](./active/20260908-docs-clear-formatting-keeps-links-todo.md) | [20260908-docs-clear-formatting-keeps-links-lessons.md](./active/20260908-docs-clear-formatting-keeps-links-lessons.md) |
-| docs list level subtree (2026-09-08) | [20260908-docs-list-level-subtree-todo.md](./active/20260908-docs-list-level-subtree-todo.md) | [20260908-docs-list-level-subtree-lessons.md](./active/20260908-docs-list-level-subtree-lessons.md) |
-| docs highlight gaps (2026-09-07) | [20260907-docs-highlight-gaps-todo.md](./active/20260907-docs-highlight-gaps-todo.md) | [20260907-docs-highlight-gaps-lessons.md](./active/20260907-docs-highlight-gaps-lessons.md) |
-| docs link text and snap (2026-09-07) | [20260907-docs-link-text-and-snap-todo.md](./active/20260907-docs-link-text-and-snap-todo.md) | [20260907-docs-link-text-and-snap-lessons.md](./active/20260907-docs-link-text-and-snap-lessons.md) |
-| docs select all type undo (2026-09-07) | [20260907-docs-select-all-type-undo-todo.md](./active/20260907-docs-select-all-type-undo-todo.md) | [20260907-docs-select-all-type-undo-lessons.md](./active/20260907-docs-select-all-type-undo-lessons.md) |
-| notes share toolbar (2026-09-07) | [20260907-notes-share-toolbar-todo.md](./active/20260907-notes-share-toolbar-todo.md) | [20260907-notes-share-toolbar-lessons.md](./active/20260907-notes-share-toolbar-lessons.md) |
-| share link image upload (2026-09-07) | [20260907-share-link-image-upload-todo.md](./active/20260907-share-link-image-upload-todo.md) | [20260907-share-link-image-upload-lessons.md](./active/20260907-share-link-image-upload-lessons.md) |
-| slides panel wh rotated anchor (2026-09-07) | [20260907-slides-panel-wh-rotated-anchor-todo.md](./active/20260907-slides-panel-wh-rotated-anchor-todo.md) | [20260907-slides-panel-wh-rotated-anchor-lessons.md](./active/20260907-slides-panel-wh-rotated-anchor-lessons.md) |
-| miro import fidelity (2026-09-06) | [20260906-miro-import-fidelity-todo.md](./active/20260906-miro-import-fidelity-todo.md) | [20260906-miro-import-fidelity-lessons.md](./active/20260906-miro-import-fidelity-lessons.md) |
-| cells ref validation (2026-09-05) | [20260905-cells-ref-validation-todo.md](./active/20260905-cells-ref-validation-todo.md) | - |
-| release v0.6.9 (2026-09-05) | [20260905-release-v0.6.9-todo.md](./active/20260905-release-v0.6.9-todo.md) | [20260905-release-v0.6.9-lessons.md](./active/20260905-release-v0.6.9-lessons.md) |
+| release v0.6.10 (2026-09-13) | [20260913-release-v0.6.10-todo.md](./active/20260913-release-v0.6.10-todo.md) | [20260913-release-v0.6.10-lessons.md](./active/20260913-release-v0.6.10-lessons.md) |
 | slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./active/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./active/20260905-slides-board-touch-input-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
 | class b backend endpoints (2026-09-04) | [20260904-class-b-backend-endpoints-todo.md](./active/20260904-class-b-backend-endpoints-todo.md) | [20260904-class-b-backend-endpoints-lessons.md](./active/20260904-class-b-backend-endpoints-lessons.md) |
@@ -64,7 +50,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 585
+- Archived task count: 601
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: member api keys (2026-09-13)
+Latest active task: release v0.6.10 (2026-09-13)

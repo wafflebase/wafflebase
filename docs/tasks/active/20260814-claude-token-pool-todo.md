@@ -140,7 +140,18 @@ any failure and accept one wasted attempt.
 - [x] Roll out the SDK lane: `eval-replay` → panel
 - [x] Action lane, as its own PR: confirm composite `continue-on-error` and step-output
       masking on a real runner, then land the wrapper wired to the six workflows
-- [ ] **Reduce the untrusted-cwd credential count from nine to two** — see Review below
+- [ ] **Reduce the untrusted-cwd credential count from nine to two** — see Review below.
+      **Re-scoped by the v0.6.10 audit: this is unblocked work, not deferred work.**
+      Still genuinely open — `.github/workflows/agent-review-panel.yml:805` exports
+      `CLAUDE_CODE_OAUTH_TOKEN` and `:826`–`:833` export `_1`…`_8` in the same env
+      block, which is the nine. But the Review cites "verify the composite action on
+      a real runner" as the blocker, and the action lane did **not** ship as a
+      composite action: `.github/actions/` does not exist. It ships as a trusted
+      `cred` step plus an inline expression — `agent-fix.yml:354`,
+      `claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}`.
+      That *is* the "choose in a trusted step, hand the untrusted step two tokens"
+      mechanism this box needs, already on `main`. The blocker named in the Review
+      no longer exists.
 
 ## Review
 
