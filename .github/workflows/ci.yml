@@ -433,6 +433,21 @@ jobs:
             "wafflebase-backend-smoke-${{ matrix.arch }}" \
             test/smoke-duckdb-runtime.cjs
 
+      # This job used to prove the image had its DuckDB extensions and nothing
+      # else about it, so an image whose backend could not boot at all passed
+      # here. v0.6.10 shipped that way: the runtime stage copies each workspace
+      # package's `dist/` by hand and `slides` had no such line, so the server
+      # crash-looped on `MODULE_NOT_FOUND` in production while this job was
+      # green. Loading every `@wafflebase/*` dependency is the cheapest
+      # assertion that the image's module graph is actually complete.
+      - name: Load every workspace dependency (${{ matrix.arch }})
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          docker run --rm --network none --entrypoint node \
+            -v "$PWD/packages/backend/test/smoke-workspace-deps.cjs:/app/packages/backend/test/smoke-workspace-deps.cjs:ro" \
+            "wafflebase-backend-smoke-${{ matrix.arch }}" \
+            test/smoke-workspace-deps.cjs
+
   verify-browser:
     runs-on: ubuntu-latest
     needs: [changes, verify-self]

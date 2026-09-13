@@ -1,6 +1,16 @@
-node_modules
+# Bare `node_modules` / `dist` match only the repository root — Docker matches
+# a pattern against the whole relative path, so `packages/*/node_modules` used
+# to land in the build context and `COPY packages/<pkg>/ ...` then overwrote
+# the pnpm install the builder had just done. The root `node_modules` IS
+# excluded, so every nested symlink arrived dangling and the build failed on
+# whatever a source file imported from a devDependency (slides' `ctx-spy.ts`
+# imports `vitest`). CI never saw it, because a fresh checkout has neither
+# directory — which meant the image could not be reproduced locally, and that
+# is the capability whose absence let a broken image reach production.
+**/node_modules
+**/dist
+
 .git
-dist
 .harness-reports
 *.actual.png
 *.actual.html

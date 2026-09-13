@@ -87,9 +87,24 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @wafflebase/
 WORKDIR /app/packages/backend
 RUN npx prisma@6.6.0 generate
 
-# Copy built artifacts from builder stage
+# Copy built artifacts from builder stage.
+#
+# Every workspace package the backend declares as a dependency needs its dist
+# here, not just the ones whose absence happens to be survivable. The runtime
+# stage copies each package's `package.json` (above), so Node resolves the
+# `exports` map and then fails on the file it points at — `MODULE_NOT_FOUND`
+# for `dist/node.cjs`, not "package not installed", which reads like a broken
+# build rather than a missing COPY.
+#
+# `slides` was absent until v0.6.10 and the image still booted, because the
+# backend's only value import of it was `template/seed/builders.ts` — reachable
+# from the seed command, not from the Nest module graph. #1022 added
+# `yorkie/slide-ops.ts` (`MemSlidesStore`), which `api/v1/slides.controller.ts`
+# pulls into that graph, so the missing dist became a boot crash.
+# `test/smoke-workspace-deps.cjs` now asserts this in CI.
 COPY --from=builder /app/packages/sheets/dist /app/packages/sheets/dist
 COPY --from=builder /app/packages/docs/dist /app/packages/docs/dist
+COPY --from=builder /app/packages/slides/dist /app/packages/slides/dist
 COPY --from=builder /app/packages/backend/dist /app/packages/backend/dist
 
 # Pre-bundle the DuckDB extensions the lakehouse connector needs, for THIS
