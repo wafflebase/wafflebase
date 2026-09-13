@@ -39,8 +39,9 @@ invite says otherwise.
 | Create an **editor** share link | Only for documents you created | Yes |
 | Revoke someone else's share link | No | Yes |
 | Create, edit, delete, and query datasources | Yes | Yes |
-| See the list of API keys | Yes, but only via the CLI or REST API | Yes |
-| Create or revoke an API key | No | Yes |
+| See the list of API keys | Only the ones you created | Yes, every member's |
+| Create an API key | Yes | Yes |
+| Revoke an API key | Only ones you created | Yes |
 | Invite people, and revoke invites | No | Yes |
 | Remove a member | Only yourself | Yes |
 | Rename the workspace or change its URL | No | Yes |
@@ -84,17 +85,18 @@ of sections:
   the settings page reloads at the new address
 - **Members** — everyone in the workspace, with their username, email, and role
 - **Invites** — *owners only*
-- **API Keys** — *owners only*
+- **API Keys** — everyone, scoped to what you may see
 - **Danger Zone** — *owners only*
 
-A member sees the first three sections and nothing below them.
+A member sees every section except **Invites** and **Danger Zone**.
 
-::: tip API keys are listed to members, but not on this page
-The server lets any member *list* a workspace's API keys — creating and
-revoking are owner-only. The Settings page doesn't act on that: it hides the
-whole **API Keys** section from anyone who isn't an owner, so a member has to
-use the CLI (`wafflebase api-keys list`) or the REST API to see the list. There
-is nothing to find in Settings.
+::: tip What each role sees under API Keys
+A member sees only the keys they minted themselves, and can create more and
+revoke their own. An owner sees every key in the workspace and can revoke any
+of them, with an extra **Created by** column naming each key's minter — that
+column is drawn for owners only, since a member's list holds nothing but their
+own keys. The same scoping applies to the CLI (`wafflebase api-keys list`) and
+the REST API; Settings is not a narrower view of it.
 :::
 
 ::: tip
