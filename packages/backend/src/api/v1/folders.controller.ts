@@ -68,9 +68,10 @@ export class ApiV1FoldersController {
    * An API key is **not** waved through. It carries the authority of the user
    * who minted it (`ApiKeyStrategy` puts that id on `req.user`), resolved
    * against their membership *now* rather than at mint time, so a key does not
-   * outlive its minter's role. Since a key can only be minted by a workspace
-   * owner (`assertOwner`), this costs a live owner's key nothing and denies one
-   * whose minter was demoted or removed. The `write` scope
+   * outlive its minter's role. Any member may mint one, so the role is read
+   * here and not assumed: a live owner's key manages the whole tree, a plain
+   * member's key renames but does not move or delete somebody else's folder,
+   * and a key whose minter was removed does neither. The `write` scope
    * (`ApiKeyWriteScopeGuard`) is a separate, earlier gate.
    */
   private async isManager(

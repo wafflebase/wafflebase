@@ -290,9 +290,11 @@ allowed to delete or move it (`DocumentController.resolveDocManager`).
 
 The REST v1 `DELETE /api/v1/workspaces/:wid/documents/:did` applies the same
 manager gate to every caller. An API key carries the authority of the user who
-minted it, resolved against that user's membership at request time: a key is
-mintable only by a workspace owner (`assertOwner`), so a live owner's key is
-unaffected, while a key whose minter was demoted or removed is refused —
+minted it, resolved against that user's membership at request time. Any member
+may mint a key, so the role is resolved per request rather than assumed from
+who was allowed to mint: a live owner's key is unaffected, a plain member's key
+deletes only documents they authored, and a key whose minter was removed is
+refused outright —
 `WorkspaceScopeGuard` requires the minting user still be a member, and
 `WorkspaceService.removeMember` revokes their keys outright in the same
 transaction as the membership delete. It must also carry the `write` scope —

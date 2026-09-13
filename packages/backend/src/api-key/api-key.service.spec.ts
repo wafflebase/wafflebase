@@ -123,6 +123,7 @@ describe('ApiKeyService', () => {
   describe('revoke', () => {
     it('sets revokedAt on the key', async () => {
       prisma.apiKey.updateMany.mockResolvedValue({ count: 1 });
+      prisma.apiKey.findUnique.mockResolvedValue({ id: 'k1' });
 
       await service.revoke('k1', 'ws-1');
 
@@ -131,8 +132,21 @@ describe('ApiKeyService', () => {
       expect(updateArg.data.revokedAt).toBeInstanceOf(Date);
     });
 
+    it('returns the revoked key without its hash, which callers report', async () => {
+      prisma.apiKey.updateMany.mockResolvedValue({ count: 1 });
+      prisma.apiKey.findUnique.mockResolvedValue({ id: 'k1', name: 'CI' });
+
+      const result = await service.revoke('k1', 'ws-1');
+
+      expect(result).toEqual({ id: 'k1', name: 'CI' });
+      expect(
+        prisma.apiKey.findUnique.mock.calls[0][0].select.hashedKey,
+      ).toBeUndefined();
+    });
+
     it('revokes only the caller-owned key when a creator scope is given', async () => {
       prisma.apiKey.updateMany.mockResolvedValue({ count: 1 });
+      prisma.apiKey.findUnique.mockResolvedValue({ id: 'k1' });
 
       await service.revoke('k1', 'ws-1', { createdBy: 7 });
 

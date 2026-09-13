@@ -196,8 +196,10 @@ Authority is the manager bar the web routes apply — workspace owner, or the
 folder's / document's author — for every caller. An API key is resolved to the
 user who minted it and held to that bar against their membership *now*, so a
 key does not outlive its minter's role (`ApiKeyWriteScopeGuard` has already
-required the `write` scope, a separate gate). Since only an owner can mint a
-key, a live owner's key manages everything as before. Copy is the exception,
+required the `write` scope, a separate gate). Any member can mint a key, so
+that bar is what decides what one reaches: a live owner's key manages
+everything, a plain member's key only what that member manages. Copy is the
+exception,
 gated on membership alone: it neither modifies, moves, nor destroys the source,
 so anyone who can read a document can duplicate it.
 

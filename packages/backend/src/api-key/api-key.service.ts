@@ -81,6 +81,13 @@ export class ApiKeyService {
    * A key outside the scope answers 404 rather than 403: whether this
    * workspace holds another member's integration is itself information, and
    * the miss and the refusal are indistinguishable to the caller either way.
+   *
+   * `updateMany` rather than `update` because narrowing by `createdBy` does
+   * not fit `update`'s unique-only `where`; the row count is then the whole
+   * ownership answer. The revoked row is read back and returned because
+   * callers report it — `wafflebase api-keys revoke` prints it, and the CLI
+   * schema declares an `id` — but through an explicit selection, since
+   * `update`'s default return handed back `hashedKey` as well.
    */
   async revoke(id: string, workspaceId: string, scope: KeyScope = {}) {
     const result = await this.prisma.apiKey.updateMany({
@@ -97,6 +104,18 @@ export class ApiKeyService {
     if (result.count === 0) {
       throw new NotFoundException('API key not found');
     }
+
+    return this.prisma.apiKey.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        prefix: true,
+        scopes: true,
+        createdBy: true,
+        revokedAt: true,
+      },
+    });
   }
 
   async validateKey(rawKey: string) {

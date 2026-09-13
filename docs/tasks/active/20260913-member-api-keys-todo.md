@@ -74,3 +74,41 @@ second, drifting copy of a rule the API already enforces.
 Scope creep avoided: the `Created by` column renders only for an owner. A
 member's rows are all their own, so the column would have been a repeated
 username in every row.
+
+### Code review
+
+Three reviewers (authorization, correctness, history/conventions). The
+authorization lens confirmed the premise by walking every `/api/v1` controller:
+each mounts `WorkspaceScopeGuard`, manager-gated routes re-derive `member.role`
+live through `assertMember`, `scopes` is `@IsIn(['read','write'])` under a
+`forbidNonWhitelisted` pipe, and key management itself is JWT-only — so a
+`Bearer wfb_` token cannot mint or revoke keys. It also established that **no
+role-demotion endpoint exists**: a role is fixed at invite acceptance, and
+`removeMember` (the only membership-ending path) revokes the departing user's
+keys in the same transaction. Two blocking findings, both fixed:
+
+**The e2e test asserted the old rule.**
+`test/api-key-http.e2e-spec.ts` expected `403` for a member's create. Unit
+specs had been updated; this one was missed, and `verify:fast` does not run the
+DB lane, so nothing local caught it — it would have failed CI's
+`verify-integration`. Rewritten to assert the new model end to end (member
+mints; member's list is their own; owner's is everyone's; a member revoking the
+owner's key gets 404; both revoke their own), and run against a live Postgres:
+5/5 pass.
+
+**`revoke` returned an empty body.** Moving to `updateMany` dropped the return
+value while the controller still returned it, so `wafflebase api-keys revoke`
+printed `null` and broke the CLI schema's declared `response: { id }`. Fixed by
+reading the revoked row back through an explicit selection — deliberately not
+by restoring `update`'s default return, which had been handing back
+`hashedKey`.
+
+Doc staleness the history lens found — five sites, none in the original diff,
+all written when owner-only minting was treated as load-bearing:
+`docs/design/backend.md`, `docs/design/cli.md`,
+`docs/design/agentic-office-workflow.md`, and comments in
+`api/v1/documents.controller.ts` and `api/v1/folders.controller.ts`. Each said
+minting is owner-only and therefore a key's holder is an owner. The gating
+logic never depended on that (it resolves the role per request), but left alone
+the text is what would make the next reader think this change contradicts the
+two hardening commits that wrote it. All five updated.
