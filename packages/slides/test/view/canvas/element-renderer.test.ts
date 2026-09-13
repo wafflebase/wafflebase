@@ -54,6 +54,91 @@ const shapeAt = (
   data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
 });
 
+describe('drawElement — structurally incomplete element', () => {
+  it('skips an element with no frame instead of throwing', () => {
+    // A stored deck holding a `text` element without a `frame` blanked the
+    // whole app: `!!frame.flipH` threw during the canvas paint, and there is
+    // no React error boundary above the slides view. Losing one element is
+    // the correct trade.
+    const ctx = createCtxSpy();
+    const frameless = {
+      id: 'broken',
+      type: 'text',
+      data: { blocks: [] },
+    } as unknown as Element;
+
+    expect(() =>
+      drawElement(asCtx(ctx), frameless, DOC, THEME, () => undefined),
+    ).not.toThrow();
+    expect(ctx.save).not.toHaveBeenCalled();
+  });
+
+  it('skips a framed element with no data instead of throwing', () => {
+    // `element.data.effects?.shadow` runs before every per-type painter, so
+    // a shape / image / table that arrives without `data` is fatal the same
+    // way a missing frame is. The store repairs `data` for text only.
+    const ctx = createCtxSpy();
+    const dataless = {
+      id: 'broken',
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 100, h: 60, rotation: 0 },
+    } as unknown as Element;
+
+    expect(() =>
+      drawElement(asCtx(ctx), dataless, DOC, THEME, () => undefined),
+    ).not.toThrow();
+    expect(ctx.save).not.toHaveBeenCalled();
+  });
+
+  it('still paints a frameless connector, which draws from its endpoints', () => {
+    const ctx = createCtxSpy();
+    const connector = {
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'free', x: 0, y: 0 },
+      end: { kind: 'free', x: 50, y: 50 },
+      arrowheads: {},
+    } as unknown as Element;
+
+    expect(() =>
+      drawElement(asCtx(ctx), connector, DOC, THEME, () => undefined),
+    ).not.toThrow();
+    expect(ctx.stroke).toHaveBeenCalled();
+  });
+
+  it('paints a frameless connector un-animated rather than throwing', () => {
+    // The animation wrapper takes its transform centre from `element.frame`
+    // for every type, so exempting connectors from the frame guard would
+    // otherwise leave one live combination — frameless plus animated —
+    // still throwing.
+    const ctx = createCtxSpy();
+    const connector = {
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'free', x: 0, y: 0 },
+      end: { kind: 'free', x: 50, y: 50 },
+      arrowheads: {},
+    } as unknown as Element;
+
+    expect(() =>
+      drawElement(
+        asCtx(ctx),
+        connector,
+        DOC,
+        THEME,
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        { opacity: 0.5, scale: 2, dx: 10, dy: 10, rotation: 1, hidden: false },
+      ),
+    ).not.toThrow();
+    expect(ctx.stroke).toHaveBeenCalled();
+  });
+});
+
 describe('drawElement — frame transform', () => {
   it('wraps the per-type painter in save/restore', () => {
     const ctx = createCtxSpy();

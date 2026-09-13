@@ -56,6 +56,19 @@ describe('isElementEmpty', () => {
     expect(isElementEmpty(shape)).toBe(false);
   });
 
+  it('returns true for a text element with no data at all', () => {
+    // `data` is required by the model, but stored decks holding an element
+    // without one exist. `applyLayoutToSlide` calls this on every element of
+    // a slide whose layout is changing, so a throw here would abort the
+    // whole layout change over one malformed element.
+    const el = {
+      id: 'a',
+      type: 'text',
+      frame: baseFrame,
+    } as unknown as TextElement;
+    expect(isElementEmpty(el)).toBe(true);
+  });
+
   it('returns true for a text element with no blocks (vacuous truth)', () => {
     const el: TextElement = {
       id: 'a',

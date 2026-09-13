@@ -637,7 +637,11 @@ export function generateId(): string {
 
 export function isElementEmpty(el: Element): boolean {
   if (el.type !== 'text') return false;
-  return isBlocksEmpty(el.data.blocks);
+  // `data` is required by the model, but elements missing it have been
+  // observed in stored decks and `applyLayoutToSlide` calls this on every
+  // element of a slide whose layout is changing — a throw there aborts the
+  // whole layout change. An element with no body is empty by definition.
+  return isBlocksEmpty(el.data?.blocks ?? []);
 }
 
 /**

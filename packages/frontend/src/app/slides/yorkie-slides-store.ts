@@ -191,6 +191,170 @@ function unwrapElement(e: unknown): YorkieElement {
   return yorkieToPlain<YorkieElement>(e);
 }
 
+/**
+ * The frame a structurally incomplete element falls back to.
+ *
+ * `Element.frame` is required by the model and every reader dereferences it
+ * unconditionally — `const ownFlipH = !!frame.flipH` in
+ * `packages/slides/src/view/canvas/element-renderer.ts` runs for text /
+ * shape / image / table alike — so an element that arrives without one is a
+ * TypeError that takes the whole deck down with it (there is no React error
+ * boundary above the slides view). A zero frame paints nothing and
+ * hit-tests as empty, which is the right answer for geometry we cannot
+ * recover: the element is inert instead of fatal.
+ */
+const ZERO_FRAME: Frame = { x: 0, y: 0, w: 0, h: 0, rotation: 0 };
+
+/**
+ * Whether `frame` carries usable geometry.
+ *
+ * Object-ness alone is not the bar: `{}` or `{ x: 10 }` survives every
+ * `typeof` check and then feeds `undefined` into `frame.x + frame.w / 2`,
+ * so the element lands somewhere NaN instead of somewhere wrong — the same
+ * class of defect as a missing frame, only silent. `x` / `y` / `w` / `h` are
+ * what place and size the element, so all four have to be numbers.
+ *
+ * `rotation` is not part of the test — `normalizeFrame` repairs it instead,
+ * because discarding a frame that positions correctly would lose real
+ * geometry over one absent field.
+ *
+ * Reads properties rather than spreading, so it is safe to call on a live
+ * Yorkie proxy.
+ */
+function hasFrame(frame: unknown): boolean {
+  if (typeof frame !== 'object' || frame === null) return false;
+  const f = frame as Partial<Frame>;
+  return (
+    Number.isFinite(f.x)
+    && Number.isFinite(f.y)
+    && Number.isFinite(f.w)
+    && Number.isFinite(f.h)
+  );
+}
+
+/**
+ * Merge `patch` into a live `frame`, one field at a time.
+ *
+ * Never `x.frame = { ...x.frame, ...patch }`. Replacing a nested Yorkie
+ * object *wholesale* makes the operation's reverse a `RemoveOperation`
+ * rather than a restoring `SetOperation` whenever the node it displaces is
+ * already a tombstone — see `SetOperation.toReverseOperation` in
+ * `@yorkie-js/sdk`, which falls back to `RemoveOperation` unless
+ * `previousValue !== undefined && !previousValue.isRemoved()`. A later undo
+ * then deletes `frame` from the element outright.
+ *
+ * That is reproducible under concurrent editing, and the loss is committed
+ * to the server: it is how a deck ends up holding a `text` element with
+ * only `data` / `id` / `placeholderRef` / `type`, which every reader then
+ * dies on. Per-key assignment on a CRDT-backed object propagates as
+ * expected, which is what `cascadeMasterStyles` already does for
+ * `data.blocks`. `withShapeText` reaches the same rule from a different
+ * direction — a concurrent-LWW race that wipes a peer's typing, not this
+ * reverse-op mechanism — so they are two independent reasons for it, not
+ * one argument.
+ *
+ * Two bare assignments are legitimate and remain: creating a `frame` key
+ * that is absent (no node to displace), and setting one on a plain object
+ * before it is pushed into the CRDT. Everything else goes through this or
+ * `replaceFrame`.
+ */
+function writeFrame(target: { frame: Frame }, patch: Partial<Frame>): void {
+  const frame = target.frame as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) frame[key] = value;
+  }
+}
+
+/**
+ * Replace a live `frame` with `next` — every field of `next`, and none of
+ * what it omits — without discarding the frame object itself.
+ *
+ * `writeFrame` alone would be a merge, so a `next` that carries no flip
+ * would leave a stale `flipH` / `flipV` behind (the two optional fields).
+ * Deleting those is safe where replacing the whole object is not: they are
+ * leaves, so the reverse of removing one is a restoring set, not the
+ * key-deleting reverse `writeFrame` exists to avoid.
+ */
+/**
+ * Write a group's reference size field by field — the `writeFrame` rule
+ * applied to the other nested object a group carries.
+ *
+ * Losing `refSize` is not cosmetic. Every reader takes
+ * `data.refSize?.w ?? frame.w`, so an absent one reads as "scale 1 against
+ * the current frame" — which silently stretches every child the moment the
+ * group's frame has diverged from its true reference size. That is the
+ * glyph-and-shape distortion #360 and #441 were written to eliminate;
+ * reaching it again through a lost key would regress those fixes, not
+ * degrade gracefully.
+ */
+function writeRefSize(
+  group: { data: { refSize?: { w: number; h: number } } },
+  next: { w: number; h: number },
+): void {
+  const existing = group.data.refSize;
+  if (existing) {
+    existing.w = next.w;
+    existing.h = next.h;
+  } else {
+    group.data.refSize = { ...next };
+  }
+}
+
+function replaceFrame(target: { frame: Frame }, next: Frame): void {
+  writeFrame(target, next);
+  const frame = target.frame as unknown as Record<string, unknown>;
+  if (next.flipH === undefined) delete frame.flipH;
+  if (next.flipV === undefined) delete frame.flipV;
+}
+
+/**
+ * A stored frame as geometry every consumer can do arithmetic with:
+ * `ZERO_FRAME` when it carries none, otherwise itself with a finite
+ * `rotation`.
+ *
+ * Normalizing `rotation` is not cosmetic. `group()` feeds candidate frames
+ * to `applyGroupTransformMatrix` and `frameCorners`, which take its sine
+ * and cosine — an absent one turns the group's AABB into `NaN` and persists
+ * it as the group's frame. `ctx.rotate` is the forgiving consumer here, not
+ * the representative one.
+ *
+ * Takes a plain object (spreads), so unwrap a Yorkie proxy first.
+ */
+function normalizeFrame(frame: unknown): Frame {
+  if (!hasFrame(frame)) return { ...ZERO_FRAME };
+  const f = frame as Frame;
+  return Number.isFinite(f.rotation) ? f : { ...f, rotation: 0 };
+}
+
+/**
+ * Geometry to restore onto an element whose `frame` is missing.
+ *
+ * A placeholder-backed element can be put back exactly where its slide's
+ * layout says it belongs, so a repaired slide looks like the author left it
+ * rather than like a recovery. Anything else — no `placeholderRef`, an
+ * unknown layout, a slot the layout no longer offers — gets `ZERO_FRAME`.
+ */
+function recoverFrame(
+  el: { placeholderRef?: unknown },
+  layoutId: unknown,
+  layouts: unknown,
+): Frame {
+  const ref = yorkieToPlain<PlaceholderRef | undefined>(el.placeholderRef);
+  if (!ref) return { ...ZERO_FRAME };
+  const layout = (yorkieToPlain<Layout[]>(layouts) ?? []).find(
+    (l) => l.id === layoutId,
+  );
+  if (!layout) return { ...ZERO_FRAME };
+  const slot = slotRefsForLayout(layout).findIndex(
+    (s) => s.type === ref.type && s.index === ref.index,
+  );
+  const frame = slot >= 0 ? layout.placeholders[slot]?.frame : undefined;
+  // A stored layout is document state like any other, so its placeholder
+  // frames get the same scrutiny as an element's — copying a malformed one
+  // would just relocate the defect.
+  return hasFrame(frame) ? normalizeFrame(frame) : { ...ZERO_FRAME };
+}
+
 
 // ---------------------------------------------------------------------------
 // ensureSlidesRoot — initialise the Yorkie root with the slides shape. Safe
@@ -303,10 +467,61 @@ export function ensureSlidesRoot(
         slide.notes = [] as unknown as YorkieSlide['notes'];
       }
       for (const el of slide.elements) {
+        // Restore geometry before anything else reads the element. An
+        // element with no `frame` is fatal to every reader (see
+        // `ZERO_FRAME`), and unlike the readers' own fallback this write
+        // heals the document for every future session.
+        //
+        // Connectors are exempt. Their `frame` is a derived selection bbox
+        // recomputed from the endpoints by `computeConnectorFrame` on the
+        // next endpoint edit, and they never carry a `placeholderRef` — so
+        // `recoverFrame` could only write `ZERO_FRAME`, which is exactly
+        // what `readFrame` already hands the reader. The write would buy
+        // nothing and make a wrong bbox look authoritative to
+        // `combinedBoundingBox` (align / distribute / multi-select).
+        if (el.type !== 'connector') {
+          if (!hasFrame(el.frame)) {
+            const recovered = recoverFrame(
+              el,
+              (slide as { layoutId?: unknown }).layoutId,
+              r.layouts,
+            );
+            if (el.frame == null) {
+              // Nothing to displace: this creates the key, so there is no
+              // node whose removal a reverse op could target. The one
+              // shape a bare set is right for.
+              el.frame = recovered as unknown as typeof el.frame;
+            } else {
+              // A frame object exists, it just carries no usable geometry
+              // (`{}`, `{ x: 10 }`). Replacing it wholesale would be the
+              // very write `replaceFrame` exists to avoid.
+              replaceFrame(el as unknown as { frame: Frame }, recovered);
+            }
+          } else if (!Number.isFinite(el.frame.rotation)) {
+            // Geometry is intact, only `rotation` is missing — heal that
+            // field alone rather than replacing the frame and losing the
+            // position it does carry. See `normalizeFrame` for why an
+            // absent rotation is not merely cosmetic.
+            (el.frame as { rotation: number }).rotation = 0;
+          }
+        }
         if (el.type === 'text') {
-          const data = el.data as { blocks?: unknown };
-          const blocks = yorkieToPlain<unknown>(data.blocks);
-          if (!Array.isArray(blocks)) {
+          // `el.data` is required by the model but has been observed
+          // absent in the wild, and this deref used to be unguarded — so
+          // the repair below could never run for the one shape that needed
+          // it most.
+          const data = el.data as { blocks?: unknown } | undefined;
+          const blocks = yorkieToPlain<unknown>(data?.blocks);
+          if (Array.isArray(blocks)) continue;
+          if (data) {
+            // Seed `blocks` in place rather than reassigning the whole
+            // `data` object: a wholesale replace drops every sibling key
+            // (`autofit`, `verticalAnchor`, `fill`, …) — the drop
+            // `withTextElement` was reviewed and fixed for in #263 — and
+            // is the wholesale-LWW op `withShapeText` argues against.
+            // Matches `cascadeMasterStyles`' per-field write.
+            data.blocks = [];
+          } else {
             el.data = { blocks: [] } as unknown as typeof el.data;
           }
         }
@@ -508,6 +723,21 @@ export class YorkieSlidesStore implements SlidesStore {
   // --- read helpers ---
 
   /**
+   * Unwrap an element's `frame`, substituting `ZERO_FRAME` when it is
+   * absent.
+   *
+   * `ensureSlidesRoot` repairs the document itself, which is the durable
+   * fix — but it is a write, so a read-only (share-link viewer) mount skips
+   * it entirely. Carrying the fallback here too is what lets such a viewer
+   * see the rest of the deck instead of a blank page, and it covers the
+   * revision preview and `MemSlidesStore` besides. Mirrors the
+   * `el.data ?? {}` guard the text branch already has.
+   */
+  private readFrame(frame: unknown): Frame {
+    return normalizeFrame(yorkieToPlain<Frame>(frame));
+  }
+
+  /**
    * Recursively unwrap a single Yorkie element proxy into a plain
    * ModelElement. Group elements recurse into their `data.children`
    * array, which is itself a Yorkie proxy.
@@ -571,7 +801,7 @@ export class YorkieSlidesStore implements SlidesStore {
       return {
         id: el.id,
         type: 'text',
-        frame: yorkieToPlain<Frame>(el.frame),
+        frame: this.readFrame(el.frame),
         placeholderRef,
         data: { ...extras, blocks } as TextElement['data'],
       } as ModelElement;
@@ -595,7 +825,7 @@ export class YorkieSlidesStore implements SlidesStore {
       return {
         id: el.id,
         type: 'connector',
-        frame: yorkieToPlain<Frame>(el.frame),
+        frame: this.readFrame(el.frame),
         routing: c.routing,
         start: yorkieToPlain<Endpoint>(c.start),
         end: yorkieToPlain<Endpoint>(c.end),
@@ -628,7 +858,7 @@ export class YorkieSlidesStore implements SlidesStore {
       return {
         id: el.id,
         type: 'group',
-        frame: yorkieToPlain<Frame>(el.frame),
+        frame: this.readFrame(el.frame),
         data: refSize ? { children, refSize } : { children },
       } as ModelElement;
     }
@@ -639,7 +869,7 @@ export class YorkieSlidesStore implements SlidesStore {
     return {
       id: el.id,
       type: el.type,
-      frame: yorkieToPlain<Frame>(el.frame),
+      frame: this.readFrame(el.frame),
       placeholderRef,
       data,
     } as ModelElement;
@@ -847,10 +1077,10 @@ export class YorkieSlidesStore implements SlidesStore {
           }
         }
         const plain = e as unknown as ConnectorElement;
-        c.frame = computeConnectorFrame(
+        replaceFrame(c, computeConnectorFrame(
           plain,
           lookup as unknown as ReadonlyMap<string, ModelElement>,
-        );
+        ));
       }
       const sourceNotes = yorkieToPlain<Block[]>((src as { notes: unknown }).notes) ?? [];
       const newSlide: YorkieSlide = {
@@ -1139,7 +1369,11 @@ export class YorkieSlidesStore implements SlidesStore {
         if (el.type !== 'text') continue;
         const t = el.placeholderRef?.type;
         if (!t || !typeSet.has(t)) continue;
-        const data = el.data as { blocks?: unknown };
+        // `el.data` is required by the model but has been observed absent;
+        // there is nothing to re-seed on an element with no body, and
+        // `ensureSlidesRoot` owns the repair.
+        const data = el.data as { blocks?: unknown } | undefined;
+        if (!data) continue;
         const blocks = yorkieToPlain<Block[]>(data.blocks);
         if (!Array.isArray(blocks) || !isBlocksEmpty(blocks)) continue;
         // Banded for the reason `resolveMasterAndTheme()` bands the master it
@@ -1199,7 +1433,7 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       const spec = layout.placeholders[idx];
       const oldFrame: Frame = { ...spec.frame };
-      spec.frame = { ...spec.frame, ...frame };
+      writeFrame(spec, frame);
       const newFrame: Frame = { ...spec.frame };
       // Cascade: re-flow matching placeholders that still track the slot.
       for (const slide of r.slides) {
@@ -1210,7 +1444,7 @@ export class YorkieSlidesStore implements SlidesStore {
             el.placeholderRef.index === ref.index &&
             framesApproxEqual({ ...el.frame } as Frame, oldFrame)
           ) {
-            el.frame = { ...newFrame };
+            replaceFrame(el, newFrame);
           }
         }
       }
@@ -1258,9 +1492,9 @@ export class YorkieSlidesStore implements SlidesStore {
         for (const el of s.elements) {
           if (el.type !== 'connector') continue;
           const plain = unwrapElement(el) as unknown as ConnectorElement;
-          (el as unknown as { frame: Frame }).frame = computeConnectorFrame(
-            plain,
-            lookup,
+          replaceFrame(
+            el as unknown as { frame: Frame },
+            computeConnectorFrame(plain, lookup),
           );
         }
       }
@@ -1270,7 +1504,7 @@ export class YorkieSlidesStore implements SlidesStore {
       for (const layout of r.layouts ?? []) {
         for (const p of (layout as { placeholders?: { frame: Frame }[] })
           .placeholders ?? []) {
-          p.frame = { ...p.frame, y: p.frame.y * factor, h: p.frame.h * factor };
+          writeFrame(p, { y: p.frame.y * factor, h: p.frame.h * factor });
         }
       }
       (r.meta as unknown as { slideHeight?: number }).slideHeight = height;
@@ -1545,7 +1779,7 @@ export class YorkieSlidesStore implements SlidesStore {
       const eAny = e as { frame: Frame };
       const oldW = eAny.frame.w;
       const oldH = eAny.frame.h;
-      eAny.frame = { ...eAny.frame, ...frame };
+      writeFrame(eAny, frame);
       // Tables paint cells from `data.columnWidths` and
       // `data.rows[].height` (authoritative per design); a frame
       // resize that bypassed those would leave the painted footprint
@@ -1647,7 +1881,7 @@ export class YorkieSlidesStore implements SlidesStore {
       // Recompute the cached frame from the (post-update) endpoints +
       // current slide elements.
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -1747,7 +1981,7 @@ export class YorkieSlidesStore implements SlidesStore {
       if (routing !== 'elbow') delete c.elbowBend;
       if (routing !== 'curved') delete c.curveBend;
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -1783,7 +2017,7 @@ export class YorkieSlidesStore implements SlidesStore {
         c.elbowBend = Math.round(bend * 100) / 100;
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -1816,7 +2050,7 @@ export class YorkieSlidesStore implements SlidesStore {
         c.curveBend = Math.min(CURVE_BEND_MAX, Math.max(CURVE_BEND_MIN, rounded));
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
-      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+      replaceFrame(c, computeConnectorFrame(plain, this.slideElementsLookup(s)));
     });
   }
 
@@ -1954,7 +2188,12 @@ export class YorkieSlidesStore implements SlidesStore {
 
       // Compute world frames for each candidate.
       const worldFrames = candidatesInOrder.map(el => {
-        const frame = yorkieToPlain<Frame>((el as { frame: unknown }).frame)!;
+        // Through `readFrame`, not raw: `ensureSlidesRoot` repairs only
+        // top-level `slide.elements`, so a candidate that is itself inside
+        // a group can still be the frameless / rotation-less shape this
+        // whole guard exists for. `applyGroupTransformMatrix` would take
+        // its sine and cosine and turn the group's AABB into NaN.
+        const frame = this.readFrame((el as { frame: unknown }).frame);
         return applyGroupTransformMatrix(frame, ancestorTransform);
       });
 
@@ -2087,8 +2326,8 @@ export class YorkieSlidesStore implements SlidesStore {
         frame: Frame;
         data: { refSize: { w: number; h: number }; children: ProxyArray };
       };
-      gAny.frame = { ...newFrame };
-      gAny.data.refSize = { ...newRefSize };
+      replaceFrame(gAny, newFrame);
+      writeRefSize(gAny, newRefSize);
 
       gAny.data.children.forEach((ch) => {
         const chAny = ch as unknown as {
@@ -2097,11 +2336,10 @@ export class YorkieSlidesStore implements SlidesStore {
           start?: Endpoint;
           end?: Endpoint;
         };
-        chAny.frame = {
-          ...chAny.frame,
+        writeFrame(chAny, {
           x: chAny.frame.x - localShift.x,
           y: chAny.frame.y - localShift.y,
-        };
+        });
         if (chAny.type === 'connector') {
           for (const side of ['start', 'end'] as const) {
             const ep = chAny[side];
@@ -2133,7 +2371,7 @@ export class YorkieSlidesStore implements SlidesStore {
     };
 
     if (plainGroup.data.children.length === 0) {
-      gAny.data.refSize = { w: plainGroup.frame.w, h: plainGroup.frame.h };
+      writeRefSize(gAny, { w: plainGroup.frame.w, h: plainGroup.frame.h });
       return;
     }
 
@@ -2149,10 +2387,10 @@ export class YorkieSlidesStore implements SlidesStore {
       gAny.data.children.forEach((ch, i) => {
         const plainCh = plainGroup.data.children[i];
         if (plainCh.type === 'group' && !plainCh.data.refSize) {
-          (ch as unknown as { data: { refSize: { w: number; h: number } } }).data.refSize = {
-            w: plainCh.frame.w,
-            h: plainCh.frame.h,
-          };
+          writeRefSize(
+            ch as unknown as { data: { refSize?: { w: number; h: number } } },
+            { w: plainCh.frame.w, h: plainCh.frame.h },
+          );
         }
       });
     }
@@ -2167,14 +2405,14 @@ export class YorkieSlidesStore implements SlidesStore {
           start?: Endpoint;
           end?: Endpoint;
         };
-        chAny.frame = { ...next.frame };
+        replaceFrame(chAny, next.frame);
         if (next.type === 'connector') {
           (chAny as unknown as Record<'start' | 'end', Endpoint>).start = next.start;
           (chAny as unknown as Record<'start' | 'end', Endpoint>).end = next.end;
         }
       });
     }
-    gAny.data.refSize = refSize;
+    writeRefSize(gAny, refSize);
 
     // Child groups were frame-scaled but keep their stale refSize, so they
     // now carry the parent's scale — settle them too (DFS).
@@ -2313,11 +2551,16 @@ export class YorkieSlidesStore implements SlidesStore {
       // MemSlidesStore where the callback receives the live reference.
       // `next ?? blocks` covers both the explicit-return path and the
       // void-mutation path with one assignment.
-      const eAny = e as { data: Record<string, unknown> };
-      eAny.data = {
-        ...eAny.data,
-        blocks: clone(next ?? blocks),
-      };
+      // Per-field, not a wholesale replace of `data` — see `writeFrame`
+      // for why replacing a nested Yorkie object turns a later undo into a
+      // key deletion. `data` losing its node is the sibling of the frame
+      // loss and is what `ensureSlidesRoot` used to die reading.
+      const eAny = e as { data?: Record<string, unknown> };
+      if (eAny.data) {
+        eAny.data.blocks = clone(next ?? blocks);
+      } else {
+        eAny.data = { blocks: clone(next ?? blocks) };
+      }
     });
   }
 
@@ -2419,7 +2662,7 @@ export class YorkieSlidesStore implements SlidesStore {
         style: {},
       }));
       e.data.rows.splice(atIndex, 0, { height, cells });
-      e.frame = { ...e.frame, h: e.frame.h + height };
+      writeFrame(e, { h: e.frame.h + height });
     });
   }
 
@@ -2443,7 +2686,7 @@ export class YorkieSlidesStore implements SlidesStore {
       for (const row of e.data.rows) {
         row.cells.splice(atIndex, 0, { body: { blocks: [] }, style: {} });
       }
-      e.frame = { ...e.frame, w: e.frame.w + inheritWidth };
+      writeFrame(e, { w: e.frame.w + inheritWidth });
     });
   }
 
@@ -2474,7 +2717,7 @@ export class YorkieSlidesStore implements SlidesStore {
         }
       }
       e.data.rows.splice(atIndex, 1);
-      e.frame = { ...e.frame, h: e.frame.h - removedHeight };
+      writeFrame(e, { h: e.frame.h - removedHeight });
     });
   }
 
@@ -2509,7 +2752,7 @@ export class YorkieSlidesStore implements SlidesStore {
         row.cells.splice(atIndex, 1);
       }
       e.data.columnWidths.splice(atIndex, 1);
-      e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+      writeFrame(e, { w: e.frame.w - removedWidth });
     });
   }
 
@@ -2635,7 +2878,7 @@ export class YorkieSlidesStore implements SlidesStore {
         e.data.columnWidths[c] = widths[c];
       }
       const total = widths.reduce((a, b) => a + b, 0);
-      e.frame = { ...e.frame, w: total };
+      writeFrame(e, { w: total });
     });
   }
 
@@ -2656,7 +2899,7 @@ export class YorkieSlidesStore implements SlidesStore {
         e.data.rows[row].height = heights[row];
       }
       const total = heights.reduce((a, b) => a + b, 0);
-      e.frame = { ...e.frame, h: total };
+      writeFrame(e, { h: total });
     });
   }
 
@@ -2926,7 +3169,7 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       if (mutated) {
         const plain = unwrapElement(el) as unknown as ConnectorElement;
-        c.frame = computeConnectorFrame(plain, lookup);
+        replaceFrame(c, computeConnectorFrame(plain, lookup));
       }
     }
   }
@@ -2954,7 +3197,7 @@ export class YorkieSlidesStore implements SlidesStore {
         (c.end.kind   === 'attached' && c.end.elementId   === sourceId);
       if (dependsOnUs) {
         const plain = unwrapElement(el) as unknown as ConnectorElement;
-        c.frame = computeConnectorFrame(plain, lookup);
+        replaceFrame(c, computeConnectorFrame(plain, lookup));
       }
     }
   }

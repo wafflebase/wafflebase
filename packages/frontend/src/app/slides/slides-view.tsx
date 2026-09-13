@@ -281,6 +281,9 @@ export function SlidesView({
     // refuses at the next `PushPull` and so wedges the viewer's sync. The
     // store's `read()` performs the same backfill in memory, so a viewer
     // still renders an unmigrated deck; the next editor persists it.
+    // The same `doc.update()` also repairs an element that arrives with no
+    // `frame` or no `data`, so a viewer skips that too — `readElement` and
+    // the renderer carry their own fallbacks for exactly that reason.
     // Matches the empty-deck seed gate below and `mobile-slides-view`.
     ensureSlidesRoot(doc, {
       initialThemePreference: resolvedThemeRef.current,
