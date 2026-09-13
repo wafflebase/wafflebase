@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   MaxMergedCells,
+  MaxSnappedFreeze,
   mergeBudgetError,
   parseRef,
   toSref,
@@ -50,16 +51,26 @@ function assertObject(body: unknown, message: string): Record<string, unknown> {
 /**
  * Validate a freeze-pane body `{ rows, cols }` (both optional, default 0).
  *
- * Bounded by the grid: the frozen quadrants render every frozen row and column
- * without viewport clipping, so an out-of-grid freeze allocates per frame and
- * the UI never paints — which also means the user cannot reach the freeze menu
- * to undo it.
+ * Bounded by {@link MaxSnappedFreeze}, **not** by the grid: the frozen
+ * quadrants render every frozen row and column without viewport clipping, so a
+ * deep freeze allocates per frame and the UI never paints — which also means
+ * the user cannot reach the freeze menu to undo it. That is a stored fault, not
+ * a request-shaped one; every collaborator pays it until another API call
+ * clears it.
+ *
+ * The engine already names the depth past which a freeze stops being paintable:
+ * `snapFreezePastMerges` releases an axis to 0 rather than *grow* it past
+ * `MaxSnappedFreeze`, and by design leaves a caller-requested line untouched —
+ * it bounds growth, and delegates the requested value to its caller's
+ * validator. This is that validator, so it restates the same ceiling rather
+ * than the grid's, which would admit a 1,000,000-row freeze the snap itself
+ * calls unpaintable.
  */
 export function parseFreeze(body: unknown): { rows: number; cols: number } {
   const b = assertObject(body, 'freeze body must be an object { rows, cols }');
   return {
-    rows: assertInt(b.rows ?? 0, 'rows', { min: 0, max: MaxRows }),
-    cols: assertInt(b.cols ?? 0, 'cols', { min: 0, max: MaxColumns }),
+    rows: assertInt(b.rows ?? 0, 'rows', { min: 0, max: MaxSnappedFreeze }),
+    cols: assertInt(b.cols ?? 0, 'cols', { min: 0, max: MaxSnappedFreeze }),
   };
 }
 

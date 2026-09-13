@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { MaxSnappedFreeze } from '@wafflebase/sheets';
 import { parseFreeze, parseHidden, parseMerges } from './worksheet-settings';
 
 describe('worksheet-settings validators', () => {
@@ -12,17 +13,24 @@ describe('worksheet-settings validators', () => {
       expect(() => parseFreeze({ cols: 1.5 })).toThrow(BadRequestException);
     });
     // The frozen quadrants render every frozen row and column with no viewport
-    // clipping, so an out-of-grid freeze means the UI never paints — and the
-    // user cannot reach the freeze menu to undo it.
-    it('rejects a freeze past the end of the grid', () => {
-      expect(() => parseFreeze({ rows: 1000001 })).toThrow(
+    // clipping, so a deep freeze means the UI never paints — and the user
+    // cannot reach the freeze menu to undo it. The bound is the engine's own
+    // `MaxSnappedFreeze`, the depth past which `snapFreezePastMerges` refuses
+    // to grow a line for exactly that reason, not the grid.
+    it('rejects a freeze deeper than the paintable ceiling', () => {
+      expect(() => parseFreeze({ rows: MaxSnappedFreeze + 1 })).toThrow(
         BadRequestException,
       );
-      expect(() => parseFreeze({ cols: 18279 })).toThrow(BadRequestException);
-      expect(parseFreeze({ rows: 1000000, cols: 18278 })).toEqual({
-        rows: 1000000,
-        cols: 18278,
-      });
+      expect(() => parseFreeze({ cols: MaxSnappedFreeze + 1 })).toThrow(
+        BadRequestException,
+      );
+      expect(() => parseFreeze({ rows: 1000000 })).toThrow(
+        BadRequestException,
+      );
+      expect(() => parseFreeze({ cols: 18278 })).toThrow(BadRequestException);
+      expect(
+        parseFreeze({ rows: MaxSnappedFreeze, cols: MaxSnappedFreeze }),
+      ).toEqual({ rows: MaxSnappedFreeze, cols: MaxSnappedFreeze });
     });
   });
 
