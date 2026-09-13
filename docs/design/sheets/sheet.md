@@ -159,6 +159,15 @@ all cell, selection, and navigation operations.
   budget shared, a map that large cannot be created in the first place, and a
   legacy one can always be *shrunk* through the same endpoint, because the cap
   reads the body rather than what is stored.
+  Because the store spends a budget of its own, `Store.setMerge` **returns
+  whether the block was stored**, and the engine's three writers
+  (`mergeSelection`, `applyPasteMerges`, `moveRangeTo`) record it in
+  `Sheet.merges` only when it says yes. The two budgets can disagree — the
+  engine's is spent against the map it last loaded, the store's against what
+  the document holds now, which a collaborator may have grown in between — and
+  a refusal the caller could not see would leave the sheet painting a merge
+  nobody else has. `mergeSelection` therefore asks *before* clearing the cells
+  the block would cover, so a refusal costs their contents nothing.
   A **single-cell** paste starts at the merge anchor: `paste` normalizes
   `activeCell` with `normalizeRefToAnchor`, because `selectRow` /
   `selectColumn` / `selectAllCells` leave the active cell at the head of the
@@ -289,7 +298,7 @@ interface Store {
   getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
 
   // Merged cells
-  setMerge(anchor: Ref, span: MergeSpan): Promise<void>;
+  setMerge(anchor: Ref, span: MergeSpan): Promise<boolean>;
   deleteMerge(anchor: Ref): Promise<boolean>;
   getMerges(): Promise<Map<Sref, MergeSpan>>;
 

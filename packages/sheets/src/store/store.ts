@@ -189,9 +189,17 @@ export interface Store {
   getDataValidations(): Promise<DataValidationRule[]>;
 
   /**
-   * `setMerge` sets a merged range anchor with row/column span.
+   * `setMerge` sets a merged range anchor with row/column span, and returns
+   * whether the block was stored.
+   *
+   * A store may refuse: the merge map is bounded (`mergeBudgetAdmits`), and a
+   * store that persists the map is the floor under every writer of it, so it
+   * spends the same budget the engine does. Refusal is not an error — the
+   * write simply did not happen — so a caller mirroring the map in memory must
+   * only record the block when this returns `true`, or its view of the
+   * worksheet drifts from what was stored.
    */
-  setMerge(anchor: Ref, span: MergeSpan): Promise<void>;
+  setMerge(anchor: Ref, span: MergeSpan): Promise<boolean>;
 
   /**
    * `deleteMerge` removes a merged range anchor.

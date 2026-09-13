@@ -2723,11 +2723,15 @@ export class Sheet {
     let budget = mergeBudgetOf(this.merges.values());
     for (const merge of pasted) {
       if (!mergeBudgetAdmits(budget, [merge.span])) continue;
+      // The store budgets the stored map, which a collaborator may have grown
+      // past what this sheet last read, so it can refuse a block this loop
+      // admitted. Record only what it took — and leave the cells the refused
+      // block would have covered alone, since nothing now hides them.
+      if (!(await this.store.setMerge(merge.anchor, merge.span))) continue;
       budget = {
         entries: budget.entries + 1,
         coveredCells: budget.coveredCells + merge.span.rs * merge.span.cs,
       };
-      await this.store.setMerge(merge.anchor, merge.span);
       this.merges.set(toSref(merge.anchor), merge.span);
       await this.clearCellsUnderMerge(
         merge.anchor,
@@ -2966,7 +2970,11 @@ export class Sheet {
             r: merge.anchor.r + deltaRow,
             c: merge.anchor.c + deltaCol,
           };
-          await this.store.setMerge(anchor, merge.span);
+          // A move deletes each block before re-creating it, so the map it is
+          // budgeted against is the one it left; a refusal here means a
+          // collaborator filled the room in between. Drop the block rather
+          // than remembering one the store does not hold.
+          if (!(await this.store.setMerge(anchor, merge.span))) continue;
           this.merges.set(toSref(anchor), merge.span);
           await this.clearCellsUnderMerge(
             anchor,
@@ -4914,6 +4922,12 @@ export class Sheet {
 
     this.store.beginBatch();
     try {
+      // The store spends its own merge budget and may refuse — a map grown by
+      // a collaborator since this sheet last loaded is over it even though
+      // `canMergeSelection` said yes. Ask before clearing the covered cells,
+      // so a refusal costs their contents nothing.
+      if (!(await this.store.setMerge(anchor, span))) return false;
+
       for (let r = range[0].r; r <= range[1].r; r++) {
         for (let c = range[0].c; c <= range[1].c; c++) {
           if (r === anchor.r && c === anchor.c) continue;
@@ -4928,7 +4942,6 @@ export class Sheet {
         }
       }
 
-      await this.store.setMerge(anchor, span);
       this.merges.set(toSref(anchor), span);
       this.rebuildMergeCoverMap();
 

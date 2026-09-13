@@ -79,6 +79,10 @@ export class YorkieStore implements Store {
   // flushed to doc.update(). endBatch() flushes all ops in a single update.
   private batchOverlay: Map<Sref, Cell | null> | null = null;
   private batchOps: Array<(root: SpreadsheetDocument) => void> | null = null;
+  // The merge writes this batch has queued — a span it will store, or null for
+  // one it will drop. Read by {@link projectedMerges}, which budgets a new
+  // block against the map the batch is building rather than the one on disk.
+  private batchMerges: Map<Sref, MergeSpan | null> | null = null;
 
   /**
    * `readOnly` silences the three writes the grid makes without the user ever
@@ -961,6 +965,32 @@ export class YorkieStore implements Store {
   }
 
   /**
+   * `projectedMerges` is the worksheet's merge map as this batch will leave it:
+   * what the document holds now, with the blocks the batch has already queued
+   * written over it. A paste is the one gesture that queues many blocks in one
+   * update, and the document does not carry them until `endBatch` flushes, so
+   * without the overlay each of them would be budgeted against the same
+   * starting map and the batch could overspend.
+   */
+  private projectedMerges(): Map<Sref, MergeSpan> {
+    const merges = new Map<Sref, MergeSpan>(
+      safeWorksheetRecordEntries(this.getSheet().merges ?? {}) as Array<
+        [Sref, MergeSpan]
+      >,
+    );
+    if (this.batchMerges) {
+      for (const [sref, span] of this.batchMerges) {
+        if (span) {
+          merges.set(sref, span);
+        } else {
+          merges.delete(sref);
+        }
+      }
+    }
+    return merges;
+  }
+
+  /**
    * `setMerge` stores one merged block, bounded by the same merge budget every
    * other writer of this field spends — `Sheet.canMergeSelection` before the
    * toolbar gesture, the XLSX importer per `mergeCell`, the v1 API for a whole
@@ -969,52 +999,53 @@ export class YorkieStore implements Store {
    * REST client obeys and the editor does not, which is how an API caller ends
    * up locked out of a document the editor was allowed to grow.
    *
-   * The check is made against `root` rather than a cached count so the batched
-   * branch — a paste, which can add many blocks in one update — sees the blocks
-   * queued ahead of it. Its cost is one walk of a map this very check keeps
-   * under `MaxMergeEntries`.
+   * The budget is spent at call time rather than inside the queued update, so
+   * the refusal can be *returned*: a caller that mirrors the merge map in
+   * memory has to learn that the block was dropped, and a closure running at
+   * flush time has nobody left to tell. Its cost is one walk of a map this very
+   * check keeps under `MaxMergeEntries`.
    */
-  private applyMerge(
-    root: SpreadsheetDocument,
-    tabId: string,
-    sref: Sref,
-    span: MergeSpan,
-  ): void {
-    const ws = root.sheets[tabId];
-    if (!ws.merges) {
-      ws.merges = {};
-    }
-    if (
-      !ws.merges[sref] &&
-      !mergeBudgetAdmits(mergeBudgetOf(Object.values(ws.merges)), [span])
-    ) {
-      return;
-    }
-    ws.merges[sref] = { ...span };
-  }
-
-  async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {
+  async setMerge(anchor: Ref, span: MergeSpan): Promise<boolean> {
     const tabId = this.tabId;
     const sref = toSref(anchor);
-    if (this.batchOps) {
-      this.batchOps.push((root) => {
-        this.applyMerge(root, tabId, sref, span);
-      });
-      return;
+
+    // Budget the map without whatever this anchor holds today: re-anchoring an
+    // existing block spends its span, it does not add to it.
+    const projected = this.projectedMerges();
+    const others: MergeSpan[] = [];
+    for (const [key, existing] of projected) {
+      if (key !== sref) others.push(existing);
+    }
+    if (!mergeBudgetAdmits(mergeBudgetOf(others), [span])) {
+      return false;
     }
 
-    this.doc.update((root) => {
-      this.applyMerge(root, tabId, sref, span);
-    });
+    const stored: MergeSpan = { ...span };
+    const write = (root: SpreadsheetDocument) => {
+      const ws = root.sheets[tabId];
+      if (!ws.merges) {
+        ws.merges = {};
+      }
+      ws.merges[sref] = { ...stored };
+    };
+
+    if (this.batchOps) {
+      this.batchMerges?.set(sref, stored);
+      this.batchOps.push(write);
+      return true;
+    }
+
+    this.doc.update(write);
+    return true;
   }
 
   async deleteMerge(anchor: Ref): Promise<boolean> {
     const sref = toSref(anchor);
     if (this.batchOps) {
       const tabId = this.tabId;
-      const ws = this.getSheet();
-      const exists = !!ws.merges?.[sref];
+      const exists = this.projectedMerges().has(sref);
       if (!exists) return false;
+      this.batchMerges?.set(sref, null);
       this.batchOps.push((root) => {
         if (root.sheets[tabId].merges?.[sref]) {
           delete root.sheets[tabId].merges[sref];
@@ -1198,6 +1229,7 @@ export class YorkieStore implements Store {
   beginBatch(): void {
     this.batchOverlay = new Map();
     this.batchOps = [];
+    this.batchMerges = new Map();
   }
 
   endBatch(): void {
@@ -1205,6 +1237,7 @@ export class YorkieStore implements Store {
     const ops = this.batchOps;
     this.batchOverlay = null;
     this.batchOps = null;
+    this.batchMerges = null;
 
     const hasOverlay = overlay && overlay.size > 0;
     const hasOps = ops && ops.length > 0;

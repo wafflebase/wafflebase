@@ -583,8 +583,9 @@ export class MemStore implements Store {
     return this.dataValidations.map((rule) => cloneDataValidationRule(rule));
   }
 
-  async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {
+  async setMerge(anchor: Ref, span: MergeSpan): Promise<boolean> {
     this.merges.set(toSref(anchor), { ...span });
+    return true;
   }
 
   async deleteMerge(anchor: Ref): Promise<boolean> {

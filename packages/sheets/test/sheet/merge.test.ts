@@ -472,6 +472,67 @@ describe('Sheet merge + copy-paste', () => {
     expect(stored.get('A3')).toEqual({ rs: 1, cs: 2 });
   });
 
+  // `Store.setMerge` returns whether the block was stored, because a store that
+  // persists the map spends a merge budget of its own — against what the
+  // document holds now, which a collaborator may have grown past what this
+  // sheet last loaded. A refusal the engine could not see would leave it
+  // painting a merge nobody else has.
+  class RefusingStore extends MemStore {
+    override async setMerge(): Promise<boolean> {
+      return false;
+    }
+  }
+
+  it('should record no merge the store refused to store', async () => {
+    const store = new RefusingStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 2 }, '20');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    expect(await sheet.mergeSelection()).toBe(false);
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect((await store.getMerges()).size).toBe(0);
+    // The covered cell is only cleared once the block is stored, so a refusal
+    // costs its contents nothing.
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('20');
+  });
+
+  it('should paste the cells but not the merge the store refused', async () => {
+    // Refuse only the pasted block: the source merge has to exist for the
+    // paste to carry one at all.
+    class ToggleRefusingStore extends MemStore {
+      public refuse = false;
+      override async setMerge(
+        ...args: Parameters<MemStore['setMerge']>
+      ): Promise<boolean> {
+        return this.refuse ? false : super.setMerge(...args);
+      }
+    }
+
+    const store = new ToggleRefusingStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    const { text } = await sheet.copy();
+
+    store.refuse = true;
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    // The cells land; only their merge does not, in memory and in the store.
+    expect(sheet.getMerges().get('A3')).toBeUndefined();
+    expect((await store.getMerges()).get('A3')).toBeUndefined();
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('10');
+  });
+
   it('should drop a cut merged block at the source', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
