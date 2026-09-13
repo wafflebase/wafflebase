@@ -14,15 +14,29 @@ export function isIntersect(range1: Range, range2: Range): boolean {
 
 /**
  * `rangeOf` returns the range of the given grid.
+ *
+ * The bounds are folded in a loop rather than spread into `Math.min`/
+ * `Math.max`: a grid holds one key per cell, and spreading one argument per
+ * cell throws `RangeError` once a paste or fetch grows past the engine's
+ * argument limit — a size a full-column paste reaches.
  */
 export function rangeOf(grid: Grid): Range {
-  const refs = Array.from(grid.keys()).map(parseRef);
-  const rows = refs.map((ref) => ref.r);
-  const cols = refs.map((ref) => ref.c);
+  let minR = Infinity;
+  let maxR = -Infinity;
+  let minC = Infinity;
+  let maxC = -Infinity;
+
+  for (const sref of grid.keys()) {
+    const ref = parseRef(sref);
+    if (ref.r < minR) minR = ref.r;
+    if (ref.r > maxR) maxR = ref.r;
+    if (ref.c < minC) minC = ref.c;
+    if (ref.c > maxC) maxC = ref.c;
+  }
 
   return [
-    { r: Math.min(...rows), c: Math.min(...cols) },
-    { r: Math.max(...rows), c: Math.max(...cols) },
+    { r: minR, c: minC },
+    { r: maxR, c: maxC },
   ];
 }
 

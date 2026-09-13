@@ -7,8 +7,10 @@ import {
   Ref,
   Sref,
   getWorksheetCell,
+  buildMergeCoverMap,
   parseRef,
   toSref,
+  type MergeSpan,
   type Thread,
   type CommentAuthor,
   type CommentAnchor,
@@ -1231,19 +1233,15 @@ export function SheetView({
           const ws = root.sheets[targetTabId];
           if (!ws) return undefined;
 
-          const coverToAnchor = new Map<Sref, Sref>();
-          if (ws.merges) {
-            for (const [anchorSref, span] of Object.entries(ws.merges)) {
-              const anchorRef = parseRef(anchorSref);
-              for (let r = anchorRef.r; r < anchorRef.r + span.rs; r++) {
-                for (let c = anchorRef.c; c < anchorRef.c + span.cs; c++) {
-                  const covered = toSref({ r, c });
-                  if (covered === anchorSref) continue;
-                  coverToAnchor.set(covered, anchorSref);
-                }
-              }
-            }
-          }
+          // The merge map is a plain CRDT field, so this walk is spent against
+          // the same budget `Sheet.rebuildMergeCoverMap` spends — one shared
+          // reader (`buildMergeCoverMap`), which also survives a key that is
+          // not a cell reference and a span that is not two positive integers.
+          // A clamp only the engine applied would leave this resolver hanging
+          // the tab on a map the engine itself refuses to walk.
+          const { coverToAnchor } = buildMergeCoverMap(
+            Object.entries(ws.merges ?? {}) as Array<[Sref, MergeSpan]>,
+          );
 
           const grid: Grid = new Map();
           for (const localRef of refs) {

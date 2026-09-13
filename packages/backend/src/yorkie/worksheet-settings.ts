@@ -1,5 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
-import { parseRef, toSref, type MergeSpan } from '@wafflebase/sheets';
+import {
+  MaxMergedCells,
+  MaxSnappedFreeze,
+  mergeBudgetError,
+  parseRef,
+  toSref,
+  type MergeSpan,
+} from '@wafflebase/sheets';
 
 /**
  * The engine's grid bounds (`Dimensions` in `sheets/model/worksheet/sheet.ts`).
@@ -10,17 +17,15 @@ import { parseRef, toSref, type MergeSpan } from '@wafflebase/sheets';
 const MaxRows = 1000000;
 const MaxColumns = 18278;
 
-/**
- * Ceiling on the cells one merge may cover.
- *
- * `Sheet.rebuildMergeCoverMap()` walks `rs * cs` on every document load and
- * puts one Map entry per covered cell, so an unbounded span is not a large
- * merge — it is a document nobody can open again. The grid bound alone does
- * not help: a single `rs: 1000000, cs: 18278` span is inside the grid and
- * still 1.8e10 iterations. This is far above any merge the editor can produce
- * from a drag, and low enough that the worst case stays interactive.
+/*
+ * The merge map's ceilings — `MaxMergedCells` per span, `MaxMergeEntries` for
+ * the count, `MaxMergeCoveredCells` for the sum — live in the engine
+ * (`sheets/model/worksheet/merging.ts`), because this is not the only writer:
+ * the editor's collaborative store and the XLSX importer reach the same field
+ * and spend the same budget through `mergeBudgetAdmits`. Restating them here
+ * would let one copy drift, which is the shape of a cap that locks an API
+ * client out of a document another writer was allowed to create.
  */
-const MaxMergedCells = 100000;
 
 function assertInt(
   value: unknown,
@@ -46,16 +51,26 @@ function assertObject(body: unknown, message: string): Record<string, unknown> {
 /**
  * Validate a freeze-pane body `{ rows, cols }` (both optional, default 0).
  *
- * Bounded by the grid: the frozen quadrants render every frozen row and column
- * without viewport clipping, so an out-of-grid freeze allocates per frame and
- * the UI never paints — which also means the user cannot reach the freeze menu
- * to undo it.
+ * Bounded by {@link MaxSnappedFreeze}, **not** by the grid: the frozen
+ * quadrants render every frozen row and column without viewport clipping, so a
+ * deep freeze allocates per frame and the UI never paints — which also means
+ * the user cannot reach the freeze menu to undo it. That is a stored fault, not
+ * a request-shaped one; every collaborator pays it until another API call
+ * clears it.
+ *
+ * The engine already names the depth past which a freeze stops being paintable:
+ * `snapFreezePastMerges` releases an axis to 0 rather than *grow* it past
+ * `MaxSnappedFreeze`, and by design leaves a caller-requested line untouched —
+ * it bounds growth, and delegates the requested value to its caller's
+ * validator. This is that validator, so it restates the same ceiling rather
+ * than the grid's, which would admit a 1,000,000-row freeze the snap itself
+ * calls unpaintable.
  */
 export function parseFreeze(body: unknown): { rows: number; cols: number } {
   const b = assertObject(body, 'freeze body must be an object { rows, cols }');
   return {
-    rows: assertInt(b.rows ?? 0, 'rows', { min: 0, max: MaxRows }),
-    cols: assertInt(b.cols ?? 0, 'cols', { min: 0, max: MaxColumns }),
+    rows: assertInt(b.rows ?? 0, 'rows', { min: 0, max: MaxSnappedFreeze }),
+    cols: assertInt(b.cols ?? 0, 'cols', { min: 0, max: MaxSnappedFreeze }),
   };
 }
 
@@ -117,8 +132,19 @@ export function parseMerges(body: unknown): Record<string, MergeSpan> {
   // first: `__proto__` is not a cell reference, so it is rejected before it
   // could assign a prototype instead of an own key. Do not relax the key check
   // without revisiting that.
+  const entries = Object.entries(merges);
+  // Checked before the loop as well as after it: the per-entry work below is
+  // `parseRef` on every key, and a body may name a million of them.
+  const overCount = mergeBudgetError({
+    entries: entries.length,
+    coveredCells: 0,
+  });
+  if (overCount) {
+    throw new BadRequestException(`'merges' is rejected: ${overCount}`);
+  }
   const out: Record<string, MergeSpan> = {};
-  for (const [ref, span] of Object.entries(merges)) {
+  let coveredCells = 0;
+  for (const [ref, span] of entries) {
     let anchor: { r: number; c: number };
     try {
       anchor = parseRef(ref);
@@ -150,8 +176,19 @@ export function parseMerges(body: unknown): Record<string, MergeSpan> {
         `merges['${ref}'] covers ${rs * cs} cells, above the ${MaxMergedCells} limit`,
       );
     }
+    coveredCells += rs * cs;
 
     out[ref] = { rs, cs };
+  }
+
+  // Per-span and per-count are two ceilings with an unbounded product between
+  // them: 10,000 anchors of 100,000 cells each passes both, serialises to a
+  // few hundred KB — nowhere near the body limit — and still asks
+  // `rebuildMergeCoverMap` for 1e9 Map entries on the next load. The sum is
+  // the quantity that walk actually pays, so it is bounded too.
+  const overBudget = mergeBudgetError({ entries: entries.length, coveredCells });
+  if (overBudget) {
+    throw new BadRequestException(`'merges' is rejected: ${overBudget}`);
   }
   return out;
 }

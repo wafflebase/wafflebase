@@ -194,3 +194,44 @@ test("applyWorksheetMove remaps worksheet metadata and cells together", () => {
     },
   ]);
 });
+
+test("applyWorksheetShift snaps the freeze past a block the shift straddles", () => {
+  // A block across a frozen boundary is not drawable — the renderer paints the
+  // frozen pane and the scrolling body from one block — so `setFreezePane`
+  // snaps and every block-moving path refuses. A shift moves the boundary and
+  // the merge map independently, so it can land inside a block on its own:
+  // here the insert pushes the line from 3 to 4 and A3:A5 down to A4:A6, which
+  // still straddles it. Snapping here is what keeps `Sheet.shiftCells` and the
+  // v1 `POST insert` / `POST delete` handlers on the same invariant.
+  const worksheet = createWorksheet();
+  worksheet.frozenRows = 3;
+  worksheet.merges = { A3: { rs: 3, cs: 1 } };
+
+  applyWorksheetShift({
+    ws: worksheet,
+    axis: "row",
+    index: 1,
+    count: 1,
+    normalizeCell,
+  });
+
+  expect(worksheet.merges).toEqual({ A4: { rs: 3, cs: 1 } });
+  expect(worksheet.frozenRows).toBe(6);
+});
+
+test("applyWorksheetShift leaves a freeze no block straddles alone", () => {
+  const worksheet = createWorksheet();
+  worksheet.frozenRows = 2;
+  worksheet.merges = { A5: { rs: 2, cs: 1 } };
+
+  applyWorksheetShift({
+    ws: worksheet,
+    axis: "row",
+    index: 4,
+    count: 1,
+    normalizeCell,
+  });
+
+  expect(worksheet.merges).toEqual({ A6: { rs: 2, cs: 1 } });
+  expect(worksheet.frozenRows).toBe(2);
+});

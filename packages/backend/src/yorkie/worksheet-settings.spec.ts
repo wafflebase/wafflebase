@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { MaxSnappedFreeze } from '@wafflebase/sheets';
 import { parseFreeze, parseHidden, parseMerges } from './worksheet-settings';
 
 describe('worksheet-settings validators', () => {
@@ -12,17 +13,24 @@ describe('worksheet-settings validators', () => {
       expect(() => parseFreeze({ cols: 1.5 })).toThrow(BadRequestException);
     });
     // The frozen quadrants render every frozen row and column with no viewport
-    // clipping, so an out-of-grid freeze means the UI never paints — and the
-    // user cannot reach the freeze menu to undo it.
-    it('rejects a freeze past the end of the grid', () => {
-      expect(() => parseFreeze({ rows: 1000001 })).toThrow(
+    // clipping, so a deep freeze means the UI never paints — and the user
+    // cannot reach the freeze menu to undo it. The bound is the engine's own
+    // `MaxSnappedFreeze`, the depth past which `snapFreezePastMerges` refuses
+    // to grow a line for exactly that reason, not the grid.
+    it('rejects a freeze deeper than the paintable ceiling', () => {
+      expect(() => parseFreeze({ rows: MaxSnappedFreeze + 1 })).toThrow(
         BadRequestException,
       );
-      expect(() => parseFreeze({ cols: 18279 })).toThrow(BadRequestException);
-      expect(parseFreeze({ rows: 1000000, cols: 18278 })).toEqual({
-        rows: 1000000,
-        cols: 18278,
-      });
+      expect(() => parseFreeze({ cols: MaxSnappedFreeze + 1 })).toThrow(
+        BadRequestException,
+      );
+      expect(() => parseFreeze({ rows: 1000000 })).toThrow(
+        BadRequestException,
+      );
+      expect(() => parseFreeze({ cols: 18278 })).toThrow(BadRequestException);
+      expect(
+        parseFreeze({ rows: MaxSnappedFreeze, cols: MaxSnappedFreeze }),
+      ).toEqual({ rows: MaxSnappedFreeze, cols: MaxSnappedFreeze });
     });
   });
 
@@ -106,6 +114,39 @@ describe('worksheet-settings validators', () => {
       expect(parseMerges({ merges: { A1: { rs: 100000, cs: 1 } } })).toEqual({
         A1: { rs: 100000, cs: 1 },
       });
+    });
+
+    // Capping the cells per merge says nothing about how many merges there
+    // are, and every merge-walking path — the load-time cover map, the freeze
+    // snap, the move check — is driven by that count.
+    it('rejects a map holding more merges than the ceiling', () => {
+      const build = (count: number) => {
+        const merges: Record<string, { rs: number; cs: number }> = {};
+        for (let r = 1; r <= count; r += 1) {
+          merges[`A${r}`] = { rs: 1, cs: 1 };
+        }
+        return { merges };
+      };
+      expect(() => parseMerges(build(10001))).toThrow(BadRequestException);
+      expect(Object.keys(parseMerges(build(10000)))).toHaveLength(10000);
+    });
+
+    // Per-span and per-count are two ceilings with an unbounded product
+    // between them: 10,000 anchors of 100,000 cells each satisfies both, fits
+    // in a few hundred KB of body, and still asks `rebuildMergeCoverMap` for
+    // 1e9 Map entries on the next load.
+    it('rejects a map whose spans cover more cells than the ceiling', () => {
+      const build = (count: number, rs: number) => {
+        const merges: Record<string, { rs: number; cs: number }> = {};
+        for (let i = 1; i <= count; i += 1) {
+          merges[`${String.fromCharCode(64 + i)}1`] = { rs, cs: 1 };
+        }
+        return { merges };
+      };
+      // Each span is inside the per-span cap and the count inside the entry
+      // cap; only their sum is over.
+      expect(() => parseMerges(build(11, 100000))).toThrow(BadRequestException);
+      expect(Object.keys(parseMerges(build(10, 100000)))).toHaveLength(10);
     });
 
     it('rejects a span that runs past the end of the grid', () => {

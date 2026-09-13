@@ -93,6 +93,163 @@ all cell, selection, and navigation operations.
   `paste` parses it back and recalculates dependants from all changed refs
   (including plain-value pastes). External pastes (TSV/HTML) run through the
   same conservative input inference as `setData` before persistence.
+  Merged blocks travel with an **internal** paste: `copy`/`cut` snapshot the
+  blocks lying entirely inside the copied range, `paste` re-creates them at
+  the destination (a cut also drops them at the source), drops the
+  destination blocks the paste fully covers, and clears the cells the new
+  blocks hide so nothing resurfaces as stale data on unmerge. The destination
+  region is the copied *range* translated by the paste delta, not the pasted
+  grid's bounding box — a merged block's covered cells hold nothing, so the
+  box is smaller than the block being reproduced. A paste that would only
+  partially overwrite a block is refused whole (`merge-paste-partial`,
+  reported on the same `setOnRefusal` → `onNotice` channel as the drag-move
+  refusals); a single-cell destination is exempt, since it writes through the
+  merge anchor. A **cut's own blocks are exempt too** — the paste deletes them
+  at the source whatever the destination clips, so they cannot be split by it,
+  the exclusion `moveRangeTo` makes with `movedAnchors`. A paste that would
+  land a block across a freeze boundary is refused as well
+  (`merge-paste-frozen`), and so is the drag-move that would do the same
+  (`merge-move-frozen`): merges may not straddle a frozen row or column, the
+  rule `canMergeSelection` enforces for the merge button and the one the
+  renderer assumes when it paints a frozen pane and the scrolling body from a
+  single block.
+  That invariant binds **every** path that can move a block or the boundary,
+  not only the two that refuse. A row/column reorder (`moveCells`) is refused
+  with the same `merge-move-frozen` when it would *newly* leave a block
+  straddling — each block compared with its own position before the move
+  (`moveStraddlingFreeze`), not the moved map read on its own. A block that
+  already straddles is not the reorder's doing: `remapIndex` leaves anything
+  outside the moved range and the shift window at the indices it already had,
+  so reading the moved map alone would refuse *every* row and column reorder on
+  such a document — including moves nowhere near the block — and the invariant
+  being defended is that no writer creates one. Freezing, though, moves the line rather than a block, so it
+  *snaps* instead of refusing: `setFreezePane` pushes the boundary to the far
+  edge of any block it would cut in half (`snapFreezePastMerges`, one sweep per
+  axis in start order), and the freeze adjustment inside `shiftCells` runs the same
+  snap after the insert/delete has moved both the boundary and the merge map.
+  The whole block ends up frozen — what the user asked for, plus the rows the
+  layout makes inseparable from them — rather than a gesture silently
+  declining. A straddling block loaded from outside the engine (an `.xlsx`
+  import writing the freeze through the store) is healed by the first
+  structural edit; refusing every move of such a block, with no way to create
+  it in-app, would otherwise strand it.
+  The **v1 worksheet API** is held to the same invariant, since it is the other
+  writer of these fields: `POST .../move` refuses a reorder that would park a
+  block across the freeze (409, beside the existing merge-split refusal),
+  `PUT .../freeze` snaps past a block it would cut and answers with the
+  boundary it actually stored, and `PUT .../merges` refuses a map that would
+  straddle the tab's freeze. `POST .../insert` and `POST .../delete` neither
+  refuse nor need to: the snap lives in `shiftWorksheetViewState`
+  (`model/workbook/worksheet-structure.ts`), beside the freeze adjustment it
+  repairs, so every caller of `applyWorksheetShift` — the API controller and
+  the editor's `YorkieStore` alike — snaps without asking. `Sheet.shiftCells`
+  snaps its own in-memory copy for the same reason it recomputes the rest of
+  the view state: it is an absolute write of a value it derived itself, so
+  applying it in both places lands on the same boundary. The snap itself is one
+  implementation (`snapFreezePastMerges` in `model/worksheet/merging.ts`)
+  shared by the engine and the controller, so the two cannot drift.
+  The snap's *growth* is capped at `MaxSnappedFreeze` (1,000). A block may
+  legally be 100,000 rows tall, and `GridCanvas` paints rows `1..frozenRows`
+  for the frozen quadrants on every frame with no viewport clipping, so a snap
+  to the bottom of such a block would not be a deep freeze — it would be a tab
+  that stops painting, and therefore one whose freeze menu the user can no
+  longer reach to undo it. When the sweep cannot settle inside the ceiling the
+  axis is **released** (0) instead: a boundary that does not exist straddles
+  nothing, so the invariant still holds and the user sees their freeze undone
+  rather than a frozen grid. Only growth is bounded — a line the caller asked
+  for passes through untouched, since bounding the request is the validator's
+  job (`parseFreeze`).
+  The merge map is also **bounded**, and bounded in one place for the same
+  reason. `rebuildMergeCoverMap` puts one Map entry per covered cell on every
+  load, so the quantity that has to stay affordable is the cells the whole map
+  covers — which neither a per-span cap nor an entry count bounds on its own,
+  since 10,000 anchors of 100,000 cells each satisfies both and still asks for
+  1e9 entries. `model/worksheet/merging.ts` therefore holds all three ceilings
+  (`MaxMergedCells`, `MaxMergeEntries`, `MaxMergeCoveredCells`) and one
+  predicate, `mergeBudgetAdmits`, and **every** writer of the field spends
+  against it: `canMergeSelection` for the toolbar gesture, `applyPasteMerges`
+  per pasted block, the XLSX importer per `mergeCell`, `YorkieStore.setMerge`
+  as the floor under the CRDT, and `parseMerges` for a whole `PUT merges` body.
+  A cap the REST validator obeyed alone would be worse than none: the editor
+  and the importer would keep growing a map the API could then no longer
+  replace, since `PUT merges` is wholesale and has no per-anchor form. With the
+  budget shared, a map that large cannot be created in the first place, and a
+  legacy one can always be *shrunk* through the same endpoint, because the cap
+  reads the body rather than what is stored.
+  Every one of those is a **writer**, though, and two of them run in a browser,
+  while `merges` is a plain CRDT object: the Yorkie auth webhook authorizes a
+  write by (document, verb) and never inspects an op's content, so anyone
+  holding `rw` on the document can put a map in it that no writer here would
+  have created. So the cover-map build — the walk the budget exists to
+  protect — spends the budget itself on the way in, dropping a span it cannot
+  afford (a span that is not two positive integers, whose `rs * cs` is `NaN`
+  and so passes every comparison; and a key that is not a plain cell reference,
+  which `parseRef` would otherwise throw on) from the in-memory map and the
+  cover map together. That build is `buildMergeCoverMap` in
+  `model/worksheet/merging.ts` rather than a private of `Sheet`, because the
+  engine is not the only **reader**: the frontend's cross-sheet formula resolver
+  (`sheet-view.tsx`) folds covered refs onto their anchors by walking the same
+  raw CRDT map, and a clamp only one reader applied is a clamp the other
+  reader's tab hangs without. `Sheet.rebuildMergeCoverMap` is now that call plus
+  the bookkeeping only it has (`Sheet.merges`, `mergeBudget`). Read
+  defensively, a hostile map costs this client the merges it cannot afford;
+  read trustingly, it costs every collaborator the tab, on every open,
+  permanently. Nothing is written back: this is one client clamping what it
+  will render, not a repair, and a repair issued from a load would race every
+  other replica reading the same map.
+  Because the store spends a budget of its own, `Store.setMerge` **returns
+  whether the block was stored**, and the engine's three writers
+  (`mergeSelection`, `applyPasteMerges`, `moveRangeTo`) record it in
+  `Sheet.merges` only when it says yes. The two budgets can disagree — the
+  engine's is spent against the map it last loaded, the store's against what
+  the document holds now, which a collaborator may have grown in between — and
+  a refusal the caller could not see would leave the sheet painting a merge
+  nobody else has. `mergeSelection` therefore asks *before* clearing the cells
+  the block would cover, so a refusal costs their contents nothing.
+  A **single-cell** paste starts at the merge anchor: `paste` normalizes
+  `activeCell` with `normalizeRefToAnchor`, because `selectRow` /
+  `selectColumn` / `selectAllCells` leave the active cell at the head of the
+  selection without normalizing, and a value written to a covered cell is
+  invisible under the block until an unmerge brings it back. A multi-cell
+  paste keeps `activeCell` as its top-left: it has a shape, and sliding the
+  whole grid up or left to an anchor would land it off the cells the user
+  selected and overwrite unrelated ones. Such a paste necessarily clips the
+  block covering its head cell (the block's anchor is above or left of the
+  destination's origin, so the block is not contained in it), and is refused
+  as `merge-paste-partial` rather than misplaced.
+  The **copy buffer outlives its paste**: the view clears it only through
+  Escape, and `paste` itself drops a cut once consumed. Clearing it after
+  every paste demoted the second paste of a copy to an external one — no
+  formula relocation and no merge propagation — and discarded the buffer on a
+  refusal, precisely when the user needs it to unmerge and retry. Because it
+  now outlives the gesture, every edit that renumbers the cells it
+  snapshotted invalidates it: `shiftCells` (row/column insert and delete),
+  `moveCells` (row/column reorder), `sortFilterByColumn` (which rewrites cells
+  to new row positions) and `undo` / `redo` (which replay any of them, and are
+  not told which kind of step they replayed) all call `clearCopyBuffer`, so a
+  later paste can never relocate — or re-create a merged block — from
+  coordinates that have since moved. A **peer's** structural edit never calls
+  any of them: it arrives as a reload (`Worksheet.reloadDimensions`), so the
+  buffer additionally records the axis IDs of its source range's corners, and
+  the reload runs `revalidateCopyBuffer` to drop it when those IDs no longer
+  sit at the indices it recorded. Keying on axis IDs rather than on "a remote
+  change happened" is what keeps a peer typing in a cell from emptying the
+  user's clipboard.
+  A reorder that is refused writes nothing, so `moveRows` / `moveColumns`
+  return whether the rows actually moved — the drag-reorder handler re-selects
+  the drop position only on `true`, rather than showing a selection at a
+  destination the rows never reached.
+  The copy buffer's merge snapshot is clipboard-at-copy-time,
+  like its grid and styles: unmerging after the copy does not retro-edit it.
+  That snapshot decides what is *re-created*, never what is *deleted* — a cut
+  drops a recorded block at the source, and treats it as travelling, only
+  while the live merge map still holds it unchanged, so a layout edited
+  between the cut and the paste cannot make the paste delete a block it never
+  copied.
+  **External pastes deliberately leave the merge layout alone** — a foreign
+  grid carries no merge metadata to propagate, and refusing one would trade
+  writing hidden data for doing nothing silently on the most common paste
+  there is.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
   pattern across the expanded range. The fill is constrained to a single axis
   (vertical or horizontal) based on whichever direction the drag extends
@@ -179,7 +336,7 @@ interface Store {
   getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
 
   // Merged cells
-  setMerge(anchor: Ref, span: MergeSpan): Promise<void>;
+  setMerge(anchor: Ref, span: MergeSpan): Promise<boolean>;
   deleteMerge(anchor: Ref): Promise<boolean>;
   getMerges(): Promise<Map<Sref, MergeSpan>>;
 

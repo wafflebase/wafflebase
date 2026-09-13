@@ -3,6 +3,212 @@ import { parseRef, toSref } from '../core/coordinates';
 import { remapIndex } from './shifting';
 
 /**
+ * Ceiling on the cells one merge may cover.
+ *
+ * `Sheet.rebuildMergeCoverMap()` walks `rs * cs` on every document load and
+ * puts one Map entry per covered cell, so an unbounded span is not a large
+ * merge — it is a document nobody can open again. The grid bound alone does not
+ * help: a single `rs: 1000000, cs: 18278` span is inside the grid and still
+ * 1.8e10 iterations.
+ */
+export const MaxMergedCells = 100000;
+
+/**
+ * Ceiling on how many merges one worksheet's map may hold.
+ *
+ * {@link MaxMergedCells} bounds a single span; it says nothing about how many
+ * spans there are, and every merge-walking path is driven by that count:
+ * `rebuildMergeCoverMap` walks it on each load, `snapFreezePastMerges` walks it
+ * on each freeze and on each insert/delete that shifts view state, and
+ * `assertMoveKeepsMergesOffFreeze` walks it per move.
+ *
+ * 10,000 is `MaxAxisEntries` in `worksheet-structure.ts`, itself the engine's
+ * `MaxAxisCoverage`: the same order as the structural budget already granted
+ * per call, far above any hand-built sheet, and small enough that the
+ * merge-walking paths stay in milliseconds.
+ */
+export const MaxMergeEntries = 10000;
+
+/**
+ * Ceiling on the cells the whole map may cover.
+ *
+ * Neither bound above constrains their product: 10,000 anchors each spanning
+ * 100,000 cells satisfies both and still asks `rebuildMergeCoverMap` for 1e9
+ * Map entries — the unopenable tab {@link MaxMergedCells} exists to prevent,
+ * reached by multiplying instead of by one big span. So the sum is bounded too,
+ * an order above the largest single span and still a cover map that builds in
+ * well under a second.
+ */
+export const MaxMergeCoveredCells = 1000000;
+
+/**
+ * Ceiling on how far {@link snapFreezePastMerges} may grow a freeze boundary.
+ *
+ * The snap grows the line to the far edge of a block it would cut, and
+ * {@link MaxMergedCells} permits a single span 100,000 rows tall. The frozen
+ * quadrants are painted in full on every frame with no viewport clipping
+ * (`GridCanvas.render` draws rows `1..frozenRows` for quadrants A and B), so a
+ * boundary that deep is not a large freeze — it is a tab that never paints
+ * again, and therefore one whose freeze menu the user cannot reach to undo it.
+ *
+ * 1,000 is far above any freeze a person sets by hand (a header band is a
+ * handful of rows) and still a quadrant the renderer walks in milliseconds.
+ * It bounds the snap's *growth* only: a line the caller asked for is passed
+ * through untouched, because bounding the request is the validator's job
+ * (`parseFreeze` in the backend) and not this function's.
+ */
+export const MaxSnappedFreeze = 1000;
+
+/**
+ * `MergeBudget` is what the caps above are spent against: how many merges a map
+ * holds and how many cells they cover between them.
+ */
+export type MergeBudget = { entries: number; coveredCells: number };
+
+/**
+ * `mergeBudgetOf` totals the spans of a merge map.
+ */
+export function mergeBudgetOf(spans: Iterable<MergeSpan>): MergeBudget {
+  let entries = 0;
+  let coveredCells = 0;
+  for (const span of spans) {
+    entries++;
+    coveredCells += span.rs * span.cs;
+  }
+  return { entries, coveredCells };
+}
+
+/**
+ * `mergeBudgetError` returns why a merge map is over budget, or null when it is
+ * inside every cap. The message is user-facing: the v1 API answers a rejected
+ * `PUT merges` with it.
+ */
+export function mergeBudgetError(budget: MergeBudget): string | null {
+  if (budget.entries > MaxMergeEntries) {
+    return `the merge map holds ${budget.entries} entries, above the ${MaxMergeEntries} limit`;
+  }
+  if (budget.coveredCells > MaxMergeCoveredCells) {
+    return `the merge map covers ${budget.coveredCells} cells, above the ${MaxMergeCoveredCells} limit`;
+  }
+  return null;
+}
+
+/**
+ * `mergeBudgetAdmits` returns whether a map already spending `budget` can take
+ * the given new spans and stay inside every cap. Every writer of the merge map
+ * asks this — the editor before merging or pasting, the XLSX importer per
+ * `mergeCell`, the collaborative store before it touches the CRDT, and the v1
+ * API for a whole body — so no path can grow the map past what the load-time
+ * walks can afford.
+ */
+export function mergeBudgetAdmits(
+  budget: MergeBudget,
+  added: Iterable<MergeSpan>,
+): boolean {
+  let entries = budget.entries;
+  let coveredCells = budget.coveredCells;
+  // One pass: `added` may be an iterator, and a second walk would see nothing.
+  for (const span of added) {
+    const cells = span.rs * span.cs;
+    if (cells > MaxMergedCells) return false;
+    entries++;
+    coveredCells += cells;
+  }
+  return mergeBudgetError({ entries, coveredCells }) === null;
+}
+
+/**
+ * `isCountableMergeSpan` returns whether a span can be walked at all.
+ *
+ * The budget bounds `rs * cs`, and every comparison against a `NaN` product is
+ * false — so a span whose `rs` is `undefined`, a string or a fraction slips
+ * past every cap and then poisons the running total, after which nothing else
+ * is refused either. The merge map is a plain CRDT field any `rw` collaborator
+ * can write directly, so "the span is two positive integers" is checked rather
+ * than assumed wherever a stored map is read.
+ */
+function isCountableMergeSpan(span: MergeSpan | undefined): span is MergeSpan {
+  return (
+    !!span &&
+    typeof span === 'object' &&
+    Number.isSafeInteger(span.rs) &&
+    Number.isSafeInteger(span.cs) &&
+    span.rs >= 1 &&
+    span.cs >= 1
+  );
+}
+
+/**
+ * `buildMergeCoverMap` turns a stored merge map into the covered-cell → anchor
+ * lookup every merge-aware read needs, spending {@link MergeBudget} as it goes
+ * and dropping what it cannot afford.
+ *
+ * This is the *reader* side of the caps. Every enforcement point upstream is a
+ * writer — the toolbar, the paste planner, the XLSX importer, the collaborative
+ * store, the v1 `PUT merges` validator — and the field they all write is a
+ * plain CRDT object: the Yorkie auth webhook authorizes a write by (document,
+ * verb) and never inspects an op's content, so anyone holding `rw` on the
+ * document can put an arbitrary merge map into it directly. Read defensively
+ * and a map like that costs this client the merges it cannot afford; read it
+ * trustingly and it costs every collaborator the tab, on every open,
+ * permanently.
+ *
+ * So it lives here rather than in `Sheet`: the engine is not the only reader —
+ * the frontend's cross-sheet formula resolver walks the same raw CRDT map to
+ * fold covered refs onto their anchors — and a clamp only one reader applies is
+ * a clamp the other reader's tab hangs without.
+ *
+ * `admitted` is the subset of the input that survived, so a caller holding the
+ * map can keep the two from disagreeing about what is merged. Nothing is
+ * written back: this is one client clamping what it will render, not a repair
+ * of the document, and a repair written from here would race every other
+ * replica reading the same map.
+ */
+export function buildMergeCoverMap(merges: Iterable<[Sref, MergeSpan]>): {
+  coverToAnchor: Map<Sref, Sref>;
+  admitted: Map<Sref, MergeSpan>;
+  budget: MergeBudget;
+} {
+  const coverToAnchor = new Map<Sref, Sref>();
+  const admitted = new Map<Sref, MergeSpan>();
+  const budget: MergeBudget = { entries: 0, coveredCells: 0 };
+
+  for (const [anchorSref, span] of merges) {
+    // Checked before the nested walk below, so an unaffordable or unwalkable
+    // span costs one comparison rather than its own area.
+    if (!isCountableMergeSpan(span)) continue;
+    if (!mergeBudgetAdmits(budget, [span])) continue;
+
+    let anchor: Ref;
+    try {
+      anchor = parseRef(anchorSref);
+    } catch {
+      // A key that is not a cell reference cannot be an anchor. `parseRef`
+      // throwing here is the same unopenable tab the budget guards against,
+      // reached with one malformed key instead of a large span.
+      continue;
+    }
+    // `parseRef` is lenient — `"A1:B2"` parses as `A1` — and a key that does
+    // not round-trip would seed the cover map with an anchor no cell ever
+    // matches, exactly as `parseMerges` explains on the API path.
+    if (toSref(anchor) !== anchorSref) continue;
+
+    budget.entries++;
+    budget.coveredCells += span.rs * span.cs;
+    admitted.set(anchorSref, span);
+    for (let r = anchor.r; r < anchor.r + span.rs; r++) {
+      for (let c = anchor.c; c < anchor.c + span.cs; c++) {
+        const sref = toSref({ r, c });
+        if (sref === anchorSref) continue;
+        coverToAnchor.set(sref, anchorSref);
+      }
+    }
+  }
+
+  return { coverToAnchor, admitted, budget };
+}
+
+/**
  * `toMergeRange` returns the covered range for a merge anchor and span.
  */
 export function toMergeRange(anchor: Ref, span: MergeSpan): Range {
@@ -173,6 +379,130 @@ export function moveMergeMap(
     next.set(toSref(moved.anchor), moved.span);
   }
   return next;
+}
+
+/**
+ * `crossesFreezePane` returns whether a range straddles a frozen row or column
+ * boundary. A merged block that does is not drawable — the renderer paints the
+ * frozen pane and the scrolling body from a single block — so it is the state
+ * merging, pasting, moving and reordering all refuse to create.
+ */
+export function crossesFreezePane(
+  range: Range,
+  frozenRows: number,
+  frozenCols: number,
+): boolean {
+  const crossesRows =
+    frozenRows > 0 && range[0].r <= frozenRows && range[1].r > frozenRows;
+  const crossesCols =
+    frozenCols > 0 && range[0].c <= frozenCols && range[1].c > frozenCols;
+  return crossesRows || crossesCols;
+}
+
+/**
+ * `snapFreezePastMerges` grows the given freeze counts until no merged block
+ * straddles either boundary. Growing one boundary can pull a further block
+ * across it, so a naive version repeats until stable — but that is quadratic in
+ * the merge count, and the merge map is caller-supplied (the v1 worksheet API
+ * writes it wholesale), while this runs synchronously inside `doc.update` on
+ * every freeze and on every insert/delete that shifts view state. So it sweeps
+ * each axis once in start order instead.
+ *
+ * That one sweep is exact: the line only ever grows, and it grows only from a
+ * block whose start is already at or before it. Once the sweep reaches a block
+ * starting past the line, every remaining block starts no earlier, so none of
+ * them can straddle and the line is settled — hence the `break`. Every block
+ * already visited ended at or before the line when it was visited, and the line
+ * has only grown since.
+ *
+ * Freezing is the one path that reaches a straddling block without moving one,
+ * so it snaps the line rather than refusing the gesture: the whole block ends
+ * up frozen, which is what the user asked for plus the rows the layout makes
+ * inseparable from them.
+ *
+ * The growth is bounded by {@link MaxSnappedFreeze}. A block may legally be
+ * 100,000 rows tall, and the renderer paints every frozen row each frame, so a
+ * snap that deep would hand back an unpaintable tab. When the sweep cannot
+ * settle inside that ceiling the axis is **released** (0) instead: a boundary
+ * that does not exist straddles nothing, so the invariant this function serves
+ * still holds, and the user sees their freeze undone rather than a grid that
+ * stops drawing.
+ */
+export function snapFreezePastMerges(
+  merges: Iterable<[Sref, MergeSpan]>,
+  frozenRows: number,
+  frozenCols: number,
+): { frozenRows: number; frozenCols: number } {
+  const ranges: Array<Range> = [];
+  for (const [anchorSref, span] of merges) {
+    ranges.push(toMergeRange(parseRef(anchorSref), span));
+  }
+
+  const sweep = (
+    line: number,
+    start: (range: Range) => number,
+    end: (range: Range) => number,
+  ): number => {
+    if (line <= 0) return line;
+    let snapped = line;
+    for (const range of [...ranges].sort((a, b) => start(a) - start(b))) {
+      if (start(range) > snapped) break;
+      if (end(range) > snapped) snapped = end(range);
+    }
+    if (snapped !== line && snapped > MaxSnappedFreeze) return 0;
+    return snapped;
+  };
+
+  return {
+    frozenRows: sweep(
+      frozenRows,
+      (range) => range[0].r,
+      (range) => range[1].r,
+    ),
+    frozenCols: sweep(
+      frozenCols,
+      (range) => range[0].c,
+      (range) => range[1].c,
+    ),
+  };
+}
+
+/**
+ * `moveStraddlingFreeze` returns the anchor of a merged block the move would
+ * *newly* leave across a frozen boundary, or null when the reorder creates no
+ * such block.
+ *
+ * A block that already straddles is deliberately not a refusal. Straddling
+ * merges were freely creatable before this invariant existed, and `remapIndex`
+ * leaves a block outside both the moved range and the shift window at the
+ * indices it already had — so refusing on "any entry of the moved map
+ * straddles" would refuse *every* row and column reorder on such a document,
+ * forever, including moves nowhere near the block. The invariant this guards is
+ * "no writer creates one", which is what the before/after comparison asks: the
+ * block is compared with itself, so only a move that carries it across the line
+ * (or shifts the cells under it so it lands across one) is refused.
+ */
+export function moveStraddlingFreeze(
+  merges: Iterable<[Sref, MergeSpan]>,
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+  frozenRows: number,
+  frozenCols: number,
+): Sref | null {
+  if (frozenRows === 0 && frozenCols === 0) return null;
+  for (const [anchorSref, span] of merges) {
+    const anchor = parseRef(anchorSref);
+    const moved = moveMerge(anchor, span, axis, src, count, dst);
+    if (!moved) continue;
+    const after = toMergeRange(moved.anchor, moved.span);
+    if (!crossesFreezePane(after, frozenRows, frozenCols)) continue;
+    const before = toMergeRange(anchor, span);
+    if (crossesFreezePane(before, frozenRows, frozenCols)) continue;
+    return toSref(moved.anchor);
+  }
+  return null;
 }
 
 /**

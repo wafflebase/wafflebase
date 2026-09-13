@@ -12,7 +12,11 @@ import {
   pruneHiddenRowsOutsideFilter,
   shiftFilterBoundary,
 } from '../worksheet/filter';
-import { moveMergeMap, shiftMergeMap } from '../worksheet/merging';
+import {
+  moveMergeMap,
+  shiftMergeMap,
+  snapFreezePastMerges,
+} from '../worksheet/merging';
 import {
   moveRangeStylePatches,
   shiftRangeStylePatches,
@@ -245,7 +249,7 @@ function shiftWorksheetViewState(
 
   // Freeze pane. An insert inside the frozen band grows it; a delete inside it
   // shrinks it by however much of the band was removed. An edit below the band
-  // leaves it alone. Mirrors `Sheet.shiftCells`.
+  // leaves it alone. Mirrors the first half of `Sheet.shiftCells`' freeze block.
   const frozen = axis === 'row' ? ws.frozenRows : ws.frozenCols;
   if (frozen > 0 && index <= frozen) {
     let next: number | undefined;
@@ -262,6 +266,25 @@ function shiftWorksheetViewState(
         ws.frozenCols = next;
       }
     }
+  }
+
+  // The boundary and the merge map have both moved by now (`replaceMerges` ran
+  // before this), so either edge can have come to rest inside a block — the
+  // straddling state `planPasteMerges`, `moveRangeTo` and the v1 `PUT merges` /
+  // `PUT freeze` / `POST move` handlers all refuse to create. Without this the
+  // insert/delete path would be the one remaining door into it. Snap the line
+  // past the block, exactly as `setFreezePane` and `Sheet.shiftCells` do, so
+  // every caller of `applyWorksheetShift` upholds the same invariant.
+  const snapped = snapFreezePastMerges(
+    safeWorksheetRecordEntries(ws.merges) as Array<[Sref, MergeSpan]>,
+    ws.frozenRows ?? 0,
+    ws.frozenCols ?? 0,
+  );
+  if (snapped.frozenRows !== (ws.frozenRows ?? 0)) {
+    ws.frozenRows = snapped.frozenRows;
+  }
+  if (snapped.frozenCols !== (ws.frozenCols ?? 0)) {
+    ws.frozenCols = snapped.frozenCols;
   }
 }
 

@@ -269,8 +269,9 @@ export class ReadOnlyStore implements Store {
     return [];
   }
 
-  async setMerge(_anchor: Ref, _span: MergeSpan): Promise<void> {
-    // no-op
+  async setMerge(_anchor: Ref, _span: MergeSpan): Promise<boolean> {
+    // no-op: nothing is stored, so nothing was merged.
+    return false;
   }
 
   async deleteMerge(_anchor: Ref): Promise<boolean> {

@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { parseRef, parseRange, toSrefs, toBorderRanges } from '../../src/model/core/coordinates';
-import { Range } from '../../src/model/core/types';
+import {
+  parseRef,
+  parseRange,
+  rangeOf,
+  toSrefs,
+  toBorderRanges,
+} from '../../src/model/core/coordinates';
+import { Grid, Range } from '../../src/model/core/types';
 
 describe('parseRef', () => {
   it('should parse the Sref and return the Ref', () => {
@@ -93,5 +99,35 @@ describe('toBorderRanges', () => {
     ];
 
     expect(toBorderRanges(range, dimension)).toEqual([]);
+  });
+});
+
+describe('rangeOf', () => {
+  it('should return the bounding range of the grid', () => {
+    const grid: Grid = new Map([
+      ['B3', {}],
+      ['D2', {}],
+      ['C5', {}],
+    ]);
+
+    expect(rangeOf(grid)).toEqual([
+      { r: 2, c: 2 },
+      { r: 5, c: 4 },
+    ]);
+  });
+
+  it('should not overflow the stack on a grid with many cells', () => {
+    // A grid holds one key per cell, so folding the bounds must not spread one
+    // argument per cell into `Math.min`/`Math.max` — a full-column paste is
+    // already past the engine's argument limit.
+    const grid: Grid = new Map();
+    for (let r = 1; r <= 200000; r++) {
+      grid.set(`A${r}`, {});
+    }
+
+    expect(rangeOf(grid)).toEqual([
+      { r: 1, c: 1 },
+      { r: 200000, c: 1 },
+    ]);
   });
 });

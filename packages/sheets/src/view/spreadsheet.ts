@@ -721,8 +721,11 @@ export class Spreadsheet {
         text = await navigator.clipboard.readText();
       }
 
+      // Not cleared here, for the reason `Worksheet.paste` records: `paste`
+      // drops a consumed cut itself, and clearing unconditionally demoted
+      // every repeat paste to an external one and discarded the buffer a
+      // refused paste still needs.
       await this.sheet.paste({ text, html });
-      this.sheet.clearCopyBuffer();
       this.worksheet.render();
       this.notifySelectionChange();
     } catch (err) {
