@@ -5,8 +5,10 @@ import {
   MaxMergeCoveredCells,
   MaxMergeEntries,
   MaxMergedCells,
+  MaxSnappedFreeze,
   mergeBudgetAdmits,
   mergeBudgetError,
+  snapFreezePastMerges,
 } from '../../src/model/worksheet/merging';
 
 // The merge map is what `rebuildMergeCoverMap` walks on every load, so it is
@@ -47,6 +49,57 @@ describe('merge budget', () => {
     sheet.selectEnd({ r: MaxMergedCells + 1, c: 1 });
     expect(sheet.canMergeSelection()).toBe(false);
     expect(await sheet.mergeSelection()).toBe(false);
+  });
+});
+
+// Every other enforcement point is a writer, and two of them run in a browser
+// — but `merges` is a plain CRDT object, and the Yorkie auth webhook authorizes
+// a write by (document, verb) without ever reading an op's content. So anyone
+// holding `rw` can put a map in the document that no writer here would have
+// created, and it arrives through the load path. That is the walk the budget
+// exists to protect, so the load path spends it too.
+describe('merge map loaded from the store', () => {
+  it('drops a span the budget cannot afford instead of walking it', async () => {
+    const store = new MemStore();
+    // Inside the grid, 1.8e10 cells: `rebuildMergeCoverMap` walking this is
+    // not a slow load, it is a tab nobody can open again.
+    await store.setMerge({ r: 1, c: 1 }, { rs: 1000000, cs: 18278 });
+    await store.setMerge({ r: 2, c: 2 }, { rs: 2, cs: 2 });
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+
+    const merges = sheet.getMerges();
+    expect(merges.has('A1')).toBe(false);
+    // The affordable block beside it still loads: the clamp drops what it
+    // cannot pay for, it does not abandon the map.
+    expect(merges.get('B2')).toEqual({ rs: 2, cs: 2 });
+  });
+
+  it('stops at the entry cap however small the spans are', async () => {
+    const store = new MemStore();
+    for (let i = 0; i < MaxMergeEntries + 5; i++) {
+      await store.setMerge({ r: 1 + i * 2, c: 1 }, { rs: 2, cs: 1 });
+    }
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+    expect(sheet.getMerges().size).toBe(MaxMergeEntries);
+  });
+
+  it('drops a key that is not a plain cell reference', async () => {
+    const store = new MemStore();
+    const raw = (store as unknown as { merges: Map<string, unknown> }).merges;
+    // `parseRef` throws on the first and parses the second as `A1` — which
+    // would seed the cover map with an anchor no cell ever matches.
+    raw.set('__proto__', { rs: 2, cs: 2 });
+    raw.set('A1:B2', { rs: 2, cs: 2 });
+    await store.setMerge({ r: 1, c: 1 }, { rs: 2, cs: 2 });
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+
+    expect([...sheet.getMerges().keys()]).toEqual(['A1']);
   });
 });
 
@@ -919,6 +972,62 @@ describe('Sheet merge and the freeze boundary', () => {
     );
     expect(refusals).toEqual([]);
     expect(sheet.getMerges().get('A6')).toEqual({ rs: 3, cs: 1 });
+  });
+
+  it('should release the freeze rather than snap past what the renderer paints', async () => {
+    // The frozen quadrants are painted in full every frame with no viewport
+    // clipping, and the merge budget permits a single block 100,000 rows tall.
+    // Snapping to the bottom of one would hand back a tab that never paints —
+    // and so one whose freeze menu the user cannot reach to undo it.
+    const store = new MemStore();
+    await store.setMerge({ r: 1, c: 1 }, { rs: MaxSnappedFreeze + 2, cs: 1 });
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+    await sheet.setFreezePane(1, 0);
+
+    // Released, not clamped to the ceiling: a boundary that does not exist
+    // straddles nothing, so the invariant the snap serves still holds.
+    expect(sheet.getFreezePane()).toEqual({ frozenRows: 0, frozenCols: 0 });
+    expect(await store.getFreezePane()).toEqual({
+      frozenRows: 0,
+      frozenCols: 0,
+    });
+  });
+
+  it('should still snap a block that fits inside the ceiling', async () => {
+    const store = new MemStore();
+    await store.setMerge({ r: 1, c: 1 }, { rs: MaxSnappedFreeze, cs: 1 });
+
+    const sheet = new Sheet(store);
+    await sheet.loadMerges();
+    await sheet.setFreezePane(1, 0);
+    expect(sheet.getFreezePane()).toEqual({
+      frozenRows: MaxSnappedFreeze,
+      frozenCols: 0,
+    });
+  });
+
+  it('should leave a freeze the caller asked for alone', () => {
+    // The ceiling bounds the snap's *growth*. Bounding the request itself is
+    // the validator's job (`parseFreeze`), so a line nothing straddles passes
+    // through however deep it is.
+    expect(
+      snapFreezePastMerges([], MaxSnappedFreeze + 500, MaxSnappedFreeze + 500),
+    ).toEqual({
+      frozenRows: MaxSnappedFreeze + 500,
+      frozenCols: MaxSnappedFreeze + 500,
+    });
+  });
+
+  it('should release a frozen column the same way', () => {
+    expect(
+      snapFreezePastMerges(
+        [['A1', { rs: 1, cs: MaxSnappedFreeze + 2 }]],
+        0,
+        1,
+      ),
+    ).toEqual({ frozenRows: 0, frozenCols: 0 });
   });
 
   it('should carry a frozen block down with an insert above it', async () => {

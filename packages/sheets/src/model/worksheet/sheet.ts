@@ -858,13 +858,50 @@ export class Sheet {
 
   /**
    * `rebuildMergeCoverMap` rebuilds covered-cell -> anchor lookup.
+   *
+   * This is the walk the merge budget exists to protect, so it spends the
+   * budget itself rather than trusting that whoever wrote the map already did.
+   * Every enforcement point upstream is a *writer* — the toolbar, the paste
+   * planner, the XLSX importer, the collaborative store, the v1 `PUT merges`
+   * validator — and two of them are browser code, while the field they all
+   * write is a plain CRDT object: the Yorkie auth webhook authorizes a write by
+   * (document, verb) and never inspects an op's content, so anyone holding `rw`
+   * on the document can put an arbitrary merge map into it directly. Read
+   * defensively here and a map like that costs this client the merges it cannot
+   * afford; read it trustingly and it costs every collaborator the tab, on
+   * every open, permanently.
+   *
+   * A span the budget refuses is dropped from the in-memory map as well as from
+   * the cover map, so the two never disagree about what is merged. Nothing is
+   * written back: this is one client clamping what it will render, not a repair
+   * of the document, and a repair written from here would race every other
+   * replica reading the same map.
    */
   private rebuildMergeCoverMap(): void {
     this.mergeCoverMap.clear();
-    let coveredCells = 0;
+    const budget: MergeBudget = { entries: 0, coveredCells: 0 };
+    const admitted = new Map<Sref, MergeSpan>();
     for (const [anchorSref, span] of this.merges) {
-      coveredCells += span.rs * span.cs;
-      const anchor = parseRef(anchorSref);
+      // The per-span cap is checked before the nested loop below, so an
+      // unaffordable span costs one comparison rather than its own area.
+      if (!mergeBudgetAdmits(budget, [span])) continue;
+      let anchor: Ref;
+      try {
+        anchor = parseRef(anchorSref);
+      } catch {
+        // A key that is not a cell reference cannot be an anchor. `parseRef`
+        // throwing here is the same unopenable tab the budget guards against,
+        // reached with one malformed key instead of a large span.
+        continue;
+      }
+      // `parseRef` is lenient — `"A1:B2"` parses as `A1` — and a key that does
+      // not round-trip would seed `mergeCoverMap` with an anchor no cell ever
+      // matches, exactly as `parseMerges` explains on the API path.
+      if (toSref(anchor) !== anchorSref) continue;
+
+      budget.entries++;
+      budget.coveredCells += span.rs * span.cs;
+      admitted.set(anchorSref, span);
       for (let r = anchor.r; r < anchor.r + span.rs; r++) {
         for (let c = anchor.c; c < anchor.c + span.cs; c++) {
           const sref = toSref({ r, c });
@@ -873,7 +910,10 @@ export class Sheet {
         }
       }
     }
-    this.mergeBudget = { entries: this.merges.size, coveredCells };
+    if (admitted.size !== this.merges.size) {
+      this.merges = admitted;
+    }
+    this.mergeBudget = budget;
   }
 
   /**

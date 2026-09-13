@@ -42,6 +42,24 @@ export const MaxMergeEntries = 10000;
 export const MaxMergeCoveredCells = 1000000;
 
 /**
+ * Ceiling on how far {@link snapFreezePastMerges} may grow a freeze boundary.
+ *
+ * The snap grows the line to the far edge of a block it would cut, and
+ * {@link MaxMergedCells} permits a single span 100,000 rows tall. The frozen
+ * quadrants are painted in full on every frame with no viewport clipping
+ * (`GridCanvas.render` draws rows `1..frozenRows` for quadrants A and B), so a
+ * boundary that deep is not a large freeze — it is a tab that never paints
+ * again, and therefore one whose freeze menu the user cannot reach to undo it.
+ *
+ * 1,000 is far above any freeze a person sets by hand (a header band is a
+ * handful of rows) and still a quadrant the renderer walks in milliseconds.
+ * It bounds the snap's *growth* only: a line the caller asked for is passed
+ * through untouched, because bounding the request is the validator's job
+ * (`parseFreeze` in the backend) and not this function's.
+ */
+export const MaxSnappedFreeze = 1000;
+
+/**
  * `MergeBudget` is what the caps above are spent against: how many merges a map
  * holds and how many cells they cover between them.
  */
@@ -310,6 +328,14 @@ export function crossesFreezePane(
  * so it snaps the line rather than refusing the gesture: the whole block ends
  * up frozen, which is what the user asked for plus the rows the layout makes
  * inseparable from them.
+ *
+ * The growth is bounded by {@link MaxSnappedFreeze}. A block may legally be
+ * 100,000 rows tall, and the renderer paints every frozen row each frame, so a
+ * snap that deep would hand back an unpaintable tab. When the sweep cannot
+ * settle inside that ceiling the axis is **released** (0) instead: a boundary
+ * that does not exist straddles nothing, so the invariant this function serves
+ * still holds, and the user sees their freeze undone rather than a grid that
+ * stops drawing.
  */
 export function snapFreezePastMerges(
   merges: Iterable<[Sref, MergeSpan]>,
@@ -332,6 +358,7 @@ export function snapFreezePastMerges(
       if (start(range) > snapped) break;
       if (end(range) > snapped) snapped = end(range);
     }
+    if (snapped !== line && snapped > MaxSnappedFreeze) return 0;
     return snapped;
   };
 

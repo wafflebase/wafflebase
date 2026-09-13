@@ -142,6 +142,17 @@ all cell, selection, and navigation operations.
   applying it in both places lands on the same boundary. The snap itself is one
   implementation (`snapFreezePastMerges` in `model/worksheet/merging.ts`)
   shared by the engine and the controller, so the two cannot drift.
+  The snap's *growth* is capped at `MaxSnappedFreeze` (1,000). A block may
+  legally be 100,000 rows tall, and `GridCanvas` paints rows `1..frozenRows`
+  for the frozen quadrants on every frame with no viewport clipping, so a snap
+  to the bottom of such a block would not be a deep freeze — it would be a tab
+  that stops painting, and therefore one whose freeze menu the user can no
+  longer reach to undo it. When the sweep cannot settle inside the ceiling the
+  axis is **released** (0) instead: a boundary that does not exist straddles
+  nothing, so the invariant still holds and the user sees their freeze undone
+  rather than a frozen grid. Only growth is bounded — a line the caller asked
+  for passes through untouched, since bounding the request is the validator's
+  job (`parseFreeze`).
   The merge map is also **bounded**, and bounded in one place for the same
   reason. `rebuildMergeCoverMap` puts one Map entry per covered cell on every
   load, so the quantity that has to stay affordable is the cells the whole map
@@ -159,6 +170,19 @@ all cell, selection, and navigation operations.
   budget shared, a map that large cannot be created in the first place, and a
   legacy one can always be *shrunk* through the same endpoint, because the cap
   reads the body rather than what is stored.
+  Every one of those is a **writer**, though, and two of them run in a browser,
+  while `merges` is a plain CRDT object: the Yorkie auth webhook authorizes a
+  write by (document, verb) and never inspects an op's content, so anyone
+  holding `rw` on the document can put a map in it that no writer here would
+  have created. So `rebuildMergeCoverMap` — the walk the budget exists to
+  protect — spends the budget itself on the way in, dropping a span it cannot
+  afford (and a key that is not a plain cell reference, which `parseRef` would
+  otherwise throw on) from the in-memory map and the cover map together. Read
+  defensively, a hostile map costs this client the merges it cannot afford;
+  read trustingly, it costs every collaborator the tab, on every open,
+  permanently. Nothing is written back: this is one client clamping what it
+  will render, not a repair, and a repair issued from a load would race every
+  other replica reading the same map.
   Because the store spends a budget of its own, `Store.setMerge` **returns
   whether the block was stored**, and the engine's three writers
   (`mergeSelection`, `applyPasteMerges`, `moveRangeTo`) record it in
