@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 601
+Total archived tasks: 602
 
-## 2026/09 (26 tasks)
+## 2026/09 (27 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | member api keys (2026-09-13) | [20260913-member-api-keys-todo.md](./2026/09/20260913-member-api-keys-todo.md) | - |
+| release v0.6.11 (2026-09-13) | [20260913-release-v0.6.11-todo.md](./2026/09/20260913-release-v0.6.11-todo.md) | [20260913-release-v0.6.11-lessons.md](./2026/09/20260913-release-v0.6.11-lessons.md) |
 | sheets paste merge propagation (2026-09-12) | [20260912-sheets-paste-merge-propagation-todo.md](./2026/09/20260912-sheets-paste-merge-propagation-todo.md) | [20260912-sheets-paste-merge-propagation-lessons.md](./2026/09/20260912-sheets-paste-merge-propagation-lessons.md) |
 | agent rerun inflight ci (2026-09-10) | [20260910-agent-rerun-inflight-ci-todo.md](./2026/09/20260910-agent-rerun-inflight-ci-todo.md) | [20260910-agent-rerun-inflight-ci-lessons.md](./2026/09/20260910-agent-rerun-inflight-ci-lessons.md) |
 | agent fix timeout latch (2026-09-09) | [20260909-agent-fix-timeout-latch-todo.md](./2026/09/20260909-agent-fix-timeout-latch-todo.md) | - |
