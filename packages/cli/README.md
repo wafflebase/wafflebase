@@ -127,6 +127,12 @@ wafflebase
 │   ├── list
 │   └── revoke <key-id>
 │
+├── templates (alias: template)            The gallery (publish/use: `login`)
+│   ├── list                               --scope workspace|public, facets
+│   ├── publish <doc-id>                   --title/--description/--category/
+│   │                                      --tag (repeatable)/--visibility
+│   └── use <template-id>                  --into <workspace>
+│
 └── schema [<command>]                     Discover parameters/safety
 ```
 
@@ -178,6 +184,14 @@ wafflebase docs export abc-123 out.pdf --pages 1-3
 wafflebase docs import draft.docx --title "Final Draft"
 wafflebase docs import revision.docx --replace abc-123 --yes
 wafflebase docs content abc-123 | wafflebase docs set-content abc-123
+
+# Templates. publish/use need `login` (an API key is refused, as for api-keys);
+# `list --scope public` answers an unauthenticated caller too.
+wafflebase templates list                            # the workspace's gallery
+wafflebase templates list --scope public --query budget
+wafflebase templates publish abc-123 --title "Weekly Report" \
+  --category Business --tag weekly --visibility workspace
+wafflebase templates use tpl-1 --into other-workspace
 
 # Schema introspection (singular aliases resolve too)
 wafflebase schema docs.content
