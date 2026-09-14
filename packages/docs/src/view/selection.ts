@@ -112,6 +112,33 @@ function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRan
   return table ? expandCellRangeForMerges(ordered, table) : ordered;
 }
 
+/**
+ * Walk up `blockParentMap` until an id that exists in `layout.blocks` is
+ * reached, and return it. The caller's own `findIndex` still decides whether
+ * it resolved.
+ *
+ * Carries the same cycle guard as `resolveNestedTableLayout`: block ids arrive
+ * verbatim from peer-written CRDT attributes, so a parent chain that loops
+ * back on itself is representable, and this walk runs on the render path. A
+ * cycle stops the walk instead of hanging the tab; the id it stops on is not
+ * in `layout.blocks` (a cycle never reaches a top-level block), so the caller
+ * reads it as unresolvable.
+ */
+function walkToTopLevelBlockId(
+  startId: string,
+  layout: DocumentLayout,
+): string {
+  let id = startId;
+  const seen = new Set<string>([id]);
+  while (id && layout.blocks.findIndex((lb) => lb.block.id === id) === -1) {
+    const parentInfo = layout.blockParentMap.get(id);
+    if (!parentInfo || seen.has(parentInfo.tableBlockId)) break;
+    id = parentInfo.tableBlockId;
+    seen.add(id);
+  }
+  return id;
+}
+
 function normalizeRange(
   range: DocRange,
   layout: DocumentLayout,
@@ -143,18 +170,14 @@ function normalizeRange(
 
   // For nested tables, walk up the blockParentMap chain to find the
   // outermost table ID that exists in layout.blocks.
-  let anchorTopId = anchorCellInfo?.tableBlockId ?? range.anchor.blockId;
-  while (anchorTopId && layout.blocks.findIndex((lb) => lb.block.id === anchorTopId) === -1) {
-    const parentInfo = layout.blockParentMap.get(anchorTopId);
-    if (!parentInfo) break;
-    anchorTopId = parentInfo.tableBlockId;
-  }
-  let focusTopId = focusCellInfo?.tableBlockId ?? range.focus.blockId;
-  while (focusTopId && layout.blocks.findIndex((lb) => lb.block.id === focusTopId) === -1) {
-    const parentInfo = layout.blockParentMap.get(focusTopId);
-    if (!parentInfo) break;
-    focusTopId = parentInfo.tableBlockId;
-  }
+  const anchorTopId = walkToTopLevelBlockId(
+    anchorCellInfo?.tableBlockId ?? range.anchor.blockId,
+    layout,
+  );
+  const focusTopId = walkToTopLevelBlockId(
+    focusCellInfo?.tableBlockId ?? range.focus.blockId,
+    layout,
+  );
   const anchorIdx = layout.blocks.findIndex((lb) => lb.block.id === anchorTopId);
   const focusIdx = layout.blocks.findIndex((lb) => lb.block.id === focusTopId);
   if (anchorIdx === -1 || focusIdx === -1) return null;
@@ -758,9 +781,14 @@ export class Selection {
     // Cell-range selection: tab-separated columns, newline-separated rows
     if (normalized.tableCellRange) {
       const cr = normalized.tableCellRange;
-      const lb = layout.blocks.find((b) => b.block.id === cr.blockId);
-      if (!lb?.block.tableData) return '';
-      const td = lb.block.tableData;
+      // Same nested-aware lookup `normalizeRange` and `getSelectedTableCells`
+      // use: a nested table block is not a member of `layout.blocks`, so the
+      // flat lookup alone returned '' and copy (and cut) wrote an empty
+      // `text/plain` flavour for every nested-table cell rectangle (#1049).
+      const td =
+        layout.blocks.find((b) => b.block.id === cr.blockId)?.block.tableData ??
+        resolveNestedTableLayout(cr.blockId, layout)?.dataBlock.tableData;
+      if (!td) return '';
       const rows: string[] = [];
       for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
         const cols: string[] = [];
@@ -783,9 +811,15 @@ export class Selection {
     const startCellInfo = layout.blockParentMap.get(start.blockId);
     const endCellInfo = layout.blockParentMap.get(end.blockId);
     if (startCellInfo && endCellInfo) {
-      const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
-      if (!lb?.block.tableData) return '';
-      const cell = lb.block.tableData.rows[startCellInfo.rowIndex]
+      // Nested-aware for the same reason as the cell-range branch above: an
+      // ordinary text selection inside a *nested* table's cell copied as ''.
+      const tableData =
+        layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId)
+          ?.block.tableData ??
+        resolveNestedTableLayout(startCellInfo.tableBlockId, layout)
+          ?.dataBlock.tableData;
+      if (!tableData) return '';
+      const cell = tableData.rows[startCellInfo.rowIndex]
         ?.cells[startCellInfo.colIndex];
       if (!cell) return '';
       const startCbi = cell.blocks.findIndex((b) => b.id === start.blockId);

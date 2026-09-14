@@ -7,6 +7,11 @@ import type { BlockCellInfo, TableCell } from '../../src/model/types.js';
 import { Theme } from '../../src/view/theme.js';
 import { WAFFLEDOCS_MIME } from '../../src/view/clipboard.js';
 import { resolveNestedTableLayout } from '../../src/view/table-layout.js';
+import { Selection } from '../../src/view/selection.js';
+import { resolvePositionPixel } from '../../src/view/peer-cursor.js';
+import type { DocumentLayout } from '../../src/view/layout.js';
+import type { PaginatedLayout } from '../../src/view/pagination.js';
+import type { TextMeasurer } from '../../src/view/measurer.js';
 
 /**
  * The half of #1049 that lives inside a *nested* table.
@@ -238,6 +243,11 @@ describe('cell-range selection inside a nested table (#1049)', () => {
     const payload = JSON.parse(json!) as { tableCells?: TableCell[][] };
     expect(payload.tableCells).toBeTruthy();
     expect(payload.tableCells).toHaveLength(3);
+
+    // The plain-text flavour is written from `Selection.getSelectedText`,
+    // which had kept the flat `layout.blocks` lookup — so a paste into any
+    // app but this one got nothing.
+    expect(written.get('text/plain'), 'empty text/plain flavour').toBeTruthy();
   });
 });
 
@@ -266,5 +276,49 @@ describe('resolveNestedTableLayout parent-chain walk', () => {
     ]);
 
     expect(resolveNestedTableLayout('a', { blocks: [], blockParentMap })).toBeUndefined();
+  });
+
+  /**
+   * The resolver was not the only walk over this map. `normalizeRange` and
+   * `resolvePositionPixel` walk the same peer-written chain on the same render
+   * path, so guarding one site alone left the hang reachable through the other
+   * two. Each of these would run forever before its guard; vitest's per-test
+   * timeout is what turns that into a failure rather than a wedged suite.
+   */
+  function cyclicLayout(): DocumentLayout {
+    const info = (tableBlockId: string): BlockCellInfo => ({
+      tableBlockId, rowIndex: 0, colIndex: 0,
+    });
+    return {
+      blocks: [],
+      blockParentMap: new Map<string, BlockCellInfo>([
+        ['x', info('a')],
+        ['a', info('b')],
+        ['b', info('a')],
+      ]),
+    } as unknown as DocumentLayout;
+  }
+
+  it('normalizeRange stops on a cyclic chain instead of spinning', () => {
+    const selection = new Selection();
+    selection.setRange({
+      anchor: { blockId: 'x', offset: 0 },
+      focus: { blockId: 'x', offset: 3 },
+    });
+
+    expect(selection.getNormalizedRange(cyclicLayout())).toBeNull();
+  });
+
+  it('resolvePositionPixel stops on a cyclic chain instead of spinning', () => {
+    const pixel = resolvePositionPixel(
+      { blockId: 'x', offset: 0 },
+      undefined,
+      { pages: [] } as unknown as PaginatedLayout,
+      cyclicLayout(),
+      { measureText: (t: string) => t.length * 8 } as unknown as TextMeasurer,
+      600,
+    );
+
+    expect(pixel).toBeUndefined();
   });
 });
