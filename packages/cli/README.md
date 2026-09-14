@@ -127,7 +127,7 @@ wafflebase
 │   ├── list
 │   └── revoke <key-id>
 │
-├── templates (alias: template)            The gallery (needs `login`)
+├── templates (alias: template)            The gallery (publish/use: `login`)
 │   ├── list                               --scope workspace|public, facets
 │   ├── publish <doc-id>                   --title/--description/--category/
 │   │                                      --tag (repeatable)/--visibility
@@ -185,7 +185,8 @@ wafflebase docs import draft.docx --title "Final Draft"
 wafflebase docs import revision.docx --replace abc-123 --yes
 wafflebase docs content abc-123 | wafflebase docs set-content abc-123
 
-# Templates (JWT session only — an API key is refused, as for api-keys)
+# Templates. publish/use need `login` (an API key is refused, as for api-keys);
+# `list --scope public` answers an unauthenticated caller too.
 wafflebase templates list                            # the workspace's gallery
 wafflebase templates list --scope public --query budget
 wafflebase templates publish abc-123 --title "Weekly Report" \

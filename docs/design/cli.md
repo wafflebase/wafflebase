@@ -402,7 +402,7 @@ wafflebase
   │     ├── list                             List API keys in workspace
   │     └── revoke <key-id>                  Revoke an API key
   │
-  ├── templates (alias: template)            The gallery; needs a JWT session
+  ├── templates (alias: template)            The gallery; publish/use need login
   │     ├── list                             [--scope workspace|public] (default: workspace)
   │     │     [--type <type>] [--category <c>] [--tag <t>] [--query <text>]
   │     │     [--sort popular|recent] [--limit <n>] [--cursor <id>]
@@ -584,16 +584,22 @@ document is listed, never who can read it. `folders delete` is annotated
 `destructive` because it removes folders, but it never deletes a document: the
 descendants cascade and their documents return to the workspace root.
 
-`templates` is the second namespace off the v1 API base, after `api-keys`. The
-gallery ([template-gallery.md](template-gallery.md)) lives at the browser
-routes — `GET /templates`, `POST /documents/:id/template`,
-`POST /templates/:id/use` — because a listing is workspace-scoped through its
-document rather than through the path, and `use` deliberately crosses a
-workspace boundary. So, like `api-keys`, each URL comes from a builder in
-`client/url.ts` that `HttpClient` fetches with and `--dry-run` prints, and the
-namespace needs `wafflebase login`: those routes are `JwtAuthGuard`-only, so an
-API key is refused. Extending the v1 surface to templates is a backend change,
-not a CLI one.
+`templates` is the second namespace that does **not** hang off the v1 API base;
+`api-keys` is the other. The gallery
+([template-gallery.md](template-gallery.md)) lives at the browser routes —
+`GET /templates`, `POST /documents/:id/template`, `POST /templates/:id/use` —
+because a listing is workspace-scoped through its document rather than through
+the path, and `use` deliberately crosses a workspace boundary. So, like
+`api-keys`, each URL comes from a builder in `client/url.ts` that `HttpClient`
+fetches with and `--dry-run` prints. Extending the v1 surface to templates is a
+backend change, not a CLI one.
+
+That also decides what authenticates them. `publish` and `use` are
+`JwtAuthGuard`-only, so they need `wafflebase login` — an API key is refused,
+exactly as for `api-keys`. `list` is the exception: its route takes optional
+auth, so `--scope public` answers an unauthenticated caller (and simply ignores
+an API key, which is not a session), while `--scope workspace` needs a real
+session and is a `403` without one.
 
 Three rules define the namespace:
 
@@ -872,7 +878,7 @@ wafflebase api-keys create "CI Pipeline"
 wafflebase api-keys list
 wafflebase api-keys revoke key-uuid
 
-# Templates (the gallery; these routes need `wafflebase login`, not an API key)
+# Templates (the gallery; publish/use need `wafflebase login`, not an API key)
 wafflebase templates list                       # what this workspace published
 wafflebase templates list --scope public --category Finance --sort popular
 wafflebase templates publish abc-123 \
@@ -1039,7 +1045,7 @@ packages/cli/
       sheets-export.ts   sheets export CSV/JSON
       schema.ts          schema introspection
       api-keys.ts        api-keys create/list/revoke
-      templates.ts       templates list/publish/use (gallery; JWT session only)
+      templates.ts       templates list/publish/use (gallery; publish/use need login)
     docs/                Word-processor pipeline
       content.ts         runDocsContent orchestrator (json/md/text + --pages)
       pdf-export.ts      exportPdf via PdfExporter + FontkitMeasurer + pdf-lib slicing

@@ -1404,8 +1404,9 @@ const registry: CommandSchema[] = [
   },
 
   // Templates namespace — the gallery (docs/design/template-gallery.md).
-  // These routes need a JWT session (`wafflebase login`); an API key is
-  // refused, as it is for `api-keys`.
+  // `publish` and `use` need a JWT session (`wafflebase login`); an API key is
+  // refused, as it is for `api-keys`. `list` takes optional auth: its public
+  // scope answers an unauthenticated caller, its workspace scope does not.
   {
     name: 'templates.list',
     description:
@@ -1421,7 +1422,11 @@ const registry: CommandSchema[] = [
       '--limit': { type: 'number', required: false, description: 'Page size (1-50)', default: '24' },
       '--cursor': { type: 'string', required: false, description: 'Keyset cursor: the nextCursor of a prior page' },
     },
-    response: { items: { type: 'array', items: { id: 'string', documentId: 'string', documentType: 'string', title: 'string', category: 'string | null', tags: 'string[]', visibility: 'string', useCount: 'number' } }, nextCursor: 'string | null' },
+    // A browse row is a *card*: the server strips `documentId` (and
+    // `previewToken`) from every one, since the public scope is anonymously
+    // enumerable and a document id is a Yorkie doc key. `templates use` is how
+    // a caller turns a listing into a document.
+    response: { items: { type: 'array', items: { id: 'string', documentType: 'string', title: 'string', description: 'string | null', category: 'string | null', tags: 'string[]', visibility: 'string', status: 'string', useCount: 'number', publishedAt: 'string | null' } }, nextCursor: 'string | null' },
     aliases: ['template.list'],
   },
   {

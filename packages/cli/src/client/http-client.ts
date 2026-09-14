@@ -214,9 +214,18 @@ export interface TemplateListing {
   publishedAt: string | null;
 }
 
+/**
+ * A listing as a *card*. Browsing returns these rather than full listings:
+ * the server strips `documentId` (and `previewToken`) from every browse row on
+ * purpose, because the public scope is anonymously enumerable and a document id
+ * is a Yorkie doc key by string concatenation. So a card cannot be turned into
+ * a document id — `templates use` is how a caller gets one.
+ */
+export type TemplateCard = Omit<TemplateListing, 'documentId'>;
+
 /** One page of browse results; `nextCursor` is `null` on the last page. */
 export interface TemplateBrowsePage {
-  items: TemplateListing[];
+  items: TemplateCard[];
   nextCursor: string | null;
 }
 

@@ -168,12 +168,20 @@ describe('templates commands', () => {
     // The one thing publishing can get silently wrong: an option nobody
     // passed must not reach the body, because the endpoint reads a present
     // field as "set it to this" and an absent one as "leave it alone".
+    // `toHaveBeenCalledWith` compares with `toEqual`, which ignores keys whose
+    // value is `undefined` — so it would pass on a body that carried every
+    // field. These assert the body's own key list, which is the thing that
+    // decides whether a field reaches the server at all.
+    const publishedBody = () =>
+      publishTemplate.mock.calls[0][1] as Record<string, unknown>;
+
     it('sends an empty body when no option is given', async () => {
       publishTemplate.mockResolvedValue(ok({ id: LISTING, documentId: DOC }));
 
       await run(['templates', 'publish', DOC]);
 
-      expect(publishTemplate).toHaveBeenCalledWith(DOC, {});
+      expect(publishTemplate.mock.calls[0][0]).toBe(DOC);
+      expect(Object.keys(publishedBody())).toEqual([]);
     });
 
     it('sends only the options given', async () => {
@@ -189,10 +197,16 @@ describe('templates commands', () => {
         'Business',
       ]);
 
-      expect(publishTemplate).toHaveBeenCalledWith(DOC, {
+      expect(publishedBody()).toEqual({
         title: 'Weekly Report',
         category: 'Business',
       });
+      // The named options and nothing else: an unset `visibility` reaching the
+      // body as `null` would widen a workspace listing to anyone holding its id.
+      expect(Object.keys(publishedBody()).sort()).toEqual([
+        'category',
+        'title',
+      ]);
     });
 
     it('collects repeated tags', async () => {
@@ -210,10 +224,13 @@ describe('templates commands', () => {
         'workspace',
       ]);
 
-      expect(publishTemplate).toHaveBeenCalledWith(DOC, {
+      expect(publishTemplate.mock.calls[0][1]).toEqual({
         tags: ['budget', 'q1'],
         visibility: 'workspace',
       });
+      expect(
+        Object.keys(publishTemplate.mock.calls[0][1] as object).sort(),
+      ).toEqual(['tags', 'visibility']);
     });
 
     it('previews the POST against the document route', async () => {

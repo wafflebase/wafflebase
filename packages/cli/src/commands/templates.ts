@@ -25,8 +25,13 @@ import type { PublishTemplateBody } from '../client/http-client.js';
  * document rather than through the path, and `use` deliberately crosses a
  * workspace boundary. So, exactly like `api-keys`, the URL comes from a
  * builder in `client/url.ts` that `HttpClient` fetches with and the preview
- * prints, and the namespace needs a JWT session (`wafflebase login`): the
- * template routes are `JwtAuthGuard`-only, so an API key is refused.
+ * prints.
+ *
+ * `publish` and `use` are `JwtAuthGuard`-only, so they need a JWT session
+ * (`wafflebase login`) and refuse an API key, as `api-keys` does. `list` takes
+ * optional auth: `--scope public` answers an unauthenticated caller — an API
+ * key is ignored rather than honoured, since it is not a session — while
+ * `--scope workspace` needs one.
  */
 
 /** Collect a repeatable `--tag`, leaving it absent when never passed. */
