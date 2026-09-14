@@ -1,5 +1,14 @@
 # Docs Collaboration — Concurrent Convergence Bugs
 
+> **Archiving this file changes what a test prints at runtime.**
+> `packages/frontend/tests/app/docs/yorkie-doc-store-concurrent.integration.ts`
+> names it twice: the comment at `:24` carries the full
+> `docs/tasks/active/...` path, and `:25` bakes the filename into
+> `const KNOWN_BUG`, which is the skip reason the suite emits when it runs. Move
+> this file and a passing test starts pointing at a path that does not exist.
+> Update both in the same commit as the move.
+
+
 Split out from `20260517-docs-comments-followup-todo.md`. These are
 **docs editing-engine (Tree CRDT) convergence bugs**, not comments work —
 the comments integration lane only surfaced them. Tracking them under a
