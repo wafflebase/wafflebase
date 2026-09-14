@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
 import { MemDocStore } from '../../src/store/memory.js';
+import { Doc } from '../../src/model/document.js';
 import { createEmptyBlock, createTableBlock } from '../../src/model/types.js';
 import type { BlockCellInfo, TableCell } from '../../src/model/types.js';
 import { Theme } from '../../src/view/theme.js';
@@ -118,6 +119,13 @@ describe('cell-range selection inside a nested table (#1049)', () => {
     // issue reported as unpainted.
     const inner = createTableBlock(3, 2);
     const itd = inner.tableData!;
+    // Each addressable cell carries its own address as text, so a plain-text
+    // copy can be asserted against the exact rectangle rather than merely
+    // being non-empty — an all-empty fixture cannot tell a correct rectangle
+    // from a wrong one. The covered cell `(1,1)` stays empty.
+    for (const [r, c] of INNER_CELLS) {
+      itd.rows[r].cells[c].blocks[0].inlines = [{ text: `r${r}c${c}`, style: {} }];
+    }
     itd.rows[1].cells[0].colSpan = 2;
     itd.rows[1].cells[0].rowSpan = 1;
     itd.rows[1].cells[1].colSpan = 0;
@@ -221,9 +229,8 @@ describe('cell-range selection inside a nested table (#1049)', () => {
     expect(rects).toHaveLength(5);
   });
 
-  it('copying a nested cell rectangle writes the cells, not nothing', () => {
-    shiftClickRects([0, 0], [2, 0]);
-
+  /** Fire a copy at the editor and return the flavours it wrote. */
+  function copyFlavours(): Map<string, string> {
     const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
     const written = new Map<string, string>();
     const event = new Event('copy', { bubbles: true, cancelable: true });
@@ -237,6 +244,13 @@ describe('cell-range selection inside a nested table (#1049)', () => {
       },
     });
     textarea.dispatchEvent(event);
+    return written;
+  }
+
+  it('copying a nested cell rectangle writes the cells, not nothing', () => {
+    shiftClickRects([0, 0], [2, 0]);
+
+    const written = copyFlavours();
 
     const json = written.get(WAFFLEDOCS_MIME);
     expect(json, `no ${WAFFLEDOCS_MIME} flavour on the clipboard`).toBeTruthy();
@@ -246,8 +260,40 @@ describe('cell-range selection inside a nested table (#1049)', () => {
 
     // The plain-text flavour is written from `Selection.getSelectedText`,
     // which had kept the flat `layout.blocks` lookup — so a paste into any
-    // app but this one got nothing.
-    expect(written.get('text/plain'), 'empty text/plain flavour').toBeTruthy();
+    // app but this one got nothing. Asserted cell by cell: the rectangle the
+    // merge expands to is rows 0–2 × both columns, and the covered cell
+    // `(1,1)` contributes an empty column rather than disappearing.
+    expect(written.get('text/plain')).toBe(
+      'r0c0\tr0c1\nr1c0\t\nr2c0\tr2c1',
+    );
+  });
+
+  it('copying a text selection inside a nested cell writes that text', () => {
+    // The *other* nested-aware lookup in `getSelectedText`: an ordinary
+    // caret-drag inside one nested cell, which takes the cell-internal branch
+    // rather than the cell-rectangle one. Its flat `layout.blocks` lookup
+    // missed the nested table exactly the same way, so copy wrote an empty
+    // `text/plain` — and cut deleted the text while putting nothing on the
+    // clipboard.
+    const live = editor.getDoc().getBlock(innerId).tableData!;
+    const blockId = live.rows[2].cells[1].blocks[0].id;
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 4 },
+    });
+
+    expect(copyFlavours().get('text/plain')).toBe('r2c1');
+  });
+
+  it('copying part of a nested cell writes only that part', () => {
+    const live = editor.getDoc().getBlock(innerId).tableData!;
+    const blockId = live.rows[0].cells[1].blocks[0].id;
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 1 },
+      focus: { blockId, offset: 3 },
+    });
+
+    expect(copyFlavours().get('text/plain')).toBe('0c');
   });
 });
 
@@ -307,6 +353,59 @@ describe('resolveNestedTableLayout parent-chain walk', () => {
     });
 
     expect(selection.getNormalizedRange(cyclicLayout())).toBeNull();
+  });
+
+  /**
+   * The model walks the same map, by recursion rather than a loop — so a
+   * cycle there is a stack overflow (a crash, thrown from wherever the lookup
+   * was called) rather than the `undefined` every other unresolvable id gets.
+   * `findBlock` is reached with these same peer-written ids from the copy/cut
+   * and cell-range paths, through `siblingBlocksOf` and `getParentTableBlock`.
+   */
+  it('Doc.findBlock stops on a cyclic chain instead of overflowing', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [createEmptyBlock()] });
+    const doc = new Doc(store);
+    const info = (tableBlockId: string): BlockCellInfo => ({
+      tableBlockId, rowIndex: 0, colIndex: 0,
+    });
+    doc.setBlockParentMap(new Map<string, BlockCellInfo>([
+      ['x', info('a')],
+      ['a', info('b')],
+      ['b', info('a')],
+    ]));
+
+    expect(doc.findBlock('x')).toBeUndefined();
+    // The throwing variant still reports a missing block, not a RangeError.
+    expect(() => doc.getBlock('x')).toThrowError(/Block not found/);
+  });
+
+  /**
+   * The other peer-written field on this render path. `tableCellRange` is
+   * carried in presence and reaches `normalizeRange` verbatim, and every
+   * consumer walks its indices as loop bounds — so an unclamped `1e9` spins
+   * once per paint.
+   */
+  it('clamps a peer-written cell rectangle to the table it names', () => {
+    const table = createTableBlock(2, 2);
+    const selection = new Selection();
+    selection.setRange({
+      anchor: { blockId: table.id, offset: 0 },
+      focus: { blockId: table.id, offset: 0 },
+      tableCellRange: {
+        blockId: table.id,
+        start: { rowIndex: -1e9, colIndex: Number.NaN },
+        end: { rowIndex: 1e9, colIndex: 1e9 },
+      },
+    });
+
+    const normalized = selection.getNormalizedRange({
+      blocks: [{ block: table }],
+      blockParentMap: new Map<string, BlockCellInfo>(),
+    } as unknown as DocumentLayout);
+
+    expect(normalized?.tableCellRange?.start).toEqual({ rowIndex: 0, colIndex: 0 });
+    expect(normalized?.tableCellRange?.end).toEqual({ rowIndex: 1, colIndex: 1 });
   });
 
   it('resolvePositionPixel stops on a cyclic chain instead of spinning', () => {

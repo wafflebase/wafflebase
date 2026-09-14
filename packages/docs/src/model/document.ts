@@ -257,8 +257,21 @@ export class Doc {
   /**
    * Recursively search for a block inside table cells using the BlockParentMap chain.
    * Handles nested tables where the parent table is itself inside another table cell.
+   *
+   * `seen` carries the same cycle guard the view-side walks over this map
+   * carry (`resolveNestedTableLayout`, `resolvePositionPixel`,
+   * `walkToTopLevelBlockId`): block ids arrive verbatim from peer-written CRDT
+   * attributes, so a parent chain that loops back on itself is representable,
+   * and this walk is reached from the copy/cut and cell-range paths with those
+   * same ids. Unguarded it recurses until the stack overflows — a crash rather
+   * than the `undefined` every other unresolvable id gets here. Stepping onto
+   * an id already walked stops the chain and falls through to the bounded
+   * whole-document walk below.
    */
-  private findBlockInCells(blockId: string): Block | undefined {
+  private findBlockInCells(
+    blockId: string,
+    seen: Set<string> = new Set([blockId]),
+  ): Block | undefined {
     // Fast path: the parent map (populated at layout time) locates the cell
     // directly, so getBlock stays cheap for blocks that existed at the last
     // layout.
@@ -272,8 +285,9 @@ export class Doc {
       if (!tableBlock) {
         tableBlock = this._document.footer?.blocks.find((b) => b.id === cellInfo.tableBlockId);
       }
-      if (!tableBlock) {
-        tableBlock = this.findBlockInCells(cellInfo.tableBlockId);
+      if (!tableBlock && !seen.has(cellInfo.tableBlockId)) {
+        seen.add(cellInfo.tableBlockId);
+        tableBlock = this.findBlockInCells(cellInfo.tableBlockId, seen);
       }
       const cell = tableBlock?.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
       const found = cell?.blocks.find((b) => b.id === blockId);

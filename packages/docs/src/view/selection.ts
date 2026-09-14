@@ -97,17 +97,51 @@ export function expandCellRangeForMerges(
   };
 }
 
+/**
+ * One row/column index of a cell rectangle as a grid coordinate every consumer
+ * can loop over: a finite integer in `[0, max]`. A non-finite one reads as 0,
+ * the neutral coordinate, exactly as an out-of-band numeric attribute reads as
+ * its default.
+ */
+function clampCellIndex(raw: number, max: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(Math.max(Math.trunc(raw), 0), Math.max(max, 0));
+}
+
+/**
+ * Order a cell rectangle, clamp it to the table it names, then expand it to
+ * cover the merges it touches.
+ *
+ * The clamp is not cosmetic. A `tableCellRange` is part of a peer's presence
+ * and reaches here verbatim off the wire — `docs-view.tsx` copies
+ * `sel.tableCellRange` straight into `PeerCursor.selection`, and
+ * `computeSelectionRects` normalizes that range once per paint — so its
+ * indices are peer-written numbers rather than coordinates this editor
+ * produced. Every consumer walks them as bounds (`for (r = start.rowIndex; r
+ * <= end.rowIndex; r++)` in `buildCellRangeRects` on the render path, in
+ * `getSelectedText` on copy), so an `end` of `1e9` or a `start` of `-1e9`
+ * spins those loops for the rest of the session. That is the same "one peer's
+ * attribute hangs everyone's tab" hazard the numeric bands and the
+ * `blockParentMap` cycle guards close, arriving through the other peer-written
+ * field on the same path.
+ *
+ * A rectangle whose table did not resolve is only ordered, as before — every
+ * consumer of one bails on the missing table before it loops, and
+ * `buildCellRangeRects` bounds its own loops by the layout table besides.
+ */
 function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRange {
+  const maxRow = table ? table.rows.length - 1 : Infinity;
+  // Folded rather than spread: `Math.max(...rows)` throws `RangeError` past
+  // ~100k arguments, and the row count is a peer's to choose.
+  const maxCol = table
+    ? table.rows.reduce((m, r) => Math.max(m, r.cells.length), table.columnWidths.length) - 1
+    : Infinity;
+  const rows = [clampCellIndex(cr.start.rowIndex, maxRow), clampCellIndex(cr.end.rowIndex, maxRow)];
+  const cols = [clampCellIndex(cr.start.colIndex, maxCol), clampCellIndex(cr.end.colIndex, maxCol)];
   const ordered: TableCellRange = {
     blockId: cr.blockId,
-    start: {
-      rowIndex: Math.min(cr.start.rowIndex, cr.end.rowIndex),
-      colIndex: Math.min(cr.start.colIndex, cr.end.colIndex),
-    },
-    end: {
-      rowIndex: Math.max(cr.start.rowIndex, cr.end.rowIndex),
-      colIndex: Math.max(cr.start.colIndex, cr.end.colIndex),
-    },
+    start: { rowIndex: Math.min(...rows), colIndex: Math.min(...cols) },
+    end: { rowIndex: Math.max(...rows), colIndex: Math.max(...cols) },
   };
   return table ? expandCellRangeForMerges(ordered, table) : ordered;
 }
@@ -682,8 +716,19 @@ function buildCellRangeRects(
   const tableData = dataBlock.tableData;
   const xBase = pageX + margins.left + nestedXOffset;
 
-  for (let r = start.rowIndex; r <= end.rowIndex; r++) {
-    for (let c = start.colIndex; c <= end.colIndex; c++) {
+  // Bounded by the table that actually resolved, not by the rectangle's own
+  // numbers: this runs once per peer selection per paint, and the rectangle
+  // reaches it from presence (see `normalizeCellRange`). `normalizeCellRange`
+  // clamps whenever it can resolve the table, and this is the same bound read
+  // off the layout, so a rectangle that slipped past it — a table that
+  // resolves here but not there — costs a bounded walk rather than a hung tab.
+  const rowStart = Math.max(0, start.rowIndex);
+  const rowEnd = Math.min(end.rowIndex, tl.cells.length - 1);
+  const colStart = Math.max(0, start.colIndex);
+  const colEnd = Math.min(end.colIndex, tl.columnXOffsets.length - 1);
+
+  for (let r = rowStart; r <= rowEnd; r++) {
+    for (let c = colStart; c <= colEnd; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
 

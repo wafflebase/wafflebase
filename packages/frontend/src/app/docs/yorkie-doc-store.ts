@@ -54,6 +54,7 @@ import {
   isPaintableImageSize,
   normalizeTableSpan,
   parseColumnWidthsAttr,
+  MAX_TABLE_NESTING_DEPTH,
   sanitizeDocStyles,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
@@ -432,21 +433,21 @@ function treeNodeToInline(node: TreeNode): Inline {
   };
 }
 
-function treeNodeToRow(node: TreeNode): TableRow {
+function treeNodeToRow(node: TreeNode, depth: number): TableRow {
   const el = node as ElementNode;
   return {
     cells: (el.children ?? [])
       .filter((c) => c.type === 'cell')
-      .map(treeNodeToCell),
+      .map((c) => treeNodeToCell(c, depth)),
   };
 }
 
-function treeNodeToCell(node: TreeNode): TableCell {
+function treeNodeToCell(node: TreeNode, depth: number): TableCell {
   const el = node as ElementNode;
   const attrs = (el.attributes ?? {}) as Record<string, string>;
   const blocks = (el.children ?? [])
     .filter((c) => c.type === 'block')
-    .map(treeNodeToBlock);
+    .map((c) => treeNodeToBlock(c, depth));
   return {
     blocks: blocks.length > 0
       ? blocks
@@ -462,16 +463,25 @@ function treeNodeToCell(node: TreeNode): TableCell {
   };
 }
 
-function treeNodeToBlock(node: TreeNode): Block {
+function treeNodeToBlock(node: TreeNode, depth = 0): Block {
   const el = node as ElementNode;
   const attrs = (el.attributes ?? {}) as Record<string, string>;
   const blockType = (attrs.type as Block['type']) ?? 'paragraph';
 
   // Table block: parse row → cell → block children
   if (blockType === 'table') {
-    const rows = (el.children ?? [])
-      .filter((c) => c.type === 'row')
-      .map(treeNodeToRow);
+    // Capped like the engine reader's `treeNodeToBlock`, and for the one part
+    // of this shape that no attribute band can reach: nesting is structural,
+    // a peer can write `block > row > cell > block > table > …` to any depth
+    // with ordinary Tree writes, and every level costs a stack frame here and
+    // two more in `computeTableLayout`. Past the cap the table reads as one
+    // with no rows, so the document still opens. See `MAX_TABLE_NESTING_DEPTH`.
+    const rows =
+      depth >= MAX_TABLE_NESTING_DEPTH
+        ? []
+        : (el.children ?? [])
+            .filter((c) => c.type === 'row')
+            .map((c) => treeNodeToRow(c, depth + 1));
     // Banded on count *and* magnitude rather than merely filtered for `NaN`:
     // the length is `computeTableLayout`'s `numCols`, which allocates a cell
     // per (row, column) pair, and `Number('1e400')` is an `Infinity` ratio
@@ -542,13 +552,16 @@ function treeToDocument(root: TreeNode): Document {
     if (child.type === 'header') {
       const attrs = (child as ElementNode).attributes ?? {};
       doc.header = {
-        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        // Wrapped rather than passed as the callback: `map` supplies the
+        // element index as the second argument, which `treeNodeToBlock` reads
+        // as the nesting depth.
+        blocks: ((child as ElementNode).children ?? []).map((c) => treeNodeToBlock(c)),
         marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'footer') {
       const attrs = (child as ElementNode).attributes ?? {};
       doc.footer = {
-        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        blocks: ((child as ElementNode).children ?? []).map((c) => treeNodeToBlock(c)),
         marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'block') {
