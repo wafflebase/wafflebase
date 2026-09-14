@@ -18,6 +18,31 @@ export interface NormalizedRange {
 }
 
 /**
+ * Cells one `expandCellRangeForMerges` call will look at — its own scan plus
+ * every `findMergeTopLeft` backtrack it makes — before it stops growing the
+ * rectangle and returns what it has.
+ *
+ * The rectangle is clamped to the table (`normalizeCellRange`), but the
+ * *table* is a peer's to choose: rows are structure, not an attribute, so no
+ * numeric band reaches them, and a peer can write as many as it likes. The
+ * expansion is superlinear in that size — a fixed-point `while (changed)` loop
+ * whose every pass rescans the whole rectangle, and whose covered cells each
+ * backtrack over the area above-left of them — while the layout that paints
+ * the same table is merely linear in it. And it runs on the render path:
+ * `computeSelectionRects` normalizes once per peer per paint. So the budget
+ * bounds the *amplification*, not the table: a table big enough to trip it
+ * already costs more to lay out than to expand.
+ *
+ * Past the budget the rectangle is the partially-expanded one, so a merge at
+ * its edge paints short — the same "degrade, do not hang" direction the
+ * numeric bands and the nesting cap take.
+ */
+const MAX_MERGE_EXPANSION_CELLS = 1 << 18;
+
+/** The cells one expansion has left to look at. */
+type ScanBudget = { left: number };
+
+/**
  * Walk back from `(r, c)` to the top-left of the merged cell that covers it.
  * Returns `(r, c)` itself if the cell is plain or already a merge top-left.
  *
@@ -26,12 +51,32 @@ export interface NormalizedRange {
  * practice; the cost is bounded by the table area.
  */
 export function findMergeTopLeft(table: TableData, r: number, c: number): CellAddress {
+  return findMergeTopLeftBudgeted(table, r, c, { left: Infinity });
+}
+
+/**
+ * `findMergeTopLeft` with a caller-owned work counter, so a scan that runs
+ * inside another bounded walk is charged to the same budget. An orphan covered
+ * cell (one whose owner was never written) is the expensive case: it scans
+ * every cell above-left of itself before giving up. Out of budget it answers
+ * `(r, c)` — the same answer it gives when no owner exists.
+ *
+ * `{ left: Infinity }` restores the unbounded behaviour for the public entry
+ * point, whose callers are all driven by local gestures over one table.
+ */
+function findMergeTopLeftBudgeted(
+  table: TableData,
+  r: number,
+  c: number,
+  budget: ScanBudget,
+): CellAddress {
   const cell = table.rows[r]?.cells[c];
   if (!cell) return { rowIndex: r, colIndex: c };
   if (cell.colSpan !== 0) return { rowIndex: r, colIndex: c };
 
   for (let rr = r; rr >= 0; rr--) {
     for (let cc = c; cc >= 0; cc--) {
+      if (--budget.left <= 0) return { rowIndex: r, colIndex: c };
       const candidate = table.rows[rr]?.cells[cc];
       if (!candidate) continue;
       const span = candidate.colSpan ?? 1;
@@ -52,6 +97,10 @@ export function findMergeTopLeft(table: TableData, r: number, c: number): CellAd
  * merge can pull a previously-out-of-range merge into the rect.
  *
  * Caller may pass an unordered range — this helper orders start/end first.
+ *
+ * Bounded by `MAX_MERGE_EXPANSION_CELLS`, since both the table and the
+ * rectangle reach here from a peer's presence and this runs once per peer per
+ * paint.
  */
 export function expandCellRangeForMerges(
   cr: TableCellRange,
@@ -62,11 +111,13 @@ export function expandCellRangeForMerges(
   let colStart = Math.min(cr.start.colIndex, cr.end.colIndex);
   let colEnd = Math.max(cr.start.colIndex, cr.end.colIndex);
 
+  const budget: ScanBudget = { left: MAX_MERGE_EXPANSION_CELLS };
   let changed = true;
-  while (changed) {
+  while (changed && budget.left > 0) {
     changed = false;
-    for (let r = rowStart; r <= rowEnd; r++) {
-      for (let c = colStart; c <= colEnd; c++) {
+    for (let r = rowStart; r <= rowEnd && budget.left > 0; r++) {
+      for (let c = colStart; c <= colEnd && budget.left > 0; c++) {
+        budget.left--;
         const cell = table.rows[r]?.cells[c];
         if (!cell) continue;
         const span = cell.colSpan ?? 1;
@@ -82,7 +133,7 @@ export function expandCellRangeForMerges(
 
         // Covered cell whose top-left is outside current rect.
         if (cell.colSpan === 0) {
-          const tl = findMergeTopLeft(table, r, c);
+          const tl = findMergeTopLeftBudgeted(table, r, c, budget);
           if (tl.rowIndex < rowStart) { rowStart = tl.rowIndex; changed = true; }
           if (tl.colIndex < colStart) { colStart = tl.colIndex; changed = true; }
         }

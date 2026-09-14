@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
-import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell, MAX_CELL_PADDING, MAX_FONT_SIZE, MAX_IMAGE_SIZE, MAX_LIST_LEVEL, MAX_ROW_HEIGHT } from '@wafflebase/docs';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell, MAX_CELL_PADDING, MAX_FONT_SIZE, MAX_IMAGE_SIZE, MAX_LIST_LEVEL, MAX_ROW_HEIGHT, MAX_TABLE_NESTING_DEPTH } from '@wafflebase/docs';
 import type { Block, HeaderFooter, Inline, TableRow, TableCell as TCell } from '@wafflebase/docs';
 
 function makeBlock(text: string, style?: Partial<Block['style']>): Block {
@@ -3639,6 +3639,35 @@ describe('YorkieDocStore', () => {
       expect(levelOf(NaN)).toBe(0);
       expect(levelOf(-4)).toBe(0);
       expect(levelOf(1e9)).toBe(MAX_LIST_LEVEL);
+    });
+  });
+
+
+  describe('the write side carries the read side\'s nesting cap', () => {
+    /** A block holding a table nested `depth` levels deep. */
+    function nestedTableBlock(depth: number): Block {
+      let block = createTableBlock(1, 1);
+      for (let d = 1; d < depth; d++) {
+        const outer = createTableBlock(1, 1);
+        outer.tableData!.rows[0].cells[0].blocks = [block];
+        block = outer;
+      }
+      return block;
+    }
+
+    it('writes a document nested up to the cap', () => {
+      expect(() =>
+        store.setDocument({ blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH)] }),
+      ).not.toThrow();
+    });
+
+    it('refuses a full write of a document that reached the cap', () => {
+      // `getDocument()` truncates a table at the cap to `rows: []`, so
+      // rewriting the whole tree from that model would push a read-time
+      // truncation into the CRDT as a *deletion* of rows a peer wrote.
+      expect(() =>
+        store.setDocument({ blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH + 1)] }),
+      ).toThrow(/nested at or past/);
     });
   });
 

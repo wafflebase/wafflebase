@@ -361,7 +361,21 @@ function serializeTableAttrs(
   return attrs;
 }
 
-function buildBlockNode(block: Block): ElementNode {
+/**
+ * One `Block` as a tree node.
+ *
+ * `depth` counts the tables already entered, mirroring the reader below: a
+ * table at `MAX_TABLE_NESTING_DEPTH` is written with no rows, because that is
+ * all any reader will ever materialize from it anyway. Without the cap a model
+ * that never came out of this CRDT — a DOCX import, a paste — could write a
+ * chain deeper than every reader's stack, i.e. a document nobody can open to
+ * repair. `writeFullDocument` additionally *refuses* a document that reaches
+ * the cap, since there the rows being dropped would be a peer's.
+ *
+ * Note the explicit arrow at each `map`: passing this function to `map`
+ * directly would hand it the array index as `depth`.
+ */
+function buildBlockNode(block: Block, depth = 0): ElementNode {
   // Table block: children are row → cell → block nodes
   if (block.type === 'table' && block.tableData) {
     return {
@@ -372,7 +386,10 @@ function buildBlockNode(block: Block): ElementNode {
         ...serializeTableAttrs(block.tableData.columnWidths, block.tableData.rowHeights),
         ...serializeBlockStyle(block.style),
       },
-      children: block.tableData.rows.map(buildRowNode),
+      children:
+        depth >= MAX_TABLE_NESTING_DEPTH
+          ? []
+          : block.tableData.rows.map((row) => buildRowNode(row, depth + 1)),
     };
   }
 
@@ -397,20 +414,46 @@ function buildBlockNode(block: Block): ElementNode {
   };
 }
 
-function buildCellNode(cell: TableCell): ElementNode {
+function buildCellNode(cell: TableCell, depth: number): ElementNode {
   return {
     type: 'cell' as const,
     attributes: serializeCellStyle(cell),
-    children: cell.blocks.map(buildBlockNode),
+    children: cell.blocks.map((b) => buildBlockNode(b, depth)),
   };
 }
 
-function buildRowNode(row: TableRow): ElementNode {
+function buildRowNode(row: TableRow, depth: number): ElementNode {
   return {
     type: 'row' as const,
     attributes: {},
-    children: row.cells.map(buildCellNode),
+    children: row.cells.map((c) => buildCellNode(c, depth)),
   };
+}
+
+/**
+ * Whether any table in `blocks` sits at or past `MAX_TABLE_NESTING_DEPTH` —
+ * the depth at which `treeNodeToBlock` stops descending and reports the table
+ * as one with no rows.
+ *
+ * This is the read cap seen from the write side. `getDocument()` returns the
+ * *truncated* model, so any path that takes that model and rewrites the whole
+ * tree from it would replace a peer's deep rows with nothing — turning a
+ * read-time truncation this reader applies for its own safety into a deletion
+ * every replica then receives. A document that trips this is already
+ * pathological (32 nested tables; Word stops authors at about 20), so the full
+ * write refuses rather than guessing.
+ */
+function hasTableAtNestingCap(blocks: Block[], depth = 0): boolean {
+  for (const block of blocks) {
+    if (block.type !== 'table' || !block.tableData) continue;
+    if (depth >= MAX_TABLE_NESTING_DEPTH) return true;
+    for (const row of block.tableData.rows) {
+      for (const cell of row.cells) {
+        if (hasTableAtNestingCap(cell.blocks, depth + 1)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -921,7 +964,7 @@ export class YorkieDocStore implements DocStore {
         const node: ElementNode = {
           type: 'header',
           attributes: serializeMarginFromEdge(header.marginFromEdge),
-          children: header.blocks.map(buildBlockNode),
+          children: header.blocks.map((b) => buildBlockNode(b)),
         };
         if (hadHeader) {
           tree.editByPath([0], [1], node);
@@ -962,7 +1005,7 @@ export class YorkieDocStore implements DocStore {
         const node: ElementNode = {
           type: 'footer',
           attributes: serializeMarginFromEdge(footer.marginFromEdge),
-          children: footer.blocks.map(buildBlockNode),
+          children: footer.blocks.map((b) => buildBlockNode(b)),
         };
         if (hadFooter) {
           tree.editByPath([childCount - 1], [childCount], node);
@@ -3203,8 +3246,29 @@ export class YorkieDocStore implements DocStore {
   /**
    * Replace the entire tree content with the given document.
    * This deletes all existing blocks and inserts new ones.
+   *
+   * Refuses a document that reached the read cap. Every caller here hands over
+   * a model that came out of `getDocument()` (`setHeader` / `setFooter` on the
+   * treeless path) or out of an importer, and the reader truncates a table
+   * nested at `MAX_TABLE_NESTING_DEPTH` to no rows. Rewriting the whole tree
+   * from that model would push the truncation into the CRDT, where it is no
+   * longer this reader declining to descend but a *deletion* of rows a peer
+   * wrote, replicated to everyone. Nothing legitimate reaches 32 levels of
+   * nested tables, so the header edit is refused instead — the one thing lost
+   * is the edit, not the document.
    */
   private writeFullDocument(document: Document): void {
+    if (
+      hasTableAtNestingCap(document.blocks) ||
+      (document.header && hasTableAtNestingCap(document.header.blocks)) ||
+      (document.footer && hasTableAtNestingCap(document.footer.blocks))
+    ) {
+      throw new Error(
+        'refusing to rewrite the document: a table is nested at or past ' +
+          `${MAX_TABLE_NESTING_DEPTH} levels, where the reader stops ` +
+          'descending, so the write would delete rows it never read',
+      );
+    }
     this.withUpdate((root) => {
       const tree = root.content;
 
@@ -3215,15 +3279,15 @@ export class YorkieDocStore implements DocStore {
           children.push({
             type: 'header',
             attributes: serializeMarginFromEdge(document.header.marginFromEdge),
-            children: document.header.blocks.map(buildBlockNode),
+            children: document.header.blocks.map((b) => buildBlockNode(b)),
           });
         }
-        children.push(...document.blocks.map(buildBlockNode));
+        children.push(...document.blocks.map((b) => buildBlockNode(b)));
         if (document.footer) {
           children.push({
             type: 'footer',
             attributes: serializeMarginFromEdge(document.footer.marginFromEdge),
-            children: document.footer.blocks.map(buildBlockNode),
+            children: document.footer.blocks.map((b) => buildBlockNode(b)),
           });
         }
         return children;

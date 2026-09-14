@@ -5941,8 +5941,15 @@ export class TextEditor {
    * Returns true if movement happened.
    * When addRowAtEnd is true (Tab key), inserts a new row at the last cell.
    * When false (ArrowRight), exits the table instead.
+   *
+   * `seen` carries the tables this walk has already stepped out of, and is the
+   * same cycle guard the other `blockParentMap` walks carry: block ids arrive
+   * verbatim from peer-written CRDT attributes, so two tables sharing an id
+   * make the parent chain loop (A → B → A), and each step out of a nested
+   * table recurses here. A cycle stops the walk — the caller reads it as "no
+   * movement" — instead of recursing until the stack blows on a Tab press.
    */
-  private moveToNextCell(addRowAtEnd = false): boolean {
+  private moveToNextCell(addRowAtEnd = false, seen?: Set<string>): boolean {
     const pos = this.cursor.position;
     const cellInfo = this.getCellInfo(pos.blockId);
     if (!cellInfo) return false;
@@ -6003,8 +6010,11 @@ export class TextEditor {
       // No more blocks in parent cell — navigate to the next cell in the
       // outer table. Temporarily place the cursor on the first block of
       // the parent cell so getCellInfo resolves to the outer table context.
+      const visited = seen ?? new Set<string>();
+      if (visited.has(tableBlockId)) return false;
+      visited.add(tableBlockId);
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
-      return this.moveToNextCell(addRowAtEnd);
+      return this.moveToNextCell(addRowAtEnd, visited);
     }
     // Top-level table — move to the block after the table (region-aware:
     // ensureBlockAfter / getBlockIndex resolve against the active context).
@@ -6017,8 +6027,11 @@ export class TextEditor {
   /**
    * Move to the previous table cell (right-to-left, bottom-to-top).
    * Returns true if movement happened.
+   *
+   * `seen` is the same cycle guard `moveToNextCell` carries, for the same
+   * peer-written `blockParentMap` loop — see there.
    */
-  private moveToPrevCell(): boolean {
+  private moveToPrevCell(seen?: Set<string>): boolean {
     const pos = this.cursor.position;
     const cellInfo = this.getCellInfo(pos.blockId);
     if (!cellInfo) return false;
@@ -6061,8 +6074,11 @@ export class TextEditor {
       }
       // No blocks before this table in parent cell — navigate to previous
       // cell in the outer table.
+      const visited = seen ?? new Set<string>();
+      if (visited.has(tableBlockId)) return false;
+      visited.add(tableBlockId);
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
-      return this.moveToPrevCell();
+      return this.moveToPrevCell(visited);
     }
     // Top-level table — move to the block before the table (region-aware).
     const blockIndex = this.doc.getBlockIndex(tableBlockId);

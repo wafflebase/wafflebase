@@ -192,3 +192,46 @@ describe('Selection.getNormalizedRange — cell range expansion at read time', (
     expect(normalized?.tableCellRange?.end).toEqual({ rowIndex: 2, colIndex: 1 });
   });
 });
+
+describe('the merge expansion is bounded', () => {
+  /**
+   * `expandCellRangeForMerges` runs once per peer per paint, over a table
+   * whose size is the *peer's* to choose — rows are structure, so no numeric
+   * band reaches them. The scan is a fixed-point loop over the rectangle, and
+   * every orphan covered cell in it (one whose owner was never written) walks
+   * back over everything above-left of itself, so the cost is superlinear in a
+   * size the peer picks. The budget makes it terminate promptly instead.
+   */
+  it('returns promptly on a large table of orphan covered cells', () => {
+    const rows = 400;
+    const cols = 400;
+    const overrides: Record<string, TableCell> = {};
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) overrides[`${r},${c}`] = coveredCell();
+    }
+    const table = makeTable(rows, cols, overrides);
+
+    const started = performance.now();
+    const out = expandCellRangeForMerges(rect(0, 0, rows - 1, cols - 1), table);
+    const elapsed = performance.now() - started;
+
+    // Unbounded this is 160,000 cells each walking back over up to 160,000
+    // more — minutes, not milliseconds.
+    expect(elapsed).toBeLessThan(2000);
+    // The rectangle still covers what it was given; the budget only stops it
+    // growing further.
+    expect(out.start).toEqual({ rowIndex: 0, colIndex: 0 });
+    expect(out.end.rowIndex).toBeGreaterThanOrEqual(rows - 1);
+  });
+
+  it('still expands an ordinary merge, budget or not', () => {
+    const t = makeTable(4, 4, {
+      '1,1': mergedTopLeft(2, 2),
+      '1,2': coveredCell(),
+      '2,1': coveredCell(),
+      '2,2': coveredCell(),
+    });
+
+    expect(expandCellRangeForMerges(rect(1, 1, 1, 1), t)).toEqual(rect(1, 1, 2, 2));
+  });
+});

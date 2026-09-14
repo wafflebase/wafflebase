@@ -1,6 +1,7 @@
 import { YSON } from '@yorkie-js/sdk';
 import {
   docsTreeToDocument,
+  MAX_TABLE_NESTING_DEPTH,
   type Document as DocsDocument,
   type DocsTreeNode,
 } from '@wafflebase/docs';
@@ -119,8 +120,18 @@ export function parseNoteSnapshot(snapshot: string): string {
  * A value that is not valid JSON is passed through as the raw string rather
  * than dropped: it is not what this writer produces, but a readable
  * approximation beats losing the attribute.
+ *
+ * `depth` counts the `row` ancestors, which is exactly the table nesting
+ * `docsTreeToDocument` counts — a table block's rows are `row` nodes, so the
+ * two walks agree on which table the cap falls on. It has to be counted *here*
+ * rather than left to that reader: this walk runs first, over the raw parsed
+ * snapshot, so a peer-written `block > row > cell > block > table > …` chain
+ * overflows the stack on this recursion before the capped reader ever sees it.
+ * A row the reader would not descend into is normalized without children,
+ * which is the same table-with-no-rows the reader produces. See
+ * `MAX_TABLE_NESTING_DEPTH`.
  */
-function normalizeYsonTreeNode(node: YsonTreeNode): DocsTreeNode {
+function normalizeYsonTreeNode(node: YsonTreeNode, depth = 0): DocsTreeNode {
   const normalized: DocsTreeNode = { type: node.type };
   if (node.value !== undefined) normalized.value = node.value;
   if (node.attrs) {
@@ -137,7 +148,13 @@ function normalizeYsonTreeNode(node: YsonTreeNode): DocsTreeNode {
     normalized.attributes = attributes;
   }
   if (node.children) {
-    normalized.children = node.children.map(normalizeYsonTreeNode);
+    const isRow = node.type === 'row';
+    if (!(isRow && depth >= MAX_TABLE_NESTING_DEPTH)) {
+      const childDepth = isRow ? depth + 1 : depth;
+      normalized.children = node.children.map((c) =>
+        normalizeYsonTreeNode(c, childDepth),
+      );
+    }
   }
   return normalized;
 }
