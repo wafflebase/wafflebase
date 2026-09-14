@@ -123,6 +123,23 @@ interface CellHitTest {
 }
 
 /**
+ * Where a pointer gesture anchored inside a table cell should land: still
+ * inside the anchor's own cell (ordinary text selection), or across cells
+ * (a cell rectangle).
+ *
+ * One shape for both gestures that produce it — drag and shift+click — because
+ * resolving it two ways is what left shift+click covering only top-level
+ * tables while the drag path already handled nested ones (#1049).
+ */
+type CellGestureTarget =
+  | { kind: 'text'; resolved: CellHitTest }
+  | {
+      kind: 'cells';
+      tableCellRange: NonNullable<DocRange['tableCellRange']>;
+      focus: DocPosition;
+    };
+
+/**
  * Input handling for the document editor.
  * Uses a hidden textarea for keyboard input capture.
  *
@@ -2067,40 +2084,33 @@ export class TextEditor {
             const anchor =
               this.selection.rawAnchor ?? this.selection.range?.anchor ?? this.cursor.position;
             const anchorCellInfo = this.getCellInfo(anchor.blockId);
-            if (anchorCellInfo &&
-                anchorCellInfo.rowIndex === cellAddr.rowIndex &&
-                anchorCellInfo.colIndex === cellAddr.colIndex) {
-              const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            // Shift+click lands wherever the equivalent drag would, merges,
+            // nesting and all — it goes through the same resolver, so the two
+            // gestures cannot drift apart again. Without this the caret merely
+            // moved and no cell range was created (#1049); `pos.blockId` is
+            // always a *top-level* table block, so the shift+click copy this
+            // replaces never fired for an anchor inside a nested table.
+            const target = anchorCellInfo
+              ? this.resolveCellGesture(anchor.blockId, anchorCellInfo, pos.blockId, cellAddr, mouseX, mouseY)
+              : undefined;
+            if (target?.kind === 'text') {
               const focus: DocPosition = {
-                blockId: resolved.blockId,
-                offset: resolved.offset,
-                lineAffinity: resolved.lineAffinity,
+                blockId: target.resolved.blockId,
+                offset: target.resolved.offset,
+                lineAffinity: target.resolved.lineAffinity,
               };
               const snapped = this.setSnappedRange({ anchor, focus });
               this.cursor.moveTo(
                 snapped.focus,
-                snapped.focus.lineAffinity ?? resolved.lineAffinity,
+                snapped.focus.lineAffinity ?? target.resolved.lineAffinity,
               );
-            } else if (anchorCellInfo && anchorCellInfo.tableBlockId === pos.blockId) {
-              // Shift+click on another cell of the same table selects the
-              // same cell rectangle the equivalent drag would, merges and
-              // all. Without this the caret merely moved and no cell range
-              // was created (#1049).
-              const tableData = this.doc.getBlock(pos.blockId).tableData!;
-              const tableCellRange = expandCellRangeForMerges(
-                {
-                  blockId: pos.blockId,
-                  start: {
-                    rowIndex: anchorCellInfo.rowIndex,
-                    colIndex: anchorCellInfo.colIndex,
-                  },
-                  end: cellAddr,
-                },
-                tableData,
-              );
-              const focus: DocPosition = { blockId: cell.blocks[0].id, offset: 0 };
-              this.setSnappedRange({ anchor, focus, tableCellRange });
-              this.cursor.moveTo(focus);
+            } else if (target?.kind === 'cells') {
+              this.setSnappedRange({
+                anchor,
+                focus: target.focus,
+                tableCellRange: target.tableCellRange,
+              });
+              this.cursor.moveTo(target.focus);
             } else {
               const firstBlockId = cell.blocks[0].id;
               this.cursor.moveTo({ blockId: firstBlockId, offset: 0 });
@@ -2353,16 +2363,7 @@ export class TextEditor {
 
       if (anchorCellInfo) {
         const tableBlockId = anchorCellInfo.tableBlockId;
-
-        // Walk up the nesting chain to find the outermost table ID.
-        // For nested tables, result.blockId is always the top-level table,
-        // but tableBlockId may be an inner table.
-        let outermostTableId = tableBlockId;
-        while (true) {
-          const parentInfo = this.getLayout().blockParentMap.get(outermostTableId);
-          if (!parentInfo) break;
-          outermostTableId = parentInfo.tableBlockId;
-        }
+        const outermostTableId = this.findOutermostTableId(tableBlockId);
 
         // Check if mouse is still in the same table (or its outermost ancestor)
 
@@ -2377,65 +2378,21 @@ export class TextEditor {
             const outerCA = this.resolveTableCellClick(resolveTableId, x, y + scrollY);
 
             if (outerCA) {
-              // Resolve the full position (handles nested tables internally)
-              const resolved = this.resolveOffsetInCellAtXY(resolveTableId, outerCA, x, y + scrollY);
-
-              // Check if resolved position is in the same cell as the anchor
-              const resolvedCellInfo = layout.blockParentMap.get(resolved.blockId);
-              const anchorTableId = anchorCellInfo.tableBlockId;
-
-              if (resolvedCellInfo &&
-                  resolvedCellInfo.tableBlockId === anchorTableId &&
-                  resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&
-                  resolvedCellInfo.colIndex === anchorCellInfo.colIndex) {
+              const target = this.resolveCellGesture(
+                anchor.blockId, anchorCellInfo, resolveTableId, outerCA, x, y + scrollY,
+              );
+              if (target?.kind === 'text') {
                 // Same cell — text selection mode. The affinity has to
                 // travel on the endpoint: `result` describes the table
                 // block, not the line inside the cell that was dragged to.
                 pos = {
-                  blockId: resolved.blockId,
-                  offset: resolved.offset,
-                  lineAffinity: resolved.lineAffinity,
+                  blockId: target.resolved.blockId,
+                  offset: target.resolved.offset,
+                  lineAffinity: target.resolved.lineAffinity,
                 };
-              } else if (resolvedCellInfo &&
-                  resolvedCellInfo.tableBlockId === anchorTableId) {
-                // Different cell in the SAME table (e.g., inner table
-                // cell-range selection) — use that table for cell-range mode
-                const innerTableData = this.doc.getBlock(anchorTableId).tableData!;
-                tableCellRange = expandCellRangeForMerges(
-                  {
-                    blockId: anchorTableId,
-                    start: { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex },
-                    end: { rowIndex: resolvedCellInfo.rowIndex, colIndex: resolvedCellInfo.colIndex },
-                  },
-                  innerTableData,
-                );
-                const targetCell = innerTableData.rows[resolvedCellInfo.rowIndex]
-                  .cells[resolvedCellInfo.colIndex];
-                pos = {
-                  blockId: targetCell.blocks[0].id,
-                  offset: 0,
-                };
-              } else {
-                // Different cell in different tables or outer table —
-                // cell-range mode within the outermost table
-                const outerAnchorCA = this.findOuterCellAddress(anchor.blockId, resolveTableId);
-                if (outerAnchorCA) {
-                  const tableData = this.doc.getBlock(resolveTableId).tableData!;
-                  tableCellRange = expandCellRangeForMerges(
-                    {
-                      blockId: resolveTableId,
-                      start: outerAnchorCA,
-                      end: outerCA,
-                    },
-                    tableData,
-                  );
-                  const targetCell = tableData.rows[outerCA.rowIndex]
-                    .cells[outerCA.colIndex];
-                  pos = {
-                    blockId: targetCell.blocks[0].id,
-                    offset: 0,
-                  };
-                }
+              } else if (target?.kind === 'cells') {
+                tableCellRange = target.tableCellRange;
+                pos = target.focus;
               }
             }
           }
@@ -3934,6 +3891,7 @@ export class TextEditor {
   private findOuterCellAddress(blockId: string, outerTableId: string): CellAddress | undefined {
     const map = this.getLayout().blockParentMap;
     let currentId = blockId;
+    const seen = new Set<string>([currentId]);
     while (true) {
       const info = map.get(currentId);
       if (!info) return undefined;
@@ -3941,7 +3899,106 @@ export class TextEditor {
         return { rowIndex: info.rowIndex, colIndex: info.colIndex };
       }
       currentId = info.tableBlockId;
+      // Block ids come from peer-written CRDT attributes, so a parent chain
+      // that loops is representable; bail out rather than spin. Same guard as
+      // `resolveNestedTableLayout`'s walk.
+      if (seen.has(currentId)) return undefined;
+      seen.add(currentId);
     }
+  }
+
+  /**
+   * The top-level table enclosing `tableBlockId` (itself, if it is top-level).
+   *
+   * Hit-testing only works against top-level table blocks, so both pointer
+   * gestures have to climb out of a nested table first.
+   */
+  private findOutermostTableId(tableBlockId: string): string {
+    const map = this.getLayout().blockParentMap;
+    let outermost = tableBlockId;
+    const seen = new Set<string>([outermost]);
+    while (true) {
+      const parentInfo = map.get(outermost);
+      if (!parentInfo || seen.has(parentInfo.tableBlockId)) break;
+      outermost = parentInfo.tableBlockId;
+      seen.add(outermost);
+    }
+    return outermost;
+  }
+
+  /**
+   * Resolve a pointer gesture anchored in `anchorCellInfo`'s cell and ending
+   * at `outerCA` of the top-level table `resolveTableId` (logical coordinates
+   * `x`/`y`) into what it should select.
+   *
+   * Shared by the drag and the shift+click paths. They used to each construct
+   * the cell rectangle themselves, and the shift+click copy only knew about
+   * top-level tables — so shift+click inside a *nested* table, the very case
+   * the drag path handles here, collapsed the caret instead (#1049).
+   *
+   * Returns `undefined` when the gesture names no cell of the anchor's table
+   * tree at all, which the callers treat as "no cell selection".
+   */
+  private resolveCellGesture(
+    anchorBlockId: string,
+    anchorCellInfo: BlockCellInfo,
+    resolveTableId: string,
+    outerCA: CellAddress,
+    x: number,
+    y: number,
+  ): CellGestureTarget | undefined {
+    const layout = this.getLayout();
+    // Resolve the full position (handles nested tables internally)
+    const resolved = this.resolveOffsetInCellAtXY(resolveTableId, outerCA, x, y);
+    const resolvedCellInfo = layout.blockParentMap.get(resolved.blockId);
+    const anchorTableId = anchorCellInfo.tableBlockId;
+
+    if (resolvedCellInfo && resolvedCellInfo.tableBlockId === anchorTableId) {
+      if (resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&
+          resolvedCellInfo.colIndex === anchorCellInfo.colIndex) {
+        // Same cell — text selection mode.
+        return { kind: 'text', resolved };
+      }
+
+      // Different cell in the SAME table (e.g., inner table cell-range
+      // selection) — use that table for cell-range mode.
+      const innerTableData = this.doc.getBlock(anchorTableId).tableData;
+      if (!innerTableData) return undefined;
+      const tableCellRange = expandCellRangeForMerges(
+        {
+          blockId: anchorTableId,
+          start: { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex },
+          end: { rowIndex: resolvedCellInfo.rowIndex, colIndex: resolvedCellInfo.colIndex },
+        },
+        innerTableData,
+      );
+      const targetCell = innerTableData.rows[resolvedCellInfo.rowIndex]
+        ?.cells[resolvedCellInfo.colIndex];
+      if (!targetCell) return undefined;
+      return {
+        kind: 'cells',
+        tableCellRange,
+        focus: { blockId: targetCell.blocks[0].id, offset: 0 },
+      };
+    }
+
+    // Different cell in different tables or outer table — cell-range mode
+    // within the outermost table.
+    const outerAnchorCA = this.findOuterCellAddress(anchorBlockId, resolveTableId);
+    if (!outerAnchorCA) return undefined;
+    const tableData = this.doc.getBlock(resolveTableId).tableData;
+    if (!tableData) return undefined;
+    const tableCellRange = expandCellRangeForMerges(
+      { blockId: resolveTableId, start: outerAnchorCA, end: outerCA },
+      tableData,
+    );
+    const targetCell = tableData.rows[outerCA.rowIndex]?.cells[outerCA.colIndex];
+    if (!targetCell) return undefined;
+    return {
+      kind: 'cells',
+      tableCellRange,
+      focus: { blockId: targetCell.blocks[0].id, offset: 0 },
+    };
   }
 
   // --- Helpers ---
@@ -4266,10 +4323,16 @@ export class TextEditor {
     if (!normalized?.tableCellRange) return null;
 
     const cr = normalized.tableCellRange;
-    const lb = layout.blocks.find((b) => b.block.id === cr.blockId);
-    if (!lb?.block.tableData) return null;
+    // And for the same reason `normalizeRange()` stopped resolving the table
+    // with a flat `layout.blocks` lookup: a *nested* table is not in
+    // `layout.blocks` at all, so a cell rectangle painted inside one copied
+    // nothing while the delete path happily cleared it (#1049). Fall back to
+    // the resolver the painter uses, so what is copied is what is painted.
+    const td =
+      layout.blocks.find((b) => b.block.id === cr.blockId)?.block.tableData ??
+      resolveNestedTableLayout(cr.blockId, layout)?.dataBlock.tableData;
+    if (!td) return null;
 
-    const td = lb.block.tableData;
     const rows: TableCell[][] = [];
     for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
       const row: TableCell[] = [];

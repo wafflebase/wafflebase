@@ -475,12 +475,23 @@ export function resolveNestedTableLayout(
   tableBlockId: string,
   layout: { blocks: Array<{ block: Block; layoutTable?: LayoutTable }>; blockParentMap: Map<string, BlockCellInfo> },
 ): ResolvedNestedTable | undefined {
-  // Walk up to find the top-level table
+  // Walk up to find the top-level table.
+  //
+  // Block ids arrive verbatim from peer-written CRDT attributes
+  // (`crdt-tree.ts`), so a parent chain that loops back on itself — a
+  // duplicated or hostile id — is representable. This walk now runs once per
+  // render for every painted cell rectangle, so an unbounded one would hang
+  // the tab of anyone who merely selects cells. `seen` makes a cycle bail out
+  // with `undefined` (the same answer every other unresolvable id gets) rather
+  // than spin.
   let topTableId = tableBlockId;
+  const seen = new Set<string>([topTableId]);
   while (true) {
     const parentInfo = layout.blockParentMap.get(topTableId);
     if (!parentInfo) break;
+    if (seen.has(parentInfo.tableBlockId)) return undefined;
     topTableId = parentInfo.tableBlockId;
+    seen.add(topTableId);
   }
 
   const lbIdx = layout.blocks.findIndex((b) => b.block.id === topTableId);
@@ -499,7 +510,9 @@ export function resolveNestedTableLayout(
     };
   }
 
-  // Build the nesting path from outermost to target table
+  // Build the nesting path from outermost to target table. This descends the
+  // same chain the walk above just proved finite and acyclic, so it needs no
+  // visited set of its own.
   const path: BlockCellInfo[] = [];
   let cur = tableBlockId;
   while (cur !== topTableId) {
