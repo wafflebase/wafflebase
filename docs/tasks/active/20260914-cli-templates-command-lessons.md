@@ -4,7 +4,7 @@ Issue: [#1058](https://github.com/wafflebase/wafflebase/issues/1058)
 
 ## What the endpoints forced
 
-- **The gallery is not on `/api/v1`.** Every other recent namespace
+- **The gallery is not on `/api/v1`.** Every recent namespace
   (`folders`, `images`, `files`) hangs off the workspace-scoped v1 base, so
   `printDryRun(config, method, path)` is enough. Templates live at the browser
   routes, which is why this namespace follows `api-keys` instead: a builder in

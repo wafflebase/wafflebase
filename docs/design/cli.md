@@ -584,7 +584,7 @@ document is listed, never who can read it. `folders delete` is annotated
 `destructive` because it removes folders, but it never deletes a document: the
 descendants cascade and their documents return to the workspace root.
 
-`templates` is the one namespace that is **not** on the v1 API base. The
+`templates` is the second namespace off the v1 API base, after `api-keys`. The
 gallery ([template-gallery.md](template-gallery.md)) lives at the browser
 routes — `GET /templates`, `POST /documents/:id/template`,
 `POST /templates/:id/use` — because a listing is workspace-scoped through its
