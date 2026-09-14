@@ -402,6 +402,17 @@ wafflebase
   │     ├── list                             List API keys in workspace
   │     └── revoke <key-id>                  Revoke an API key
   │
+  ├── templates (alias: template)            The gallery; needs a JWT session
+  │     ├── list                             [--scope workspace|public] (default: workspace)
+  │     │     [--type <type>] [--category <c>] [--tag <t>] [--query <text>]
+  │     │     [--sort popular|recent] [--limit <n>] [--cursor <id>]
+  │     ├── publish <doc-id>                 Publish (or re-publish) a document
+  │     │     [--title <title>] [--description <text>] [--category <c>]
+  │     │     [--tag <tag>]                  (repeatable)
+  │     │     [--visibility unlisted|workspace]
+  │     └── use <template-id>                Start a new document from a listing
+  │           [--into <workspace>]           (default: the active workspace)
+  │
   ├── docs (aliases: doc, document, documents)
   │     ├── list                             [--type doc|sheet]
   │     ├── create <title>                   [--type doc|sheet] (default: sheet)
@@ -572,6 +583,41 @@ Folders are organizational only (see
 document is listed, never who can read it. `folders delete` is annotated
 `destructive` because it removes folders, but it never deletes a document: the
 descendants cascade and their documents return to the workspace root.
+
+`templates` is the one namespace that is **not** on the v1 API base. The
+gallery ([template-gallery.md](template-gallery.md)) lives at the browser
+routes — `GET /templates`, `POST /documents/:id/template`,
+`POST /templates/:id/use` — because a listing is workspace-scoped through its
+document rather than through the path, and `use` deliberately crosses a
+workspace boundary. So, like `api-keys`, each URL comes from a builder in
+`client/url.ts` that `HttpClient` fetches with and `--dry-run` prints, and the
+namespace needs `wafflebase login`: those routes are `JwtAuthGuard`-only, so an
+API key is refused. Extending the v1 surface to templates is a backend change,
+not a CLI one.
+
+Three rules define the namespace:
+
+- **`list` has to pick a scope.** The browse endpoint requires one, so `list`
+  defaults to `workspace` and sends the resolved workspace — the question a
+  publishing agent asks is "what has my workspace published". `--scope public`
+  browses the public gallery and deliberately sends no workspace. Neither
+  scope can return an *unlisted* listing: holding its id is that tier's entire
+  access story, so no collection hands it out.
+- **`publish` sends only what was asked for.** The endpoint is an upsert that
+  falls back to the existing listing field by field, so an option the caller
+  did not pass is omitted rather than sent as `null`. Sending `category: null`
+  would blank the facet a live listing is filed under, and `visibility: null`
+  would widen a workspace listing to anyone holding its id.
+- **`publish` cannot reach the public tier.** The server refuses the
+  *transition into* `public`; only an approval writes it. Submitting for
+  review, reviewing, and reporting are not in this namespace — the CLI covers
+  the three verbs a publisher needs, not the moderation pipeline.
+
+A CLI publish also carries no thumbnail: a listing's picture is captured by
+whichever editor is mounted at publish time, and a terminal has no editor (the
+same reason `register:templates` drives the real Share dialog through
+Playwright). The listing works without one; the card simply shows no preview
+image.
 
 The Slides `content` command is text-only for `md`/`text`: it walks each
 slide's elements (text boxes, shape labels, table cells, flattened
@@ -825,6 +871,15 @@ wafflebase ctx switch "Team Workspace"
 wafflebase api-keys create "CI Pipeline"
 wafflebase api-keys list
 wafflebase api-keys revoke key-uuid
+
+# Templates (the gallery; these routes need `wafflebase login`, not an API key)
+wafflebase templates list                       # what this workspace published
+wafflebase templates list --scope public --category Finance --sort popular
+wafflebase templates publish abc-123 \
+  --title "Weekly Report" --category Business --tag weekly \
+  --visibility workspace                        # default tier is `unlisted`
+wafflebase templates use tpl-uuid               # → a new doc in this workspace
+wafflebase templates use tpl-uuid --into other-workspace
 ```
 
 ### 6. Docs Pipeline Internals
@@ -984,6 +1039,7 @@ packages/cli/
       sheets-export.ts   sheets export CSV/JSON
       schema.ts          schema introspection
       api-keys.ts        api-keys create/list/revoke
+      templates.ts       templates list/publish/use (gallery; JWT session only)
     docs/                Word-processor pipeline
       content.ts         runDocsContent orchestrator (json/md/text + --pages)
       pdf-export.ts      exportPdf via PdfExporter + FontkitMeasurer + pdf-lib slicing
@@ -1468,7 +1524,11 @@ Per-command dry-run notes:
   the preview prints that URL rather than a `/api/v1/...` one. Both the
   preview and the live request build that URL with the same `apiKeysUrl()`
   helper in `client/url.ts`, so a route change cannot leave the preview
-  describing a request nobody sends.
+  describing a request nobody sends. The `templates` previews follow the same
+  rule for the same reason — their routes are off the v1 base too, and
+  `templates list` builds its query string with the one
+  `templateBrowseParams()` the request uses, so a preview cannot show a
+  narrowed listing the caller never asked the server for.
 - Identifiers are URL-encoded into the previewed path exactly as the client
   encodes them into the real request — one `seg()` in `client/url.ts`, used
   by both — so the printed path is the path that would be fetched. Every

@@ -5,7 +5,16 @@ import { parseContentDispositionFilename } from './content-disposition.js';
 // Every identifier interpolated into a request path goes through `seg()`,
 // and the two non-v1 URL shapes come from the same builders the `--dry-run`
 // preview prints — see `./url.js` for why escaping alone is not enough.
-import { apiKeysUrl, apiV1Base, seg } from './url.js';
+import {
+  apiKeysUrl,
+  apiV1Base,
+  documentTemplateUrl,
+  seg,
+  templateBrowseParams,
+  templatesUrl,
+  templateUseUrl,
+  type TemplateBrowseQuery,
+} from './url.js';
 import {
   loadSession,
   saveSession,
@@ -184,6 +193,43 @@ export interface Folder {
   parentId: string | null;
   authorID: number | null;
   createdAt: string;
+}
+
+/**
+ * A template listing, as the gallery endpoints return it. Only the fields a
+ * CLI caller addresses are named — the rest of `TemplateListingView` is
+ * relayed verbatim to the caller's output, like every other payload here.
+ */
+export interface TemplateListing {
+  id: string;
+  documentId: string;
+  documentType: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  tags: string[];
+  visibility: string;
+  status: string;
+  useCount: number;
+  publishedAt: string | null;
+}
+
+/** One page of browse results; `nextCursor` is `null` on the last page. */
+export interface TemplateBrowsePage {
+  items: TemplateListing[];
+  nextCursor: string | null;
+}
+
+/**
+ * A publish body. Every field is optional and only the ones the caller named
+ * are sent — see `publishTemplate`.
+ */
+export interface PublishTemplateBody {
+  title?: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+  visibility?: string;
 }
 
 /** An image stored in the workspace image bucket. */
@@ -1088,5 +1134,35 @@ export class HttpClient {
   }
   revokeApiKey(id: string) {
     return this.sendJson('DELETE', apiKeysUrl(this.config, id));
+  }
+
+  // Templates (the gallery). Outside the `/api/v1` base like the API-key
+  // routes above, and authenticated the same way through `sendJson`. Each URL
+  // comes from the builder the `--dry-run` preview prints.
+  browseTemplates(query: TemplateBrowseQuery) {
+    return this.sendJson<TemplateBrowsePage>(
+      'GET',
+      templatesUrl(this.config, templateBrowseParams(query)),
+    );
+  }
+  /**
+   * Publish (or re-publish) a document as a template. `body` carries only the
+   * fields the caller actually named: the endpoint is an upsert that falls
+   * back to the existing listing field by field, so sending an unset option
+   * would blank a live listing rather than leave it alone.
+   */
+  publishTemplate(documentId: string, body: PublishTemplateBody) {
+    return this.sendJson<TemplateListing>(
+      'POST',
+      documentTemplateUrl(this.config, documentId),
+      body,
+    );
+  }
+  useTemplate(templateId: string, workspaceId: string) {
+    return this.sendJson<{ id: string; title: string; type: string }>(
+      'POST',
+      templateUseUrl(this.config, templateId),
+      { workspaceId },
+    );
   }
 }

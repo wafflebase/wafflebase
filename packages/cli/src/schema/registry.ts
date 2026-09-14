@@ -1402,6 +1402,55 @@ const registry: CommandSchema[] = [
     response: { id: 'string' },
     aliases: ['api-key.revoke'],
   },
+
+  // Templates namespace — the gallery (docs/design/template-gallery.md).
+  // These routes need a JWT session (`wafflebase login`); an API key is
+  // refused, as it is for `api-keys`.
+  {
+    name: 'templates.list',
+    description:
+      'List templates published to the active workspace, or the public gallery with --scope public (an unlisted listing is never in a collection: holding its id is that tier\'s whole access story)',
+    safety: 'read-only',
+    parameters: {
+      '--scope': { type: 'string', required: false, description: 'workspace (the active workspace) or public', default: 'workspace' },
+      '--type': { type: 'string', required: false, description: 'Document type facet (sheet|doc|slides|note|board)' },
+      '--category': { type: 'string', required: false, description: 'Category facet' },
+      '--tag': { type: 'string', required: false, description: 'Tag facet (a single tag)' },
+      '--query': { type: 'string', required: false, description: 'Free text over title, description, and tags' },
+      '--sort': { type: 'string', required: false, description: 'popular or recent' },
+      '--limit': { type: 'number', required: false, description: 'Page size (1-50)', default: '24' },
+      '--cursor': { type: 'string', required: false, description: 'Keyset cursor: the nextCursor of a prior page' },
+    },
+    response: { items: { type: 'array', items: { id: 'string', documentId: 'string', documentType: 'string', title: 'string', category: 'string | null', tags: 'string[]', visibility: 'string', useCount: 'number' } }, nextCursor: 'string | null' },
+    aliases: ['template.list'],
+  },
+  {
+    name: 'templates.publish',
+    description:
+      'Publish (or re-publish) a document as a template; only the options given are sent, so a re-publish leaves the rest of the listing alone',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID (manager-gated: workspace owner or document author)' },
+      '--title': { type: 'string', required: false, description: 'Listing title', default: 'the document title' },
+      '--description': { type: 'string', required: false, description: 'Listing description' },
+      '--category': { type: 'string', required: false, description: 'One of Business|Education|Personal|Project management|Finance|Marketing|Design|Other' },
+      '--tag': { type: 'string', required: false, description: 'Add a tag (repeatable; at most 10, lowercased on write)' },
+      '--visibility': { type: 'string', required: false, description: 'unlisted or workspace; public is reachable only through review', default: 'unlisted on a first publish, otherwise unchanged' },
+    },
+    response: { id: 'string', documentId: 'string', title: 'string', visibility: 'string', status: 'string', previewToken: 'string | null' },
+    aliases: ['template.publish'],
+  },
+  {
+    name: 'templates.use',
+    description: 'Start a new document from a template',
+    safety: 'write',
+    parameters: {
+      'template-id': { type: 'string', required: true, description: 'Template listing ID' },
+      '--into': { type: 'string', required: false, description: 'Destination workspace id or slug; the caller must be a member', default: 'the active workspace' },
+    },
+    response: { id: 'string', title: 'string', type: 'string', workspaceId: 'string' },
+    aliases: ['template.use'],
+  },
 ];
 
 /**

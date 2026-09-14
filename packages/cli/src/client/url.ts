@@ -81,3 +81,69 @@ export function apiKeysUrl(config: CliConfig, keyId?: string): string {
   const base = `${origin(config)}/workspaces/${workspaceSeg(config)}/api-keys`;
   return keyId === undefined ? base : `${base}/${seg(keyId)}`;
 }
+
+/**
+ * The template gallery URLs. Like the API-key ones above these are the
+ * *browser* routes rather than anything under `/api/v1/workspaces/:id`: a
+ * listing is workspace-scoped through its document, not through the path, and
+ * `POST /templates/:id/use` deliberately crosses a workspace boundary. So they
+ * cannot be expressed as a path under `apiV1Base`, and each gets one builder
+ * shared by `HttpClient` and the `--dry-run` preview.
+ */
+export function templatesUrl(
+  config: CliConfig,
+  query?: URLSearchParams,
+): string {
+  const base = `${origin(config)}/templates`;
+  const qs = query?.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+/**
+ * The browse filters `templates list` accepts, straight from
+ * `BrowseTemplatesDto`. `scope` is the one the server requires.
+ */
+export interface TemplateBrowseQuery {
+  scope: 'workspace' | 'public';
+  /** Required by the server for `scope=workspace`; ignored for `public`. */
+  workspaceId?: string;
+  type?: string;
+  category?: string;
+  tag?: string;
+  q?: string;
+  sort?: string;
+  limit?: string;
+  cursor?: string;
+}
+
+/**
+ * The browse query string. One builder for the request and the `--dry-run`
+ * preview — a preview is only worth reading if it is the request that would be
+ * sent, and a filter dropped from one copy and not the other would show an
+ * agent a narrowed listing it never asked the server for.
+ *
+ * An absent filter is omitted rather than sent empty: the DTO rejects an empty
+ * `tag`/`q`, and an empty `scope` is not a scope.
+ */
+export function templateBrowseParams(
+  query: TemplateBrowseQuery,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, value);
+  }
+  return params;
+}
+
+/** `POST /documents/:id/template` — publish a document as a template. */
+export function documentTemplateUrl(
+  config: CliConfig,
+  documentId: string,
+): string {
+  return `${origin(config)}/documents/${seg(documentId)}/template`;
+}
+
+/** `POST /templates/:id/use` — start a new document from a listing. */
+export function templateUseUrl(config: CliConfig, templateId: string): string {
+  return `${origin(config)}/templates/${seg(templateId)}/use`;
+}
