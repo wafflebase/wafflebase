@@ -2,7 +2,7 @@ import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, ImageDat
 import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
-import { serializeClipboard, deserializeClipboard, capTableNesting, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeClipboard, deserializeClipboard, capTableNesting, capTableCellsNesting, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import { expandRangeForLinks } from './link-run.js';
@@ -4694,6 +4694,14 @@ export class TextEditor {
   /**
    * Paste table cells into the current table at the cursor position.
    * If cursor is not in a table, creates a new table block from the cells.
+   *
+   * The sibling of `insertBlocks` as a paste *producer*, and it owes the same
+   * absolute nesting ceiling: a clipboard cell can carry a whole nested table
+   * of its own, and this writes one verbatim into a cell that may already sit
+   * near the cap. `capTableCellsNesting` is applied at the depth the cell
+   * contents actually land at — one past the table that will hold them — so
+   * the tables past the ceiling are dropped and everything around them still
+   * pastes, exactly as on the block path.
    */
   private pasteTableCells(cells: TableCell[][]): void {
     if (cells.length === 0) return;
@@ -4705,6 +4713,12 @@ export class TextEditor {
     const pos = this.cursor.position;
     const cellInfo = layout.blockParentMap.get(pos.blockId);
 
+    // Cursor inside a cell: the pasted contents replace that cell's blocks, so
+    // they land at the caret's own depth. Otherwise a brand-new table is
+    // created beside the caret, and its cells' blocks land one level deeper.
+    const cellBaseDepth =
+      this.doc.tableNestingDepth(pos.blockId) + (cellInfo ? 0 : 1);
+
     if (!cellInfo) {
       // Cursor not in a table — insert a new table block from the cells
       const rows = cells.length;
@@ -4713,7 +4727,10 @@ export class TextEditor {
       const td = tableBlock.tableData!;
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cells[r].length; c++) {
-          const cloned = cloneTableCells([[cells[r][c]]])[0][0];
+          const cloned = capTableCellsNesting(
+            cloneTableCells([[cells[r][c]]]),
+            cellBaseDepth,
+          )[0][0];
           td.rows[r].cells[c] = cloned;
         }
       }
@@ -4745,7 +4762,10 @@ export class TextEditor {
         const targetCol = startCol + c;
         if (targetCol >= td.rows[targetRow].cells.length) continue; // clamp
 
-        const cloned = cloneTableCells([[cells[r][c]]])[0][0];
+        const cloned = capTableCellsNesting(
+          cloneTableCells([[cells[r][c]]]),
+          cellBaseDepth,
+        )[0][0];
         td.rows[targetRow].cells[targetCol] = cloned;
       }
     }

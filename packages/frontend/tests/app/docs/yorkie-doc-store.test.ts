@@ -3766,6 +3766,79 @@ describe('YorkieDocStore', () => {
 
         expect(writtenRowCount([...cellPath(MAX_TABLE_NESTING_DEPTH), 0])).toBe(0);
       });
+
+      /**
+       * The other half of the cap on the write side, and the destructive one:
+       * a reader hands a table at the ceiling back with `rows: []`, so a writer
+       * that *replaces* an existing range from that model turns its own
+       * read-time truncation into a deletion of rows a peer wrote — replicated
+       * to everyone. `writeFullDocument` already refused that for the whole
+       * tree; the incremental writers owe it over their own slice.
+       */
+      describe('a replacing writer refuses to delete rows it never read', () => {
+        /**
+         * Rows past the ceiling, the way a peer leaves them: a table written at
+         * the cap (rowless, as the test above pins) with a row then written
+         * *into* it. No reader will ever hand those rows back.
+         */
+        function peerRowsPastTheCap(): { tableId: string; treePath: number[] } {
+          store.setDocument({ blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH)] });
+          const leafId = descend(store.getDocument().blocks, MAX_TABLE_NESTING_DEPTH)
+            .tableData!.rows[0].cells[0].blocks[0].id;
+          const atCap = createTableBlock(1, 1);
+          store.insertBlockAfter(leafId, atCap);
+          store.insertTableRow(atCap.id, 0, createTableBlock(1, 1).tableData!.rows[0]);
+          return {
+            tableId: atCap.id,
+            treePath: [...cellPath(MAX_TABLE_NESTING_DEPTH), 1],
+          };
+        }
+
+        it('updateBlock refuses, leaving the rows in the tree', () => {
+          const { tableId, treePath } = peerRowsPastTheCap();
+          expect(writtenRowCount(treePath)).toBe(1);
+
+          // A fresh reader is what a peer is: it truncates that table to no
+          // rows, which is the model every write path would be handed.
+          const peer = new YorkieDocStore(doc);
+          const truncated = descend(peer.getDocument().blocks, MAX_TABLE_NESTING_DEPTH)
+            .tableData!.rows[0].cells[0].blocks[1];
+          expect(truncated.id).toBe(tableId);
+          expect(truncated.tableData!.rows).toEqual([]);
+
+          expect(() => peer.updateBlock(tableId, truncated)).toThrow(/never read/);
+          expect(writtenRowCount(treePath)).toBe(1);
+        });
+
+        it('updateTableCell refuses for the cell that holds them', () => {
+          const { treePath } = peerRowsPastTheCap();
+          const peer = new YorkieDocStore(doc);
+          const innermost = descend(
+            peer.getDocument().blocks,
+            MAX_TABLE_NESTING_DEPTH,
+          );
+          const cell = innermost.tableData!.rows[0].cells[0];
+
+          expect(() => peer.updateTableCell(innermost.id, 0, 0, cell)).toThrow(
+            /never read/,
+          );
+          expect(writtenRowCount(treePath)).toBe(1);
+        });
+
+        it('an ordinary block write in the same document still lands', () => {
+          peerRowsPastTheCap();
+          const peer = new YorkieDocStore(doc);
+          const leaf = descend(peer.getDocument().blocks, MAX_TABLE_NESTING_DEPTH)
+            .tableData!.rows[0].cells[0].blocks[0];
+
+          expect(() =>
+            peer.updateBlock(leaf.id, {
+              ...leaf,
+              inlines: [{ text: 'typed', style: {} }],
+            }),
+          ).not.toThrow();
+        });
+      });
     });
   });
 

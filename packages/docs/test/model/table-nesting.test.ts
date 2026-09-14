@@ -8,7 +8,7 @@ import { createEmptyBlock } from '../../src/model/types.js';
 import type { Block, BlockCellInfo, TableData } from '../../src/model/types.js';
 import { Doc } from '../../src/model/document.js';
 import { MemDocStore } from '../../src/store/memory.js';
-import { capTableNesting } from '../../src/view/clipboard.js';
+import { capTableNesting, capTableCellsNesting } from '../../src/view/clipboard.js';
 
 /**
  * Nesting is the one shape in this model a peer can make arbitrarily deep with
@@ -187,6 +187,67 @@ describe('the interactive producers cap nesting', () => {
     const cell = capped[1].tableData!.rows[0].cells[0];
     expect(cell.blocks).toHaveLength(1);
     expect(cell.blocks[0].type).toBe('paragraph');
+  });
+
+  test('a pasted cell rectangle loses only the tables past the ceiling', () => {
+    // The other paste writer: `pasteTableCells` clones whole clipboard cells
+    // into a target cell, and a clipboard cell can carry a nested table of its
+    // own. Before the cap reached it, that table was written at whatever depth
+    // the target sat at — past the ceiling every reader stops at.
+    const style = { ...DEFAULT_BLOCK_STYLE };
+    const nested: Block = {
+      id: 'nested', type: 'table', inlines: [], style,
+      tableData: { rows: [{ cells: [{ blocks: [
+        { id: 'deep', type: 'paragraph', inlines: [{ text: 'deep', style: {} }], style },
+      ], style: {} }] }], columnWidths: [1] },
+    };
+    const text: Block = {
+      id: 'kept', type: 'paragraph', inlines: [{ text: 'kept', style: {} }], style,
+    };
+
+    const capped = capTableCellsNesting(
+      [[{ blocks: [text, nested], style: {} }]],
+      MAX_TABLE_NESTING_DEPTH,
+    );
+
+    // The cell keeps its text; only the table that would land at the ceiling
+    // goes, the same "degrade, do not vanish" answer the block paste gives.
+    expect(capped[0][0].blocks.map((b) => b.id)).toEqual(['kept']);
+  });
+
+  test('a pasted cell rectangle one level short of the cap keeps its table', () => {
+    const style = { ...DEFAULT_BLOCK_STYLE };
+    const nested: Block = {
+      id: 'nested', type: 'table', inlines: [], style,
+      tableData: { rows: [{ cells: [{ blocks: [
+        { id: 'deep', type: 'paragraph', inlines: [{ text: 'deep', style: {} }], style },
+      ], style: {} }] }], columnWidths: [1] },
+    };
+
+    const capped = capTableCellsNesting(
+      [[{ blocks: [nested], style: {} }]],
+      MAX_TABLE_NESTING_DEPTH - 1,
+    );
+
+    expect(capped[0][0].blocks.map((b) => b.id)).toEqual(['nested']);
+  });
+
+  test('a cell emptied by the cap still holds a block', () => {
+    const style = { ...DEFAULT_BLOCK_STYLE };
+    const nested: Block = {
+      id: 'nested', type: 'table', inlines: [], style,
+      tableData: { rows: [{ cells: [{ blocks: [createEmptyBlock()], style: {} }] }], columnWidths: [1] },
+    };
+
+    const capped = capTableCellsNesting(
+      [[{ blocks: [nested], style: {} }]],
+      MAX_TABLE_NESTING_DEPTH,
+    );
+
+    // A cell with no blocks has no caret position at all, so the cap leaves
+    // an empty paragraph behind rather than an empty cell.
+    expect(capped[0][0].blocks).toHaveLength(1);
+    expect(capped[0][0].blocks[0].type).toBe('paragraph');
   });
 
   test('a fragment pasted at the top level is untouched', () => {

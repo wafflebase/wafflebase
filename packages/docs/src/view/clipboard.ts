@@ -446,6 +446,32 @@ export function capTableNesting(blocks: Block[], baseDepth: number): Block[] {
   return kept;
 }
 
+/**
+ * `capTableNesting` for the other paste shape: a rectangle of whole cells.
+ *
+ * `pasteTableCells` clones clipboard `TableCell`s straight into the cells of a
+ * table that is itself already nested somewhere, so the blocks it writes are
+ * as much a producer of the CRDT tree as the block paste is — and a clipboard
+ * cell may carry a whole nested table of its own. `baseDepth` is the depth the
+ * *cell contents* land at (the target cell's own blocks' depth), so this is
+ * the same accounting `buildBlockNode` keeps on the write side.
+ *
+ * Mutates `cells` in place, which is what every caller wants: they hand over
+ * freshly cloned cells (`cloneTableCells`) on their way into the document.
+ */
+export function capTableCellsNesting(
+  cells: TableCell[][],
+  baseDepth: number,
+): TableCell[][] {
+  for (const row of cells) {
+    for (const cell of row) {
+      cell.blocks = capTableNesting(cell.blocks, baseDepth);
+      if (cell.blocks.length === 0) cell.blocks = [createEmptyBlock()];
+    }
+  }
+  return cells;
+}
+
 export interface ClipboardData {
   blocks: Block[];
   tableCells?: TableCell[][];

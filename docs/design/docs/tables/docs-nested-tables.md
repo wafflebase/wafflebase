@@ -291,19 +291,27 @@ bands take:
   Applies to `treeNodeToBlock`, the store's live reader, the revision-history
   snapshot normalizer, and the layout.
 - **Producers** never create one past it: the DOCX importer drops a `<w:tbl>`
-  that would land there, paste drops the tables in a fragment that would
-  (`capTableNesting`, counted against the paste target's own depth), and
-  "insert table" with the caret in a cell refuses at the ceiling.
+  that would land there, **both** paste writers drop the tables in a payload
+  that would — `insertBlocks` through `capTableNesting` and the cell-rectangle
+  branch `pasteTableCells` through `capTableCellsNesting`, each counted against
+  the paste target's own depth — and "insert table" with the caret in a cell
+  refuses at the ceiling.
 - **Writers** carry the count to where they write. `buildBlockNode` takes a
   required `depth`, and each incremental writer derives it from the tree path
   it is already editing (`blockPathNestingDepth`) rather than restarting at 0 —
   otherwise a paste into a deep cell would write straight past the cap.
-- **Whole-document rewrites refuse.** `writeFullDocument` (editor) and
-  `writeDocsRoot` (backend) throw rather than write a model that reached the
-  cap, and `DocumentCopyService` refuses the copy: those paths rewrite the tree
-  from a model a *reader* produced, so writing it back would turn a read-time
-  truncation into a replicated deletion of rows a peer wrote. `PUT /content`
-  rejects such a body with a 400 for the same reason.
+- **No writer deletes rows it never read.** A reader hands back a table at the
+  cap as one with `rows: []`, so writing that model back at the *same place*
+  would replicate the truncation as a deletion. `writeFullDocument` (editor)
+  and `writeDocsRoot` (backend) therefore throw rather than rewrite a whole
+  tree from a model that reached the cap, `DocumentCopyService` refuses the
+  copy, and `PUT /content` rejects such a body with a 400. The incremental
+  writers that *replace* existing content — `updateBlock`, `updateTableCell`,
+  `setHeader`/`setFooter` — carry the same refusal, checked against the rows
+  the CRDT actually holds under the range they are about to overwrite
+  (`treeHasTruncatedRows`): a table at the cap that has rows in the tree stops
+  the write, while inserting fresh content beside it still degrades to a
+  rowless table rather than failing.
 
 ## Risks and Mitigation
 

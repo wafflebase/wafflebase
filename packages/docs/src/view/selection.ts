@@ -22,14 +22,18 @@ export interface NormalizedRange {
  * its own scan plus every `findMergeTopLeft` backtrack it makes — before it
  * stops growing the rectangle and returns what it has.
  *
- * It bounds `normalizeCellRange` and nothing else. The gesture and command
- * paths (`computeTableMergeContext`, the drag and Shift+Arrow handlers in
- * `text-editor.ts`) call `expandCellRangeForMerges` directly and leave it
- * unbounded, because the rectangle they get back is not painted but *acted
- * on*: `doc.mergeCells` writes whatever rectangle it is handed, and a
- * partially-expanded one cuts an existing merge in half — a silent,
- * replicated corruption, which is a worse answer than a slow gesture. Those
- * callers are one local gesture over one table, not once per peer per paint.
+ * It bounds `computeSelectionRects` — the paint — and nothing else. Every
+ * other caller leaves the expansion unbounded, because the rectangle it gets
+ * back is not painted but *acted on*: the gesture and command paths
+ * (`computeTableMergeContext`, the drag and Shift+Arrow handlers in
+ * `text-editor.ts`) call `expandCellRangeForMerges` directly, and
+ * `Selection.getNormalizedRange` reaches `normalizeCellRange` from the delete,
+ * copy and cut paths. `doc.mergeCells` writes whatever rectangle it is handed
+ * and the delete clears whatever rectangle it is handed, so a
+ * partially-expanded one cuts an existing merge in half or leaves half of one
+ * uncleared — a silent, replicated corruption, which is a worse answer than a
+ * slow gesture. Those callers are one local gesture over one table, not once
+ * per peer per paint.
  *
  * The rectangle is clamped to the table (`normalizeCellRange`), but the
  * *table* is a peer's to choose: rows are structure, not an attribute, so no
@@ -108,12 +112,13 @@ function findMergeTopLeftBudgeted(
  * Caller may pass an unordered range — this helper orders start/end first.
  *
  * **Exact by default.** `budgetCells` exists for the one caller that paints
- * rather than acts — `normalizeCellRange`, which runs this once per peer per
- * paint over a table and a rectangle that both reach it from a peer's
+ * rather than acts — `computeSelectionRects`, which normalizes once per peer
+ * per paint over a table and a rectangle that both reach it from a peer's
  * presence. Every other caller feeds the result to a write (`mergeCells`, the
- * selection a merge is later taken from), where a rectangle that stopped
- * growing early is not a cosmetic short-paint but a merge that slices through
- * an existing one. See `MAX_MERGE_EXPANSION_CELLS`.
+ * cell-rectangle delete, the selection a merge or a copy is later taken from),
+ * where a rectangle that stopped growing early is not a cosmetic short-paint
+ * but a merge that slices through an existing one — or a merged cell left
+ * uncleared. See `MAX_MERGE_EXPANSION_CELLS`.
  */
 export function expandCellRangeForMerges(
   cr: TableCellRange,
@@ -194,7 +199,11 @@ function clampCellIndex(raw: number, max: number): number {
  * consumer of one bails on the missing table before it loops, and
  * `buildCellRangeRects` bounds its own loops by the layout table besides.
  */
-function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRange {
+function normalizeCellRange(
+  cr: TableCellRange,
+  table?: TableData,
+  budgetCells = Infinity,
+): TableCellRange {
   const maxRow = table ? table.rows.length - 1 : Infinity;
   // Folded rather than spread: `Math.max(...rows)` throws `RangeError` past
   // ~100k arguments, and the row count is a peer's to choose.
@@ -208,10 +217,10 @@ function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRan
     start: { rowIndex: Math.min(...rows), colIndex: Math.min(...cols) },
     end: { rowIndex: Math.max(...rows), colIndex: Math.max(...cols) },
   };
-  // The one bounded expansion: this is the render/presence path. See
-  // `MAX_MERGE_EXPANSION_CELLS`.
+  // Exact unless the caller is the painter, which is the only one that passes
+  // a budget. See `MAX_MERGE_EXPANSION_CELLS`.
   return table
-    ? expandCellRangeForMerges(ordered, table, MAX_MERGE_EXPANSION_CELLS)
+    ? expandCellRangeForMerges(ordered, table, budgetCells)
     : ordered;
 }
 
@@ -242,9 +251,18 @@ function walkToTopLevelBlockId(
   return id;
 }
 
+/**
+ * `budgetCells` bounds the merge expansion below and defaults to exact. Only
+ * the paint (`computeSelectionRects`) passes one — the callers that reach this
+ * through `Selection.getNormalizedRange` act on the rectangle they get back
+ * (clear the cells, copy them, cut them), and a rectangle that stopped growing
+ * early is a merged cell half-cleared rather than a merge painted short. See
+ * `MAX_MERGE_EXPANSION_CELLS`.
+ */
 function normalizeRange(
   range: DocRange,
   layout: DocumentLayout,
+  budgetCells = Infinity,
 ): NormalizedRange | null {
   // Cell-range mode: tableCellRange is set
   if (range.tableCellRange) {
@@ -261,7 +279,11 @@ function normalizeRange(
     return {
       start: range.anchor,
       end: range.focus,
-      tableCellRange: normalizeCellRange(range.tableCellRange, table),
+      tableCellRange: normalizeCellRange(
+        range.tableCellRange,
+        table,
+        budgetCells,
+      ),
     };
   }
 
@@ -677,6 +699,11 @@ function buildRects(
 /**
  * Compute highlight rectangles for an arbitrary DocRange.
  * Used for rendering remote peer selections.
+ *
+ * The one bounded normalization: this runs once per peer selection per paint
+ * over a rectangle and a table that both reach it from presence, and a
+ * rectangle that stops growing early paints a merge short rather than
+ * corrupting anything. See `MAX_MERGE_EXPANSION_CELLS`.
  */
 export function computeSelectionRects(
   range: DocRange,
@@ -685,7 +712,7 @@ export function computeSelectionRects(
   measurer: TextMeasurer,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
-  const normalized = normalizeRange(range, layout);
+  const normalized = normalizeRange(range, layout, MAX_MERGE_EXPANSION_CELLS);
   if (!normalized) return [];
 
   // Cell-range mode: highlight entire cells
