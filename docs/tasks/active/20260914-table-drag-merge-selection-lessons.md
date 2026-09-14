@@ -11,6 +11,16 @@ together with the `fillStyle` at call time, so the assertion is literally
 "which pixels were painted in the selection colour", not "what does the
 selection object contain".
 
+## A sweep is cheaper than another theory
+
+The second pass started by re-arguing the two candidates from the issue on
+paper. That produced nothing; what settled it was making the fixture's merge
+position an environment variable and running the same eight gestures over
+four merge shapes in about a minute. A harness that is already driving real
+events is worth parameterizing before it is worth reasoning about — the
+sweep either finds the shape that breaks, or it converts "it does not
+reproduce" from one sample into a statement about the whole family.
+
 ## Two lookups for one table
 
 `normalizeRange()` found its table with `layout.blocks.find(...)`, while

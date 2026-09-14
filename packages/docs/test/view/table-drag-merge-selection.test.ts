@@ -288,4 +288,23 @@ describe('table cell-rectangle selection across a colSpan merge (#1049)', () => 
 
     expect(highlighted()).toEqual(ROWS_0_TO_2);
   });
+
+  /**
+   * The same contract for a merge that starts away from column 0, gestured
+   * from *inside* the covered half. Row 3 is untouched by the fixture's
+   * merge, so merging its columns 1–2 here leaves every collected point
+   * valid — and the point for `(3,2)` now falls inside the merged cell, so
+   * the press has to resolve it to the owning `(3,1)` before the rectangle
+   * is grown. Getting that wrong is the gesture #1049 measured as "the
+   * anchor cell is not selected".
+   */
+  it('a drag anchored in a covered cell still covers the whole merge', () => {
+    editor.getDoc().mergeCells(tableId, {
+      start: { rowIndex: 3, colIndex: 1 },
+      end: { rowIndex: 3, colIndex: 2 },
+    });
+    editor.render();
+
+    expect(drag([2, 2], [3, 2])).toEqual(['2,1', '2,2', '3,1-2']);
+  });
 });

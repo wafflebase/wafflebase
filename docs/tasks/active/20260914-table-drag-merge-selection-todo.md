@@ -40,9 +40,24 @@ contract failing one step earlier:
    - end-to-end pointer-driven regression for the four gestures in the issue,
      asserting the bounding-rectangle contract and that the anchor cell is
      always highlighted;
+   - a gesture anchored *inside* a covered cell of a merge that starts away
+     from column 0, so the press has to resolve the covered cell to its owner
+     before the rectangle is grown;
    - shift+click across rows produces the same rectangle as the equivalent
      drag;
    - unit test pinning nested-table read-time expansion.
+
+## Second pass (2026-09-14)
+
+Re-measured after rebasing onto `main` (`ab9567971`). The pointer-driven
+suite was swept across four merge shapes — row 0 / row 1 / row 2 / row 3, and
+columns 0–1 as well as 1–2 — with eight gestures each (vertical in the
+merged column, vertical in the covered column, both diagonals, both
+directions, and two controls clear of the merge). Every one produced the
+merge-closed rectangle. So the top-level drag path is correct for merge
+shapes well beyond the one the issue names, not just for the one shape the
+first pass happened to build. Nothing new to fix there; the covered-anchor
+gesture from that sweep is now a committed regression case.
 
 ## Out of scope
 
