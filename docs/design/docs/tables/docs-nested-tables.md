@@ -16,8 +16,11 @@ users create nested tables directly in the editor.
 
 ### Goals
 
-- Recursive nesting with no hard depth limit (UI naturally limits via minimum
-  cell width of 30 px)
+- Recursive nesting up to `MAX_TABLE_NESTING_DEPTH` (32) levels — far above any
+  real document (Word stops authors at about 20, and the 30 px minimum cell
+  width limits the UI long before that), and a hard ceiling rather than the
+  "no depth limit" this originally claimed. See
+  [The nesting ceiling](#the-nesting-ceiling)
 - Full feature parity inside nested tables: cell merge/split, row/column
   insert/delete, resize, styling (one exception ships today — see
   [Known gap](#known-gap-inline-styling-does-not-descend))
@@ -266,6 +269,41 @@ No changes. The existing rule applies recursively:
 - Rows are never split across pages.
 - A row containing a nested table is treated as a single atomic unit.
 - If a row (with its nested table) exceeds page height, it gets its own page.
+
+### 7. The nesting ceiling
+
+Nesting is the one shape in this model that is *structurally* recursive —
+`block > row > cell > block > …` — so unlike an out-of-band number it cannot be
+banded by clamping a value. Every reader walks it by recursion
+(`treeNodeToBlock` in `model/crdt-tree.ts` and its live twin in the frontend's
+`YorkieDocStore`), and the layout that follows recurses again
+(`computeTableLayout` ⇄ `layoutCellBlocks`). A peer can write that chain to any
+depth with ordinary Tree writes — no UI involved, no attribute out of band — so
+a few tens of thousands of levels overflow the stack of *every* reader on first
+read or first paint, for a document nobody can then open to repair.
+
+`MAX_TABLE_NESTING_DEPTH` (`model/table-nesting.ts`, 32) is therefore enforced
+on **both sides**, the same "degrade, do not vanish" direction the numeric
+bands take:
+
+- **Readers** stop descending at the cap: a table past it reads as a table with
+  no rows, so the document still opens and everything around it renders.
+  Applies to `treeNodeToBlock`, the store's live reader, the revision-history
+  snapshot normalizer, and the layout.
+- **Producers** never create one past it: the DOCX importer drops a `<w:tbl>`
+  that would land there, paste drops the tables in a fragment that would
+  (`capTableNesting`, counted against the paste target's own depth), and
+  "insert table" with the caret in a cell refuses at the ceiling.
+- **Writers** carry the count to where they write. `buildBlockNode` takes a
+  required `depth`, and each incremental writer derives it from the tree path
+  it is already editing (`blockPathNestingDepth`) rather than restarting at 0 —
+  otherwise a paste into a deep cell would write straight past the cap.
+- **Whole-document rewrites refuse.** `writeFullDocument` (editor) and
+  `writeDocsRoot` (backend) throw rather than write a model that reached the
+  cap, and `DocumentCopyService` refuses the copy: those paths rewrite the tree
+  from a model a *reader* produced, so writing it back would turn a read-time
+  truncation into a replicated deletion of rows a peer wrote. `PUT /content`
+  rejects such a body with a 400 for the same reason.
 
 ## Risks and Mitigation
 

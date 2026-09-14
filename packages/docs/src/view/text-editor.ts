@@ -2,7 +2,7 @@ import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, ImageDat
 import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeClipboard, deserializeClipboard, capTableNesting, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import { expandRangeForLinks } from './link-run.js';
@@ -4552,12 +4552,24 @@ export class TextEditor {
    * formatting. Handles single-block (inline merge) and multi-block
    * (split + insert) cases.
    */
-  private insertBlocks(blocks: Block[]): void {
-    if (blocks.length === 0) return;
+  private insertBlocks(incoming: Block[]): void {
+    if (incoming.length === 0) return;
 
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
     const pos = this.cursor.position;
+
+    // Paste is a producer of the same tree the DOCX importer and the CRDT
+    // writers are, so it owes the same absolute nesting ceiling. The clipboard
+    // sanitizer can only bound the fragment's *own* depth — it does not know
+    // where the fragment lands — so the absolute cap is applied here, where
+    // the target's depth is known. Tables past it are dropped; everything
+    // around them still pastes.
+    const blocks = capTableNesting(
+      incoming,
+      this.doc.tableNestingDepth(pos.blockId),
+    );
+    if (blocks.length === 0) return;
     if (blocks.length === 1 && blocks[0].type === 'table') {
       // Single table block: insert as a new block (cannot merge into current).
       this.invalidateLayout();

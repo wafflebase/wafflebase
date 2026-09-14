@@ -372,10 +372,18 @@ function serializeTableAttrs(
  * repair. `writeFullDocument` additionally *refuses* a document that reaches
  * the cap, since there the rows being dropped would be a peer's.
  *
+ * It is **required**, with no default, because a default is wrong for most
+ * callers here: every incremental writer (`updateBlock`, `insertBlockAfter`,
+ * `insertBlocksAfter`, `splitBlock`) edits at a path that may sit inside an
+ * arbitrarily deep cell, so a counter that restarted at 0 would let those
+ * paths write straight past the cap — the cap would bind full-document writes
+ * only. `blockPathNestingDepth` turns the tree path each of them already holds
+ * into that count.
+ *
  * Note the explicit arrow at each `map`: passing this function to `map`
  * directly would hand it the array index as `depth`.
  */
-function buildBlockNode(block: Block, depth = 0): ElementNode {
+function buildBlockNode(block: Block, depth: number): ElementNode {
   // Table block: children are row → cell → block nodes
   if (block.type === 'table' && block.tableData) {
     return {
@@ -964,7 +972,7 @@ export class YorkieDocStore implements DocStore {
         const node: ElementNode = {
           type: 'header',
           attributes: serializeMarginFromEdge(header.marginFromEdge),
-          children: header.blocks.map((b) => buildBlockNode(b)),
+          children: header.blocks.map((b) => buildBlockNode(b, 0)),
         };
         if (hadHeader) {
           tree.editByPath([0], [1], node);
@@ -1005,7 +1013,7 @@ export class YorkieDocStore implements DocStore {
         const node: ElementNode = {
           type: 'footer',
           attributes: serializeMarginFromEdge(footer.marginFromEdge),
-          children: footer.blocks.map((b) => buildBlockNode(b)),
+          children: footer.blocks.map((b) => buildBlockNode(b, 0)),
         };
         if (hadFooter) {
           tree.editByPath([childCount - 1], [childCount], node);
@@ -1639,6 +1647,28 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
+   * How many tables a block at `blockPath` already sits inside — the `depth`
+   * every `buildBlockNode` call on an incremental write path has to pass.
+   *
+   * `resolveBlockTreePath` appends one `[rowIdx, cellIdx, blockIdx]` triplet
+   * per table entered on top of the region prefix (1 segment for the body, 2
+   * for header/footer), so the count is just how many triplets the path
+   * carries. Without it every incremental writer would restart the counter at
+   * 0 and write past `MAX_TABLE_NESTING_DEPTH` at a path already deeper than
+   * the cap — the cap would bind `writeFullDocument` alone.
+   *
+   * The same count the reader keeps: a block in a top-level table's cell is at
+   * depth 1, which is the depth `treeNodeToBlock` hands it.
+   */
+  private blockPathNestingDepth(
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): number {
+    const topLevelLen = region === 'body' ? 1 : 2;
+    return Math.max(0, Math.floor((blockPath.length - topLevelLen) / 3));
+  }
+
+  /**
    * Resolve the local array index for a block within its containing
    * Block[] (doc.blocks, header.blocks, footer.blocks, or cell.blocks).
    *
@@ -1720,7 +1750,11 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath(blockPath, endPath, buildBlockNode(block));
+      tree.editByPath(
+        blockPath,
+        endPath,
+        buildBlockNode(block, this.blockPathNestingDepth(blockPath, region)),
+      );
     });
     // Update cache in-place
     this.setBlockByRegion(currentDoc, blockPath, region, block);
@@ -2309,7 +2343,8 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([index + off], [index + off], buildBlockNode(block));
+      // A body top-level insert, so no table has been entered.
+      tree.editByPath([index + off], [index + off], buildBlockNode(block, 0));
     });
     // Update cache in-place
     currentDoc.blocks.splice(index, 0, block);
@@ -2332,7 +2367,14 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath(insertPath, insertPath, buildBlockNode(block));
+      // The insert lands beside the sibling, so it inherits the sibling's
+      // nesting depth — a table pasted into a cell 31 tables deep is written
+      // at 31, not at 0.
+      tree.editByPath(
+        insertPath,
+        insertPath,
+        buildBlockNode(block, this.blockPathNestingDepth(siblingPath, region)),
+      );
     });
 
     // Update cache in-place
@@ -2368,7 +2410,10 @@ export class YorkieDocStore implements DocStore {
     const insertPath = [...siblingPath];
     insertPath[insertPath.length - 1] += 1;
 
-    const nodes = blocks.map((b) => buildBlockNode(b));
+    // Same as `insertBlockAfter`: the batch lands beside the sibling, so the
+    // sibling's nesting depth is where these blocks start counting.
+    const siblingDepth = this.blockPathNestingDepth(siblingPath, region);
+    const nodes = blocks.map((b) => buildBlockNode(b, siblingDepth));
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -2448,6 +2493,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
 
+    // Neither half of a split is ever a table (the guard above), so the depth
+    // changes nothing here — passed anyway so no `buildBlockNode` call site in
+    // this file restarts the counter at 0 by omission.
+    const blockDepth = this.blockPathNestingDepth(blockPath, region);
+
     // Splitting a bulleted heading at offset 0 moves the remembered level onto
     // the block that takes the heading text, so the attribute has to move in
     // the tree too (`applySplitBlock` moves it in the cache below).
@@ -2507,7 +2557,7 @@ export class YorkieDocStore implements DocStore {
           type: newBlockType,
           inlines: [{ text: '', style: {} }],
           style: block.style,
-        }));
+        }, blockDepth));
         tree.styleByPath(afterPath, afterAttrs);
       } else {
         // Manual two-step split (avoids splitLevel=2 which breaks undo/redo):
@@ -2593,7 +2643,7 @@ export class YorkieDocStore implements DocStore {
           block.headingLevel !== undefined
             ? { headingLevel: block.headingLevel }
             : {}),
-        }));
+        }, blockDepth));
       }
     });
 
@@ -2723,6 +2773,26 @@ export class YorkieDocStore implements DocStore {
     return this.resolveBlockTreePath(tableBlockId, this.getDocument()).path;
   }
 
+  /**
+   * The table's tree path plus the depth its *rows* are written at.
+   *
+   * The row/cell writers below build subtrees of their own, so they need the
+   * same counter `buildBlockNode` keeps or a nested table inside the row or
+   * cell they write would restart it at 0 and sail past
+   * `MAX_TABLE_NESTING_DEPTH`. A table block at depth `d` has its rows at
+   * `d + 1`, exactly as `buildBlockNode` recurses.
+   */
+  private resolveTableRowDepth(tableBlockId: string): {
+    path: number[];
+    rowDepth: number;
+  } {
+    const { path, region } = this.resolveBlockTreePath(
+      tableBlockId,
+      this.getDocument(),
+    );
+    return { path, rowDepth: this.blockPathNestingDepth(path, region) + 1 };
+  }
+
   /** Returns body array index and tree-adjusted index for a table block. */
   private findTableIndex(tableBlockId: string): { bodyIdx: number; treeIdx: number } {
     const path = this.resolveTableTreePath(tableBlockId);
@@ -2771,8 +2841,8 @@ export class YorkieDocStore implements DocStore {
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
-    const tablePath = this.resolveTableTreePath(tableBlockId);
-    const rowNode = buildRowNode(row);
+    const { path: tablePath, rowDepth } = this.resolveTableRowDepth(tableBlockId);
+    const rowNode = buildRowNode(row, rowDepth);
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -2804,7 +2874,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
-    const tablePath = this.resolveTableTreePath(tableBlockId);
+    const { path: tablePath, rowDepth } = this.resolveTableRowDepth(tableBlockId);
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -2815,7 +2885,7 @@ export class YorkieDocStore implements DocStore {
         tree.editByPath(
           [...tablePath, r, atIndex],
           [...tablePath, r, atIndex],
-          buildCellNode(cells[r]),
+          buildCellNode(cells[r], rowDepth),
         );
       }
     });
@@ -2854,8 +2924,8 @@ export class YorkieDocStore implements DocStore {
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void {
-    const tablePath = this.resolveTableTreePath(tableBlockId);
-    const cellNode = buildCellNode(cell);
+    const { path: tablePath, rowDepth } = this.resolveTableRowDepth(tableBlockId);
+    const cellNode = buildCellNode(cell, rowDepth);
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -3279,15 +3349,15 @@ export class YorkieDocStore implements DocStore {
           children.push({
             type: 'header',
             attributes: serializeMarginFromEdge(document.header.marginFromEdge),
-            children: document.header.blocks.map((b) => buildBlockNode(b)),
+            children: document.header.blocks.map((b) => buildBlockNode(b, 0)),
           });
         }
-        children.push(...document.blocks.map((b) => buildBlockNode(b)));
+        children.push(...document.blocks.map((b) => buildBlockNode(b, 0)));
         if (document.footer) {
           children.push({
             type: 'footer',
             attributes: serializeMarginFromEdge(document.footer.marginFromEdge),
-            children: document.footer.blocks.map((b) => buildBlockNode(b)),
+            children: document.footer.blocks.map((b) => buildBlockNode(b, 0)),
           });
         }
         return children;

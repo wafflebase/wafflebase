@@ -193,16 +193,21 @@ describe('Selection.getNormalizedRange — cell range expansion at read time', (
   });
 });
 
-describe('the merge expansion is bounded', () => {
+describe('the merge expansion is bounded on the render path only', () => {
   /**
-   * `expandCellRangeForMerges` runs once per peer per paint, over a table
-   * whose size is the *peer's* to choose — rows are structure, so no numeric
-   * band reaches them. The scan is a fixed-point loop over the rectangle, and
-   * every orphan covered cell in it (one whose owner was never written) walks
-   * back over everything above-left of itself, so the cost is superlinear in a
-   * size the peer picks. The budget makes it terminate promptly instead.
+   * `normalizeCellRange` runs this once per peer per paint, over a table whose
+   * size is the *peer's* to choose — rows are structure, so no numeric band
+   * reaches them. The scan is a fixed-point loop over the rectangle, and every
+   * orphan covered cell in it (one whose owner was never written) walks back
+   * over everything above-left of itself, so the cost is superlinear in a size
+   * the peer picks. The budget makes it terminate promptly instead.
+   *
+   * It is a *parameter*, not a property of the function: the callers that feed
+   * the rectangle to `mergeCells` pass none and get an exact answer, because a
+   * rectangle that stopped growing early would merge through the middle of an
+   * existing merge. The two cases below pin both halves of that.
    */
-  it('returns promptly on a large table of orphan covered cells', () => {
+  it('stops early when a budget is given', () => {
     const rows = 400;
     const cols = 400;
     const overrides: Record<string, TableCell> = {};
@@ -211,17 +216,51 @@ describe('the merge expansion is bounded', () => {
     }
     const table = makeTable(rows, cols, overrides);
 
-    const started = performance.now();
-    const out = expandCellRangeForMerges(rect(0, 0, rows - 1, cols - 1), table);
-    const elapsed = performance.now() - started;
+    // Small enough to be spent inside the first rectangle scan, so the count
+    // of cells examined — not the clock — is what this asserts. `1 << 18` (the
+    // shipped budget) would also pass a timing check here, but so would an
+    // unbounded run on a fast machine.
+    let looked = 0;
+    const counting: TableData = {
+      columnWidths: table.columnWidths,
+      rows: table.rows.map((row) => ({
+        cells: new Proxy(row.cells, {
+          get(target, prop, receiver) {
+            if (typeof prop === 'string' && /^\d+$/.test(prop)) looked++;
+            return Reflect.get(target, prop, receiver);
+          },
+        }),
+      })),
+    };
+
+    const out = expandCellRangeForMerges(rect(0, 0, rows - 1, cols - 1), counting, 1000);
 
     // Unbounded this is 160,000 cells each walking back over up to 160,000
-    // more — minutes, not milliseconds.
-    expect(elapsed).toBeLessThan(2000);
+    // more. The budget caps the lookups at its own size (each charged lookup
+    // reads at most a couple of cells).
+    expect(looked).toBeLessThan(5000);
     // The rectangle still covers what it was given; the budget only stops it
     // growing further.
     expect(out.start).toEqual({ rowIndex: 0, colIndex: 0 });
     expect(out.end.rowIndex).toBeGreaterThanOrEqual(rows - 1);
+  });
+
+  it('is exact by default, so a merge write is never handed a short rectangle', () => {
+    // Column 0 of every row is covered by a merge whose top-left is row 0 —
+    // the expansion has to walk all the way up to find it. With the render
+    // path's budget this would stop short; the default must not.
+    const rows = 600;
+    const overrides: Record<string, TableCell> = { '0,0': mergedTopLeft(rows, 1) };
+    for (let r = 1; r < rows; r++) overrides[`${r},0`] = coveredCell();
+    const table = makeTable(rows, 2, overrides);
+
+    const out = expandCellRangeForMerges(rect(rows - 1, 0, rows - 1, 0), table);
+
+    expect(out).toEqual(rect(0, 0, rows - 1, 0));
+    // …and the same rectangle truncates once a budget is imposed, which is why
+    // only the painter passes one.
+    const budgeted = expandCellRangeForMerges(rect(rows - 1, 0, rows - 1, 0), table, 4);
+    expect(budgeted).toEqual(rect(rows - 1, 0, rows - 1, 0));
   });
 
   it('still expands an ordinary merge, budget or not', () => {
@@ -233,5 +272,6 @@ describe('the merge expansion is bounded', () => {
     });
 
     expect(expandCellRangeForMerges(rect(1, 1, 1, 1), t)).toEqual(rect(1, 1, 2, 2));
+    expect(expandCellRangeForMerges(rect(1, 1, 1, 1), t, 1 << 18)).toEqual(rect(1, 1, 2, 2));
   });
 });

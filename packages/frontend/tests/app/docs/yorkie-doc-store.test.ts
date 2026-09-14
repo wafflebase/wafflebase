@@ -3669,6 +3669,104 @@ describe('YorkieDocStore', () => {
         store.setDocument({ blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH + 1)] }),
       ).toThrow(/nested at or past/);
     });
+
+    /**
+     * The cap has to survive the *incremental* writers too. Each of them edits
+     * at a tree path that may already sit inside many tables, so a depth
+     * counter restarted at 0 would let a paste or an insert write straight
+     * past the ceiling — the full-document refusal above would then be the
+     * only thing the cap ever bound.
+     */
+    describe('the incremental writers count from where they write', () => {
+      /**
+       * The raw CRDT node at `path`, read straight off the Yorkie tree.
+       *
+       * Neither store-level read answers this question: the writing store
+       * replies from its own cache (updated with the model it was handed, not
+       * with what it wrote), and a fresh store's reader applies the *read*
+       * cap, which truncates a table past the ceiling however it was written.
+       * Only the tree itself distinguishes "written with no rows" from
+       * "written with rows and hidden on the way back".
+       */
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      function rawNodeAt(path: number[]): any {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let node: any = doc.getRoot().content.getRootTreeNode();
+        for (const index of path) node = node.children[index];
+        return node;
+      }
+
+      /**
+       * The tree path of the cell of the `depth`-th table in the chain: one
+       * step to the body block, then a (row, cell, block) triplet per table
+       * entered, then (row, cell) into the last one.
+       */
+      function cellPath(depth: number): number[] {
+        const path = [0];
+        for (let d = 1; d < depth; d++) path.push(0, 0, 0);
+        return [...path, 0, 0];
+      }
+
+      /** Rows actually written under the block node at `path`. */
+      function writtenRowCount(path: number[]): number {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const children: any[] = rawNodeAt(path).children ?? [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return children.filter((c: any) => c.type === 'row').length;
+      }
+
+      /** Walk `depth` tables down the chain's first cell. */
+      function descend(blocks: Block[], depth: number): Block {
+        let block = blocks[0];
+        for (let d = 1; d < depth; d++) {
+          block = block.tableData!.rows[0].cells[0].blocks[0];
+        }
+        return block;
+      }
+
+      /** The id of the block in the innermost cell of the written chain. */
+      function writeChainAndGetLeaf(depth: number): string {
+        store.setDocument({ blocks: [nestedTableBlock(depth)] });
+        return descend(store.getDocument().blocks, depth)
+          .tableData!.rows[0].cells[0].blocks[0].id;
+      }
+
+      it('insertBlockAfter writes a nested table with no rows at the cap', () => {
+        const leafId = writeChainAndGetLeaf(MAX_TABLE_NESTING_DEPTH);
+        // That leaf sits inside `MAX_TABLE_NESTING_DEPTH` tables, so a table
+        // inserted beside it is *at* the cap. Counting from 0 here — the bug
+        // this pins — would write its two rows into the CRDT instead.
+        store.insertBlockAfter(leafId, createTableBlock(2, 2));
+
+        // …blocks[1] of the innermost cell is the inserted table.
+        const inserted = [...cellPath(MAX_TABLE_NESTING_DEPTH), 1];
+        expect(rawNodeAt(inserted).attributes.type).toBe('table');
+        expect(writtenRowCount(inserted)).toBe(0);
+      });
+
+      it('one table short of the cap, the same insert keeps its rows', () => {
+        const leafId = writeChainAndGetLeaf(MAX_TABLE_NESTING_DEPTH - 1);
+        store.insertBlockAfter(leafId, createTableBlock(2, 2));
+
+        expect(
+          writtenRowCount([...cellPath(MAX_TABLE_NESTING_DEPTH - 1), 1]),
+        ).toBe(2);
+      });
+
+      it('updateTableCell writes a cell whose nested table is at the cap with no rows', () => {
+        // The chain's innermost table is at depth `cap - 1`, so the blocks
+        // inside its cells are at the cap.
+        store.setDocument({ blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH)] });
+        const innermost = descend(store.getDocument().blocks, MAX_TABLE_NESTING_DEPTH);
+
+        store.updateTableCell(innermost.id, 0, 0, {
+          blocks: [createTableBlock(2, 2)],
+          style: {},
+        });
+
+        expect(writtenRowCount([...cellPath(MAX_TABLE_NESTING_DEPTH), 0])).toBe(0);
+      });
+    });
   });
 
 });

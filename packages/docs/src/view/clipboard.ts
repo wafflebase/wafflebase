@@ -17,9 +17,10 @@ import {
   normalizeLineHeight,
 } from '../model/numeric-attrs.js';
 import { normalizeRowHeight } from '../model/row-height.js';
+import { MAX_TABLE_NESTING_DEPTH } from '../model/table-nesting.js';
 import {
   generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_BORDER_STYLE, DEFAULT_CELL_STYLE,
-  inlineStylesEqual, createTableBlock, normalizeTableMerges,
+  inlineStylesEqual, createEmptyBlock, createTableBlock, normalizeTableMerges,
 } from '../model/types.js';
 
 interface ClipboardPayload {
@@ -409,6 +410,40 @@ function sanitizeBlocks(value: unknown, depth = 0): Block[] {
     if (block) blocks.push(block);
   }
   return blocks;
+}
+
+/**
+ * Drop the tables in `blocks` that would land at or past
+ * `MAX_TABLE_NESTING_DEPTH` once pasted at `baseDepth`.
+ *
+ * `MAX_TABLE_DEPTH` above bounds the *fragment*: it is all the sanitizer can
+ * do, because a payload says nothing about where it will be dropped. Paste is
+ * a producer of the same CRDT tree the importer and the editor's own insert
+ * are, though, so it owes the same absolute invariant — a fragment eight
+ * tables deep dropped into a cell already thirty deep would write a chain no
+ * reader descends and the whole-document writer then refuses. The caller
+ * supplies the target's depth (`Doc.tableNestingDepth`) and this drops exactly
+ * the tables past the ceiling, keeping everything around them, the same
+ * "degrade, do not vanish" direction the DOCX importer's cap takes.
+ */
+export function capTableNesting(blocks: Block[], baseDepth: number): Block[] {
+  if (baseDepth <= 0) return blocks;
+  const kept: Block[] = [];
+  for (const block of blocks) {
+    if (block.type !== 'table' || !block.tableData) {
+      kept.push(block);
+      continue;
+    }
+    if (baseDepth >= MAX_TABLE_NESTING_DEPTH) continue;
+    for (const row of block.tableData.rows) {
+      for (const cell of row.cells) {
+        cell.blocks = capTableNesting(cell.blocks, baseDepth + 1);
+        if (cell.blocks.length === 0) cell.blocks = [createEmptyBlock()];
+      }
+    }
+    kept.push(block);
+  }
+  return kept;
 }
 
 export interface ClipboardData {

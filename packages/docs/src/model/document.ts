@@ -31,6 +31,7 @@ import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { blockStyleId, markAuthoredSpacing, resolveStyleInline } from './named-styles.js';
 import { visitCellRectangleSlices, visitRangeSlices } from './range-slices.js';
+import { MAX_TABLE_NESTING_DEPTH } from './table-nesting.js';
 
 /**
  * The inline-style keys the B/I/U/S toggles write as plain booleans. Kept
@@ -139,6 +140,33 @@ export class Doc {
 
   get blockParentMap(): Map<string, BlockCellInfo> {
     return this._blockParentMap;
+  }
+
+  /**
+   * How many tables enclose `blockId` — 0 for a body block, 1 for a block in a
+   * top-level table's cell, and so on. The same count the CRDT readers and
+   * writers keep (`MAX_TABLE_NESTING_DEPTH`), so a producer can ask "would
+   * what I am about to insert here be past the cap?" before writing it.
+   *
+   * Carries the same cycle guard as every other walk over this map: block ids
+   * arrive verbatim from peer-written CRDT attributes, so a parent chain that
+   * loops back on itself is representable. A cycle stops the walk with the
+   * depth counted so far, and the loop stops at the cap besides — the answer
+   * is only ever used as "is this already at the cap?", so counting no further
+   * than the cap costs nothing.
+   */
+  tableNestingDepth(blockId: string): number {
+    let depth = 0;
+    let current = blockId;
+    const seen = new Set<string>([current]);
+    while (depth < MAX_TABLE_NESTING_DEPTH) {
+      const info = this._blockParentMap.get(current);
+      if (!info || seen.has(info.tableBlockId)) break;
+      depth++;
+      current = info.tableBlockId;
+      seen.add(current);
+    }
+    return depth;
   }
 
   /**
@@ -886,6 +914,19 @@ export class Doc {
     const cellInfo = this._blockParentMap.get(blockId);
     if (!cellInfo) {
       throw new Error(`Block ${blockId} is not inside a table cell`);
+    }
+
+    // The interactive producer of nested tables, capped at the same depth the
+    // readers stop descending at (`MAX_TABLE_NESTING_DEPTH`). Writing one
+    // deeper would put a table into the CRDT that every reader reports as
+    // having no rows — content nobody can see or repair. The editor asks
+    // `tableNestingDepth` first and simply declines the command, so this is
+    // the backstop for any other caller rather than a path a user reaches.
+    if (this.tableNestingDepth(blockId) >= MAX_TABLE_NESTING_DEPTH) {
+      throw new Error(
+        `Cannot nest a table inside ${blockId}: already at the ` +
+          `${MAX_TABLE_NESTING_DEPTH}-level nesting cap`,
+      );
     }
 
     const newTable = createTableBlock(rows, cols);

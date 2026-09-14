@@ -4,7 +4,11 @@ import { MAX_TABLE_NESTING_DEPTH } from '../../src/model/table-nesting.js';
 import { computeTableLayout } from '../../src/view/table-layout.js';
 import { stubMeasurer } from '../view/_stub-measurer.js';
 import { DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
-import type { Block, TableData } from '../../src/model/types.js';
+import { createEmptyBlock } from '../../src/model/types.js';
+import type { Block, BlockCellInfo, TableData } from '../../src/model/types.js';
+import { Doc } from '../../src/model/document.js';
+import { MemDocStore } from '../../src/store/memory.js';
+import { capTableNesting } from '../../src/view/clipboard.js';
 
 /**
  * Nesting is the one shape in this model a peer can make arbitrarily deep with
@@ -99,5 +103,101 @@ describe('the layout caps table nesting on its own', () => {
     expect(() =>
       computeTableLayout(nestedTableData(20_000), 'top', stubMeasurer(), 600),
     ).not.toThrow();
+  });
+});
+
+/**
+ * The editor's own producers. The importer caps what a `.docx` may contain and
+ * the CRDT writers cap what reaches the tree, but the two gestures that create
+ * nesting interactively — "insert table" with the caret already in a cell, and
+ * a paste carrying tables — build the model *before* either of those sees it,
+ * so each has to know the ceiling too.
+ */
+describe('the interactive producers cap nesting', () => {
+  /** A parent map putting `leaf` inside `depth` nested tables. */
+  function chainParentMap(depth: number): Map<string, BlockCellInfo> {
+    const map = new Map<string, BlockCellInfo>();
+    let child = 'leaf';
+    for (let d = depth; d > 0; d--) {
+      map.set(child, { tableBlockId: `t${d}`, rowIndex: 0, colIndex: 0 });
+      child = `t${d}`;
+    }
+    return map;
+  }
+
+  function docWithChain(depth: number): Doc {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [createEmptyBlock()] });
+    const doc = new Doc(store);
+    doc.setBlockParentMap(chainParentMap(depth));
+    return doc;
+  }
+
+  test('tableNestingDepth counts the tables around a block', () => {
+    expect(docWithChain(0).tableNestingDepth('leaf')).toBe(0);
+    expect(docWithChain(3).tableNestingDepth('leaf')).toBe(3);
+    expect(docWithChain(MAX_TABLE_NESTING_DEPTH + 5).tableNestingDepth('leaf'))
+      .toBe(MAX_TABLE_NESTING_DEPTH);
+  });
+
+  test('tableNestingDepth stops on a cyclic parent map', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [createEmptyBlock()] });
+    const doc = new Doc(store);
+    doc.setBlockParentMap(new Map<string, BlockCellInfo>([
+      ['leaf', { tableBlockId: 'a', rowIndex: 0, colIndex: 0 }],
+      ['a', { tableBlockId: 'b', rowIndex: 0, colIndex: 0 }],
+      ['b', { tableBlockId: 'a', rowIndex: 0, colIndex: 0 }],
+    ]));
+
+    expect(doc.tableNestingDepth('leaf')).toBe(2);
+  });
+
+  test('insertTableInCell refuses to nest past the cap', () => {
+    const doc = docWithChain(MAX_TABLE_NESTING_DEPTH);
+
+    expect(() => doc.insertTableInCell('leaf', 2, 2)).toThrow(/nesting cap/);
+  });
+
+  test('a pasted fragment loses only the tables past the ceiling', () => {
+    const style = { ...DEFAULT_BLOCK_STYLE };
+    const inner: Block = {
+      id: 'inner', type: 'table', inlines: [], style,
+      tableData: { rows: [{ cells: [{ blocks: [
+        { id: 'deep', type: 'paragraph', inlines: [{ text: 'deep', style: {} }], style },
+      ], style: {} }] }], columnWidths: [1] },
+    };
+    const outer: Block = {
+      id: 'outer', type: 'table', inlines: [], style,
+      tableData: { rows: [{ cells: [{ blocks: [inner], style: {} }] }], columnWidths: [1] },
+    };
+    const text: Block = {
+      id: 'p', type: 'paragraph', inlines: [{ text: 'kept', style: {} }], style,
+    };
+
+    // Dropped two levels from the ceiling: `outer` fits, `inner` does not.
+    const capped = capTableNesting(
+      [text, outer],
+      MAX_TABLE_NESTING_DEPTH - 1,
+    );
+
+    expect(capped.map((b) => b.id)).toEqual(['p', 'outer']);
+    // The cell that held the over-deep table keeps a block, so the table it
+    // sits in still has a caret position.
+    const cell = capped[1].tableData!.rows[0].cells[0];
+    expect(cell.blocks).toHaveLength(1);
+    expect(cell.blocks[0].type).toBe('paragraph');
+  });
+
+  test('a fragment pasted at the top level is untouched', () => {
+    const style = { ...DEFAULT_BLOCK_STYLE };
+    const table: Block = {
+      id: 'outer', type: 'table', inlines: [], style,
+      tableData: { rows: [{ cells: [{ blocks: [
+        { id: 'x', type: 'paragraph', inlines: [{ text: 'x', style: {} }], style },
+      ], style: {} }] }], columnWidths: [1] },
+    };
+
+    expect(capTableNesting([table], 0)).toEqual([table]);
   });
 });

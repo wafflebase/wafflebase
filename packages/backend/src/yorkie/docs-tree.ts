@@ -35,6 +35,7 @@ import {
 import {
   docsTreeToDocument,
   type DocsTreeNode,
+  MAX_TABLE_NESTING_DEPTH,
   serializeBlockStyleAttrs,
   serializeMarginFromEdgeAttrs,
 } from '@wafflebase/docs';
@@ -147,7 +148,18 @@ function buildInlineNode(inline: DocsInline): ElementNode {
   };
 }
 
-function buildBlockNode(block: DocsBlock): ElementNode {
+/**
+ * One `DocsBlock` as a tree node.
+ *
+ * `depth` counts the tables already entered, the same counter the frontend
+ * writer (`buildBlockNode` in `yorkie-doc-store.ts`) and both readers keep. It
+ * is required rather than defaulted so no call site here can restart it by
+ * omission: past `MAX_TABLE_NESTING_DEPTH` a table is written with no rows,
+ * because that is all any reader will ever materialize from it, and a deeper
+ * chain would be a document nobody can open to repair. `writeDocsRoot`
+ * additionally *refuses* a document that reaches the cap — see there.
+ */
+function buildBlockNode(block: DocsBlock, depth: number): ElementNode {
   if (block.type === 'table' && block.tableData) {
     const tableAttrs: Record<string, string> = {
       id: block.id,
@@ -163,7 +175,10 @@ function buildBlockNode(block: DocsBlock): ElementNode {
     return {
       type: 'block',
       attributes: tableAttrs,
-      children: block.tableData.rows.map(buildRowNode),
+      children:
+        depth >= MAX_TABLE_NESTING_DEPTH
+          ? []
+          : block.tableData.rows.map((row) => buildRowNode(row, depth + 1)),
     };
   }
 
@@ -183,20 +198,61 @@ function buildBlockNode(block: DocsBlock): ElementNode {
   };
 }
 
-function buildCellNode(cell: DocsTableCell): ElementNode {
+function buildCellNode(cell: DocsTableCell, depth: number): ElementNode {
   return {
     type: 'cell',
     attributes: serializeCellStyle(cell),
-    children: cell.blocks.map(buildBlockNode),
+    // Wrapped rather than passed as the callback: `map` supplies the array
+    // index as the second argument, which would read as the nesting depth.
+    children: cell.blocks.map((b) => buildBlockNode(b, depth)),
   };
 }
 
-function buildRowNode(row: DocsTableRow): ElementNode {
+function buildRowNode(row: DocsTableRow, depth: number): ElementNode {
   return {
     type: 'row',
     attributes: {},
-    children: row.cells.map(buildCellNode),
+    children: row.cells.map((c) => buildCellNode(c, depth)),
   };
+}
+
+/**
+ * Whether any table in `blocks` sits at or past `MAX_TABLE_NESTING_DEPTH` —
+ * the depth at which every reader of this tree stops descending and reports
+ * the table as one with no rows.
+ *
+ * The same read cap seen from the write side that the frontend store applies
+ * (`hasTableAtNestingCap` in `yorkie-doc-store.ts`). `readDocsRoot` returns
+ * the *truncated* model, so any path that reads and then rewrites the whole
+ * tree from that model — `DocumentCopyService`, the CLI's `--replace` import —
+ * would replace rows a peer wrote with nothing, turning a read-time truncation
+ * into a replicated deletion.
+ */
+export function hasDocsTableAtNestingCap(
+  blocks: DocsBlock[],
+  depth = 0,
+): boolean {
+  for (const block of blocks) {
+    if (block.type !== 'table' || !block.tableData) continue;
+    if (depth >= MAX_TABLE_NESTING_DEPTH) return true;
+    for (const row of block.tableData.rows) {
+      for (const cell of row.cells) {
+        if (hasDocsTableAtNestingCap(cell.blocks, depth + 1)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * The same check over a whole `DocsDocument`, header and footer included.
+ */
+export function documentHasTableAtNestingCap(document: DocsDocument): boolean {
+  return (
+    hasDocsTableAtNestingCap(document.blocks) ||
+    (document.header ? hasDocsTableAtNestingCap(document.header.blocks) : false) ||
+    (document.footer ? hasDocsTableAtNestingCap(document.footer.blocks) : false)
+  );
 }
 
 // `marginFromEdge` follows the same partial-on-the-wire contract as block
@@ -209,17 +265,17 @@ function buildTreeChildren(document: DocsDocument): ElementNode[] {
     children.push({
       type: 'header',
       attributes: serializeMarginFromEdge(document.header.marginFromEdge),
-      children: document.header.blocks.map(buildBlockNode),
+      children: document.header.blocks.map((b) => buildBlockNode(b, 0)),
     });
   }
   for (const block of document.blocks) {
-    children.push(buildBlockNode(block));
+    children.push(buildBlockNode(block, 0));
   }
   if (document.footer) {
     children.push({
       type: 'footer',
       attributes: serializeMarginFromEdge(document.footer.marginFromEdge),
-      children: document.footer.blocks.map(buildBlockNode),
+      children: document.footer.blocks.map((b) => buildBlockNode(b, 0)),
     });
   }
   return children;
@@ -302,11 +358,28 @@ export function readPageSetup(proxy: any): DocsPageSetup {
  * `editBulkByPath`. Mirrors `writeFullDocument` in
  * `packages/frontend/src/app/docs/yorkie-doc-store.ts` — see file header for
  * additional limitations.
+ *
+ * Refuses a document that reached the read cap, the same refusal
+ * `writeFullDocument` carries. Callers hand over a model that either came out
+ * of `readDocsRoot` — which truncates a table nested at
+ * `MAX_TABLE_NESTING_DEPTH` to no rows — or out of a request body, and this is
+ * a wipe-and-rewrite: writing that model back would push the truncation into
+ * the CRDT, where it is no longer a reader declining to descend but a
+ * *deletion* of rows a peer wrote, replicated to everyone. Nothing legitimate
+ * reaches 32 levels of nested tables (Word stops authors at about 20), so the
+ * write is refused instead.
  */
 export function writeDocsRoot(
   root: DocsYorkieRoot,
   document: DocsDocument,
 ): void {
+  if (documentHasTableAtNestingCap(document)) {
+    throw new Error(
+      'refusing to rewrite the document: a table is nested at or past ' +
+        `${MAX_TABLE_NESTING_DEPTH} levels, where the reader stops ` +
+        'descending, so the write would delete rows it never read',
+    );
+  }
   const tree = root.content;
   const children = buildTreeChildren(document);
 

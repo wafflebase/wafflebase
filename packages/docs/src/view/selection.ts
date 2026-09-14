@@ -18,9 +18,18 @@ export interface NormalizedRange {
 }
 
 /**
- * Cells one `expandCellRangeForMerges` call will look at — its own scan plus
- * every `findMergeTopLeft` backtrack it makes — before it stops growing the
- * rectangle and returns what it has.
+ * Cells one *presence-driven* `expandCellRangeForMerges` call will look at —
+ * its own scan plus every `findMergeTopLeft` backtrack it makes — before it
+ * stops growing the rectangle and returns what it has.
+ *
+ * It bounds `normalizeCellRange` and nothing else. The gesture and command
+ * paths (`computeTableMergeContext`, the drag and Shift+Arrow handlers in
+ * `text-editor.ts`) call `expandCellRangeForMerges` directly and leave it
+ * unbounded, because the rectangle they get back is not painted but *acted
+ * on*: `doc.mergeCells` writes whatever rectangle it is handed, and a
+ * partially-expanded one cuts an existing merge in half — a silent,
+ * replicated corruption, which is a worse answer than a slow gesture. Those
+ * callers are one local gesture over one table, not once per peer per paint.
  *
  * The rectangle is clamped to the table (`normalizeCellRange`), but the
  * *table* is a peer's to choose: rows are structure, not an attribute, so no
@@ -98,20 +107,25 @@ function findMergeTopLeftBudgeted(
  *
  * Caller may pass an unordered range — this helper orders start/end first.
  *
- * Bounded by `MAX_MERGE_EXPANSION_CELLS`, since both the table and the
- * rectangle reach here from a peer's presence and this runs once per peer per
- * paint.
+ * **Exact by default.** `budgetCells` exists for the one caller that paints
+ * rather than acts — `normalizeCellRange`, which runs this once per peer per
+ * paint over a table and a rectangle that both reach it from a peer's
+ * presence. Every other caller feeds the result to a write (`mergeCells`, the
+ * selection a merge is later taken from), where a rectangle that stopped
+ * growing early is not a cosmetic short-paint but a merge that slices through
+ * an existing one. See `MAX_MERGE_EXPANSION_CELLS`.
  */
 export function expandCellRangeForMerges(
   cr: TableCellRange,
   table: TableData,
+  budgetCells = Infinity,
 ): TableCellRange {
   let rowStart = Math.min(cr.start.rowIndex, cr.end.rowIndex);
   let rowEnd = Math.max(cr.start.rowIndex, cr.end.rowIndex);
   let colStart = Math.min(cr.start.colIndex, cr.end.colIndex);
   let colEnd = Math.max(cr.start.colIndex, cr.end.colIndex);
 
-  const budget: ScanBudget = { left: MAX_MERGE_EXPANSION_CELLS };
+  const budget: ScanBudget = { left: budgetCells };
   let changed = true;
   while (changed && budget.left > 0) {
     changed = false;
@@ -194,7 +208,11 @@ function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRan
     start: { rowIndex: Math.min(...rows), colIndex: Math.min(...cols) },
     end: { rowIndex: Math.max(...rows), colIndex: Math.max(...cols) },
   };
-  return table ? expandCellRangeForMerges(ordered, table) : ordered;
+  // The one bounded expansion: this is the render/presence path. See
+  // `MAX_MERGE_EXPANSION_CELLS`.
+  return table
+    ? expandCellRangeForMerges(ordered, table, MAX_MERGE_EXPANSION_CELLS)
+    : ordered;
 }
 
 /**

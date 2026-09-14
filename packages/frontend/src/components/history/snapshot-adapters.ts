@@ -123,13 +123,21 @@ export function parseNoteSnapshot(snapshot: string): string {
  *
  * `depth` counts the `row` ancestors, which is exactly the table nesting
  * `docsTreeToDocument` counts — a table block's rows are `row` nodes, so the
- * two walks agree on which table the cap falls on. It has to be counted *here*
- * rather than left to that reader: this walk runs first, over the raw parsed
- * snapshot, so a peer-written `block > row > cell > block > table > …` chain
- * overflows the stack on this recursion before the capped reader ever sees it.
- * A row the reader would not descend into is normalized without children,
- * which is the same table-with-no-rows the reader produces. See
- * `MAX_TABLE_NESTING_DEPTH`.
+ * two walks agree on which table the cap falls on, and a row past it is
+ * normalized without children, the same table-with-no-rows that reader
+ * produces. See `MAX_TABLE_NESTING_DEPTH`.
+ *
+ * It is counted here rather than left to that reader because this walk runs
+ * first, over the raw parsed snapshot: whatever bounds the recursion has to
+ * hold on *this* side of the reader too. Measured, `YSON.parse` is the
+ * shallower of the two today — it gives out somewhere between 500 and 1,000
+ * nested tables, so a chain deep enough to overflow this walk is rejected by
+ * the parser before it arrives (`snapshot-adapters.test.ts` pins the observable
+ * half: a chain past the cap normalizes to a truncated document rather than a
+ * fully-materialized one). The cap stays because that ordering is the
+ * parser's, not ours — it is one SDK release away from changing — and because
+ * stopping here is strictly less work than walking a chain no reader will
+ * materialize.
  */
 function normalizeYsonTreeNode(node: YsonTreeNode, depth = 0): DocsTreeNode {
   const normalized: DocsTreeNode = { type: node.type };
