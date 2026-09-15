@@ -180,6 +180,29 @@ describe('oauth-state', () => {
       expect(useSecureCookies()).toBe(false);
     });
 
+    /**
+     * Google's callback URL is read **upgrade-only**. This answer is not
+     * local to the cookie flag — `cliLoginAvailable()` and
+     * `insecureProductionOrigin()` read it too — so an `http://` Google
+     * callback URL (the shape the README's own example has) must not be able
+     * to strip `Secure`/`__Host-` off an install that reads as https today
+     * through the `NODE_ENV=production` fallback.
+     */
+    it('never lets an http GOOGLE_CALLBACK_URL downgrade the answer', () => {
+      delete process.env.GITHUB_CALLBACK_URL;
+      delete process.env.COOKIE_SECURE;
+      process.env.GOOGLE_CALLBACK_URL =
+        'http://localhost:3000/auth/google/callback';
+
+      process.env.NODE_ENV = 'production';
+      expect(useSecureCookies()).toBe(true);
+      expect(sessionCookieName()).toBe('__Host-wafflebase_session');
+
+      // And it does not invent security where the fallback says none.
+      process.env.NODE_ENV = 'development';
+      expect(useSecureCookies()).toBe(false);
+    });
+
     it('falls back to NODE_ENV when no callback URL is configured', () => {
       delete process.env.GITHUB_CALLBACK_URL;
       delete process.env.GOOGLE_CALLBACK_URL;

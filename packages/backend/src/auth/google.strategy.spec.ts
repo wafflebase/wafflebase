@@ -1,4 +1,3 @@
-import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import type { Profile } from 'passport-google-oauth20';
@@ -39,9 +38,18 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
   } as Profile;
 }
 
+/** The profile half of the union, for the cases that sign in. */
+function signedIn(profile: Profile) {
+  const result = makeStrategy().validate('token', '', profile);
+  if ('error' in result) {
+    throw new Error(`expected a sign-in, got ${result.error}`);
+  }
+  return result;
+}
+
 describe('GoogleStrategy', () => {
   it('maps a verified profile onto the fields findOrCreateUser wants', () => {
-    const user = makeStrategy().validate('token', '', makeProfile());
+    const user = signedIn(makeProfile());
 
     expect(user).toEqual({
       authProvider: 'google',
@@ -72,21 +80,21 @@ describe('GoogleStrategy', () => {
       },
     ],
   ])('refuses an unverified email (%s)', (_name, overrides) => {
-    expect(() =>
+    // Returned, not thrown: a throw inside the passport guard would answer
+    // with backend JSON instead of the callback's `/login?error=` redirect.
+    expect(
       makeStrategy().validate(
         'token',
         '',
         makeProfile(overrides as unknown as Partial<Profile>),
       ),
-    ).toThrow(UnauthorizedException);
+    ).toEqual({ authProvider: 'google', error: 'unverified_email' });
   });
 
   // Either signal on its own is Google saying it verified the address; a
   // profile shape that only carries one must not be read as unverified.
   it('accepts the raw email_verified claim when emails[] has no flag', () => {
-    const user = makeStrategy().validate(
-      'token',
-      '',
+    const user = signedIn(
       makeProfile({
         emails: [{ value: 'ada@example.com' }] as Profile['emails'],
       }),
@@ -121,9 +129,7 @@ describe('GoogleStrategy', () => {
       },
     ],
   ])('accepts %s as verification', (_name, overrides) => {
-    const user = makeStrategy().validate(
-      'token',
-      '',
+    const user = signedIn(
       makeProfile(overrides as unknown as Partial<Profile>),
     );
     expect(user.email).toBe('ada@example.com');
@@ -134,7 +140,7 @@ describe('GoogleStrategy', () => {
   // unverified `emails[0]` — which is the address `findOrCreateUser` then
   // matches on.
   it('refuses when the verified flag belongs to another address', () => {
-    expect(() =>
+    expect(
       makeStrategy().validate(
         'token',
         '',
@@ -143,11 +149,11 @@ describe('GoogleStrategy', () => {
           _json: { ...makeProfile()._json, email_verified: true },
         } as Partial<Profile>),
       ),
-    ).toThrow(UnauthorizedException);
+    ).toEqual({ authProvider: 'google', error: 'unverified_email' });
   });
 
   it('refuses a profile with no email at all', () => {
-    expect(() =>
+    expect(
       makeStrategy().validate(
         'token',
         '',
@@ -156,18 +162,14 @@ describe('GoogleStrategy', () => {
           _json: { ...makeProfile()._json, email: undefined },
         }),
       ),
-    ).toThrow(UnauthorizedException);
+    ).toEqual({ authProvider: 'google', error: 'no_email' });
   });
 
   // Google has no username, and `displayName` is not guaranteed. The
   // fallback matters beyond the label: `findOrCreateUser` slugs it into the
   // new user's workspace name.
   it('falls back to the email local part when there is no display name', () => {
-    const user = makeStrategy().validate(
-      'token',
-      '',
-      makeProfile({ displayName: '  ' }),
-    );
+    const user = signedIn(makeProfile({ displayName: '  ' }));
     expect(user.username).toBe('ada');
   });
 

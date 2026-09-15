@@ -418,7 +418,12 @@ one workspace; those resolve the workspace from the path instead.
 - **Config:** `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`
   from environment.
 - **Validation:** Extracts `authProvider`, `githubId`, `username`, `email`,
-  `photo`, and `accessToken` from the GitHub profile.
+  `photo`, and `accessToken` from the GitHub profile. `allRawEmails: true` is
+  what makes the `verified` / `primary` flags reachable at all (the default
+  collapses the response to the bare primary address); the primary **verified**
+  address is chosen, falling back to any other verified one. A profile with
+  none is **refused** — reported as `{ authProvider, error: 'unverified_email' }`
+  rather than thrown, see below.
 
 #### Google OAuth2 Strategy (optional)
 
@@ -440,10 +445,27 @@ one workspace; those resolve the workspace from the path instead.
   (`displayName`, falling back to the email's local part — Google has no
   username, and this is what `findOrCreateUser` slugs the new workspace
   from), `email`, `photo`. A profile whose email Google has **not verified**
-  is refused with a 401; see the risk entry below for why that is
-  load-bearing rather than defensive.
+  is refused; see the risk entry below for why that is load-bearing rather
+  than defensive.
 - **No CLI flow.** `?mode=cli`, the confirmation middleware, the loopback
   port and the PKCE exchange stay GitHub-only.
+
+#### Refusals are returned, not thrown
+
+A strategy's `validate()` runs inside `AuthGuard(...)`, i.e. **before** the
+callback handler. So a refusal thrown there escapes as backend JSON on the
+API origin and skips the refusal contract the callback owns entirely: a
+browser login is supposed to land back on `FRONTEND_URL/login?error=<code>`
+(the codes `login-form.tsx` maps), and a CLI login is supposed to be told at
+its loopback callback — `wafflebase login` is blocked on that callback and a
+401 the browser absorbs leaves it waiting out the full five-minute timeout
+with nothing to act on.
+
+Both strategies therefore return `{ authProvider, error }`
+(`OAUTH_REFUSAL_CODES` in `auth.types.ts`) and `AuthController` routes it,
+since only the callback knows which of the two flows this is. The CLI
+redirect carries the login's nonce like any other, or the CLI's own listener
+would refuse it. `packages/cli` maps the codes to prose and ends the wait.
 
 #### JWT Strategy
 
@@ -773,6 +795,10 @@ erDiagram
   email alone, so one person with the same address on both providers has one
   row, stamped with whichever they used first.
 - `email` — Unique constraint; used for `findOrCreateUser` matching.
+- `emailVerifiedAt` — When a provider last vouched for `email`, or null.
+  Null on every row created before the strategies read the provider's
+  verification flag, which is what a **cross-provider** sign-in refuses to
+  merge into (see the risk entry below).
 - `photo` — Optional profile photo URL.
 
 **Document:**
@@ -905,7 +931,30 @@ with a `verified` flag, and an unverified address can be the primary, so
 `GitHubStrategy` passes `allRawEmails: true` and picks the primary
 **verified** address (falling back to any other verified one), refusing the
 sign-in when there is none. Any third provider inherits the same obligation.
-There is no account-linking or unlinking UI, and no email/password login.
+
+The check does nothing for rows that **predate** it, and nothing recorded
+whether the address behind one was ever proven — so an account squatted under
+somebody else's address through an unverified GitHub primary is a shape the
+database can already contain, and turning on the merge would hand it the
+first Google sign-in by its real owner. `User.emailVerifiedAt` separates the
+two populations: a cross-provider sign-in merges only into a row a provider
+has vouched for, and refuses the rest with `?error=email_conflict`. The
+legitimate owner opens their own row by signing in once with the provider it
+was created under (which stamps the column); a squatter who never owned the
+address cannot, because that provider now demands verification too.
+Same-provider sign-in is never refused, so nobody is locked out of their own
+account. There is no account-linking or unlinking UI, and no email/password
+login.
+
+**A new user's first workspace** — `findOrCreateUser` creates the user, the
+workspace and the membership in **one transaction**, with the `@unique`
+workspace slug uniquified and retried on collision. Google's `username` is a
+`displayName`: not unique, and not necessarily ASCII. Deriving the slug
+naively meant two people with the same name — or any two names that reduce to
+no ASCII alphanumerics at all — collided on the second sign-up, which 500'd
+*after* the user row was written and left an account with no workspace that
+no later attempt would repair (the next sign-in finds that row and returns
+it).
 
 **Single-bucket rate limiting** — A single `default` bucket (120 req/min/IP)
 guards every route, with `@Throttle({ default: { limit: 10, ttl: 60_000 } })`

@@ -67,11 +67,16 @@ COOKIE_SECURE=                          # Optional. Whether session and login
                                         # GITHUB_CALLBACK_URL's scheme, since
                                         # that is where GitHub redirects the
                                         # login and so is this server's public
-                                        # scheme, falling back to
-                                        # GOOGLE_CALLBACK_URL's (mandatory
-                                        # wherever Google is enabled, so a
-                                        # Google-only https install is not read
-                                        # as cleartext); with no callback URL
+                                        # scheme. An *https*
+                                        # GOOGLE_CALLBACK_URL also counts
+                                        # (it is mandatory wherever Google is
+                                        # enabled, so a Google-only https
+                                        # install is not read as cleartext),
+                                        # but an `http://` one is ignored:
+                                        # Google's URL can only ever upgrade
+                                        # the answer, never downgrade one
+                                        # GITHUB_CALLBACK_URL or NODE_ENV
+                                        # already gave. With no callback URL
                                         # set at all it falls back to
                                         # NODE_ENV=production. Set it to `true`
                                         # only when TLS terminates at an edge

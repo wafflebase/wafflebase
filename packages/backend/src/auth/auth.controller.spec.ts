@@ -1,7 +1,10 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { UserService } from 'src/user/user.service';
+import {
+  EmailProviderConflictError,
+  UserService,
+} from 'src/user/user.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CliAuthStore, hashCliVerifier } from './cli-auth.store';
@@ -604,6 +607,113 @@ describe('AuthController', () => {
       );
 
       expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * A provider profile the strategy would not sign in — no verified email —
+   * and an address that belongs to an account the other provider created
+   * without ever proving it.
+   *
+   * Neither may escape as backend JSON. The strategies report the first as a
+   * value (a throw inside `AuthGuard(...)` runs before this handler and skips
+   * the whole refusal contract), and `findOrCreateUser` raises the second,
+   * which is caught here. A browser login lands back on the sign-in page; a
+   * CLI login is told at its loopback callback, because `wafflebase login` is
+   * blocked on that callback and would otherwise wait out its five-minute
+   * timeout with nothing to act on.
+   */
+  describe('refused profiles', () => {
+    beforeEach(() => {
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+    });
+
+    it('sends a refused GitHub browser login back to the sign-in page', async () => {
+      const { secret, state } = createWebOAuthState();
+      const res = createMockResponse();
+      const req = {
+        user: { authProvider: 'github', error: 'unverified_email' },
+        query: {},
+        cookies: { wafflebase_oauth_state: secret },
+      } as unknown as Request;
+
+      await controller.githubAuthCallback(req as any, res, state);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/login?error=unverified_email',
+      );
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+    });
+
+    it('sends a refused Google login back to the sign-in page', async () => {
+      const { secret, state } = createWebOAuthState();
+      const res = createMockResponse();
+      const req = {
+        user: { authProvider: 'google', error: 'no_email' },
+        query: {},
+        cookies: { wafflebase_oauth_state: secret },
+      } as unknown as Request;
+
+      await controller.googleAuthCallback(req as any, res, state);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/login?error=no_email',
+      );
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+    });
+
+    it('reports a refused CLI login at the loopback callback, with the nonce', async () => {
+      const nonce = 'b'.repeat(64);
+      const { stateToken, csrf } = cliAuthStore.createState(
+        'cli',
+        9876,
+        nonce,
+        CLI_CHALLENGE,
+      );
+      const res = createMockResponse();
+      const req = {
+        user: { authProvider: 'github', error: 'unverified_email' },
+        cookies: { [cliStateCookieName()]: csrf },
+        query: { state: stateToken },
+      } as unknown as Request;
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      // The nonce has to ride along: the CLI's listener refuses a callback
+      // that does not carry it, which would strand the command anyway.
+      expect(res.redirect).toHaveBeenCalledWith(
+        `http://127.0.0.1:9876/callback?error=unverified_email&state=${nonce}`,
+      );
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+    });
+
+    it('routes an unproven cross-provider address to ?error=email_conflict', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockRejectedValue(
+        new EmailProviderConflictError('github'),
+      );
+      const { secret, state } = createWebOAuthState();
+      const res = createMockResponse();
+      const req = {
+        user: {
+          authProvider: 'google',
+          username: 'Ada Lovelace',
+          email: 'ada@example.com',
+        },
+        query: {},
+        cookies: { wafflebase_oauth_state: secret },
+      } as unknown as Request;
+
+      await controller.googleAuthCallback(req as any, res, state);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/login?error=email_conflict',
+      );
       expect(res.cookie).not.toHaveBeenCalled();
     });
   });

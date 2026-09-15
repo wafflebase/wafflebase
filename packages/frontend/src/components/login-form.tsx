@@ -32,6 +32,22 @@ const LOGIN_ERRORS = new Map<string, string>([
     "login_state",
     "That sign-in link expired or was started in another tab. Please try again.",
   ],
+  // The provider handed back a profile the callback cannot sign in with. It
+  // is reported here rather than as a backend 401 for the same reason as the
+  // state refusals: the person has something to do about it, and can only do
+  // it from a page they can read.
+  [
+    "unverified_email",
+    "That account has no verified email address. Verify your address with the provider, then sign in again.",
+  ],
+  [
+    "no_email",
+    "That account did not share an email address, which Wafflebase signs you in by. Try the other provider.",
+  ],
+  [
+    "email_conflict",
+    "An account already exists for that email address under the other sign-in provider. Sign in with that provider once, and this one will work too.",
+  ],
 ]);
 
 /** Shown for a code this build does not recognise, so none is silent. */

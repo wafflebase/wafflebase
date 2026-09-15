@@ -1,8 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy } from 'passport-google-oauth20';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import type { OAuthProfile, OAuthRefusal } from './auth.types';
 
 /**
  * A verification flag, whichever of the shapes Google has shipped it in.
@@ -106,20 +107,26 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     super.authenticate(req, opts);
   }
 
-  validate(accessToken: string, _refreshToken: string, profile: Profile) {
+  validate(
+    accessToken: string,
+    _refreshToken: string,
+    profile: Profile,
+  ): (OAuthProfile & { googleId: string; accessToken: string }) | OAuthRefusal {
     const { email, verified } = resolveEmail(profile);
 
     // Refused rather than signed in without one: the email *is* the account
     // identity here, so a profile without it has nowhere to land.
+    //
+    // Both refusals are returned rather than thrown, for the reason
+    // `GitHubStrategy.validate` gives: a throw inside the passport guard
+    // bypasses the callback's `/login?error=` contract and strands the
+    // browser on backend JSON.
     if (!email) {
-      throw new UnauthorizedException('Google account has no email address');
+      return { authProvider: 'google', error: 'no_email' };
     }
 
     if (!verified) {
-      throw new UnauthorizedException(
-        'Google account email is not verified. Verify it with Google and ' +
-          'try again.',
-      );
+      return { authProvider: 'google', error: 'unverified_email' };
     }
 
     return {

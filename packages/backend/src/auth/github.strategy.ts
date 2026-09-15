@@ -1,8 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy } from 'passport-github2';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import type { OAuthProfile, OAuthRefusal } from './auth.types';
 
 /**
  * `{ [key]: value }` when `value` is set, otherwise `{}`. Lets an unset config
@@ -121,7 +122,11 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     super.authenticate(req, opts);
   }
 
-  validate(accessToken: string, _refreshToken: string, profile: Profile) {
+  validate(
+    accessToken: string,
+    _refreshToken: string,
+    profile: Profile,
+  ): (OAuthProfile & { githubId: string; accessToken: string }) | OAuthRefusal {
     const { id, username, photos } = profile;
     const email = verifiedEmail(profile);
 
@@ -129,11 +134,15 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     // side is: the email is the account identity `findOrCreateUser` matches
     // on, so signing in without a verified one is what would let an address
     // somebody merely typed into GitHub reach an existing account.
+    //
+    // Returned, not thrown: a throw here happens inside `AuthGuard('github')`
+    // — before `AuthController.githubAuthCallback` runs — so it would answer
+    // with backend JSON instead of the `/login?error=` redirect the callback
+    // owns, and would leave `wafflebase login` blocking on its loopback
+    // callback for the full five-minute timeout. The callback is the only
+    // place that knows which of those two this is (see `auth.types.ts`).
     if (!email) {
-      throw new UnauthorizedException(
-        'GitHub account has no verified email address. Verify one with ' +
-          'GitHub and try again.',
-      );
+      return { authProvider: 'github', error: 'unverified_email' };
     }
 
     return {

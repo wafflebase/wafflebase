@@ -450,7 +450,12 @@ planting a session or CSRF-state cookie on your origin.
 1. `COOKIE_SECURE=true`/`1` → secure. `false`/`0` → not secure.
 2. `GITHUB_CALLBACK_URL` starts with `https://` → secure; `http://` → not
    secure.
-3. Otherwise (no callback URL configured at all) → `NODE_ENV === 'production'`.
+3. `GOOGLE_CALLBACK_URL` starts with `https://` → secure. This one is read
+   **upgrade-only**: Google's callback URL is mandatory wherever Google
+   sign-in is enabled, so a Google-only https install can state its scheme
+   there alone — but an `http://` value is ignored rather than allowed to
+   downgrade an answer step 2 or step 4 would have given.
+4. Otherwise (no callback URL configured at all) → `NODE_ENV === 'production'`.
 
 Three consequences worth knowing before you deploy:
 

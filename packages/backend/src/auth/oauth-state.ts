@@ -211,15 +211,24 @@ export function oauthStateCookieOptions(): CookieOptions {
  * the request that sets the cookie and the callback that reads it — which a
  * per-request `req.secure` behind a proxy would not.
  *
- * **Either** provider's callback URL answers it, GitHub's first. GitHub's is
- * optional (the OAuth app's registered URL is the fallback) while Google's is
- * mandatory, so a Google-enabled install can state its https scheme in
- * `GOOGLE_CALLBACK_URL` alone — and reading only GitHub's left exactly that
- * deployment minting its session, refresh and state cookies without `Secure`
- * and without the `__Host-` prefix that stops a sibling subdomain planting
- * them. The two disagreeing is a misconfiguration either way; GitHub's wins
- * because it is the login every install has and because it keeps the answer
- * unchanged for every deployment that predates Google.
+ * `GITHUB_CALLBACK_URL` answers it in **both** directions, exactly as it
+ * always has. `GOOGLE_CALLBACK_URL` answers it in **one**: an `https://` value
+ * proves the origin is secure, an `http://` one proves nothing. GitHub's
+ * callback URL is optional (the OAuth app's registered URL is the fallback)
+ * while Google's is mandatory, so a Google-enabled https install can state its
+ * scheme in that variable alone — and reading only GitHub's left exactly that
+ * deployment minting session, refresh and state cookies without `Secure` and
+ * without the `__Host-` prefix that stops a sibling subdomain planting them.
+ *
+ * The asymmetry is the point. This answer is not local to the cookie flag: it
+ * also decides whether `wafflebase login` is offered at all and whether the
+ * insecure-origin warning fires (`github-auth.guard.ts`). Letting Google's
+ * URL answer *negatively* would let a deployment that set nothing but an
+ * `http://` Google callback — the shape the README's own example has —
+ * silently strip `Secure`/`__Host-` off an install that until now read as
+ * https through the `NODE_ENV=production` fallback. An upgrade-only reading
+ * can only ever harden, never downgrade, so no existing deployment's answer
+ * changes.
  *
  * `NODE_ENV === 'production'` is only the fallback for a deployment that
  * configures no callback URL at all, and deliberately not an override.
@@ -241,12 +250,25 @@ function isSecureCookie(): boolean {
   if (configured === 'true' || configured === '1') return true;
   if (configured === 'false' || configured === '0') return false;
 
-  for (const name of ['GITHUB_CALLBACK_URL', 'GOOGLE_CALLBACK_URL']) {
-    const callbackUrl = (process.env[name] ?? '').trimStart().toLowerCase();
-    if (callbackUrl.startsWith('https://')) return true;
-    if (callbackUrl.startsWith('http://')) return false;
-  }
+  const github = callbackScheme('GITHUB_CALLBACK_URL');
+  if (github !== undefined) return github;
+
+  // Upgrade only: Google's callback URL can prove https, never cleartext.
+  if (callbackScheme('GOOGLE_CALLBACK_URL') === true) return true;
+
   return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * What a configured callback URL says about this server's public scheme:
+ * `true` for https, `false` for plain http, `undefined` when unset or
+ * unreadable.
+ */
+function callbackScheme(name: string): boolean | undefined {
+  const callbackUrl = (process.env[name] ?? '').trimStart().toLowerCase();
+  if (callbackUrl.startsWith('https://')) return true;
+  if (callbackUrl.startsWith('http://')) return false;
+  return undefined;
 }
 
 /**
