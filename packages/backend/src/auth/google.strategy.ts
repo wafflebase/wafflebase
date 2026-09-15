@@ -10,9 +10,11 @@ import { Request } from 'express';
  * It decides whether the sign-in may proceed, because
  * `UserService.findOrCreateUser()` matches on email alone: an unverified
  * address would sign the holder into whatever account already has it,
- * including one created through GitHub. Google reports it twice — a parsed
- * `emails[].verified` and the raw `email_verified` claim — and this reads
- * both, since an absent flag on either is not evidence of verification.
+ * including one created through GitHub. The one `email_verified` claim
+ * surfaces in two places — `passport-google-oauth20` copies it onto
+ * `emails[].verified` while parsing — and both are read so a profile shape
+ * that carries only one is not mistaken for an unverified address. Absence
+ * is never taken as verification.
  *
  * GitHub needs no equivalent: on the `user:email` scope it returns only
  * addresses it has verified.
