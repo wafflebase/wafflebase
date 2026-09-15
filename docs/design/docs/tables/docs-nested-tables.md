@@ -293,6 +293,9 @@ bands take:
   shape consumers have to answer for: the caret-navigation paths that "enter"
   a table (`view/text-editor.ts`'s `firstCellBlock` / `lastCellBlock`) land on
   the table block itself rather than dereferencing a row that is not there.
+  `lastPositionInCell` — the end-of-the-previous-cell answer Shift-Tab and the
+  cell walk use — descends through trailing nested tables the same way, via
+  `lastCellBlock` rather than its own `rows[rows.length - 1]`.
 - **Producers** never create one past it: the DOCX importer drops a `<w:tbl>`
   that would land there, **both** paste writers drop the tables in a payload
   that would — `insertBlocks` through `capTableNesting` and the cell-rectangle
@@ -338,6 +341,28 @@ bands take:
   read, permanently blocking every replacing write over the block that holds
   them. They decline, the same direction `Doc.insertTableInCell` takes for the
   interactive producer.
+
+  A decline is invisible to its caller, so the *command* has to stop first,
+  not the write. One row insert is two store writes — `updateTableAttrs` for
+  the row heights or the column widths, then `insertTableRow` /
+  `insertTableColumn` for the cells — and only the second is refused, so a
+  `Doc.insertRow` / `Doc.insertColumn` that found out afterwards would leave
+  the table describing a row or a column that never landed, and every
+  remaining column re-measured against a cell that does not exist. Both
+  therefore ask `tableNestingDepth` up front and decline the whole command, as
+  `insertTableInCell` already did. A table block at depth `d` has its rows at
+  `d + 1`, so `d >= cap` is exactly the `rowDepth > cap` the store refuses on.
+  The one caller that reads the result back — Tab in the last cell, which
+  inserts a row and moves into it — re-reads the row instead of assuming it.
+- **The depth a producer asks about comes from the model, not the layout.**
+  `Doc.tableNestingDepth` answers from the document model
+  (`walkCellsForNestingDepth`) and falls back to the layout's
+  `blockParentMap` only for an id the model does not hold. The map is rebuilt
+  at layout time and holds nothing for a block created since — the tail of the
+  split `insertBlocks` does on its way into a paste, for one — so a map-only
+  answer reported a block 31 tables deep as sitting at depth 0, disarming the
+  cap at the one moment a producer was asking about it. The model is refreshed
+  after every mutation, so it always holds those blocks.
 
 ## Risks and Mitigation
 

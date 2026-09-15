@@ -159,6 +159,83 @@ describe('the interactive producers cap nesting', () => {
     expect(() => doc.insertTableInCell('leaf', 2, 2)).toThrow(/nesting cap/);
   });
 
+  /**
+   * A real document model — `count` nested 1×1 tables, the innermost one `inner`
+   * holding a paragraph `leaf`. The outermost table sits at depth 0, so `inner`
+   * is at `count - 1` and `leaf` at `count`.
+   */
+  function docWithRealChain(count: number): Doc {
+    const style = { ...DEFAULT_BLOCK_STYLE };
+    let block: Block = {
+      id: 'inner', type: 'table', inlines: [], style,
+      tableData: {
+        rows: [{ cells: [{ blocks: [
+          { id: 'leaf', type: 'paragraph', inlines: [{ text: 'x', style: {} }], style },
+        ], style: {} }] }],
+        columnWidths: [1],
+      },
+    };
+    for (let i = 1; i < count; i++) {
+      block = {
+        id: `t${i}`, type: 'table', inlines: [], style,
+        tableData: {
+          rows: [{ cells: [{ blocks: [block], style: {} }] }],
+          columnWidths: [1],
+        },
+      };
+    }
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [block] });
+    return new Doc(store);
+  }
+
+  /**
+   * The layout's `blockParentMap` is rebuilt at layout time and holds nothing
+   * for a block created since — the tail of the split a paste does on its way
+   * in, for one. A map-only answer reported such a block as sitting at depth 0
+   * and disarmed the cap at the one moment a producer was asking about it.
+   */
+  test('tableNestingDepth answers from the model, not a stale parent map', () => {
+    const doc = docWithRealChain(3);
+
+    // No `setBlockParentMap` call at all: the map is empty, as it is before
+    // the first layout after a mutation.
+    expect(doc.tableNestingDepth('leaf')).toBe(3);
+    expect(doc.tableNestingDepth('inner')).toBe(2);
+    expect(doc.tableNestingDepth('t2')).toBe(0);
+  });
+
+  /**
+   * `YorkieDocStore` declines `insertTableRow`/`insertTableColumn` on a table
+   * whose rows no reader materializes. The row heights and the column widths
+   * are a *separate* `updateTableAttrs` write that is not declined, so asking
+   * afterwards would leave the table describing a row or a column that never
+   * landed. `Doc` therefore declines the whole command up front.
+   */
+  test('insertRow and insertColumn decline at the nesting cap', () => {
+    const doc = docWithRealChain(MAX_TABLE_NESTING_DEPTH + 1);
+    const before = structuredClone(doc.getBlock('inner').tableData);
+
+    doc.insertRow('inner', 1);
+    doc.insertColumn('inner', 1);
+
+    // Neither the cells nor the attrs describing them moved.
+    expect(doc.getBlock('inner').tableData).toEqual(before);
+  });
+
+  test('insertRow and insertColumn still apply one level short of the cap', () => {
+    const doc = docWithRealChain(MAX_TABLE_NESTING_DEPTH);
+
+    doc.insertRow('inner', 1);
+    doc.insertColumn('inner', 1);
+
+    const td = doc.getBlock('inner').tableData!;
+    expect(td.rows).toHaveLength(2);
+    expect(td.columnWidths).toHaveLength(2);
+    // The widths describe exactly the cells that exist.
+    for (const row of td.rows) expect(row.cells).toHaveLength(2);
+  });
+
   test('a pasted fragment loses only the tables past the ceiling', () => {
     const style = { ...DEFAULT_BLOCK_STYLE };
     const inner: Block = {

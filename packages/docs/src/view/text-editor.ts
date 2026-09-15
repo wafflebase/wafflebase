@@ -3929,14 +3929,23 @@ export class TextEditor {
   /**
    * Get the last cursor position in a cell, entering nested tables if the
    * last block is a table.
+   *
+   * The descent goes through `lastCellBlock` rather than reaching for
+   * `rows[rows.length - 1].cells[...]` itself, because a table with no rows is
+   * a shape this model really holds: every reader materializes a table nested
+   * at or past `MAX_TABLE_NESTING_DEPTH` as `{ ...tableData, rows: [] }`, and
+   * a peer can put one at the end of a cell with ordinary Tree writes. The
+   * raw walk turned that into a `TypeError` on the first Shift-Tab aimed at
+   * the cell before it. `undefined` means there is nothing to enter, so the
+   * caret lands on the table block itself — what it already does for any
+   * block it cannot descend into.
    */
   private lastPositionInCell(cell: import('../model/types.js').TableCell): DocPosition {
     let lastBlock = cell.blocks[cell.blocks.length - 1];
-    while (lastBlock.type === 'table' && lastBlock.tableData) {
-      const td = lastBlock.tableData;
-      const lastRow = td.rows[td.rows.length - 1];
-      const lastCell = lastRow.cells[lastRow.cells.length - 1];
-      lastBlock = lastCell.blocks[lastCell.blocks.length - 1];
+    while (lastBlock?.type === 'table' && lastBlock.tableData) {
+      const entered = lastCellBlock(lastBlock);
+      if (!entered) break;
+      lastBlock = entered;
     }
     return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
   }
@@ -6078,8 +6087,15 @@ export class TextEditor {
       this.invalidateLayout();
       // After insertRow, re-fetch the block to get the new row's cell blocks
       const updatedBlock = this.doc.getBlock(tableBlockId);
-      const newCell = updatedBlock.tableData!.rows[newRowIndex].cells[0];
-      this.cursor.moveTo({ blockId: newCell.blocks[0].id, offset: 0 });
+      // The row is not guaranteed: `Doc.insertRow` declines on a table nested
+      // at or past `MAX_TABLE_NESTING_DEPTH` (and the CRDT store declines the
+      // write under it), so the re-fetched table may still have the rows it
+      // had. Read it back rather than assuming, or Tab in the last cell of
+      // such a table is a `TypeError` instead of a no-op.
+      const newCell = updatedBlock.tableData?.rows[newRowIndex]?.cells[0];
+      const newCellBlock = newCell?.blocks[0];
+      if (!newCellBlock) return false;
+      this.cursor.moveTo({ blockId: newCellBlock.id, offset: 0 });
       return true;
     }
     // Exit table — move to the block after the table.

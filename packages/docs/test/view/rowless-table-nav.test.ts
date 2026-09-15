@@ -85,7 +85,11 @@ describe('caret navigation across a table with no rows', () => {
   }
 
   /** Press a key, surfacing anything the keydown listener threw (see below). */
-  function press(container: HTMLElement, key: string): unknown {
+  function press(
+    container: HTMLElement,
+    key: string,
+    init: KeyboardEventInit = {},
+  ): unknown {
     const ta = container.querySelector('textarea')!;
     let thrown: unknown;
     const onError = (e: ErrorEvent): void => {
@@ -95,7 +99,7 @@ describe('caret navigation across a table with no rows', () => {
     window.addEventListener('error', onError);
     try {
       ta.dispatchEvent(
-        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
       );
     } catch (err) {
       thrown = err;
@@ -132,6 +136,46 @@ describe('caret navigation across a table with no rows', () => {
 
     expect(press(container, 'ArrowLeft')).toBeUndefined();
     expect(editor._getCursorForTest().blockId).toBe('T');
+  });
+
+  /**
+   * The same block one level in: the *last* block of a cell. `Shift+Tab` asks
+   * `lastPositionInCell` for the end of the previous cell, which descended
+   * through trailing nested tables with a raw
+   * `rows[rows.length - 1].cells[...]` — a `TypeError` on a table with no
+   * rows. The caret should land on the rowless table block itself.
+   */
+  test('Shift+Tab lands on a rowless table that ends the previous cell', () => {
+    const store = new MemDocStore();
+    const inCell = para('a');
+    const nextCell = para('b');
+    store.setDocument({
+      blocks: [{
+        id: 'outer',
+        type: 'table',
+        inlines: [],
+        style: EMPTY,
+        tableData: {
+          rows: [{ cells: [
+            { blocks: [inCell, rowlessTable('N')], style: {} },
+            { blocks: [nextCell], style: {} },
+          ] }],
+          columnWidths: [0.5, 0.5],
+        },
+      }],
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editors.push(editor);
+
+    editor._setSelectionForTest({
+      anchor: { blockId: nextCell.id, offset: 0 },
+      focus: { blockId: nextCell.id, offset: 0 },
+    });
+
+    expect(press(container, 'Tab', { shiftKey: true })).toBeUndefined();
+    expect(editor._getCursorForTest().blockId).toBe('N');
   });
 
   /** And the caret is not stranded: the next press keeps going. */
