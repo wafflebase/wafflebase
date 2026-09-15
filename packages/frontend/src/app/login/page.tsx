@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { fetchAuthProviders } from "@/api/auth";
 import { LoginForm } from "@/components/login-form";
 import { WaffleLogo } from "@/app/home/primitives/waffle-logo";
 import { RulerBackdrop } from "@/app/home/primitives/ruler-backdrop";
@@ -13,9 +14,24 @@ const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
  */
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
+  // Which providers this deployment actually has — Google is optional and
+  // configured server-side. Starts false so the page renders GitHub straight
+  // away rather than waiting on a request; the call never rejects, so an
+  // unreachable backend degrades to GitHub only.
+  const [googleEnabled, setGoogleEnabled] = useState(false);
 
   useEffect(() => {
     document.title = "Login — Wafflebase";
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAuthProviders().then((providers) => {
+      if (!cancelled) setGoogleEnabled(providers.google);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -53,6 +69,7 @@ export default function LoginPage() {
             <LoginForm
               error={searchParams.get("error")}
               returnTo={searchParams.get("returnTo")}
+              googleEnabled={googleEnabled}
             />
           </div>
 

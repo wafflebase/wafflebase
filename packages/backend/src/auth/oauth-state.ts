@@ -204,12 +204,34 @@ export function oauthStateCookieOptions(): CookieOptions {
 /**
  * Whether login cookies are set `Secure` — and so may carry `__Host-`.
  *
- * `COOKIE_SECURE` decides when an operator sets it; otherwise the
- * deployment's own `GITHUB_CALLBACK_URL` does. That URL is where GitHub
- * redirects the login, so its scheme *is* this server's public scheme, and
- * reading a configured value rather than the live request keeps the answer
- * identical on the request that sets the cookie and the callback that reads
- * it — which a per-request `req.secure` behind a proxy would not.
+ * `COOKIE_SECURE` decides when an operator sets it; otherwise
+ * `GITHUB_CALLBACK_URL` does. That URL is where GitHub redirects the login, so
+ * its scheme *is* this server's public scheme, and reading a configured value
+ * rather than the live request keeps the answer identical on the request that
+ * sets the cookie and the callback that reads it — which a per-request
+ * `req.secure` behind a proxy would not.
+ *
+ * **`GOOGLE_CALLBACK_URL` is deliberately not read here**, in either
+ * direction. This answer is not local to the cookie flag: `useSecureCookies()`
+ * also decides whether `wafflebase login` is offered at all
+ * (`cliLoginAvailable()`), whether the insecure-origin warning fires
+ * (`insecureProductionOrigin()`), and the `secure` flag on the CLI consent and
+ * `returnTo` cookies. Adding a second source of truth moved all of them at
+ * once, off a variable that says nothing about the origin *GitHub* reaches:
+ * `GITHUB_CALLBACK_URL` is optional, so an install that omits it is served at
+ * whatever URL is registered on the OAuth app, and a deployment running plain
+ * http there while its `GOOGLE_CALLBACK_URL` reads `https://` would have had
+ * its session, refresh and state cookies minted `Secure`/`__Host-` — discarded
+ * by the browser on arrival, so the login simply stops working — while the CLI
+ * gate's clear fail-closed `400` turned into an allow. Leaving Google's URL
+ * out keeps every one of those consumers at exactly the answer it had before
+ * Google sign-in existed.
+ *
+ * The cost is one deployment shape: https, Google configured, no
+ * `GITHUB_CALLBACK_URL`, and `NODE_ENV` not `production`. It says so with
+ * `COOKIE_SECURE=true` (or by pointing `GITHUB_CALLBACK_URL` at the https URL
+ * its users reach, which it wants set anyway) — one explicit variable instead
+ * of an inference drawn for five consumers at once.
  *
  * `NODE_ENV === 'production'` is only the fallback for a deployment that
  * configures no callback URL at all, and deliberately not an override.
@@ -231,12 +253,22 @@ function isSecureCookie(): boolean {
   if (configured === 'true' || configured === '1') return true;
   if (configured === 'false' || configured === '0') return false;
 
-  const callbackUrl = (process.env.GITHUB_CALLBACK_URL ?? '')
-    .trimStart()
-    .toLowerCase();
+  const github = callbackScheme('GITHUB_CALLBACK_URL');
+  if (github !== undefined) return github;
+
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * What a configured callback URL says about this server's public scheme:
+ * `true` for https, `false` for plain http, `undefined` when unset or
+ * unreadable.
+ */
+function callbackScheme(name: string): boolean | undefined {
+  const callbackUrl = (process.env[name] ?? '').trimStart().toLowerCase();
   if (callbackUrl.startsWith('https://')) return true;
   if (callbackUrl.startsWith('http://')) return false;
-  return process.env.NODE_ENV === 'production';
+  return undefined;
 }
 
 /**

@@ -587,6 +587,41 @@ export function isLoopbackHost(
   return match[2] === undefined || Number(match[2]) === port;
 }
 
+/**
+ * What the server says when it refuses to sign the profile in.
+ *
+ * The backend reports these at the loopback callback as `?error=<code>`
+ * instead of throwing a 401 the CLI would never see — a refusal the browser
+ * absorbs leaves this command blocked on a callback that is never coming, for
+ * the whole five-minute timeout, with nothing to act on. The codes are the
+ * same ones the web sign-in page maps.
+ */
+const CALLBACK_REFUSALS: Record<string, string> = {
+  unverified_email:
+    'the account has no verified email address. Wafflebase signs you in by ' +
+    'email, so verify one with the provider and run `wafflebase login` again.',
+  no_email:
+    'the account shared no email address, which Wafflebase signs you in by.',
+  email_conflict:
+    'that email already has a Wafflebase account created with the other ' +
+    'sign-in provider. Sign in once with that provider in the browser, then ' +
+    'run `wafflebase login` again.',
+};
+
+/**
+ * Prose for a server-reported refusal.
+ *
+ * The code has already passed the nonce check, so it is our own server's —
+ * but it is still echoed into a message, so an unrecognised one is reduced to
+ * a closed vocabulary rather than printed as it arrived.
+ */
+export function loginRefusalMessage(code: string): string {
+  const known = CALLBACK_REFUSALS[code];
+  if (known) return `Sign-in was refused: ${known}`;
+  const safe = /^[a-z0-9_]{1,40}$/.test(code) ? code : 'unknown';
+  return `Sign-in was refused by the server (${safe}).`;
+}
+
 /** The wait's failure message, naming the last refusal when there was one. */
 export function loginTimeoutMessage(refusal?: string): string {
   const base = 'Login timed out. Try again with `wafflebase login`.';
@@ -690,6 +725,11 @@ export function startCallbackServer(
       callbackResolve = res;
       callbackReject = rej;
     });
+    // A server-reported refusal settles this from the HTTP handler, which can
+    // run before the caller has reached `await waitForCallback()`. Keep one
+    // handler attached from the start so that window cannot surface as an
+    // unhandled rejection; the caller still awaits the promise itself.
+    callbackPromise.catch(() => {});
 
     const srv = createServer((req, res) => {
       if (!isLoopbackHost(req.headers.host, boundPort)) {
@@ -754,7 +794,11 @@ export function startCallbackServer(
       }
 
       const code = url.searchParams.get('code');
-      if (!code) {
+      // A callback carrying neither is not our redirect in either of its
+      // shapes — the server sends a `code` when the login succeeded and an
+      // `error` when it refused the profile.
+      const failure = url.searchParams.get('error');
+      if (!code && !failure) {
         res.writeHead(400);
         res.end('Missing code');
         return;
@@ -783,6 +827,45 @@ export function startCallbackServer(
         // is an out-of-date server, the second a callback that is not
         // ours — so they are reported apart.
         refuse(res, 403, state === null ? REFUSAL.noState : REFUSAL.badState);
+        return;
+      }
+
+      // Our redirect, and it says the server would not sign this profile in.
+      // Settling the wait is the whole point: the login cannot succeed later,
+      // so continuing to wait for a callback only costs the person five
+      // minutes before a timeout that names nothing.
+      if (failure) {
+        const message = loginRefusalMessage(failure);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Wafflebase CLI</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; justify-content: center; align-items: center; min-height: 100vh;
+    margin: 0; background: #fafafa; color: #1a1a1a; }
+  .card { max-width: 30rem; text-align: center; padding: 2.5rem; background: #fff;
+    border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04); }
+  h2 { margin: 0 0 0.75rem; font-size: 1.25rem; }
+  p { margin: 0; color: #444; font-size: 0.95rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>Sign-in was refused</h2>
+    <p>Return to your terminal — it says what to do next.</p>
+  </div>
+</body>
+</html>`);
+        if (!settled) {
+          settled = true;
+          // A user error: the account has to change, not the environment.
+          callbackReject(new LoginError(EXIT_USER_ERROR, message));
+        }
         return;
       }
 
@@ -827,7 +910,9 @@ export function startCallbackServer(
 
       if (!settled) {
         settled = true;
-        callbackResolve(code);
+        // Non-null: the only way past the checks above without a `code` is
+        // the `failure` branch, which returns.
+        callbackResolve(code!);
       }
     });
 

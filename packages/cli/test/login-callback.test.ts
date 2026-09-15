@@ -85,6 +85,50 @@ describe('login callback server', () => {
     }
   });
 
+  /**
+   * The server can refuse the sign-in itself — a GitHub account with no
+   * verified email address, say. It reports that at this callback as
+   * `?error=`, because a 401 the browser absorbs would leave this command
+   * blocked on a callback that is never coming, until the five-minute
+   * timeout, with nothing to act on. So the refusal settles the wait and
+   * names the cause.
+   */
+  it('ends the wait when the server reports a refusal', async () => {
+    const { port, waitForCallback, close } =
+      await startCallbackServer('the-nonce');
+    try {
+      const refused = await fetch(
+        `http://127.0.0.1:${port}/callback?error=unverified_email&state=the-nonce`,
+      );
+      expect(refused.status).toBe(200);
+
+      await expect(waitForCallback()).rejects.toThrow(
+        /no verified email address/,
+      );
+    } finally {
+      close();
+    }
+  });
+
+  // The nonce still gates it: otherwise any local page that guessed the port
+  // could cancel a login in progress.
+  it('ignores a refusal that does not carry this login’s nonce', async () => {
+    const { port, waitForCallback, close } =
+      await startCallbackServer('the-nonce');
+    try {
+      const forged = await fetch(
+        `http://127.0.0.1:${port}/callback?error=unverified_email&state=guessed`,
+      );
+      expect(forged.status).toBe(403);
+
+      // The genuine callback still lands.
+      await fetch(`http://127.0.0.1:${port}/callback?code=real&state=the-nonce`);
+      await expect(waitForCallback()).resolves.toBe('real');
+    } finally {
+      close();
+    }
+  });
+
   // Opening a URL spawns a child process with that URL in its argv, which any
   // local user can read. The authorization URL carries this login's nonce and
   // PKCE challenge, so the browser is handed a loopback redirect instead and

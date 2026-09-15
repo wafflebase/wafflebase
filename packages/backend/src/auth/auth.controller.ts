@@ -14,25 +14,30 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
+import { User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { CliExchangeDto } from './auth.dto';
-import { UserService } from '../user/user.service';
+import { EmailProviderConflictError, UserService } from '../user/user.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
-import { AuthenticatedRequest } from './auth.types';
+import {
+  AuthenticatedRequest,
+  oauthRefusal,
+  type OAuthProfile,
+} from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
+import { GoogleAuthGuard, GoogleCallbackGuard } from './google-auth.guard';
+import { googleAuthConfigured } from './oauth-providers';
+import { consumeWebOAuthState } from './web-oauth-login';
 import {
   cliStateCookieName,
   cliStateCookieOptions,
   isWebOAuthState,
-  oauthStateCookieName,
-  oauthStateCookieOptions,
   refreshCookieName,
   sessionCookieName,
   UNPREFIXED_SESSION_COOKIE_NAMES,
   useSecureCookies,
-  webOAuthStateMatches,
 } from './oauth-state';
 import {
   loginRedirectUrl,
@@ -120,18 +125,7 @@ export class AuthController {
     @Res() res: Response,
     @Query('state') stateToken: string | undefined,
   ) {
-    const githubUser = req.user;
-
-    const user = await this.userService.findOrCreateUser({
-      authProvider: 'github',
-      username: githubUser.username,
-      email: githubUser.email,
-      photo: githubUser.photo,
-    });
-
-    if (!user) {
-      throw new Error('User not found or created');
-    }
+    const githubUser = req.user as unknown as OAuthProfile;
 
     // No `state` at all is never a login this server started: the guard
     // attaches one to every path, CLI and browser alike. Accepting a
@@ -158,20 +152,21 @@ export class AuthController {
     if (isWebOAuthState(stateToken)) {
       // Browser flow: the state is the hash of a secret that only this
       // browser holds, in an httpOnly cookie. A code replayed with a
-      // stolen or guessed `state` cannot bring the cookie with it.
-      // Only the name the guard would mint *now* is read: in production
-      // that is the `__Host-` prefixed one, and honouring an unprefixed
-      // leftover would re-admit the sibling-subdomain cookie-tossing the
-      // prefix exists to block (see `oauth-state.ts`).
-      const cookieName = oauthStateCookieName();
-      const cookieSecret = req.cookies?.[cookieName];
-      res.clearCookie(cookieName, {
-        ...oauthStateCookieOptions(),
-        maxAge: undefined,
-      });
-      if (!webOAuthStateMatches(stateToken, cookieSecret)) {
+      // stolen or guessed `state` cannot bring the cookie with it. Shared
+      // with the Google callback — see `web-oauth-login.ts`.
+      if (!consumeWebOAuthState(req, res, stateToken)) {
         return res.redirect(this.loginErrorUrl('oauth_state'));
       }
+
+      // Default web flow: set cookies and redirect to frontend. A profile
+      // the strategy refused (no verified email) lands back on the sign-in
+      // page saying so, like any other refusal — the strategy reports it as
+      // a value precisely so it does not escape the guard as backend JSON.
+      const result = await this.resolveOAuthUser('github', githubUser);
+      if ('error' in result) {
+        return res.redirect(this.loginErrorUrl(result.error));
+      }
+      return this.finishWebLogin(req, res, result.user);
     } else {
       // Otherwise it is a CLI state token; consume it. Like the browser
       // state, it counts only when the browser that started the login
@@ -207,14 +202,30 @@ export class AuthController {
               'Update the wafflebase CLI and run `wafflebase login` again.',
           );
         }
-        const code = this.cliAuthStore.createCode(user.id, state.challenge);
         // Echo the CLI's per-attempt nonce back as `state`: the CLI's
-        // loopback callback server only accepts a `code` that carries it,
+        // loopback callback server only accepts a callback that carries it,
         // which is what stops a web page from feeding the CLI a code for
-        // someone else's account (login CSRF).
+        // someone else's account (login CSRF). It rides the refusal below
+        // for the same reason.
         const stateParam = state.nonce
           ? `&state=${encodeURIComponent(state.nonce)}`
           : '';
+
+        // A refused profile is reported to the loopback listener rather than
+        // thrown. `wafflebase login` is blocked on that callback, and a
+        // backend 401 it never sees would leave it waiting out the whole
+        // five-minute timeout with nothing to act on.
+        const result = await this.resolveOAuthUser('github', githubUser);
+        if ('error' in result) {
+          return res.redirect(
+            `http://127.0.0.1:${port}/callback?error=${encodeURIComponent(result.error)}${stateParam}`,
+          );
+        }
+
+        const code = this.cliAuthStore.createCode(
+          result.user.id,
+          state.challenge,
+        );
         return res.redirect(
           `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateParam}`,
         );
@@ -228,15 +239,123 @@ export class AuthController {
           'browser. Please run `wafflebase login` again.',
       );
     }
+  }
 
-    // Default web flow: set cookies and redirect to frontend.
+  /**
+   * Turn a provider profile into the user it signs in as — or into the code
+   * a refusal is reported under.
+   *
+   * Two things can refuse here, and neither is an exception the caller should
+   * let escape: the strategy may have declined the profile outright (no
+   * verified email), and the address may belong to an account created through
+   * the other provider that this deployment has never seen proven
+   * (`EmailProviderConflictError`). Both are things the person can act on, so
+   * both come back as a code the caller routes — to the sign-in page for a
+   * browser login, to the loopback listener for a CLI one.
+   */
+  private async resolveOAuthUser(
+    authProvider: 'github' | 'google',
+    profile: OAuthProfile,
+  ): Promise<{ user: User } | { error: string }> {
+    const refusal = oauthRefusal(profile);
+    if (refusal) return { error: refusal };
+
+    let user: User | null;
+    try {
+      user = await this.userService.findOrCreateUser({
+        authProvider,
+        username: profile.username!,
+        email: profile.email!,
+        photo: profile.photo,
+      });
+    } catch (error) {
+      if (error instanceof EmailProviderConflictError) {
+        return { error: 'email_conflict' };
+      }
+      throw error;
+    }
+
+    if (!user) {
+      throw new Error('User not found or created');
+    }
+    return { user };
+  }
+
+  /**
+   * Which sign-in buttons the login page should offer.
+   *
+   * Google is optional (`oauth-providers.ts`), and whether it is configured
+   * is a property of the *deployment*, not of the frontend bundle — a
+   * self-hosted image is built once and configured per install, so a
+   * build-time `VITE_` flag could not answer it. Unauthenticated, because
+   * the login page is: the answer is exactly what a visitor learns by
+   * clicking, and it names no secret.
+   */
+  @Get('providers')
+  authProviders() {
+    return { github: true, google: googleAuthConfigured() };
+  }
+
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  async googleAuth() {
+    // The guard mints the `state`, sets its cookie and issues the redirect
+    // to Google. There is no CLI variant: `?mode=cli` stays a GitHub flow.
+  }
+
+  @Get('google/callback')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(GoogleCallbackGuard)
+  async googleAuthCallback(
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+    @Query('state') stateToken: string | undefined,
+  ) {
+    // Same refusal as the GitHub callback, and for the same reason: a
+    // callback carrying no `state`, or one this browser did not start, is
+    // login CSRF. Only the browser vocabulary is accepted here — a CLI
+    // state token cannot have been minted by this route.
+    //
+    // Checked *before* the user is upserted, so a refused callback leaves no
+    // row (and no workspace) behind for a sign-in that never happened.
+    if (
+      typeof stateToken !== 'string' ||
+      !isWebOAuthState(stateToken) ||
+      !consumeWebOAuthState(req, res, stateToken)
+    ) {
+      return res.redirect(this.loginErrorUrl('oauth_state'));
+    }
+
+    const googleUser = req.user as unknown as OAuthProfile;
+
+    // Matched on email alone, like every other sign-in — so a Google
+    // account whose address already has a Wafflebase user signs into *that*
+    // user rather than creating a second one with a second workspace.
+    // `GoogleStrategy.validate` is what makes that safe: it refuses an
+    // address Google has not verified. The account it merges into has to
+    // have been proven too, which is what `email_conflict` reports (see
+    // `UserService.findOrCreateUser`).
+    const result = await this.resolveOAuthUser('google', googleUser);
+    if ('error' in result) {
+      return res.redirect(this.loginErrorUrl(result.error));
+    }
+
+    return this.finishWebLogin(req, res, result.user);
+  }
+
+  /**
+   * Issue the session and send the browser back to the frontend — the tail
+   * both browser logins share.
+   *
+   * The `returnTo` cookie is cleared on use and re-validated here rather
+   * than trusted: it was written from an unauthenticated request, so this is
+   * the read that decides a redirect and it does its own checking (see
+   * `login-return-path.ts`).
+   */
+  private finishWebLogin(req: Request, res: Response, user: User) {
     const tokens = this.authService.createTokens(user);
     this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
-    // Where the login started, if it asked to come back — see
-    // login-return-path.ts. Cleared on use, and re-validated here rather than
-    // trusted from the cookie: it was written from an unauthenticated request,
-    // so this is the read that decides a redirect and it does its own checking.
     const returnCookie = req.cookies?.[loginReturnCookieName()] as unknown;
     if (returnCookie !== undefined) {
       res.clearCookie(loginReturnCookieName(), loginReturnCookieOptions());

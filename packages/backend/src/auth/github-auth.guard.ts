@@ -10,16 +10,9 @@ import { CliAuthStore } from './cli-auth.store';
 import {
   cliStateCookieName,
   cliStateCookieOptions,
-  createWebOAuthState,
-  oauthStateCookieName,
-  oauthStateCookieOptions,
   useSecureCookies,
 } from './oauth-state';
-import {
-  loginReturnCookieName,
-  loginReturnCookieOptions,
-  safeReturnPath,
-} from './login-return-path';
+import { startWebOAuthLogin } from './web-oauth-login';
 
 /** Hostnames the browser treats as a secure context over plain http. */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -81,6 +74,11 @@ function callbackHost(): string | undefined {
  * `useSecureCookies()` reads it as https, so the confirm cookie really does go
  * out `Secure`, and if the origin turns out to be cleartext the browser
  * discards the cookie and the gate fails closed rather than open.
+ *
+ * Google sign-in does not move this answer. `GOOGLE_CALLBACK_URL` is
+ * deliberately not one of the things `useSecureCookies()` reads (see
+ * `oauth-state.ts`), so this gate — and the session cookies it shares its
+ * answer with — sits exactly where it did before a second provider existed.
  */
 export function cliLoginAvailable(): boolean {
   return useSecureCookies() || loopbackCallback();
@@ -229,23 +227,10 @@ export class GitHubAuthGuard extends AuthGuard('github') {
       res.cookie(cliStateCookieName(), csrf, cliStateCookieOptions());
       req.__oauthState = stateToken;
     } else {
-      const { secret, state } = createWebOAuthState();
-      res.cookie(oauthStateCookieName(), secret, oauthStateCookieOptions());
-      req.__oauthState = state;
-      // Where to come back to once GitHub returns the browser to
-      // FRONTEND_URL. Its own cookie rather than a field inside `state`, which
-      // must stay an opaque token compared by equality — see
-      // login-return-path.ts. The value is attacker-choosable by construction
-      // (this endpoint is unauthenticated), so `safeReturnPath` reducing it to
-      // a same-origin path is the actual guard, not the cookie.
-      const returnTo = safeReturnPath(req.query?.returnTo);
-      if (returnTo) {
-        res.cookie(
-          loginReturnCookieName(),
-          returnTo,
-          loginReturnCookieOptions(),
-        );
-      }
+      // The browser branch, shared verbatim with `GoogleAuthGuard`: the
+      // double-submit `state` and the `returnTo` cookie that survives the
+      // round trip (see `web-oauth-login.ts`).
+      startWebOAuthLogin(req, res);
     }
 
     return super.canActivate(context);

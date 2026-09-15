@@ -22,6 +22,7 @@ describe('AuthService', () => {
     username: 'alice',
     email: 'alice@example.com',
     photo: null,
+    emailVerifiedAt: null,
   };
 
   it('creates access and refresh tokens with different token types', () => {

@@ -396,10 +396,16 @@ data changes.
 
 ### Auth Flow
 
-Authentication is handled entirely via the backend (GitHub OAuth + JWT
-cookies). The frontend's role is:
+Authentication is handled entirely via the backend (GitHub — and optionally
+Google — OAuth + JWT cookies). The frontend's role is:
 
-1. **Login page** — Renders a link to `VITE_BACKEND_API_URL/auth/github`.
+1. **Login page** — Renders a link to `VITE_BACKEND_API_URL/auth/github`, and
+   one to `/auth/google` when `GET /auth/providers` reports that this
+   deployment has a Google OAuth client. That call is what decides the second
+   button: Google is optional and configured per *install*, so a build-time
+   `VITE_` flag could not answer it for an image built once. It never
+   rejects — an unreachable backend degrades to GitHub only, which is what
+   every deployment has today.
 2. **Session check** — `PrivateRoute` calls `fetchMe()` (GET `/auth/me` with
    `credentials: "include"`) on mount. If the cookie is valid, the backend
    returns the user object.

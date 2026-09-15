@@ -4,6 +4,12 @@ model User {
   username      String
   email String  @unique
   photo String?
+  // When a provider last vouched for `email`. Null on every row created
+  // before the strategies checked the provider's verification flag, which is
+  // why a *cross-provider* sign-in refuses to merge into such a row (see
+  // `UserService.findOrCreateUser`): the email is the shared identity, and an
+  // unverified GitHub primary address could have squatted somebody else's.
+  emailVerifiedAt DateTime?
   documents Document[]
   shareLinks ShareLink[]
   datasources DataSource[]
