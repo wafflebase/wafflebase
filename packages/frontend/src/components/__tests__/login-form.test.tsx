@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -12,10 +12,10 @@ import LoginPage from "@/app/login/page";
  * if the page actually says something — an untested message can silently
  * become the button looking untouched after a failed sign-in.
  */
-function renderForm(error?: string | null) {
+function renderForm(error?: string | null, googleEnabled = false) {
   render(
     <MemoryRouter>
-      <LoginForm error={error} />
+      <LoginForm error={error} googleEnabled={googleEnabled} />
     </MemoryRouter>,
   );
 }
@@ -48,6 +48,41 @@ describe("LoginForm", () => {
     },
   );
 
+  /**
+   * Google OAuth is optional and configured per deployment, so the button
+   * follows `GET /auth/providers`. A button that is always there would lead
+   * every self-hosted install to a 404, and one that is never there would
+   * hide the feature on the installs that configured it.
+   */
+  it("offers no Google button by default", () => {
+    renderForm(null);
+    expect(screen.queryByRole("link", { name: /continue with google/i })).toBeNull();
+  });
+
+  it("offers Google alongside GitHub when the deployment has it", () => {
+    renderForm(null, true);
+    const google = screen.getByRole("link", { name: /continue with google/i });
+    expect(google.getAttribute("href")).toContain("/auth/google");
+    expect(
+      screen.getByRole("link", { name: /continue with github/i }),
+    ).toBeTruthy();
+  });
+
+  // `returnTo` is what carries a template link through the sign-in; it has
+  // to survive whichever provider the visitor picks.
+  it("forwards returnTo on both providers", () => {
+    render(
+      <MemoryRouter>
+        <LoginForm returnTo="/t/abc" googleEnabled />
+      </MemoryRouter>,
+    );
+    for (const name of [/continue with github/i, /continue with google/i]) {
+      expect(screen.getByRole("link", { name }).getAttribute("href")).toContain(
+        "returnTo=%2Ft%2Fabc",
+      );
+    }
+  });
+
   it("falls back to a generic message for an unknown code", () => {
     renderForm("something_new");
     const alert = screen.getByRole("alert");
@@ -76,6 +111,23 @@ describe("LoginForm", () => {
 });
 
 describe("LoginPage", () => {
+  // The page asks the backend which providers exist. Stubbed so the test
+  // does not depend on a network call — `fetchAuthProviders` swallows a
+  // failure into "GitHub only", which would hide a regression here.
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ github: true, google: false }),
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("wires ?error= from the URL into the form", () => {
     render(
       <MemoryRouter initialEntries={["/login?error=oauth_state"]}>

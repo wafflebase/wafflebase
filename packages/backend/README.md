@@ -41,6 +41,25 @@ GITHUB_USER_EMAIL_URL=                   #   https://<host>/login/oauth/authoriz
                                         # otherwise fetches emails from
                                         # api.github.com and a GHE token fails
                                         # there with "Bad credentials".
+GOOGLE_CLIENT_ID=                        # Optional. Set all three to offer
+GOOGLE_CLIENT_SECRET=                    # "Continue with Google" beside the
+GOOGLE_CALLBACK_URL=                     # GitHub button, e.g.
+                                        #   http://localhost:3000/auth/google/callback
+                                        # Unlike GitHub's, the callback URL is
+                                        # required: Google's authorization
+                                        # endpoint has no fallback to the URL
+                                        # registered on the OAuth client and
+                                        # answers redirect_uri_mismatch without
+                                        # one. With any of the three unset the
+                                        # strategy is never registered,
+                                        # /auth/google answers 404, and
+                                        # GET /auth/providers reports
+                                        # `google: false` so the login page
+                                        # shows no Google button — a deployment
+                                        # that wants GitHub only needs to
+                                        # change nothing. A *partially*
+                                        # configured install logs one warning
+                                        # at boot naming what is missing.
 COOKIE_SECURE=                          # Optional. Whether session and login
                                         # cookies carry `Secure` (and so the
                                         # `__Host-` prefix). Unset — the normal
@@ -361,6 +380,9 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 |--------|-------|------|-------------|
 | `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` is gated on a confirmation click) |
 | `GET` | `/auth/github/callback` | - | OAuth callback; requires a matching `state`, sets access/refresh cookies, redirects to frontend |
+| `GET` | `/auth/google` | - | Initiate Google OAuth flow (browser only — no `?mode=cli`). `404` unless `GOOGLE_*` is configured |
+| `GET` | `/auth/google/callback` | - | OAuth callback; same browser `state` check as GitHub's, then session cookies |
+| `GET` | `/auth/providers` | - | `{ github, google }` — which sign-in buttons the login page should offer |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
 | `POST` | `/auth/logout` | - | Clear session cookies |
@@ -873,7 +895,7 @@ Key models managed by Prisma:
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | Int (PK) | Auto-increment |
-| `authProvider` | String | e.g. `"github"` |
+| `authProvider` | String | `"github"` or `"google"` — where the row came from, not a constraint on later sign-ins (`findOrCreateUser` matches on email alone) |
 | `username` | String | |
 | `email` | String | Unique |
 | `photo` | String? | Profile photo URL |

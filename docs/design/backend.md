@@ -53,6 +53,7 @@ flowchart TD
   AUTH --> JWT_MOD["JwtModule (access token expiry)"]
   AUTH --> USER_MOD["UserModule"]
   AUTH --> GH["GitHubStrategy"]
+  AUTH --> GO["GoogleStrategy (optional)"]
   AUTH --> JW["JwtStrategy"]
   AUTH --> AC["AuthController"]
   AUTH --> AS["AuthService"]
@@ -80,7 +81,7 @@ imports the full module set listed below.
 | Module | Responsibility |
 |--------|---------------|
 | **AppModule** | Root module. Imports ConfigModule (global), LoggerModule (nestjs-pino), ThrottlerModule, plus the feature modules: AuthModule, DocumentModule, ShareLinkModule, DataSourceModule, WorkspaceModule, ApiKeyModule, YorkieModule, ApiV1Module, ImageModule, FileModule, HealthModule, UserDocStylesModule, AnalyticsModule, FolderModule, MiroModule. |
-| **AuthModule** | GitHub OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy, CliAuthStore. Imports UserModule for user lookup/creation. Configures one middleware, `CliLoginConfirmMiddleware`, on `GET /auth/github`. |
+| **AuthModule** | GitHub (and optionally Google) OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy, CliAuthStore, and `GoogleStrategy` **only** where `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_CALLBACK_URL` are all set. Imports UserModule for user lookup/creation. Configures one middleware, `CliLoginConfirmMiddleware`, on `GET /auth/github`. |
 | **UserModule** | User CRUD via Prisma. Exports UserService for use by AuthModule and DocumentModule. |
 | **DocumentModule** | Document REST endpoints. Uses DocumentService + UserService + PrismaService. |
 | **ShareLinkModule** | URL-based document sharing with token-based access. Manages share link CRUD and public token resolution for anonymous access. |
@@ -99,6 +100,40 @@ imports the full module set listed below.
 ### API Reference
 
 #### Authentication (`/auth`)
+
+**`GET /auth/providers`**
+- No guard. Returns `{ github: true, google: <bool> }`.
+- Which sign-in buttons the login page should offer. Google is optional and
+  configured per *deployment*, so a build-time `VITE_` flag could not answer
+  it — a self-hosted image is built once and configured per install.
+  Unauthenticated because the login page is, and it names no secret: the
+  answer is exactly what a visitor learns by clicking.
+
+**`GET /auth/google`** (only where `GOOGLE_*` is configured)
+- Guard: `GoogleAuthGuard`
+- The browser half of `GET /auth/github`, and nothing else: it mints the same
+  double-submit `state` (`startWebOAuthLogin` in `web-oauth-login.ts`, shared
+  with `GitHubAuthGuard` so the one check that stops login CSRF has one
+  implementation) and stores the same `returnTo` cookie. There is no
+  `?mode=cli` branch, so the cross-site check, the confirmation page and the
+  loopback delivery do not apply.
+- `404` where the deployment has no Google OAuth client. Not providing the
+  strategy is what keeps such a deployment booting, but it leaves
+  `AuthGuard('google')` to fail with passport's "Unknown authentication
+  strategy" as a **500** on a URL a visitor can type; `404` is the honest
+  answer, and `GET /auth/providers` keeps anyone from being sent there.
+
+**`GET /auth/google/callback`** (only where `GOOGLE_*` is configured)
+- Guard: `GoogleCallbackGuard`
+- The same `state` refusal as the GitHub callback, sharing
+  `consumeWebOAuthState`, and only the **browser** vocabulary: a CLI state
+  token is refused outright here, since this route never mints one and
+  honouring one would let a flow that never showed the confirmation page
+  mint a CLI auth code. A failure redirects to
+  `FRONTEND_URL/login?error=oauth_state`, as GitHub's does.
+- The `state` is checked **before** `findOrCreateUser`, so a refused callback
+  leaves no user row (and no workspace) behind for a sign-in that never
+  happened.
 
 **`GET /auth/github`**
 - Middleware: `CliLoginConfirmMiddleware` · Guard: `GitHubAuthGuard`
@@ -384,6 +419,31 @@ one workspace; those resolve the workspace from the path instead.
   from environment.
 - **Validation:** Extracts `authProvider`, `githubId`, `username`, `email`,
   `photo`, and `accessToken` from the GitHub profile.
+
+#### Google OAuth2 Strategy (optional)
+
+`GoogleStrategy` extends Passport's `passport-google-oauth20` strategy:
+
+- **Scopes:** `profile`, `email`.
+- **Config:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `GOOGLE_CALLBACK_URL`. The callback URL is required, unlike GitHub's:
+  Google's authorization endpoint has no fallback to the URL registered on
+  the OAuth client.
+- **Registered only when configured.** `passport-google-oauth20` throws
+  `OAuth2Strategy requires a clientID option` from its constructor, so
+  providing it unconditionally would stop every deployment without a Google
+  OAuth client from booting — a second provider is not allowed to be an
+  outage for the installs that do not want one. `oauth-providers.ts` answers
+  the question off `process.env`, before any injector exists, and the routes
+  answer `404` where it says no.
+- **Validation:** `authProvider: 'google'`, `googleId`, `username`
+  (`displayName`, falling back to the email's local part — Google has no
+  username, and this is what `findOrCreateUser` slugs the new workspace
+  from), `email`, `photo`. A profile whose email Google has **not verified**
+  is refused with a 401; see the risk entry below for why that is
+  load-bearing rather than defensive.
+- **No CLI flow.** `?mode=cli`, the confirmation middleware, the loopback
+  port and the PKCE exchange stay GitHub-only.
 
 #### JWT Strategy
 
@@ -707,7 +767,11 @@ erDiagram
 
 **User:**
 - `id` — Auto-increment integer primary key.
-- `authProvider` — OAuth provider name (currently always `"github"`).
+- `authProvider` — OAuth provider name: `"github"`, or `"google"` for a user
+  first seen through the Google login. It records where the row came from and
+  is **not** a constraint on later sign-ins: `findOrCreateUser` matches on
+  email alone, so one person with the same address on both providers has one
+  row, stamped with whichever they used first.
 - `email` — Unique constraint; used for `findOrCreateUser` matching.
 - `photo` — Optional profile photo URL.
 
@@ -768,6 +832,9 @@ erDiagram
 | `GITHUB_CLIENT_ID` | Yes | — | GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | Yes | — | GitHub OAuth app client secret |
 | `GITHUB_CALLBACK_URL` | No | `http://localhost:3000/auth/github/callback` | OAuth callback URL |
+| `GOOGLE_CLIENT_ID` | No | — | Google OAuth client ID. All three `GOOGLE_*` unset = no Google login, which is the default |
+| `GOOGLE_CLIENT_SECRET` | No | — | Google OAuth client secret |
+| `GOOGLE_CALLBACK_URL` | No | — | Required when the other two are set — Google has no fallback to the URL registered on the client |
 | `PORT` | No | `3000` | Server listen port |
 | `NODE_ENV` | No | — | Affects log transport and rate-limiter skip, and is the *fallback* for the cookie `secure` flag when `GITHUB_CALLBACK_URL` is unset (an explicit `http://` or `https://` callback wins). `production` enables JSON Pino logs; `test` disables the limiter and autoLogging. |
 | `LOG_LEVEL` | No | `info` | Pino log level (`trace`/`debug`/`info`/`warn`/`error`/`fatal`/`silent`). |
@@ -825,10 +892,16 @@ Request
 
 ## Risks and Mitigation
 
-**Single OAuth provider** — Currently only GitHub OAuth is supported. Adding
-more providers (Google, email/password) requires adding new Passport
-strategies and updating the `authProvider` field. The architecture supports
-this via Passport's multi-strategy pattern.
+**Provider identity is the email address** — GitHub and Google are both
+supported, and `findOrCreateUser` matches on email alone, so the same address
+on both providers is one account rather than two. That is deliberate (the
+alternative silently gives one person two workspaces) and it makes the
+**verified-email check in `GoogleStrategy.validate`** load-bearing: without
+it, an unverified Google address would be a way into an account created
+through GitHub. GitHub needs no equivalent — on the `user:email` scope it
+returns only addresses it has verified. Any third provider inherits the same
+obligation. There is no account-linking or unlinking UI, and no
+email/password login.
 
 **Single-bucket rate limiting** — A single `default` bucket (120 req/min/IP)
 guards every route, with `@Throttle({ default: { limit: 10, ttl: 60_000 } })`

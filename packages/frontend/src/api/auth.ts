@@ -130,6 +130,42 @@ export async function fetchMeOptional(): Promise<User | null> {
   return res.json();
 }
 
+/** Which OAuth providers this deployment can sign somebody in with. */
+export type AuthProviders = {
+  github: boolean;
+  google: boolean;
+};
+
+/**
+ * Asks the backend which sign-in buttons to offer.
+ *
+ * Google OAuth is optional and configured per deployment, so a build-time
+ * `VITE_` flag could not answer this — a self-hosted image is built once and
+ * configured per install. Unauthenticated, like the login page itself.
+ *
+ * Never throws: a login page that cannot reach this should still offer
+ * GitHub rather than render an error, so a failed call degrades to "GitHub
+ * only" — which is what every deployment has today.
+ */
+export async function fetchAuthProviders(): Promise<AuthProviders> {
+  const fallback: AuthProviders = { github: true, google: false };
+  try {
+    const res = await fetch(
+      `${import.meta.env.VITE_BACKEND_API_URL}/auth/providers`
+    );
+    if (!res.ok) {
+      return fallback;
+    }
+    const body = (await res.json()) as Partial<AuthProviders>;
+    return {
+      github: body.github !== false,
+      google: body.google === true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Performs an authenticated fetch and redirects to login on 401 responses.
  */

@@ -483,6 +483,161 @@ describe('AuthController', () => {
     });
   });
 
+  describe('googleAuthCallback', () => {
+    const mockUser = {
+      id: 43,
+      authProvider: 'google',
+      username: 'Ada Lovelace',
+      email: 'ada@example.com',
+      photo: null,
+    };
+
+    function googleRequest(cookies: Record<string, string>) {
+      return {
+        user: {
+          username: 'Ada Lovelace',
+          email: 'ada@example.com',
+          photo: null,
+        },
+        query: {},
+        cookies,
+      } as unknown as Request;
+    }
+
+    beforeEach(() => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+    });
+
+    it('signs in and records the provider when the state matches', async () => {
+      const { secret, state } = createWebOAuthState();
+      const res = createMockResponse();
+
+      await controller.googleAuthCallback(
+        googleRequest({ wafflebase_oauth_state: secret }) as any,
+        res,
+        state,
+      );
+
+      expect(userService.findOrCreateUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authProvider: 'google',
+          email: 'ada@example.com',
+        }),
+      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
+      expect(res.cookie).toHaveBeenCalledTimes(2);
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.any(Object),
+      );
+    });
+
+    const LOGIN_ERROR_URL = 'http://localhost:5173/login?error=oauth_state';
+
+    // The same CSRF property the GitHub callback has, and the same refusal:
+    // back to the sign-in page with no session, since losing the state
+    // cookie needs no attacker at all.
+    it.each([
+      ['no state at all', () => ({ cookies: {}, state: undefined })],
+      [
+        'a state with no cookie behind it',
+        () => ({ cookies: {}, state: createWebOAuthState().state }),
+      ],
+      [
+        'a state minted for another browser',
+        () => ({
+          cookies: { wafflebase_oauth_state: createWebOAuthState().secret },
+          state: createWebOAuthState().state,
+        }),
+      ],
+      [
+        'a repeated ?state= parameter',
+        () => {
+          const { secret, state } = createWebOAuthState();
+          return {
+            cookies: { wafflebase_oauth_state: secret },
+            state: [state, state] as unknown as string,
+          };
+        },
+      ],
+    ])('refuses %s', async (_name, make) => {
+      const { cookies, state } = make();
+      const res = createMockResponse();
+
+      await controller.googleAuthCallback(
+        googleRequest(cookies) as any,
+        res,
+        state,
+      );
+
+      expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
+      expect(res.cookie).not.toHaveBeenCalled();
+      // A refused callback must not leave a user row (and a workspace)
+      // behind for a sign-in that never happened.
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A CLI state token is a `CliAuthStore` capability minted by
+     * `GET /auth/github?mode=cli`, and the Google route never mints one.
+     * Accepting one here would mean this callback could mint a CLI auth
+     * code — a full session delivered to a loopback port — from a flow
+     * that never showed the confirmation page.
+     */
+    it('refuses a CLI state token outright', async () => {
+      const { stateToken, csrf } = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        CLI_CHALLENGE,
+      );
+      const res = createMockResponse();
+
+      await controller.googleAuthCallback(
+        googleRequest({ [cliStateCookieName()]: csrf }) as any,
+        res,
+        stateToken,
+      );
+
+      expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /auth/providers', () => {
+    const saved = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...saved };
+    });
+
+    it('reports Google off until all three variables are set', () => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+      delete process.env.GOOGLE_CALLBACK_URL;
+      expect(controller.authProviders()).toEqual({
+        github: true,
+        google: false,
+      });
+
+      process.env.GOOGLE_CLIENT_ID = 'id';
+      process.env.GOOGLE_CLIENT_SECRET = 'secret';
+      // Still missing the callback URL, which Google requires.
+      expect(controller.authProviders().google).toBe(false);
+
+      process.env.GOOGLE_CALLBACK_URL =
+        'http://localhost:3000/auth/google/callback';
+      expect(controller.authProviders()).toEqual({
+        github: true,
+        google: true,
+      });
+    });
+  });
+
   describe('cookie SameSite policy', () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalCallbackUrl = process.env.GITHUB_CALLBACK_URL;
