@@ -14,12 +14,16 @@ import {
 describe('oauth-state', () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalCallbackUrl = process.env.GITHUB_CALLBACK_URL;
+  const originalGoogleCallbackUrl = process.env.GOOGLE_CALLBACK_URL;
   const originalCookieSecure = process.env.COOKIE_SECURE;
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
     if (originalCallbackUrl === undefined) delete process.env.GITHUB_CALLBACK_URL;
     else process.env.GITHUB_CALLBACK_URL = originalCallbackUrl;
+    if (originalGoogleCallbackUrl === undefined)
+      delete process.env.GOOGLE_CALLBACK_URL;
+    else process.env.GOOGLE_CALLBACK_URL = originalGoogleCallbackUrl;
     if (originalCookieSecure === undefined) delete process.env.COOKIE_SECURE;
     else process.env.COOKIE_SECURE = originalCookieSecure;
   });
@@ -148,8 +152,37 @@ describe('oauth-state', () => {
       expect(useSecureCookies()).toBe(true);
     });
 
+    /**
+     * GitHub's callback URL is optional (GitHub falls back to the URL
+     * registered on the OAuth app) while Google's is mandatory, so a
+     * Google-enabled https install can state its scheme in that variable
+     * alone — and reading only GitHub's left it minting session, refresh and
+     * state cookies with neither `Secure` nor the `__Host-` prefix.
+     */
+    it('follows GOOGLE_CALLBACK_URL when GitHub configures none', () => {
+      process.env.NODE_ENV = 'development';
+      delete process.env.GITHUB_CALLBACK_URL;
+      process.env.GOOGLE_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/google/callback';
+
+      expect(useSecureCookies()).toBe(true);
+      expect(sessionCookieName()).toBe('__Host-wafflebase_session');
+    });
+
+    // GitHub's answers first: it is the login every install has, so a
+    // deployment that predates Google keeps exactly the answer it had.
+    it('prefers the GitHub callback URL when both are set', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://localhost:3000/auth/github/callback';
+      process.env.GOOGLE_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/google/callback';
+
+      expect(useSecureCookies()).toBe(false);
+    });
+
     it('falls back to NODE_ENV when no callback URL is configured', () => {
       delete process.env.GITHUB_CALLBACK_URL;
+      delete process.env.GOOGLE_CALLBACK_URL;
       delete process.env.COOKIE_SECURE;
 
       process.env.NODE_ENV = 'production';

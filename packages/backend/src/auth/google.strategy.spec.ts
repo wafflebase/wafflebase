@@ -76,7 +76,7 @@ describe('GoogleStrategy', () => {
       makeStrategy().validate(
         'token',
         '',
-        makeProfile(overrides as Partial<Profile>),
+        makeProfile(overrides as unknown as Partial<Profile>),
       ),
     ).toThrow(UnauthorizedException);
   });
@@ -92,6 +92,58 @@ describe('GoogleStrategy', () => {
       }),
     );
     expect(user.email).toBe('ada@example.com');
+  });
+
+  // Google's userinfo has shipped `email_verified` / `verified_email` as the
+  // string `"true"`, and passport copies the raw JSON value through without
+  // coercing it. A strict `=== true` refused every login on such a response.
+  it.each([
+    [
+      'emails[].verified',
+      { emails: [{ value: 'ada@example.com', verified: 'true' }] },
+    ],
+    [
+      'the raw email_verified claim',
+      {
+        emails: [{ value: 'ada@example.com' }],
+        _json: { ...makeProfile()._json, email_verified: 'true' },
+      },
+    ],
+    [
+      'the verified_email spelling',
+      {
+        emails: [{ value: 'ada@example.com' }],
+        _json: {
+          ...makeProfile()._json,
+          email_verified: undefined,
+          verified_email: true,
+        },
+      },
+    ],
+  ])('accepts %s as verification', (_name, overrides) => {
+    const user = makeStrategy().validate(
+      'token',
+      '',
+      makeProfile(overrides as unknown as Partial<Profile>),
+    );
+    expect(user.email).toBe('ada@example.com');
+  });
+
+  // The flag has to vouch for the address actually used. Read as a flat OR,
+  // a verified `_json.email` signed the holder in under a DIFFERENT,
+  // unverified `emails[0]` — which is the address `findOrCreateUser` then
+  // matches on.
+  it('refuses when the verified flag belongs to another address', () => {
+    expect(() =>
+      makeStrategy().validate(
+        'token',
+        '',
+        makeProfile({
+          emails: [{ value: 'someone-else@example.com', verified: false }],
+          _json: { ...makeProfile()._json, email_verified: true },
+        } as Partial<Profile>),
+      ),
+    ).toThrow(UnauthorizedException);
   });
 
   it('refuses a profile with no email at all', () => {

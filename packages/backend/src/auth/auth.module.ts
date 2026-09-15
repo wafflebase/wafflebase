@@ -33,8 +33,31 @@ import {
  * the installs that do not want it. `GoogleAuthGuard` answers `404` on the
  * routes in that case, and `GET /auth/providers` keeps the button off the
  * login page.
+ *
+ * A **factory**, not a `googleAuthConfigured() ? [GoogleStrategy] : []` at
+ * module scope. That expression is evaluated when this file is imported,
+ * which is strictly before `ConfigModule.forRoot()` below it — and before
+ * `AppModule`'s global one — has read `packages/backend/.env` into
+ * `process.env`. So on the documented `.env`-based setup the module saw no
+ * Google vars and registered nothing, while `GET /auth/providers` and
+ * `GoogleAuthGuard` answered the same question per request, *after* dotenv,
+ * and happily offered the button: the login then died in passport with
+ * `Unknown authentication strategy "google"`. A factory runs at injector
+ * instantiation, by which time every source of configuration has loaded, so
+ * all three answers come from one state of the environment.
+ *
+ * `null` rather than omitting the provider: a factory has to return
+ * something, nothing injects `GoogleStrategy` by token (the routes use
+ * `AuthGuard('google')`, which reads passport's own registry, and passport
+ * only learns the strategy exists if this constructor runs), and an
+ * unconstructed strategy registers nothing.
  */
-const googleProviders = googleAuthConfigured() ? [GoogleStrategy] : [];
+const googleStrategyProvider = {
+  provide: GoogleStrategy,
+  useFactory: (configService: ConfigService): GoogleStrategy | null =>
+    googleAuthConfigured() ? new GoogleStrategy(configService) : null,
+  inject: [ConfigService],
+};
 
 @Module({
   imports: [
@@ -59,7 +82,7 @@ const googleProviders = googleAuthConfigured() ? [GoogleStrategy] : [];
     GitHubAuthGuard,
     JwtStrategy,
     GitHubStrategy,
-    ...googleProviders,
+    googleStrategyProvider,
   ],
   exports: [AuthService],
 })

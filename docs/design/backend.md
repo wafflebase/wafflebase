@@ -896,12 +896,16 @@ Request
 supported, and `findOrCreateUser` matches on email alone, so the same address
 on both providers is one account rather than two. That is deliberate (the
 alternative silently gives one person two workspaces) and it makes the
-**verified-email check in `GoogleStrategy.validate`** load-bearing: without
-it, an unverified Google address would be a way into an account created
-through GitHub. GitHub needs no equivalent — on the `user:email` scope it
-returns only addresses it has verified. Any third provider inherits the same
-obligation. There is no account-linking or unlinking UI, and no
-email/password login.
+**verified-email check in each strategy's `validate`** load-bearing: without
+it, an unverified address on either provider would be a way into an account
+created through the other. Both sides enforce it. GitHub was assumed not to
+need one — the belief being that the `user:email` scope returns verified
+addresses only — but `GET /user/emails` returns every address on the account
+with a `verified` flag, and an unverified address can be the primary, so
+`GitHubStrategy` passes `allRawEmails: true` and picks the primary
+**verified** address (falling back to any other verified one), refusing the
+sign-in when there is none. Any third provider inherits the same obligation.
+There is no account-linking or unlinking UI, and no email/password login.
 
 **Single-bucket rate limiting** — A single `default` bucket (120 req/min/IP)
 guards every route, with `@Throttle({ default: { limit: 10, ttl: 60_000 } })`

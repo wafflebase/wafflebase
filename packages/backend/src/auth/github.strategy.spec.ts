@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GitHubStrategy } from './github.strategy';
 
@@ -115,6 +116,63 @@ describe('GitHubStrategy endpoints', () => {
     expect(e.authorize).toBe(DEFAULTS.authorize);
     expect(e.token).toBe(DEFAULTS.token);
     expect(e.profile).toBe(DEFAULTS.profile);
+  });
+});
+
+/**
+ * The email is the identity `findOrCreateUser` matches on, shared with
+ * Google, so an unverified GitHub address reaching it would be a way into an
+ * account created through the other provider. `GET /user/emails` returns
+ * unverified addresses too — including as the primary — so the flag is read
+ * rather than assumed.
+ */
+describe('GitHubStrategy verified email', () => {
+  function validate(emails: unknown) {
+    return makeStrategy(BASE).validate('token', '', {
+      id: '42',
+      username: 'ada',
+      emails,
+      photos: [{ value: 'https://avatars.example/ada.png' }],
+    } as never);
+  }
+
+  // Without this the raw list never arrives: passport-github2 collapses the
+  // response to `[{ value: <primary> }]` and drops every flag.
+  it('asks GitHub for the raw email list', () => {
+    expect(
+      (makeStrategy(BASE) as unknown as { _allRawEmails: boolean })
+        ._allRawEmails,
+    ).toBe(true);
+  });
+
+  it('signs in under the primary verified address', () => {
+    const user = validate([
+      { value: 'old@example.com', primary: false, verified: true },
+      { value: 'ada@example.com', primary: true, verified: true },
+    ]);
+    expect(user.email).toBe('ada@example.com');
+  });
+
+  // Locking such an account out would be worse than signing it in under an
+  // address it demonstrably owns.
+  it('falls back to another verified address when the primary is not', () => {
+    const user = validate([
+      { value: 'unverified@example.com', primary: true, verified: false },
+      { value: 'ada@example.com', primary: false, verified: true },
+    ]);
+    expect(user.email).toBe('ada@example.com');
+  });
+
+  it.each([
+    ['nothing verified', [{ value: 'ada@example.com', primary: true }]],
+    [
+      'explicitly unverified',
+      [{ value: 'ada@example.com', primary: true, verified: false }],
+    ],
+    ['no addresses at all', []],
+    ['no emails field', undefined],
+  ])('refuses a login with %s', (_name, emails) => {
+    expect(() => validate(emails)).toThrow(UnauthorizedException);
   });
 });
 

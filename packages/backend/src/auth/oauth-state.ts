@@ -204,12 +204,22 @@ export function oauthStateCookieOptions(): CookieOptions {
 /**
  * Whether login cookies are set `Secure` — and so may carry `__Host-`.
  *
- * `COOKIE_SECURE` decides when an operator sets it; otherwise the
- * deployment's own `GITHUB_CALLBACK_URL` does. That URL is where GitHub
- * redirects the login, so its scheme *is* this server's public scheme, and
- * reading a configured value rather than the live request keeps the answer
- * identical on the request that sets the cookie and the callback that reads
- * it — which a per-request `req.secure` behind a proxy would not.
+ * `COOKIE_SECURE` decides when an operator sets it; otherwise a configured
+ * OAuth callback URL does. That URL is where the provider redirects the
+ * login, so its scheme *is* this server's public scheme, and reading a
+ * configured value rather than the live request keeps the answer identical on
+ * the request that sets the cookie and the callback that reads it — which a
+ * per-request `req.secure` behind a proxy would not.
+ *
+ * **Either** provider's callback URL answers it, GitHub's first. GitHub's is
+ * optional (the OAuth app's registered URL is the fallback) while Google's is
+ * mandatory, so a Google-enabled install can state its https scheme in
+ * `GOOGLE_CALLBACK_URL` alone — and reading only GitHub's left exactly that
+ * deployment minting its session, refresh and state cookies without `Secure`
+ * and without the `__Host-` prefix that stops a sibling subdomain planting
+ * them. The two disagreeing is a misconfiguration either way; GitHub's wins
+ * because it is the login every install has and because it keeps the answer
+ * unchanged for every deployment that predates Google.
  *
  * `NODE_ENV === 'production'` is only the fallback for a deployment that
  * configures no callback URL at all, and deliberately not an override.
@@ -231,11 +241,11 @@ function isSecureCookie(): boolean {
   if (configured === 'true' || configured === '1') return true;
   if (configured === 'false' || configured === '0') return false;
 
-  const callbackUrl = (process.env.GITHUB_CALLBACK_URL ?? '')
-    .trimStart()
-    .toLowerCase();
-  if (callbackUrl.startsWith('https://')) return true;
-  if (callbackUrl.startsWith('http://')) return false;
+  for (const name of ['GITHUB_CALLBACK_URL', 'GOOGLE_CALLBACK_URL']) {
+    const callbackUrl = (process.env[name] ?? '').trimStart().toLowerCase();
+    if (callbackUrl.startsWith('https://')) return true;
+    if (callbackUrl.startsWith('http://')) return false;
+  }
   return process.env.NODE_ENV === 'production';
 }
 

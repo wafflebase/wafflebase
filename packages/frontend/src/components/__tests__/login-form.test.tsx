@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { LoginForm } from "@/components/login-form";
@@ -114,18 +114,75 @@ describe("LoginPage", () => {
   // The page asks the backend which providers exist. Stubbed so the test
   // does not depend on a network call — `fetchAuthProviders` swallows a
   // failure into "GitHub only", which would hide a regression here.
-  beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ github: true, google: false }),
-      }),
+  function stubProviders(body: unknown, ok = true) {
+    const fetchMock = vi.fn().mockResolvedValue({ ok, json: async () => body });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function renderPage(entry = "/login") {
+    render(
+      <MemoryRouter initialEntries={[entry]}>
+        <LoginPage />
+      </MemoryRouter>,
     );
+  }
+
+  beforeEach(() => {
+    stubProviders({ github: true, google: false });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  /**
+   * The wiring itself: the page has to ASK, and it has to hand the answer to
+   * the form. Asserted with `google: true`, because the deployment default
+   * and the component's initial state are both `false` — against a `false`
+   * stub, deleting the effect, reading the wrong field, or never passing
+   * `googleEnabled` down all still pass.
+   */
+  it("offers Google once the backend says the deployment has it", async () => {
+    const fetchMock = stubProviders({ github: true, google: true });
+    renderPage();
+
+    const google = await screen.findByRole("link", {
+      name: /continue with google/i,
+    });
+    expect(google.getAttribute("href")).toContain("/auth/google");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/providers"),
+    );
+  });
+
+  it("keeps Google off when the backend says it is not configured", async () => {
+    const fetchMock = stubProviders({ github: true, google: false });
+    renderPage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(
+      screen.queryByRole("link", { name: /continue with google/i }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("link", { name: /continue with github/i }),
+    ).toBeTruthy();
+  });
+
+  // A login page whose backend is unreachable still has to offer the login
+  // every deployment has, rather than rendering an error or a dead button.
+  it("degrades to GitHub only when the request fails", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(
+      screen.getByRole("link", { name: /continue with github/i }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("link", { name: /continue with google/i }),
+    ).toBeNull();
   });
 
   it("wires ?error= from the URL into the form", () => {
