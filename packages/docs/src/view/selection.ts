@@ -22,18 +22,24 @@ export interface NormalizedRange {
  * its own scan plus every `findMergeTopLeft` backtrack it makes — before it
  * stops growing the rectangle and returns what it has.
  *
- * It bounds `computeSelectionRects` — the paint — and nothing else. Every
- * other caller leaves the expansion unbounded, because the rectangle it gets
- * back is not painted but *acted on*: the gesture and command paths
- * (`computeTableMergeContext`, the drag and Shift+Arrow handlers in
- * `text-editor.ts`) call `expandCellRangeForMerges` directly, and
- * `Selection.getNormalizedRange` reaches `normalizeCellRange` from the delete,
- * copy and cut paths. `doc.mergeCells` writes whatever rectangle it is handed
- * and the delete clears whatever rectangle it is handed, so a
+ * It bounds every caller that does not *act* on the rectangle it gets back:
+ * `computeSelectionRects` (the paint, once per peer per paint), and the two
+ * `getNormalizedRange` callers that read no cell rectangle at all — the
+ * arrow-key collapse, which uses only `start`/`end`, and
+ * `formatSourcePosition`, which picks a cell to read a style from. Those run
+ * per keystroke, so leaving them unbounded would put a peer-sized table on the
+ * typing path.
+ *
+ * The expansion stays exact everywhere it feeds a *write*: the gesture and
+ * command paths (`computeTableMergeContext`, the drag and Shift+Arrow handlers
+ * in `text-editor.ts`) call `expandCellRangeForMerges` directly, and the
+ * delete, copy and cut paths reach `normalizeCellRange` through
+ * `Selection.getNormalizedRange`. `doc.mergeCells` writes whatever rectangle
+ * it is handed and the delete clears whatever rectangle it is handed, so a
  * partially-expanded one cuts an existing merge in half or leaves half of one
  * uncleared — a silent, replicated corruption, which is a worse answer than a
- * slow gesture. Those callers are one local gesture over one table, not once
- * per peer per paint.
+ * slow gesture. Those callers are one deliberate command over one table, not
+ * once per keystroke.
  *
  * The rectangle is clamped to the table (`normalizeCellRange`), but the
  * *table* is a peer's to choose: rows are structure, not an attribute, so no
@@ -50,7 +56,7 @@ export interface NormalizedRange {
  * its edge paints short — the same "degrade, do not hang" direction the
  * numeric bands and the nesting cap take.
  */
-const MAX_MERGE_EXPANSION_CELLS = 1 << 18;
+export const MAX_MERGE_EXPANSION_CELLS = 1 << 18;
 
 /** The cells one expansion has left to look at. */
 type ScanBudget = { left: number };
@@ -111,14 +117,14 @@ function findMergeTopLeftBudgeted(
  *
  * Caller may pass an unordered range — this helper orders start/end first.
  *
- * **Exact by default.** `budgetCells` exists for the one caller that paints
- * rather than acts — `computeSelectionRects`, which normalizes once per peer
- * per paint over a table and a rectangle that both reach it from a peer's
- * presence. Every other caller feeds the result to a write (`mergeCells`, the
- * cell-rectangle delete, the selection a merge or a copy is later taken from),
- * where a rectangle that stopped growing early is not a cosmetic short-paint
- * but a merge that slices through an existing one — or a merged cell left
- * uncleared. See `MAX_MERGE_EXPANSION_CELLS`.
+ * **Exact by default.** `budgetCells` exists for the callers that paint or
+ * probe rather than act — `computeSelectionRects`, and the per-keystroke
+ * `getNormalizedRange` callers that never read the rectangle's cells. A
+ * caller that feeds the result to a write (`mergeCells`, the cell-rectangle
+ * delete, the selection a merge or a copy is later taken from) must not pass
+ * one: there a rectangle that stopped growing early is not a cosmetic
+ * short-paint but a merge that slices through an existing one — or a merged
+ * cell left uncleared. See `MAX_MERGE_EXPANSION_CELLS`.
  */
 export function expandCellRangeForMerges(
   cr: TableCellRange,
@@ -252,11 +258,12 @@ function walkToTopLevelBlockId(
 }
 
 /**
- * `budgetCells` bounds the merge expansion below and defaults to exact. Only
- * the paint (`computeSelectionRects`) passes one — the callers that reach this
- * through `Selection.getNormalizedRange` act on the rectangle they get back
- * (clear the cells, copy them, cut them), and a rectangle that stopped growing
- * early is a merged cell half-cleared rather than a merge painted short. See
+ * `budgetCells` bounds the merge expansion below and defaults to exact. The
+ * paint (`computeSelectionRects`) passes one, as do the two
+ * `Selection.getNormalizedRange` callers that never read the rectangle's
+ * cells; the rest act on what they get back (clear the cells, copy them, cut
+ * them), and for those a rectangle that stopped growing early is a merged cell
+ * half-cleared rather than a merge painted short. See
  * `MAX_MERGE_EXPANSION_CELLS`.
  */
 function normalizeRange(
@@ -898,11 +905,24 @@ export class Selection {
    * each endpoint (and so its `lineAffinity`) is returned as stored, so a
    * backwards selection carries the focus's affinity into `start`.
    */
+  /**
+   * `budgetCells` bounds the merge expansion, and defaults to exact because
+   * most callers *act* on the rectangle they get back — clear its cells, copy
+   * them, merge them — where a rectangle that stopped growing early is a
+   * merged cell half-cleared rather than a merge painted short.
+   *
+   * A caller that reads only `start`/`end`, or uses the rectangle to pick a
+   * cell to *read* a style from, owes no such exactness and should pass
+   * `MAX_MERGE_EXPANSION_CELLS`: the table is a peer's to size, the expansion
+   * is superlinear in it, and those callers run per keystroke. See
+   * `MAX_MERGE_EXPANSION_CELLS`.
+   */
   getNormalizedRange(
     layout: DocumentLayout,
+    budgetCells = Infinity,
   ): NormalizedRange | null {
     if (!this.range || !this.hasSelection()) return null;
-    return normalizeRange(this.range, layout);
+    return normalizeRange(this.range, layout, budgetCells);
   }
 
   getSelectionRects(

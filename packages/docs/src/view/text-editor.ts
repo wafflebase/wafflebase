@@ -4,7 +4,12 @@ import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
 import { serializeClipboard, deserializeClipboard, capTableNesting, capTableCellsNesting, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
-import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
+import {
+  Selection,
+  expandCellRangeForMerges,
+  findMergeTopLeft,
+  MAX_MERGE_EXPANSION_CELLS,
+} from './selection.js';
 import { expandRangeForLinks } from './link-run.js';
 import type { ComposingContext, DocumentLayout, LayoutBlock } from './layout.js';
 import { getBlockIndexForLine } from './table-geometry.js';
@@ -49,6 +54,45 @@ type PastePlan =
  * ~400 K characters in any format. Below that a toast would only flicker.
  */
 const LARGE_PASTE_WEIGHT_THRESHOLD = 400_000;
+
+/**
+ * The block a caret entering `block` from *above* should land on: the first
+ * block of the first row's cell at `colIndex`. `undefined` when the table has
+ * nothing to enter.
+ *
+ * A table with no rows is not hypothetical. Every reader materializes a table
+ * nested at or past `MAX_TABLE_NESTING_DEPTH` as `{ ...tableData, rows: [] }`
+ * (`treeNodeToBlock`), and a peer can put one there with ordinary Tree writes,
+ * so a rowless table block arrives in the model of a document nobody in this
+ * tab did anything unusual to. Every "the next block is a table, so enter it"
+ * path below used to reach `rows[0].cells[0].blocks[0]` unguarded, which turns
+ * that table into a `TypeError` on the first arrow key aimed at it. Answering
+ * `undefined` lets each caller fall back to what it already does for a block
+ * it cannot enter: land on the block itself, or stay put.
+ *
+ * A `colIndex` past the row's cells falls back to the row's first cell, and a
+ * cell with no blocks at all (the other shape a truncating reader can leave)
+ * to `undefined`, so neither needs a check at the call site.
+ */
+function firstCellBlock(block: Block, colIndex = 0): Block | undefined {
+  const cells = block.tableData?.rows[0]?.cells;
+  if (!cells) return undefined;
+  return (cells[colIndex] ?? cells[0])?.blocks[0];
+}
+
+/**
+ * `firstCellBlock`'s mirror for a caret entering from *below*: the last block
+ * of the last row's cell at `colIndex`, defaulting to that row's last cell.
+ */
+function lastCellBlock(block: Block, colIndex?: number): Block | undefined {
+  const rows = block.tableData?.rows;
+  const row = rows?.[rows.length - 1];
+  if (!row) return undefined;
+  const cell =
+    (colIndex === undefined ? undefined : row.cells[colIndex]) ??
+    row.cells[row.cells.length - 1];
+  return cell?.blocks[cell.blocks.length - 1];
+}
 
 /**
  * The `headingLevel` the destination block ends up with when a pasted block is
@@ -498,7 +542,14 @@ export class TextEditor {
    */
   private formatSourcePosition(): DocPosition {
     const layout = this.getActiveLayout();
-    const normalized = this.selection.getNormalizedRange(layout);
+    // Bounded: this only picks a cell to *read* a style from, and it runs on
+    // every toolbar refresh — i.e. per keystroke — over a table a peer sized.
+    // A rectangle that stopped growing early names a different cell of the
+    // same selection, which is a different seed style at worst, never a write.
+    const normalized = this.selection.getNormalizedRange(
+      layout,
+      MAX_MERGE_EXPANSION_CELLS,
+    );
     if (!normalized) return this.cursor.position;
 
     // A cell rectangle's first cell is (start.rowIndex, start.colIndex) of
@@ -3115,22 +3166,24 @@ export class TextEditor {
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx > 0) {
           const prevBlock = cell.blocks[blockIdx - 1];
-          // If previous block is a nested table, enter its last row
-          if (prevBlock.type === 'table' && prevBlock.tableData) {
-            const td = prevBlock.tableData;
-            const lastRow = td.rows.length - 1;
-            const lastCell = td.rows[lastRow].cells[arrowCellInfo.colIndex < td.columnWidths.length ? arrowCellInfo.colIndex : 0];
-            const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-            newPos = {
-              blockId: lastCellBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)),
-            };
-          } else {
-            newPos = {
-              blockId: prevBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(prevBlock)),
-            };
-          }
+          // If previous block is a nested table, enter its last row — unless
+          // it has none to enter, in which case the caret lands on the table
+          // block itself, exactly as it would on any non-table block.
+          const td = prevBlock.tableData;
+          const enteredPrev =
+            prevBlock.type === 'table' && td
+              ? lastCellBlock(
+                  prevBlock,
+                  arrowCellInfo.colIndex < td.columnWidths.length
+                    ? arrowCellInfo.colIndex
+                    : 0,
+                )
+              : undefined;
+          const prevTarget = enteredPrev ?? prevBlock;
+          newPos = {
+            blockId: prevTarget.id,
+            offset: Math.min(pos.offset, getBlockTextLength(prevTarget)),
+          };
         } else {
           // At first block — move to cell above or exit table
           if (arrowCellInfo.rowIndex > 0) {
@@ -3142,23 +3195,21 @@ export class TextEditor {
               aboveCell = tableBlock.tableData!.rows[tl.rowIndex].cells[tl.colIndex];
             }
             const lastBlock = aboveCell.blocks[aboveCell.blocks.length - 1];
-            // If last block is a nested table, enter it
-            if (lastBlock.type === 'table' && lastBlock.tableData) {
-              const td = lastBlock.tableData;
-              const lastRow = td.rows.length - 1;
-              const col = Math.min(arrowCellInfo.colIndex, td.columnWidths.length - 1);
-              const innerCell = td.rows[lastRow].cells[col];
-              const innerBlock = innerCell.blocks[innerCell.blocks.length - 1];
-              newPos = {
-                blockId: innerBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(innerBlock)),
-              };
-            } else {
-              newPos = {
-                blockId: lastBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(lastBlock)),
-              };
-            }
+            // If last block is a nested table, enter it — or land on it when
+            // it has no rows to enter (see `lastCellBlock`).
+            const innerTd = lastBlock.tableData;
+            const enteredAbove =
+              lastBlock.type === 'table' && innerTd
+                ? lastCellBlock(
+                    lastBlock,
+                    Math.min(arrowCellInfo.colIndex, innerTd.columnWidths.length - 1),
+                  )
+                : undefined;
+            const aboveTarget = enteredAbove ?? lastBlock;
+            newPos = {
+              blockId: aboveTarget.id,
+              offset: Math.min(pos.offset, getBlockTextLength(aboveTarget)),
+            };
           } else {
             // Exit table upward (region-aware: body, header, or footer).
             const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
@@ -3216,21 +3267,21 @@ export class TextEditor {
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx < cell.blocks.length - 1) {
           const nextBlock = cell.blocks[blockIdx + 1];
-          // If next block is a nested table, enter its first row
-          if (nextBlock.type === 'table' && nextBlock.tableData) {
-            const td = nextBlock.tableData;
-            const col = Math.min(arrowCellInfo.colIndex, td.columnWidths.length - 1);
-            const firstCellBlock = td.rows[0].cells[col].blocks[0];
-            newPos = {
-              blockId: firstCellBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)),
-            };
-          } else {
-            newPos = {
-              blockId: nextBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(nextBlock)),
-            };
-          }
+          // If next block is a nested table, enter its first row — or land on
+          // it when it has none (see `firstCellBlock`).
+          const nextTd = nextBlock.tableData;
+          const enteredNext =
+            nextBlock.type === 'table' && nextTd
+              ? firstCellBlock(
+                  nextBlock,
+                  Math.min(arrowCellInfo.colIndex, nextTd.columnWidths.length - 1),
+                )
+              : undefined;
+          const nextTarget = enteredNext ?? nextBlock;
+          newPos = {
+            blockId: nextTarget.id,
+            offset: Math.min(pos.offset, getBlockTextLength(nextTarget)),
+          };
         } else {
           // At last block — move to cell below or exit table
           const td = tableBlock.tableData!;
@@ -3244,21 +3295,21 @@ export class TextEditor {
               belowCell = td.rows[tl.rowIndex].cells[tl.colIndex];
             }
             const firstBlock = belowCell.blocks[0];
-            // If first block is a nested table, enter it
-            if (firstBlock.type === 'table' && firstBlock.tableData) {
-              const innerTd = firstBlock.tableData;
-              const col = Math.min(arrowCellInfo.colIndex, innerTd.columnWidths.length - 1);
-              const innerBlock = innerTd.rows[0].cells[col].blocks[0];
-              newPos = {
-                blockId: innerBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(innerBlock)),
-              };
-            } else {
-              newPos = {
-                blockId: firstBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(firstBlock)),
-              };
-            }
+            // If first block is a nested table, enter it — or land on it when
+            // it has no rows to enter (see `firstCellBlock`).
+            const innerTd = firstBlock.tableData;
+            const enteredBelow =
+              firstBlock.type === 'table' && innerTd
+                ? firstCellBlock(
+                    firstBlock,
+                    Math.min(arrowCellInfo.colIndex, innerTd.columnWidths.length - 1),
+                  )
+                : undefined;
+            const belowTarget = enteredBelow ?? firstBlock;
+            newPos = {
+              blockId: belowTarget.id,
+              offset: Math.min(pos.offset, getBlockTextLength(belowTarget)),
+            };
           } else {
             // Exit table downward (region-aware: body, header, or footer).
             const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
@@ -3373,9 +3424,15 @@ export class TextEditor {
       });
       this.cursor.moveTo(newPos, focusAffinity);
     } else if (this.selection.hasSelection() && this.selection.range) {
-      // Collapse selection to the appropriate boundary
+      // Collapse selection to the appropriate boundary. Bounded: this reads
+      // `start`/`end` only — the raw anchor and focus, which the merge
+      // expansion never touches — and a plain arrow key runs it on every
+      // press, over a table whose size is a peer's to choose.
       const layout = this.getActiveLayout();
-      const normalized = this.selection.getNormalizedRange(layout);
+      const normalized = this.selection.getNormalizedRange(
+        layout,
+        MAX_MERGE_EXPANSION_CELLS,
+      );
       if (normalized) {
         const collapsePos = (direction === 'left' || direction === 'up')
           ? normalized.start
@@ -4586,9 +4643,9 @@ export class TextEditor {
         const blockIdx = this.doc.getBlockIndex(pos.blockId);
         this.doc.insertBlockAt(blockIdx + 1, newBlock);
       }
-      const firstCellBlock = newBlock.tableData?.rows[0]?.cells[0]?.blocks[0];
-      if (firstCellBlock) {
-        this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
+      const entered = firstCellBlock(newBlock);
+      if (entered) {
+        this.cursor.moveTo({ blockId: entered.id, offset: 0 }, 'forward');
       }
     } else if (blocks.length === 1) {
       // Single block: merge pasted inlines into the current block at cursor
@@ -4740,8 +4797,12 @@ export class TextEditor {
       const blockIdx = this.doc.getBlockIndex(pos.blockId);
       this.doc.insertBlockAt(blockIdx + 1, tableBlock);
       this.invalidateLayout();
-      const firstCellBlock = td.rows[0].cells[0].blocks[0];
-      this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
+      // `cells` can be empty, and a table built from no rows has no cell to
+      // put the caret in; leave it where it is rather than dereference one.
+      const entered = td.rows[0]?.cells[0]?.blocks[0];
+      if (entered) {
+        this.cursor.moveTo({ blockId: entered.id, offset: 0 }, 'forward');
+      }
       return;
     }
 
@@ -4778,8 +4839,9 @@ export class TextEditor {
     // Move cursor to the last pasted cell's first block
     const lastRow = Math.min(startRow + cells.length - 1, td.rows.length - 1);
     const lastColIdx = Math.max(0, cells[cells.length - 1].length - 1);
-    const lastCol = Math.min(startCol + lastColIdx, td.rows[lastRow].cells.length - 1);
-    const lastCell = td.rows[lastRow].cells[lastCol];
+    const lastRowCells = td.rows[lastRow]?.cells ?? [];
+    const lastCol = Math.min(startCol + lastColIdx, lastRowCells.length - 1);
+    const lastCell = lastRowCells[lastCol];
     if (lastCell?.blocks[0]) {
       this.cursor.moveTo({ blockId: lastCell.blocks[0].id, offset: 0 }, 'forward');
     }
@@ -4858,16 +4920,15 @@ export class TextEditor {
       const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx > 0) {
         const prevBlock = cell.blocks[blockIdx - 1];
-        // If previous block is a nested table, enter its last cell
-        if (prevBlock.type === 'table' && prevBlock.tableData) {
-          const td = prevBlock.tableData;
-          const lastRow = td.rows.length - 1;
-          const lastCol = td.columnWidths.length - 1;
-          const lastCell = td.rows[lastRow].cells[lastCol];
-          const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-          return { blockId: lastCellBlock.id, offset: getBlockTextLength(lastCellBlock) };
-        }
-        return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+        // If previous block is a nested table, enter its last cell. A table
+        // with no cell to enter (see `lastCellBlock`) is treated as the plain
+        // block it looks like from here.
+        const entered =
+          prevBlock.type === 'table'
+            ? lastCellBlock(prevBlock, (prevBlock.tableData?.columnWidths.length ?? 0) - 1)
+            : undefined;
+        const target = entered ?? prevBlock;
+        return { blockId: target.id, offset: getBlockTextLength(target) };
       }
       return pos; // Clamp at cell start
     }
@@ -4879,16 +4940,14 @@ export class TextEditor {
     const blocks = this.doc.getContextBlocks();
     if (idx > 0) {
       const prevBlock = blocks[idx - 1];
-      // If previous block is a table, enter its last cell
-      if (prevBlock.type === 'table' && prevBlock.tableData) {
-        const td = prevBlock.tableData;
-        const lastRow = td.rows.length - 1;
-        const lastCol = td.columnWidths.length - 1;
-        const lastCell = td.rows[lastRow].cells[lastCol];
-        const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-        return { blockId: lastCellBlock.id, offset: getBlockTextLength(lastCellBlock) };
-      }
-      return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+      // If previous block is a table, enter its last cell — or land on it when
+      // there is none (see `lastCellBlock`).
+      const entered =
+        prevBlock.type === 'table'
+          ? lastCellBlock(prevBlock, (prevBlock.tableData?.columnWidths.length ?? 0) - 1)
+          : undefined;
+      const target = entered ?? prevBlock;
+      return { blockId: target.id, offset: getBlockTextLength(target) };
     }
     return pos;
   }
@@ -4906,11 +4965,11 @@ export class TextEditor {
       const blockIdx = tableCell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx + 1 < tableCell.blocks.length) {
         const nextBlock = tableCell.blocks[blockIdx + 1];
-        // If next block is a nested table, enter its first cell
-        if (nextBlock.type === 'table' && nextBlock.tableData) {
-          return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
-        }
-        return { blockId: nextBlock.id, offset: 0 };
+        // If next block is a nested table, enter its first cell — or land on
+        // it when there is none (see `firstCellBlock`).
+        const entered =
+          nextBlock.type === 'table' ? firstCellBlock(nextBlock) : undefined;
+        return { blockId: (entered ?? nextBlock).id, offset: 0 };
       }
       return pos; // Clamp at cell end
     }
@@ -4924,11 +4983,11 @@ export class TextEditor {
     const blocks = this.doc.getContextBlocks();
     if (idx < blocks.length - 1) {
       const nextBlock = blocks[idx + 1];
-      // If next block is a table, enter its first cell
-      if (nextBlock.type === 'table' && nextBlock.tableData) {
-        return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
-      }
-      return { blockId: nextBlock.id, offset: 0 };
+      // If next block is a table, enter its first cell — or land on it when
+      // there is none (see `firstCellBlock`).
+      const entered =
+        nextBlock.type === 'table' ? firstCellBlock(nextBlock) : undefined;
+      return { blockId: (entered ?? nextBlock).id, offset: 0 };
     }
     return pos;
   }
@@ -5132,15 +5191,18 @@ export class TextEditor {
           const fallbackBlock = layout.blocks[targetLine.blockIndex]?.block;
           if (fallbackBlock?.type === 'table' && fallbackBlock.tableData) {
             const td = fallbackBlock.tableData;
-            if (direction === -1) {
-              const lastRow = td.rows.length - 1;
-              const lastCol = td.columnWidths.length - 1;
-              const lastCell = td.rows[lastRow].cells[lastCol];
-              const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-              return { blockId: lastCellBlock.id, offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)) };
-            } else {
-              const firstCellBlock = td.rows[0].cells[0].blocks[0];
-              return { blockId: firstCellBlock.id, offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)) };
+            // `undefined` when the table has no cell to enter (see
+            // `firstCellBlock`) — then there is nowhere on that page to go,
+            // which is the same answer the non-table case gives.
+            const entered =
+              direction === -1
+                ? lastCellBlock(fallbackBlock, td.columnWidths.length - 1)
+                : firstCellBlock(fallbackBlock);
+            if (entered) {
+              return {
+                blockId: entered.id,
+                offset: Math.min(pos.offset, getBlockTextLength(entered)),
+              };
             }
           }
           return pos;
@@ -5172,22 +5234,17 @@ export class TextEditor {
       const targetBlock = this.doc.document.blocks.find((b) => b.id === result.blockId);
       if (targetBlock?.type === 'table' && targetBlock.tableData) {
         const td = targetBlock.tableData;
-        if (direction === 1) {
-          // Down → first cell, first block
-          const firstCellBlock = td.rows[0].cells[0].blocks[0];
+        // Down → first cell's first block; up → last cell's last block.
+        // `undefined` when the table has neither (see `firstCellBlock`), in
+        // which case the caret keeps the position the pixel lookup returned.
+        const entered =
+          direction === 1
+            ? firstCellBlock(targetBlock)
+            : lastCellBlock(targetBlock, td.columnWidths.length - 1);
+        if (entered) {
           return {
-            blockId: firstCellBlock.id,
-            offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)),
-          };
-        } else {
-          // Up → last cell, last block
-          const lastRow = td.rows.length - 1;
-          const lastCol = td.columnWidths.length - 1;
-          const lastCell = td.rows[lastRow].cells[lastCol];
-          const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-          return {
-            blockId: lastCellBlock.id,
-            offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)),
+            blockId: entered.id,
+            offset: Math.min(pos.offset, getBlockTextLength(entered)),
           };
         }
       }

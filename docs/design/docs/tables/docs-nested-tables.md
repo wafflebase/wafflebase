@@ -289,7 +289,10 @@ bands take:
 - **Readers** stop descending at the cap: a table past it reads as a table with
   no rows, so the document still opens and everything around it renders.
   Applies to `treeNodeToBlock`, the store's live reader, the revision-history
-  snapshot normalizer, and the layout.
+  snapshot normalizer, and the layout. That makes `tableData.rows === []` a
+  shape consumers have to answer for: the caret-navigation paths that "enter"
+  a table (`view/text-editor.ts`'s `firstCellBlock` / `lastCellBlock`) land on
+  the table block itself rather than dereferencing a row that is not there.
 - **Producers** never create one past it: the DOCX importer drops a `<w:tbl>`
   that would land there, **both** paste writers drop the tables in a payload
   that would — `insertBlocks` through `capTableNesting` and the cell-rectangle
@@ -312,6 +315,29 @@ bands take:
   (`treeHasTruncatedRows`): a table at the cap that has rows in the tree stops
   the write, while inserting fresh content beside it still degrades to a
   rowless table rather than failing.
+
+  Two details make that refusal correct rather than decorative:
+
+  - It is keyed on the content being **replaced**, never on the replacement.
+    The writers that do the damage mostly carry no deep table themselves — the
+    cell-rectangle delete swaps a cell's blocks for one empty paragraph,
+    `Doc.deleteBlock` rewrites a cell without the block it removed — and a gate
+    keyed on what is being written would wave every one of them through.
+  - The incremental writers **decline** (leave both the CRDT and their cache
+    untouched, and warn) instead of throwing. Each is reached through a `Doc`
+    mutator from the middle of an editor command, and none of those callers —
+    nor `MemDocStore`, which cannot refuse at all — is prepared for a throwing
+    store; an exception would abandon a command between two writes. Only the
+    whole-document writers throw, because their callers (`setDocument`,
+    `replaceDocument`, the backend's `writeDocsRoot`) are one call that either
+    happened or did not.
+- **No writer creates rows nobody can read either.** `insertTableRow` and
+  `insertTableColumn` are the two paths that add rows to a table without going
+  through `buildBlockNode`, so past the cap they would write rows straight into
+  the CRDT that every reader — including the one that asked — then declines to
+  read, permanently blocking every replacing write over the block that holds
+  them. They decline, the same direction `Doc.insertTableInCell` takes for the
+  interactive producer.
 
 ## Risks and Mitigation
 

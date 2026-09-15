@@ -3787,14 +3787,97 @@ describe('YorkieDocStore', () => {
             .tableData!.rows[0].cells[0].blocks[0].id;
           const atCap = createTableBlock(1, 1);
           store.insertBlockAfter(leafId, atCap);
-          store.insertTableRow(atCap.id, 0, createTableBlock(1, 1).tableData!.rows[0]);
-          return {
-            tableId: atCap.id,
-            treePath: [...cellPath(MAX_TABLE_NESTING_DEPTH), 1],
-          };
+          const treePath = [...cellPath(MAX_TABLE_NESTING_DEPTH), 1];
+          // Written straight into the tree, not through `insertTableRow`:
+          // that writer now declines past the cap (the test below pins it), so
+          // this shape is only reachable from a client that does not carry the
+          // cap at all — which is exactly what "a peer" means here.
+          doc.update((root) => {
+            root.content.editByPath([...treePath, 0], [...treePath, 0], {
+              type: 'row',
+              attributes: {},
+              children: [
+                {
+                  type: 'cell',
+                  attributes: {},
+                  children: [
+                    {
+                      type: 'block',
+                      attributes: { type: 'paragraph' },
+                      children: [
+                        {
+                          type: 'inline',
+                          attributes: {},
+                          children: [{ type: 'text', value: 'peer' }],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any);
+          });
+          return { tableId: atCap.id, treePath };
         }
 
-        it('updateBlock refuses, leaving the rows in the tree', () => {
+        it('insertTableRow declines to add a row no reader would read', () => {
+          store.setDocument({ blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH)] });
+          const leafId = descend(store.getDocument().blocks, MAX_TABLE_NESTING_DEPTH)
+            .tableData!.rows[0].cells[0].blocks[0].id;
+          const atCap = createTableBlock(1, 1);
+          store.insertBlockAfter(leafId, atCap);
+          const treePath = [...cellPath(MAX_TABLE_NESTING_DEPTH), 1];
+          expect(writtenRowCount(treePath)).toBe(0);
+
+          // Writing here would create the very "rows nobody can read" state the
+          // replacing writers then refuse to overwrite — the block would be
+          // unwritable for the rest of the document's life.
+          store.insertTableRow(
+            atCap.id,
+            0,
+            createTableBlock(1, 1).tableData!.rows[0],
+          );
+          expect(writtenRowCount(treePath)).toBe(0);
+        });
+
+        it('insertTableColumn declines past the cap as well', () => {
+          store.setDocument({ blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH)] });
+          const leafId = descend(store.getDocument().blocks, MAX_TABLE_NESTING_DEPTH)
+            .tableData!.rows[0].cells[0].blocks[0].id;
+          const atCap = createTableBlock(1, 1);
+          store.insertBlockAfter(leafId, atCap);
+          const treePath = [...cellPath(MAX_TABLE_NESTING_DEPTH), 1];
+
+          expect(() =>
+            store.insertTableColumn(atCap.id, 0, [createTableCell()]),
+          ).not.toThrow();
+          // Nothing was added: the table has no row nodes to add a cell to.
+          expect(writtenRowCount(treePath)).toBe(0);
+        });
+
+        it('a table one short of the cap still takes a row', () => {
+          store.setDocument({
+            blocks: [nestedTableBlock(MAX_TABLE_NESTING_DEPTH - 1)],
+          });
+          const leafId = descend(
+            store.getDocument().blocks,
+            MAX_TABLE_NESTING_DEPTH - 1,
+          ).tableData!.rows[0].cells[0].blocks[0].id;
+          const belowCap = createTableBlock(1, 1);
+          store.insertBlockAfter(leafId, belowCap);
+          const treePath = [...cellPath(MAX_TABLE_NESTING_DEPTH - 1), 1];
+          expect(writtenRowCount(treePath)).toBe(1);
+
+          store.insertTableRow(
+            belowCap.id,
+            0,
+            createTableBlock(1, 1).tableData!.rows[0],
+          );
+          expect(writtenRowCount(treePath)).toBe(2);
+        });
+
+        it('updateBlock declines, leaving the rows in the tree', () => {
           const { tableId, treePath } = peerRowsPastTheCap();
           expect(writtenRowCount(treePath)).toBe(1);
 
@@ -3806,11 +3889,13 @@ describe('YorkieDocStore', () => {
           expect(truncated.id).toBe(tableId);
           expect(truncated.tableData!.rows).toEqual([]);
 
-          expect(() => peer.updateBlock(tableId, truncated)).toThrow(/never read/);
+          // Declined, not thrown: every caller reaches this through a `Doc`
+          // mutator from the middle of an editor command.
+          expect(() => peer.updateBlock(tableId, truncated)).not.toThrow();
           expect(writtenRowCount(treePath)).toBe(1);
         });
 
-        it('updateTableCell refuses for the cell that holds them', () => {
+        it('updateTableCell declines for the cell that holds them', () => {
           const { treePath } = peerRowsPastTheCap();
           const peer = new YorkieDocStore(doc);
           const innermost = descend(
@@ -3819,9 +3904,60 @@ describe('YorkieDocStore', () => {
           );
           const cell = innermost.tableData!.rows[0].cells[0];
 
-          expect(() => peer.updateTableCell(innermost.id, 0, 0, cell)).toThrow(
-            /never read/,
+          expect(() =>
+            peer.updateTableCell(innermost.id, 0, 0, cell),
+          ).not.toThrow();
+          expect(writtenRowCount(treePath)).toBe(1);
+        });
+
+        /**
+         * The gate has to key on what is being *replaced*, not on what the
+         * replacement carries: the cell-rectangle delete swaps a cell's
+         * contents for a fresh empty paragraph, which holds no table at all,
+         * and would have walked straight past a gate keyed on the replacement
+         * while still deleting the peer's rows.
+         */
+        it('updateTableCell declines even when the replacement has no table', () => {
+          const { treePath } = peerRowsPastTheCap();
+          const peer = new YorkieDocStore(doc);
+          const innermost = descend(
+            peer.getDocument().blocks,
+            MAX_TABLE_NESTING_DEPTH,
           );
+
+          peer.updateTableCell(innermost.id, 0, 0, {
+            blocks: [
+              {
+                id: 'replacement',
+                type: 'paragraph',
+                inlines: [{ text: '', style: {} }],
+                style: { ...DEFAULT_BLOCK_STYLE },
+              },
+            ],
+            style: {},
+          });
+          expect(writtenRowCount(treePath)).toBe(1);
+        });
+
+        /** `updateBlock`'s twin of the case above. */
+        it('updateBlock declines even when the replacement has no table', () => {
+          const { treePath } = peerRowsPastTheCap();
+          const peer = new YorkieDocStore(doc);
+          const innermost = descend(
+            peer.getDocument().blocks,
+            MAX_TABLE_NESTING_DEPTH,
+          );
+          const cell = innermost.tableData!.rows[0].cells[0];
+          // The cell's own first block is a paragraph; replacing the *cell's
+          // table block* — the one whose cell holds the truncated table — with
+          // a plain paragraph would drop the peer's rows with it.
+          peer.updateBlock(innermost.id, {
+            id: innermost.id,
+            type: 'paragraph',
+            inlines: [{ text: 'flattened', style: {} }],
+            style: { ...DEFAULT_BLOCK_STYLE },
+          });
+          expect(cell.blocks.length).toBeGreaterThan(0);
           expect(writtenRowCount(treePath)).toBe(1);
         });
 
