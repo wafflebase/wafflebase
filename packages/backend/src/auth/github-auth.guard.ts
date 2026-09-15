@@ -75,12 +75,10 @@ function callbackHost(): string | undefined {
  * out `Secure`, and if the origin turns out to be cleartext the browser
  * discards the cookie and the gate fails closed rather than open.
  *
- * `useSecureCookies()` also accepts an https `GOOGLE_CALLBACK_URL` as that
- * positive evidence, which is the one way this gate's answer moved when Google
- * sign-in landed — and it moves only towards *allowing* a CLI login on an
- * install that has stated an https origin. A plain-http Google callback URL
- * says nothing there (`oauth-state.ts`), so it can neither open this gate nor
- * close one that `GITHUB_CALLBACK_URL` or `NODE_ENV` had already opened.
+ * Google sign-in does not move this answer. `GOOGLE_CALLBACK_URL` is
+ * deliberately not one of the things `useSecureCookies()` reads (see
+ * `oauth-state.ts`), so this gate — and the session cookies it shares its
+ * answer with — sits exactly where it did before a second provider existed.
  */
 export function cliLoginAvailable(): boolean {
   return useSecureCookies() || loopbackCallback();
@@ -251,8 +249,8 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     if (cliLoginAvailable()) return;
     this.logger.warn(
       'Refused a CLI login: nothing says this origin is secure (no https ' +
-        'GITHUB_CALLBACK_URL or GOOGLE_CALLBACK_URL, no COOKIE_SECURE=true, ' +
-        'not loopback), so the consent cookie cannot be trusted.',
+        'GITHUB_CALLBACK_URL, no COOKIE_SECURE=true, not loopback), so the ' +
+        'consent cookie cannot be trusted.',
     );
     throw new BadRequestException(
       'Command-line sign-in requires an https server. Serve Wafflebase ' +

@@ -204,31 +204,34 @@ export function oauthStateCookieOptions(): CookieOptions {
 /**
  * Whether login cookies are set `Secure` — and so may carry `__Host-`.
  *
- * `COOKIE_SECURE` decides when an operator sets it; otherwise a configured
- * OAuth callback URL does. That URL is where the provider redirects the
- * login, so its scheme *is* this server's public scheme, and reading a
- * configured value rather than the live request keeps the answer identical on
- * the request that sets the cookie and the callback that reads it — which a
- * per-request `req.secure` behind a proxy would not.
+ * `COOKIE_SECURE` decides when an operator sets it; otherwise
+ * `GITHUB_CALLBACK_URL` does. That URL is where GitHub redirects the login, so
+ * its scheme *is* this server's public scheme, and reading a configured value
+ * rather than the live request keeps the answer identical on the request that
+ * sets the cookie and the callback that reads it — which a per-request
+ * `req.secure` behind a proxy would not.
  *
- * `GITHUB_CALLBACK_URL` answers it in **both** directions, exactly as it
- * always has. `GOOGLE_CALLBACK_URL` answers it in **one**: an `https://` value
- * proves the origin is secure, an `http://` one proves nothing. GitHub's
- * callback URL is optional (the OAuth app's registered URL is the fallback)
- * while Google's is mandatory, so a Google-enabled https install can state its
- * scheme in that variable alone — and reading only GitHub's left exactly that
- * deployment minting session, refresh and state cookies without `Secure` and
- * without the `__Host-` prefix that stops a sibling subdomain planting them.
+ * **`GOOGLE_CALLBACK_URL` is deliberately not read here**, in either
+ * direction. This answer is not local to the cookie flag: `useSecureCookies()`
+ * also decides whether `wafflebase login` is offered at all
+ * (`cliLoginAvailable()`), whether the insecure-origin warning fires
+ * (`insecureProductionOrigin()`), and the `secure` flag on the CLI consent and
+ * `returnTo` cookies. Adding a second source of truth moved all of them at
+ * once, off a variable that says nothing about the origin *GitHub* reaches:
+ * `GITHUB_CALLBACK_URL` is optional, so an install that omits it is served at
+ * whatever URL is registered on the OAuth app, and a deployment running plain
+ * http there while its `GOOGLE_CALLBACK_URL` reads `https://` would have had
+ * its session, refresh and state cookies minted `Secure`/`__Host-` — discarded
+ * by the browser on arrival, so the login simply stops working — while the CLI
+ * gate's clear fail-closed `400` turned into an allow. Leaving Google's URL
+ * out keeps every one of those consumers at exactly the answer it had before
+ * Google sign-in existed.
  *
- * The asymmetry is the point. This answer is not local to the cookie flag: it
- * also decides whether `wafflebase login` is offered at all and whether the
- * insecure-origin warning fires (`github-auth.guard.ts`). Letting Google's
- * URL answer *negatively* would let a deployment that set nothing but an
- * `http://` Google callback — the shape the README's own example has —
- * silently strip `Secure`/`__Host-` off an install that until now read as
- * https through the `NODE_ENV=production` fallback. An upgrade-only reading
- * can only ever harden, never downgrade, so no existing deployment's answer
- * changes.
+ * The cost is one deployment shape: https, Google configured, no
+ * `GITHUB_CALLBACK_URL`, and `NODE_ENV` not `production`. It says so with
+ * `COOKIE_SECURE=true` (or by pointing `GITHUB_CALLBACK_URL` at the https URL
+ * its users reach, which it wants set anyway) — one explicit variable instead
+ * of an inference drawn for five consumers at once.
  *
  * `NODE_ENV === 'production'` is only the fallback for a deployment that
  * configures no callback URL at all, and deliberately not an override.
@@ -252,9 +255,6 @@ function isSecureCookie(): boolean {
 
   const github = callbackScheme('GITHUB_CALLBACK_URL');
   if (github !== undefined) return github;
-
-  // Upgrade only: Google's callback URL can prove https, never cleartext.
-  if (callbackScheme('GOOGLE_CALLBACK_URL') === true) return true;
 
   return process.env.NODE_ENV === 'production';
 }

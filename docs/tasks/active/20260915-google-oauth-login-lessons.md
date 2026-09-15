@@ -32,10 +32,17 @@ Paired with `20260915-google-oauth-login-todo.md` (issue #78).
   which flow this is, routes it.
 
 - **Widening a config read widens everything that reads it.**
-  `isSecureCookie()` also answers `cliLoginAvailable()` and
-  `insecureProductionOrigin()`, so letting `GOOGLE_CALLBACK_URL` answer
-  negatively would have let an `http://` Google callback strip `Secure`
-  off an install that reads as https today. It is read upgrade-only.
+  `isSecureCookie()` also answers `cliLoginAvailable()`,
+  `insecureProductionOrigin()`, the CLI consent cookie and the `returnTo`
+  cookie, so letting `GOOGLE_CALLBACK_URL` into it moved five consumers off
+  one new variable. Reading it upgrade-only was not enough: with
+  `GITHUB_CALLBACK_URL` unset, GitHub is served at whatever URL the OAuth
+  app registered, so an https Google URL on a plain-http origin would mint
+  `Secure`/`__Host-` cookies the browser discards — a dead login — while
+  turning the CLI gate's fail-closed `400` into an allow.
+  `GOOGLE_CALLBACK_URL` is therefore not read there at all; such an install
+  states its scheme with `COOKIE_SECURE=true`. A second provider is not a
+  reason to give an existing answer a second source of truth.
 
 - **An optional strategy has to be optional in two places.** Not providing
   `GoogleStrategy` keeps the app booting without Google credentials, but

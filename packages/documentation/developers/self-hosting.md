@@ -450,12 +450,16 @@ planting a session or CSRF-state cookie on your origin.
 1. `COOKIE_SECURE=true`/`1` → secure. `false`/`0` → not secure.
 2. `GITHUB_CALLBACK_URL` starts with `https://` → secure; `http://` → not
    secure.
-3. `GOOGLE_CALLBACK_URL` starts with `https://` → secure. This one is read
-   **upgrade-only**: Google's callback URL is mandatory wherever Google
-   sign-in is enabled, so a Google-only https install can state its scheme
-   there alone — but an `http://` value is ignored rather than allowed to
-   downgrade an answer step 2 or step 4 would have given.
-4. Otherwise (no callback URL configured at all) → `NODE_ENV === 'production'`.
+3. Otherwise (no `GITHUB_CALLBACK_URL` at all) → `NODE_ENV === 'production'`.
+
+`GOOGLE_CALLBACK_URL` is **not** part of that order, in either direction. The
+answer is not local to the cookie flag — it also decides whether
+`wafflebase login` is offered at all and whether the insecure-origin warning
+fires — and Google's callback URL says nothing about the origin *GitHub*
+reaches when `GITHUB_CALLBACK_URL` is unset and the OAuth app's registered URL
+is serving the login. An https deployment that has set only the Google URL
+states its scheme with `COOKIE_SECURE=true`, or by setting
+`GITHUB_CALLBACK_URL` to the https URL its users reach.
 
 Three consequences worth knowing before you deploy:
 
