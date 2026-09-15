@@ -2,9 +2,14 @@ import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, ImageDat
 import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeClipboard, deserializeClipboard, capTableNesting, capTableCellsNesting, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
-import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
+import {
+  Selection,
+  expandCellRangeForMerges,
+  findMergeTopLeft,
+  MAX_MERGE_EXPANSION_CELLS,
+} from './selection.js';
 import { expandRangeForLinks } from './link-run.js';
 import type { ComposingContext, DocumentLayout, LayoutBlock } from './layout.js';
 import { getBlockIndexForLine } from './table-geometry.js';
@@ -49,6 +54,45 @@ type PastePlan =
  * ~400 K characters in any format. Below that a toast would only flicker.
  */
 const LARGE_PASTE_WEIGHT_THRESHOLD = 400_000;
+
+/**
+ * The block a caret entering `block` from *above* should land on: the first
+ * block of the first row's cell at `colIndex`. `undefined` when the table has
+ * nothing to enter.
+ *
+ * A table with no rows is not hypothetical. Every reader materializes a table
+ * nested at or past `MAX_TABLE_NESTING_DEPTH` as `{ ...tableData, rows: [] }`
+ * (`treeNodeToBlock`), and a peer can put one there with ordinary Tree writes,
+ * so a rowless table block arrives in the model of a document nobody in this
+ * tab did anything unusual to. Every "the next block is a table, so enter it"
+ * path below used to reach `rows[0].cells[0].blocks[0]` unguarded, which turns
+ * that table into a `TypeError` on the first arrow key aimed at it. Answering
+ * `undefined` lets each caller fall back to what it already does for a block
+ * it cannot enter: land on the block itself, or stay put.
+ *
+ * A `colIndex` past the row's cells falls back to the row's first cell, and a
+ * cell with no blocks at all (the other shape a truncating reader can leave)
+ * to `undefined`, so neither needs a check at the call site.
+ */
+function firstCellBlock(block: Block, colIndex = 0): Block | undefined {
+  const cells = block.tableData?.rows[0]?.cells;
+  if (!cells) return undefined;
+  return (cells[colIndex] ?? cells[0])?.blocks[0];
+}
+
+/**
+ * `firstCellBlock`'s mirror for a caret entering from *below*: the last block
+ * of the last row's cell at `colIndex`, defaulting to that row's last cell.
+ */
+function lastCellBlock(block: Block, colIndex?: number): Block | undefined {
+  const rows = block.tableData?.rows;
+  const row = rows?.[rows.length - 1];
+  if (!row) return undefined;
+  const cell =
+    (colIndex === undefined ? undefined : row.cells[colIndex]) ??
+    row.cells[row.cells.length - 1];
+  return cell?.blocks[cell.blocks.length - 1];
+}
 
 /**
  * The `headingLevel` the destination block ends up with when a pasted block is
@@ -121,6 +165,23 @@ interface CellHitTest {
   offset: number;
   lineAffinity: 'forward' | 'backward';
 }
+
+/**
+ * Where a pointer gesture anchored inside a table cell should land: still
+ * inside the anchor's own cell (ordinary text selection), or across cells
+ * (a cell rectangle).
+ *
+ * One shape for both gestures that produce it — drag and shift+click — because
+ * resolving it two ways is what left shift+click covering only top-level
+ * tables while the drag path already handled nested ones (#1049).
+ */
+type CellGestureTarget =
+  | { kind: 'text'; resolved: CellHitTest }
+  | {
+      kind: 'cells';
+      tableCellRange: NonNullable<DocRange['tableCellRange']>;
+      focus: DocPosition;
+    };
 
 /**
  * Input handling for the document editor.
@@ -481,7 +542,14 @@ export class TextEditor {
    */
   private formatSourcePosition(): DocPosition {
     const layout = this.getActiveLayout();
-    const normalized = this.selection.getNormalizedRange(layout);
+    // Bounded: this only picks a cell to *read* a style from, and it runs on
+    // every toolbar refresh — i.e. per keystroke — over a table a peer sized.
+    // A rectangle that stopped growing early names a different cell of the
+    // same selection, which is a different seed style at worst, never a write.
+    const normalized = this.selection.getNormalizedRange(
+      layout,
+      MAX_MERGE_EXPANSION_CELLS,
+    );
     if (!normalized) return this.cursor.position;
 
     // A cell rectangle's first cell is (start.rowIndex, start.colIndex) of
@@ -2067,20 +2135,33 @@ export class TextEditor {
             const anchor =
               this.selection.rawAnchor ?? this.selection.range?.anchor ?? this.cursor.position;
             const anchorCellInfo = this.getCellInfo(anchor.blockId);
-            if (anchorCellInfo &&
-                anchorCellInfo.rowIndex === cellAddr.rowIndex &&
-                anchorCellInfo.colIndex === cellAddr.colIndex) {
-              const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            // Shift+click lands wherever the equivalent drag would, merges,
+            // nesting and all — it goes through the same resolver, so the two
+            // gestures cannot drift apart again. Without this the caret merely
+            // moved and no cell range was created (#1049); `pos.blockId` is
+            // always a *top-level* table block, so the shift+click copy this
+            // replaces never fired for an anchor inside a nested table.
+            const target = anchorCellInfo
+              ? this.resolveCellGesture(anchor.blockId, anchorCellInfo, pos.blockId, cellAddr, mouseX, mouseY)
+              : undefined;
+            if (target?.kind === 'text') {
               const focus: DocPosition = {
-                blockId: resolved.blockId,
-                offset: resolved.offset,
-                lineAffinity: resolved.lineAffinity,
+                blockId: target.resolved.blockId,
+                offset: target.resolved.offset,
+                lineAffinity: target.resolved.lineAffinity,
               };
               const snapped = this.setSnappedRange({ anchor, focus });
               this.cursor.moveTo(
                 snapped.focus,
-                snapped.focus.lineAffinity ?? resolved.lineAffinity,
+                snapped.focus.lineAffinity ?? target.resolved.lineAffinity,
               );
+            } else if (target?.kind === 'cells') {
+              this.setSnappedRange({
+                anchor,
+                focus: target.focus,
+                tableCellRange: target.tableCellRange,
+              });
+              this.cursor.moveTo(target.focus);
             } else {
               const firstBlockId = cell.blocks[0].id;
               this.cursor.moveTo({ blockId: firstBlockId, offset: 0 });
@@ -2333,16 +2414,7 @@ export class TextEditor {
 
       if (anchorCellInfo) {
         const tableBlockId = anchorCellInfo.tableBlockId;
-
-        // Walk up the nesting chain to find the outermost table ID.
-        // For nested tables, result.blockId is always the top-level table,
-        // but tableBlockId may be an inner table.
-        let outermostTableId = tableBlockId;
-        while (true) {
-          const parentInfo = this.getLayout().blockParentMap.get(outermostTableId);
-          if (!parentInfo) break;
-          outermostTableId = parentInfo.tableBlockId;
-        }
+        const outermostTableId = this.findOutermostTableId(tableBlockId);
 
         // Check if mouse is still in the same table (or its outermost ancestor)
 
@@ -2357,65 +2429,21 @@ export class TextEditor {
             const outerCA = this.resolveTableCellClick(resolveTableId, x, y + scrollY);
 
             if (outerCA) {
-              // Resolve the full position (handles nested tables internally)
-              const resolved = this.resolveOffsetInCellAtXY(resolveTableId, outerCA, x, y + scrollY);
-
-              // Check if resolved position is in the same cell as the anchor
-              const resolvedCellInfo = layout.blockParentMap.get(resolved.blockId);
-              const anchorTableId = anchorCellInfo.tableBlockId;
-
-              if (resolvedCellInfo &&
-                  resolvedCellInfo.tableBlockId === anchorTableId &&
-                  resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&
-                  resolvedCellInfo.colIndex === anchorCellInfo.colIndex) {
+              const target = this.resolveCellGesture(
+                anchor.blockId, anchorCellInfo, resolveTableId, outerCA, x, y + scrollY,
+              );
+              if (target?.kind === 'text') {
                 // Same cell — text selection mode. The affinity has to
                 // travel on the endpoint: `result` describes the table
                 // block, not the line inside the cell that was dragged to.
                 pos = {
-                  blockId: resolved.blockId,
-                  offset: resolved.offset,
-                  lineAffinity: resolved.lineAffinity,
+                  blockId: target.resolved.blockId,
+                  offset: target.resolved.offset,
+                  lineAffinity: target.resolved.lineAffinity,
                 };
-              } else if (resolvedCellInfo &&
-                  resolvedCellInfo.tableBlockId === anchorTableId) {
-                // Different cell in the SAME table (e.g., inner table
-                // cell-range selection) — use that table for cell-range mode
-                const innerTableData = this.doc.getBlock(anchorTableId).tableData!;
-                tableCellRange = expandCellRangeForMerges(
-                  {
-                    blockId: anchorTableId,
-                    start: { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex },
-                    end: { rowIndex: resolvedCellInfo.rowIndex, colIndex: resolvedCellInfo.colIndex },
-                  },
-                  innerTableData,
-                );
-                const targetCell = innerTableData.rows[resolvedCellInfo.rowIndex]
-                  .cells[resolvedCellInfo.colIndex];
-                pos = {
-                  blockId: targetCell.blocks[0].id,
-                  offset: 0,
-                };
-              } else {
-                // Different cell in different tables or outer table —
-                // cell-range mode within the outermost table
-                const outerAnchorCA = this.findOuterCellAddress(anchor.blockId, resolveTableId);
-                if (outerAnchorCA) {
-                  const tableData = this.doc.getBlock(resolveTableId).tableData!;
-                  tableCellRange = expandCellRangeForMerges(
-                    {
-                      blockId: resolveTableId,
-                      start: outerAnchorCA,
-                      end: outerCA,
-                    },
-                    tableData,
-                  );
-                  const targetCell = tableData.rows[outerCA.rowIndex]
-                    .cells[outerCA.colIndex];
-                  pos = {
-                    blockId: targetCell.blocks[0].id,
-                    offset: 0,
-                  };
-                }
+              } else if (target?.kind === 'cells') {
+                tableCellRange = target.tableCellRange;
+                pos = target.focus;
               }
             }
           }
@@ -3138,22 +3166,24 @@ export class TextEditor {
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx > 0) {
           const prevBlock = cell.blocks[blockIdx - 1];
-          // If previous block is a nested table, enter its last row
-          if (prevBlock.type === 'table' && prevBlock.tableData) {
-            const td = prevBlock.tableData;
-            const lastRow = td.rows.length - 1;
-            const lastCell = td.rows[lastRow].cells[arrowCellInfo.colIndex < td.columnWidths.length ? arrowCellInfo.colIndex : 0];
-            const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-            newPos = {
-              blockId: lastCellBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)),
-            };
-          } else {
-            newPos = {
-              blockId: prevBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(prevBlock)),
-            };
-          }
+          // If previous block is a nested table, enter its last row — unless
+          // it has none to enter, in which case the caret lands on the table
+          // block itself, exactly as it would on any non-table block.
+          const td = prevBlock.tableData;
+          const enteredPrev =
+            prevBlock.type === 'table' && td
+              ? lastCellBlock(
+                  prevBlock,
+                  arrowCellInfo.colIndex < td.columnWidths.length
+                    ? arrowCellInfo.colIndex
+                    : 0,
+                )
+              : undefined;
+          const prevTarget = enteredPrev ?? prevBlock;
+          newPos = {
+            blockId: prevTarget.id,
+            offset: Math.min(pos.offset, getBlockTextLength(prevTarget)),
+          };
         } else {
           // At first block — move to cell above or exit table
           if (arrowCellInfo.rowIndex > 0) {
@@ -3165,23 +3195,21 @@ export class TextEditor {
               aboveCell = tableBlock.tableData!.rows[tl.rowIndex].cells[tl.colIndex];
             }
             const lastBlock = aboveCell.blocks[aboveCell.blocks.length - 1];
-            // If last block is a nested table, enter it
-            if (lastBlock.type === 'table' && lastBlock.tableData) {
-              const td = lastBlock.tableData;
-              const lastRow = td.rows.length - 1;
-              const col = Math.min(arrowCellInfo.colIndex, td.columnWidths.length - 1);
-              const innerCell = td.rows[lastRow].cells[col];
-              const innerBlock = innerCell.blocks[innerCell.blocks.length - 1];
-              newPos = {
-                blockId: innerBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(innerBlock)),
-              };
-            } else {
-              newPos = {
-                blockId: lastBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(lastBlock)),
-              };
-            }
+            // If last block is a nested table, enter it — or land on it when
+            // it has no rows to enter (see `lastCellBlock`).
+            const innerTd = lastBlock.tableData;
+            const enteredAbove =
+              lastBlock.type === 'table' && innerTd
+                ? lastCellBlock(
+                    lastBlock,
+                    Math.min(arrowCellInfo.colIndex, innerTd.columnWidths.length - 1),
+                  )
+                : undefined;
+            const aboveTarget = enteredAbove ?? lastBlock;
+            newPos = {
+              blockId: aboveTarget.id,
+              offset: Math.min(pos.offset, getBlockTextLength(aboveTarget)),
+            };
           } else {
             // Exit table upward (region-aware: body, header, or footer).
             const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
@@ -3239,21 +3267,21 @@ export class TextEditor {
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx < cell.blocks.length - 1) {
           const nextBlock = cell.blocks[blockIdx + 1];
-          // If next block is a nested table, enter its first row
-          if (nextBlock.type === 'table' && nextBlock.tableData) {
-            const td = nextBlock.tableData;
-            const col = Math.min(arrowCellInfo.colIndex, td.columnWidths.length - 1);
-            const firstCellBlock = td.rows[0].cells[col].blocks[0];
-            newPos = {
-              blockId: firstCellBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)),
-            };
-          } else {
-            newPos = {
-              blockId: nextBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(nextBlock)),
-            };
-          }
+          // If next block is a nested table, enter its first row — or land on
+          // it when it has none (see `firstCellBlock`).
+          const nextTd = nextBlock.tableData;
+          const enteredNext =
+            nextBlock.type === 'table' && nextTd
+              ? firstCellBlock(
+                  nextBlock,
+                  Math.min(arrowCellInfo.colIndex, nextTd.columnWidths.length - 1),
+                )
+              : undefined;
+          const nextTarget = enteredNext ?? nextBlock;
+          newPos = {
+            blockId: nextTarget.id,
+            offset: Math.min(pos.offset, getBlockTextLength(nextTarget)),
+          };
         } else {
           // At last block — move to cell below or exit table
           const td = tableBlock.tableData!;
@@ -3267,21 +3295,21 @@ export class TextEditor {
               belowCell = td.rows[tl.rowIndex].cells[tl.colIndex];
             }
             const firstBlock = belowCell.blocks[0];
-            // If first block is a nested table, enter it
-            if (firstBlock.type === 'table' && firstBlock.tableData) {
-              const innerTd = firstBlock.tableData;
-              const col = Math.min(arrowCellInfo.colIndex, innerTd.columnWidths.length - 1);
-              const innerBlock = innerTd.rows[0].cells[col].blocks[0];
-              newPos = {
-                blockId: innerBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(innerBlock)),
-              };
-            } else {
-              newPos = {
-                blockId: firstBlock.id,
-                offset: Math.min(pos.offset, getBlockTextLength(firstBlock)),
-              };
-            }
+            // If first block is a nested table, enter it — or land on it when
+            // it has no rows to enter (see `firstCellBlock`).
+            const innerTd = firstBlock.tableData;
+            const enteredBelow =
+              firstBlock.type === 'table' && innerTd
+                ? firstCellBlock(
+                    firstBlock,
+                    Math.min(arrowCellInfo.colIndex, innerTd.columnWidths.length - 1),
+                  )
+                : undefined;
+            const belowTarget = enteredBelow ?? firstBlock;
+            newPos = {
+              blockId: belowTarget.id,
+              offset: Math.min(pos.offset, getBlockTextLength(belowTarget)),
+            };
           } else {
             // Exit table downward (region-aware: body, header, or footer).
             const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
@@ -3396,9 +3424,15 @@ export class TextEditor {
       });
       this.cursor.moveTo(newPos, focusAffinity);
     } else if (this.selection.hasSelection() && this.selection.range) {
-      // Collapse selection to the appropriate boundary
+      // Collapse selection to the appropriate boundary. Bounded: this reads
+      // `start`/`end` only — the raw anchor and focus, which the merge
+      // expansion never touches — and a plain arrow key runs it on every
+      // press, over a table whose size is a peer's to choose.
       const layout = this.getActiveLayout();
-      const normalized = this.selection.getNormalizedRange(layout);
+      const normalized = this.selection.getNormalizedRange(
+        layout,
+        MAX_MERGE_EXPANSION_CELLS,
+      );
       if (normalized) {
         const collapsePos = (direction === 'left' || direction === 'up')
           ? normalized.start
@@ -3895,14 +3929,23 @@ export class TextEditor {
   /**
    * Get the last cursor position in a cell, entering nested tables if the
    * last block is a table.
+   *
+   * The descent goes through `lastCellBlock` rather than reaching for
+   * `rows[rows.length - 1].cells[...]` itself, because a table with no rows is
+   * a shape this model really holds: every reader materializes a table nested
+   * at or past `MAX_TABLE_NESTING_DEPTH` as `{ ...tableData, rows: [] }`, and
+   * a peer can put one at the end of a cell with ordinary Tree writes. The
+   * raw walk turned that into a `TypeError` on the first Shift-Tab aimed at
+   * the cell before it. `undefined` means there is nothing to enter, so the
+   * caret lands on the table block itself — what it already does for any
+   * block it cannot descend into.
    */
   private lastPositionInCell(cell: import('../model/types.js').TableCell): DocPosition {
     let lastBlock = cell.blocks[cell.blocks.length - 1];
-    while (lastBlock.type === 'table' && lastBlock.tableData) {
-      const td = lastBlock.tableData;
-      const lastRow = td.rows[td.rows.length - 1];
-      const lastCell = lastRow.cells[lastRow.cells.length - 1];
-      lastBlock = lastCell.blocks[lastCell.blocks.length - 1];
+    while (lastBlock?.type === 'table' && lastBlock.tableData) {
+      const entered = lastCellBlock(lastBlock);
+      if (!entered) break;
+      lastBlock = entered;
     }
     return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
   }
@@ -3914,6 +3957,7 @@ export class TextEditor {
   private findOuterCellAddress(blockId: string, outerTableId: string): CellAddress | undefined {
     const map = this.getLayout().blockParentMap;
     let currentId = blockId;
+    const seen = new Set<string>([currentId]);
     while (true) {
       const info = map.get(currentId);
       if (!info) return undefined;
@@ -3921,7 +3965,106 @@ export class TextEditor {
         return { rowIndex: info.rowIndex, colIndex: info.colIndex };
       }
       currentId = info.tableBlockId;
+      // Block ids come from peer-written CRDT attributes, so a parent chain
+      // that loops is representable; bail out rather than spin. Same guard as
+      // `resolveNestedTableLayout`'s walk.
+      if (seen.has(currentId)) return undefined;
+      seen.add(currentId);
     }
+  }
+
+  /**
+   * The top-level table enclosing `tableBlockId` (itself, if it is top-level).
+   *
+   * Hit-testing only works against top-level table blocks, so both pointer
+   * gestures have to climb out of a nested table first.
+   */
+  private findOutermostTableId(tableBlockId: string): string {
+    const map = this.getLayout().blockParentMap;
+    let outermost = tableBlockId;
+    const seen = new Set<string>([outermost]);
+    while (true) {
+      const parentInfo = map.get(outermost);
+      if (!parentInfo || seen.has(parentInfo.tableBlockId)) break;
+      outermost = parentInfo.tableBlockId;
+      seen.add(outermost);
+    }
+    return outermost;
+  }
+
+  /**
+   * Resolve a pointer gesture anchored in `anchorCellInfo`'s cell and ending
+   * at `outerCA` of the top-level table `resolveTableId` (logical coordinates
+   * `x`/`y`) into what it should select.
+   *
+   * Shared by the drag and the shift+click paths. They used to each construct
+   * the cell rectangle themselves, and the shift+click copy only knew about
+   * top-level tables — so shift+click inside a *nested* table, the very case
+   * the drag path handles here, collapsed the caret instead (#1049).
+   *
+   * Returns `undefined` when the gesture names no cell of the anchor's table
+   * tree at all, which the callers treat as "no cell selection".
+   */
+  private resolveCellGesture(
+    anchorBlockId: string,
+    anchorCellInfo: BlockCellInfo,
+    resolveTableId: string,
+    outerCA: CellAddress,
+    x: number,
+    y: number,
+  ): CellGestureTarget | undefined {
+    const layout = this.getLayout();
+    // Resolve the full position (handles nested tables internally)
+    const resolved = this.resolveOffsetInCellAtXY(resolveTableId, outerCA, x, y);
+    const resolvedCellInfo = layout.blockParentMap.get(resolved.blockId);
+    const anchorTableId = anchorCellInfo.tableBlockId;
+
+    if (resolvedCellInfo && resolvedCellInfo.tableBlockId === anchorTableId) {
+      if (resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&
+          resolvedCellInfo.colIndex === anchorCellInfo.colIndex) {
+        // Same cell — text selection mode.
+        return { kind: 'text', resolved };
+      }
+
+      // Different cell in the SAME table (e.g., inner table cell-range
+      // selection) — use that table for cell-range mode.
+      const innerTableData = this.doc.getBlock(anchorTableId).tableData;
+      if (!innerTableData) return undefined;
+      const tableCellRange = expandCellRangeForMerges(
+        {
+          blockId: anchorTableId,
+          start: { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex },
+          end: { rowIndex: resolvedCellInfo.rowIndex, colIndex: resolvedCellInfo.colIndex },
+        },
+        innerTableData,
+      );
+      const targetCell = innerTableData.rows[resolvedCellInfo.rowIndex]
+        ?.cells[resolvedCellInfo.colIndex];
+      if (!targetCell) return undefined;
+      return {
+        kind: 'cells',
+        tableCellRange,
+        focus: { blockId: targetCell.blocks[0].id, offset: 0 },
+      };
+    }
+
+    // Different cell in different tables or outer table — cell-range mode
+    // within the outermost table.
+    const outerAnchorCA = this.findOuterCellAddress(anchorBlockId, resolveTableId);
+    if (!outerAnchorCA) return undefined;
+    const tableData = this.doc.getBlock(resolveTableId).tableData;
+    if (!tableData) return undefined;
+    const tableCellRange = expandCellRangeForMerges(
+      { blockId: resolveTableId, start: outerAnchorCA, end: outerCA },
+      tableData,
+    );
+    const targetCell = tableData.rows[outerCA.rowIndex]?.cells[outerCA.colIndex];
+    if (!targetCell) return undefined;
+    return {
+      kind: 'cells',
+      tableCellRange,
+      focus: { blockId: targetCell.blocks[0].id, offset: 0 },
+    };
   }
 
   // --- Helpers ---
@@ -4246,10 +4389,16 @@ export class TextEditor {
     if (!normalized?.tableCellRange) return null;
 
     const cr = normalized.tableCellRange;
-    const lb = layout.blocks.find((b) => b.block.id === cr.blockId);
-    if (!lb?.block.tableData) return null;
+    // And for the same reason `normalizeRange()` stopped resolving the table
+    // with a flat `layout.blocks` lookup: a *nested* table is not in
+    // `layout.blocks` at all, so a cell rectangle painted inside one copied
+    // nothing while the delete path happily cleared it (#1049). Fall back to
+    // the resolver the painter uses, so what is copied is what is painted.
+    const td =
+      layout.blocks.find((b) => b.block.id === cr.blockId)?.block.tableData ??
+      resolveNestedTableLayout(cr.blockId, layout)?.dataBlock.tableData;
+    if (!td) return null;
 
-    const td = lb.block.tableData;
     const rows: TableCell[][] = [];
     for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
       const row: TableCell[] = [];
@@ -4469,12 +4618,24 @@ export class TextEditor {
    * formatting. Handles single-block (inline merge) and multi-block
    * (split + insert) cases.
    */
-  private insertBlocks(blocks: Block[]): void {
-    if (blocks.length === 0) return;
+  private insertBlocks(incoming: Block[]): void {
+    if (incoming.length === 0) return;
 
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
     const pos = this.cursor.position;
+
+    // Paste is a producer of the same tree the DOCX importer and the CRDT
+    // writers are, so it owes the same absolute nesting ceiling. The clipboard
+    // sanitizer can only bound the fragment's *own* depth — it does not know
+    // where the fragment lands — so the absolute cap is applied here, where
+    // the target's depth is known. Tables past it are dropped; everything
+    // around them still pastes.
+    const blocks = capTableNesting(
+      incoming,
+      this.doc.tableNestingDepth(pos.blockId),
+    );
+    if (blocks.length === 0) return;
     if (blocks.length === 1 && blocks[0].type === 'table') {
       // Single table block: insert as a new block (cannot merge into current).
       this.invalidateLayout();
@@ -4491,9 +4652,9 @@ export class TextEditor {
         const blockIdx = this.doc.getBlockIndex(pos.blockId);
         this.doc.insertBlockAt(blockIdx + 1, newBlock);
       }
-      const firstCellBlock = newBlock.tableData?.rows[0]?.cells[0]?.blocks[0];
-      if (firstCellBlock) {
-        this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
+      const entered = firstCellBlock(newBlock);
+      if (entered) {
+        this.cursor.moveTo({ blockId: entered.id, offset: 0 }, 'forward');
       }
     } else if (blocks.length === 1) {
       // Single block: merge pasted inlines into the current block at cursor
@@ -4599,6 +4760,14 @@ export class TextEditor {
   /**
    * Paste table cells into the current table at the cursor position.
    * If cursor is not in a table, creates a new table block from the cells.
+   *
+   * The sibling of `insertBlocks` as a paste *producer*, and it owes the same
+   * absolute nesting ceiling: a clipboard cell can carry a whole nested table
+   * of its own, and this writes one verbatim into a cell that may already sit
+   * near the cap. `capTableCellsNesting` is applied at the depth the cell
+   * contents actually land at — one past the table that will hold them — so
+   * the tables past the ceiling are dropped and everything around them still
+   * pastes, exactly as on the block path.
    */
   private pasteTableCells(cells: TableCell[][]): void {
     if (cells.length === 0) return;
@@ -4610,6 +4779,12 @@ export class TextEditor {
     const pos = this.cursor.position;
     const cellInfo = layout.blockParentMap.get(pos.blockId);
 
+    // Cursor inside a cell: the pasted contents replace that cell's blocks, so
+    // they land at the caret's own depth. Otherwise a brand-new table is
+    // created beside the caret, and its cells' blocks land one level deeper.
+    const cellBaseDepth =
+      this.doc.tableNestingDepth(pos.blockId) + (cellInfo ? 0 : 1);
+
     if (!cellInfo) {
       // Cursor not in a table — insert a new table block from the cells
       const rows = cells.length;
@@ -4618,7 +4793,10 @@ export class TextEditor {
       const td = tableBlock.tableData!;
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cells[r].length; c++) {
-          const cloned = cloneTableCells([[cells[r][c]]])[0][0];
+          const cloned = capTableCellsNesting(
+            cloneTableCells([[cells[r][c]]]),
+            cellBaseDepth,
+          )[0][0];
           td.rows[r].cells[c] = cloned;
         }
       }
@@ -4628,8 +4806,12 @@ export class TextEditor {
       const blockIdx = this.doc.getBlockIndex(pos.blockId);
       this.doc.insertBlockAt(blockIdx + 1, tableBlock);
       this.invalidateLayout();
-      const firstCellBlock = td.rows[0].cells[0].blocks[0];
-      this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
+      // `cells` can be empty, and a table built from no rows has no cell to
+      // put the caret in; leave it where it is rather than dereference one.
+      const entered = td.rows[0]?.cells[0]?.blocks[0];
+      if (entered) {
+        this.cursor.moveTo({ blockId: entered.id, offset: 0 }, 'forward');
+      }
       return;
     }
 
@@ -4650,7 +4832,10 @@ export class TextEditor {
         const targetCol = startCol + c;
         if (targetCol >= td.rows[targetRow].cells.length) continue; // clamp
 
-        const cloned = cloneTableCells([[cells[r][c]]])[0][0];
+        const cloned = capTableCellsNesting(
+          cloneTableCells([[cells[r][c]]]),
+          cellBaseDepth,
+        )[0][0];
         td.rows[targetRow].cells[targetCol] = cloned;
       }
     }
@@ -4663,8 +4848,9 @@ export class TextEditor {
     // Move cursor to the last pasted cell's first block
     const lastRow = Math.min(startRow + cells.length - 1, td.rows.length - 1);
     const lastColIdx = Math.max(0, cells[cells.length - 1].length - 1);
-    const lastCol = Math.min(startCol + lastColIdx, td.rows[lastRow].cells.length - 1);
-    const lastCell = td.rows[lastRow].cells[lastCol];
+    const lastRowCells = td.rows[lastRow]?.cells ?? [];
+    const lastCol = Math.min(startCol + lastColIdx, lastRowCells.length - 1);
+    const lastCell = lastRowCells[lastCol];
     if (lastCell?.blocks[0]) {
       this.cursor.moveTo({ blockId: lastCell.blocks[0].id, offset: 0 }, 'forward');
     }
@@ -4743,16 +4929,15 @@ export class TextEditor {
       const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx > 0) {
         const prevBlock = cell.blocks[blockIdx - 1];
-        // If previous block is a nested table, enter its last cell
-        if (prevBlock.type === 'table' && prevBlock.tableData) {
-          const td = prevBlock.tableData;
-          const lastRow = td.rows.length - 1;
-          const lastCol = td.columnWidths.length - 1;
-          const lastCell = td.rows[lastRow].cells[lastCol];
-          const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-          return { blockId: lastCellBlock.id, offset: getBlockTextLength(lastCellBlock) };
-        }
-        return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+        // If previous block is a nested table, enter its last cell. A table
+        // with no cell to enter (see `lastCellBlock`) is treated as the plain
+        // block it looks like from here.
+        const entered =
+          prevBlock.type === 'table'
+            ? lastCellBlock(prevBlock, (prevBlock.tableData?.columnWidths.length ?? 0) - 1)
+            : undefined;
+        const target = entered ?? prevBlock;
+        return { blockId: target.id, offset: getBlockTextLength(target) };
       }
       return pos; // Clamp at cell start
     }
@@ -4764,16 +4949,14 @@ export class TextEditor {
     const blocks = this.doc.getContextBlocks();
     if (idx > 0) {
       const prevBlock = blocks[idx - 1];
-      // If previous block is a table, enter its last cell
-      if (prevBlock.type === 'table' && prevBlock.tableData) {
-        const td = prevBlock.tableData;
-        const lastRow = td.rows.length - 1;
-        const lastCol = td.columnWidths.length - 1;
-        const lastCell = td.rows[lastRow].cells[lastCol];
-        const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-        return { blockId: lastCellBlock.id, offset: getBlockTextLength(lastCellBlock) };
-      }
-      return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+      // If previous block is a table, enter its last cell — or land on it when
+      // there is none (see `lastCellBlock`).
+      const entered =
+        prevBlock.type === 'table'
+          ? lastCellBlock(prevBlock, (prevBlock.tableData?.columnWidths.length ?? 0) - 1)
+          : undefined;
+      const target = entered ?? prevBlock;
+      return { blockId: target.id, offset: getBlockTextLength(target) };
     }
     return pos;
   }
@@ -4791,11 +4974,11 @@ export class TextEditor {
       const blockIdx = tableCell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx + 1 < tableCell.blocks.length) {
         const nextBlock = tableCell.blocks[blockIdx + 1];
-        // If next block is a nested table, enter its first cell
-        if (nextBlock.type === 'table' && nextBlock.tableData) {
-          return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
-        }
-        return { blockId: nextBlock.id, offset: 0 };
+        // If next block is a nested table, enter its first cell — or land on
+        // it when there is none (see `firstCellBlock`).
+        const entered =
+          nextBlock.type === 'table' ? firstCellBlock(nextBlock) : undefined;
+        return { blockId: (entered ?? nextBlock).id, offset: 0 };
       }
       return pos; // Clamp at cell end
     }
@@ -4809,11 +4992,11 @@ export class TextEditor {
     const blocks = this.doc.getContextBlocks();
     if (idx < blocks.length - 1) {
       const nextBlock = blocks[idx + 1];
-      // If next block is a table, enter its first cell
-      if (nextBlock.type === 'table' && nextBlock.tableData) {
-        return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
-      }
-      return { blockId: nextBlock.id, offset: 0 };
+      // If next block is a table, enter its first cell — or land on it when
+      // there is none (see `firstCellBlock`).
+      const entered =
+        nextBlock.type === 'table' ? firstCellBlock(nextBlock) : undefined;
+      return { blockId: (entered ?? nextBlock).id, offset: 0 };
     }
     return pos;
   }
@@ -5017,15 +5200,18 @@ export class TextEditor {
           const fallbackBlock = layout.blocks[targetLine.blockIndex]?.block;
           if (fallbackBlock?.type === 'table' && fallbackBlock.tableData) {
             const td = fallbackBlock.tableData;
-            if (direction === -1) {
-              const lastRow = td.rows.length - 1;
-              const lastCol = td.columnWidths.length - 1;
-              const lastCell = td.rows[lastRow].cells[lastCol];
-              const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-              return { blockId: lastCellBlock.id, offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)) };
-            } else {
-              const firstCellBlock = td.rows[0].cells[0].blocks[0];
-              return { blockId: firstCellBlock.id, offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)) };
+            // `undefined` when the table has no cell to enter (see
+            // `firstCellBlock`) — then there is nowhere on that page to go,
+            // which is the same answer the non-table case gives.
+            const entered =
+              direction === -1
+                ? lastCellBlock(fallbackBlock, td.columnWidths.length - 1)
+                : firstCellBlock(fallbackBlock);
+            if (entered) {
+              return {
+                blockId: entered.id,
+                offset: Math.min(pos.offset, getBlockTextLength(entered)),
+              };
             }
           }
           return pos;
@@ -5057,22 +5243,17 @@ export class TextEditor {
       const targetBlock = this.doc.document.blocks.find((b) => b.id === result.blockId);
       if (targetBlock?.type === 'table' && targetBlock.tableData) {
         const td = targetBlock.tableData;
-        if (direction === 1) {
-          // Down → first cell, first block
-          const firstCellBlock = td.rows[0].cells[0].blocks[0];
+        // Down → first cell's first block; up → last cell's last block.
+        // `undefined` when the table has neither (see `firstCellBlock`), in
+        // which case the caret keeps the position the pixel lookup returned.
+        const entered =
+          direction === 1
+            ? firstCellBlock(targetBlock)
+            : lastCellBlock(targetBlock, td.columnWidths.length - 1);
+        if (entered) {
           return {
-            blockId: firstCellBlock.id,
-            offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)),
-          };
-        } else {
-          // Up → last cell, last block
-          const lastRow = td.rows.length - 1;
-          const lastCol = td.columnWidths.length - 1;
-          const lastCell = td.rows[lastRow].cells[lastCol];
-          const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
-          return {
-            blockId: lastCellBlock.id,
-            offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)),
+            blockId: entered.id,
+            offset: Math.min(pos.offset, getBlockTextLength(entered)),
           };
         }
       }
@@ -5858,8 +6039,15 @@ export class TextEditor {
    * Returns true if movement happened.
    * When addRowAtEnd is true (Tab key), inserts a new row at the last cell.
    * When false (ArrowRight), exits the table instead.
+   *
+   * `seen` carries the tables this walk has already stepped out of, and is the
+   * same cycle guard the other `blockParentMap` walks carry: block ids arrive
+   * verbatim from peer-written CRDT attributes, so two tables sharing an id
+   * make the parent chain loop (A → B → A), and each step out of a nested
+   * table recurses here. A cycle stops the walk — the caller reads it as "no
+   * movement" — instead of recursing until the stack blows on a Tab press.
    */
-  private moveToNextCell(addRowAtEnd = false): boolean {
+  private moveToNextCell(addRowAtEnd = false, seen?: Set<string>): boolean {
     const pos = this.cursor.position;
     const cellInfo = this.getCellInfo(pos.blockId);
     if (!cellInfo) return false;
@@ -5899,8 +6087,15 @@ export class TextEditor {
       this.invalidateLayout();
       // After insertRow, re-fetch the block to get the new row's cell blocks
       const updatedBlock = this.doc.getBlock(tableBlockId);
-      const newCell = updatedBlock.tableData!.rows[newRowIndex].cells[0];
-      this.cursor.moveTo({ blockId: newCell.blocks[0].id, offset: 0 });
+      // The row is not guaranteed: `Doc.insertRow` declines on a table nested
+      // at or past `MAX_TABLE_NESTING_DEPTH` (and the CRDT store declines the
+      // write under it), so the re-fetched table may still have the rows it
+      // had. Read it back rather than assuming, or Tab in the last cell of
+      // such a table is a `TypeError` instead of a no-op.
+      const newCell = updatedBlock.tableData?.rows[newRowIndex]?.cells[0];
+      const newCellBlock = newCell?.blocks[0];
+      if (!newCellBlock) return false;
+      this.cursor.moveTo({ blockId: newCellBlock.id, offset: 0 });
       return true;
     }
     // Exit table — move to the block after the table.
@@ -5920,8 +6115,11 @@ export class TextEditor {
       // No more blocks in parent cell — navigate to the next cell in the
       // outer table. Temporarily place the cursor on the first block of
       // the parent cell so getCellInfo resolves to the outer table context.
+      const visited = seen ?? new Set<string>();
+      if (visited.has(tableBlockId)) return false;
+      visited.add(tableBlockId);
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
-      return this.moveToNextCell(addRowAtEnd);
+      return this.moveToNextCell(addRowAtEnd, visited);
     }
     // Top-level table — move to the block after the table (region-aware:
     // ensureBlockAfter / getBlockIndex resolve against the active context).
@@ -5934,8 +6132,11 @@ export class TextEditor {
   /**
    * Move to the previous table cell (right-to-left, bottom-to-top).
    * Returns true if movement happened.
+   *
+   * `seen` is the same cycle guard `moveToNextCell` carries, for the same
+   * peer-written `blockParentMap` loop — see there.
    */
-  private moveToPrevCell(): boolean {
+  private moveToPrevCell(seen?: Set<string>): boolean {
     const pos = this.cursor.position;
     const cellInfo = this.getCellInfo(pos.blockId);
     if (!cellInfo) return false;
@@ -5978,8 +6179,11 @@ export class TextEditor {
       }
       // No blocks before this table in parent cell — navigate to previous
       // cell in the outer table.
+      const visited = seen ?? new Set<string>();
+      if (visited.has(tableBlockId)) return false;
+      visited.add(tableBlockId);
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
-      return this.moveToPrevCell();
+      return this.moveToPrevCell(visited);
     }
     // Top-level table — move to the block before the table (region-aware).
     const blockIndex = this.doc.getBlockIndex(tableBlockId);

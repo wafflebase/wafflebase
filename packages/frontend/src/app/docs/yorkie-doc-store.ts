@@ -54,6 +54,7 @@ import {
   isPaintableImageSize,
   normalizeTableSpan,
   parseColumnWidthsAttr,
+  MAX_TABLE_NESTING_DEPTH,
   sanitizeDocStyles,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
@@ -360,7 +361,29 @@ function serializeTableAttrs(
   return attrs;
 }
 
-function buildBlockNode(block: Block): ElementNode {
+/**
+ * One `Block` as a tree node.
+ *
+ * `depth` counts the tables already entered, mirroring the reader below: a
+ * table at `MAX_TABLE_NESTING_DEPTH` is written with no rows, because that is
+ * all any reader will ever materialize from it anyway. Without the cap a model
+ * that never came out of this CRDT — a DOCX import, a paste — could write a
+ * chain deeper than every reader's stack, i.e. a document nobody can open to
+ * repair. `writeFullDocument` additionally *refuses* a document that reaches
+ * the cap, since there the rows being dropped would be a peer's.
+ *
+ * It is **required**, with no default, because a default is wrong for most
+ * callers here: every incremental writer (`updateBlock`, `insertBlockAfter`,
+ * `insertBlocksAfter`, `splitBlock`) edits at a path that may sit inside an
+ * arbitrarily deep cell, so a counter that restarted at 0 would let those
+ * paths write straight past the cap — the cap would bind full-document writes
+ * only. `blockPathNestingDepth` turns the tree path each of them already holds
+ * into that count.
+ *
+ * Note the explicit arrow at each `map`: passing this function to `map`
+ * directly would hand it the array index as `depth`.
+ */
+function buildBlockNode(block: Block, depth: number): ElementNode {
   // Table block: children are row → cell → block nodes
   if (block.type === 'table' && block.tableData) {
     return {
@@ -371,7 +394,10 @@ function buildBlockNode(block: Block): ElementNode {
         ...serializeTableAttrs(block.tableData.columnWidths, block.tableData.rowHeights),
         ...serializeBlockStyle(block.style),
       },
-      children: block.tableData.rows.map(buildRowNode),
+      children:
+        depth >= MAX_TABLE_NESTING_DEPTH
+          ? []
+          : block.tableData.rows.map((row) => buildRowNode(row, depth + 1)),
     };
   }
 
@@ -396,20 +422,119 @@ function buildBlockNode(block: Block): ElementNode {
   };
 }
 
-function buildCellNode(cell: TableCell): ElementNode {
+function buildCellNode(cell: TableCell, depth: number): ElementNode {
   return {
     type: 'cell' as const,
     attributes: serializeCellStyle(cell),
-    children: cell.blocks.map(buildBlockNode),
+    children: cell.blocks.map((b) => buildBlockNode(b, depth)),
   };
 }
 
-function buildRowNode(row: TableRow): ElementNode {
+function buildRowNode(row: TableRow, depth: number): ElementNode {
   return {
     type: 'row' as const,
     attributes: {},
-    children: row.cells.map(buildCellNode),
+    children: row.cells.map((c) => buildCellNode(c, depth)),
   };
+}
+
+/**
+ * Whether any table in `blocks` sits at or past `MAX_TABLE_NESTING_DEPTH` —
+ * the depth at which `treeNodeToBlock` stops descending and reports the table
+ * as one with no rows.
+ *
+ * This is the read cap seen from the write side. `getDocument()` returns the
+ * *truncated* model, so any path that takes that model and rewrites the whole
+ * tree from it would replace a peer's deep rows with nothing — turning a
+ * read-time truncation this reader applies for its own safety into a deletion
+ * every replica then receives. A document that trips this is already
+ * pathological (32 nested tables; Word stops authors at about 20), so the full
+ * write refuses rather than guessing.
+ */
+function hasTableAtNestingCap(blocks: Block[], depth = 0): boolean {
+  for (const block of blocks) {
+    if (block.type !== 'table' || !block.tableData) continue;
+    if (depth >= MAX_TABLE_NESTING_DEPTH) return true;
+    for (const row of block.tableData.rows) {
+      for (const cell of row.cells) {
+        if (hasTableAtNestingCap(cell.blocks, depth + 1)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether the CRDT subtree at `node` holds rows this reader never read — a
+ * `table` block node at or past `MAX_TABLE_NESTING_DEPTH` that *does* have row
+ * children in the tree, which `treeNodeToBlock` hands back as `rows: []`.
+ *
+ * This is the question the model alone cannot answer. `hasTableAtNestingCap`
+ * says "the model has a table at the cap", which is true both of a table the
+ * reader truncated and of one the caller just built; only the tree
+ * distinguishes them. A writer that *replaces* a range asks this before
+ * overwriting it, so a truncation stays a local read-time omission instead of
+ * becoming a deletion every replica receives, while the same writer inserting
+ * fresh content next to it still degrades to a rowless table (`buildBlockNode`)
+ * rather than failing an edit nobody's rows depend on.
+ *
+ * `depth` counts the tables already entered, the same count
+ * `buildBlockNode`/`treeNodeToBlock` keep: rows, and so the blocks in their
+ * cells, sit one deeper than the table block that owns them.
+ */
+function treeHasTruncatedRows(node: TreeNode | undefined, depth: number): boolean {
+  if (!node || node.type === 'text') return false;
+  const el = node as ElementNode;
+  const children = el.children ?? [];
+  if (el.type === 'inline') return false;
+  if (el.type === 'block') {
+    const attrs = (el.attributes ?? {}) as Record<string, string>;
+    if (attrs.type !== 'table') return false;
+    const rows = children.filter((c) => c.type === 'row');
+    if (rows.length === 0) return false;
+    if (depth >= MAX_TABLE_NESTING_DEPTH) return true;
+    return rows.some((r) => treeHasTruncatedRows(r, depth + 1));
+  }
+  // row / cell / header / footer: the depth passes through to the children.
+  return children.some((c) => treeHasTruncatedRows(c, depth));
+}
+
+/** The refusal `writeFullDocument` raises. */
+function truncatedRowsError(): Error {
+  return new Error(
+    'refusing to rewrite the document: a table is nested at or past ' +
+      `${MAX_TABLE_NESTING_DEPTH} levels, where the reader stops ` +
+      'descending, so the write would delete rows it never read',
+  );
+}
+
+/**
+ * The same refusal on an *incremental* writer, which declines the write
+ * instead of throwing.
+ *
+ * `writeFullDocument` is reached from `setDocument`/`replaceDocument` — an
+ * import or a restore, one call that either happened or did not — so throwing
+ * there reports a failure to a caller shaped to receive one. `updateBlock`,
+ * `updateTableCell`, `insertTableRow` and `insertTableColumn` are the opposite:
+ * every one of them is reached through a `Doc` mutator from the middle of an
+ * editor command (a delete that has already cleared three cells, a paste
+ * half-applied), and none of those callers — nor `MemDocStore`, which cannot
+ * refuse at all — has ever had to handle a throwing store. An exception there
+ * would abandon the command between two writes.
+ *
+ * So the writer leaves the CRDT *and* its cache untouched and returns: the
+ * store still describes exactly what the tree holds, `Doc.refresh()` reads the
+ * unchanged document back, and the edit is the only thing lost — the direction
+ * the whole cap takes. The warning is what makes it observable, since a
+ * document that reaches 32 levels of nested tables is pathological and nobody
+ * should have to infer the refusal from a missing edit.
+ */
+function warnDeclinedTruncatedRowsWrite(what: string): void {
+  console.warn(
+    `[docs] declined ${what}: a table is nested at or past ` +
+      `${MAX_TABLE_NESTING_DEPTH} levels, where the reader stops descending, ` +
+      'so the write would delete rows it never read',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -432,21 +557,21 @@ function treeNodeToInline(node: TreeNode): Inline {
   };
 }
 
-function treeNodeToRow(node: TreeNode): TableRow {
+function treeNodeToRow(node: TreeNode, depth: number): TableRow {
   const el = node as ElementNode;
   return {
     cells: (el.children ?? [])
       .filter((c) => c.type === 'cell')
-      .map(treeNodeToCell),
+      .map((c) => treeNodeToCell(c, depth)),
   };
 }
 
-function treeNodeToCell(node: TreeNode): TableCell {
+function treeNodeToCell(node: TreeNode, depth: number): TableCell {
   const el = node as ElementNode;
   const attrs = (el.attributes ?? {}) as Record<string, string>;
   const blocks = (el.children ?? [])
     .filter((c) => c.type === 'block')
-    .map(treeNodeToBlock);
+    .map((c) => treeNodeToBlock(c, depth));
   return {
     blocks: blocks.length > 0
       ? blocks
@@ -462,16 +587,25 @@ function treeNodeToCell(node: TreeNode): TableCell {
   };
 }
 
-function treeNodeToBlock(node: TreeNode): Block {
+function treeNodeToBlock(node: TreeNode, depth = 0): Block {
   const el = node as ElementNode;
   const attrs = (el.attributes ?? {}) as Record<string, string>;
   const blockType = (attrs.type as Block['type']) ?? 'paragraph';
 
   // Table block: parse row → cell → block children
   if (blockType === 'table') {
-    const rows = (el.children ?? [])
-      .filter((c) => c.type === 'row')
-      .map(treeNodeToRow);
+    // Capped like the engine reader's `treeNodeToBlock`, and for the one part
+    // of this shape that no attribute band can reach: nesting is structural,
+    // a peer can write `block > row > cell > block > table > …` to any depth
+    // with ordinary Tree writes, and every level costs a stack frame here and
+    // two more in `computeTableLayout`. Past the cap the table reads as one
+    // with no rows, so the document still opens. See `MAX_TABLE_NESTING_DEPTH`.
+    const rows =
+      depth >= MAX_TABLE_NESTING_DEPTH
+        ? []
+        : (el.children ?? [])
+            .filter((c) => c.type === 'row')
+            .map((c) => treeNodeToRow(c, depth + 1));
     // Banded on count *and* magnitude rather than merely filtered for `NaN`:
     // the length is `computeTableLayout`'s `numCols`, which allocates a cell
     // per (row, column) pair, and `Number('1e400')` is an `Infinity` ratio
@@ -542,13 +676,16 @@ function treeToDocument(root: TreeNode): Document {
     if (child.type === 'header') {
       const attrs = (child as ElementNode).attributes ?? {};
       doc.header = {
-        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        // Wrapped rather than passed as the callback: `map` supplies the
+        // element index as the second argument, which `treeNodeToBlock` reads
+        // as the nesting depth.
+        blocks: ((child as ElementNode).children ?? []).map((c) => treeNodeToBlock(c)),
         marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'footer') {
       const attrs = (child as ElementNode).attributes ?? {};
       doc.footer = {
-        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        blocks: ((child as ElementNode).children ?? []).map((c) => treeNodeToBlock(c)),
         marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'block') {
@@ -901,6 +1038,21 @@ export class YorkieDocStore implements DocStore {
       return;
     }
 
+    // Replacing an existing header rewrites every block under it, so it owes
+    // the same refusal the full write does — the blocks being replaced came
+    // out of `getDocument()`, where a table at the cap lost its rows. Keyed on
+    // the *old* header for the reason `updateBlock` is: the replacement need
+    // not carry the deep table for the write to delete it.
+    if (
+      header &&
+      hadHeader &&
+      hasTableAtNestingCap(doc.header!.blocks, 0) &&
+      this.replacesTruncatedRows([0], 0)
+    ) {
+      warnDeclinedTruncatedRowsWrite('setHeader');
+      return;
+    }
+
     this.withUpdate((root) => {
       const tree = root.content;
 
@@ -908,7 +1060,7 @@ export class YorkieDocStore implements DocStore {
         const node: ElementNode = {
           type: 'header',
           attributes: serializeMarginFromEdge(header.marginFromEdge),
-          children: header.blocks.map(buildBlockNode),
+          children: header.blocks.map((b) => buildBlockNode(b, 0)),
         };
         if (hadHeader) {
           tree.editByPath([0], [1], node);
@@ -940,6 +1092,16 @@ export class YorkieDocStore implements DocStore {
       return;
     }
 
+    // The footer's twin of the header refusal above. Its node is the tree's
+    // last child, so the path has to be read off the same tree.
+    if (footer && hadFooter && hasTableAtNestingCap(doc.footer!.blocks, 0)) {
+      const children = (tree.getRootTreeNode() as ElementNode).children ?? [];
+      if (this.replacesTruncatedRows([children.length - 1], 0)) {
+        warnDeclinedTruncatedRowsWrite('setFooter');
+        return;
+      }
+    }
+
     this.withUpdate((root) => {
       const tree = root.content;
       const treeRoot = tree.getRootTreeNode() as ElementNode;
@@ -949,7 +1111,7 @@ export class YorkieDocStore implements DocStore {
         const node: ElementNode = {
           type: 'footer',
           attributes: serializeMarginFromEdge(footer.marginFromEdge),
-          children: footer.blocks.map(buildBlockNode),
+          children: footer.blocks.map((b) => buildBlockNode(b, 0)),
         };
         if (hadFooter) {
           tree.editByPath([childCount - 1], [childCount], node);
@@ -1583,6 +1745,60 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
+   * How many tables a block at `blockPath` already sits inside — the `depth`
+   * every `buildBlockNode` call on an incremental write path has to pass.
+   *
+   * `resolveBlockTreePath` appends one `[rowIdx, cellIdx, blockIdx]` triplet
+   * per table entered on top of the region prefix (1 segment for the body, 2
+   * for header/footer), so the count is just how many triplets the path
+   * carries. Without it every incremental writer would restart the counter at
+   * 0 and write past `MAX_TABLE_NESTING_DEPTH` at a path already deeper than
+   * the cap — the cap would bind `writeFullDocument` alone.
+   *
+   * The same count the reader keeps: a block in a top-level table's cell is at
+   * depth 1, which is the depth `treeNodeToBlock` hands it.
+   */
+  private blockPathNestingDepth(
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): number {
+    const topLevelLen = region === 'body' ? 1 : 2;
+    return Math.max(0, Math.floor((blockPath.length - topLevelLen) / 3));
+  }
+
+  /**
+   * Whether a write that *replaces* the tree node at `treePath` would delete
+   * rows this reader truncated.
+   *
+   * `writeFullDocument` refuses the same thing for the whole tree; every
+   * writer that overwrites an existing range has the same exposure over its
+   * own slice of it, because the model it is handed came out of a
+   * `getDocument()` that reports a table at the cap as one with no rows.
+   * Writing that back at the same path is no longer a local omission but a
+   * deletion of a peer's rows, replicated to everyone.
+   *
+   * Asked against the tree rather than the model on purpose (see
+   * `treeHasTruncatedRows`): "the model has a table at the cap" is also true
+   * of content the caller just built, and refusing *that* would break the
+   * documented "degrade, do not vanish" behaviour of the insert paths.
+   *
+   * Callers gate this on the cheap model-side test first — and that test is
+   * asked of the content being **replaced**, never of the replacement. The
+   * replacement is the wrong question: a writer that swaps a cell's contents
+   * for a plain paragraph (`Doc.deleteBlock` on the last block in a cell, the
+   * cell-rectangle delete in `text-editor.ts`, `Doc.setBlockStyle` on a
+   * paragraph that sits beside the deep table) carries no table at the cap at
+   * all, and would have walked straight past a gate keyed on it while still
+   * deleting the peer's rows.
+   */
+  private replacesTruncatedRows(treePath: number[], depth: number): boolean {
+    const tree = this.readRoot().content;
+    if (!tree || typeof tree.getRootTreeNode !== 'function') return false;
+    const node = this.getTreeBlockNode(tree.getRootTreeNode(), treePath);
+    return treeHasTruncatedRows(node, depth);
+  }
+
+  /**
    * Resolve the local array index for a block within its containing
    * Block[] (doc.blocks, header.blocks, footer.blocks, or cell.blocks).
    *
@@ -1653,6 +1869,24 @@ export class YorkieDocStore implements DocStore {
   updateBlock(id: string, block: Block): void {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(id, currentDoc);
+    const blockDepth = this.blockPathNestingDepth(blockPath, region);
+
+    // This replaces the whole block node, nested tables and all, so it is the
+    // incremental twin of `writeFullDocument`'s refusal: a table at the cap
+    // came back from `getDocument()` with no rows, and writing it here would
+    // delete a peer's. Asked of the block being *replaced* rather than of the
+    // replacement — the replacement need not carry the deep table at all for
+    // the write to delete it. The model test is the cheap one and gates the
+    // tree read, so an ordinary keystroke pays nothing.
+    const replaced = this.getBlockByRegion(currentDoc, blockPath, region);
+    if (
+      replaced &&
+      hasTableAtNestingCap([replaced], blockDepth) &&
+      this.replacesTruncatedRows(blockPath, blockDepth)
+    ) {
+      warnDeclinedTruncatedRowsWrite(`updateBlock(${id})`);
+      return;
+    }
 
     const endPath = [...blockPath];
     endPath[endPath.length - 1] += 1;
@@ -1664,7 +1898,7 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath(blockPath, endPath, buildBlockNode(block));
+      tree.editByPath(blockPath, endPath, buildBlockNode(block, blockDepth));
     });
     // Update cache in-place
     this.setBlockByRegion(currentDoc, blockPath, region, block);
@@ -2253,7 +2487,8 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([index + off], [index + off], buildBlockNode(block));
+      // A body top-level insert, so no table has been entered.
+      tree.editByPath([index + off], [index + off], buildBlockNode(block, 0));
     });
     // Update cache in-place
     currentDoc.blocks.splice(index, 0, block);
@@ -2276,7 +2511,14 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath(insertPath, insertPath, buildBlockNode(block));
+      // The insert lands beside the sibling, so it inherits the sibling's
+      // nesting depth — a table pasted into a cell 31 tables deep is written
+      // at 31, not at 0.
+      tree.editByPath(
+        insertPath,
+        insertPath,
+        buildBlockNode(block, this.blockPathNestingDepth(siblingPath, region)),
+      );
     });
 
     // Update cache in-place
@@ -2312,7 +2554,10 @@ export class YorkieDocStore implements DocStore {
     const insertPath = [...siblingPath];
     insertPath[insertPath.length - 1] += 1;
 
-    const nodes = blocks.map((b) => buildBlockNode(b));
+    // Same as `insertBlockAfter`: the batch lands beside the sibling, so the
+    // sibling's nesting depth is where these blocks start counting.
+    const siblingDepth = this.blockPathNestingDepth(siblingPath, region);
+    const nodes = blocks.map((b) => buildBlockNode(b, siblingDepth));
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -2392,6 +2637,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
 
+    // Neither half of a split is ever a table (the guard above), so the depth
+    // changes nothing here — passed anyway so no `buildBlockNode` call site in
+    // this file restarts the counter at 0 by omission.
+    const blockDepth = this.blockPathNestingDepth(blockPath, region);
+
     // Splitting a bulleted heading at offset 0 moves the remembered level onto
     // the block that takes the heading text, so the attribute has to move in
     // the tree too (`applySplitBlock` moves it in the cache below).
@@ -2451,7 +2701,7 @@ export class YorkieDocStore implements DocStore {
           type: newBlockType,
           inlines: [{ text: '', style: {} }],
           style: block.style,
-        }));
+        }, blockDepth));
         tree.styleByPath(afterPath, afterAttrs);
       } else {
         // Manual two-step split (avoids splitLevel=2 which breaks undo/redo):
@@ -2537,7 +2787,7 @@ export class YorkieDocStore implements DocStore {
           block.headingLevel !== undefined
             ? { headingLevel: block.headingLevel }
             : {}),
-        }));
+        }, blockDepth));
       }
     });
 
@@ -2667,6 +2917,46 @@ export class YorkieDocStore implements DocStore {
     return this.resolveBlockTreePath(tableBlockId, this.getDocument()).path;
   }
 
+  /**
+   * The table's tree path plus the depth its *rows* are written at.
+   *
+   * The row/cell writers below build subtrees of their own, so they need the
+   * same counter `buildBlockNode` keeps or a nested table inside the row or
+   * cell they write would restart it at 0 and sail past
+   * `MAX_TABLE_NESTING_DEPTH`. A table block at depth `d` has its rows at
+   * `d + 1`, exactly as `buildBlockNode` recurses.
+   */
+  private resolveTableRowDepth(tableBlockId: string): {
+    path: number[];
+    rowDepth: number;
+    doc: Document;
+  } {
+    const doc = this.getDocument();
+    const { path, region } = this.resolveBlockTreePath(tableBlockId, doc);
+    return { path, rowDepth: this.blockPathNestingDepth(path, region) + 1, doc };
+  }
+
+  /**
+   * Whether the table at `rowDepth` is one whose rows no reader ever
+   * materializes — its block sits at or past `MAX_TABLE_NESTING_DEPTH`, so
+   * `treeNodeToBlock` hands it back as `rows: []`.
+   *
+   * The row/cell writers below are the two paths that add rows to a table
+   * *without* going through `buildBlockNode`, which truncates at the cap. Past
+   * it they would write rows straight into the CRDT that every reader —
+   * including the one that asked for the insert, working from a `rows: []`
+   * model — then declines to read: content nobody can see, repair, or delete,
+   * and which permanently blocks every replacing write over the block that
+   * holds it. So they decline instead, the same direction
+   * `Doc.insertTableInCell` takes for the interactive producer.
+   *
+   * A table block at depth `d` has its rows at `d + 1`, so the block is past
+   * the cap exactly when `rowDepth > MAX_TABLE_NESTING_DEPTH`.
+   */
+  private isPastReadableNesting(rowDepth: number): boolean {
+    return rowDepth > MAX_TABLE_NESTING_DEPTH;
+  }
+
   /** Returns body array index and tree-adjusted index for a table block. */
   private findTableIndex(tableBlockId: string): { bodyIdx: number; treeIdx: number } {
     const path = this.resolveTableTreePath(tableBlockId);
@@ -2715,8 +3005,12 @@ export class YorkieDocStore implements DocStore {
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
-    const tablePath = this.resolveTableTreePath(tableBlockId);
-    const rowNode = buildRowNode(row);
+    const { path: tablePath, rowDepth } = this.resolveTableRowDepth(tableBlockId);
+    if (this.isPastReadableNesting(rowDepth)) {
+      warnDeclinedTruncatedRowsWrite(`insertTableRow(${tableBlockId})`);
+      return;
+    }
+    const rowNode = buildRowNode(row, rowDepth);
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -2748,7 +3042,11 @@ export class YorkieDocStore implements DocStore {
   }
 
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
-    const tablePath = this.resolveTableTreePath(tableBlockId);
+    const { path: tablePath, rowDepth } = this.resolveTableRowDepth(tableBlockId);
+    if (this.isPastReadableNesting(rowDepth)) {
+      warnDeclinedTruncatedRowsWrite(`insertTableColumn(${tableBlockId})`);
+      return;
+    }
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -2759,7 +3057,7 @@ export class YorkieDocStore implements DocStore {
         tree.editByPath(
           [...tablePath, r, atIndex],
           [...tablePath, r, atIndex],
-          buildCellNode(cells[r]),
+          buildCellNode(cells[r], rowDepth),
         );
       }
     });
@@ -2798,8 +3096,30 @@ export class YorkieDocStore implements DocStore {
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void {
-    const tablePath = this.resolveTableTreePath(tableBlockId);
-    const cellNode = buildCellNode(cell);
+    const {
+      path: tablePath,
+      rowDepth,
+      doc: docBeforeWrite,
+    } = this.resolveTableRowDepth(tableBlockId);
+    // Replaces the cell node whole, so it carries the same refusal
+    // `updateBlock` does: the cell's old contents may include a table this
+    // reader truncated, and the replacement would delete its rows. Keyed on
+    // the cell being *replaced* — a writer that swaps those contents for a
+    // plain paragraph (the cell-rectangle delete) carries no table at the cap
+    // itself and would otherwise walk straight past the gate.
+    const replaced = this.resolveTableBlock(tablePath, docBeforeWrite)
+      .tableData?.rows[rowIndex]?.cells[colIndex];
+    if (
+      replaced &&
+      hasTableAtNestingCap(replaced.blocks, rowDepth) &&
+      this.replacesTruncatedRows([...tablePath, rowIndex, colIndex], rowDepth)
+    ) {
+      warnDeclinedTruncatedRowsWrite(
+        `updateTableCell(${tableBlockId}, ${rowIndex}, ${colIndex})`,
+      );
+      return;
+    }
+    const cellNode = buildCellNode(cell, rowDepth);
     const cursorForHistory = this.consumePendingCursor();
     this.withUpdate((root, p) => {
       if (cursorForHistory) {
@@ -3190,8 +3510,25 @@ export class YorkieDocStore implements DocStore {
   /**
    * Replace the entire tree content with the given document.
    * This deletes all existing blocks and inserts new ones.
+   *
+   * Refuses a document that reached the read cap. Every caller here hands over
+   * a model that came out of `getDocument()` (`setHeader` / `setFooter` on the
+   * treeless path) or out of an importer, and the reader truncates a table
+   * nested at `MAX_TABLE_NESTING_DEPTH` to no rows. Rewriting the whole tree
+   * from that model would push the truncation into the CRDT, where it is no
+   * longer this reader declining to descend but a *deletion* of rows a peer
+   * wrote, replicated to everyone. Nothing legitimate reaches 32 levels of
+   * nested tables, so the header edit is refused instead — the one thing lost
+   * is the edit, not the document.
    */
   private writeFullDocument(document: Document): void {
+    if (
+      hasTableAtNestingCap(document.blocks) ||
+      (document.header && hasTableAtNestingCap(document.header.blocks)) ||
+      (document.footer && hasTableAtNestingCap(document.footer.blocks))
+    ) {
+      throw truncatedRowsError();
+    }
     this.withUpdate((root) => {
       const tree = root.content;
 
@@ -3202,15 +3539,15 @@ export class YorkieDocStore implements DocStore {
           children.push({
             type: 'header',
             attributes: serializeMarginFromEdge(document.header.marginFromEdge),
-            children: document.header.blocks.map(buildBlockNode),
+            children: document.header.blocks.map((b) => buildBlockNode(b, 0)),
           });
         }
-        children.push(...document.blocks.map(buildBlockNode));
+        children.push(...document.blocks.map((b) => buildBlockNode(b, 0)));
         if (document.footer) {
           children.push({
             type: 'footer',
             attributes: serializeMarginFromEdge(document.footer.marginFromEdge),
-            children: document.footer.blocks.map(buildBlockNode),
+            children: document.footer.blocks.map((b) => buildBlockNode(b, 0)),
           });
         }
         return children;

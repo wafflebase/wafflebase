@@ -115,7 +115,9 @@ describe('expandCellRangeForMerges', () => {
 });
 
 import { Selection } from '../../src/view/selection.js';
-import type { DocumentLayout, LayoutBlock } from '../../src/view/layout.js';
+import { computeLayout, type DocumentLayout, type LayoutBlock } from '../../src/view/layout.js';
+import { createTableBlock, DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../../src/model/types.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
 describe('Selection.getNormalizedRange — cell range expansion at read time', () => {
   it('expands a partially-overlapping cell range using layout TableData', () => {
@@ -148,5 +150,128 @@ describe('Selection.getNormalizedRange — cell range expansion at read time', (
     const normalized = sel.getNormalizedRange(layout);
     expect(normalized?.tableCellRange?.start).toEqual({ rowIndex: 0, colIndex: 0 });
     expect(normalized?.tableCellRange?.end).toEqual({ rowIndex: 2, colIndex: 2 });
+  });
+
+  /**
+   * A nested table lives in `blockParentMap`, not in `layout.blocks`, so the
+   * flat lookup this used to do found no `TableData` and the expansion above
+   * silently did nothing — the columns a merge covers then painted only
+   * inside the merged row (#1049).
+   */
+  it('expands inside a nested table too', () => {
+    const outer = createTableBlock(1, 1);
+    const inner = createTableBlock(3, 3);
+    const itd = inner.tableData!;
+    // Inner row 1 is one cell spanning columns 0–1.
+    itd.rows[1].cells[0].colSpan = 2;
+    itd.rows[1].cells[0].rowSpan = 1;
+    itd.rows[1].cells[1].colSpan = 0;
+    outer.tableData!.rows[0].cells[0].blocks = [inner];
+
+    const setup = DEFAULT_PAGE_SETUP;
+    const { width } = getEffectiveDimensions(setup);
+    const { layout } = computeLayout(
+      [outer],
+      stubMeasurer(7),
+      width - setup.margins.left - setup.margins.right,
+    );
+
+    const sel = new Selection();
+    sel.setRange({
+      anchor: { blockId: itd.rows[0].cells[0].blocks[0].id, offset: 0 },
+      focus: { blockId: itd.rows[2].cells[0].blocks[0].id, offset: 0 },
+      tableCellRange: {
+        blockId: inner.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: 2, colIndex: 0 },
+      },
+    });
+
+    const normalized = sel.getNormalizedRange(layout);
+    expect(normalized?.tableCellRange?.start).toEqual({ rowIndex: 0, colIndex: 0 });
+    expect(normalized?.tableCellRange?.end).toEqual({ rowIndex: 2, colIndex: 1 });
+  });
+});
+
+describe('the merge expansion is bounded on the render path only', () => {
+  /**
+   * `normalizeCellRange` runs this once per peer per paint, over a table whose
+   * size is the *peer's* to choose — rows are structure, so no numeric band
+   * reaches them. The scan is a fixed-point loop over the rectangle, and every
+   * orphan covered cell in it (one whose owner was never written) walks back
+   * over everything above-left of itself, so the cost is superlinear in a size
+   * the peer picks. The budget makes it terminate promptly instead.
+   *
+   * It is a *parameter*, not a property of the function: the callers that feed
+   * the rectangle to `mergeCells` pass none and get an exact answer, because a
+   * rectangle that stopped growing early would merge through the middle of an
+   * existing merge. The two cases below pin both halves of that.
+   */
+  it('stops early when a budget is given', () => {
+    const rows = 400;
+    const cols = 400;
+    const overrides: Record<string, TableCell> = {};
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) overrides[`${r},${c}`] = coveredCell();
+    }
+    const table = makeTable(rows, cols, overrides);
+
+    // Small enough to be spent inside the first rectangle scan, so the count
+    // of cells examined — not the clock — is what this asserts. `1 << 18` (the
+    // shipped budget) would also pass a timing check here, but so would an
+    // unbounded run on a fast machine.
+    let looked = 0;
+    const counting: TableData = {
+      columnWidths: table.columnWidths,
+      rows: table.rows.map((row) => ({
+        cells: new Proxy(row.cells, {
+          get(target, prop, receiver) {
+            if (typeof prop === 'string' && /^\d+$/.test(prop)) looked++;
+            return Reflect.get(target, prop, receiver);
+          },
+        }),
+      })),
+    };
+
+    const out = expandCellRangeForMerges(rect(0, 0, rows - 1, cols - 1), counting, 1000);
+
+    // Unbounded this is 160,000 cells each walking back over up to 160,000
+    // more. The budget caps the lookups at its own size (each charged lookup
+    // reads at most a couple of cells).
+    expect(looked).toBeLessThan(5000);
+    // The rectangle still covers what it was given; the budget only stops it
+    // growing further.
+    expect(out.start).toEqual({ rowIndex: 0, colIndex: 0 });
+    expect(out.end.rowIndex).toBeGreaterThanOrEqual(rows - 1);
+  });
+
+  it('is exact by default, so a merge write is never handed a short rectangle', () => {
+    // Column 0 of every row is covered by a merge whose top-left is row 0 —
+    // the expansion has to walk all the way up to find it. With the render
+    // path's budget this would stop short; the default must not.
+    const rows = 600;
+    const overrides: Record<string, TableCell> = { '0,0': mergedTopLeft(rows, 1) };
+    for (let r = 1; r < rows; r++) overrides[`${r},0`] = coveredCell();
+    const table = makeTable(rows, 2, overrides);
+
+    const out = expandCellRangeForMerges(rect(rows - 1, 0, rows - 1, 0), table);
+
+    expect(out).toEqual(rect(0, 0, rows - 1, 0));
+    // …and the same rectangle truncates once a budget is imposed, which is why
+    // only the painter passes one.
+    const budgeted = expandCellRangeForMerges(rect(rows - 1, 0, rows - 1, 0), table, 4);
+    expect(budgeted).toEqual(rect(rows - 1, 0, rows - 1, 0));
+  });
+
+  it('still expands an ordinary merge, budget or not', () => {
+    const t = makeTable(4, 4, {
+      '1,1': mergedTopLeft(2, 2),
+      '1,2': coveredCell(),
+      '2,1': coveredCell(),
+      '2,2': coveredCell(),
+    });
+
+    expect(expandCellRangeForMerges(rect(1, 1, 1, 1), t)).toEqual(rect(1, 1, 2, 2));
+    expect(expandCellRangeForMerges(rect(1, 1, 1, 1), t, 1 << 18)).toEqual(rect(1, 1, 2, 2));
   });
 });

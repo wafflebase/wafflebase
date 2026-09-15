@@ -94,6 +94,7 @@ export {
 } from './model/named-styles.js';
 export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
 export { MAX_ROW_HEIGHT, normalizeRowHeight } from './model/row-height.js';
+export { MAX_TABLE_NESTING_DEPTH } from './model/table-nesting.js';
 export {
   MAX_FONT_SIZE,
   MAX_LINE_HEIGHT,

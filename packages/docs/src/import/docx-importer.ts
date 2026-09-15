@@ -8,6 +8,7 @@ import {
   type TableLevelBorders,
 } from './docx-style-map.js';
 import { emusToPx, twipsToPx } from './units.js';
+import { MAX_TABLE_NESTING_DEPTH } from '../model/table-nesting.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -243,9 +244,24 @@ export class DocxImporter {
     return block;
   }
 
+  /**
+   * One `<w:tbl>` as a table block.
+   *
+   * `depth` counts the tables already entered on the way here, the same count
+   * the CRDT readers keep (`treeNodeToBlock`, `MAX_TABLE_NESTING_DEPTH`). A
+   * .docx is untrusted input — `<w:tbl>` nests inside `<w:tc>` with no format
+   * limit — so without the cap a crafted file overflows the stack right here,
+   * during import and before any layout runs, and a file that stopped just
+   * short of that would import into a model deeper than any reader will ever
+   * materialize and deeper than the uncapped serializers
+   * (`serialize/text.ts`, `serialize/markdown.ts`, the DOCX exporter) can walk.
+   * Capping the producer is what makes those consumers safe for imported
+   * content; the CRDT side is capped at its own readers.
+   */
   private static convertTable(
     tblEl: Element,
     imageUrls: Map<string, ResolvedImage>,
+    depth = 0,
   ): Block {
     // Parse grid columns for widths. The walk is direct-child only:
     // getElementsByTagNameNS recurses into nested tables, which used to
@@ -412,7 +428,17 @@ export class DocxImporter {
           if (childEl.localName === 'p') {
             cellBlocks.push(DocxImporter.convertParagraph(childEl, imageUrls));
           } else if (childEl.localName === 'tbl') {
-            cellBlocks.push(DocxImporter.convertTable(childEl, imageUrls));
+            // Past the cap the nested table is dropped rather than imported
+            // empty: an imported document must never *contain* a table at a
+            // depth the readers truncate, or a later full-document write would
+            // carry that truncation into the CRDT. Its own cell text is lost
+            // either way — the alternative is a stack overflow that loses the
+            // whole file.
+            if (depth + 1 < MAX_TABLE_NESTING_DEPTH) {
+              cellBlocks.push(
+                DocxImporter.convertTable(childEl, imageUrls, depth + 1),
+              );
+            }
           }
         }
         if (cellBlocks.length === 0) {

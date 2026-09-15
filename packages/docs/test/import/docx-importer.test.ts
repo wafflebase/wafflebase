@@ -2,6 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { DocxImporter } from '../../src/import/docx-importer.js';
 import JSZip from 'jszip';
+import { MAX_TABLE_NESTING_DEPTH } from '../../src/model/table-nesting.js';
+import type { Block } from '../../src/model/types.js';
 
 interface DocxOptions {
   relsXml?: string;
@@ -1404,5 +1406,57 @@ describe('DocxImporter', () => {
     const calls: Array<[number, number]> = [];
     await DocxImporter.import(buffer, undefined, (d, t) => calls.push([d, t]));
     expect(calls).toEqual([[0, 0]]);
+  });
+});
+
+describe('nested table depth cap', () => {
+  /**
+   * A `.docx` is untrusted input and `<w:tbl>` nests inside `<w:tc>` with no
+   * format limit, so the import walk is capped at the same
+   * `MAX_TABLE_NESTING_DEPTH` the CRDT readers use. Uncapped, a crafted file
+   * overflows the stack during import — before any layout runs — and a file
+   * stopping just short of that would import into a model deeper than any
+   * reader will materialize and deeper than the uncapped serializers walk.
+   */
+  function nestedTableXml(depth: number): string {
+    let xml = '<w:p><w:r><w:t>leaf</w:t></w:r></w:p>';
+    for (let d = 0; d < depth; d++) {
+      xml =
+        '<w:tbl><w:tblGrid><w:gridCol w:w="5000"/></w:tblGrid>' +
+        `<w:tr><w:tc>${xml}</w:tc></w:tr></w:tbl>`;
+    }
+    return xml;
+  }
+
+  /** How many tables deep the imported block actually goes. */
+  function importedDepth(block: Block | undefined): number {
+    let depth = 0;
+    let current = block;
+    while (current?.type === 'table' && (current.tableData?.rows.length ?? 0) > 0) {
+      depth++;
+      current = current.tableData!.rows[0].cells[0].blocks[0];
+    }
+    return depth;
+  }
+
+  it('imports an ordinary nesting depth whole', async () => {
+    const buffer = await createMinimalDocx(nestedTableXml(3));
+    const doc = await DocxImporter.import(buffer);
+
+    expect(importedDepth(doc.blocks[0])).toBe(3);
+  });
+
+  it('stops descending at the cap instead of importing deeper than any reader shows', async () => {
+    const buffer = await createMinimalDocx(nestedTableXml(MAX_TABLE_NESTING_DEPTH + 10));
+    const doc = await DocxImporter.import(buffer);
+
+    // Exactly as deep as the readers materialize — the deepest table sits at
+    // model depth `MAX_TABLE_NESTING_DEPTH - 1`, so the chain holds
+    // `MAX_TABLE_NESTING_DEPTH` tables and none of them is one the reader
+    // would truncate. The table below that is dropped rather than imported
+    // empty: an imported document must never *contain* a table at a depth the
+    // readers truncate, or a later full-document write would carry that
+    // truncation into the CRDT.
+    expect(importedDepth(doc.blocks[0])).toBe(MAX_TABLE_NESTING_DEPTH);
   });
 });

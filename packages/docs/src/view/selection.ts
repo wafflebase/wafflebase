@@ -18,6 +18,50 @@ export interface NormalizedRange {
 }
 
 /**
+ * Cells one *presence-driven* `expandCellRangeForMerges` call will look at —
+ * its own scan plus every `findMergeTopLeft` backtrack it makes — before it
+ * stops growing the rectangle and returns what it has.
+ *
+ * It bounds every caller that does not *act* on the rectangle it gets back:
+ * `computeSelectionRects` (the paint, once per peer per paint), and the two
+ * `getNormalizedRange` callers that read no cell rectangle at all — the
+ * arrow-key collapse, which uses only `start`/`end`, and
+ * `formatSourcePosition`, which picks a cell to read a style from. Those run
+ * per keystroke, so leaving them unbounded would put a peer-sized table on the
+ * typing path.
+ *
+ * The expansion stays exact everywhere it feeds a *write*: the gesture and
+ * command paths (`computeTableMergeContext`, the drag and Shift+Arrow handlers
+ * in `text-editor.ts`) call `expandCellRangeForMerges` directly, and the
+ * delete, copy and cut paths reach `normalizeCellRange` through
+ * `Selection.getNormalizedRange`. `doc.mergeCells` writes whatever rectangle
+ * it is handed and the delete clears whatever rectangle it is handed, so a
+ * partially-expanded one cuts an existing merge in half or leaves half of one
+ * uncleared — a silent, replicated corruption, which is a worse answer than a
+ * slow gesture. Those callers are one deliberate command over one table, not
+ * once per keystroke.
+ *
+ * The rectangle is clamped to the table (`normalizeCellRange`), but the
+ * *table* is a peer's to choose: rows are structure, not an attribute, so no
+ * numeric band reaches them, and a peer can write as many as it likes. The
+ * expansion is superlinear in that size — a fixed-point `while (changed)` loop
+ * whose every pass rescans the whole rectangle, and whose covered cells each
+ * backtrack over the area above-left of them — while the layout that paints
+ * the same table is merely linear in it. And it runs on the render path:
+ * `computeSelectionRects` normalizes once per peer per paint. So the budget
+ * bounds the *amplification*, not the table: a table big enough to trip it
+ * already costs more to lay out than to expand.
+ *
+ * Past the budget the rectangle is the partially-expanded one, so a merge at
+ * its edge paints short — the same "degrade, do not hang" direction the
+ * numeric bands and the nesting cap take.
+ */
+export const MAX_MERGE_EXPANSION_CELLS = 1 << 18;
+
+/** The cells one expansion has left to look at. */
+type ScanBudget = { left: number };
+
+/**
  * Walk back from `(r, c)` to the top-left of the merged cell that covers it.
  * Returns `(r, c)` itself if the cell is plain or already a merge top-left.
  *
@@ -26,12 +70,32 @@ export interface NormalizedRange {
  * practice; the cost is bounded by the table area.
  */
 export function findMergeTopLeft(table: TableData, r: number, c: number): CellAddress {
+  return findMergeTopLeftBudgeted(table, r, c, { left: Infinity });
+}
+
+/**
+ * `findMergeTopLeft` with a caller-owned work counter, so a scan that runs
+ * inside another bounded walk is charged to the same budget. An orphan covered
+ * cell (one whose owner was never written) is the expensive case: it scans
+ * every cell above-left of itself before giving up. Out of budget it answers
+ * `(r, c)` — the same answer it gives when no owner exists.
+ *
+ * `{ left: Infinity }` restores the unbounded behaviour for the public entry
+ * point, whose callers are all driven by local gestures over one table.
+ */
+function findMergeTopLeftBudgeted(
+  table: TableData,
+  r: number,
+  c: number,
+  budget: ScanBudget,
+): CellAddress {
   const cell = table.rows[r]?.cells[c];
   if (!cell) return { rowIndex: r, colIndex: c };
   if (cell.colSpan !== 0) return { rowIndex: r, colIndex: c };
 
   for (let rr = r; rr >= 0; rr--) {
     for (let cc = c; cc >= 0; cc--) {
+      if (--budget.left <= 0) return { rowIndex: r, colIndex: c };
       const candidate = table.rows[rr]?.cells[cc];
       if (!candidate) continue;
       const span = candidate.colSpan ?? 1;
@@ -52,21 +116,33 @@ export function findMergeTopLeft(table: TableData, r: number, c: number): CellAd
  * merge can pull a previously-out-of-range merge into the rect.
  *
  * Caller may pass an unordered range — this helper orders start/end first.
+ *
+ * **Exact by default.** `budgetCells` exists for the callers that paint or
+ * probe rather than act — `computeSelectionRects`, and the per-keystroke
+ * `getNormalizedRange` callers that never read the rectangle's cells. A
+ * caller that feeds the result to a write (`mergeCells`, the cell-rectangle
+ * delete, the selection a merge or a copy is later taken from) must not pass
+ * one: there a rectangle that stopped growing early is not a cosmetic
+ * short-paint but a merge that slices through an existing one — or a merged
+ * cell left uncleared. See `MAX_MERGE_EXPANSION_CELLS`.
  */
 export function expandCellRangeForMerges(
   cr: TableCellRange,
   table: TableData,
+  budgetCells = Infinity,
 ): TableCellRange {
   let rowStart = Math.min(cr.start.rowIndex, cr.end.rowIndex);
   let rowEnd = Math.max(cr.start.rowIndex, cr.end.rowIndex);
   let colStart = Math.min(cr.start.colIndex, cr.end.colIndex);
   let colEnd = Math.max(cr.start.colIndex, cr.end.colIndex);
 
+  const budget: ScanBudget = { left: budgetCells };
   let changed = true;
-  while (changed) {
+  while (changed && budget.left > 0) {
     changed = false;
-    for (let r = rowStart; r <= rowEnd; r++) {
-      for (let c = colStart; c <= colEnd; c++) {
+    for (let r = rowStart; r <= rowEnd && budget.left > 0; r++) {
+      for (let c = colStart; c <= colEnd && budget.left > 0; c++) {
+        budget.left--;
         const cell = table.rows[r]?.cells[c];
         if (!cell) continue;
         const span = cell.colSpan ?? 1;
@@ -82,7 +158,7 @@ export function expandCellRangeForMerges(
 
         // Covered cell whose top-left is outside current rect.
         if (cell.colSpan === 0) {
-          const tl = findMergeTopLeft(table, r, c);
+          const tl = findMergeTopLeftBudgeted(table, r, c, budget);
           if (tl.rowIndex < rowStart) { rowStart = tl.rowIndex; changed = true; }
           if (tl.colIndex < colStart) { colStart = tl.colIndex; changed = true; }
         }
@@ -97,33 +173,124 @@ export function expandCellRangeForMerges(
   };
 }
 
-function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRange {
-  const ordered: TableCellRange = {
-    blockId: cr.blockId,
-    start: {
-      rowIndex: Math.min(cr.start.rowIndex, cr.end.rowIndex),
-      colIndex: Math.min(cr.start.colIndex, cr.end.colIndex),
-    },
-    end: {
-      rowIndex: Math.max(cr.start.rowIndex, cr.end.rowIndex),
-      colIndex: Math.max(cr.start.colIndex, cr.end.colIndex),
-    },
-  };
-  return table ? expandCellRangeForMerges(ordered, table) : ordered;
+/**
+ * One row/column index of a cell rectangle as a grid coordinate every consumer
+ * can loop over: a finite integer in `[0, max]`. A non-finite one reads as 0,
+ * the neutral coordinate, exactly as an out-of-band numeric attribute reads as
+ * its default.
+ */
+function clampCellIndex(raw: number, max: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(Math.max(Math.trunc(raw), 0), Math.max(max, 0));
 }
 
+/**
+ * Order a cell rectangle, clamp it to the table it names, then expand it to
+ * cover the merges it touches.
+ *
+ * The clamp is not cosmetic. A `tableCellRange` is part of a peer's presence
+ * and reaches here verbatim off the wire — `docs-view.tsx` copies
+ * `sel.tableCellRange` straight into `PeerCursor.selection`, and
+ * `computeSelectionRects` normalizes that range once per paint — so its
+ * indices are peer-written numbers rather than coordinates this editor
+ * produced. Every consumer walks them as bounds (`for (r = start.rowIndex; r
+ * <= end.rowIndex; r++)` in `buildCellRangeRects` on the render path, in
+ * `getSelectedText` on copy), so an `end` of `1e9` or a `start` of `-1e9`
+ * spins those loops for the rest of the session. That is the same "one peer's
+ * attribute hangs everyone's tab" hazard the numeric bands and the
+ * `blockParentMap` cycle guards close, arriving through the other peer-written
+ * field on the same path.
+ *
+ * A rectangle whose table did not resolve is only ordered, as before — every
+ * consumer of one bails on the missing table before it loops, and
+ * `buildCellRangeRects` bounds its own loops by the layout table besides.
+ */
+function normalizeCellRange(
+  cr: TableCellRange,
+  table?: TableData,
+  budgetCells = Infinity,
+): TableCellRange {
+  const maxRow = table ? table.rows.length - 1 : Infinity;
+  // Folded rather than spread: `Math.max(...rows)` throws `RangeError` past
+  // ~100k arguments, and the row count is a peer's to choose.
+  const maxCol = table
+    ? table.rows.reduce((m, r) => Math.max(m, r.cells.length), table.columnWidths.length) - 1
+    : Infinity;
+  const rows = [clampCellIndex(cr.start.rowIndex, maxRow), clampCellIndex(cr.end.rowIndex, maxRow)];
+  const cols = [clampCellIndex(cr.start.colIndex, maxCol), clampCellIndex(cr.end.colIndex, maxCol)];
+  const ordered: TableCellRange = {
+    blockId: cr.blockId,
+    start: { rowIndex: Math.min(...rows), colIndex: Math.min(...cols) },
+    end: { rowIndex: Math.max(...rows), colIndex: Math.max(...cols) },
+  };
+  // Exact unless the caller is the painter, which is the only one that passes
+  // a budget. See `MAX_MERGE_EXPANSION_CELLS`.
+  return table
+    ? expandCellRangeForMerges(ordered, table, budgetCells)
+    : ordered;
+}
+
+/**
+ * Walk up `blockParentMap` until an id that exists in `layout.blocks` is
+ * reached, and return it. The caller's own `findIndex` still decides whether
+ * it resolved.
+ *
+ * Carries the same cycle guard as `resolveNestedTableLayout`: block ids arrive
+ * verbatim from peer-written CRDT attributes, so a parent chain that loops
+ * back on itself is representable, and this walk runs on the render path. A
+ * cycle stops the walk instead of hanging the tab; the id it stops on is not
+ * in `layout.blocks` (a cycle never reaches a top-level block), so the caller
+ * reads it as unresolvable.
+ */
+function walkToTopLevelBlockId(
+  startId: string,
+  layout: DocumentLayout,
+): string {
+  let id = startId;
+  const seen = new Set<string>([id]);
+  while (id && layout.blocks.findIndex((lb) => lb.block.id === id) === -1) {
+    const parentInfo = layout.blockParentMap.get(id);
+    if (!parentInfo || seen.has(parentInfo.tableBlockId)) break;
+    id = parentInfo.tableBlockId;
+    seen.add(id);
+  }
+  return id;
+}
+
+/**
+ * `budgetCells` bounds the merge expansion below and defaults to exact. The
+ * paint (`computeSelectionRects`) passes one, as do the two
+ * `Selection.getNormalizedRange` callers that never read the rectangle's
+ * cells; the rest act on what they get back (clear the cells, copy them, cut
+ * them), and for those a rectangle that stopped growing early is a merged cell
+ * half-cleared rather than a merge painted short. See
+ * `MAX_MERGE_EXPANSION_CELLS`.
+ */
 function normalizeRange(
   range: DocRange,
   layout: DocumentLayout,
+  budgetCells = Infinity,
 ): NormalizedRange | null {
   // Cell-range mode: tableCellRange is set
   if (range.tableCellRange) {
-    const lb = layout.blocks.find((b) => b.block.id === range.tableCellRange!.blockId);
-    const table = lb?.block.tableData;
+    // A top-level table answers from the block list alone. A nested one is
+    // not in `layout.blocks` at all, so the flat lookup missed it, `table`
+    // came back undefined, and the merge expansion below was a silent no-op
+    // — the columns a merge covers then painted only inside the merged row
+    // (#1049). Fall back to the same resolver `buildCellRangeRects` uses, so
+    // the rectangle that gets painted is the rectangle that got expanded.
+    const crBlockId = range.tableCellRange.blockId;
+    const table =
+      layout.blocks.find((b) => b.block.id === crBlockId)?.block.tableData ??
+      resolveNestedTableLayout(crBlockId, layout)?.dataBlock.tableData;
     return {
       start: range.anchor,
       end: range.focus,
-      tableCellRange: normalizeCellRange(range.tableCellRange, table),
+      tableCellRange: normalizeCellRange(
+        range.tableCellRange,
+        table,
+        budgetCells,
+      ),
     };
   }
 
@@ -135,18 +302,14 @@ function normalizeRange(
 
   // For nested tables, walk up the blockParentMap chain to find the
   // outermost table ID that exists in layout.blocks.
-  let anchorTopId = anchorCellInfo?.tableBlockId ?? range.anchor.blockId;
-  while (anchorTopId && layout.blocks.findIndex((lb) => lb.block.id === anchorTopId) === -1) {
-    const parentInfo = layout.blockParentMap.get(anchorTopId);
-    if (!parentInfo) break;
-    anchorTopId = parentInfo.tableBlockId;
-  }
-  let focusTopId = focusCellInfo?.tableBlockId ?? range.focus.blockId;
-  while (focusTopId && layout.blocks.findIndex((lb) => lb.block.id === focusTopId) === -1) {
-    const parentInfo = layout.blockParentMap.get(focusTopId);
-    if (!parentInfo) break;
-    focusTopId = parentInfo.tableBlockId;
-  }
+  const anchorTopId = walkToTopLevelBlockId(
+    anchorCellInfo?.tableBlockId ?? range.anchor.blockId,
+    layout,
+  );
+  const focusTopId = walkToTopLevelBlockId(
+    focusCellInfo?.tableBlockId ?? range.focus.blockId,
+    layout,
+  );
   const anchorIdx = layout.blocks.findIndex((lb) => lb.block.id === anchorTopId);
   const focusIdx = layout.blocks.findIndex((lb) => lb.block.id === focusTopId);
   if (anchorIdx === -1 || focusIdx === -1) return null;
@@ -543,6 +706,11 @@ function buildRects(
 /**
  * Compute highlight rectangles for an arbitrary DocRange.
  * Used for rendering remote peer selections.
+ *
+ * The one bounded normalization: this runs once per peer selection per paint
+ * over a rectangle and a table that both reach it from presence, and a
+ * rectangle that stops growing early paints a merge short rather than
+ * corrupting anything. See `MAX_MERGE_EXPANSION_CELLS`.
  */
 export function computeSelectionRects(
   range: DocRange,
@@ -551,7 +719,7 @@ export function computeSelectionRects(
   measurer: TextMeasurer,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
-  const normalized = normalizeRange(range, layout);
+  const normalized = normalizeRange(range, layout, MAX_MERGE_EXPANSION_CELLS);
   if (!normalized) return [];
 
   // Cell-range mode: highlight entire cells
@@ -651,8 +819,19 @@ function buildCellRangeRects(
   const tableData = dataBlock.tableData;
   const xBase = pageX + margins.left + nestedXOffset;
 
-  for (let r = start.rowIndex; r <= end.rowIndex; r++) {
-    for (let c = start.colIndex; c <= end.colIndex; c++) {
+  // Bounded by the table that actually resolved, not by the rectangle's own
+  // numbers: this runs once per peer selection per paint, and the rectangle
+  // reaches it from presence (see `normalizeCellRange`). `normalizeCellRange`
+  // clamps whenever it can resolve the table, and this is the same bound read
+  // off the layout, so a rectangle that slipped past it — a table that
+  // resolves here but not there — costs a bounded walk rather than a hung tab.
+  const rowStart = Math.max(0, start.rowIndex);
+  const rowEnd = Math.min(end.rowIndex, tl.cells.length - 1);
+  const colStart = Math.max(0, start.colIndex);
+  const colEnd = Math.min(end.colIndex, tl.columnXOffsets.length - 1);
+
+  for (let r = rowStart; r <= rowEnd; r++) {
+    for (let c = colStart; c <= colEnd; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
 
@@ -726,11 +905,24 @@ export class Selection {
    * each endpoint (and so its `lineAffinity`) is returned as stored, so a
    * backwards selection carries the focus's affinity into `start`.
    */
+  /**
+   * `budgetCells` bounds the merge expansion, and defaults to exact because
+   * most callers *act* on the rectangle they get back — clear its cells, copy
+   * them, merge them — where a rectangle that stopped growing early is a
+   * merged cell half-cleared rather than a merge painted short.
+   *
+   * A caller that reads only `start`/`end`, or uses the rectangle to pick a
+   * cell to *read* a style from, owes no such exactness and should pass
+   * `MAX_MERGE_EXPANSION_CELLS`: the table is a peer's to size, the expansion
+   * is superlinear in it, and those callers run per keystroke. See
+   * `MAX_MERGE_EXPANSION_CELLS`.
+   */
   getNormalizedRange(
     layout: DocumentLayout,
+    budgetCells = Infinity,
   ): NormalizedRange | null {
     if (!this.range || !this.hasSelection()) return null;
-    return normalizeRange(this.range, layout);
+    return normalizeRange(this.range, layout, budgetCells);
   }
 
   getSelectionRects(
@@ -750,9 +942,14 @@ export class Selection {
     // Cell-range selection: tab-separated columns, newline-separated rows
     if (normalized.tableCellRange) {
       const cr = normalized.tableCellRange;
-      const lb = layout.blocks.find((b) => b.block.id === cr.blockId);
-      if (!lb?.block.tableData) return '';
-      const td = lb.block.tableData;
+      // Same nested-aware lookup `normalizeRange` and `getSelectedTableCells`
+      // use: a nested table block is not a member of `layout.blocks`, so the
+      // flat lookup alone returned '' and copy (and cut) wrote an empty
+      // `text/plain` flavour for every nested-table cell rectangle (#1049).
+      const td =
+        layout.blocks.find((b) => b.block.id === cr.blockId)?.block.tableData ??
+        resolveNestedTableLayout(cr.blockId, layout)?.dataBlock.tableData;
+      if (!td) return '';
       const rows: string[] = [];
       for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
         const cols: string[] = [];
@@ -775,9 +972,15 @@ export class Selection {
     const startCellInfo = layout.blockParentMap.get(start.blockId);
     const endCellInfo = layout.blockParentMap.get(end.blockId);
     if (startCellInfo && endCellInfo) {
-      const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
-      if (!lb?.block.tableData) return '';
-      const cell = lb.block.tableData.rows[startCellInfo.rowIndex]
+      // Nested-aware for the same reason as the cell-range branch above: an
+      // ordinary text selection inside a *nested* table's cell copied as ''.
+      const tableData =
+        layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId)
+          ?.block.tableData ??
+        resolveNestedTableLayout(startCellInfo.tableBlockId, layout)
+          ?.dataBlock.tableData;
+      if (!tableData) return '';
+      const cell = tableData.rows[startCellInfo.rowIndex]
         ?.cells[startCellInfo.colIndex];
       if (!cell) return '';
       const startCbi = cell.blocks.findIndex((b) => b.id === start.blockId);

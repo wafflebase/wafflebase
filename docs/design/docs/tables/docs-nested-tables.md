@@ -16,8 +16,11 @@ users create nested tables directly in the editor.
 
 ### Goals
 
-- Recursive nesting with no hard depth limit (UI naturally limits via minimum
-  cell width of 30 px)
+- Recursive nesting up to `MAX_TABLE_NESTING_DEPTH` (32) levels — far above any
+  real document (Word stops authors at about 20, and the 30 px minimum cell
+  width limits the UI long before that), and a hard ceiling rather than the
+  "no depth limit" this originally claimed. See
+  [The nesting ceiling](#the-nesting-ceiling)
 - Full feature parity inside nested tables: cell merge/split, row/column
   insert/delete, resize, styling (one exception ships today — see
   [Known gap](#known-gap-inline-styling-does-not-descend))
@@ -266,6 +269,100 @@ No changes. The existing rule applies recursively:
 - Rows are never split across pages.
 - A row containing a nested table is treated as a single atomic unit.
 - If a row (with its nested table) exceeds page height, it gets its own page.
+
+### 7. The nesting ceiling
+
+Nesting is the one shape in this model that is *structurally* recursive —
+`block > row > cell > block > …` — so unlike an out-of-band number it cannot be
+banded by clamping a value. Every reader walks it by recursion
+(`treeNodeToBlock` in `model/crdt-tree.ts` and its live twin in the frontend's
+`YorkieDocStore`), and the layout that follows recurses again
+(`computeTableLayout` ⇄ `layoutCellBlocks`). A peer can write that chain to any
+depth with ordinary Tree writes — no UI involved, no attribute out of band — so
+a few tens of thousands of levels overflow the stack of *every* reader on first
+read or first paint, for a document nobody can then open to repair.
+
+`MAX_TABLE_NESTING_DEPTH` (`model/table-nesting.ts`, 32) is therefore enforced
+on **both sides**, the same "degrade, do not vanish" direction the numeric
+bands take:
+
+- **Readers** stop descending at the cap: a table past it reads as a table with
+  no rows, so the document still opens and everything around it renders.
+  Applies to `treeNodeToBlock`, the store's live reader, the revision-history
+  snapshot normalizer, and the layout. That makes `tableData.rows === []` a
+  shape consumers have to answer for: the caret-navigation paths that "enter"
+  a table (`view/text-editor.ts`'s `firstCellBlock` / `lastCellBlock`) land on
+  the table block itself rather than dereferencing a row that is not there.
+  `lastPositionInCell` — the end-of-the-previous-cell answer Shift-Tab and the
+  cell walk use — descends through trailing nested tables the same way, via
+  `lastCellBlock` rather than its own `rows[rows.length - 1]`.
+- **Producers** never create one past it: the DOCX importer drops a `<w:tbl>`
+  that would land there, **both** paste writers drop the tables in a payload
+  that would — `insertBlocks` through `capTableNesting` and the cell-rectangle
+  branch `pasteTableCells` through `capTableCellsNesting`, each counted against
+  the paste target's own depth — and "insert table" with the caret in a cell
+  refuses at the ceiling.
+- **Writers** carry the count to where they write. `buildBlockNode` takes a
+  required `depth`, and each incremental writer derives it from the tree path
+  it is already editing (`blockPathNestingDepth`) rather than restarting at 0 —
+  otherwise a paste into a deep cell would write straight past the cap.
+- **No writer deletes rows it never read.** A reader hands back a table at the
+  cap as one with `rows: []`, so writing that model back at the *same place*
+  would replicate the truncation as a deletion. `writeFullDocument` (editor)
+  and `writeDocsRoot` (backend) therefore throw rather than rewrite a whole
+  tree from a model that reached the cap, `DocumentCopyService` refuses the
+  copy, and `PUT /content` rejects such a body with a 400. The incremental
+  writers that *replace* existing content — `updateBlock`, `updateTableCell`,
+  `setHeader`/`setFooter` — carry the same refusal, checked against the rows
+  the CRDT actually holds under the range they are about to overwrite
+  (`treeHasTruncatedRows`): a table at the cap that has rows in the tree stops
+  the write, while inserting fresh content beside it still degrades to a
+  rowless table rather than failing.
+
+  Two details make that refusal correct rather than decorative:
+
+  - It is keyed on the content being **replaced**, never on the replacement.
+    The writers that do the damage mostly carry no deep table themselves — the
+    cell-rectangle delete swaps a cell's blocks for one empty paragraph,
+    `Doc.deleteBlock` rewrites a cell without the block it removed — and a gate
+    keyed on what is being written would wave every one of them through.
+  - The incremental writers **decline** (leave both the CRDT and their cache
+    untouched, and warn) instead of throwing. Each is reached through a `Doc`
+    mutator from the middle of an editor command, and none of those callers —
+    nor `MemDocStore`, which cannot refuse at all — is prepared for a throwing
+    store; an exception would abandon a command between two writes. Only the
+    whole-document writers throw, because their callers (`setDocument`,
+    `replaceDocument`, the backend's `writeDocsRoot`) are one call that either
+    happened or did not.
+- **No writer creates rows nobody can read either.** `insertTableRow` and
+  `insertTableColumn` are the two paths that add rows to a table without going
+  through `buildBlockNode`, so past the cap they would write rows straight into
+  the CRDT that every reader — including the one that asked — then declines to
+  read, permanently blocking every replacing write over the block that holds
+  them. They decline, the same direction `Doc.insertTableInCell` takes for the
+  interactive producer.
+
+  A decline is invisible to its caller, so the *command* has to stop first,
+  not the write. One row insert is two store writes — `updateTableAttrs` for
+  the row heights or the column widths, then `insertTableRow` /
+  `insertTableColumn` for the cells — and only the second is refused, so a
+  `Doc.insertRow` / `Doc.insertColumn` that found out afterwards would leave
+  the table describing a row or a column that never landed, and every
+  remaining column re-measured against a cell that does not exist. Both
+  therefore ask `tableNestingDepth` up front and decline the whole command, as
+  `insertTableInCell` already did. A table block at depth `d` has its rows at
+  `d + 1`, so `d >= cap` is exactly the `rowDepth > cap` the store refuses on.
+  The one caller that reads the result back — Tab in the last cell, which
+  inserts a row and moves into it — re-reads the row instead of assuming it.
+- **The depth a producer asks about comes from the model, not the layout.**
+  `Doc.tableNestingDepth` answers from the document model
+  (`walkCellsForNestingDepth`) and falls back to the layout's
+  `blockParentMap` only for an id the model does not hold. The map is rebuilt
+  at layout time and holds nothing for a block created since — the tail of the
+  split `insertBlocks` does on its way into a paste, for one — so a map-only
+  answer reported a block 31 tables deep as sitting at depth 0, disarming the
+  cap at the one moment a producer was asking about it. The model is refreshed
+  after every mutation, so it always holds those blocks.
 
 ## Risks and Mitigation
 

@@ -133,6 +133,16 @@ export { MAX_LIST_LEVEL, normalizeListLevel } from './model/list-level.js';
 // own table reader calls `normalizeRowHeight` on every attribute read, and
 // `model/row-height.js` imports nothing at all, so it is DOM-free.
 export { MAX_ROW_HEIGHT, normalizeRowHeight } from './model/row-height.js';
+// The table-nesting ceiling, here for the same reason once more:
+// `YorkieDocStore`'s table reader checks it on every descent into a nested
+// table, and `model/table-nesting.js` imports nothing at all, so it is
+// DOM-free. Leaving it off this entry is not a type error — the frontend
+// typechecks against `src/index.ts` — but the docs `.integration.ts` suites
+// run that store under Node, which resolves `@wafflebase/docs` to this file,
+// so the import failed to link at runtime with "does not provide an export
+// named 'MAX_TABLE_NESTING_DEPTH'". `docsTreeToDocument`, the Node-side twin
+// of that reader, bounds itself with the same constant.
+export { MAX_TABLE_NESTING_DEPTH } from './model/table-nesting.js';
 // The bands for the numeric attributes that feed a line's height, here for
 // the same reason again: `YorkieDocStore` reads `fontSize`, cell `padding`
 // and the inline image size on every attribute read, and

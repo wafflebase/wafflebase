@@ -3,6 +3,7 @@ import { LIST_INDENT_PX } from '../model/types.js';
 import { normalizeListLevel } from '../model/list-level.js';
 import { normalizeCellPadding } from '../model/numeric-attrs.js';
 import { normalizeRowHeight } from '../model/row-height.js';
+import { MAX_TABLE_NESTING_DEPTH } from '../model/table-nesting.js';
 import type { BlockSpacingContext, DocStyles, StyleSurface } from '../model/named-styles.js';
 import type { ComposingContext, LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
@@ -114,6 +115,7 @@ function layoutCellBlocks(
   docStyles?: DocStyles,
   surface?: StyleSurface,
   spacingCtx?: BlockSpacingContext,
+  nestingDepth = 0,
 ): { lines: LayoutLine[]; blockBoundaries: number[] } {
   if (blocks.length === 0) {
     const defaultHeight = defaultLineHeight();
@@ -130,6 +132,20 @@ function layoutCellBlocks(
     blockBoundaries.push(allLines.length);
 
     if (block.type === 'table' && block.tableData) {
+      // Bounded for the same reason the CRDT reader is
+      // (`MAX_TABLE_NESTING_DEPTH`): this is the second half of the same
+      // structural recursion, so a nesting chain a peer wrote deeper than any
+      // reader's stack overflows here on the first paint. The reader already
+      // truncates such a chain, but the layout takes documents from other
+      // producers too (DOCX import, paste), so it bounds itself rather than
+      // trusting its input. Past the cap the nested table lays out as one
+      // empty line, which keeps the cell's line/`blockBoundaries` arrays in
+      // step with its blocks — every caret and hit-test index depends on that
+      // correspondence.
+      if (nestingDepth >= MAX_TABLE_NESTING_DEPTH) {
+        allLines.push({ runs: [], y: 0, height: defaultLineHeight(), width: 0 });
+        continue;
+      }
       const nestedLayout = computeTableLayout(
         block.tableData,
         block.id,
@@ -142,6 +158,7 @@ function layoutCellBlocks(
         // switched, which reads as a different bug rather than a partial fix.
         surface,
         spacingCtx,
+        nestingDepth + 1,
       );
       if (blockParentMap) {
         for (const [k, v] of nestedLayout.blockParentMap) {
@@ -206,6 +223,11 @@ function layoutCellBlocks(
 
 /**
  * Compute the spatial layout of a table.
+ *
+ * `nestingDepth` counts the tables already entered on the way here and is
+ * carried into `layoutCellBlocks`, which stops descending at
+ * `MAX_TABLE_NESTING_DEPTH`. Callers outside this mutual recursion leave it at
+ * its default.
  */
 export function computeTableLayout(
   tableData: TableData,
@@ -216,6 +238,7 @@ export function computeTableLayout(
   docStyles?: DocStyles,
   surface?: StyleSurface,
   spacingCtx?: BlockSpacingContext,
+  nestingDepth = 0,
 ): LayoutTable {
   const { rows, columnWidths } = tableData;
   const numCols = columnWidths.length;
@@ -259,7 +282,7 @@ export function computeTableLayout(
 
       const { lines, blockBoundaries } = layoutCellBlocks(
         cell?.blocks ?? [], measurer, innerWidth, blockParentMap, composingContext, docStyles, surface,
-        spacingCtx,
+        spacingCtx, nestingDepth,
       );
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 
@@ -475,12 +498,23 @@ export function resolveNestedTableLayout(
   tableBlockId: string,
   layout: { blocks: Array<{ block: Block; layoutTable?: LayoutTable }>; blockParentMap: Map<string, BlockCellInfo> },
 ): ResolvedNestedTable | undefined {
-  // Walk up to find the top-level table
+  // Walk up to find the top-level table.
+  //
+  // Block ids arrive verbatim from peer-written CRDT attributes
+  // (`crdt-tree.ts`), so a parent chain that loops back on itself — a
+  // duplicated or hostile id — is representable. This walk now runs once per
+  // render for every painted cell rectangle, so an unbounded one would hang
+  // the tab of anyone who merely selects cells. `seen` makes a cycle bail out
+  // with `undefined` (the same answer every other unresolvable id gets) rather
+  // than spin.
   let topTableId = tableBlockId;
+  const seen = new Set<string>([topTableId]);
   while (true) {
     const parentInfo = layout.blockParentMap.get(topTableId);
     if (!parentInfo) break;
+    if (seen.has(parentInfo.tableBlockId)) return undefined;
     topTableId = parentInfo.tableBlockId;
+    seen.add(topTableId);
   }
 
   const lbIdx = layout.blocks.findIndex((b) => b.block.id === topTableId);
@@ -499,7 +533,9 @@ export function resolveNestedTableLayout(
     };
   }
 
-  // Build the nesting path from outermost to target table
+  // Build the nesting path from outermost to target table. This descends the
+  // same chain the walk above just proved finite and acyclic, so it needs no
+  // visited set of its own.
   const path: BlockCellInfo[] = [];
   let cur = tableBlockId;
   while (cur !== topTableId) {

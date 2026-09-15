@@ -3,11 +3,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MemStore } from '@wafflebase/sheets';
 import { MemSlidesStore } from '@wafflebase/slides';
-import type { Block } from '@wafflebase/docs';
+import type { Block, Document as DocsDocument } from '@wafflebase/docs';
 import {
   MAX_FONT_SIZE,
   MAX_LINE_HEIGHT,
   MAX_LIST_LEVEL,
+  MAX_TABLE_NESTING_DEPTH,
 } from '@wafflebase/docs';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import {
@@ -370,6 +371,78 @@ describe('YSON parse limits', () => {
     expect(
       parseNoteSnapshot('{"content":Text([{"val":"Fix issue 3] later"}])}'),
     ).toBe('Fix issue 3] later');
+  });
+});
+
+/**
+ * Table nesting is the one shape here that no numeric band reaches: it is
+ * structural, so a peer can write `block > row > cell > block > table > …` to
+ * any depth with ordinary Tree writes, and a revision preview renders whatever
+ * was captured.
+ *
+ * Both walks a snapshot goes through cap at `MAX_TABLE_NESTING_DEPTH` — this
+ * adapter's `normalizeYsonTreeNode`, which runs first over the raw parsed
+ * snapshot, and `docsTreeToDocument` after it. What these pin is the contract
+ * they share, which is what the preview actually depends on: a chain past the
+ * cap still opens, truncated, rather than throwing or rendering a chain no
+ * editor would materialize. (Isolating the adapter's own cap is not possible
+ * from out here by design: the two agree on where the ceiling falls, which is
+ * the point.)
+ */
+describe('the revision-preview table-nesting cap', () => {
+  /**
+   * `depth` tables nested one inside the next, innermost first.
+   *
+   * Written in the *snapshot* dialect the adapter reads: `attrs`, not
+   * `attributes`, with every value JSON-encoded.
+   */
+  function nestedTables(depth: number): string {
+    // A table block's children are rows; a row's are cells; a cell's are
+    // blocks — which is where the next table sits.
+    let node =
+      '{"type":"block","attrs":{"type":"\\"paragraph\\"","id":"\\"leaf\\""},' +
+      '"children":[{"type":"inline","attrs":{},"children":' +
+      '[{"type":"text","value":"deep"}]}]}';
+    for (let i = depth; i > 0; i--) {
+      node =
+        `{"type":"block","attrs":{"type":"\\"table\\"","id":"\\"t${i}\\"",` +
+        '"cols":"\\"1\\""},"children":[{"type":"row","attrs":{},"children":' +
+        `[{"type":"cell","attrs":{},"children":[${node}]}]}]}`;
+    }
+    return `{"content":Tree({"type":"doc","children":[${node}]})}`;
+  }
+
+  /** Descend `blocks[0]` through as many nested tables as it holds. */
+  function tableChainLength(doc: DocsDocument): number {
+    let block: Block | undefined = doc.blocks[0];
+    let seen = 0;
+    while (block?.type === 'table') {
+      const rows: NonNullable<Block['tableData']>['rows'] =
+        block.tableData?.rows ?? [];
+      if (rows.length === 0) break;
+      seen++;
+      block = rows[0].cells[0]?.blocks[0];
+    }
+    return seen;
+  }
+
+  it('reads a chain just under the cap in full', () => {
+    const parsed = parseDocsSnapshot(nestedTables(MAX_TABLE_NESTING_DEPTH - 1));
+    expect(tableChainLength(parsed)).toBe(MAX_TABLE_NESTING_DEPTH - 1);
+  });
+
+  it('stops descending at the cap instead of walking the whole chain', () => {
+    // 200 levels: deep enough that an uncapped walk would materialize all 200
+    // (and, scaled up by a peer who keeps going, overflow the stack), shallow
+    // enough that `YSON.parse` itself still gets through — its own recursion
+    // has no cap of ours to add, so a chain this walk could not survive is
+    // one the parser rejects first.
+    const parsed = parseDocsSnapshot(nestedTables(200));
+
+    // The document still opens, and the table at the cap reads as one with no
+    // rows — the same shape the capped reader produces.
+    expect(parsed.blocks[0].type).toBe('table');
+    expect(tableChainLength(parsed)).toBe(MAX_TABLE_NESTING_DEPTH);
   });
 });
 

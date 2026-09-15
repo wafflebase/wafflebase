@@ -1,6 +1,7 @@
 import { YSON } from '@yorkie-js/sdk';
 import {
   docsTreeToDocument,
+  MAX_TABLE_NESTING_DEPTH,
   type Document as DocsDocument,
   type DocsTreeNode,
 } from '@wafflebase/docs';
@@ -119,8 +120,26 @@ export function parseNoteSnapshot(snapshot: string): string {
  * A value that is not valid JSON is passed through as the raw string rather
  * than dropped: it is not what this writer produces, but a readable
  * approximation beats losing the attribute.
+ *
+ * `depth` counts the `row` ancestors, which is exactly the table nesting
+ * `docsTreeToDocument` counts — a table block's rows are `row` nodes, so the
+ * two walks agree on which table the cap falls on, and a row past it is
+ * normalized without children, the same table-with-no-rows that reader
+ * produces. See `MAX_TABLE_NESTING_DEPTH`.
+ *
+ * It is counted here rather than left to that reader because this walk runs
+ * first, over the raw parsed snapshot: whatever bounds the recursion has to
+ * hold on *this* side of the reader too. Measured, `YSON.parse` is the
+ * shallower of the two today — it gives out somewhere between 500 and 1,000
+ * nested tables, so a chain deep enough to overflow this walk is rejected by
+ * the parser before it arrives (`snapshot-adapters.test.ts` pins the observable
+ * half: a chain past the cap normalizes to a truncated document rather than a
+ * fully-materialized one). The cap stays because that ordering is the
+ * parser's, not ours — it is one SDK release away from changing — and because
+ * stopping here is strictly less work than walking a chain no reader will
+ * materialize.
  */
-function normalizeYsonTreeNode(node: YsonTreeNode): DocsTreeNode {
+function normalizeYsonTreeNode(node: YsonTreeNode, depth = 0): DocsTreeNode {
   const normalized: DocsTreeNode = { type: node.type };
   if (node.value !== undefined) normalized.value = node.value;
   if (node.attrs) {
@@ -137,7 +156,13 @@ function normalizeYsonTreeNode(node: YsonTreeNode): DocsTreeNode {
     normalized.attributes = attributes;
   }
   if (node.children) {
-    normalized.children = node.children.map(normalizeYsonTreeNode);
+    const isRow = node.type === 'row';
+    if (!(isRow && depth >= MAX_TABLE_NESTING_DEPTH)) {
+      const childDepth = isRow ? depth + 1 : depth;
+      normalized.children = node.children.map((c) =>
+        normalizeYsonTreeNode(c, childDepth),
+      );
+    }
   }
   return normalized;
 }

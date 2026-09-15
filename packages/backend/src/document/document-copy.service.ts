@@ -9,6 +9,7 @@ import { YorkieService } from '../yorkie/yorkie.service';
 import { yorkieDocKeyPrefix } from '../yorkie/yorkie-doc-key';
 import {
   DocsYorkieRoot,
+  documentHasTableAtNestingCap,
   readDocsRoot,
   writeDocsRoot,
 } from '../yorkie/docs-tree';
@@ -435,6 +436,19 @@ export class DocumentCopyService {
       // and finds nothing, whereas skipping it asserts "docs never hold a
       // workspace-scoped URL" — a claim about every past and future writer
       // rather than about this code.
+      // `readDocsRoot` truncates a table nested at `MAX_TABLE_NESTING_DEPTH`
+      // to no rows — that is the readers' own stack-overflow guard — and the
+      // write below is a whole-tree rewrite from exactly that model. Copying
+      // such a document would therefore silently drop the rows the read
+      // declined to descend into, and the copy would look like a complete one.
+      // Refuse instead, the same direction `writeDocsRoot` and the editor's
+      // `writeFullDocument` take; the source is untouched either way.
+      if (documentHasTableAtNestingCap(content)) {
+        throw new BadRequestException(
+          'Cannot copy this document: it contains a table nested too deeply ' +
+            'to be read completely',
+        );
+      }
       const rewritten = rehost
         ? await this.rehostImages(content, rehost, report)
         : content;

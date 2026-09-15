@@ -5,6 +5,7 @@ import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockT
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { effectiveBlockSpacing, omitBuiltinStyleDefaults } from '../model/named-styles.js';
+import { MAX_TABLE_NESTING_DEPTH } from '../model/table-nesting.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
 import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
@@ -4225,6 +4226,13 @@ export function initialize(
       const cellInfo = layout.blockParentMap.get(pos.blockId);
 
       if (cellInfo) {
+        // Nesting has a ceiling — the depth the CRDT readers stop descending
+        // at. Checked *before* the split so a refused insert leaves the
+        // document exactly as it was rather than a stray empty paragraph.
+        if (doc.tableNestingDepth(pos.blockId) >= MAX_TABLE_NESTING_DEPTH) {
+          return;
+        }
+
         // Split the current block at the cursor so trailing text moves
         // below the new table (matches the top-level insertion flow).
         const cellBlock = doc.getBlock(pos.blockId);

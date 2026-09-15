@@ -47,6 +47,7 @@ import {
   parseColumnWidthsAttr,
 } from './numeric-attrs.js';
 import { sanitizeDocStyles } from './named-styles.js';
+import { MAX_TABLE_NESTING_DEPTH } from './table-nesting.js';
 
 /**
  * The structural subset of a CRDT tree node this reader needs.
@@ -169,11 +170,11 @@ function treeNodeToInline(node: DocsTreeNode): Inline {
   return { text, style: parseInlineStyle(node.attributes) };
 }
 
-function treeNodeToCell(node: DocsTreeNode): TableCell {
+function treeNodeToCell(node: DocsTreeNode, depth: number): TableCell {
   const attrs = attrsOf(node);
   const blocks = (node.children ?? [])
     .filter((c) => c.type === 'block')
-    .map(treeNodeToBlock);
+    .map((c) => treeNodeToBlock(c, depth));
   return {
     blocks:
       blocks.length > 0
@@ -197,23 +198,35 @@ function treeNodeToCell(node: DocsTreeNode): TableCell {
   };
 }
 
-function treeNodeToRow(node: DocsTreeNode): TableRow {
+function treeNodeToRow(node: DocsTreeNode, depth: number): TableRow {
   return {
     cells: (node.children ?? [])
       .filter((c) => c.type === 'cell')
-      .map(treeNodeToCell),
+      .map((c) => treeNodeToCell(c, depth)),
   };
 }
 
-/** One `block` tree node as a `Block` (tables included, recursively). */
-export function treeNodeToBlock(node: DocsTreeNode): Block {
+/**
+ * One `block` tree node as a `Block` (tables included, recursively).
+ *
+ * `depth` counts the tables already entered on the way here, and stops the
+ * descent at `MAX_TABLE_NESTING_DEPTH`. Nesting is the one part of this shape
+ * a peer can make arbitrarily deep with ordinary Tree writes, and every step
+ * of it costs a stack frame here and two more in the layout, so without a cap
+ * one peer's write is a stack overflow for every reader of the document. See
+ * `table-nesting.ts`.
+ */
+export function treeNodeToBlock(node: DocsTreeNode, depth = 0): Block {
   const attrs = attrsOf(node);
   const blockType = (attrs.type as Block['type']) ?? 'paragraph';
 
   if (blockType === 'table') {
-    const rows = (node.children ?? [])
-      .filter((c) => c.type === 'row')
-      .map(treeNodeToRow);
+    const rows =
+      depth >= MAX_TABLE_NESTING_DEPTH
+        ? []
+        : (node.children ?? [])
+            .filter((c) => c.type === 'row')
+            .map((c) => treeNodeToRow(c, depth + 1));
     // Banded on count *and* magnitude, not merely filtered for `NaN`: the
     // length is `computeTableLayout`'s `numCols`, which allocates a cell per
     // (row, column) pair, and `Number('1e400')` is an `Infinity` ratio that
@@ -301,12 +314,15 @@ export function docsTreeToDocument(
   for (const child of root.children ?? []) {
     if (child.type === 'header') {
       doc.header = {
-        blocks: (child.children ?? []).map(treeNodeToBlock),
+        // Wrapped rather than passed as the callback: `map` supplies the
+        // element index as the second argument, which `treeNodeToBlock` now
+        // reads as the nesting depth.
+        blocks: (child.children ?? []).map((c) => treeNodeToBlock(c)),
         marginFromEdge: parseMarginFromEdgeAttr(attrsOf(child).marginFromEdge),
       };
     } else if (child.type === 'footer') {
       doc.footer = {
-        blocks: (child.children ?? []).map(treeNodeToBlock),
+        blocks: (child.children ?? []).map((c) => treeNodeToBlock(c)),
         marginFromEdge: parseMarginFromEdgeAttr(attrsOf(child).marginFromEdge),
       };
     } else if (child.type === 'block') {

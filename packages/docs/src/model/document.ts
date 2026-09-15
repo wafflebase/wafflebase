@@ -31,6 +31,7 @@ import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { blockStyleId, markAuthoredSpacing, resolveStyleInline } from './named-styles.js';
 import { visitCellRectangleSlices, visitRangeSlices } from './range-slices.js';
+import { MAX_TABLE_NESTING_DEPTH } from './table-nesting.js';
 
 /**
  * The inline-style keys the B/I/U/S toggles write as plain booleans. Kept
@@ -113,6 +114,36 @@ function walkCellsForSiblings(
 }
 
 /**
+ * How many tables enclose `blockId` within `blocks`, or `undefined` when it is
+ * not in there at all. `depth` is the count `blocks` themselves sit at, so a
+ * top-level call passes 0 — the same accounting the CRDT readers and writers
+ * keep (`MAX_TABLE_NESTING_DEPTH`).
+ *
+ * The model-side answer to {@link Doc.tableNestingDepth}, and the reason that
+ * method does not ask the layout's `blockParentMap` first: the map is built at
+ * layout time and holds nothing for a block created since, which is exactly
+ * the block a producer asks about (the tail of the split a paste does on its
+ * way in). The document model, by contrast, is refreshed after every mutation.
+ */
+function walkCellsForNestingDepth(
+  blocks: Block[],
+  blockId: string,
+  depth: number,
+): number | undefined {
+  for (const b of blocks) {
+    if (b.id === blockId) return depth;
+    if (b.type !== 'table' || !b.tableData) continue;
+    for (const row of b.tableData.rows) {
+      for (const cell of row.cells) {
+        const found = walkCellsForNestingDepth(cell.blocks, blockId, depth + 1);
+        if (found !== undefined) return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Document manipulation logic.
  *
  * Delegates all mutations through a DocStore. Maintains a cached
@@ -139,6 +170,69 @@ export class Doc {
 
   get blockParentMap(): Map<string, BlockCellInfo> {
     return this._blockParentMap;
+  }
+
+  /**
+   * How many tables enclose `blockId` — 0 for a body block, 1 for a block in a
+   * top-level table's cell, and so on. The same count the CRDT readers and
+   * writers keep (`MAX_TABLE_NESTING_DEPTH`), so a producer can ask "would
+   * what I am about to insert here be past the cap?" before writing it.
+   *
+   * Answered from the **document model** first, and only then from the
+   * layout's `blockParentMap`. The map is rebuilt at layout time and holds
+   * nothing for a block created since — `insertBlocks` splits the caret's
+   * block on its way into a paste and then asks about the result, and
+   * `ensureEditableBlock` can create one too — so a map-only answer reports a
+   * block 31 tables deep as sitting at depth 0, silently disarming the cap at
+   * the one moment a producer is asking about it. `_document` is refreshed
+   * after every mutation, so it always holds those blocks. The map stays as
+   * the fallback for an id the model does not hold at all (a stale cursor),
+   * where its answer is the only one available.
+   *
+   * The fallback carries the same cycle guard as every other walk over that
+   * map: block ids arrive verbatim from peer-written CRDT attributes, so a
+   * parent chain that loops back on itself is representable. A cycle stops the
+   * walk with the depth counted so far, and the loop stops at the cap besides
+   * — the answer is only ever used as "is this already at the cap?", so
+   * counting no further than the cap costs nothing. The model answer is
+   * clamped to the cap for the same reason.
+   */
+  tableNestingDepth(blockId: string): number {
+    const fromModel = this.modelNestingDepth(blockId);
+    if (fromModel !== undefined) {
+      return Math.min(fromModel, MAX_TABLE_NESTING_DEPTH);
+    }
+
+    let depth = 0;
+    let current = blockId;
+    const seen = new Set<string>([current]);
+    while (depth < MAX_TABLE_NESTING_DEPTH) {
+      const info = this._blockParentMap.get(current);
+      if (!info || seen.has(info.tableBlockId)) break;
+      depth++;
+      current = info.tableBlockId;
+      seen.add(current);
+    }
+    return depth;
+  }
+
+  /**
+   * {@link tableNestingDepth} asked of the document model — every region, since
+   * a table nests the same way in a header or a footer as it does in the body.
+   * `undefined` when the model does not hold `blockId` at all.
+   */
+  private modelNestingDepth(blockId: string): number | undefined {
+    const doc = this._document;
+    const inBody = walkCellsForNestingDepth(doc.blocks, blockId, 0);
+    if (inBody !== undefined) return inBody;
+    if (doc.header) {
+      const inHeader = walkCellsForNestingDepth(doc.header.blocks, blockId, 0);
+      if (inHeader !== undefined) return inHeader;
+    }
+    if (doc.footer) {
+      return walkCellsForNestingDepth(doc.footer.blocks, blockId, 0);
+    }
+    return undefined;
   }
 
   /**
@@ -257,8 +351,21 @@ export class Doc {
   /**
    * Recursively search for a block inside table cells using the BlockParentMap chain.
    * Handles nested tables where the parent table is itself inside another table cell.
+   *
+   * `seen` carries the same cycle guard the view-side walks over this map
+   * carry (`resolveNestedTableLayout`, `resolvePositionPixel`,
+   * `walkToTopLevelBlockId`): block ids arrive verbatim from peer-written CRDT
+   * attributes, so a parent chain that loops back on itself is representable,
+   * and this walk is reached from the copy/cut and cell-range paths with those
+   * same ids. Unguarded it recurses until the stack overflows — a crash rather
+   * than the `undefined` every other unresolvable id gets here. Stepping onto
+   * an id already walked stops the chain and falls through to the bounded
+   * whole-document walk below.
    */
-  private findBlockInCells(blockId: string): Block | undefined {
+  private findBlockInCells(
+    blockId: string,
+    seen: Set<string> = new Set([blockId]),
+  ): Block | undefined {
     // Fast path: the parent map (populated at layout time) locates the cell
     // directly, so getBlock stays cheap for blocks that existed at the last
     // layout.
@@ -272,8 +379,9 @@ export class Doc {
       if (!tableBlock) {
         tableBlock = this._document.footer?.blocks.find((b) => b.id === cellInfo.tableBlockId);
       }
-      if (!tableBlock) {
-        tableBlock = this.findBlockInCells(cellInfo.tableBlockId);
+      if (!tableBlock && !seen.has(cellInfo.tableBlockId)) {
+        seen.add(cellInfo.tableBlockId);
+        tableBlock = this.findBlockInCells(cellInfo.tableBlockId, seen);
       }
       const cell = tableBlock?.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
       const found = cell?.blocks.find((b) => b.id === blockId);
@@ -874,6 +982,19 @@ export class Doc {
       throw new Error(`Block ${blockId} is not inside a table cell`);
     }
 
+    // The interactive producer of nested tables, capped at the same depth the
+    // readers stop descending at (`MAX_TABLE_NESTING_DEPTH`). Writing one
+    // deeper would put a table into the CRDT that every reader reports as
+    // having no rows — content nobody can see or repair. The editor asks
+    // `tableNestingDepth` first and simply declines the command, so this is
+    // the backstop for any other caller rather than a path a user reaches.
+    if (this.tableNestingDepth(blockId) >= MAX_TABLE_NESTING_DEPTH) {
+      throw new Error(
+        `Cannot nest a table inside ${blockId}: already at the ` +
+          `${MAX_TABLE_NESTING_DEPTH}-level nesting cap`,
+      );
+    }
+
     const newTable = createTableBlock(rows, cols);
     this.store.insertBlockAfter(blockId, newTable);
     this.refresh();
@@ -940,8 +1061,18 @@ export class Doc {
 
   /**
    * Insert a new row at the given index.
+   *
+   * Declines on a table nested at or past the cap, for the same reason
+   * `insertTableInCell` does — and *before* writing anything, which is the
+   * point. One row insert is two store writes (`updateTableAttrs` for the row
+   * heights, `insertTableRow` for the row itself) and only the second one is
+   * refused by `YorkieDocStore` at that depth, so asking afterwards would
+   * leave the table carrying a height for a row that never landed. A table
+   * block at depth `d` has its rows at `d + 1`, so `d >= cap` is exactly the
+   * `rowDepth > cap` the store declines on.
    */
   insertRow(blockId: string, atIndex: number): void {
+    if (this.tableNestingDepth(blockId) >= MAX_TABLE_NESTING_DEPTH) return;
     const block = this.getBlock(blockId);
     const td = block.tableData!;
     const colCount = td.columnWidths.length;
@@ -989,8 +1120,15 @@ export class Doc {
 
   /**
    * Insert a column at the given index, renormalize widths.
+   *
+   * Declines past the nesting cap exactly as {@link insertRow} does, and for
+   * the sharper version of the same reason: the column widths written by the
+   * `updateTableAttrs` below describe one more column than the rows have
+   * unless `insertTableColumn` actually landed, so every remaining column in
+   * the table would be re-measured against a cell that does not exist.
    */
   insertColumn(blockId: string, atIndex: number): void {
+    if (this.tableNestingDepth(blockId) >= MAX_TABLE_NESTING_DEPTH) return;
     const block = this.getBlock(blockId);
     const td = block.tableData!;
     td.columnWidths.splice(atIndex, 0, 0);

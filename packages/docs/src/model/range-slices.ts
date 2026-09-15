@@ -53,8 +53,13 @@ export function visitCellRectangleSlices(
   const minRow = Math.max(0, Math.min(cellRange.start.rowIndex, cellRange.end.rowIndex));
   const maxRow = Math.min(rows.length - 1, Math.max(cellRange.start.rowIndex, cellRange.end.rowIndex));
   const minCol = Math.max(0, Math.min(cellRange.start.colIndex, cellRange.end.colIndex));
+  // Folded rather than spread, for the same reason `normalizeCellRange`
+  // (`view/selection.ts`) folds: `Math.max(...rows)` throws `RangeError` past
+  // ~100k arguments, and the row count is a peer's to choose — rows carry no
+  // numeric band because they are structure, not an attribute.
+  const widestRow = rows.reduce((m, row) => Math.max(m, row.cells.length), 0);
   const maxCol = Math.min(
-    Math.max(0, ...rows.map((row) => row.cells.length)) - 1,
+    widestRow - 1,
     Math.max(cellRange.start.colIndex, cellRange.end.colIndex),
   );
   for (let r = minRow; r <= maxRow; r++) {

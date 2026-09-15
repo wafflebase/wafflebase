@@ -119,11 +119,20 @@ export function resolvePositionPixel(
     const nestingPath: Array<{ tableBlockId: string; rowIndex: number; colIndex: number }> = [];
     nestingPath.push(cellInfo);
     let currentTableId = cellInfo.tableBlockId;
+    // Same cycle guard as `resolveNestedTableLayout`: block ids arrive
+    // verbatim from peer-written CRDT attributes, so a parent chain that loops
+    // back on itself is representable. This walk runs once per remote peer
+    // cursor per paint and also `unshift`es as it goes, so an unbounded one
+    // would both spin and grow `nestingPath` without bound. Bail out with
+    // `undefined` — the same answer every other unresolvable position gets.
+    const seenTableIds = new Set<string>([currentTableId]);
     while (true) {
       const parentInfo = layout.blockParentMap.get(currentTableId);
       if (!parentInfo) break; // currentTableId is a top-level block
+      if (seenTableIds.has(parentInfo.tableBlockId)) return undefined;
       nestingPath.unshift(parentInfo);
       currentTableId = parentInfo.tableBlockId;
+      seenTableIds.add(currentTableId);
     }
 
     // currentTableId is now the top-level table block ID

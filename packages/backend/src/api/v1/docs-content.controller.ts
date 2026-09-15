@@ -46,6 +46,7 @@ import {
   BLOCK_ALIGNMENTS,
   BLOCK_STYLE_NUMERIC_FIELDS,
   MAX_TABLE_COLUMNS,
+  MAX_TABLE_NESTING_DEPTH,
   isBlockAlignment,
   isPaintableImageSize,
   normalizeCellPadding,
@@ -438,9 +439,19 @@ function assertValidBlockStyle(
 function assertValidBlock(block: unknown, path: string, depth = 0): void {
   // A table cell holds blocks of its own, so this walk recurses through
   // `tableData.rows[].cells[]` exactly as the element walk recurses through
-  // `data.children` — and for the same reason it is capped at the same
-  // ceiling. See {@link MAX_ELEMENT_DEPTH}.
-  if (depth > MAX_ELEMENT_DEPTH) {
+  // `data.children`, and for the same reason it is capped — see
+  // {@link MAX_ELEMENT_DEPTH} for why an uncapped walk is a `RangeError` on an
+  // authenticated endpoint.
+  //
+  // The ceiling here is the *shared* `MAX_TABLE_NESTING_DEPTH` rather than
+  // this file's own constant, because the writer this validates for is a
+  // producer of the same Yorkie tree the editor reads: the readers materialize
+  // tables at depth `0 … MAX_TABLE_NESTING_DEPTH - 1`, and `writeDocsRoot`
+  // refuses a document holding one deeper. A locally-chosen 32 checked with
+  // `>` admitted exactly one level more than that — a body that validated,
+  // then either wrote a table the editor truncates on read or was refused by
+  // the writer as a 500. Refusing it here is the 400 it always was.
+  if (depth >= MAX_TABLE_NESTING_DEPTH) {
     throw new BadRequestException(
       `Invalid block at ${path}: blocks are nested too deeply`,
     );

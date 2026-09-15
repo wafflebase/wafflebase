@@ -2,6 +2,7 @@ import yorkie, { Document as YorkieDocument, Tree } from '@yorkie-js/sdk';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
+  MAX_TABLE_NESTING_DEPTH,
 } from '@wafflebase/docs';
 import {
   DocsYorkieRoot,
@@ -700,5 +701,59 @@ describe('docs-tree', () => {
     const result = readDocsRoot(doc.getRoot());
 
     expect(result).toEqual(original);
+  });
+
+  // The write-side half of the readers' nesting cap. `readDocsRoot` truncates
+  // a table nested at `MAX_TABLE_NESTING_DEPTH` to no rows, so a whole-tree
+  // rewrite from that model would replicate the truncation as a deletion —
+  // which is what `DocumentCopyService` and the CLI's `--replace` import do
+  // with it. The writer refuses instead.
+  describe('the table-nesting cap', () => {
+    function nested(depth: number): DocsDocument {
+      const style = { ...DEFAULT_BLOCK_STYLE };
+      let blocks: DocsDocument['blocks'] = [
+        { id: 'leaf', type: 'paragraph', inlines: [{ text: 'x', style: {} }], style },
+      ];
+      for (let i = depth; i > 0; i--) {
+        blocks = [
+          {
+            id: `t${i}`,
+            type: 'table',
+            inlines: [],
+            style,
+            tableData: { rows: [{ cells: [{ blocks, style: {} }] }], columnWidths: [1] },
+          },
+        ];
+      }
+      return { blocks };
+    }
+
+    it('writes and reads back a chain one level under the cap', () => {
+      const original = nested(MAX_TABLE_NESTING_DEPTH - 1);
+
+      doc.update((root) => writeDocsRoot(root, original));
+
+      expect(readDocsRoot(doc.getRoot())).toEqual(original);
+    });
+
+    it('refuses a document holding a table at the cap', () => {
+      expect(() =>
+        doc.update((root) => writeDocsRoot(root, nested(MAX_TABLE_NESTING_DEPTH + 1))),
+      ).toThrow(/nested at or past/);
+    });
+
+    it('refuses one in the header too', () => {
+      const withHeader: DocsDocument = {
+        blocks: [],
+        header: {
+          blocks: nested(MAX_TABLE_NESTING_DEPTH + 1).blocks,
+          marginFromEdge: DEFAULT_HEADER_MARGIN_FROM_EDGE,
+        },
+      };
+
+      expect(() => doc.update((root) => writeDocsRoot(root, withHeader))).toThrow(
+        /nested at or past/,
+      );
+    });
   });
 });
