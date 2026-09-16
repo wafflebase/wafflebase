@@ -157,4 +157,27 @@ wording preferences.
 
 ## Review
 
-_Filled in when the PR lands._
+PR: wafflebase#1070. Two commits of code, one of docs, plus a
+`verify:entropy` fix.
+
+**Landed as planned**, with three deviations worth recording:
+
+- The preference test is colocated (`lib/*.test.ts`), not in `lib/__tests__/`
+  — `lib/` colocates and `app/` does not. The Settings test follows `app/`.
+- Seven preference tests rather than five: the two extra pin that the setter
+  never throws out of `onCheckedChange`, and that a successful write stops the
+  session mirror from outvoting storage. The second is the one that matters,
+  and its first version passed on the bug (see the lessons file).
+- `docs/design/offline-local-persistence.md` referenced the SDK design as a
+  backticked sibling path, which `verify:entropy` reads as a claim about a
+  tracked file. It blocks `git push`, not `verify:fast`, so it surfaced late.
+
+**One obligation this PR creates for W4.** The Settings copy states that
+turning the toggle off *deletes* what was stored. Nothing persists yet, so the
+claim is currently vacuous — but it becomes load-bearing the moment W4 wires
+the store. W4 must implement the erase in the same PR that starts writing, or
+the copy is a lie in shipped software.
+
+**Unverified:** the manual `pnpm dev` smoke. `/settings` is behind sign-in,
+and authenticating on the user's behalf is out of bounds. The behaviors it
+would check are covered by unit tests; the rendering is not.
