@@ -37,6 +37,13 @@ interface SnapshotRecord {
   meta?: ArrayBuffer;
   /** Last write to this entry, in epoch ms. Drives stale collection. */
   updatedAt: number;
+  /**
+   * Who wrote it, so logout can drop one account's entries without touching
+   * another's on the same device. Recorded explicitly rather than parsed back
+   * out of the key: the key's shape is the SDK's to change, and a cleanup that
+   * silently matches nothing is the worst way to find that out.
+   */
+  userId?: string;
 }
 
 interface ChangeRecord {
@@ -49,6 +56,27 @@ interface ChangeRecord {
 export interface WafflebaseDocStoreOptions {
   /** Overridable so tests get an isolated database per case. */
   dbName?: string;
+  /** Stamped on entries this store writes, for per-user cleanup. */
+  userId?: string;
+  /**
+   * The clock, injected so tests can age an entry without
+   * `vi.useFakeTimers()` — which stops the timers fake-indexeddb schedules its
+   * own callbacks on, hanging every store call instead of advancing time.
+   */
+  now?: () => number;
+}
+
+/** How long an untouched entry survives before collection claims it. */
+export const DefaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a failure is the origin running out of room, as opposed to any other
+ * thing that can go wrong with a write. Only this answer may delete a user's
+ * documents, so it is deliberately narrow: an unrelated bug that evicted would
+ * be a self-inflicted data loss.
+ */
+function isQuotaExceeded(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "QuotaExceededError";
 }
 
 /**
@@ -121,10 +149,19 @@ function requested<T>(request: IDBRequest<T>): Promise<T> {
  */
 export class WafflebaseDocStore implements DocStore {
   private readonly dbName: string;
+  private readonly userId?: string;
+  private readonly now: () => number;
   private opening?: Promise<IDBDatabase>;
 
   constructor(options: WafflebaseDocStoreOptions = {}) {
     this.dbName = options.dbName ?? DEFAULT_DB_NAME;
+    this.userId = options.userId;
+    this.now = options.now ?? (() => Date.now());
+  }
+
+  /** The database this store reads and writes; a second store can share it. */
+  public get databaseName(): string {
+    return this.dbName;
   }
 
   /**
@@ -214,16 +251,19 @@ export class WafflebaseDocStore implements DocStore {
    */
   public async saveSnapshot(docKey: string, bytes: Uint8Array): Promise<void> {
     const snapshot = toBuffer(await deflate(bytes));
-    const db = await this.open();
-    const tx = db.transaction([SNAPSHOTS, CHANGES], "readwrite");
-    const record: SnapshotRecord = {
-      docKey,
-      snapshot,
-      updatedAt: Date.now(),
-    };
-    tx.objectStore(SNAPSHOTS).put(record);
-    tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
-    return WafflebaseDocStore.completed(tx);
+    return this.withQuotaRetry(async () => {
+      const db = await this.open();
+      const tx = db.transaction([SNAPSHOTS, CHANGES], "readwrite");
+      const record: SnapshotRecord = {
+        docKey,
+        snapshot,
+        updatedAt: this.now(),
+        userId: this.userId,
+      };
+      tx.objectStore(SNAPSHOTS).put(record);
+      tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
+      return WafflebaseDocStore.completed(tx);
+    });
   }
 
   /**
@@ -240,20 +280,29 @@ export class WafflebaseDocStore implements DocStore {
     change: StoredChange,
   ): Promise<void> {
     const bytes = toBuffer(await deflate(change.bytes));
-    const db = await this.open();
-    const tx = db.transaction([SNAPSHOTS, CHANGES], "readwrite");
-    const existing = await requested<SnapshotRecord | undefined>(
-      tx.objectStore(SNAPSHOTS).get(docKey),
-    );
-    if (!existing) {
-      return WafflebaseDocStore.completed(tx);
-    }
+    return this.withQuotaRetry(async () => {
+      const db = await this.open();
+      const tx = db.transaction([SNAPSHOTS, CHANGES], "readwrite");
+      const existing = await requested<SnapshotRecord | undefined>(
+        tx.objectStore(SNAPSHOTS).get(docKey),
+      );
+      if (!existing) {
+        return WafflebaseDocStore.completed(tx);
+      }
 
-    const record: ChangeRecord = { docKey, clientSeq: change.clientSeq, bytes };
-    tx.objectStore(CHANGES).put(record);
-    existing.updatedAt = Date.now();
-    tx.objectStore(SNAPSHOTS).put(existing);
-    return WafflebaseDocStore.completed(tx);
+      const record: ChangeRecord = {
+        docKey,
+        clientSeq: change.clientSeq,
+        bytes,
+      };
+      tx.objectStore(CHANGES).put(record);
+      // An append touches the entry. Without this, a document edited daily for
+      // a month is collected on its anniversary with its unsent work still in
+      // the log, because only `saveSnapshot` ever moved the clock.
+      existing.updatedAt = this.now();
+      tx.objectStore(SNAPSHOTS).put(existing);
+      return WafflebaseDocStore.completed(tx);
+    });
   }
 
   /**
@@ -266,19 +315,21 @@ export class WafflebaseDocStore implements DocStore {
    */
   public async saveMeta(docKey: string, bytes: Uint8Array): Promise<void> {
     const meta = toBuffer(await deflate(bytes));
-    const db = await this.open();
-    const tx = db.transaction(SNAPSHOTS, "readwrite");
-    const existing = await requested<SnapshotRecord | undefined>(
-      tx.objectStore(SNAPSHOTS).get(docKey),
-    );
-    // A header with no snapshot under it describes nothing, so this is a no-op
-    // rather than a row that `load` would have to learn to ignore.
-    if (existing) {
-      existing.meta = meta;
-      existing.updatedAt = Date.now();
-      tx.objectStore(SNAPSHOTS).put(existing);
-    }
-    return WafflebaseDocStore.completed(tx);
+    return this.withQuotaRetry(async () => {
+      const db = await this.open();
+      const tx = db.transaction(SNAPSHOTS, "readwrite");
+      const existing = await requested<SnapshotRecord | undefined>(
+        tx.objectStore(SNAPSHOTS).get(docKey),
+      );
+      // A header with no snapshot under it describes nothing, so this is a
+      // no-op rather than a row that `load` would have to learn to ignore.
+      if (existing) {
+        existing.meta = meta;
+        existing.updatedAt = this.now();
+        tx.objectStore(SNAPSHOTS).put(existing);
+      }
+      return WafflebaseDocStore.completed(tx);
+    });
   }
 
   /** `remove` clears the snapshot, the meta and the log. Missing keys are fine. */
@@ -288,6 +339,118 @@ export class WafflebaseDocStore implements DocStore {
     tx.objectStore(SNAPSHOTS).delete(docKey);
     tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
     return WafflebaseDocStore.completed(tx);
+  }
+
+  /**
+   * `purge` deletes an entry outright, for the app's own cleanup — the document
+   * was deleted, or workspace access was lost, and the content must not outlive
+   * the authority to read it.
+   *
+   * Distinct from {@link remove}, which the SDK calls on the paths where local
+   * work could not be reconciled and therefore archives first. Nothing about
+   * losing access says the user should get an offline copy of it.
+   */
+  public async purge(docKey: string): Promise<void> {
+    const db = await this.open();
+    const tx = db.transaction([SNAPSHOTS, CHANGES], "readwrite");
+    tx.objectStore(SNAPSHOTS).delete(docKey);
+    tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
+    return WafflebaseDocStore.completed(tx);
+  }
+
+  /**
+   * `dropAllForUser` drops every entry that user wrote — logout, on a machine
+   * whose disk should not keep their documents.
+   *
+   * Entries belonging to *another* account on the same device survive, which is
+   * the half that makes it correct: signing out of one account must not destroy
+   * another's unsent work.
+   */
+  public async dropAllForUser(userId: string): Promise<number> {
+    const keys = (await this.allRecords())
+      .filter((record) => record.userId === userId)
+      .map((record) => record.docKey);
+    for (const docKey of keys) {
+      await this.purge(docKey);
+    }
+    return keys.length;
+  }
+
+  /**
+   * `collectStale` drops entries untouched for longer than `maxAgeMs`,
+   * returning how many went. Nothing else collects: the SDK never calls
+   * `remove` on a normal detach, and correctly so, since not removing is what
+   * makes resume possible.
+   */
+  public async collectStale(
+    maxAgeMs: number = DefaultMaxAgeMs,
+  ): Promise<number> {
+    const cutoff = this.now() - maxAgeMs;
+    const keys = (await this.allRecords())
+      .filter((record) => record.updatedAt < cutoff)
+      .map((record) => record.docKey);
+    for (const docKey of keys) {
+      await this.purge(docKey);
+    }
+    return keys.length;
+  }
+
+  /**
+   * `changeCount` reports how many log entries a document has. An orphaned log
+   * is invisible to `load` and still occupies quota, so cleanup that leaves one
+   * behind looks complete and is not — this is how a test can tell.
+   */
+  public async changeCount(docKey: string): Promise<number> {
+    const db = await this.open();
+    const tx = db.transaction(CHANGES, "readonly");
+    return requested<number>(
+      tx.objectStore(CHANGES).count(WafflebaseDocStore.rangeFor(docKey)),
+    );
+  }
+
+  /** Every snapshot record, for the cleanup passes that scan rather than seek. */
+  private async allRecords(): Promise<Array<SnapshotRecord>> {
+    const db = await this.open();
+    const tx = db.transaction(SNAPSHOTS, "readonly");
+    return requested<Array<SnapshotRecord>>(tx.objectStore(SNAPSHOTS).getAll());
+  }
+
+  /**
+   * Runs a write, and on a full origin frees the oldest entry and tries once
+   * more.
+   *
+   * Once. A store that never accepts a write must report itself undurable —
+   * which is what a rejection here becomes — rather than loop until it has
+   * deleted every document the user had. And only a genuine quota failure
+   * evicts: deleting documents in response to an unrelated bug would be a
+   * self-inflicted data loss.
+   */
+  private async withQuotaRetry<T>(op: () => Promise<T>): Promise<T> {
+    try {
+      return await op();
+    } catch (err) {
+      if (!isQuotaExceeded(err)) {
+        throw err;
+      }
+      if (!(await this.evictOldest())) {
+        // Nothing left to free, so retrying would fail the same way.
+        throw err;
+      }
+      return op();
+    }
+  }
+
+  /** Drops the least recently touched entry. False when there was none. */
+  private async evictOldest(): Promise<boolean> {
+    const records = await this.allRecords();
+    if (!records.length) {
+      return false;
+    }
+    const oldest = records.reduce((a, b) =>
+      a.updatedAt <= b.updatedAt ? a : b,
+    );
+    await this.purge(oldest.docKey);
+    return true;
   }
 
   /**
