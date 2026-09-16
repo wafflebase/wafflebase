@@ -48,9 +48,15 @@ function Harness({
     <>
       <Link to="/w/acme">workspace</Link>
       <Link to="/s/doc-1?tab=2">same document</Link>
+      {/* The app's own redirects — a 404'd document, an expired session —
+          are all `replace`. */}
+      <Link to="/login" replace>
+        redirect
+      </Link>
       <Routes>
         <Route path="/s/doc-1" element={<Editor active={active} guard={guard} />} />
         <Route path="/w/acme" element={<div>workspace page</div>} />
+        <Route path="/login" element={<div>login page</div>} />
       </Routes>
     </>
   );
@@ -119,10 +125,88 @@ describe('NavigationGuardProvider', () => {
     expect(screen.getByText('editor')).toBeInTheDocument();
   });
 
+  it('resolves the same-page exemption under a basename', () => {
+    // `createHref` does not prepend the basename, but `useNavigate` has
+    // already joined it into the pathname it pushes, and `useLocation` strips
+    // it. Comparing the two raw would make every navigation "leaving" on a
+    // deployment that sets VITE_FRONTEND_BASENAME.
+    render(
+      <MemoryRouter basename="/app" initialEntries={['/app/s/doc-1']}>
+        <NavigationGuardProvider>
+          <Link to="/s/doc-1?tab=2">same document</Link>
+          <Routes>
+            <Route
+              path="/s/doc-1"
+              element={<Editor active guard={blocking} />}
+            />
+          </Routes>
+        </NavigationGuardProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('same document'));
+
+    expect(screen.queryByText(PROMPT.title)).not.toBeInTheDocument();
+  });
+
   it('is a no-op outside a provider', () => {
     render(<Harness withProvider={false} />);
     leave();
 
+    expect(screen.getByText('workspace page')).toBeInTheDocument();
+  });
+
+  it('never refuses a redirect the app performs on its own behalf', () => {
+    // `replace` is how an editor sends you back to the workspace when its
+    // document 404s, and how `PrivateRoute` sends you to /login. Blocking one
+    // would swallow it for good — the effect that issued it does not run
+    // again — leaving the user in an editor for a document that is gone.
+    render(<Harness />);
+
+    fireEvent.click(screen.getByText('redirect'));
+
+    expect(screen.queryByText(PROMPT.title)).not.toBeInTheDocument();
+    expect(screen.getByText('login page')).toBeInTheDocument();
+  });
+
+  it('drops a prompt the app has already navigated past', () => {
+    // The provider outlives the route the dialog was asking about, so a
+    // navigation that gets through while it is open would otherwise leave a
+    // stranded dialog whose "Leave" replays a destination from another page.
+    render(<Harness />);
+    leave();
+    expect(screen.getByText(PROMPT.title)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('redirect'));
+
+    expect(screen.getByText('login page')).toBeInTheDocument();
+    expect(screen.queryByText(PROMPT.title)).not.toBeInTheDocument();
+  });
+
+  it('stops asking once the component that registered the guard is gone', () => {
+    // The provider is mounted at the app root and never unmounts, so a guard
+    // that outlived its owner would prompt on every navigation for the rest of
+    // the session — with a dead document's answer.
+    function Toggling({ mounted }: { mounted: boolean }) {
+      return (
+        <MemoryRouter initialEntries={['/s/doc-1']}>
+          <NavigationGuardProvider>
+            <Link to="/w/acme">workspace</Link>
+            {mounted && <Editor active guard={blocking} />}
+            <Routes>
+              <Route path="/w/acme" element={<div>workspace page</div>} />
+            </Routes>
+          </NavigationGuardProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(<Toggling mounted />);
+    rerender(<Toggling mounted={false} />);
+
+    leave();
+
+    expect(screen.queryByText(PROMPT.title)).not.toBeInTheDocument();
     expect(screen.getByText('workspace page')).toBeInTheDocument();
   });
 });

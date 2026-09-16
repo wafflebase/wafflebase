@@ -292,15 +292,45 @@ Registering outside the provider is a no-op rather than an error — the same
 opt-in reasoning the chip's `syncStatus` prop follows, and what keeps the
 existing `MemoryRouter` tests working untouched.
 
-A navigation that resolves to the **same path** is never held: a document
-rewriting its own query string is not leaving anything, and the question this
-guard asks is whether the user is leaving the document.
+Two navigations are deliberately never held.
 
-What it does not cover is browser **back/forward**. That arrives on the history
-listener rather than through the navigator, which is exactly the part
+A **same-path** one, because a document rewriting its own query string is not
+leaving anything, and the question this guard asks is whether the user is
+leaving the document. (`createHref` does not prepend the basename while
+`useNavigate` already has, so the comparison joins it back onto the current
+pathname — otherwise every navigation reads as "leaving" on a deployment that
+sets `VITE_FRONTEND_BASENAME`.)
+
+And a **`replace`**, which is the more interesting line: a push is the user
+going somewhere, a replace is this app correcting the URL on its own behalf.
+An editor sends you back to the workspace when its document 404s
+(`document-detail.tsx` and its four siblings), `PrivateRoute` sends you to
+`/login`. Those redirects are not refusable — there is nothing to stay on — and
+because the effect that issued one does not run again, a *Stay* would swallow
+it permanently and strand the user in an editor for a document that is gone.
+`go` is the programmatic back button, and is left alone for the same reason the
+real one is.
+
+Because the provider outlives the route a dialog is asking about, a prompt is
+dropped whenever the location moves under it. Otherwise an unguarded redirect
+arriving mid-dialog would leave a stranded dialog whose *Leave* replays a
+destination from a page the user is no longer on. For the same reason only the
+**first** held navigation is kept: a second one arriving while the dialog is
+open would send the user somewhere they never clicked the moment they answer.
+
+What the guard does not cover is browser **back/forward**. That arrives on the
+history listener rather than through the navigator, which is exactly the part
 `useBlocker` gets for free by living inside the router's own history
 integration. `beforeunload` does not cover it either, so the honest claim is
 the same one that guard makes: this narrows the window, it does not close it.
+
+The dialog is the plain `ui/dialog`, not `ui/alert-dialog`, and the reason is
+the bundle rather than the semantics: this provider is imported eagerly by
+`App.tsx`, and `@radix-ui/react-alert-dialog` is deliberately split into the
+deferred `vendor-ui-history` chunk (`vite.config.ts`) because the version-history
+panel is its only consumer. Importing it here would put those bytes back on
+every route's first paint. Lazy-loading the dialog instead was the other
+option, and is the wrong one — it is needed exactly when the network is down.
 
 ### Sampling
 

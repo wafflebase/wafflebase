@@ -14,15 +14,14 @@ import {
   type To,
 } from "react-router-dom";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   GuardRegistryContext,
   type GuardRegistry,
@@ -33,12 +32,22 @@ import {
 /**
  * The path `to` resolves to, without its query or hash.
  *
- * Routed through the navigator's own `createHref` so that the destination and
- * the current location are resolved the same way — basename included — and can
- * be compared as plain strings.
+ * `createHref` does *not* prepend the basename — it is `createPath(to)` for
+ * both the browser and memory histories — but `useNavigate` has already joined
+ * the basename into the pathname it hands to `push`. So this is comparable
+ * against the current location only after the same join; see `basenamed`.
  */
 function pathOf(navigator: Navigator, to: To): string {
   return navigator.createHref(to).split("#")[0].split("?")[0];
+}
+
+/**
+ * The current pathname with the basename joined back on, which `useLocation`
+ * strips. Mirrors react-router's own `joinPaths`, so `/` collapses away and a
+ * real basename does not double its separator.
+ */
+function basenamed(basename: string, pathname: string): string {
+  return [basename, pathname].join("/").replace(/\/\/+/g, "/");
 }
 
 /**
@@ -64,11 +73,14 @@ export function NavigationGuardProvider({
 
   // Where the user is now, read at fire time rather than closed over, so the
   // patched navigator does not have to be rebuilt on every route change.
+  //
+  // Mirrored during render, not in an effect: this provider sits above
+  // `<Routes>`, and React runs a child's effects before its parent's — so an
+  // effect here would leave a child that navigates on mount comparing against
+  // the location it has already left.
   const location = useLocation();
   const locationRef = useRef(location);
-  useEffect(() => {
-    locationRef.current = location;
-  }, [location]);
+  locationRef.current = location;
 
   // Held in a ref so that registering or dropping a guard never rebuilds the
   // patched navigator, whose identity every consumer of the context depends on.
@@ -92,24 +104,31 @@ export function NavigationGuardProvider({
 
     /**
      * Whether `to` leaves the page the user is on. A guard that blocked every
-     * `navigator.push` would also block a document rewriting its own query
-     * string, which is not leaving anything. An empty pathname — a `to` that
-     * carries only a search or a hash — means "here".
+     * push would also block a document rewriting its own query string, which
+     * is not leaving anything. An empty pathname — a `to` that carries only a
+     * search or a hash — means "here".
      */
     const leaving = (to: To) => {
       const next = pathOf(base, to);
-      return next !== "" && next !== pathOf(base, locationRef.current);
+      if (next === "") return false;
+      const { pathname } = locationRef.current;
+      return next !== basenamed(context.basename, pathname);
     };
 
-    const attempt = (leavesPage: boolean, run: () => void) => {
-      if (leavesPage) {
+    const push: Navigator["push"] = (to, state, opts) => {
+      const run = () => base.push(to, state, opts);
+      if (leaving(to)) {
         for (const guard of guardsRef.current) {
           const held = guard();
-          if (held) {
+          if (!held) continue;
+          // Keep the navigation the dialog is describing. A second one
+          // arriving while it is open would otherwise send the user somewhere
+          // they never clicked the moment they answer.
+          if (!pendingRef.current) {
             pendingRef.current = run;
             setPrompt(held);
-            return;
           }
+          return;
         }
       }
       run();
@@ -126,13 +145,17 @@ export function NavigationGuardProvider({
       encodeLocation: base.encodeLocation
         ? (to) => base.encodeLocation!(to)
         : undefined,
-      // A relative `go` cannot be resolved to a path, and every one of them is
-      // a deliberate move away from here.
-      go: (delta) => attempt(delta !== 0, () => base.go(delta)),
-      push: (to, state, opts) =>
-        attempt(leaving(to), () => base.push(to, state, opts)),
-      replace: (to, state, opts) =>
-        attempt(leaving(to), () => base.replace(to, state, opts)),
+      // Only `push` is guarded, and that is the whole distinction: a push is
+      // the user going somewhere. `replace` is how this app corrects the URL
+      // on its own behalf — an editor sending you back to the workspace when
+      // its document 404s, `PrivateRoute` sending you to /login — and those
+      // must not be refusable. There is nothing to "stay" on, and because the
+      // effect that issued the redirect does not run again, a Stay would
+      // swallow it for good and strand the user in a dead editor. `go` is the
+      // programmatic back button, which this guard does not cover either way.
+      go: (delta) => base.go(delta),
+      push,
+      replace: (to, state, opts) => base.replace(to, state, opts),
     };
 
     return { ...context, navigator };
@@ -142,6 +165,13 @@ export function NavigationGuardProvider({
     pendingRef.current = null;
     setPrompt(null);
   }, []);
+
+  // This provider sits above `<Routes>` and so survives the route change a
+  // dialog was asking about. If the app navigates while a prompt is open — an
+  // unguarded `replace` redirect, or the guarded document flushing and then
+  // releasing a later click — the dialog is left describing a page the user
+  // has already left, and answering it would replay a stale destination.
+  useEffect(stay, [location, stay]);
 
   const leave = useCallback(() => {
     const run = pendingRef.current;
@@ -154,29 +184,40 @@ export function NavigationGuardProvider({
     <NavigationContext.Provider value={value}>
       <GuardRegistryContext.Provider value={registry}>
         {children}
-        <AlertDialog
+        {/* `Dialog`, not `AlertDialog`, and the reason is the bundle rather
+            than the semantics. This provider is imported eagerly by `App.tsx`,
+            and `@radix-ui/react-alert-dialog` is deliberately split out of the
+            eager `vendor-ui` into `vendor-ui-history` (vite.config.ts) because
+            the version-history panel is its only consumer and that panel is
+            lazy — importing it here would put those ~14 kB back on every
+            route's first paint. `@radix-ui/react-dialog` is already in the
+            eager chunk for the shell's sheet and dialogs, so this costs
+            nothing. Lazy-loading the dialog instead was the other option and
+            is the wrong one: it is needed exactly when the network is down. */}
+        <Dialog
           open={prompt !== null}
           onOpenChange={(open) => {
             if (!open) stay();
           }}
         >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{prompt?.title}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {prompt?.description}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              {/* Staying is the safe answer, so it is the one that needs no
-                  thought: it is also what dismissing the dialog does. */}
-              <AlertDialogCancel onClick={stay}>Stay</AlertDialogCancel>
-              <AlertDialogAction onClick={leave}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{prompt?.title}</DialogTitle>
+              <DialogDescription>{prompt?.description}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              {/* Staying is the safe answer, so it is what every way of
+                  dismissing this dialog — Escape, the close button, a click
+                  outside — also does. */}
+              <Button variant="outline" onClick={stay}>
+                Stay
+              </Button>
+              <Button variant="destructive" onClick={leave}>
                 {prompt?.confirmLabel}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </GuardRegistryContext.Provider>
     </NavigationContext.Provider>
   );

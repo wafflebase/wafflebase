@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 
 let mockCtx: { doc: FakeDoc | undefined; connection: string };
@@ -65,7 +66,7 @@ function fakeDoc(): FakeDoc {
  * An editor reached through the app shell: a sidebar link that leaves the
  * document, and the chip mounted where `SiteHeader` mounts it.
  */
-function renderEditor(status: React.ReactNode = <SyncStatusChip />) {
+function renderEditor(status: ReactNode = <SyncStatusChip />) {
   return render(
     <MemoryRouter initialEntries={['/s/doc-1']}>
       <NavigationGuardProvider>
