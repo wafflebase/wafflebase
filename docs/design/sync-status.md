@@ -320,6 +320,22 @@ redirect through the guard, which is precisely the case the guard cannot
 answer: a *Stay* on an expired session leaves the user sitting in a route their
 session no longer reaches.
 
+The router is not the only eviction path, and the other one is not a `replace`
+this invariant can reach. `fetchWithAuth` answers a 401 it could not refresh by
+logging out and assigning `window.location.href = "/login"`
+(`packages/frontend/src/api/auth.ts`) — a full-page navigation, which the
+**`beforeunload`** guard above makes *refusable* by the browser's own prompt.
+That refusal is a legitimate choice (unlike the in-app dialog, the browser
+states plainly that the alternative is losing the page), but the redirect was
+latched behind a module-level `isRedirecting` flag so a burst of concurrent
+401s produces one navigation — and a refused navigation left that flag set for
+the rest of the tab, silently turning session eviction off: every later 401
+would throw `AuthExpiredError` while the user sat in an app whose session was
+gone. So the latch is released on a short timer. The timer is an inverse test
+for an event the browser does not fire: if the navigation commits, the page is
+torn down and the callback never observably runs; if it is refused, the page
+survives, the callback fires, and the next 401 asks again.
+
 Because the provider outlives the route a dialog is asking about, a prompt is
 dropped whenever the location moves under it. Otherwise an unguarded redirect
 arriving mid-dialog would leave a stranded dialog whose *Leave* replays a
