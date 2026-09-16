@@ -14,12 +14,16 @@ import {
 describe('oauth-state', () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalCallbackUrl = process.env.GITHUB_CALLBACK_URL;
+  const originalGoogleCallbackUrl = process.env.GOOGLE_CALLBACK_URL;
   const originalCookieSecure = process.env.COOKIE_SECURE;
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
     if (originalCallbackUrl === undefined) delete process.env.GITHUB_CALLBACK_URL;
     else process.env.GITHUB_CALLBACK_URL = originalCallbackUrl;
+    if (originalGoogleCallbackUrl === undefined)
+      delete process.env.GOOGLE_CALLBACK_URL;
+    else process.env.GOOGLE_CALLBACK_URL = originalGoogleCallbackUrl;
     if (originalCookieSecure === undefined) delete process.env.COOKIE_SECURE;
     else process.env.COOKIE_SECURE = originalCookieSecure;
   });
@@ -148,8 +152,52 @@ describe('oauth-state', () => {
       expect(useSecureCookies()).toBe(true);
     });
 
+    /**
+     * `GOOGLE_CALLBACK_URL` is not a second source of truth for this answer,
+     * in either direction.
+     *
+     * `useSecureCookies()` is read by far more than the cookie flag —
+     * `cliLoginAvailable()`, `insecureProductionOrigin()`, the CLI consent
+     * cookie and the `returnTo` cookie all move with it — and Google's
+     * callback URL says nothing about the origin *GitHub* reaches when
+     * `GITHUB_CALLBACK_URL` is unset and the OAuth app's registered URL is
+     * serving the login. So adding a second provider moves none of them: a
+     * deployment states its scheme with `GITHUB_CALLBACK_URL` or
+     * `COOKIE_SECURE`, exactly as it did before Google sign-in existed.
+     */
+    it('ignores GOOGLE_CALLBACK_URL in both directions', () => {
+      delete process.env.GITHUB_CALLBACK_URL;
+      delete process.env.COOKIE_SECURE;
+
+      // An https Google URL does not upgrade a non-production install...
+      process.env.NODE_ENV = 'development';
+      process.env.GOOGLE_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/google/callback';
+      expect(useSecureCookies()).toBe(false);
+      expect(sessionCookieName()).toBe('wafflebase_session');
+
+      // ...and an http one does not downgrade a production install.
+      process.env.NODE_ENV = 'production';
+      process.env.GOOGLE_CALLBACK_URL =
+        'http://localhost:3000/auth/google/callback';
+      expect(useSecureCookies()).toBe(true);
+      expect(sessionCookieName()).toBe('__Host-wafflebase_session');
+    });
+
+    // GitHub's is the only callback URL read, so a deployment that predates
+    // Google keeps exactly the answer it had.
+    it('follows the GitHub callback URL when both are set', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://localhost:3000/auth/github/callback';
+      process.env.GOOGLE_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/google/callback';
+
+      expect(useSecureCookies()).toBe(false);
+    });
+
     it('falls back to NODE_ENV when no callback URL is configured', () => {
       delete process.env.GITHUB_CALLBACK_URL;
+      delete process.env.GOOGLE_CALLBACK_URL;
       delete process.env.COOKIE_SECURE;
 
       process.env.NODE_ENV = 'production';

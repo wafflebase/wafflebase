@@ -119,6 +119,81 @@ describe('GitHubStrategy endpoints', () => {
 });
 
 /**
+ * The email is the identity `findOrCreateUser` matches on, shared with
+ * Google, so an unverified GitHub address reaching it would be a way into an
+ * account created through the other provider. `GET /user/emails` returns
+ * unverified addresses too — including as the primary — so the flag is read
+ * rather than assumed.
+ */
+describe('GitHubStrategy verified email', () => {
+  function validate(emails: unknown) {
+    return makeStrategy(BASE).validate('token', '', {
+      id: '42',
+      username: 'ada',
+      emails,
+      photos: [{ value: 'https://avatars.example/ada.png' }],
+    } as never);
+  }
+
+  /** The profile half of the union, for the cases that sign in. */
+  function signedIn(emails: unknown) {
+    const result = validate(emails);
+    if ('error' in result) {
+      throw new Error(`expected a sign-in, got ${result.error}`);
+    }
+    return result;
+  }
+
+  // Without this the raw list never arrives: passport-github2 collapses the
+  // response to `[{ value: <primary> }]` and drops every flag.
+  it('asks GitHub for the raw email list', () => {
+    expect(
+      (makeStrategy(BASE) as unknown as { _allRawEmails: boolean })
+        ._allRawEmails,
+    ).toBe(true);
+  });
+
+  it('signs in under the primary verified address', () => {
+    const user = signedIn([
+      { value: 'old@example.com', primary: false, verified: true },
+      { value: 'ada@example.com', primary: true, verified: true },
+    ]);
+    expect(user.email).toBe('ada@example.com');
+  });
+
+  // Locking such an account out would be worse than signing it in under an
+  // address it demonstrably owns.
+  it('falls back to another verified address when the primary is not', () => {
+    const user = signedIn([
+      { value: 'unverified@example.com', primary: true, verified: false },
+      { value: 'ada@example.com', primary: false, verified: true },
+    ]);
+    expect(user.email).toBe('ada@example.com');
+  });
+
+  /**
+   * Refused as a returned code, never a throw. A throw here happens inside
+   * `AuthGuard('github')`, so it would answer with backend JSON and skip the
+   * callback's `/login?error=` contract entirely — and leave `wafflebase
+   * login` blocked on a loopback callback that never arrives.
+   */
+  it.each([
+    ['nothing verified', [{ value: 'ada@example.com', primary: true }]],
+    [
+      'explicitly unverified',
+      [{ value: 'ada@example.com', primary: true, verified: false }],
+    ],
+    ['no addresses at all', []],
+    ['no emails field', undefined],
+  ])('refuses a login with %s', (_name, emails) => {
+    expect(validate(emails)).toEqual({
+      authProvider: 'github',
+      error: 'unverified_email',
+    });
+  });
+});
+
+/**
  * The one hinge of the OAuth CSRF design.
  *
  * `GitHubAuthGuard` attaches the state it minted to the request as

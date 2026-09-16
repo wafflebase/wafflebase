@@ -17,7 +17,7 @@
  * Only the pathname matters — see `installFetchGuard`'s `keyOf`.
  */
 import type { FixtureTable } from '@wafflebase/design-editor/scenes';
-import { AUTH_FIXTURES } from './auth.ts';
+import { AUTH_FIXTURES, AUTH_PROVIDERS_FIXTURES } from './auth.ts';
 import { SHELL_FIXTURES } from './shell.ts';
 import { DOCUMENTS_FIXTURES } from './documents.ts';
 import { DATASOURCES_FIXTURES } from './datasources.ts';
@@ -27,6 +27,10 @@ import { SHEETS_FIXTURE, DOCS_FIXTURE, SLIDES_FIXTURE, NOTES_FIXTURE } from './c
 /** mock name → the fixtures installing it contributes. */
 const BY_MOCK: Record<string, FixtureTable> = {
   auth: AUTH_FIXTURES,
+  // The login scene's one request. Its own mock rather than part of `auth`:
+  // the login page is signed OUT, so it declares no identity and would
+  // otherwise have to take `/auth/me` with it.
+  'auth-providers': AUTH_PROVIDERS_FIXTURES,
 };
 
 /**

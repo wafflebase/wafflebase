@@ -109,7 +109,8 @@
       "route": "/login",
       "mocks": [
         "theme",
-        "router"
+        "router",
+        "auth-providers"
       ],
       "viewports": [
         "mobile",

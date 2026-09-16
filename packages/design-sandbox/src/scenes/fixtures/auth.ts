@@ -34,6 +34,24 @@ export const FIXTURE_WORKSPACE = {
 };
 
 /**
+ * Which sign-in buttons the login page offers.
+ *
+ * `mocks: ["auth-providers"]`, and separate from `AUTH_FIXTURES` because the
+ * login scene is the one scene with no identity at all — it declares neither
+ * `auth` nor a shell, and yet it does make a request: `LoginPage` asks
+ * `GET /auth/providers` on mount, because Google is optional and configured
+ * per deployment, so no build-time flag can answer it. Unmocked, that request
+ * is a hard `wb:error` from the frame's fetch guard and the scene fails.
+ *
+ * `google: true`, not the deployment default: the scene exists to show the
+ * page, and the two-button layout is the one worth reviewing — the
+ * GitHub-only case is what the `fetch`-fails fallback already renders.
+ */
+export const AUTH_PROVIDERS_FIXTURES: FixtureTable = {
+  '/api/auth/providers': { github: true, google: true },
+};
+
+/**
  * Only the identity. `/workspaces` and `/analytics/enabled` used to live here and
  * moved to `shell.ts`: they are what `app/Layout.tsx` fetches, not what "who am
  * I" means, and a scene needs them exactly when it declares `shell: "app"`.
