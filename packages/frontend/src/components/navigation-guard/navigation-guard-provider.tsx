@@ -1,7 +1,6 @@
 import {
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -89,6 +88,9 @@ export function NavigationGuardProvider({
   const [prompt, setPrompt] = useState<NavigationPrompt | null>(null);
   // The navigation that was held back, replayed verbatim if the user leaves.
   const pendingRef = useRef<(() => void) | null>(null);
+  // The path the open prompt was raised on, which is how a location moving
+  // under the dialog is noticed without watching `location` from an effect.
+  const promptPathRef = useRef<string | null>(null);
 
   const register = useCallback((guard: NavigationGuard) => {
     guardsRef.current.add(guard);
@@ -126,6 +128,7 @@ export function NavigationGuardProvider({
           // they never clicked the moment they answer.
           if (!pendingRef.current) {
             pendingRef.current = run;
+            promptPathRef.current = locationRef.current.pathname;
             setPrompt(held);
           }
           return;
@@ -148,11 +151,14 @@ export function NavigationGuardProvider({
       // Only `push` is guarded, and that is the whole distinction: a push is
       // the user going somewhere. `replace` is how this app corrects the URL
       // on its own behalf — an editor sending you back to the workspace when
-      // its document 404s, `PrivateRoute` sending you to /login — and those
-      // must not be refusable. There is nothing to "stay" on, and because the
-      // effect that issued the redirect does not run again, a Stay would
-      // swallow it for good and strand the user in a dead editor. `go` is the
-      // programmatic back button, which this guard does not cover either way.
+      // its document 404s, `PrivateRoute`/`PublicRoute` sending you to /login
+      // or / — and those must not be refusable. There is nothing to "stay" on,
+      // and because the effect that issued the redirect does not run again, a
+      // Stay would swallow it for good and strand the user in a dead editor.
+      // That makes it an invariant rather than an observation: an app-issued
+      // redirect has to *be* a replace, `<Navigate replace>` included, since
+      // `<Navigate>` defaults to a push. `go` is the programmatic back button,
+      // which this guard does not cover either way.
       go: (delta) => base.go(delta),
       push,
       replace: (to, state, opts) => base.replace(to, state, opts),
@@ -163,6 +169,7 @@ export function NavigationGuardProvider({
 
   const stay = useCallback(() => {
     pendingRef.current = null;
+    promptPathRef.current = null;
     setPrompt(null);
   }, []);
 
@@ -170,12 +177,27 @@ export function NavigationGuardProvider({
   // dialog was asking about. If the app navigates while a prompt is open — an
   // unguarded `replace` redirect, or the guarded document flushing and then
   // releasing a later click — the dialog is left describing a page the user
-  // has already left, and answering it would replay a stale destination.
-  useEffect(stay, [location, stay]);
+  // has already left, and answering it would replay a stale destination. So
+  // the prompt is dropped when the location moves out from under it.
+  //
+  // Decided during render rather than from a `useEffect` keyed on `location`,
+  // for the same ordering reason `locationRef` is mirrored during render:
+  // React runs a child's effects before its parent's, so such an effect also
+  // fires on the commit where a child effect *raised* the prompt — wiping it
+  // before the user ever sees it and dropping that navigation in silence.
+  // Comparing the pathname rather than the whole location also keeps a prompt
+  // alive through the same-page query rewrites `leaving` already exempts,
+  // which the user has likewise not answered yet.
+  if (prompt !== null && promptPathRef.current !== location.pathname) {
+    pendingRef.current = null;
+    promptPathRef.current = null;
+    setPrompt(null);
+  }
 
   const leave = useCallback(() => {
     const run = pendingRef.current;
     pendingRef.current = null;
+    promptPathRef.current = null;
     setPrompt(null);
     run?.();
   }, []);

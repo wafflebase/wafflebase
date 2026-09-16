@@ -311,12 +311,30 @@ it permanently and strand the user in an editor for a document that is gone.
 `go` is the programmatic back button, and is left alone for the same reason the
 real one is.
 
+That makes "an app-issued redirect is a `replace`" an **invariant this app has
+to uphold**, not a property it happens to have. The 404 redirects pass
+`{ replace: true }` to `navigate()`, but `<Navigate>` defaults to `replace={false}`
+— a push — so `PrivateRoute` and `PublicRoute` spell it out
+(`<Navigate to="/login" replace />`). Without that they would route their
+redirect through the guard, which is precisely the case the guard cannot
+answer: a *Stay* on an expired session leaves the user sitting in a route their
+session no longer reaches.
+
 Because the provider outlives the route a dialog is asking about, a prompt is
 dropped whenever the location moves under it. Otherwise an unguarded redirect
 arriving mid-dialog would leave a stranded dialog whose *Leave* replays a
 destination from a page the user is no longer on. For the same reason only the
 **first** held navigation is kept: a second one arriving while the dialog is
 open would send the user somewhere they never clicked the moment they answer.
+
+That drop is decided **during render**, by comparing the pathname the prompt
+was raised on against the current one — not from a `useEffect` keyed on
+`location`, for the ordering reason the provider already mirrors `location`
+during render. React runs a child's effects before its parent's, so such an
+effect also fires on the commit where a child effect *raised* the prompt, which
+would wipe the dialog before the user saw it and drop that navigation in
+silence. Comparing pathnames rather than whole locations also keeps an open
+prompt alive across the same-page query rewrites the guard already exempts.
 
 What the guard does not cover is browser **back/forward**. That arrives on the
 history listener rather than through the navigator, which is exactly the part

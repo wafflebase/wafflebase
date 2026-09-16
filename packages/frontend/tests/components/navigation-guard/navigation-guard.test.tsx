@@ -1,6 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import {
+  Link,
+  MemoryRouter,
+  Route,
+  Routes,
+  useNavigate,
+} from 'react-router-dom';
 
 import { NavigationGuardProvider } from '@/components/navigation-guard/navigation-guard-provider';
 import {
@@ -181,6 +188,50 @@ describe('NavigationGuardProvider', () => {
 
     expect(screen.getByText('login page')).toBeInTheDocument();
     expect(screen.queryByText(PROMPT.title)).not.toBeInTheDocument();
+  });
+
+  it('keeps a prompt a child effect raised in the commit that moved the location', () => {
+    // React runs a child's effects before its parent's, so dropping the prompt
+    // from a `location`-keyed effect here would also fire on the commit where
+    // a child effect *raised* it — wiping the dialog before the user ever saw
+    // it and dropping that navigation in silence.
+    function Redirecting() {
+      const navigate = useNavigate();
+      useNavigationGuard(true, blocking);
+      useEffect(() => {
+        navigate('/w/acme');
+      }, [navigate]);
+      return <div>editor</div>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavigationGuardProvider>
+          <Link to="/s/doc-1">open</Link>
+          <Routes>
+            <Route path="/s/doc-1" element={<Redirecting />} />
+            <Route path="/w/acme" element={<div>workspace page</div>} />
+          </Routes>
+        </NavigationGuardProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('open'));
+
+    expect(screen.getByText(PROMPT.title)).toBeInTheDocument();
+    expect(screen.queryByText('workspace page')).not.toBeInTheDocument();
+  });
+
+  it('keeps an open prompt through a query rewrite of the same page', () => {
+    // The same-page exemption says a document rewriting its own query string
+    // is not leaving anything — so it is not an answer to a dialog the user
+    // still has open either.
+    render(<Harness />);
+    leave();
+
+    fireEvent.click(screen.getByText('same document'));
+
+    expect(screen.getByText(PROMPT.title)).toBeInTheDocument();
   });
 
   it('stops asking once the component that registered the guard is gone', () => {
