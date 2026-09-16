@@ -2,9 +2,10 @@
 
 **Created**: 2026-09-16
 
-The per-device preference that gates offline local persistence, plus its
-Settings section. First of five wafflebase PRs for the feature, and the only
-one that touches no Yorkie code at all.
+The per-device preference that gates offline local persistence. First of five
+wafflebase PRs for the feature, and the only one that touches no Yorkie code
+at all — and, after review, the only one with no user-visible surface either:
+the Settings section it was going to ship moved to W4. See Scope.
 
 Design: [`docs/design/offline-local-persistence.md`](../../design/offline-local-persistence.md)
 § Turning it on.
@@ -12,10 +13,16 @@ Design: [`docs/design/offline-local-persistence.md`](../../design/offline-local-
 ## Why this lands first and alone
 
 It has no dependency on the SDK work (yorkie-js-sdk#1354) and nothing depends
-on it except W3, so it can land while that PR is still in review. It is also
-the piece that decides whether *anything* persists, so having it in place first
+on it except W3, so it can land while that PR is still in review. It is the
+piece that decides whether *anything* persists, so having it in place first
 means every later PR is dark by default rather than shipping behavior nobody
 asked for.
+
+What "dark" means got sharpened by review, though. Landing the preference
+early is fine because nothing reads it. Landing the *toggle* early is not:
+an off-by-default control still renders, and a user who turns it on is told
+their edits are kept when they are not. So the gate ships here and the control
+ships with the behavior.
 
 ## The decisions this encodes
 
@@ -34,11 +41,17 @@ Both come from the design doc and neither is arbitrary:
 In:
 
 - [x] `lib/offline-persistence-preference.ts` — read / write / subscribe
-- [x] A Settings section, beside Appearance and Dates
-- [x] Unit tests for the preference module and the Settings control
+- [x] Unit tests for the preference module
 
 Out:
 
+- **The Settings section — moved to W4.** It was written here (Task 2 below)
+  and then removed from the branch before merge. A toggle is a promise: the
+  copy tells the user their edits are kept and that turning it off deletes
+  them, and neither is true until W4 wires the store. Shipping the control
+  first is not a dark launch, it is a control that does nothing. So the
+  section lands in the PR that makes it work, and W1 is infrastructure with
+  no consumer.
 - The `DocStore` itself (W2), the per-document client (W3), wiring the store
   and the chip (W4), offline-copy recovery (W5)
 - Any change to `sync-status.md` — its wording stays true while the preference
@@ -107,15 +120,24 @@ it('reads as off when touching localStorage throws', () => {
 - [x] **1.5** `pnpm verify:fast`
 - [x] **1.6** Commit: `Add a per-device offline persistence preference`
 
-## Task 2: the Settings section
+## Task 2: the Settings section — **deferred to W4, not done here**
 
-**Files:** `packages/frontend/src/app/settings/page.tsx`,
+Written and working, then removed from the branch (`37d68ab0f`, dropped by
+rebase). It is kept below because W4 inherits it verbatim: the code, the test,
+and the reason the copy says what it says. Recovering it is
+`git show 37d68ab0f`.
+
+The four tests it came with — the switch renders off, toggling it flips the
+preference, an already-on preference renders checked, and the copy names both
+the device and the deletion — move with it.
+
+**Files (for W4):** `packages/frontend/src/app/settings/page.tsx`,
 `packages/frontend/src/app/settings/__tests__/page.test.tsx` (create if absent)
 
-- [x] **2.1** Write the failing test: the switch renders off, toggling it calls
+- [ ] **2.1** Write the failing test: the switch renders off, toggling it calls
       the setter, and the copy names the device rather than the account.
-- [x] **2.2** Run it. Expect failure.
-- [x] **2.3** Add the section, matching the existing two:
+- [ ] **2.2** Run it. Expect failure.
+- [ ] **2.3** Add the section, matching the existing two:
 
 ```tsx
 <section className="space-y-2">
@@ -144,40 +166,42 @@ The copy has to carry two facts the user cannot otherwise know: that it is
 *this device*, and that turning it off erases. Both are design commitments, not
 wording preferences.
 
-- [x] **2.4** Run the test. Expect pass.
-- [x] **2.5** `pnpm verify:fast`
-- [x] **2.6** Commit: `Offer offline saving from Settings`
+- [ ] **2.4** Run the test. Expect pass.
+- [ ] **2.5** `pnpm verify:fast`
+- [ ] **2.6** Commit: `Offer offline saving from Settings`
 
 ## Verification
 
-- [x] `pnpm verify:fast` green
-- [ ] Manual smoke in `pnpm dev`: toggle persists across a reload, and a second
-      tab opened after the change reads the new value
+- [x] `pnpm verify:fast` green; `pnpm verify:self` green (pre-push); CI green
 - [x] `git diff` touches no Yorkie code — this PR cannot change sync behavior
+- [x] No manual smoke needed: with the Settings section deferred, this PR
+      renders nothing. It was attempted first and blocked on sign-in anyway;
+      it moves to W4, where there is something to look at.
 
 ## Review
 
-PR: wafflebase#1070. Two commits of code, one of docs, plus a
-`verify:entropy` fix.
+PR: wafflebase#1070. Two code commits, the rest docs.
 
-**Landed as planned**, with three deviations worth recording:
+**Landed smaller than planned.** Review caught that the Settings toggle
+promises both halves of a behavior that does not exist yet — it says edits are
+kept, and that turning it off deletes them — so the section moved to W4 and
+this PR ships the preference module alone. The commit was dropped from the
+branch by rebase rather than reverted, so the history does not carry a
+"add it, take it back" pair; `git show 37d68ab0f` still has it, and Task 2
+above names that SHA for W4.
+
+Three smaller deviations:
 
 - The preference test is colocated (`lib/*.test.ts`), not in `lib/__tests__/`
-  — `lib/` colocates and `app/` does not. The Settings test follows `app/`.
+  — `lib/` colocates and `app/` does not.
 - Seven preference tests rather than five: the two extra pin that the setter
-  never throws out of `onCheckedChange`, and that a successful write stops the
+  never throws out of a switch handler, and that a successful write stops the
   session mirror from outvoting storage. The second is the one that matters,
   and its first version passed on the bug (see the lessons file).
 - `docs/design/offline-local-persistence.md` referenced the SDK design as a
   backticked sibling path, which `verify:entropy` reads as a claim about a
   tracked file. It blocks `git push`, not `verify:fast`, so it surfaced late.
 
-**One obligation this PR creates for W4.** The Settings copy states that
-turning the toggle off *deletes* what was stored. Nothing persists yet, so the
-claim is currently vacuous — but it becomes load-bearing the moment W4 wires
-the store. W4 must implement the erase in the same PR that starts writing, or
-the copy is a lie in shipped software.
-
-**Unverified:** the manual `pnpm dev` smoke. `/settings` is behind sign-in,
-and authenticating on the user's behalf is out of bounds. The behaviors it
-would check are covered by unit tests; the rendering is not.
+**What W4 inherits.** Not just the section, but the rule the review
+established: the control and the behavior ship together. W4 wires the store,
+adds the Settings section, and implements the erase, or it ships none of them.

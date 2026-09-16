@@ -344,7 +344,16 @@ regression in either is unambiguous.
 
 Because the preference ships **off**, PR 4 is a dark launch: nothing changes for
 anyone until they opt in, so the blast radius of the riskiest PR is bounded by
-who turned it on. It also means `sync-status.md`'s wording stays true for the
+who turned it on.
+
+The Settings control belongs to PR 4 and not earlier, and the reason is worth
+stating since PR 1's plan initially moved it forward and review moved it back:
+off-by-default bounds who is *affected*, not who can *see* it. The toggle still
+renders, and its copy tells the user their edits are kept and that turning it
+off deletes them — two promises nothing keeps until the store is wired. A
+control that ships before its behavior is not a dark launch; it is a control
+that does nothing. The preference may land early because nothing reads it; the
+toggle may not. It also means `sync-status.md`'s wording stays true for the
 default case, which shrinks PR 5 to describing the opt-in rather than reversing
 the document's premise.
 

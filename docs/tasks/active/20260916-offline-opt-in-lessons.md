@@ -65,6 +65,22 @@ property it actually broke.
 `lib/__tests__/`; `lib/` colocates (`thumbnail-capture.test.ts`). `app/` does
 use `__tests__/`, so the two files here land in different shapes on purpose.
 
+**The task plan silently contradicted the design it cites.** W1 scoped in the
+Settings section; the design doc's own rollout table had always assigned "the
+Settings + chip opt-in" to PR 4. Nobody noticed until a reviewer asked why a
+toggle promises behavior that does not exist — and the answer was in the
+document the task links at the top. When a task doc lists scope, check it
+against the design's rollout table rather than against memory of the
+conversation that produced it.
+
+**Off by default bounds who is affected, not who can see it.** That is the
+substance of the same mistake. "It ships off, so it is dark" was the reasoning
+for landing the toggle early; but the control still renders, and its copy makes
+two promises — edits are kept, turning it off deletes them — that nothing keeps
+until the store is wired. A control that ships before its behavior is not a
+dark launch. Carry this into W4: the store, the section, and the erase land
+together or not at all.
+
 **The pre-commit hook runs the whole `verify:fast` lane.** It takes several
 minutes, so a commit needs a long timeout — a 2-minute one kills the hook
 mid-run and leaves the change staged but uncommitted with no obvious reason.
