@@ -18,5 +18,8 @@ export const PublicRoute = (): ReactElement => {
     return <Loader />;
   }
 
-  return me ? <Navigate to="/" /> : <Outlet />;
+  // `replace` for the same reason `PrivateRoute`'s redirect is one: the app is
+  // correcting the URL on its own behalf, and `NavigationGuardProvider` holds
+  // back pushes only.
+  return me ? <Navigate to="/" replace /> : <Outlet />;
 };

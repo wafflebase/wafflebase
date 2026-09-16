@@ -10,6 +10,7 @@ import { PublicRoute } from "./PublicRoute";
 import { ThemeProvider } from "./components/theme-provider";
 import { HomeOrRedirect } from "./app/home-or-redirect";
 import { AnalyticsTracker } from "./analytics";
+import { NavigationGuardProvider } from "./components/navigation-guard/navigation-guard-provider";
 
 const Login = lazy(() => import("@/app/login/page"));
 const Documents = lazy(() => import("@/app/documents/page"));
@@ -92,84 +93,90 @@ function App() {
       <TooltipProvider delayDuration={0}>
         <QueryClientProvider client={queryClient}>
           <Router basename={import.meta.env.VITE_FRONTEND_BASENAME}>
-            <AnalyticsTracker />
-            <Suspense fallback={null}>
-              {DebugReportMount && <DebugReportMount />}
-            </Suspense>
-            <Suspense fallback={<Loader />}>
-              <Routes>
-                <Route element={<PublicRoute />}>
-                  <Route path="/login" element={<Login />} />
-                </Route>
-                <Route path="/harness/visual" element={<VisualHarnessPage />} />
-                <Route
-                  path="/harness/interaction"
-                  element={<InteractionHarnessPage />}
-                />
-                <Route path="/harness/docs" element={<DocsHarnessPage />} />
-                {HuntHarnessPage && (
-                  <Route path="/harness/hunt" element={<HuntHarnessPage />} />
-                )}
-                <Route path="/shared/:token" element={<SharedDocument />} />
-                {/* Public on purpose: a template link is handed to people who
-                    may not have an account yet (docs/design/template-gallery.md). */}
-                <Route path="/t/:id" element={<TemplateLanding />} />
-                {/* Public for the same reason: a gallery nobody can browse
-                    without an account is not a public gallery. Using a
-                    template still needs one. */}
-                <Route path="/templates" element={<PublicTemplates />} />
-                <Route path="/" element={<HomeOrRedirect />} />
-                <Route element={<PrivateRoute />}>
-                  <Route element={<Layout />}>
-                    <Route
-                      path="/w/:workspaceId"
-                      element={<WorkspaceDocuments />}
-                    />
-                    <Route
-                      path="/w/:workspaceId/templates"
-                      element={<WorkspaceTemplates />}
-                    />
-                    <Route
-                      path="/w/:workspaceId/datasources"
-                      element={<WorkspaceDataSources />}
-                    />
-                    <Route
-                      path="/w/:workspaceId/analytics"
-                      element={<WorkspaceAnalytics />}
-                    />
-                    <Route
-                      path="/w/:workspaceId/settings"
-                      element={<WorkspaceSettings />}
-                    />
-                    <Route path="/documents" element={<Documents />} />
-                    <Route path="/datasources" element={<DataSourcesPage />} />
-                    {/* The reviewer allowlist lives in the backend, so this
-                        route is behind PrivateRoute and nothing more: a
-                        non-reviewer who reaches it gets a 403 from the queue
-                        request. Hiding it client-side would be decoration. */}
-                    <Route
-                      path="/admin/templates"
-                      element={<TemplateReviewQueue />}
-                    />
-                    <Route path="/settings" element={<Settings />} />
-                    {/* Nested under the workspace so Layout resolves the
-                        current workspace for the sidebar, and inside Layout so
-                        it shows the global sidebar + header. */}
-                    <Route
-                      path="/w/:workspaceId/analytics/:id"
-                      element={<DocumentAnalyticsPage />}
-                    />
+            {/* Inside the router so it can wrap the navigator, and above the
+                routes so an editor deeper down can hold back a sidebar click
+                that would discard its unpushed edits
+                (docs/design/sync-status.md). */}
+            <NavigationGuardProvider>
+              <AnalyticsTracker />
+              <Suspense fallback={null}>
+                {DebugReportMount && <DebugReportMount />}
+              </Suspense>
+              <Suspense fallback={<Loader />}>
+                <Routes>
+                  <Route element={<PublicRoute />}>
+                    <Route path="/login" element={<Login />} />
                   </Route>
-                  <Route path="/invite/:token" element={<InviteAccept />} />
-                  <Route path="/d/:id" element={<DocsDetail />} />
-                  <Route path="/p/:id" element={<SlidesDetail />} />
-                  <Route path="/s/:id" element={<DocumentDetail />} />
-                  <Route path="/f/:id" element={<FileDetail />} />
-                  <Route path="/n/:id" element={<NotesDetail />} />
-                  <Route path="/b/:id" element={<BoardDetail />} />
-                </Route>
-              </Routes>
-            </Suspense>
+                  <Route path="/harness/visual" element={<VisualHarnessPage />} />
+                  <Route
+                    path="/harness/interaction"
+                    element={<InteractionHarnessPage />}
+                  />
+                  <Route path="/harness/docs" element={<DocsHarnessPage />} />
+                  {HuntHarnessPage && (
+                    <Route path="/harness/hunt" element={<HuntHarnessPage />} />
+                  )}
+                  <Route path="/shared/:token" element={<SharedDocument />} />
+                  {/* Public on purpose: a template link is handed to people who
+                      may not have an account yet (docs/design/template-gallery.md). */}
+                  <Route path="/t/:id" element={<TemplateLanding />} />
+                  {/* Public for the same reason: a gallery nobody can browse
+                      without an account is not a public gallery. Using a
+                      template still needs one. */}
+                  <Route path="/templates" element={<PublicTemplates />} />
+                  <Route path="/" element={<HomeOrRedirect />} />
+                  <Route element={<PrivateRoute />}>
+                    <Route element={<Layout />}>
+                      <Route
+                        path="/w/:workspaceId"
+                        element={<WorkspaceDocuments />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/templates"
+                        element={<WorkspaceTemplates />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/datasources"
+                        element={<WorkspaceDataSources />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/analytics"
+                        element={<WorkspaceAnalytics />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/settings"
+                        element={<WorkspaceSettings />}
+                      />
+                      <Route path="/documents" element={<Documents />} />
+                      <Route path="/datasources" element={<DataSourcesPage />} />
+                      {/* The reviewer allowlist lives in the backend, so this
+                          route is behind PrivateRoute and nothing more: a
+                          non-reviewer who reaches it gets a 403 from the queue
+                          request. Hiding it client-side would be decoration. */}
+                      <Route
+                        path="/admin/templates"
+                        element={<TemplateReviewQueue />}
+                      />
+                      <Route path="/settings" element={<Settings />} />
+                      {/* Nested under the workspace so Layout resolves the
+                          current workspace for the sidebar, and inside Layout so
+                          it shows the global sidebar + header. */}
+                      <Route
+                        path="/w/:workspaceId/analytics/:id"
+                        element={<DocumentAnalyticsPage />}
+                      />
+                    </Route>
+                    <Route path="/invite/:token" element={<InviteAccept />} />
+                    <Route path="/d/:id" element={<DocsDetail />} />
+                    <Route path="/p/:id" element={<SlidesDetail />} />
+                    <Route path="/s/:id" element={<DocumentDetail />} />
+                    <Route path="/f/:id" element={<FileDetail />} />
+                    <Route path="/n/:id" element={<NotesDetail />} />
+                    <Route path="/b/:id" element={<BoardDetail />} />
+                  </Route>
+                </Routes>
+              </Suspense>
+            </NavigationGuardProvider>
           </Router>
         </QueryClientProvider>
         <Toaster />

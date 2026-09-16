@@ -32,7 +32,9 @@ we do not ask — so this adopts the warning half and states the risk plainly.
   server.
 - A user who loses connectivity finds out **while it happens**, not by
   discovering missing work later.
-- Closing a tab that holds unpushed edits requires a deliberate confirmation.
+- Leaving a document that holds unpushed edits requires a deliberate
+  confirmation — closing or reloading the tab, and navigating away inside the
+  app.
 - One implementation covers sheets, docs, slides, notes, and board — no
   per-engine work beyond opting the shell in. PDF comments are excluded; see
   [Where it lives](#where-it-lives).
@@ -249,6 +251,121 @@ so nothing conflicts. Conditional registration matters: a handler that is
 always attached would prompt on every navigation away from a perfectly synced
 document, which trains users to click through it.
 
+### The navigation guard
+
+`beforeunload` does not fire for a route change, and a route change is the
+*more common* way to leave an editor. One click on a sidebar link unmounts the
+`DocumentProvider` and discards the change queue with nothing said, while the
+chip is still reading `Not saved` (issue #987).
+
+So the same condition, decided the same way, also holds back **in-app
+navigation** — a Stay / Leave dialog where the browser's own prompt would have
+been. `SyncStatusChip` registers it next to the unload guard, which is what
+makes the coverage identical and free: the five editable editors reach it
+through `SiteHeader`'s `syncStatus`, and share-link editors through
+`SharedHeaderStatus`. A **viewer** gets the "View only" badge instead of a
+chip, so no guard is ever registered for one.
+
+#### Why not `useBlocker`
+
+It is the supported answer and it is out of reach. `useBlocker` opens with
+`useDataRouterContext`, which throws outside a router built by
+`createBrowserRouter` / `createMemoryRouter`; `App.tsx` mounts
+`<BrowserRouter>`, and a dozen component tests mount `<MemoryRouter>` — so
+migrating the app entry would still leave the hook throwing in every one of
+those tests unless they migrated too. That is a change to how every route in
+the app is mounted, in service of a dialog.
+
+The seam one level down costs nothing: `UNSAFE_NavigationContext`'s
+`navigator` is the single path react-router takes to change the URL from inside
+the app (`<Link>` → `useLinkClickHandler` → `useNavigate` → `navigator.push`;
+`navigate(-1)` → `navigator.go`). `NavigationGuardProvider`
+(`components/navigation-guard/`) re-provides that context with a wrapper that
+asks the registered guards first, holds the attempted navigation in a ref, and
+replays it verbatim if the user leaves. Two details make the wrapper safe
+rather than a gamble, both checked against `react-router@7.18.2`: only five
+members are ever read off a navigator (`createHref`, `encodeLocation`, `go`,
+`push`, `replace`), and they are called **unbound**, so the replacement must
+not depend on `this`.
+
+Registering outside the provider is a no-op rather than an error — the same
+opt-in reasoning the chip's `syncStatus` prop follows, and what keeps the
+existing `MemoryRouter` tests working untouched.
+
+Two navigations are deliberately never held.
+
+A **same-path** one, because a document rewriting its own query string is not
+leaving anything, and the question this guard asks is whether the user is
+leaving the document. (`createHref` does not prepend the basename while
+`useNavigate` already has, so the comparison joins it back onto the current
+pathname — otherwise every navigation reads as "leaving" on a deployment that
+sets `VITE_FRONTEND_BASENAME`.)
+
+And a **`replace`**, which is the more interesting line: a push is the user
+going somewhere, a replace is this app correcting the URL on its own behalf.
+An editor sends you back to the workspace when its document 404s
+(`document-detail.tsx` and its four siblings), `PrivateRoute` sends you to
+`/login`. Those redirects are not refusable — there is nothing to stay on — and
+because the effect that issued one does not run again, a *Stay* would swallow
+it permanently and strand the user in an editor for a document that is gone.
+`go` is the programmatic back button, and is left alone for the same reason the
+real one is.
+
+That makes "an app-issued redirect is a `replace`" an **invariant this app has
+to uphold**, not a property it happens to have. The 404 redirects pass
+`{ replace: true }` to `navigate()`, but `<Navigate>` defaults to `replace={false}`
+— a push — so `PrivateRoute` and `PublicRoute` spell it out
+(`<Navigate to="/login" replace />`). Without that they would route their
+redirect through the guard, which is precisely the case the guard cannot
+answer: a *Stay* on an expired session leaves the user sitting in a route their
+session no longer reaches.
+
+The router is not the only eviction path, and the other one is not a `replace`
+this invariant can reach. `fetchWithAuth` answers a 401 it could not refresh by
+logging out and assigning `window.location.href = "/login"`
+(`packages/frontend/src/api/auth.ts`) — a full-page navigation, which the
+**`beforeunload`** guard above makes *refusable* by the browser's own prompt.
+That refusal is a legitimate choice (unlike the in-app dialog, the browser
+states plainly that the alternative is losing the page), but the redirect was
+latched behind a module-level `isRedirecting` flag so a burst of concurrent
+401s produces one navigation — and a refused navigation left that flag set for
+the rest of the tab, silently turning session eviction off: every later 401
+would throw `AuthExpiredError` while the user sat in an app whose session was
+gone. So the latch is released on a short timer. The timer is an inverse test
+for an event the browser does not fire: if the navigation commits, the page is
+torn down and the callback never observably runs; if it is refused, the page
+survives, the callback fires, and the next 401 asks again.
+
+Because the provider outlives the route a dialog is asking about, a prompt is
+dropped whenever the location moves under it. Otherwise an unguarded redirect
+arriving mid-dialog would leave a stranded dialog whose *Leave* replays a
+destination from a page the user is no longer on. For the same reason only the
+**first** held navigation is kept: a second one arriving while the dialog is
+open would send the user somewhere they never clicked the moment they answer.
+
+That drop is decided **during render**, by comparing the pathname the prompt
+was raised on against the current one — not from a `useEffect` keyed on
+`location`, for the ordering reason the provider already mirrors `location`
+during render. React runs a child's effects before its parent's, so such an
+effect also fires on the commit where a child effect *raised* the prompt, which
+would wipe the dialog before the user saw it and drop that navigation in
+silence. Comparing pathnames rather than whole locations also keeps an open
+prompt alive across the same-page query rewrites the guard already exempts.
+
+What the guard does not cover is browser **back/forward**. That arrives on the
+history listener rather than through the navigator, which is exactly the part
+`useBlocker` gets for free by living inside the router's own history
+integration. `beforeunload` does not cover it either, so the honest claim is
+the same one that guard makes: this narrows the window, it does not close it.
+
+The dialog is the plain `ui/dialog`, not `ui/alert-dialog`, and the reason is
+the bundle rather than the semantics: this provider is imported eagerly by
+`App.tsx`, and `@radix-ui/react-alert-dialog` is deliberately split into the
+deferred `vendor-ui-history` chunk (`vite.config.ts`) because the version-history
+panel is its only consumer. Importing it here would put those bytes back on
+every route's first paint. Lazy-loading the dialog instead was the other
+option, and is the wrong one — it is needed exactly when the network is down.
+
 ### Sampling
 
 There is **no polling**. `pending` is raised only by the `local-change` event,
@@ -343,14 +460,15 @@ user interaction, and it cannot stop a crash, a tab discard, or an OS restart.
 It narrows the window; it does not close it. The real fix is offline
 persistence, listed as a Non-Goal and the natural follow-up to this document.
 
-**In-app navigation is not guarded at all.** `beforeunload` covers closing the
-tab and reloading. It does not fire for a route change, and every editor
-renders `AppSidebar` inside its own shell — so one click on a sidebar link
-unmounts the `DocumentProvider` and detaches a document whose queue was never
-pushed, silently. This is the *more common* way to leave an editor, and it is
-uncovered. Closing it means a router-level block (`useBlocker`) alongside the
-unload guard; recorded here as a known limitation rather than left implied by
-the Goals, which speak only of closing a tab.
+**Browser back/forward is not guarded.** In-app navigation now is — see
+[The navigation guard](#the-navigation-guard) — but only the half the app
+initiates. A `POP` reaches the router through its history listener, below the
+navigator the guard wraps, so the back button still unmounts a
+`DocumentProvider` whose queue was never pushed. `beforeunload` does not fire
+there either. Closing it means either migrating the app to a data router so
+`useBlocker` can see `POP`, or a `popstate` handler that re-pushes the entry it
+was asked to leave; both were judged out of proportion to the case, and this
+stays a known limitation.
 
 **A remount inside a live provider forgets what was pending.** The hook's
 memory of "the user has edited" is per-mount. `SlidesLayout`

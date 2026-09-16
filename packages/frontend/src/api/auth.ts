@@ -23,10 +23,41 @@ type LogoutOptions = {
 };
 
 let isRedirecting = false;
+let redirectRelease: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * How long a started redirect suppresses another one. Long enough to absorb
+ * the burst of 401s a page full of concurrent requests produces, short enough
+ * that a refused navigation is retryable on the very next request.
+ */
+const REDIRECT_LATCH_MS = 2000;
+
+/**
+ * Sends the browser to `path`, at most once per attempt.
+ *
+ * The latch exists to dedupe that burst, and it is released again on a timer
+ * because this navigation is *refusable*: a `beforeunload` handler — the
+ * unsaved-changes guard this app registers on a document with unsent edits —
+ * makes the browser ask first, and the browser reports a refusal with no event
+ * at all. The page simply keeps running. Latched permanently, one "Cancel" on
+ * that prompt would turn session eviction off for the rest of the tab: every
+ * later 401 would throw `AuthExpiredError` while silently leaving the user
+ * sitting in an app whose session is gone.
+ *
+ * The timer is the inverse test. If the navigation commits, the page is torn
+ * down and the callback never observably runs; if it is refused, the page
+ * survives, the callback fires, and the next 401 asks again. (The prompt
+ * blocks the main thread, so the callback lands just after the user answers
+ * rather than while the dialog is up.)
+ */
 function redirectTo(path: string) {
   if (isRedirecting) return;
   isRedirecting = true;
+  if (redirectRelease !== null) clearTimeout(redirectRelease);
+  redirectRelease = setTimeout(() => {
+    redirectRelease = null;
+    isRedirecting = false;
+  }, REDIRECT_LATCH_MS);
   window.location.href = path;
 }
 

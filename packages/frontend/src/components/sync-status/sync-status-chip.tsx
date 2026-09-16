@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   IconAlertTriangle,
@@ -7,6 +7,7 @@ import {
   IconRefresh,
 } from '@tabler/icons-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useNavigationGuard } from '@/components/navigation-guard/use-navigation-guard';
 import { cn } from '@/lib/utils';
 import { useSyncStatus } from './use-sync-status';
 import type { SyncState } from './sync-state';
@@ -100,6 +101,34 @@ export function SyncStatusChip({ className }: { className?: string }) {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [mayHaveUnsent, hasUnsentEdits]);
+
+  // `beforeunload` does not fire for a route change, and a route change is the
+  // *more common* way to leave an editor: one click on a sidebar link unmounts
+  // the `DocumentProvider` and discards the change queue with nothing said. So
+  // the same condition, asked the same way at fire time, also holds back in-app
+  // navigation — the dialog is the confirmation the browser would have shown.
+  //
+  // Coverage follows this component: the five editable editors through
+  // `SiteHeader`'s `syncStatus`, and share-link *editors* through
+  // `SharedHeaderStatus`. A viewer gets the "View only" badge instead of a
+  // chip, so no guard is ever registered for one.
+  useNavigationGuard(
+    mayHaveUnsent,
+    useCallback(
+      () =>
+        hasUnsentEdits()
+          ? {
+              title: 'Leave without saving?',
+              // The same claim the tooltip makes, in the one place where acting
+              // on it is about to cost the work.
+              description:
+                "Your recent changes haven't reached the server. They exist only in this tab, so leaving this document will lose them.",
+              confirmLabel: 'Leave',
+            }
+          : null,
+      [hasUnsentEdits],
+    ),
+  );
 
   // Tracks whether the warning is currently on screen, so recovery only
   // confirms when there was something to recover from.

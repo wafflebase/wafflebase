@@ -29,6 +29,10 @@ export const PrivateRoute = (): ReactElement => {
       <Outlet />
     </YorkieProvider>
   ) : (
-    <Navigate to="/login" />
+    // `replace`, not a push: this is the app correcting the URL on its own
+    // behalf, so it must not be refusable by `NavigationGuardProvider` (which
+    // guards pushes only) and must not leave a back-button entry pointing at a
+    // route that would immediately bounce the user here again.
+    <Navigate to="/login" replace />
   );
 };
