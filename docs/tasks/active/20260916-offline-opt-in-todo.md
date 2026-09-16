@@ -33,9 +33,9 @@ Both come from the design doc and neither is arbitrary:
 
 In:
 
-- [ ] `lib/offline-persistence-preference.ts` — read / write / subscribe
-- [ ] A Settings section, beside Appearance and Dates
-- [ ] Unit tests for the preference module and the Settings control
+- [x] `lib/offline-persistence-preference.ts` — read / write / subscribe
+- [x] A Settings section, beside Appearance and Dates
+- [x] Unit tests for the preference module and the Settings control
 
 Out:
 
@@ -53,7 +53,7 @@ Mirror `lib/date-format-preference.ts` rather than inventing a shape: it
 already solves same-tab notification (a custom event beside `storage`, which
 only fires in *other* tabs) and a storage that refuses writes.
 
-- [ ] **1.1** Write the failing tests:
+- [x] **1.1** Write the failing tests:
 
 ```ts
 it('defaults to off', () => {
@@ -97,25 +97,25 @@ it('reads as off when touching localStorage throws', () => {
 });
 ```
 
-- [ ] **1.2** Run them. Expect failure: module not found.
-- [ ] **1.3** Implement, following `date-format-preference.ts`: a
+- [x] **1.2** Run them. Expect failure: module not found.
+- [x] **1.3** Implement, following `date-format-preference.ts`: a
       `STORAGE_KEY`, a same-tab `CHANGE_EVENT`, a session-only mirror set
       **only** when a write failed (and cleared on success, so a stale mirror
       cannot outvote a key another tab has since changed), and a
       `useOfflinePersistenceEnabled()` hook over `useSyncExternalStore`.
-- [ ] **1.4** Run the tests. Expect pass.
-- [ ] **1.5** `pnpm verify:fast`
-- [ ] **1.6** Commit: `Add a per-device offline persistence preference`
+- [x] **1.4** Run the tests. Expect pass.
+- [x] **1.5** `pnpm verify:fast`
+- [x] **1.6** Commit: `Add a per-device offline persistence preference`
 
 ## Task 2: the Settings section
 
 **Files:** `packages/frontend/src/app/settings/page.tsx`,
 `packages/frontend/src/app/settings/__tests__/page.test.tsx` (create if absent)
 
-- [ ] **2.1** Write the failing test: the switch renders off, toggling it calls
+- [x] **2.1** Write the failing test: the switch renders off, toggling it calls
       the setter, and the copy names the device rather than the account.
-- [ ] **2.2** Run it. Expect failure.
-- [ ] **2.3** Add the section, matching the existing two:
+- [x] **2.2** Run it. Expect failure.
+- [x] **2.3** Add the section, matching the existing two:
 
 ```tsx
 <section className="space-y-2">
@@ -144,16 +144,16 @@ The copy has to carry two facts the user cannot otherwise know: that it is
 *this device*, and that turning it off erases. Both are design commitments, not
 wording preferences.
 
-- [ ] **2.4** Run the test. Expect pass.
-- [ ] **2.5** `pnpm verify:fast`
-- [ ] **2.6** Commit: `Offer offline saving from Settings`
+- [x] **2.4** Run the test. Expect pass.
+- [x] **2.5** `pnpm verify:fast`
+- [x] **2.6** Commit: `Offer offline saving from Settings`
 
 ## Verification
 
-- [ ] `pnpm verify:fast` green
+- [x] `pnpm verify:fast` green
 - [ ] Manual smoke in `pnpm dev`: toggle persists across a reload, and a second
       tab opened after the change reads the new value
-- [ ] `git diff` touches no Yorkie code — this PR cannot change sync behavior
+- [x] `git diff` touches no Yorkie code — this PR cannot change sync behavior
 
 ## Review
 
