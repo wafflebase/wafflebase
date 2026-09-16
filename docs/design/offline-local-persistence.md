@@ -29,9 +29,9 @@ it. Both are now understood, and neither is where it looked:
    Measured, that is 286 ms of main-thread time per save on an 8,000-cell
    sheet. This is the larger blocker and it is not fixable from this repo.
 
-So this lands in two halves. The SDK half is specified in
-`yorkie-js-sdk/docs/design/offline-local-persistence.md` § Revision:
-Incremental Persistence, and is a prerequisite. This document covers the
+So this lands in two halves. The SDK half is specified upstream, in
+[the SDK's own offline-local-persistence design](https://github.com/yorkie-team/yorkie-js-sdk/blob/main/docs/design/offline-local-persistence.md)
+§ Revision: Incremental Persistence, and is a prerequisite. This document covers the
 wafflebase half: the storage backend, the client-identity and multi-tab model,
 and what the user is shown — including when the guarantee does **not** hold.
 
