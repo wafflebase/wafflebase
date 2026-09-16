@@ -35,6 +35,13 @@ So this lands in two halves. The SDK half is specified upstream, in
 wafflebase half: the storage backend, the client-identity and multi-tab model,
 and what the user is shown — including when the guarantee does **not** hold.
 
+**The prerequisite shipped in `@yorkie-js/sdk` 0.7.22**, which this repo is on
+as of #1071. Blocker 2 above is therefore historical: a local change now costs
+an appended entry rather than a full re-serialization. 0.7.22 also carries the
+follow-up fix without which a restore could leave a document permanently unable
+to sync (yorkie-js-sdk#1355) — anything earlier in the 0.7.2x line has the
+incremental store *and* that defect, so do not pin below it.
+
 ### Goals
 
 - Edits made while disconnected survive a reload or a browser crash, for every
@@ -373,7 +380,7 @@ pressure actually begins.
 | IndexedDB is unavailable (private browsing, disabled storage) | The store reports failure, `durable` stays false, and the chip degrades to today's behavior. Same shape as the second-tab path, so no separate code path |
 | An oversized document latches persistence off and looks the same as a bug | `PersistDisabled` carries a reason, and the chip says the document is too large to save on this device — matching what Google's help documentation tells the user ("your file is too large") |
 | Archived envelopes accumulate after repeated reconciliation failures | Subject to the same 30-day collection; the offline copy, once created, is a normal document that the user owns |
-| The SDK work (PR 1) slips, tempting a ship on the current full-snapshot SDK | Do not. On the shipped SDK the frame-budget latch excludes most sheets, boards and docs, which would ship a feature that silently covers only small documents |
+| ~~The SDK work (PR 1) slips, tempting a ship on the current full-snapshot SDK~~ | **Resolved** — shipped in `@yorkie-js/sdk` 0.7.22 and adopted in #1071. Kept for the reasoning, which still applies to any pin below 0.7.22: on a full-snapshot SDK the frame-budget latch excludes most sheets, boards and docs, so the feature would silently cover only small documents |
 
 ## See Also
 
