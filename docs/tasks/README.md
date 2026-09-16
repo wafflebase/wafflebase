@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | release v0.6.12 (2026-09-18) | [20260918-release-v0.6.12-todo.md](./active/20260918-release-v0.6.12-todo.md) | - |
+| offline opt in (2026-09-16) | [20260916-offline-opt-in-todo.md](./active/20260916-offline-opt-in-todo.md) | [20260916-offline-opt-in-lessons.md](./active/20260916-offline-opt-in-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
 | class b backend endpoints (2026-09-04) | [20260904-class-b-backend-endpoints-todo.md](./active/20260904-class-b-backend-endpoints-todo.md) | [20260904-class-b-backend-endpoints-lessons.md](./active/20260904-class-b-backend-endpoints-lessons.md) |
 | docs typography rhythm (2026-09-04) | [20260904-docs-typography-rhythm-todo.md](./active/20260904-docs-typography-rhythm-todo.md) | - |
