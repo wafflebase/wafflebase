@@ -26,9 +26,12 @@ import {
   printable,
   panelArgs,
   normalizeRebuttals,
+  prepareRoundInputs,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
+import { findingKeyOf } from "./rebuttal.mjs";
+import { readFileSync } from "node:fs";
 
 // Written as escapes on purpose: a literal control character in a source file
 // is invisible to a reader, which is the same property these tests defend the
@@ -165,9 +168,9 @@ test("renderBlockingFindings: cites location, summary and the rebuttal key", () 
   ]);
   assert.match(out, /\[critical\] correctness — a\.ts:12/);
   assert.match(out, /Off by one/);
-  // The key is what a --rebuttals record is addressed to, so it has to be
-  // copyable from the terminal rather than reconstructed by hand.
-  assert.match(out, /key: a\.ts::off by one/);
+  // The key is the one a --rebuttals record carries (`rebuttal.mjs`'s
+  // lens::file::words), so it is copyable rather than reconstructed by hand.
+  assert.match(out, /key: correctness::a\.ts::off-by-one/);
   // No file cited is a real shape (an absence claim); it must still print.
   assert.match(out, /\[major\] docs — \(no file cited\)/);
   assert.equal(renderBlockingFindings([]), "");
@@ -547,4 +550,86 @@ test("review rejects a --rebuttals file that is missing or unusable", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// --- the wiring between the carry-forward and the panel ----------------------
+//
+// Three consecutive rounds raised this gap. Both ends were tested; what was not
+// was that the file gets written and that the path written is the path passed.
+
+test("prepareRoundInputs: writes the carried findings and points the panel at them", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-inputs-"));
+  try {
+    const prior = [{ lens: "docs", severity: "major", file: "a.ts", summary: "x" }];
+    const out = prepareRoundInputs({ dir, prior, rebuttalsPath: null });
+    assert.equal(out.priorFile, path.join(dir, "prior-findings.json"));
+    assert.deepEqual(JSON.parse(readFileSync(out.priorFile, "utf8")), prior);
+    assert.equal(out.rebuttals, null);
+    assert.equal(out.rebuttalCount, 0);
+
+    // ...and the path it returned is the one panelArgs passes through.
+    const argv = panelArgs({
+      panel: "p", diffFile: "d", changedFile: "c", baseSha: null,
+      priorFile: out.priorFile, rebuttals: out.rebuttals, lensesDir: "L", outDir: dir,
+    });
+    assert.equal(argv[argv.indexOf("--prior-findings") + 1], out.priorFile);
+
+    // Round 1 carries nothing: no file, and no flag for the panel to read as
+    // "the previous round found nothing".
+    const first = prepareRoundInputs({ dir, prior: [], rebuttalsPath: null });
+    assert.equal(first.priorFile, null);
+    assert.ok(!panelArgs({ panel: "p", diffFile: "d", changedFile: "c", priorFile: first.priorFile,
+      rebuttals: null, baseSha: null, lensesDir: "L", outDir: dir }).includes("--prior-findings"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("prepareRoundInputs: normalizes rebuttals into the round, or throws", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-inputs2-"));
+  try {
+    const supplied = path.join(dir, "mine.json");
+    writeFileSync(supplied, JSON.stringify([{ lens: "agent-review-security", claim: "no" }]));
+    const out = prepareRoundInputs({ dir, prior: [], rebuttalsPath: supplied });
+    // The panel reads the NORMALIZED copy, not the hand-written original.
+    assert.equal(out.rebuttals, path.join(dir, "rebuttals.json"));
+    assert.notEqual(out.rebuttals, supplied);
+    assert.deepEqual(JSON.parse(readFileSync(out.rebuttals, "utf8")), [{ lens: "security", claim: "no" }]);
+    assert.equal(out.rebuttalCount, 1);
+
+    // Unusable input throws instead of quietly adjudicating nothing.
+    assert.throws(() => prepareRoundInputs({ dir, prior: [], rebuttalsPath: path.join(dir, "nope.json") }), /not found/);
+    const bad = path.join(dir, "bad.json");
+    writeFileSync(bad, "{ not json");
+    assert.throws(() => prepareRoundInputs({ dir, prior: [], rebuttalsPath: bad }), /not a readable JSON array/);
+    const empty = path.join(dir, "empty.json");
+    writeFileSync(empty, "[]");
+    assert.throws(() => prepareRoundInputs({ dir, prior: [], rebuttalsPath: empty }), /no usable records/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- the printed key has to be the one a rebuttal record carries -------------
+
+test("renderBlockingFindings prints rebuttal.mjs's key, not finding-key.mjs's", () => {
+  const finding = { severity: "major", file: "a.ts", summary: "The flag is never documented anywhere" };
+  const out = renderBlockingFindings([{ lens: "docs", findings: [finding] }]);
+  // The two modules key the same finding differently, and an earlier version
+  // printed the wrong one while claiming it was this one.
+  assert.match(out, new RegExp(`key: ${findingKeyOf({ ...finding, lens: "docs" })}`));
+  assert.match(out, /key: docs::a\.ts::the-flag-is-never-documented/);
+  // It carries the lens, which the other key format has no room for.
+  assert.ok(findingKeyOf({ ...finding, lens: "docs" }).startsWith("docs::"));
+});
+
+test("renderBlockingFindings: the key survives a very long summary", () => {
+  // The old key was the whole summary, capped at 300 characters with an ellipsis,
+  // so copying it out of a long finding produced a string nothing matches.
+  const out = renderBlockingFindings([
+    { lens: "security", findings: [{ severity: "critical", file: "a.ts", summary: "word ".repeat(200) }] },
+  ]);
+  const keyLine = out.split("\n").find((l) => l.includes("key:"));
+  assert.ok(!keyLine.includes("\u2026"), "the key must not be truncated");
+  assert.match(keyLine, /key: security::a\.ts::word-word-word-word-word-word$/);
 });

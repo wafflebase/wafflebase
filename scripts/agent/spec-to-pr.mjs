@@ -46,7 +46,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
 import { carryForwardFindings } from "./prior-findings.mjs";
-import { findingKey } from "./finding-key.mjs";
+import { findingKeyOf } from "./rebuttal.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -294,10 +294,19 @@ export function printable(text, max = 500) {
  * The blocking findings, rendered for a terminal.
  *
  * Until now this command printed the ID of every failing lens and nothing else,
- * with the actual verdicts in a temp directory whose path was never shown. The
- * `findingKey` is here because it is the identifier a rebuttal is addressed to
- * (`rebuttal.mjs`'s record keys on it), so a developer who wants to dispute a
- * finding can copy it rather than reconstruct it.
+ * with the actual verdicts in a temp directory whose path was never shown.
+ *
+ * THE KEY IS `rebuttal.mjs`'s, NOT `finding-key.mjs`'s, and the two are different
+ * strings for the same finding: `lens::file::first-six-summary-words` versus
+ * `file::whole-lowercased-summary`. An earlier version of this function printed
+ * the second while claiming it was the first, so a developer who copied it into a
+ * `--rebuttals` record wrote a field in a shape nothing produces.
+ *
+ * It is also NOT how a rebuttal finds its finding — `matchRebuttal` uses
+ * `findingSimilarity`, because the panel rewords the same defect between rounds
+ * and an exact key would miss every re-worded one. The key is a grep handle and
+ * the record's own identifier; the `lens`, `file` and `summary` printed above it
+ * are what the match is actually made on, which is why all three are here.
  *
  * `entries` is `[{ lens, findings }]`.
  */
@@ -324,9 +333,11 @@ export function renderBlockingFindings(entries) {
       const where = f.file ? `${printable(f.file, 200)}${f.line ? `:${printable(f.line, 12)}` : ""}` : "(no file cited)";
       lines.push(`  [${printable(f.severity ?? "major", 12)}] ${lensName} — ${where}`);
       lines.push(`      ${printable(f.summary)}`);
-      // The key is a copy-paste target for a `--rebuttals` record, so it keeps its
-      // full shape — but it is built FROM the summary, so it is stripped too.
-      lines.push(`      key: ${printable(findingKey(f), 300)}`);
+      // Built from the finding's own lens, since `f.lens` may be absent on a
+      // freshly-read verdict. `findingKeyOf` already caps itself at six summary
+      // words, so this never truncates into an unusable string the way a capped
+      // whole-summary key did.
+      lines.push(`      key: ${printable(findingKeyOf({ ...f, lens: f.lens ?? lens }), 300)}`);
     }
   }
   return lines.join("\n");
@@ -584,6 +595,47 @@ export function normalizeRebuttals(raw) {
 }
 
 /**
+ * Write a round's file inputs and return the paths the panel should be given.
+ *
+ * Extracted because the gap three consecutive rounds kept raising was not in
+ * either end — `carryForwardFindings` and `panelArgs` are both tested — but in
+ * the WIRING between them: that the carried findings are actually written, and
+ * that the path of the file just written is the path handed to the panel. A
+ * defect there produces a completely normal-looking run that reviews without its
+ * carry-forward, which is the failure this whole change exists to prevent.
+ *
+ * Returns `{ priorFile, rebuttals, rebuttalCount }`, where a null path means
+ * "pass no flag" — absent and empty are different claims to the panel (see
+ * `panelArgs`).
+ *
+ * Throws on an unusable `--rebuttals` file rather than skipping it. The panel
+ * treats an unreadable one as "no rebuttals", so ignoring it would let a dispute
+ * go silently unheard, which is strictly worse than refusing to start.
+ */
+export function prepareRoundInputs({ dir, prior, rebuttalsPath }) {
+  const carried = Array.isArray(prior) ? prior : [];
+  let priorFile = null;
+  if (carried.length > 0) {
+    priorFile = path.join(dir, "prior-findings.json");
+    writeFileSync(priorFile, JSON.stringify(carried, null, 2) + "\n");
+  }
+  if (!rebuttalsPath) return { priorFile, rebuttals: null, rebuttalCount: 0 };
+  if (!existsSync(rebuttalsPath)) throw new Error(`--rebuttals file not found: ${rebuttalsPath}`);
+  let records;
+  try {
+    records = normalizeRebuttals(JSON.parse(readFileSync(rebuttalsPath, "utf8")));
+  } catch (e) {
+    throw new Error(`--rebuttals file is not a readable JSON array: ${rebuttalsPath} (${e.message})`);
+  }
+  if (records.length === 0) throw new Error(`--rebuttals file holds no usable records: ${rebuttalsPath}`);
+  // The NORMALIZED copy is what the panel reads, written beside the round it
+  // belongs to so the argument is auditable after the fact.
+  const rebuttals = path.join(dir, "rebuttals.json");
+  writeFileSync(rebuttals, JSON.stringify(records, null, 2) + "\n");
+  return { priorFile, rebuttals, rebuttalCount: records.length };
+}
+
+/**
  * The argv handed to `review-panel.mjs`.
  *
  * Extracted so the round inputs are ASSERTED rather than eyeballed. The whole
@@ -821,33 +873,13 @@ function cmdReview(args) {
   // it. Written into the round directory rather than piped, so a developer can
   // read what round N was told about round N-1.
   const prior = round > 1 ? priorFindingsFor(base, round) : [];
-  const priorFile = path.join(dir, "prior-findings.json");
-  if (prior.length > 0) writeFileSync(priorFile, JSON.stringify(prior, null, 2) + "\n");
-
-  // The author's structured "this finding is wrong" claims, adjudicated by a
-  // fresh subagent that is biased to uphold. The cloud reads these from hidden PR
-  // comments (`rebuttal.mjs read <pr>`), which before a PR exists is nothing at
-  // all — so locally the file is supplied by hand. Without it, a finding you
-  // deliberately declined is re-raised identically for the rest of the loop.
-  let rebuttals = null;
-  if (args.rebuttals) {
-    const supplied = path.resolve(String(args.rebuttals));
-    if (!existsSync(supplied)) return fail(`--rebuttals file not found: ${supplied}`);
-    let records;
-    try {
-      records = normalizeRebuttals(JSON.parse(readFileSync(supplied, "utf8")));
-    } catch (e) {
-      // Refused, not ignored: the panel would treat an unreadable file as "no
-      // rebuttals", and a dispute silently not heard is the failure to avoid.
-      return fail(`--rebuttals file is not a readable JSON array: ${supplied} (${e.message})`);
-    }
-    if (records.length === 0) return fail(`--rebuttals file holds no usable records: ${supplied}`);
-    // The normalized copy is what the panel reads, written beside the round it
-    // belongs to so the argument is auditable afterwards.
-    rebuttals = path.join(dir, "rebuttals.json");
-    writeFileSync(rebuttals, JSON.stringify(records, null, 2) + "\n");
-    console.log(`adjudicating ${records.length} rebuttal(s) from ${supplied}`);
+  let inputs;
+  try {
+    inputs = prepareRoundInputs({ dir, prior, rebuttalsPath: args.rebuttals ? path.resolve(String(args.rebuttals)) : null });
+  } catch (e) {
+    return fail(e.message);
   }
+  if (inputs.rebuttalCount > 0) console.log(`adjudicating ${inputs.rebuttalCount} rebuttal(s)`);
 
   console.log(`spec-to-pr: self-review round ${round} on ${branch} → ${outDir}`);
   if (prior.length > 0) console.log(`carrying ${prior.length} prior finding(s) forward`);
@@ -859,8 +891,8 @@ function cmdReview(args) {
         diffFile,
         changedFile,
         baseSha,
-        priorFile: prior.length > 0 ? priorFile : null,
-        rebuttals,
+        priorFile: inputs.priorFile,
+        rebuttals: inputs.rebuttals,
         lensesDir: path.join(HERE, "lenses"),
         outDir,
       }),
