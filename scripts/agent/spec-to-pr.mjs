@@ -215,6 +215,42 @@ export function roundBoundNotice(round, max = MAX_SELF_REVIEW_ROUNDS) {
 }
 
 /**
+ * TWO ENVIRONMENTS, ONE COMMAND. This is the credential contract for a local
+ * review round, and the notice is just how the command says which half it is in:
+ *
+ *   - **CI** sets `CLAUDE_CODE_OAUTH_TOKEN` (and the `_1…_8` pool slots) from
+ *     repository secrets. `buildSessionOptions` then pins that credential onto
+ *     the session's `env`, which is what makes failover and per-job distribution
+ *     work. Silent — this is the configured case.
+ *   - **A developer's machine** has no such variable and does not need one: it
+ *     has a logged-in Claude Code, and that session's credentials are what the
+ *     round should spend. `createTokenPool` returns `null` for an empty pool and
+ *     `buildSessionOptions` then omits the `env` override entirely, so the SDK
+ *     resolves its own credentials — "an unconfigured environment keeps today's
+ *     plain inheritance".
+ *
+ * `cmdReview` used to RETURN EARLY on the second case. That reads as prudence and
+ * is the worst available behaviour: almost nobody exports a `claude setup-token`
+ * credential on their own machine, so on the ordinary developer setup the local
+ * review silently did not happen. For a branch that gets no cloud panel (no
+ * `agent/` prefix, no `agent:managed` label) that is the difference between one
+ * machine review and none — and a skip is easy to mistake for a pass.
+ *
+ * So the local case proceeds and says so. A machine with no credentials at all
+ * still fails, with the SDK's own error, which names the problem better than this
+ * wrapper could.
+ */
+export function ambientAuthNotice(env = process.env) {
+  if (typeof env?.CLAUDE_CODE_OAUTH_TOKEN === "string" && env.CLAUDE_CODE_OAUTH_TOKEN.trim() !== "") return "";
+  return (
+    "no CLAUDE_CODE_OAUTH_TOKEN — using this machine's logged-in Claude Code " +
+    "session, which is the intended local mode (CI pins a pooled credential " +
+    "instead). This is a real multi-lens round and bills the account you are " +
+    "logged in as."
+  );
+}
+
+/**
  * The blocking findings, rendered for a terminal.
  *
  * Until now this command printed the ID of every failing lens and nothing else,
@@ -455,15 +491,8 @@ function blockingFindingsIn(outDir, lensIds) {
 
 function cmdReview(args) {
   const dryRun = Boolean(args["dry-run"]);
-  // Local review is a convenience pre-filter; the cloud panel is authoritative.
-  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    console.warn(
-      "spec-to-pr: CLAUDE_CODE_OAUTH_TOKEN not set — skipping local review " +
-        "(run `claude setup-token` and export it, and `cd scripts/agent && npm ci`). " +
-        "The authoritative cloud review panel still runs on green CI.",
-    );
-    return;
-  }
+  const authNotice = ambientAuthNotice(process.env);
+  if (authNotice) console.warn(`spec-to-pr: ${authNotice}`);
   let branch;
   try {
     branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);

@@ -10,6 +10,7 @@ import {
   pickLatestVerdicts,
   roundBoundNotice,
   renderBlockingFindings,
+  ambientAuthNotice,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
@@ -148,4 +149,20 @@ test("renderBlockingFindings: a blocking lens with nothing to print says so", ()
   // A non-empty findings array of pure junk takes the per-finding path, not the
   // "did not run" one: the lens DID produce a verdict, it just cited nothing.
   assert.equal(renderBlockingFindings([{ lens: "x", findings: [null] }]), "");
+});
+
+test("ambientAuthNotice: silent with a pooled token, warns without one", () => {
+  assert.equal(ambientAuthNotice({ CLAUDE_CODE_OAUTH_TOKEN: "sk-tok" }), "");
+  // Whitespace is not a credential.
+  assert.notEqual(ambientAuthNotice({ CLAUDE_CODE_OAUTH_TOKEN: "   " }), "");
+  assert.notEqual(ambientAuthNotice({}), "");
+  assert.notEqual(ambientAuthNotice(undefined), "");
+  // It must say that the run is going to COST something: the old behaviour was a
+  // silent skip, so a warning that only mentions the missing variable would read
+  // as "nothing happened" — the exact confusion this replaced.
+  assert.match(ambientAuthNotice({}), /bills the account/);
+  // It must name BOTH halves of the contract: a developer reading it has to be
+  // able to tell "this is the local mode" from "something is misconfigured".
+  assert.match(ambientAuthNotice({}), /intended local mode/);
+  assert.match(ambientAuthNotice({}), /CI pins a pooled credential/);
 });
