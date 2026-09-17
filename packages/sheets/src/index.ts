@@ -139,7 +139,11 @@ import {
   type MergeBudget,
 } from './model/worksheet/merging';
 import { DimensionIndex } from './model/worksheet/dimensions';
-import { type Store } from './store/store';
+import {
+  type Store,
+  type UndoResult,
+  type UndoSelection,
+} from './store/store';
 import { MemStore } from './store/memory';
 import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
@@ -177,6 +181,11 @@ import {
   resolveWorksheetCellStyle,
   normalizeStoredCell,
 } from './model/workbook/worksheet-grid';
+import {
+  resolveUndoSelection,
+  type UndoOperation,
+  type UndoTabSnapshot,
+} from './model/workbook/undo-selection';
 import {
   safeWorksheetRecordKeys,
   safeWorksheetRecordEntries,
@@ -398,6 +407,7 @@ export {
   createWorksheetAxisId,
   createWorksheetCellKey,
   parseWorksheetCellKey,
+  resolveUndoSelection,
   applyWorksheetShift,
   applyWorksheetMove,
   shiftCrossTabDataRanges,
@@ -444,6 +454,10 @@ export {
 export type {
   LayoutRect,
   Store,
+  UndoResult,
+  UndoSelection,
+  UndoOperation,
+  UndoTabSnapshot,
   Grid,
   Cell,
   CellStyle,

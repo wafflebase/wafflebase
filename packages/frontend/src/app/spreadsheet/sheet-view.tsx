@@ -14,6 +14,7 @@ import {
   type Thread,
   type CommentAuthor,
   type CommentAnchor,
+  type UndoSelection,
 } from "@wafflebase/sheets";
 import {
   type DragEvent as ReactDragEvent,
@@ -33,6 +34,10 @@ import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
 import { notifyCommentEvent } from "@/components/comments/notify";
+import {
+  shouldApplyUndoJump,
+  type UndoJumpTarget,
+} from "@/app/spreadsheet/undo-jump";
 import { useDocument } from "@yorkie-js/react";
 import type { SheetImage } from "@wafflebase/sheets";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
@@ -132,6 +137,8 @@ export function SheetView({
   readOnly = false,
   peerJumpTarget = null,
   commentJumpTarget = null,
+  undoJumpTarget = null,
+  onUndoJump,
   addPivotTab,
   workspaceId,
   documentId,
@@ -148,6 +155,22 @@ export function SheetView({
     sref: string;
     requestId: number;
   } | null;
+  /**
+   * An undo or redo replayed a step in a different tab. Set once the host has
+   * switched to it, so this mount can restore the selection it named.
+   */
+  undoJumpTarget?: UndoJumpTarget | null;
+  /**
+   * Reports an undo or redo whose step belonged to another tab. The host
+   * switches tabs and hands the selection back through `undoJumpTarget`.
+   *
+   * Both hosts that can reach undo pass it — `DocumentLayout` and the
+   * share-link view, which is read-only only for the `viewer` role and so
+   * lets an editor undo. Omitting it on a host that *can* undo would put
+   * cross-tab undo back in the state this exists to fix: applied to the
+   * CRDT, invisible on screen.
+   */
+  onUndoJump?: (selection: UndoSelection) => void;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
   workspaceId?: string;
   /**
@@ -223,6 +246,12 @@ export function SheetView({
   }, [isMobile]);
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const lastHandledCommentJumpRequestIdRef = useRef(0);
+  const lastHandledUndoJumpRequestIdRef = useRef(0);
+  // Held in a ref for the same reason as `debugTabNameRef`: the mount effect
+  // registers this on the engine, and depending on the prop would rebuild the
+  // whole sheet whenever the host re-renders.
+  const onUndoJumpRef = useRef(onUndoJump);
+  onUndoJumpRef.current = onUndoJump;
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
   const hasImagesRef = useRef(false);
@@ -1052,6 +1081,13 @@ export function SheetView({
         toast.error(message);
       });
 
+      // An undo can replay a step that belongs to another tab — Yorkie's
+      // history is per document, this engine is per tab. Without this the
+      // undo lands correctly in the CRDT and looks like it did nothing.
+      s.onUndoTabJump((selection) => {
+        onUndoJumpRef.current?.(selection);
+      });
+
       if (isMobileRef.current && !readOnly) {
         s.setMobileEditCallback((cellRef, value) => {
           mobileEditValueRef.current = value;
@@ -1408,6 +1444,26 @@ export function SheetView({
       // Ignore malformed presence values from remote peers.
     }
   }, [peerJumpTarget, sheetRenderVersion, tabId]);
+
+  useEffect(() => {
+    if (
+      !shouldApplyUndoJump(
+        undoJumpTarget,
+        tabId,
+        lastHandledUndoJumpRequestIdRef.current,
+      )
+    ) {
+      return;
+    }
+    // Narrowed by the guard above; re-stated for the type checker.
+    if (!undoJumpTarget) return;
+
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    lastHandledUndoJumpRequestIdRef.current = undoJumpTarget.requestId;
+    sheet.focusUndoSelection(undoJumpTarget.selection);
+  }, [undoJumpTarget, sheetRenderVersion, tabId]);
 
   useEffect(() => {
     if (!commentJumpTarget) return;

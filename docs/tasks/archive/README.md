@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 603
+Total archived tasks: 604
 
-## 2026/09 (28 tasks)
+## 2026/09 (29 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sheets undo selection (2026-09-17) | [20260917-sheets-undo-selection-todo.md](./2026/09/20260917-sheets-undo-selection-todo.md) | [20260917-sheets-undo-selection-lessons.md](./2026/09/20260917-sheets-undo-selection-lessons.md) |
 | member api keys (2026-09-13) | [20260913-member-api-keys-todo.md](./2026/09/20260913-member-api-keys-todo.md) | - |
 | release v0.6.10 (2026-09-13) | [20260913-release-v0.6.10-todo.md](./2026/09/20260913-release-v0.6.10-todo.md) | [20260913-release-v0.6.10-lessons.md](./2026/09/20260913-release-v0.6.10-lessons.md) |
 | release v0.6.11 (2026-09-13) | [20260913-release-v0.6.11-todo.md](./2026/09/20260913-release-v0.6.11-todo.md) | [20260913-release-v0.6.11-lessons.md](./2026/09/20260913-release-v0.6.11-lessons.md) |

@@ -56,8 +56,16 @@ import {
   clearPendingImport,
   peekPendingImport,
 } from "@/app/spreadsheet/pending-imports";
-import type { Thread, CommentAnchor } from "@wafflebase/sheets";
+import type {
+  Thread,
+  CommentAnchor,
+  UndoSelection,
+} from "@wafflebase/sheets";
 import { cellAnchorToSref } from "@wafflebase/sheets";
+import {
+  isJumpableSheetTab,
+  type UndoJumpTarget,
+} from "@/app/spreadsheet/undo-jump";
 import { CollabDocumentProvider } from "@/components/collab-document-provider";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
 import type { SheetCellAnchor } from "@/types/comments";
@@ -134,8 +142,27 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [commentJumpTarget, setCommentJumpTarget] = useState<CommentJumpTarget | null>(null);
+  const [undoJumpTarget, setUndoJumpTarget] = useState<UndoJumpTarget | null>(null);
   const commentJumpSeq = useRef(0);
   const jumpRequestSeq = useRef(0);
+  const undoJumpSeq = useRef(0);
+
+  /**
+   * Yorkie's undo history is per document while a sheet engine is mounted on
+   * one tab, so an undo can replay a step the user cannot see. Follow it to
+   * the tab it landed in, then hand the selection to that tab's mount — the
+   * same two-step the peer jump above uses, because the engine for the target
+   * tab does not exist until the switch has rendered.
+   */
+  const handleUndoJump = useCallback(
+    (selection: UndoSelection) => {
+      if (!isJumpableSheetTab(doc?.getRoot()?.tabs?.[selection.tabId])) return;
+      undoJumpSeq.current += 1;
+      setActiveTabId(selection.tabId);
+      setUndoJumpTarget({ selection, requestId: undoJumpSeq.current });
+    },
+    [doc],
+  );
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
@@ -150,6 +177,12 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     } catch {
       // Best-effort: the document may already be detached.
     }
+    // A pending undo jump describes a step in the stack that was just thrown
+    // away, so it cannot be followed. Dropping it here is also what keeps it
+    // from being followed *twice*: `historyResetToken` remounts `SheetView`,
+    // which resets the mount-local ref that remembers the request was already
+    // handled.
+    setUndoJumpTarget(null);
     setHistoryResetToken((t) => t + 1);
   }, [doc]);
 
@@ -729,6 +762,8 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                       tabId={activeTabId}
                       peerJumpTarget={peerJumpTarget}
                       commentJumpTarget={commentJumpTarget}
+                      undoJumpTarget={undoJumpTarget}
+                      onUndoJump={handleUndoJump}
                       addPivotTab={addPivotTab}
                       workspaceId={documentData?.workspaceId}
                       documentId={documentId}

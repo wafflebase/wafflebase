@@ -24,7 +24,7 @@ import { RangeStylePatch } from '../model/worksheet/range-styles';
 import type { Comment, Thread } from '../comment/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
-import { Store } from './store';
+import { Store, UndoResult } from './store';
 
 /**
  * Converts a raw query result value to a string suitable for a sheet cell.
@@ -324,11 +324,11 @@ export class ReadOnlyStore implements Store {
     // no-op
   }
 
-  async undo(): Promise<{ success: boolean }> {
+  async undo(): Promise<UndoResult> {
     return { success: false };
   }
 
-  async redo(): Promise<{ success: boolean }> {
+  async redo(): Promise<UndoResult> {
     return { success: false };
   }
 

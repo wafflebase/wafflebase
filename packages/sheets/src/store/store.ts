@@ -13,6 +13,7 @@ import {
   Range,
   Sref,
   Direction,
+  SelectionType,
 } from '../model/core/types';
 import type {
   CellAnchor,
@@ -21,6 +22,49 @@ import type {
 } from '../model/workbook/anchor-conversion';
 import { RangeStylePatch } from '../model/worksheet/range-styles';
 import type { Comment, CommentAnchor, CommentAuthor, Thread } from '../comment/types';
+
+/**
+ * `UndoSelection` describes where an undone or redone step landed, so the
+ * editor can select it and scroll to it — showing *what* changed is half of
+ * what undo is for, and matches Google Sheets.
+ */
+export type UndoSelection = {
+  /** The tab the replayed step wrote to. */
+  tabId: string;
+
+  /**
+   * `true` when `tabId` is not the tab this store was opened on, so the
+   * selection cannot be applied here and the editor has to switch tabs
+   * first. Only the store knows its own tab id, so it answers this rather
+   * than making every caller compare.
+   */
+  otherTab: boolean;
+
+  /**
+   * Whole rows or columns for a structural step, cells otherwise — an
+   * undone row insert selects the row headers, the way it does in Google
+   * Sheets.
+   */
+  selectionType: SelectionType;
+
+  /**
+   * The affected range, in current (post-replay) coordinates. Absent when
+   * the replayed step has no coordinates at all — a freeze pane, a filter —
+   * in which case the selection is left alone rather than guessed at. The
+   * tab is still worth reporting, since a step in another tab has to be
+   * switched to before it can be seen.
+   */
+  range?: Range;
+};
+
+/**
+ * `UndoResult` is what `undo` / `redo` report back. `selection` is absent
+ * when the replayed step touched no worksheet the editor can point at.
+ */
+export type UndoResult = {
+  success: boolean;
+  selection?: UndoSelection;
+};
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -302,15 +346,13 @@ export interface Store {
 
   /**
    * `undo` method undoes the last local change.
-   * Returns an object with `success` and optionally `affectedRange`.
    */
-  undo(): Promise<{ success: boolean; affectedRange?: Range }>;
+  undo(): Promise<UndoResult>;
 
   /**
    * `redo` method redoes the last undone change.
-   * Returns an object with `success` and optionally `affectedRange`.
    */
-  redo(): Promise<{ success: boolean; affectedRange?: Range }>;
+  redo(): Promise<UndoResult>;
 
   /**
    * `canUndo` method returns true if there is a change to undo.
