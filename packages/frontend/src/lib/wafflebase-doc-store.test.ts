@@ -15,14 +15,25 @@ import { WafflebaseDocStore } from "./wafflebase-doc-store";
 testDocStoreContract("MemoryDocStore", () => new MemoryDocStore());
 testDocStoreContract(
   "WafflebaseDocStore",
-  (scope) => new WafflebaseDocStore({ dbName: `wafflebase-test-${scope}` }),
+  (scope) =>
+    new WafflebaseDocStore({
+      dbName: `wafflebase-test-${scope}`,
+      userId: "user-1",
+    }),
 );
 
 describe("WafflebaseDocStore compression", () => {
   let store: WafflebaseDocStore;
+  // A monotonic counter, not `Date.now()`: these cases run inside one
+  // millisecond, so a timestamped name would hand them all the same database.
+  let counter = 0;
 
   beforeEach(() => {
-    store = new WafflebaseDocStore({ dbName: `wafflebase-gzip-${Date.now()}` });
+    counter += 1;
+    store = new WafflebaseDocStore({
+      dbName: `wafflebase-gzip-${counter}`,
+      userId: "user-1",
+    });
   });
 
   it("stores fewer bytes than it was given for repetitive input", async () => {

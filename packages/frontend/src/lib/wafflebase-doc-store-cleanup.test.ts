@@ -27,7 +27,7 @@ function clock(iso: string) {
   };
 }
 
-function freshStore(userId?: string, now?: () => number): WafflebaseDocStore {
+function freshStore(userId: string, now?: () => number): WafflebaseDocStore {
   counter += 1;
   return new WafflebaseDocStore({
     dbName: `wafflebase-cleanup-${counter}`,
@@ -40,6 +40,23 @@ function freshStore(userId?: string, now?: () => number): WafflebaseDocStore {
 async function seed(store: WafflebaseDocStore, key: string): Promise<void> {
   await store.saveSnapshot(key, new Uint8Array([1, 2, 3]));
   await store.appendChange(key, { clientSeq: 1, bytes: new Uint8Array([4]) });
+}
+
+/**
+ * A second store over the same database — a later session.
+ *
+ * Collection and eviction deliberately spare whatever the *current* session is
+ * persisting, so a test that seeds and collects through one instance is asking
+ * about a case that cannot arise: the entries it wants collected are the ones
+ * it just wrote. Reopening is what a new page load does, and it is when old
+ * entries actually become collectable.
+ */
+function reopen(
+  store: WafflebaseDocStore,
+  userId: string,
+  now?: () => number,
+): WafflebaseDocStore {
+  return new WafflebaseDocStore({ dbName: store.databaseName, userId, now });
 }
 
 describe("dropping a user's entries", () => {
@@ -102,11 +119,12 @@ describe("collecting stale entries", () => {
     await seed(store, "recent");
 
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-    const collected = await store.collectStale(thirtyDays);
+    const later = reopen(store, "user-1", time.now);
+    const collected = await later.collectStale(thirtyDays);
 
     expect(collected).toBe(1);
-    expect(await store.load("old")).toBeUndefined();
-    expect(await store.load("recent")).toBeDefined();
+    expect(await later.load("old")).toBeUndefined();
+    expect(await later.load("recent")).toBeDefined();
   });
 
   it("counts an appended change as touching the entry", async () => {
@@ -125,8 +143,9 @@ describe("collecting stale entries", () => {
     });
 
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-    expect(await store.collectStale(thirtyDays)).toBe(0);
-    expect(await store.load("doc-a")).toBeDefined();
+    const later = reopen(store, "user-1", time.now);
+    expect(await later.collectStale(thirtyDays)).toBe(0);
+    expect(await later.load("doc-a")).toBeDefined();
   });
 });
 
@@ -167,12 +186,15 @@ describe("quota pressure", () => {
     await seed(store, "newer");
     time.set("2026-03-01T00:00:00Z");
 
+    // A later session: neither seeded document is one this store is
+    // persisting, so both are eligible and the oldest goes.
+    const later = reopen(store, "user-1", time.now);
     failPuts(1);
-    await store.saveSnapshot("arriving", new Uint8Array([9, 9, 9]));
+    await later.saveSnapshot("arriving", new Uint8Array([9, 9, 9]));
 
-    expect(await store.load("oldest")).toBeUndefined();
-    expect(await store.load("newer")).toBeDefined();
-    const arrived = await store.load("arriving");
+    expect(await later.load("oldest")).toBeUndefined();
+    expect(await later.load("newer")).toBeDefined();
+    const arrived = await later.load("arriving");
     expect(arrived).toBeDefined();
     expect(Array.from(arrived!.snapshot)).toEqual([9, 9, 9]);
   });
@@ -187,14 +209,15 @@ describe("quota pressure", () => {
     await seed(store, "keep-me");
     time.set("2026-03-01T00:00:00Z");
 
+    const later = reopen(store, "user-1", time.now);
     failPuts(10);
     await expect(
-      store.saveSnapshot("arriving", new Uint8Array([1])),
+      later.saveSnapshot("arriving", new Uint8Array([1])),
     ).rejects.toThrow(/quota/i);
 
     // Exactly one eviction was spent: the oldest went, the next one did not.
-    expect(await store.load("oldest")).toBeUndefined();
-    expect(await store.load("keep-me")).toBeDefined();
+    expect(await later.load("oldest")).toBeUndefined();
+    expect(await later.load("keep-me")).toBeDefined();
   });
 
   it("does not evict when the failure is not about quota", async () => {
@@ -202,16 +225,118 @@ describe("quota pressure", () => {
     // self-inflicted data loss.
     const store = freshStore("user-1");
     await seed(store, "keep-me");
+    const later = reopen(store, "user-1");
 
     vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(() => {
       throw new DOMException("nope", "InvalidStateError");
     });
 
     await expect(
-      store.saveSnapshot("arriving", new Uint8Array([1])),
+      later.saveSnapshot("arriving", new Uint8Array([1])),
     ).rejects.toThrow();
     vi.restoreAllMocks();
 
-    expect(await store.load("keep-me")).toBeDefined();
+    expect(await later.load("keep-me")).toBeDefined();
+  });
+
+  it("never evicts the document it is writing", async () => {
+    // With one document stored, the globally oldest entry IS the one under
+    // the failing write. Evicting it makes the retry write into nothing, and
+    // then — because an append with no base is contractually ignored — the
+    // call resolves as a success with the snapshot, the log and the document
+    // all gone. Reproduced exactly this way before the exclusion existed.
+    const store = freshStore("user-1");
+    await seed(store, "only-doc");
+
+    const later = reopen(store, "user-1");
+    failPuts(1);
+    await expect(
+      later.appendChange("only-doc", {
+        clientSeq: 2,
+        bytes: new Uint8Array([5]),
+      }),
+    ).rejects.toThrow(/quota/i);
+    vi.restoreAllMocks();
+
+    // Still there, with its log, and the failure was reported.
+    const stored = await later.load("only-doc");
+    expect(stored).toBeDefined();
+    expect(stored!.changes.map((c) => c.clientSeq)).toEqual([1]);
+  });
+
+  it("never evicts a document this session has open, even the oldest one", async () => {
+    // The dangerous shape is a document opened and not yet typed into: its
+    // timestamp is from whenever it was last edited, so by age it is the
+    // *first* eviction candidate — while the SDK holds it attached and will
+    // keep appending into what eviction deleted. Ordering by age alone would
+    // pick exactly the wrong entry here.
+    const time = clock("2026-01-01T00:00:00Z");
+    const previous = freshStore("user-1", time.now);
+    await seed(previous, "opened-but-idle");
+    time.set("2026-02-01T00:00:00Z");
+    await seed(previous, "truly-idle");
+
+    time.set("2026-03-01T00:00:00Z");
+    const session = reopen(previous, "user-1", time.now);
+    // The editor attaches: the SDK loads before it ever writes.
+    expect(await session.load("opened-but-idle")).toBeDefined();
+
+    failPuts(1);
+    await session.saveSnapshot("arriving", new Uint8Array([1]));
+    vi.restoreAllMocks();
+
+    // The newer but genuinely idle entry paid for it; the open one survived
+    // despite being older.
+    expect(await session.load("truly-idle")).toBeUndefined();
+    expect(await session.load("opened-but-idle")).toBeDefined();
+  });
+
+  it("fails an append for a key eviction took, rather than ignoring it", async () => {
+    // An append with no base is contractually a silent success, because the
+    // SDK repairs a base it knows it failed to write. It does not know about
+    // one we deleted behind its back, so silence there would let it hand us
+    // edits that go nowhere. The rejection is what makes it poison the log and
+    // write a fresh snapshot.
+    const time = clock("2026-01-01T00:00:00Z");
+    const store = freshStore("user-1", time.now);
+    await seed(store, "victim");
+
+    time.set("2026-02-01T00:00:00Z");
+    const session = reopen(store, "user-1", time.now);
+    failPuts(1);
+    await session.saveSnapshot("arriving", new Uint8Array([1]));
+    vi.restoreAllMocks();
+    expect(await session.load("victim")).toBeUndefined();
+
+    await expect(
+      session.appendChange("victim", {
+        clientSeq: 9,
+        bytes: new Uint8Array([1]),
+      }),
+    ).rejects.toThrow(/evicted/i);
+
+    // And a fresh base clears it: the SDK repaired, so appends work again.
+    await session.saveSnapshot("victim", new Uint8Array([2]));
+    await session.appendChange("victim", {
+      clientSeq: 1,
+      bytes: new Uint8Array([3]),
+    });
+    expect(await session.changeCount("victim")).toBe(1);
+  });
+});
+
+describe("collection and live documents", () => {
+  it("leaves a document this session has open alone, however old it is", async () => {
+    // Purging an entry out from under a live SDK client is the same silent
+    // loss eviction has to avoid: the client keeps appending into nothing.
+    const time = clock("2026-01-01T00:00:00Z");
+    const store = freshStore("user-1", time.now);
+    await store.saveSnapshot("open-now", new Uint8Array([1]));
+
+    // Two months pass with the tab open and no edit — plausible for a
+    // document left on screen.
+    time.set("2026-03-01T00:00:00Z");
+    expect(await store.collectStale(30 * 24 * 60 * 60 * 1000)).toBe(0);
+    expect(await store.load("open-now")).toBeDefined();
   });
 });
