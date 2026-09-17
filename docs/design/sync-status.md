@@ -41,27 +41,34 @@ we do not ask — so this adopts the warning half and states the risk plainly.
 
 ### Non-Goals
 
-- **Offline persistence.** Making edits survive a reload means persisting
-  Yorkie's local change queue. `@yorkie-js/sdk@0.7.20` added the machinery for
-  it — an opt-in `ClientOptions.store` (a byte-oriented `DocStore` the app
-  implements; the SDK ships only an in-memory one), `Document.toBytes()` /
-  `fromBytes()`, and a `LocalChangesDropped` event for the cases where a
-  persisted envelope cannot be reconciled with the server. **We do not pass a
-  `store`**, so nothing here changes: without one the client persists nothing
-  and this document's premise holds.
+- ~~**Offline persistence.**~~ **No longer a Non-Goal** — it is being built in
+  [offline-local-persistence.md](offline-local-persistence.md), and this
+  document's premise now holds only for the documents that have not opted in.
+  What that changes here:
 
-  Turning it on is not a flag flip, which is why it stays a Non-Goal. The
-  persisted envelope is keyed by `apiKey/clientKey/docKey`, and we pass no
-  `key` to `YorkieProvider`, so the SDK generates a random one per client and
-  nothing would ever resume. Stabilizing that key then activates the SDK's
-  Web Locks single-active-session guard, which fails the *second* tab's attach
-  on a document already open in another — a document open twice is ordinary
-  use here, and our presence system shows it as two peers. Which way that
-  trades is a product decision. Deferred; this document only makes the
-  current, non-durable behavior visible, and its wording is what would change
-  first if the trade is ever taken.
-- **A user-facing offline mode toggle.** There is nothing to toggle until
-  persistence exists.
+  - The chip gains a fifth state, `saved-locally` ("Saved to this device"). It
+    replaces `not-saved` exactly when the pending work is on this device's
+    disk, which drops the loudest state to muted without touching any other
+    row. Severity still keys on where the edits are, which is the same
+    principle that put `pending` rather than connectivity at the centre of
+    `deriveSyncState`.
+  - `not-saved`'s tooltip — the wording that names this tab as the only copy —
+    stays exactly right for every non-durable document, which is still the
+    default. It is now one of two answers rather than the only one.
+  - The `beforeunload` guard is suppressed while durable, since what it exists
+    to prevent no longer happens.
+
+  The two obstacles this section named were real and are both resolved. The
+  random client key was not merely unset: `ClientOptions.key` collides with
+  React's reserved `key` prop, so `YorkieProvider` could not receive one at
+  all — fixed upstream by a `clientKey` prop (yorkie-js-sdk#1357). The
+  single-active-session guard is handled by electing one tab per document in
+  the app, before the SDK's own lock is ever reached, so the second tab keeps
+  today's behavior instead of failing its attach.
+- ~~**A user-facing offline mode toggle.**~~ Shipped as a per-*device* Settings
+  preference, off by default. It is device-local rather than account-level
+  because an account setting would follow the user onto a shared machine and
+  re-enable there, which is the case the toggle exists to prevent.
 - **Retry/backoff policy.** Reconnection is the SDK's watch loop. This surface
   reports it and does not steer it.
 - **Read-only viewers.** A viewer with no edit rights has no local changes to
@@ -467,7 +474,12 @@ and not on ordinary unmounting.
 
 ## Risks and Mitigation
 
-**The chip could imply durability it does not have.** The largest risk is
+**The chip could imply durability it does not have.** Now partly answered:
+where the durability exists, the chip says so and means it, and where it does
+not — every document without the opt-in, which remains the default — the
+paragraph below still applies unchanged.
+
+The largest risk is
 copying Google's reassuring vocabulary onto a system with no local
 persistence — a user told their work is "saved offline" who then reloads loses
 it, and trusted the UI while doing so. Mitigated by wording that never claims
@@ -482,7 +494,10 @@ severity on the user's own outstanding work (a reader sees only a muted
 **`beforeunload` is unreliable by design.** Browsers ignore it without prior
 user interaction, and it cannot stop a crash, a tab discard, or an OS restart.
 It narrows the window; it does not close it. The real fix is offline
-persistence, listed as a Non-Goal and the natural follow-up to this document.
+persistence, which is no longer a Non-Goal: see
+[offline-local-persistence.md](offline-local-persistence.md). It closes the
+window for documents that opt in, and leaves it exactly as described here for
+those that do not.
 
 **Browser back/forward is not guarded.** In-app navigation now is — see
 [The navigation guard](#the-navigation-guard) — but only the half the app
