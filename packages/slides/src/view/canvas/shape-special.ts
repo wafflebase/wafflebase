@@ -34,7 +34,7 @@ export function drawActionButton(
   if (data.stroke) {
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
-    ctx.setLineDash(dashArray(data.stroke.dash));
+    ctx.setLineDash(dashArray(data.stroke.dash, data.stroke.width));
     ctx.strokeRect(0, 0, w, h);
     const inset = ACTION_BUTTON_BEVEL_INSET;
     if (w > 2 * inset && h > 2 * inset) {

@@ -237,4 +237,81 @@ describe('PPTX round-trip (model equivalence)', () => {
     const { a, b } = await roundTrip(buf);
     expect(normalize(b)).toEqual(normalize(a));
   });
+
+  it('shape border dash survives export and re-import', async () => {
+    // The half of the trip that was missing: `lineXml` has always written
+    // `<a:prstDash>`, but `parseShapeStroke` read only `w` and
+    // `<a:solidFill>`, so a dashed border came back solid. Since #1074 the
+    // renderer paints the model faithfully, which made that loss silent.
+    //
+    // Built on the minimal deck's own presentation/theme scaffolding, with
+    // slide 1's elements replaced, rather than by extending
+    // `buildRichPptx` — which would renumber every slide index the cases
+    // above address by position.
+    const base = (await importPptx(await buildMinimalPptx())).document;
+    const frame = { x: 10, y: 20, w: 300, h: 150, rotation: 0 };
+    const deckA: SlidesDocument = {
+      ...base,
+      slides: [
+        {
+          ...base.slides[0],
+          elements: (['dashed', 'dotted', 'solid'] as const).map((dash, i) => ({
+            id: `s${i}`,
+            type: 'shape' as const,
+            frame: { ...frame, y: 20 + i * 200 },
+            data: {
+              kind: 'rect' as const,
+              stroke: { color: '#112233', width: 2, dash },
+            },
+          })),
+        },
+      ],
+    };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const b = (await importPptx(toArrayBuffer(bytes))).document;
+
+    const dashes = b.slides[0].elements.map((el) =>
+      el.type === 'shape' ? el.data.stroke?.dash : 'not-a-shape',
+    );
+    // `'solid'` comes back absent by design: the exporter writes no
+    // `<a:prstDash>` for it, so recording one on import would be a key the
+    // XML never carried. Absent renders continuous either way.
+    expect(dashes).toEqual(['dashed', 'dotted', undefined]);
+  });
+
+  it('connector dash survives export and re-import', async () => {
+    // `parseCxnSp` shares `parseShapeStroke` with shapes, so teaching the
+    // importer to read `<a:prstDash>` gave connectors a `dash` the connector
+    // exporter — which builds its `<a:ln>` by hand rather than through
+    // `lineXml` — did not write back.
+    const base = (await importPptx(await buildMinimalPptx())).document;
+    const deckA: SlidesDocument = {
+      ...base,
+      slides: [
+        {
+          ...base.slides[0],
+          elements: (['dashed', 'dotted', 'solid'] as const).map((dash, i) => ({
+            id: `c${i}`,
+            type: 'connector' as const,
+            frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+            routing: 'straight' as const,
+            start: { kind: 'free' as const, x: 10, y: 20 + i * 200 },
+            end: { kind: 'free' as const, x: 310, y: 120 + i * 200 },
+            arrowheads: {},
+            stroke: { color: '#112233', width: 2, dash },
+          })),
+        },
+      ],
+    };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const b = (await importPptx(toArrayBuffer(bytes))).document;
+
+    const dashes = b.slides[0].elements.map((el) =>
+      el.type === 'connector' ? el.stroke?.dash : 'not-a-connector',
+    );
+    // `'solid'` comes back absent for the same reason as the shape case.
+    expect(dashes).toEqual(['dashed', 'dotted', undefined]);
+  });
 });

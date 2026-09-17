@@ -75,6 +75,32 @@ export function arrowXml(tag: 'headEnd' | 'tailEnd', a: ArrowheadStyle | undefin
 }
 
 /**
+ * `Stroke.dash` → OOXML `<a:prstDash val>` (`ST_PresetLineDashVal`).
+ *
+ * A `Map` for the same prototype-chain reason as {@link KIND_TO_OOXML}:
+ * `stroke.dash` is persisted JSON the content PUT API lets a caller set to any
+ * string, and an object lookup would resolve `constructor` through the
+ * prototype chain, survive the `?? 'dash'` fallback and be stringified into
+ * the attribute.
+ *
+ * It lives here rather than beside `lineXml` in `shape.ts` because both the
+ * shape and the connector exporter need it and `shape.ts` already imports
+ * from this module — the other direction would close a cycle. Absent and
+ * `'solid'` emit nothing, which re-imports as no `dash`: the symmetry the
+ * importer's `DASH_BY_PRST` keeps.
+ */
+const DASH_VAL = new Map<string, string>([
+  ['dashed', 'dash'],
+  ['dotted', 'sysDot'],
+]);
+
+/** `<a:prstDash>` for a stroke's dash, or `''` for solid/absent. */
+export function dashXml(dash: string | undefined): string {
+  if (!dash || dash === 'solid') return '';
+  return `<a:prstDash val="${DASH_VAL.get(dash) ?? 'dash'}"/>`;
+}
+
+/**
  * Serialize a {@link ConnectorElement} to an OOXML `<p:cxnSp>` string.
  *
  * The caller (slide orchestrator) computes `frame` via `computeConnectorFrame`
@@ -85,6 +111,7 @@ export function arrowXml(tag: 'headEnd' | 'tailEnd', a: ArrowheadStyle | undefin
  * - `routing` → `<a:prstGeom prst>` via ROUTING_PRST
  * - `stroke.color` → `<a:solidFill>` inside `<a:ln>` (importer reads this)
  * - `stroke.width` → `<a:ln w>` in EMU (uniform px→EMU via pxToEmu)
+ * - `stroke.dash` → `<a:prstDash val>` via {@link dashXml} (importer reads this)
  * - `arrowheads.start` → `<a:headEnd>`, `arrowheads.end` → `<a:tailEnd>`
  * - arrowhead `type` inverts `OOXML_ARROW_TO_KIND` from the importer
  * - arrowhead `len`+`w` both emitted (importer reads `len` first)
@@ -99,15 +126,18 @@ export function connectorToXml(el: ConnectorElement, frame: Frame): string {
     `<a:ext cx="${pxToEmuX(frame.w)}" cy="${pxToEmuY(frame.h)}"/>` +
     `</a:xfrm>`;
 
-  // Build <a:ln>: width + optional solidFill (stroke color) + arrowheads.
-  // Importer's parseShapeStroke reads solidFill inside <a:ln> — must emit it
-  // when present so the color round-trips.
+  // Build <a:ln>: width + optional solidFill (stroke color) + dash + arrowheads.
+  // Importer's parseShapeStroke reads solidFill and <a:prstDash> inside <a:ln>
+  // — must emit both when present so color and dash round-trip. `<a:prstDash>`
+  // follows the fill and precedes the line ends, which is the order
+  // `CT_LineProperties` declares them in.
   const stroke = el.stroke;
   const lnW = stroke ? pxToEmu(stroke.width) : pxToEmu(1);
   const fillXml = stroke ? solidFillXml(colorFromStringOrTheme(stroke.color)) : '';
+  const dash = dashXml(stroke?.dash);
   const headXml = arrowXml('headEnd', el.arrowheads.start);
   const tailXml = arrowXml('tailEnd', el.arrowheads.end);
-  const ln = `<a:ln w="${lnW}">${fillXml}${headXml}${tailXml}</a:ln>`;
+  const ln = `<a:ln w="${lnW}">${fillXml}${dash}${headXml}${tailXml}</a:ln>`;
 
   const nv =
     `<p:nvCxnSpPr>` +

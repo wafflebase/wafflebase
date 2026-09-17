@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { Fill, Theme } from '../../../src/model/theme';
-import { resolveFillStyle, resolveStrokeColor } from '../../../src/view/canvas/render-context';
+import {
+  dashArray,
+  resolveFillStyle,
+  resolveStrokeColor,
+} from '../../../src/view/canvas/render-context';
 
 const THEME: Theme = {
   id: 't',
@@ -112,5 +116,40 @@ describe('resolveFillStyle', () => {
     // never call createLinearGradient (which would paint only the last stop).
     expect(resolveFillStyle(ctx, fill, THEME, 0, 0)).toBe('#111111');
     expect(calls.stops).toHaveLength(0);
+  });
+});
+
+describe('dashArray', () => {
+  it('is continuous for solid and absent', () => {
+    expect(dashArray('solid', 4)).toEqual([]);
+    expect(dashArray(undefined, 4)).toEqual([]);
+  });
+
+  it('keeps the shipped 1px patterns unchanged', () => {
+    // The whole reason the base ratios stayed [6,4] / [2,2] instead of
+    // becoming OOXML's literal `dash` 4:3 and `sysDot` 1:1 multiples:
+    // every stroke the app has shipped is the default 1px, so scaling
+    // must be invisible there. Literals on purpose — this is the one
+    // place the pattern values are pinned rather than derived.
+    expect(dashArray('dashed', 1)).toEqual([6, 4]);
+    expect(dashArray('dotted', 1)).toEqual([2, 2]);
+    // Width is optional, and defaults to the 1px case.
+    expect(dashArray('dotted')).toEqual([2, 2]);
+  });
+
+  it('scales the pattern by the stroke width', () => {
+    // OOXML defines its preset dashes as multiples of the line width, so
+    // a 16px dotted border is square dots the size of the line — not the
+    // solid bar a fixed [2,2] would paint.
+    expect(dashArray('dotted', 16)).toEqual([32, 32]);
+    expect(dashArray('dashed', 2)).toEqual([12, 8]);
+  });
+
+  it('floors a degenerate width at 1', () => {
+    // A [0,0] pattern is "no dash" to every browser, so a zero-width
+    // stroke would silently read as solid rather than as nothing.
+    for (const w of [0, -3, Number.NaN]) {
+      expect(dashArray('dotted', w)).toEqual([2, 2]);
+    }
   });
 });

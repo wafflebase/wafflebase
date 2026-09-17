@@ -968,6 +968,40 @@ export function parseGradientFill(grad: Element, clrMap: ClrMap): GradientFill |
   return { kind: 'gradient', type: 'linear', angle: (angDeg * Math.PI) / 180, stops };
 }
 
+/**
+ * `<a:prstDash val>` (`ST_PresetLineDashVal`) → {@link ShapeStroke.dash},
+ * the inverse of the exporter's `DASH_VAL` table.
+ *
+ * OOXML defines ten preset values against our three, so the mapping is
+ * many-to-one: everything built from dot runs collapses onto `'dotted'`
+ * and everything built from dash runs onto `'dashed'`. The mixed
+ * dash-dot presets read as dashed, since the dashes are what dominates
+ * them visually at the widths a slide uses.
+ *
+ * `val="solid"` is deliberately **absent**: it is the one preset the
+ * exporter writes nothing for, so recording it would make the round trip
+ * lossy in the other direction — import `dash: 'solid'`, export no
+ * `<a:prstDash>`, re-import no `dash`. Absent already renders continuous.
+ *
+ * A `Map` rather than an object literal, for the same reason `DASH_VAL`
+ * is one: `val` comes straight out of the deck's XML, and an object
+ * lookup consults the prototype chain — a `val="constructor"` would
+ * resolve to an inherited `Object.prototype` member and be written into
+ * the model as a dash style no renderer understands.
+ */
+const DASH_BY_PRST = new Map<string, ShapeStroke['dash']>([
+  ['dot', 'dotted'],
+  ['sysDot', 'dotted'],
+  ['dash', 'dashed'],
+  ['sysDash', 'dashed'],
+  ['lgDash', 'dashed'],
+  ['dashDot', 'dashed'],
+  ['sysDashDot', 'dashed'],
+  ['lgDashDot', 'dashed'],
+  ['sysDashDotDot', 'dashed'],
+  ['lgDashDotDot', 'dashed'],
+]);
+
 function parseShapeStroke(
   spPr: Element | undefined,
   ctx: SlideParseContext,
@@ -983,7 +1017,13 @@ function parseShapeStroke(
   const solid = child(ln, 'solidFill');
   const color = solid ? parseColorFromContainer(solid, ctx.clrMap) : undefined;
   if (!color) return undefined;
-  return { color, width };
+  // Absent `<a:prstDash>`, `val="solid"`, or a value outside the
+  // vocabulary above all leave the key off entirely. The renderer reads
+  // absent as continuous, so nothing is lost; writing `dash: 'solid'`
+  // instead would be a key the source deck's XML did not have.
+  const prstDash = child(ln, 'prstDash');
+  const dash = prstDash ? DASH_BY_PRST.get(attr(prstDash, 'val') ?? '') : undefined;
+  return dash ? { color, width, dash } : { color, width };
 }
 
 function parseCxnSp(cxn: Element, ctx: SlideParseContext): ConnectorElement | undefined {

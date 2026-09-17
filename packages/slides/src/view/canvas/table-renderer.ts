@@ -311,7 +311,7 @@ function paintCellBorders(
     for (const edge of edges.values()) {
       ctx.strokeStyle = resolveStrokeColor(edge.stroke.color, theme);
       ctx.lineWidth = edge.stroke.width;
-      ctx.setLineDash(dashArray(edge.stroke.dash));
+      ctx.setLineDash(dashArray(edge.stroke.dash, edge.stroke.width));
       ctx.beginPath();
       if (edge.axis === 'h') {
         ctx.moveTo(edge.a, edge.p);

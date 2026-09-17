@@ -21,7 +21,7 @@ import {
 } from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { IconBorderStyle2, IconChevronDown, IconLineHeight, IconPencil } from '@tabler/icons-react';
-import { DashPreview, StrokePreview } from './stroke-preview';
+import { StrokePreview } from './stroke-preview';
 
 export interface BorderPickerProps {
   value?: Stroke;
@@ -205,7 +205,7 @@ export function BorderPicker({
               onClick={() => onDashChange(d)}
               aria-label={d.charAt(0).toUpperCase() + d.slice(1)}
             >
-              <DashPreview dash={d} width={value?.width ?? DEFAULT_STROKE.width} />
+              <StrokePreview dash={d} width={value?.width ?? DEFAULT_STROKE.width} />
             </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>

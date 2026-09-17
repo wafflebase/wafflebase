@@ -428,3 +428,95 @@ describe('parseSlide — shape inline text', () => {
     expect(el.data.fill.angle).toBeCloseTo(Math.PI / 2, 6);
   });
 });
+
+/**
+ * A `<p:sp>` whose `<a:ln>` carries a `<a:prstDash>`. The importer used
+ * to read only `w` and `<a:solidFill>` from the line, so a PowerPoint
+ * deck with a dashed border arrived as a solid one — silently, since the
+ * renderer paints exactly what the model says.
+ */
+function slideWithDash(prstDash: string): string {
+  return `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Box"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        <a:ln w="19050"><a:solidFill><a:srgbClr val="000000"/></a:solidFill>${prstDash}</a:ln>
+      </p:spPr>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr/></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+}
+
+async function strokeOf(prstDash: string) {
+  const slide = await parseSlide({
+    archive: makeArchive({ 'ppt/slides/slide1.xml': slideWithDash(prstDash) }),
+    partPath: 'ppt/slides/slide1.xml',
+    layoutMap: new Map(),
+    scale: { sx: 1, sy: 1 },
+    report: new ImportReport(),
+    clrMap: new Map(),
+  });
+  const el = slide!.elements[0];
+  if (el.type !== 'shape') throw new Error('expected a shape');
+  return el.data.stroke;
+}
+
+describe('parseSlide — <a:prstDash> import', () => {
+  it('maps the dash presets onto the model’s three styles', async () => {
+    // Many-to-one on purpose: OOXML has ten preset values and the model
+    // has three, so every dot-run preset collapses onto `dotted` and
+    // every dash-run one (including the mixed dash-dot presets) onto
+    // `dashed`. `sysDot` and `dash` are the two the exporter writes, so
+    // they are the pair that closes the round trip.
+    for (const val of ['dot', 'sysDot']) {
+      expect((await strokeOf(`<a:prstDash val="${val}"/>`))?.dash).toBe('dotted');
+    }
+    for (const val of [
+      'dash',
+      'sysDash',
+      'lgDash',
+      'dashDot',
+      'sysDashDot',
+      'lgDashDot',
+      'sysDashDotDot',
+      'lgDashDotDot',
+    ]) {
+      expect((await strokeOf(`<a:prstDash val="${val}"/>`))?.dash).toBe('dashed');
+    }
+  });
+
+  it('leaves `dash` off for an absent, solid or unknown preset', async () => {
+    // Not `dash: 'solid'`: the exporter writes no `<a:prstDash>` for it,
+    // so recording it would make the *other* direction lossy and show up
+    // as a model difference in the round-trip suite. Absent already
+    // renders continuous.
+    expect(await strokeOf('')).not.toHaveProperty('dash');
+    expect(await strokeOf('<a:prstDash val="solid"/>')).not.toHaveProperty('dash');
+    expect(await strokeOf('<a:prstDash/>')).not.toHaveProperty('dash');
+    expect(await strokeOf('<a:prstDash val="notAPreset"/>')).not.toHaveProperty('dash');
+  });
+
+  it('does not resolve a preset off Object.prototype', async () => {
+    // `val` is attacker-controlled XML. An object lookup would answer
+    // `constructor` with an inherited member and write it into the model
+    // as a dash style no renderer understands — the reason both this
+    // table and the exporter's `DASH_VAL` are `Map`s.
+    for (const val of ['constructor', 'toString', '__proto__']) {
+      expect(await strokeOf(`<a:prstDash val="${val}"/>`)).not.toHaveProperty('dash');
+    }
+  });
+
+  it('keeps the rest of the stroke intact', async () => {
+    const stroke = await strokeOf('<a:prstDash val="dash"/>');
+    expect(stroke?.color).toBeDefined();
+    expect(stroke?.width).toBeGreaterThan(0);
+  });
+});

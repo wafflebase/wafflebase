@@ -4,7 +4,7 @@ import { fillXml, solidFillXml, colorFromStringOrTheme } from './color.js';
 import { textBodyToXml, type HyperlinkRIdResolver } from './text.js';
 import { effectsToXml } from './effects.js';
 import { freeformToCustGeom } from './freeform.js';
-import { arrowXml } from './connector.js';
+import { arrowXml, dashXml } from './connector.js';
 import { attr, escapeXmlAttr } from './xml.js';
 
 /**
@@ -120,21 +120,6 @@ export function xfrmXml(frame: Frame): string {
 }
 
 /**
- * `Stroke.dash` → OOXML `<a:prstDash val>` (`ST_PresetLineDashVal`).
- *
- * A `Map`, not an object literal, for the same reason as {@link PRST_BY_KIND}:
- * `stroke.dash` is persisted JSON that the content PUT API lets a caller set to
- * any string, and an object lookup consults the prototype chain — a dash of
- * `constructor` would resolve to an inherited `Object.prototype` member,
- * survive the `?? 'dash'` fallback and be stringified into the attribute.
- * `Map.get` only ever returns an own entry.
- */
-const DASH_VAL = new Map<string, string>([
-  ['dashed', 'dash'],
-  ['dotted', 'sysDot'],
-]);
-
-/**
  * Serialize a {@link Stroke} to an `<a:ln>` element, or `''` if absent.
  *
  * `arrowheads` (freeform line ends) map to `<a:headEnd>`/`<a:tailEnd>`,
@@ -148,10 +133,7 @@ export function lineXml(
   if (!stroke) return '';
   const w = pxToEmuX(stroke.width);
   const fill = solidFillXml(colorFromStringOrTheme(stroke.color));
-  const dash =
-    stroke.dash && stroke.dash !== 'solid'
-      ? `<a:prstDash val="${DASH_VAL.get(stroke.dash) ?? 'dash'}"/>`
-      : '';
+  const dash = dashXml(stroke.dash);
   const head = arrowXml('headEnd', arrowheads?.start);
   const tail = arrowXml('tailEnd', arrowheads?.end);
   return `<a:ln w="${w}">${fill}${dash}${head}${tail}</a:ln>`;

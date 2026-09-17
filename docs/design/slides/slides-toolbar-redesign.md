@@ -179,12 +179,20 @@ asks the reader to imagine the line they are choosing. Each item is now
 an SVG line preview stroked with the pattern `dashArray()` returns — the
 renderer's own helper, exported from `@wafflebase/slides` — so the picker
 cannot drift from what the canvas paints, the same guarantee the shape
-picker gets from `renderShapeIcon`. The weight menu draws each weight at
-its real thickness; the dash menu clamps the weight it previews, because
-a `[2,2]` pattern stroked at 16px reads as a solid bar. `No border` stays
-words, items carry an `aria-label` since the SVG is `aria-hidden`, and
-the preview opts out of the menu item's `size-4` icon clamp with
-`size-auto`.
+picker gets from `renderShapeIcon`. Both menus draw at the real weight.
+`No border` stays words, items carry an `aria-label` since the SVG is
+`aria-hidden`, and the preview opts out of the menu item's `size-4` icon
+clamp with `size-auto`.
+
+The dash menu briefly clamped its previewed weight to 3px, because a
+fixed `[2,2]` pattern stroked at 16px reads as a solid bar. That was true
+— and it was equally true of the border being previewed, so the clamp
+made the picker flattering rather than accurate. `dashArray(dash, width)`
+now scales the pattern by the stroke width, the way OOXML defines its
+`prstDash` presets (and so the way PowerPoint paints them), which fixes
+the canvas and deletes the clamp together. The honest consequence: a
+16px dashed border previews as one long block, because that is what it
+is.
 
 Absent means two different things and the pickers say so: a shape with no
 `stroke` has no border, while a connector with none is still painted with
