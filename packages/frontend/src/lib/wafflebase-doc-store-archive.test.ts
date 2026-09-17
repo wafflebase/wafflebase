@@ -3,11 +3,15 @@ import { describe, it, expect } from "vitest";
 import { WafflebaseDocStore } from "./wafflebase-doc-store";
 
 /**
- * `remove` is called on exactly the paths where the SDK has decided local work
+ * `remove` is called on the three paths where the SDK has decided local work
  * cannot be reconciled — a re-anchor after server-side compaction, a document
- * purged upstream, an actor mismatch. Deleting there is what loses the work
- * W5 exists to give back, so the archive is written now even though nothing
- * reads it until then.
+ * purged upstream, an actor mismatch — **and on every ordinary detach**.
+ *
+ * That second half is why `expectLoss` exists. `detachDocument` calls
+ * `removeFromStore` unconditionally on its success path, so closing a document
+ * deletes its entry; archiving those too would keep a full compressed document
+ * per close forever, and would make the archive mean "every document you have
+ * ever closed" rather than "work that could not be reconciled".
  */
 
 let counter = 0;
@@ -40,6 +44,8 @@ describe("archiving on remove", () => {
       bytes: new Uint8Array([4, 5]),
     });
 
+    store.expectLoss("doc-a");
+
     await store.remove("doc-a");
 
     expect(await store.load("doc-a")).toBeUndefined();
@@ -64,6 +70,8 @@ describe("archiving on remove", () => {
     await store.saveSnapshot("doc-a", new Uint8Array([1]));
     await store.saveMeta("doc-a", new Uint8Array([7]));
 
+    store.expectLoss("doc-a");
+
     await store.remove("doc-a");
 
     const [entry] = await store.listArchives();
@@ -75,6 +83,7 @@ describe("archiving on remove", () => {
     // `remove` on a missing key is a no-op, and an empty archive would be a
     // row W5 offers the user as recoverable work that does not exist.
     const store = freshStore();
+    store.expectLoss("never-existed");
     await store.remove("never-existed");
     expect(await store.listArchives()).toEqual([]);
   });
@@ -86,11 +95,56 @@ describe("archiving on remove", () => {
     await store.saveSnapshot("doc-a", new Uint8Array([1]));
     await store.saveSnapshot("doc-b", new Uint8Array([2]));
 
+    store.expectLoss("doc-a");
+
     await store.remove("doc-a");
+    store.expectLoss("doc-b");
     await store.remove("doc-b");
 
     const archives = await store.listArchives();
     expect(archives.map((a) => a.docKey).sort()).toEqual(["doc-a", "doc-b"]);
+  });
+
+  it("archives nothing on an ordinary detach", async () => {
+    // The case that makes the latch necessary. A document closed cleanly is
+    // removed by the SDK too, and the server has its content — there is
+    // nothing to hand back, and keeping a copy of every close would both fill
+    // the disk and drown the signal the archive carries.
+    const store = freshStore();
+    await store.saveSnapshot("doc-a", new Uint8Array([1]));
+
+    await store.remove("doc-a");
+
+    expect(await store.load("doc-a")).toBeUndefined();
+    expect(await store.listArchives()).toEqual([]);
+  });
+
+  it("archives one loss, not the closes that follow it", async () => {
+    // The latch is spent by the removal it was declared for.
+    const store = freshStore();
+    await store.saveSnapshot("doc-a", new Uint8Array([1]));
+    store.expectLoss("doc-a");
+    await store.remove("doc-a");
+
+    await store.saveSnapshot("doc-a", new Uint8Array([2]));
+    await store.remove("doc-a");
+
+    expect((await store.listArchives()).length).toBe(1);
+  });
+
+  it("accepts the scoped store key the SDK removes by", async () => {
+    // The app latches from a `LocalChangesDropped` event, which carries the
+    // bare document key, while the SDK removes by `apiKey/clientKey/docKey`.
+    // Comparing those verbatim is how an earlier guard came to be silently
+    // false, so this pins that they meet.
+    const store = freshStore();
+    const storeKey = "pk/wb:user-1:note-7/note-7";
+    await store.saveSnapshot(storeKey, new Uint8Array([1]));
+
+    store.expectLoss("note-7");
+    await store.remove(storeKey);
+
+    expect((await store.listArchives()).length).toBe(1);
   });
 
   it("does not archive on purge", async () => {
@@ -110,6 +164,7 @@ describe("archiving on remove", () => {
     const time = clock("2026-01-01T00:00:00Z");
     const store = freshStore(time.now);
     await store.saveSnapshot("doc-a", new Uint8Array([1]));
+    store.expectLoss("doc-a");
     await store.remove("doc-a");
 
     time.set("2026-03-01T00:00:00Z");
@@ -124,6 +179,7 @@ describe("archiving on remove", () => {
     // in the one place the user cannot see.
     const store = freshStore();
     await store.saveSnapshot("doc-a", new Uint8Array([1]));
+    store.expectLoss("doc-a");
     await store.remove("doc-a");
 
     await store.dropAllForUser("user-1");
@@ -140,6 +196,7 @@ describe("archives belong to whoever wrote them", () => {
     // cross-account content leak, not merely untidy.
     const mine = freshStore();
     await mine.saveSnapshot("doc-a", new Uint8Array([1]));
+    mine.expectLoss("doc-a");
     await mine.remove("doc-a");
 
     const theirs = new WafflebaseDocStore({
@@ -147,6 +204,7 @@ describe("archives belong to whoever wrote them", () => {
       userId: "user-2",
     });
     await theirs.saveSnapshot("doc-b", new Uint8Array([2]));
+    theirs.expectLoss("doc-b");
     await theirs.remove("doc-b");
 
     expect((await mine.listArchives()).map((a) => a.docKey)).toEqual(["doc-a"]);
@@ -164,6 +222,7 @@ describe("archives belong to whoever wrote them", () => {
       userId: "user-2",
     });
     await theirs.saveSnapshot("doc-b", new Uint8Array([2]));
+    theirs.expectLoss("doc-b");
     await theirs.remove("doc-b");
 
     const [entry] = await theirs.listArchives();

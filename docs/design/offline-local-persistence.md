@@ -193,10 +193,21 @@ and falls through to a fresh attach — the pre-feature behavior, not a corrupt
 one. Since that path is reachable by an ordinary deploy revert, the store is
 versioned from its first release rather than acquiring versioning later.
 
-**Cleanup is entirely ours.** The SDK calls `remove` only on its three
-unrecoverable paths and never on a normal detach — which is correct, since not
-removing is what makes resume possible, but it means nothing is ever collected
-unless we collect it:
+**Cleanup is mostly ours, and `remove` does not mean what it looks like.**
+Checked against the shipped SDK rather than assumed: `detachDocument` calls
+`removeFromStore` unconditionally on its success path, so the SDK removes an
+entry on **every ordinary detach** as well as on its three unrecoverable
+paths. A document closed cleanly therefore cleans up after itself, and the
+archive cannot simply be "what `remove` was called on" — that would keep a full
+compressed copy of every document the user has ever closed, and make the
+archive mean the opposite of what it is for.
+
+The two are told apart by the app: `LocalChangesDropped` is emitted
+synchronously *before* the removal on all three loss paths, so the provider
+latches the key and `remove` archives only what was latched.
+
+Everything else is still ours, because the SDK collects nothing that was not
+detached:
 
 | Trigger | Action |
 |---------|--------|
@@ -332,9 +343,10 @@ document, which is what Google Docs does with its "(Conflicted copy)" file —
 and we already have the machinery for it in `DocumentCopyService` /
 `POST /documents/:id/copy`.
 
-The hook is the store's own `remove`. The SDK calls it on exactly these paths,
-so `WafflebaseDocStore.remove()` **archives instead of deleting**, moving the
-envelope to a separate object store. The archived bytes rehydrate through
+The hook is the store's own `remove` — but it is called on ordinary detaches
+too, so the archive is gated on a `LocalChangesDropped` the provider latches
+first. When one has been seen, `WafflebaseDocStore.remove()` **archives instead
+of deleting**, moving the envelope to a separate object store. The archived bytes rehydrate through
 `Document.fromBytes()` (public API, present in the shipped `.d.ts`) into a new
 document titled `<title> (offline copy)`. This requires no SDK change at all.
 

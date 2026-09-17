@@ -141,6 +141,20 @@ export interface WafflebaseDocStoreOptions {
 export const DefaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
 
 /**
+ * The document key inside an SDK store key.
+ *
+ * Store keys are `apiKey/clientKey/docKey`; a bare document key has no `/` and
+ * comes back unchanged, so this is safe to apply to either. Defined here
+ * because this module is where store keys are consumed, and two copies of the
+ * rule is how the guard that matched a lock name against a store key came to
+ * be silently false.
+ */
+export function documentKeyOf(key: string): string {
+  const parts = key.split("/");
+  return parts[parts.length - 1] || key;
+}
+
+/**
  * Whether a failure is the origin running out of room, as opposed to any other
  * thing that can go wrong with a write. Only this answer may delete a user's
  * documents, so it is deliberately narrow: an unrelated bug that evicted would
@@ -264,6 +278,15 @@ export class WafflebaseDocStore implements DocStore {
    * ignored — see {@link appendChange}.
    */
   private readonly evicted = new Set<string>();
+
+  /**
+   * Documents whose next removal is a *loss*, by bare document key.
+   *
+   * See {@link expectLoss}. Keyed bare because the two callers speak different
+   * key shapes: the app latches from a `LocalChangesDropped` event, which
+   * carries `doc.getKey()`, while the SDK removes by its scoped store key.
+   */
+  private readonly expectedLosses = new Set<string>();
 
   private readonly isOpenElsewhere?: (
     docKey: string,
@@ -603,15 +626,39 @@ export class WafflebaseDocStore implements DocStore {
   }
 
   /**
-   * `remove` clears the snapshot, the meta and the log — **archiving them
-   * first**. Missing keys are fine and archive nothing.
+   * `expectLoss` says the next removal of `docKey` is losing work, so it should
+   * be archived rather than simply deleted.
    *
-   * The SDK calls this on exactly the paths where it has decided local work
-   * cannot be reconciled: a re-anchor after server-side compaction, a document
-   * purged upstream, an actor mismatch. Deleting outright there is what loses
-   * the user's unsent edits, so the bytes are kept and returned later as an
-   * offline copy. The archive is written in the same transaction as the delete,
-   * so no crash can land between them and leave the only copy gone.
+   * This exists because **the SDK removes on an ordinary detach too**. That was
+   * checked, late and the hard way: `detachDocument` calls `removeFromStore`
+   * unconditionally on its success path, so merely closing a document deletes
+   * its entry — while this store's `remove` was archiving every one of them.
+   * Left alone that is a full compressed document kept per close, forever, and
+   * it destroys the thing the archive *is*: the set of work the SDK could not
+   * reconcile. Once the recovery UI exists it would offer back every document
+   * the user has ever closed.
+   *
+   * The latch is set from the `LocalChangesDropped` handler, which the SDK
+   * emits synchronously *before* it calls `remove` on all three loss paths —
+   * so the flag is always in place by the time the removal arrives.
+   */
+  public expectLoss(docKey: string): void {
+    this.expectedLosses.add(documentKeyOf(docKey));
+  }
+
+  /**
+   * `remove` clears the snapshot, the meta and the log, **archiving them first
+   * when the removal is a loss**. Missing keys are fine and archive nothing.
+   *
+   * The SDK calls this on the three paths where it has decided local work
+   * cannot be reconciled — and also on every ordinary detach, which is why the
+   * two are told apart by {@link expectLoss} rather than assumed. Deleting
+   * outright on a loss is what costs the user their unsent edits, so there the
+   * bytes are kept and returned later as an offline copy; on a detach there is
+   * nothing to keep, because the server has it.
+   *
+   * The archive is written in the same transaction as the delete, so no crash
+   * can land between them and leave the only copy gone.
    */
   public async remove(docKey: string): Promise<void> {
     const db = await this.open();
@@ -631,7 +678,8 @@ export class WafflebaseDocStore implements DocStore {
       ),
     ]);
 
-    if (record) {
+    const losing = this.expectedLosses.delete(documentKeyOf(docKey));
+    if (record && losing) {
       const archive: ArchiveRecord = {
         docKey,
         snapshot: record.snapshot,
@@ -759,9 +807,12 @@ export class WafflebaseDocStore implements DocStore {
 
   /**
    * `collectStale` drops entries untouched for longer than `maxAgeMs`,
-   * returning how many entries and archives went. Nothing else collects: the
-   * SDK never calls `remove` on a normal detach, and correctly so, since not
-   * removing is what makes resume possible.
+   * returning how many entries and archives went.
+   *
+   * The SDK does remove an entry when the document is detached, so a document
+   * closed cleanly while online cleans up after itself. What this exists for is
+   * everything else: a tab closed without detaching, a session that ended in a
+   * crash, an entry whose document the user never opened again.
    */
   public async collectStale(
     maxAgeMs: number = DefaultMaxAgeMs,

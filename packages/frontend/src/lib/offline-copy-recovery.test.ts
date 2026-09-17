@@ -67,6 +67,8 @@ async function archiveSheet(
     });
   }
 
+  store.expectLoss(docKey);
+
   await store.remove(docKey);
 }
 
@@ -151,6 +153,7 @@ describe("handing the work back", () => {
       clientSeq: 4,
       bytes: new TextEncoder().encode("{}"),
     });
+    store.expectLoss("sheet-8");
     await store.remove("sheet-8");
 
     const [work] = await listRecoverableWork(store);
@@ -182,6 +185,7 @@ describe("handing the work back", () => {
   it("creates nothing when the archive cannot be read", async () => {
     const store = freshStore();
     await store.saveSnapshot("sheet-9", new Uint8Array([1, 2, 3]));
+    store.expectLoss("sheet-9");
     await store.remove("sheet-9");
     const [work] = await listRecoverableWork(store);
 

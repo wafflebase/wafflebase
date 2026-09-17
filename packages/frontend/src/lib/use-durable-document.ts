@@ -128,15 +128,16 @@ export function useDurableDocument({
     };
   }, [eligible, userId, docKey, subject]);
 
-  // Answered without waiting when there was nothing to wait for. A document
-  // that is not eligible — the preference is off, the build cannot carry a
-  // key, it is a PDF, nobody is signed in — has its answer on the first
-  // render, and making the caller wait for an effect would put a blank frame
-  // in front of every editor for a feature that is switched off.
+  // Two different questions, and conflating them put back the very bug the
+  // subject pairing exists to prevent.
   //
-  // Otherwise the decision has to be about *this* subject, which is what keeps
-  // `settled` honest across a navigation as well.
-  const answered = !eligible || decision?.subject === subject;
+  // *Answered* is only ever about this subject. An ineligible document has
+  // nothing to wait for, so the caller may render immediately — but the
+  // decision in state can still be the previous subject's, and reading
+  // `durable` from it would report the old election under the new document's
+  // key. That is how a `pdf-` document, the one exclusion the design calls
+  // structural, was handed a durable client with the store attached.
+  const answered = decision?.subject === subject;
   const durable = answered && !!decision?.session;
 
   const standDown = useCallback(() => {
@@ -154,7 +155,11 @@ export function useDurableDocument({
   return {
     durable,
     clientKey: durable && userId ? durableClientKey(userId, docKey) : undefined,
-    settled: answered,
+    // Settled without waiting when there was nothing to wait for: making every
+    // editor wait on an effect would put a blank frame in front of a feature
+    // that is switched off, which is every document today. It says only that
+    // the caller may proceed — never that this tab holds anything.
+    settled: !eligible || answered,
     standDown,
   };
 }

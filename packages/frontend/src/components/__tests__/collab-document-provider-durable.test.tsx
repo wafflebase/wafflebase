@@ -18,6 +18,9 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 /** Records what the nested provider was mounted with, if it was at all. */
 const mounted: Array<Record<string, unknown>> = [];
 
+/** `local-changes-dropped` handlers the provider registered. */
+const subscribers: Array<(event: unknown) => void> = [];
+
 vi.mock('@yorkie-js/react', () => ({
   DocumentProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
@@ -26,7 +29,17 @@ vi.mock('@yorkie-js/react', () => ({
     mounted.push(props);
     return <>{props.children as React.ReactNode}</>;
   },
-  useDocument: () => ({ doc: undefined }),
+  useDocument: () => ({
+    doc: {
+      getKey: () => 'note-7',
+      subscribe: (_event: string, fn: (e: unknown) => void) => {
+        subscribers.push(fn);
+        return () => {
+          subscribers.splice(subscribers.indexOf(fn), 1);
+        };
+      },
+    },
+  }),
   // The durable provider watches for an attach the SDK refused for its own
   // lock. No error here means it never fires, which is the case these cases
   // are about.
@@ -61,6 +74,7 @@ function fakeLocks(): DurableLock & { held: Set<string> } {
 
 beforeEach(() => {
   mounted.length = 0;
+  subscribers.length = 0;
   vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(true);
   setDurableLockForTest(fakeLocks());
 });
@@ -164,5 +178,24 @@ describe('before the election has answered', () => {
     const { getByTestId } = mount('note-7');
     expect(getByTestId('child')).toBeTruthy();
     expect(mounted).toEqual([]);
+  });
+});
+
+describe('telling the store which removals are losses', () => {
+  it("latches on the SDK's dropped-changes event", async () => {
+    // Without this the store cannot tell a close from a loss — the SDK removes
+    // the entry on both — and would archive a full copy of every document the
+    // user ever closed.
+    setOfflinePersistenceEnabled(true);
+    mount('note-7');
+    await waitFor(() => expect(mounted.length).toBe(1));
+
+    const store = mounted[0].store as { expectLoss(key: string): void };
+    const spy = vi.spyOn(store, 'expectLoss');
+
+    // The SDK emits this synchronously, before it calls `remove`.
+    subscribers.forEach((fn) => fn({ value: { reason: 'epoch-reanchor' } }));
+
+    expect(spy).toHaveBeenCalledWith('note-7');
   });
 });

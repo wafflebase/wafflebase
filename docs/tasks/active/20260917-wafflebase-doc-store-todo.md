@@ -136,9 +136,12 @@ noted here so it is a deferred decision rather than a forgotten one.
 **Files:** `packages/frontend/src/lib/wafflebase-doc-store.ts`,
 `packages/frontend/src/lib/wafflebase-doc-store.test.ts`
 
-The SDK calls `remove` only on its three unrecoverable paths and never on a
-normal detach — correct, since not removing is what makes resume possible, but
-it means nothing is ever collected unless we collect it.
+The SDK calls `remove` on its three unrecoverable paths **and on every ordinary
+detach** — `detachDocument` calls `removeFromStore` unconditionally on its
+success path, which was checked against the shipped bundle only after a review
+asked. So a cleanly closed document cleans up after itself, the archive has to
+be gated on a latched `LocalChangesDropped`, and everything that never detached
+is still ours to collect.
 
 | Trigger | Action |
 |---------|--------|

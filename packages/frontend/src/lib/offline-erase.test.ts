@@ -54,6 +54,9 @@ describe("erasing", () => {
     // where they cannot see it.
     const store = freshStore();
     await seed(store, "doc-a");
+    // An ordinary detach archives nothing, so the loss has to be declared —
+    // this case is about the archive that a *loss* leaves behind.
+    store.expectLoss("doc-a");
     await store.remove("doc-a");
     expect(await store.listArchives()).not.toEqual([]);
 

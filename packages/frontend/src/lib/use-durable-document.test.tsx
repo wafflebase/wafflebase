@@ -380,3 +380,65 @@ describe("giving up the election", () => {
     expect(result.current.durable).toBe(false);
   });
 });
+
+describe("when eligibility is lost", () => {
+  it("never reports the old election under the new document's key", async () => {
+    // Navigating from a durable note to a PDF. The PDF is the one exclusion
+    // the design calls structural — durable without a chip to report it breaks
+    // the invariant the chip depends on — and the state is a render behind, so
+    // an answer taken from it alone hands the *new* key the *old* session.
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+    setOfflinePersistenceEnabled(true);
+
+    const seen: Array<{ docKey: string; durable: boolean; key?: string }> = [];
+    function Probe({ docKey }: { docKey: string }) {
+      const state = useDurableDocument({ docKey, userId: "u1" });
+      seen.push({
+        docKey,
+        durable: state.durable,
+        key: state.clientKey,
+      });
+      return null;
+    }
+
+    const { rerender } = render(<Probe docKey="note-7" />);
+    await waitFor(() => expect(seen.at(-1)!.durable).toBe(true));
+
+    rerender(<Probe docKey="pdf-9" />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    for (const render of seen) {
+      if (render.docKey.startsWith("pdf-")) {
+        expect(render.durable).toBe(false);
+        expect(render.key).toBeUndefined();
+      }
+    }
+  });
+
+  it("never reports durable after the preference is switched off", async () => {
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+    setOfflinePersistenceEnabled(true);
+
+    const seen: Array<boolean> = [];
+    function Probe() {
+      const { durable } = useDurableDocument({
+        docKey: "note-7",
+        userId: "u1",
+      });
+      seen.push(durable);
+      return null;
+    }
+
+    render(<Probe />);
+    await waitFor(() => expect(seen.at(-1)).toBe(true));
+
+    const mark = seen.length;
+    act(() => setOfflinePersistenceEnabled(false));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Not one render after the switch may claim durability.
+    expect(seen.slice(mark).some((d) => d)).toBe(false);
+  });
+});

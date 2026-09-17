@@ -1,3 +1,5 @@
+import { documentKeyOf } from "./wafflebase-doc-store";
+
 /**
  * Electing one tab per document, before the SDK ever tries.
  *
@@ -226,15 +228,4 @@ export async function isOpenInAnyTab(key: string): Promise<boolean> {
   } catch {
     return true;
   }
-}
-
-/**
- * The document key inside an SDK store key.
- *
- * Store keys are `apiKey/clientKey/docKey`; a bare document key has no `/` and
- * comes back unchanged, so this is safe to apply to either.
- */
-export function documentKeyOf(key: string): string {
-  const parts = key.split("/");
-  return parts[parts.length - 1] || key;
 }

@@ -54,6 +54,8 @@ async function archiveEdited(
     });
   }
 
+  store.expectLoss(docKey);
+
   await store.remove(docKey);
 }
 
@@ -102,6 +104,7 @@ describe("rehydrating what was archived", () => {
       root.title = "Just the base";
     });
     await store.saveSnapshot("note-8", doc.toBytes());
+    store.expectLoss("note-8");
     await store.remove("note-8");
 
     const [entry] = await store.listArchives();
@@ -119,6 +122,7 @@ describe("rehydrating what was archived", () => {
     // take the list of every *other* recoverable document with it.
     const store = freshStore();
     await store.saveSnapshot("note-9", new Uint8Array([1, 2, 3, 4]));
+    store.expectLoss("note-9");
     await store.remove("note-9");
 
     const [entry] = await store.listArchives();
@@ -182,6 +186,8 @@ describe("a log that is not whole", () => {
           : new TextEncoder().encode(JSON.stringify(minted.struct)),
       });
     }
+
+    store.expectLoss(docKey);
 
     await store.remove(docKey);
   }

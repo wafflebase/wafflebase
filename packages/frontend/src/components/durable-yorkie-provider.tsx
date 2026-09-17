@@ -1,7 +1,7 @@
-import { useEffect, useMemo, type PropsWithChildren } from "react";
-import { YorkieProvider, useYorkie } from "@yorkie-js/react";
-import { isOpenInAnyTab } from "@/lib/durable-session";
-import { WafflebaseDocStore } from "@/lib/wafflebase-doc-store";
+import { useEffect, useMemo, type PropsWithChildren } from 'react';
+import { YorkieProvider, useDocument, useYorkie } from '@yorkie-js/react';
+import { isOpenInAnyTab } from '@/lib/durable-session';
+import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 
 /**
  * The Yorkie client a durable document runs on.
@@ -46,7 +46,7 @@ export interface DurableYorkieProviderProps {
   metadata?: Record<string, string>;
   authTokenInjector?: React.ComponentProps<
     typeof YorkieProvider
-  >["authTokenInjector"];
+  >['authTokenInjector'];
   /**
    * Called when the SDK refuses the attach because *its* single-active-session
    * lock is held elsewhere — the race the app election is meant to win first.
@@ -96,10 +96,39 @@ export function DurableYorkieProvider({
       store={store}
     >
       <LockRefusalWatch onLockRefused={onLockRefused}>
-        {children}
+        <LossWatch store={store}>{children}</LossWatch>
       </LockRefusalWatch>
     </KeyedYorkieProvider>
   );
+}
+
+/**
+ * Tells the store which removals are losing work.
+ *
+ * The SDK removes a document's entry on an ordinary detach as well as on the
+ * three paths where it gave up on reconciling local work, and `remove` cannot
+ * tell them apart from its arguments. `LocalChangesDropped` is the difference,
+ * and it is emitted synchronously *before* the removal on every one of those
+ * paths — so latching from here is always in time.
+ *
+ * Without it, closing a document would archive a full copy of it, every time,
+ * forever: an unbounded pile on the user's disk, and an archive that means
+ * "everything you have ever closed" instead of "work that could not be saved".
+ */
+function LossWatch({
+  store,
+  children,
+}: PropsWithChildren<{ store: WafflebaseDocStore }>) {
+  const { doc } = useDocument();
+
+  useEffect(() => {
+    if (!doc || typeof doc.subscribe !== 'function') return;
+    return doc.subscribe('local-changes-dropped', () => {
+      store.expectLoss(doc.getKey());
+    });
+  }, [doc, store]);
+
+  return <>{children}</>;
 }
 
 /**
@@ -111,7 +140,7 @@ export function DurableYorkieProvider({
  * on the error itself, which is what makes matching on it better than matching
  * on message text.
  */
-const ERR_DOCUMENT_OPEN_ELSEWHERE = "ErrDocumentOpenElsewhere";
+const ERR_DOCUMENT_OPEN_ELSEWHERE = 'ErrDocumentOpenElsewhere';
 
 /**
  * Notices an attach the SDK refused for its own lock.

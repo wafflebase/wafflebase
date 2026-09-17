@@ -34,8 +34,11 @@ where props are written, and rebuilds the client when the key changes (memoizing
 on `apiKey`/`rpcAddr` alone kept document A's client — and store scope — for
 document B).
 
-**Consequence for this plan:** everything that does not touch the provider is
-built now; the provider nesting waits for the release that carries #1357.
+**Consequence for this plan:** the provider nesting is built and gated instead
+of deferred. `vite.config.ts` injects the `@yorkie-js/react` pin as a build
+constant and `yorkie-capabilities.ts` compares it, so the durable path engages
+only from 0.7.23 — bumping the dependency is the whole switch, and until then
+the feature is dark rather than absent.
 
 ## Task 1: electing one tab per document — done
 
@@ -85,11 +88,15 @@ non-durable one when its precondition is missing, not merely unavailable.
       that work is exactly as unsent, and exactly as safe
 - [x] **3.3** `durable` defaults false, so every caller that passes nothing is
       unchanged
-- [x] **3.4** `DurabilityLapse` typed for the tooltip wording; every reason
-      collapses to the same state so an unclassifiable failure still
-      under-promises
-- [ ] **3.5** Wire `durable` from the provider into `use-sync-status.ts` —
-      needs Task 5
+- [ ] **3.4** A typed reason for the tooltip wording. `DurabilityLapse` was
+      written and then **removed** — nothing consumed it, and shipping a type
+      no caller reads is the same dead weight as shipping dead code. It returns
+      with the tooltip that needs it.
+- [ ] **3.5** Wire `durable` from the provider into `use-sync-status.ts`.
+      **Not done**, and it is the gap that matters most: that file still calls
+      `deriveSyncState` without `durable`, so `saved-locally` — "the entire
+      user-facing value of this feature", in the design's own words — cannot be
+      reached from the app.
 
 ## Task 4: keeping the toggle's promise — done
 
@@ -108,19 +115,19 @@ wired.
 - [x] **4.5** 9 tests; the edge rule and the late-read rule verified by
       reverting them
 
-## Task 5: the provider — **blocked on the release carrying #1357**
+## Task 5: the provider — done, behind a version gate
 
 **Files:** `components/collab-document-provider.tsx`
 
-- [ ] **5.1** Nest a `YorkieProvider` when `durable`, with
+- [x] **5.1** Nest a `YorkieProvider` when `durable`, with
       `clientKey={durableClientKey(...)}` and the store; render children
       unchanged otherwise, so declining the opt-in costs nobody an extra
       `ActivateClient`
-- [ ] **5.2** Construct `WafflebaseDocStore` with `isOpenInAnyTab` so eviction
+- [x] **5.2** Construct `WafflebaseDocStore` with `isOpenInAnyTab` so eviction
       and collection can see other tabs
 - [ ] **5.3** Publish `durable` for the chip, including a `PersistDisabled`
       latch and store write failures
-- [ ] **5.4** No route file changes: the PDF exclusion comes from the docKey
+- [x] **5.4** No route file changes: the PDF exclusion comes from the docKey
       prefix the provider already receives, and `shared-document.tsx` mounts
       its own provider so it is excluded structurally
 
@@ -137,7 +144,7 @@ wired.
       costs one document and not the listing of every other
 - [x] **6.4** 10 tests; log replay, title idempotence and the corruption guard
       each verified by reverting them
-- [ ] **6.5** Create the document and write the rehydrated root into it —
+- [x] **6.5** Create the document and write the rehydrated root into it —
       needs a live client, so it belongs with Task 5
 
 ## Task 7: the documents — done
@@ -149,10 +156,28 @@ wired.
 ## Verification
 
 - [x] `pnpm verify:fast` green
-- [x] The four new modules typecheck under `tsconfig.app.json`
-- [ ] `pnpm verify:self` green (pre-push)
-- [ ] Manual smoke — needs Task 5, since nothing renders until the provider
-      mounts the durable client
+- [x] The new modules typecheck under `tsconfig.app.json`
+- [x] `pnpm verify:self` green (pre-push), all 32 lanes
+- [ ] Manual smoke — needs the dependency bump, since nothing durable mounts
+      until the gate opens
+
+## What is written but not reachable
+
+Recorded because a reader would otherwise assume the feature ships working.
+Every module below is implemented and tested, and **has no production caller**:
+
+| | |
+|---|---|
+| `setOfflinePersistenceEnabled` | the Settings section is still W1 Task 2 |
+| `watchForOfflineDisable` | so "turning this off deletes them" is unimplemented |
+| `collectStale` / `dropAllForUser` / `purge` | no sweep, no logout erase, no delete/access-loss cleanup |
+| `listRecoverableWork` / `recoverOfflineCopy` | archives are never offered back |
+| `durable` in `use-sync-status.ts` | so the chip cannot reach `saved-locally` |
+
+W1's review set the rule this must satisfy before it is user-visible: *the
+store, the section and the erase land together, or none of them do.* With the
+version gate closed nothing writes either, so the branch is consistent — but
+opening the gate without the rest would be exactly what that rule forbids.
 
 > **Note on typechecking.** `pnpm --filter @wafflebase/frontend exec tsc
 > --noEmit` checks **nothing**: the package's root `tsconfig.json` has
