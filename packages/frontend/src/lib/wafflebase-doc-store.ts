@@ -169,7 +169,14 @@ async function through(
     },
   });
 
-  const reader = source.pipeThrough(stream).getReader();
+  // Cast because the DOM types describe these two as different pairs — the
+  // writable side takes `BufferSource`, the readable yields `Uint8Array` — so
+  // the union does not satisfy `pipeThrough` even though both transform bytes
+  // to bytes, which is all this function needs.
+  const transformed = source.pipeThrough(
+    stream as unknown as ReadableWritablePair<Uint8Array, Uint8Array>,
+  );
+  const reader = transformed.getReader();
   const chunks: Array<Uint8Array> = [];
   let length = 0;
   for (;;) {

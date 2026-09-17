@@ -4,9 +4,14 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconCloudUpload,
+  IconDeviceDesktop,
   IconRefresh,
 } from '@tabler/icons-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useNavigationGuard } from '@/components/navigation-guard/use-navigation-guard';
 import { useUnsavedWorkProbe } from './use-unsaved-work-probe';
 import { cn } from '@/lib/utils';
@@ -34,6 +39,7 @@ const LABELS: Record<SyncState, string> = {
   saved: 'Saved',
   saving: 'Saving…',
   reconnecting: 'Reconnecting…',
+  'saved-locally': 'Saved to this device',
   'not-saved': 'Not saved',
 };
 
@@ -41,6 +47,10 @@ const ICONS: Record<SyncState, typeof IconCheck> = {
   saved: IconCheck,
   saving: IconCloudUpload,
   reconnecting: IconRefresh,
+  // Deliberately the same tick as `saved`, not a warning: the work *is* saved,
+  // just not where the server can see it yet. An alarm icon would undo the
+  // whole point of the state.
+  'saved-locally': IconDeviceDesktop,
   'not-saved': IconAlertTriangle,
 };
 
@@ -52,6 +62,18 @@ function tooltipFor(state: SyncState, pendingSince: Date | null): string {
       return 'Sending your recent changes to the server.';
     case 'reconnecting':
       return 'The connection dropped. Nothing of yours is waiting to be sent.';
+    case 'saved-locally': {
+      const since = pendingSince
+        ? `Changes since ${pendingSince.toLocaleTimeString()}`
+        : 'Recent changes';
+      // The counterpart of `not-saved`'s wording, and the reason this state
+      // exists: those edits are on the disk, so closing the tab no longer ends
+      // them. It still says they are not on the server, because they are not.
+      return (
+        `${since} are saved on this device and will be sent when the ` +
+        `connection returns. They are not on the server yet.`
+      );
+    }
     case 'not-saved': {
       const since = pendingSince
         ? `Changes since ${pendingSince.toLocaleTimeString()}`
@@ -205,9 +227,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
           tabIndex={0}
           className={cn(
             'flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs whitespace-nowrap',
-            stranded
-              ? 'text-destructive font-medium'
-              : 'text-muted-foreground',
+            stranded ? 'text-destructive font-medium' : 'text-muted-foreground',
             // The steady state is the least interesting thing in the header,
             // so it yields its room first when there is none to spare.
             state === 'saved' && 'hidden sm:flex',
