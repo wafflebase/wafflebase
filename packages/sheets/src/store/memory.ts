@@ -67,7 +67,7 @@ import {
 import type { Comment, CommentAnchor, CommentAuthor, Thread } from '../comment/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
-import { Store } from './store';
+import { Store, UndoResult } from './store';
 
 /**
  * Maps an axis-id-keyed record (as stored on a `Worksheet`, e.g.
@@ -680,11 +680,11 @@ export class MemStore implements Store {
     // No-op for memory store (no history tracking)
   }
 
-  async undo(): Promise<{ success: boolean }> {
+  async undo(): Promise<UndoResult> {
     return { success: false };
   }
 
-  async redo(): Promise<{ success: boolean }> {
+  async redo(): Promise<UndoResult> {
     return { success: false };
   }
 

@@ -20,10 +20,12 @@ import {
   normalizeRangeStylePatch,
   writeWorksheetCell,
   safeWorksheetRecordEntries,
+  safeWorksheetRecordKeys,
   createThread,
   addReply,
   mergeBudgetAdmits,
   mergeBudgetOf,
+  resolveUndoSelection,
 } from "@wafflebase/sheets";
 import type {
   Store,
@@ -49,6 +51,9 @@ import type {
   CommentAnchor,
   CommentAuthor,
   Thread,
+  UndoOperation,
+  UndoResult,
+  UndoTabSnapshot,
 } from "@wafflebase/sheets";
 import type { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import type { UserPresence } from "@/types/users";
@@ -1269,82 +1274,91 @@ export class YorkieStore implements Store {
     this.dirty = true;
   }
 
-  async undo(): Promise<{ success: boolean; affectedRange?: Range }> {
+  async undo(): Promise<UndoResult> {
     if (!this.doc.history.canUndo()) return { success: false };
-
-    const beforeCellKeys = new Set(this.worksheetKeys(this.getSheet()));
-    const beforeMerges = new Map<Sref, MergeSpan>(
-      safeWorksheetRecordEntries(this.getSheet().merges) as Array<[Sref, MergeSpan]>,
-    );
-    this.doc.history.undo();
-    this.dirty = true;
-
-    const affectedRange = this.computeAffectedRange(beforeCellKeys, beforeMerges);
-    return { success: true, affectedRange };
+    return this.replayHistory(() => this.doc.history.undo());
   }
 
-  async redo(): Promise<{ success: boolean; affectedRange?: Range }> {
+  async redo(): Promise<UndoResult> {
     if (!this.doc.history.canRedo()) return { success: false };
-
-    const beforeCellKeys = new Set(this.worksheetKeys(this.getSheet()));
-    const beforeMerges = new Map<Sref, MergeSpan>(
-      safeWorksheetRecordEntries(this.getSheet().merges) as Array<[Sref, MergeSpan]>,
-    );
-    this.doc.history.redo();
-    this.dirty = true;
-
-    const affectedRange = this.computeAffectedRange(beforeCellKeys, beforeMerges);
-    return { success: true, affectedRange };
+    return this.replayHistory(() => this.doc.history.redo());
   }
 
   /**
-   * Computes the bounding range of cells that changed between beforeKeys and current state.
+   * Runs an undo or a redo and reports where it landed.
+   *
+   * The affected range is read from the replay's **own operations** rather
+   * than by diffing document state either side of it. Yorkie publishes a
+   * `local-change` synchronously from `history.undo()`, and its operation
+   * paths name the tab, the field and — for cells — the axis-id key:
+   *
+   *   $.sheets.<tabId>.cells         key "r3|c2"
+   *   $.sheets.<tabId>.cells.r3|c2   key "v"
+   *   $.sheets.<tabId>.colWidths     key "4"
+   *
+   * State diffing cannot answer this. A cell overwritten with a new value
+   * leaves the key set identical, and a style or a column width never enters
+   * it at all, so the selection used to stay put for most edits.
+   * Reading operations also costs the replayed step rather than the grid,
+   * and it sees changes in *other* tabs, which is what makes a cross-tab
+   * undo visible at all.
    */
-  private computeAffectedRange(
-    beforeCellKeys: Set<string>,
-    beforeMerges: Map<Sref, MergeSpan>,
-  ): Range | undefined {
-    const afterKeys = new Set(this.worksheetKeys(this.getSheet()));
-    const afterMerges = new Map<Sref, MergeSpan>(
-      safeWorksheetRecordEntries(this.getSheet().merges) as Array<[Sref, MergeSpan]>,
+  private replayHistory(run: () => void): UndoResult {
+    // Array operations carry neither index nor value, so the two fields
+    // written that way are snapshotted for a before/after diff. These are one
+    // entry per used row/column and per compacted style region — strictly
+    // less work than the per-cell scan this replaced.
+    const before = this.snapshotTabs();
+
+    const ops: Array<UndoOperation> = [];
+    const unsubscribe = this.doc.subscribe((event) => {
+      if (event.type !== "local-change") return;
+      // Appended one at a time: undoing a bulk import replays an operation
+      // per cell, and spreading that many arguments into `push` overflows
+      // the call stack.
+      for (const op of event.value.operations) ops.push(op);
+    });
+    try {
+      run();
+    } finally {
+      unsubscribe();
+    }
+    this.dirty = true;
+
+    const selection = resolveUndoSelection(
+      ops,
+      before,
+      this.snapshotTabs(),
+      this.tabId,
     );
+    return { success: true, selection };
+  }
 
-    // Find all changed srefs (added, removed, or modified)
-    const changedSrefs = new Set<string>();
-    for (const sref of afterKeys) {
-      if (!beforeCellKeys.has(sref)) changedSrefs.add(sref);
-    }
-    for (const sref of beforeCellKeys) {
-      if (!afterKeys.has(sref)) changedSrefs.add(sref);
-    }
-    for (const [sref, span] of afterMerges) {
-      const prev = beforeMerges.get(sref);
-      if (!prev || prev.rs !== span.rs || prev.cs !== span.cs) {
-        changedSrefs.add(sref);
-      }
-    }
-    for (const sref of beforeMerges.keys()) {
-      if (!afterMerges.has(sref)) changedSrefs.add(sref);
-    }
+  /**
+   * The per-tab state {@link resolveUndoSelection} diffs. Covers every tab,
+   * not just this store's: one undo step is one batch, but a structural edit
+   * rewrites dependent formulas wherever they live.
+   */
+  private snapshotTabs(): Map<string, UndoTabSnapshot> {
+    const snapshots = new Map<string, UndoTabSnapshot>();
+    const root = this.doc.getRoot();
+    if (!root?.sheets) return snapshots;
 
-    if (changedSrefs.size === 0) return undefined;
-
-    let minR = Infinity,
-      maxR = -Infinity;
-    let minC = Infinity,
-      maxC = -Infinity;
-    for (const sref of changedSrefs) {
-      const ref = parseRef(sref);
-      if (ref.r < minR) minR = ref.r;
-      if (ref.r > maxR) maxR = ref.r;
-      if (ref.c < minC) minC = ref.c;
-      if (ref.c > maxC) maxC = ref.c;
+    // `safeWorksheetRecordKeys`, not `Object.keys`: the Yorkie proxy can
+    // report duplicate own keys, which makes a bare enumeration throw — the
+    // same guard every other reader of this record uses.
+    for (const tabId of safeWorksheetRecordKeys(root.sheets)) {
+      const ws = root.sheets[tabId];
+      if (!ws) continue;
+      snapshots.set(tabId, {
+        rowOrder: ws.rowOrder ? [...ws.rowOrder] : [],
+        colOrder: ws.colOrder ? [...ws.colOrder] : [],
+        rangeStyles: ws.rangeStyles
+          ? [...ws.rangeStyles].map(cloneRangeStylePatch)
+          : [],
+      });
     }
-
-    return [
-      { r: minR, c: minC },
-      { r: maxR, c: maxC },
-    ];
+    return snapshots;
   }
 
   canUndo(): boolean {

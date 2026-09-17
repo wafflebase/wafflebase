@@ -1,4 +1,4 @@
-import { Store } from '../../store/store';
+import { Store, UndoResult, UndoSelection } from '../../store/store';
 import { calculate } from './calculator';
 import {
   cloneRange,
@@ -356,6 +356,12 @@ export class Sheet {
    * Called when a range gesture is refused, so the view can tell the user.
    */
   private onRefusal?: (refusal: RangeOpRefusal) => void;
+
+  /**
+   * Called when an undone or redone step landed in another tab, so the view
+   * can switch to it — this `Sheet` only holds one tab and cannot show it.
+   */
+  private onUndoTabJump?: (selection: UndoSelection) => void;
 
   /**
    * `filterColumns` stores column-specific criteria keyed by absolute column index.
@@ -1089,6 +1095,17 @@ export class Sheet {
     callback: ((refusal: RangeOpRefusal) => void) | undefined,
   ): void {
     this.onRefusal = callback;
+  }
+
+  /**
+   * `setOnUndoTabJump` registers a callback fired when an undo or redo
+   * replayed a step belonging to a different tab. Switching tabs is the
+   * view's business, so the model only reports it.
+   */
+  setOnUndoTabJump(
+    callback: ((selection: UndoSelection) => void) | undefined,
+  ): void {
+    this.onUndoTabJump = callback;
   }
 
   /**
@@ -5416,73 +5433,103 @@ export class Sheet {
    * `undo` undoes the last local change and reloads cached state.
    */
   async undo(): Promise<boolean> {
-    const result = await this.store.undo();
-    if (result.success) {
-      this.invalidateCrossSheetCache();
-      // An undone step may be a row/column insert, delete or reorder, which
-      // renumbers the cells the copy buffer snapshotted — the invariant
-      // `clearCopyBuffer` records. The store's undo entry does not say which
-      // kind of step it replayed, so the buffer goes either way rather than
-      // letting a later paste relocate, and re-create merged blocks, from
-      // stale coordinates.
-      this.clearCopyBuffer();
-      await this.loadDimensions();
-      await this.loadStyles();
-      await this.loadMerges();
-      await this.loadFreezePane();
-      await this.loadHiddenState();
-      await this.loadFilterState();
-      await this.loadPivotDefinition();
-
-      if (result.affectedRange) {
-        const [start, end] = result.affectedRange;
-        this.selectionType = 'cell';
-        this.activeCell = start;
-        if (start.r === end.r && start.c === end.c) {
-          this.ranges = [];
-        } else {
-          this.ranges = [result.affectedRange];
-        }
-        this.syncSelectionToPresence();
-      }
-
-      this.ensureActiveCellVisibleAfterHiding();
-    }
-    return result.success;
+    return this.replayHistory(() => this.store.undo());
   }
 
   /**
    * `redo` redoes the last undone change and reloads cached state.
    */
   async redo(): Promise<boolean> {
-    const result = await this.store.redo();
-    if (result.success) {
-      this.invalidateCrossSheetCache();
-      // A redone step renumbers the same way an undone one does; see `undo`.
-      this.clearCopyBuffer();
-      await this.loadDimensions();
-      await this.loadStyles();
-      await this.loadMerges();
-      await this.loadFreezePane();
-      await this.loadHiddenState();
-      await this.loadFilterState();
-      await this.loadPivotDefinition();
+    return this.replayHistory(() => this.store.redo());
+  }
 
-      if (result.affectedRange) {
-        const [start, end] = result.affectedRange;
-        this.selectionType = 'cell';
-        this.activeCell = start;
-        if (start.r === end.r && start.c === end.c) {
-          this.ranges = [];
-        } else {
-          this.ranges = [result.affectedRange];
-        }
-        this.syncSelectionToPresence();
-      }
+  /**
+   * `replayHistory` runs an undo or a redo and re-reads everything the
+   * replayed step could have changed. Both directions restore identically,
+   * so they share this.
+   */
+  private async replayHistory(
+    run: () => Promise<UndoResult>,
+  ): Promise<boolean> {
+    const result = await run();
+    if (!result.success) return false;
 
-      this.ensureActiveCellVisibleAfterHiding();
+    this.invalidateCrossSheetCache();
+    // A replayed step may be a row/column insert, delete or reorder, which
+    // renumbers the cells the copy buffer snapshotted — the invariant
+    // `clearCopyBuffer` records. The store's history entry does not say which
+    // kind of step it replayed, so the buffer goes either way rather than
+    // letting a later paste relocate, and re-create merged blocks, from
+    // stale coordinates.
+    this.clearCopyBuffer();
+    await this.loadDimensions();
+    await this.loadStyles();
+    await this.loadMerges();
+    await this.loadFreezePane();
+    await this.loadHiddenState();
+    await this.loadFilterState();
+    await this.loadPivotDefinition();
+
+    this.applyUndoSelection(result.selection);
+    this.ensureActiveCellVisibleAfterHiding();
+    return true;
+  }
+
+  /**
+   * `applyUndoSelection` moves the selection onto what a replayed step
+   * changed, so undo shows its own effect rather than leaving the user to
+   * find it. Matches Google Sheets, including selecting row or column
+   * headers for a structural step.
+   */
+  private applyUndoSelection(selection: UndoSelection | undefined): void {
+    if (!selection) return;
+
+    // The step landed in a tab this `Sheet` does not hold. Only the view can
+    // get there.
+    if (selection.otherTab) {
+      this.onUndoTabJump?.(selection);
+      return;
     }
-    return result.success;
+
+    this.applySelection(selection);
+  }
+
+  /**
+   * `applySelection` restores a selection reported by an undo or redo.
+   *
+   * Public because the cross-tab path arrives here from the outside: the
+   * view switches tabs, mounts a fresh `Sheet`, and hands it the selection
+   * the *previous* one reported. Both paths therefore run this one
+   * implementation rather than two that can drift.
+   *
+   * Everything goes through the ordinary `select*` gestures, so a replayed
+   * step lands under exactly the rules a click does — inside the grid, the
+   * cursor on a merge anchor rather than mid-block, a range grown to contain
+   * any merge it would cut.
+   */
+  applySelection(selection: UndoSelection): void {
+    const range = selection.range;
+    if (!range) return;
+    const [start, end] = range;
+
+    if (selection.selectionType === 'row') {
+      this.selectRow(start.r);
+      if (end.r > start.r) this.selectRowRange(start.r, end.r);
+      return;
+    }
+
+    if (selection.selectionType === 'column') {
+      this.selectColumn(start.c);
+      if (end.c > start.c) this.selectColumnRange(start.c, end.c);
+      return;
+    }
+
+    this.selectStart(start);
+    // A single cell is a cursor, not a range — the shape a click leaves
+    // behind, which `selectStart` has already produced.
+    if (start.r !== end.r || start.c !== end.c) {
+      this.selectEnd(end);
+    }
   }
 
   /**

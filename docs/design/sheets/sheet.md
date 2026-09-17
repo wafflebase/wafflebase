@@ -348,9 +348,10 @@ interface Store {
   beginBatch(): void;
   endBatch(): void;
 
-  // Undo/Redo
-  undo(): Promise<boolean>;
-  redo(): Promise<boolean>;
+  // Undo/Redo. `UndoResult` carries where the replayed step landed; see
+  // "Selection after undo / redo" below.
+  undo(): Promise<UndoResult>;
+  redo(): Promise<UndoResult>;
   canUndo(): boolean;
   canRedo(): boolean;
 
@@ -549,6 +550,76 @@ The view layer uses selection state for:
 - Header highlighting (blue tint on selected row/column headers)
 - Full-viewport-width/height selection rectangles in the overlay
 - Drag-to-move interaction (grab cursor on selected headers, drop indicator line)
+
+#### Selection after undo / redo
+
+Undo selects what it changed and scrolls it into view, as Google Sheets
+does — a change the user cannot see is a change they cannot check. A single
+cell becomes the cursor, a multi-cell step becomes a range, and a row or
+column insert/delete selects those **headers**, not the cells that moved.
+
+The range comes from the operations the replay itself emitted, not from
+diffing the document either side of it. `Store.undo()` returns an
+`UndoSelection { tabId, otherTab, selectionType, range? }`;
+`YorkieStore.replayHistory()` collects the `local-change` operations Yorkie
+publishes synchronously from `doc.history.undo()` and hands them to
+`resolveUndoSelection()` (`model/workbook/undo-selection.ts`), whose paths
+name the tab, the field, and — for cells — the stable axis-id key:
+
+```
+$.sheets.<tabId>.cells          key "r3|c2"
+$.sheets.<tabId>.cells.r3|c2    key "v"
+$.sheets.<tabId>.colWidths      key "4"
+```
+
+State diffing cannot answer this, which is why it used to be wrong for most
+edits: a cell overwritten with a new value leaves the cell-key set
+identical, and a style or a column width never enters it at all. Reading
+operations also costs the replayed step rather than the whole grid.
+
+Two fields are written as CRDT array operations, which carry neither index
+nor value, so `rowOrder` / `colOrder` and `rangeStyles` are snapshotted
+either side of the replay and diffed. An axis diff confined to the **tail**
+is not a structural edit but the axis growing to reach a cell — every
+ordinary cell write carries one — so those fall through to the cell branch.
+
+Yorkie's history is per *document* while a `Sheet` holds one tab, so a
+replay can land where the user is not looking. `otherTab` says so, `Sheet`
+reports it through `setOnUndoTabJump` instead of moving its own cursor, and
+`DocumentLayout` switches tabs and hands the selection to the new mount via
+`undoJumpTarget` — the same two-step the peer-cursor jump uses, since the
+target tab's engine does not exist until the switch has rendered.
+
+One step also reaches several tabs more often than it looks:
+`shiftCrossTabDataRanges` rewrites every other tab's chart and pivot source
+ranges inside the same change as the row insert that moved them. So each
+touched tab is resolved on its own and ranked — *structural* (an axis was
+inserted, deleted or reordered here) over *coordinates* (cells, a resized
+axis, a style region) over *incidental* (touched with nothing to point at).
+The highest rank wins and the open tab is preferred only within a rank: a
+structural edit is the cause and the chart ranges it rewrote elsewhere are
+its effects, so undo follows it out of a tab that merely absorbed one, while
+two tabs that both changed substantively still leave you where you are.
+
+A step with no coordinates at all (freeze pane, filter state) reports its
+tab but no `range`, and the selection is left alone rather than guessed at.
+
+Both hosts that can reach undo wire the jump: `DocumentLayout` and the
+share-link view, which is read-only only for the `viewer` role. A host that
+can undo but does not wire it puts cross-tab undo back where it started —
+applied to the CRDT, invisible on screen.
+
+**Known limits.** Every one of these leaves the selection where it was
+rather than moving it somewhere wrong:
+
+- Inserting or deleting at the **end** of an axis is indistinguishable from
+  the axis growing to reach a cell, so it selects the affected cells rather
+  than the row or column header. Every interior insert/delete is exact.
+- `conditionalFormats` and `dataValidations` carry their ranges inside the
+  rule values, which array operations do not report. Recoverable by the same
+  before/after diff `rangeStyles` uses; not done.
+- Undoing a tab add or remove writes `$.tabs` / `$.sheets` rather than a
+  path below a worksheet, so it produces no jump.
 
 ### Rendering Pipeline
 
