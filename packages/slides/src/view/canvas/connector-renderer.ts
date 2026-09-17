@@ -47,7 +47,7 @@ export function drawConnector(
 
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = stroke.width;
-  ctx.setLineDash(dashArray(stroke.dash));
+  ctx.setLineDash(dashArray(stroke.dash, stroke.width));
   ctx.beginPath();
   if (isBezierPath(path)) {
     ctx.moveTo(path.p0.x, path.p0.y);

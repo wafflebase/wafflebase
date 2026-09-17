@@ -257,7 +257,7 @@ function strokeShapePath(
   ctx.strokeStyle = resolveStrokeColor(stroke.color, theme);
   ctx.lineWidth = stroke.width;
   ctx.lineJoin = 'round';
-  ctx.setLineDash(dashArray(stroke.dash));
+  ctx.setLineDash(dashArray(stroke.dash, stroke.width));
   ctx.stroke(path);
   ctx.setLineDash([]);
 }
@@ -434,7 +434,7 @@ function drawPlaceholderRect(
   if (data.stroke) {
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
-    ctx.setLineDash(dashArray(data.stroke.dash));
+    ctx.setLineDash(dashArray(data.stroke.dash, data.stroke.width));
     ctx.strokeRect(0, 0, w, h);
     ctx.setLineDash([]);
   }

@@ -150,7 +150,7 @@ function paintTextBoxDecorations(
   if (data.stroke) {
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
-    ctx.setLineDash(dashArray(data.stroke.dash));
+    ctx.setLineDash(dashArray(data.stroke.dash, data.stroke.width));
     ctx.strokeRect(0, 0, w, h);
     // Reset so the dash pattern does not leak into anything painted
     // afterward under the same ctx save scope.

@@ -68,10 +68,37 @@ export function resolveStrokeColor(color: Stroke['color'], theme: Theme): string
  * border previews, which draw the pattern they are offering rather than
  * naming it — a picker fed by anything else would drift from what the
  * canvas paints.
+ *
+ * **The pattern scales with the stroke width**, because OOXML's preset
+ * dashes — the vocabulary `export/pptx/shape.ts` maps into, and
+ * `import/pptx/shape.ts` maps back out of — are defined as multiples of
+ * the line width, not in absolute units. A fixed `[2, 2]` stroked at
+ * 16px is 2px of gap every 2px on a 16px-wide line, i.e. a solid bar;
+ * PowerPoint draws the same border as square dots the size of the line.
+ * `DASH_PREVIEW_MAX_WEIGHT` in the toolbar used to clamp the preview
+ * weight to hide exactly this, and deleted itself when the model was
+ * fixed.
+ *
+ * The base ratios stay `[6, 4]` / `[2, 2]` rather than OOXML's literal
+ * `dash` 4:3 and `sysDot` 1:1, so that `width: 1` — every stroke the app
+ * has shipped, and the toolbar's default — renders byte-identically to
+ * before. The change is visible only where it was already wrong.
+ *
+ * Not divided by the canvas transform: `slide-renderer` sets the ctm to
+ * `hostWidth / 1920`, so a dash shrinks with the zoom and turns
+ * sub-pixel in a slide-strip thumbnail. PowerPoint scales dashes with
+ * the zoom too, so that is fidelity rather than a defect, and undoing it
+ * is a separate decision from this one.
  */
-export function dashArray(dash: Stroke['dash']): number[] {
-  if (dash === 'dashed') return [6, 4];
-  if (dash === 'dotted') return [2, 2];
+export function dashArray(dash: Stroke['dash'], width = 1): number[] {
+  // Floor at 1 rather than `Math.max`, which answers `NaN` for `NaN`:
+  // `width` reaches here from persisted JSON the content API lets a
+  // caller set to anything. A `[0, 0]` or `[NaN, NaN]` pattern is "no
+  // dash" to every browser, so a degenerate width would silently read as
+  // solid instead of as a hairline dash.
+  const w = width > 1 ? width : 1;
+  if (dash === 'dashed') return [6 * w, 4 * w];
+  if (dash === 'dotted') return [2 * w, 2 * w];
   return [];
 }
 

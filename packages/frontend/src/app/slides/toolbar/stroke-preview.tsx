@@ -11,14 +11,6 @@ const PREVIEW_W = 64;
  */
 const PREVIEW_H = 24;
 
-/**
- * A dash pattern is only legible on a reasonably thin line — `[2,2]`
- * stroked at 16px reads as a solid bar. The dash menu therefore clamps
- * the weight it previews; the weight menu, which *is* about thickness,
- * draws the real value.
- */
-const DASH_PREVIEW_MAX_WEIGHT = 3;
-
 export interface StrokePreviewProps {
   /** Dash style to draw. Absent / `'solid'` ⇒ a continuous line. */
   dash?: Stroke['dash'];
@@ -30,15 +22,23 @@ export interface StrokePreviewProps {
  * A single horizontal line drawn with a stroke's dash pattern and
  * weight, for the border toolbar's dropdown items.
  *
- * The pattern comes from the renderer's own `dashArray()`, so the
- * preview cannot drift from what the slide canvas strokes — the same
- * guarantee `shape-picker` gets by previewing through `renderShapeIcon`.
- * SVG rather than canvas because `currentColor` resolves natively here,
- * which is exactly what canvas previews have to work around.
+ * The pattern comes from the renderer's own `dashArray()` — at the same
+ * weight, so it cannot drift from what the slide canvas strokes. That is
+ * the same guarantee `shape-picker` gets by previewing through
+ * `renderShapeIcon`. SVG rather than canvas because `currentColor`
+ * resolves natively here, which is exactly what canvas previews have to
+ * work around.
+ *
+ * Both menus draw the real weight. The dash menu used to clamp it to
+ * 3px because a fixed `[2,2]` at 16px read as a solid bar — but so did
+ * the border it was previewing, so the clamp made the picker flattering
+ * rather than accurate. Now that `dashArray` scales with the weight the
+ * clamp is gone, and a thick dashed line previews as the long blocks it
+ * really is.
  */
 export function StrokePreview({ dash, width }: StrokePreviewProps) {
   const height = PREVIEW_H;
-  const pattern = dashArray(dash);
+  const pattern = dashArray(dash, width);
   return (
     <svg
       width={PREVIEW_W}
@@ -67,9 +67,4 @@ export function StrokePreview({ dash, width }: StrokePreviewProps) {
       />
     </svg>
   );
-}
-
-/** {@link StrokePreview} at the clamped weight the dash menu uses. */
-export function DashPreview({ dash, width }: StrokePreviewProps) {
-  return <StrokePreview dash={dash} width={Math.min(width, DASH_PREVIEW_MAX_WEIGHT)} />;
 }

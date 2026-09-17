@@ -8,6 +8,7 @@ import { asCtx, createCtxSpy, type CtxSpy } from './ctx-spy';
 import './test-canvas-env';
 import { drawShape } from './shape-renderer';
 import { drawConnector } from './connector-renderer';
+import { dashArray } from './render-context';
 
 const THEME: Theme = {
   id: 't',
@@ -23,11 +24,23 @@ const THEME: Theme = {
 
 const SIZE = { w: 120, h: 80 };
 
+/**
+ * Every fixture here strokes at this weight, and `dashArray` scales the
+ * pattern by it — so the expectations are taken from `dashArray` at the
+ * same width rather than from the `[2,2]` / `[6,4]` literals, which are
+ * only the `width: 1` case. What these assert is that the painter
+ * reached the shared helper *with the stroke's own width*; the literal
+ * values are pinned separately in `test/view/canvas/render-context.test.ts`.
+ */
+const STROKE_W = 2;
+const DOTTED = dashArray('dotted', STROKE_W);
+const DASHED = dashArray('dashed', STROKE_W);
+
 function shapeData(kind: string, dash: 'solid' | 'dashed' | 'dotted' | undefined) {
   return {
     kind,
     fill: { kind: 'srgb', value: '#a00' },
-    stroke: { color: '#000', width: 2, ...(dash ? { dash } : {}) },
+    stroke: { color: '#000', width: STROKE_W, ...(dash ? { dash } : {}) },
   } as unknown as ShapeElement['data'];
 }
 
@@ -53,7 +66,7 @@ describe('shape stroke dash', () => {
   ];
 
   for (const [label, kind] of KINDS) {
-    it(`${label}: dotted sets [2,2] and resets`, () => {
+    it(`${label}: dotted sets the width-scaled pattern and resets`, () => {
       const ctx = createCtxSpy();
       const data = shapeData(kind, 'dotted');
       if (kind === 'freeform') {
@@ -67,7 +80,7 @@ describe('shape stroke dash', () => {
 
       drawShape(asCtx(ctx), SIZE, data, THEME);
 
-      expect(dashCalls(ctx)).toContainEqual([2, 2]);
+      expect(dashCalls(ctx)).toContainEqual(DOTTED);
       // Must not leak: the shape's own text pass and, for connectors,
       // later elements paint under the same ctx state.
       expect(dashCalls(ctx).at(-1)).toEqual([]);
@@ -83,16 +96,30 @@ describe('shape stroke dash', () => {
     drawShape(asCtx(ctx), SIZE, shapeData('borderCallout1', 'dotted'), THEME);
 
     const dotted = dashCalls(ctx).filter(
-      (d) => Array.isArray(d) && d.length === 2 && d[0] === 2 && d[1] === 2,
+      (d) => Array.isArray(d) && d.length === 2 && d[0] === DOTTED[0] && d[1] === DOTTED[1],
     );
     expect(dotted).toHaveLength(2);
     expect(ctx.stroke).toHaveBeenCalledTimes(2);
   });
 
-  it('dashed sets [6,4]', () => {
+  it('dashed sets the width-scaled dash pattern', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), SIZE, shapeData('rect', 'dashed'), THEME);
-    expect(dashCalls(ctx)).toContainEqual([6, 4]);
+    expect(dashCalls(ctx)).toContainEqual(DASHED);
+  });
+
+  it('scales the pattern with the stroke width', () => {
+    // The defect this closes: a fixed `[2,2]` at 16px is 2px of gap
+    // every 2px on a 16px-wide line, which reads as a solid bar. Asserted
+    // against the renderer rather than `dashArray` alone, because the
+    // painter is what has to pass the width along.
+    const ctx = createCtxSpy();
+    const data = shapeData('rect', 'dotted');
+    (data.stroke as { width: number }).width = 16;
+    drawShape(asCtx(ctx), SIZE, data, THEME);
+
+    expect(dashCalls(ctx)).toContainEqual([32, 32]);
+    expect(dashCalls(ctx)).not.toContainEqual([2, 2]);
   });
 
   it('solid and absent both stay continuous', () => {
@@ -129,15 +156,15 @@ describe('connector stroke dash', () => {
       start: { kind: 'free', x: 0, y: 0 },
       end: { kind: 'free', x: 100, y: 100 },
       arrowheads: { end: { kind: 'triangle', size: 'md' } },
-      stroke: { color: '#000', width: 2, ...(dash ? { dash } : {}) },
+      stroke: { color: '#000', width: STROKE_W, ...(dash ? { dash } : {}) },
     } as unknown as ConnectorElement;
   }
 
   for (const routing of ['straight', 'elbow', 'curved'] as const) {
-    it(`${routing}: dotted sets [2,2] and resets`, () => {
+    it(`${routing}: dotted sets the width-scaled pattern and resets`, () => {
       const ctx = createCtxSpy();
       drawConnector(asCtx(ctx), connector(routing, 'dotted'), new Map(), THEME);
-      expect(dashCalls(ctx)).toContainEqual([2, 2]);
+      expect(dashCalls(ctx)).toContainEqual(DOTTED);
       expect(dashCalls(ctx).at(-1)).toEqual([]);
     });
   }

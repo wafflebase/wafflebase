@@ -40,25 +40,26 @@ describe('BorderPicker dash menu', () => {
     // hardcoded expectation unchanged.
     expect(lineIn(solid)?.getAttribute('stroke-dasharray')).toBeNull();
     expect(lineIn(dashed)?.getAttribute('stroke-dasharray')).toBe(
-      dashArray('dashed').join(' '),
+      dashArray('dashed', 1).join(' '),
     );
     expect(lineIn(dotted)?.getAttribute('stroke-dasharray')).toBe(
-      dashArray('dotted').join(' '),
+      dashArray('dotted', 1).join(' '),
     );
   });
 
-  it('keeps the dash preview legible when the border is thick', async () => {
-    // A [2,2] pattern stroked at 16px reads as a solid bar, so the dash
-    // menu clamps the weight it previews.
+  it('previews the dash at the border’s real weight', async () => {
+    // The clamp this replaces drew every dash row at 3px, so the menu
+    // promised a crisp dotted line and the canvas painted a bar. Now
+    // that `dashArray` scales with the weight, the honest preview and
+    // the legible one are the same drawing.
     renderPicker({ color: '#000', width: 16, dash: 'dotted' });
     await openDash();
 
     const dotted = screen.getByRole('menuitemcheckbox', { name: 'Dotted' });
-    // Exact, not `<= 3`: a missing attribute reads as 0, which would
-    // satisfy an upper bound while drawing nothing.
-    expect(Number(lineIn(dotted)?.getAttribute('stroke-width'))).toBe(3);
-    // Still dotted, just thinner.
-    expect(lineIn(dotted)?.getAttribute('stroke-dasharray')).toBe('2 2');
+    expect(Number(lineIn(dotted)?.getAttribute('stroke-width'))).toBe(16);
+    expect(lineIn(dotted)?.getAttribute('stroke-dasharray')).toBe(
+      dashArray('dotted', 16).join(' '),
+    );
   });
 
   it('checks Solid when the stroke carries no dash', async () => {
@@ -125,7 +126,11 @@ describe('BorderPicker weight menu', () => {
     await openWeight();
 
     const four = screen.getByRole('menuitemcheckbox', { name: '4px' });
-    expect(lineIn(four)?.getAttribute('stroke-dasharray')).toBe('2 2');
+    // Scaled to the row's own weight, not the element's — the row shows
+    // what picking it would produce.
+    expect(lineIn(four)?.getAttribute('stroke-dasharray')).toBe(
+      dashArray('dotted', 4).join(' '),
+    );
   });
 
   it('opts the preview out of the menu item svg clamp', async () => {
