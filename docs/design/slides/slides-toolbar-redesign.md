@@ -173,6 +173,24 @@ in the contextual middle and the Arrange dropdown at the end.
   `ShapeElement.data.stroke`. Optional + 'solid' default keeps
   existing Yorkie documents valid.
 
+**Shipped refinement — both dropdowns draw their items.** The two menus
+above landed as text (`Solid / Dashed / Dotted`, `1px / 2px / …`), which
+asks the reader to imagine the line they are choosing. Each item is now
+an SVG line preview stroked with the pattern `dashArray()` returns — the
+renderer's own helper, exported from `@wafflebase/slides` — so the picker
+cannot drift from what the canvas paints, the same guarantee the shape
+picker gets from `renderShapeIcon`. The weight menu draws each weight at
+its real thickness; the dash menu clamps the weight it previews, because
+a `[2,2]` pattern stroked at 16px reads as a solid bar. `No border` stays
+words, items carry an `aria-label` since the SVG is `aria-hidden`, and
+the preview opts out of the menu item's `size-4` icon clamp with
+`size-auto`.
+
+Absent means two different things and the pickers say so: a shape with no
+`stroke` has no border, while a connector with none is still painted with
+`DEFAULT_CONNECTOR_STROKE`, so `shape-controls` resolves that per element
+type before handing a `Stroke` to the picker.
+
 ##### 2b. Image selected
 
 ```

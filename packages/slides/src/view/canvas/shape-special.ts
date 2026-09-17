@@ -1,7 +1,7 @@
 // packages/slides/src/view/canvas/shape-special.ts
 import type { ShapeElement } from '../../model/element';
 import { representativeColor, resolveColor, type Theme, type ThemeColor } from '../../model/theme';
-import { resolveFillStyle, resolveStrokeColor } from './render-context';
+import { dashArray, resolveFillStyle, resolveStrokeColor } from './render-context';
 import type { FrameSize } from './shapes/builder';
 import { ACTION_BUTTON_GLYPHS } from './shapes/action-buttons';
 
@@ -34,11 +34,15 @@ export function drawActionButton(
   if (data.stroke) {
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
+    ctx.setLineDash(dashArray(data.stroke.dash));
     ctx.strokeRect(0, 0, w, h);
     const inset = ACTION_BUTTON_BEVEL_INSET;
     if (w > 2 * inset && h > 2 * inset) {
       ctx.strokeRect(inset, inset, w - 2 * inset, h - 2 * inset);
     }
+    // Reset before the glyph below, which fills rather than strokes but
+    // shares this ctx with the caller's text pass.
+    ctx.setLineDash([]);
   }
   // Glyph. Inherits the stroke colour so the bevel outline + inner
   // glyph form a coherent two-tone visual. If the resolved glyph

@@ -21,6 +21,7 @@ import {
 } from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { IconBorderStyle2, IconChevronDown, IconLineHeight, IconPencil } from '@tabler/icons-react';
+import { DashPreview, StrokePreview } from './stroke-preview';
 
 export interface BorderPickerProps {
   value?: Stroke;
@@ -97,7 +98,13 @@ export function BorderPicker({
   };
 
   const onDashChange = (dash: 'solid' | 'dashed' | 'dotted') => {
-    onChange({ ...(value ?? DEFAULT_STROKE), dash });
+    const next: Stroke = { ...(value ?? DEFAULT_STROKE), dash };
+    // Same reasoning as the color control: choosing how the border looks
+    // implies wanting one. Without this a `width: 0` stroke — reachable
+    // from PPTX `<a:ln w="0">` with a solid fill — would take a dash it
+    // can never render.
+    if (next.width === 0) next.width = 1;
+    onChange(next);
   };
 
   const pickerColor = resolvePickerColor(value?.color);
@@ -155,10 +162,17 @@ export function BorderPicker({
           {BORDER_WEIGHTS.map((w) => (
             <DropdownMenuCheckboxItem
               key={w}
-              checked={value?.width === w}
+              // No stroke *is* a weight — the one this menu writes as 0.
+              // Leaving every row unchecked made the two menus disagree
+              // about the same state.
+              checked={value ? value.width === w : w === 0}
               onClick={() => onWeightChange(w)}
+              // The preview is `aria-hidden`, so each item carries its
+              // own accessible name.
+              aria-label={w === 0 ? 'No border' : `${w}px`}
             >
-              {w === 0 ? 'No border' : `${w}px`}
+              {/* "No border" has no line to draw — say it in words. */}
+              {w === 0 ? 'No border' : <StrokePreview dash={value?.dash} width={w} />}
             </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>
@@ -181,10 +195,17 @@ export function BorderPicker({
           {DASH_STYLES.map((d) => (
             <DropdownMenuCheckboxItem
               key={d}
-              checked={value?.dash === d}
+              // Two different absences. A stroke that exists but carries
+              // no `dash` (PPTX imports, strokes stored before the field)
+              // renders solid, so it checks Solid. No stroke at all —
+              // the default for every `filled` insert kind — has no dash
+              // to report, and checking Solid would assert a border the
+              // shape does not have.
+              checked={value !== undefined && (value.dash ?? 'solid') === d}
               onClick={() => onDashChange(d)}
+              aria-label={d.charAt(0).toUpperCase() + d.slice(1)}
             >
-              {d.charAt(0).toUpperCase() + d.slice(1)}
+              <DashPreview dash={d} width={value?.width ?? DEFAULT_STROKE.width} />
             </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>

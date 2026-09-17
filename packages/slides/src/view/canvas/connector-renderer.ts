@@ -1,10 +1,28 @@
 import type { ConnectorElement } from '../../model/connector';
-import type { Element } from '../../model/element';
+import type { Element, ShapeStroke } from '../../model/element';
 import { type Theme } from '../../model/theme';
-import { resolveStrokeColor } from './render-context';
+import { dashArray, resolveStrokeColor } from './render-context';
 import { drawArrowhead } from './arrowhead-renderer';
 import { buildConnectorPath } from './connector-frame';
 import { type BezierPath, type Point, isBezierPath } from './routing';
+
+/**
+ * What a connector is painted with when it carries no `stroke` of its
+ * own — a visible 2px line in the theme's text color, not nothing.
+ *
+ * That absence is common rather than exotic: PPTX import omits `stroke`
+ * whenever a connector's `<a:ln>` has no `<a:solidFill>`, which is the
+ * normal shape of a PowerPoint connector whose color comes from
+ * `<p:style><a:lnRef>`.
+ *
+ * Exported so the toolbar reports what the canvas actually draws. A
+ * picker reading the raw `undefined` would tell the user "no border"
+ * about a line they can plainly see.
+ */
+export const DEFAULT_CONNECTOR_STROKE: ShapeStroke = {
+  color: { kind: 'role', role: 'text' },
+  width: 2,
+};
 
 /**
  * Draws a connector by resolving its endpoints, routing the path between
@@ -24,14 +42,12 @@ export function drawConnector(
 ): void {
   const path = buildConnectorPath(el, elements);
 
-  const stroke = el.stroke ?? {
-    color: { kind: 'role' as const, role: 'text' as const },
-    width: 2,
-  };
+  const stroke = el.stroke ?? DEFAULT_CONNECTOR_STROKE;
   const strokeColor = resolveStrokeColor(stroke.color, theme);
 
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = stroke.width;
+  ctx.setLineDash(dashArray(stroke.dash));
   ctx.beginPath();
   if (isBezierPath(path)) {
     ctx.moveTo(path.p0.x, path.p0.y);
@@ -43,6 +59,11 @@ export function drawConnector(
     }
   }
   ctx.stroke();
+  // Reset before the arrowheads: they are solid triangles regardless of
+  // the line's dash, and `element-renderer` calls us with no surrounding
+  // save()/restore(), so a leaked pattern would reach every element
+  // painted after this connector.
+  ctx.setLineDash([]);
 
   // Arrowheads use the path-local tangent at each endpoint, pointing AWAY
   // from the connector body so the triangle's tip lands on the endpoint

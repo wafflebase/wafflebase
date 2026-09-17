@@ -209,9 +209,14 @@ export { LayoutEditStore } from './store/layout-edit-store';
 
 // View — Canvas renderers (Phase 2)
 export { GHOST_ALPHA, SlideRenderer, type SlideRendererOptions } from './view/canvas/slide-renderer';
-export { getActiveTheme, type RenderContext } from './view/canvas/render-context';
+// `dashArray` is exported for the toolbar's border-style previews: the
+// picker draws the same pattern the canvas strokes, so the preview can
+// never drift from what the user gets (see `shape-picker`'s use of
+// `renderShapeIcon` for the same reasoning).
+export { dashArray, getActiveTheme, type RenderContext } from './view/canvas/render-context';
 export { drawElement } from './view/canvas/element-renderer';
 export { drawShape } from './view/canvas/shape-renderer';
+export { DEFAULT_CONNECTOR_STROKE } from './view/canvas/connector-renderer';
 export { drawText } from './view/canvas/text-renderer';
 export { drawImage } from './view/canvas/image-renderer';
 export { renderThumbnail, ThumbnailScheduler } from './view/canvas/thumbnail';
