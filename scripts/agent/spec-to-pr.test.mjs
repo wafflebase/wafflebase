@@ -1,4 +1,7 @@
 import { test } from "node:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import assert from "node:assert/strict";
 import {
   isValidSlug,
@@ -11,6 +14,10 @@ import {
   roundBoundNotice,
   renderBlockingFindings,
   ambientAuthNotice,
+  unsafeBaseReason,
+  roundDirsToClear,
+  roundsOnDisk,
+  priorFindingsFor,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
@@ -165,4 +172,76 @@ test("ambientAuthNotice: silent with a pooled token, warns without one", () => {
   // able to tell "this is the local mode" from "something is misconfigured".
   assert.match(ambientAuthNotice({}), /intended local mode/);
   assert.match(ambientAuthNotice({}), /CI pins a pooled credential/);
+});
+
+// --- refusing an unsafe review directory -------------------------------------
+
+const dirStat = (over = {}) => ({
+  isSymbolicLink: () => false,
+  isDirectory: () => true,
+  uid: 501,
+  mode: 0o40700,
+  ...over,
+});
+
+test("unsafeBaseReason: accepts our own 0700 directory, refuses everything else", () => {
+  assert.equal(unsafeBaseReason(dirStat(), 501), "");
+  // The pre-creation attack: mkdirSync on a symlink to a directory SUCCEEDS, and
+  // every write then lands wherever it points.
+  assert.match(unsafeBaseReason(dirStat({ isSymbolicLink: () => true }), 501), /symlink/);
+  assert.match(unsafeBaseReason(dirStat({ isDirectory: () => false }), 501), /not a directory/);
+  assert.match(unsafeBaseReason(dirStat({ uid: 0 }), 501), /owned by uid 0/);
+  // Any group or other bit: the branch diff lives here, and so does the JSON fed
+  // into the next round's verifier prompt.
+  assert.match(unsafeBaseReason(dirStat({ mode: 0o40755 }), 501), /group\/other accessible/);
+  assert.match(unsafeBaseReason(dirStat({ mode: 0o40701 }), 501), /group\/other accessible/);
+  // Fails closed.
+  assert.match(unsafeBaseReason(null, 501), /could not be inspected/);
+  // No getuid (Windows): ownership is unknowable, so it must not refuse on it.
+  assert.equal(unsafeBaseReason(dirStat({ uid: 0 }), undefined), "");
+});
+
+test("roundDirsToClear: --fresh can only delete this base's round dirs", () => {
+  // The base itself is NEVER a deletion target: `--out ~/project --fresh` used to
+  // take the project with it, and `--out --fresh` resolves to `./true`.
+  assert.deepEqual(roundDirsToClear(["round-1", "round-2", "pr.diff", "src", ".git"]), ["round-1", "round-2"]);
+  assert.deepEqual(roundDirsToClear([]), []);
+  assert.deepEqual(roundDirsToClear(undefined), []);
+  assert.ok(!roundDirsToClear(["round-1", "..", "."]).some((n) => n === "." || n === ".."));
+});
+
+// --- the on-disk carry-forward wiring, against a real directory --------------
+
+test("roundsOnDisk + priorFindingsFor: read verdicts back off disk", () => {
+  const base = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-test-"));
+  try {
+    const write = (round, lens, verdict) => {
+      mkdirSync(path.join(base, `round-${round}`, lens), { recursive: true });
+      writeFileSync(path.join(base, `round-${round}`, lens, "verdict.json"), JSON.stringify(verdict));
+    };
+    write(1, "correctness", { findings: [{ severity: "critical", file: "a.ts", summary: "one" }] });
+    write(1, "docs", { findings: [{ severity: "major", file: "d.ts", summary: "doc gap" }] });
+    write(2, "correctness", { findings: [{ severity: "major", file: "b.ts", summary: "two" }] });
+    // A lens directory with no verdict.json is not a verdict.
+    mkdirSync(path.join(base, "round-2", "security"), { recursive: true });
+    // Files in the round directory (the panel writes pr.diff and panel.json there)
+    // must not be mistaken for lenses.
+    writeFileSync(path.join(base, "round-2", "panel.json"), "[]");
+
+    assert.deepEqual(roundsOnDisk(base), [
+      { round: 1, lenses: ["correctness", "docs"] },
+      { round: 2, lenses: ["correctness"] },
+    ]);
+
+    // Round 3 carries correctness from round 2 (the later one) and docs from
+    // round 1 — the per-lens rule, exercised end to end rather than on a fixture.
+    const prior = priorFindingsFor(base, 3);
+    assert.deepEqual(prior.map((f) => [f.lens, f.file]).sort(), [["correctness", "b.ts"], ["docs", "d.ts"]]);
+
+    // An unparseable verdict costs that lens its carry-forward and nothing else.
+    writeFileSync(path.join(base, "round-2", "correctness", "verdict.json"), "{ not json");
+    assert.deepEqual(priorFindingsFor(base, 3).map((f) => f.lens), ["docs"]);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });

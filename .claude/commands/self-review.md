@@ -46,10 +46,16 @@ developer run it; do not quietly substitute your own read and call it a review.
    node ./scripts/agent/spec-to-pr.mjs review
    ```
 
-   Needs `CLAUDE_CODE_OAUTH_TOKEN` exported and `cd scripts/agent && npm ci` done
-   once. Without the token it prints a warning and skips — say so plainly rather
-   than reporting a clean review. Rounds auto-increment per branch; `--fresh`
+   Needs `cd scripts/agent && npm ci` done once. It does **not** need a token:
+   CI pins `CLAUDE_CODE_OAUTH_TOKEN` from repository secrets, and on a developer
+   machine the round runs on the logged-in Claude Code session — it says which
+   mode it is in. It is a real multi-lens round and bills that account.
+
+   Rounds auto-increment per branch; `--fresh` discards this branch's rounds and
    starts over after a rework.
+
+   If it fails with a credentials error, that is the SDK saying the machine has
+   none — report it. A round that did not run is not a round that found nothing.
 
 2. **Triage every blocking finding.** For each one, decide and say which:
    - **Fix it** — a follow-up commit, `pnpm verify:fast` green.

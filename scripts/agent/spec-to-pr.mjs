@@ -40,7 +40,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -437,6 +437,60 @@ function cmdHandoff(args) {
 }
 
 /**
+ * Why this base directory must not be used, or "" if it is fine.
+ *
+ * The base is PREDICTABLE — it has to be, since round N finds round N-1 by
+ * path — which is a property `mkdtempSync` (0700, random) gave away for free and
+ * this does not. Two things follow on a shared machine, and the second is the
+ * serious one:
+ *
+ *   - the branch diff (`pr.diff`) and every verdict sit in a world-readable
+ *     directory under a shared `/tmp`; and
+ *   - `priorFindingsFor` reads `verdict.json` back and feeds it into the next
+ *     round's verifier prompt. Anyone who can write that path can put text into
+ *     an agent session holding the developer's credentials and repo access.
+ *
+ * So the directory is created 0700 and REFUSED if it already exists as anything
+ * else: a symlink (the classic pre-creation attack — `mkdirSync` on a symlink to
+ * a directory succeeds, and the writes land wherever it points), a non-directory,
+ * something another user owns, or a directory with any group/other bit set.
+ *
+ * Fails closed: an unreadable or un-stattable base is refused too. Pure so the
+ * decision is testable without staging a hostile /tmp.
+ */
+export function unsafeBaseReason(stat, uid) {
+  if (!stat) return "it could not be inspected";
+  if (typeof stat.isSymbolicLink === "function" && stat.isSymbolicLink()) return "it is a symlink";
+  if (typeof stat.isDirectory === "function" && !stat.isDirectory()) return "it is not a directory";
+  // `uid` is undefined on platforms with no getuid (Windows); skip rather than
+  // refuse every run there.
+  if (typeof uid === "number" && typeof stat.uid === "number" && stat.uid !== uid) {
+    return `it is owned by uid ${stat.uid}, not ${uid}`;
+  }
+  if (typeof stat.mode === "number" && (stat.mode & 0o077) !== 0) {
+    return `it is group/other accessible (mode ${(stat.mode & 0o777).toString(8)})`;
+  }
+  return "";
+}
+
+/**
+ * The entries `--fresh` may delete: this base's own round directories, nothing
+ * else.
+ *
+ * It used to `rmSync(base, { recursive: true, force: true })`, which deletes
+ * whatever `--out` names — `--out ~/project --fresh` would take the project with
+ * it. `parseArgs` makes that worse than a typo away: `--out --fresh` yields
+ * `out: true`, and `path.resolve(String(true))` is `./true`.
+ *
+ * "Fresh" means "discard the rounds", so deleting exactly the directories this
+ * tool created expresses the intent AND is bounded by construction, whatever the
+ * caller aimed `--out` at.
+ */
+export function roundDirsToClear(entries) {
+  return roundsIn(entries).map((round) => `round-${round}`);
+}
+
+/**
  * Where this branch's rounds live. Keyed by branch so two branches never
  * interleave rounds, and hashed so two branch names that sanitize to the same
  * string cannot share a slot.
@@ -448,7 +502,7 @@ function reviewBase(branch) {
 }
 
 /** `[{ round, lenses }]` for every round already written under `base`. */
-function roundsOnDisk(base) {
+export function roundsOnDisk(base) {
   return roundsIn(readdirSync(base)).map((round) => {
     const dir = path.join(base, `round-${round}`);
     const lenses = readdirSync(dir, { withFileTypes: true })
@@ -465,7 +519,7 @@ function roundsOnDisk(base) {
  * matching `tagPriorFindings`' per-lens fail direction. Carrying fewer findings
  * is the safe failure — prior findings can only ever re-raise a blocker.
  */
-function priorFindingsFor(base, round) {
+export function priorFindingsFor(base, round) {
   const picks = pickLatestVerdicts(roundsOnDisk(base), round);
   const out = [];
   for (const [lens, from] of Object.entries(picks)) {
@@ -499,9 +553,26 @@ function cmdReview(args) {
   } catch (e) {
     return fail(`could not read the current branch: ${e.message}`);
   }
-  const base = args.out ? path.resolve(String(args.out)) : reviewBase(branch);
-  if (args.fresh && existsSync(base)) rmSync(base, { recursive: true, force: true });
-  mkdirSync(base, { recursive: true });
+  if (args.out !== undefined && typeof args.out !== "string") {
+    return fail("--out needs a value (e.g. --out /tmp/my-review)");
+  }
+  const base = args.out ? path.resolve(args.out) : reviewBase(branch);
+  // 0700 on creation, and refuse a pre-existing base that is not ours — see
+  // `unsafeBaseReason`. Both matter because the path is predictable and its
+  // contents are read back into a later round's prompt.
+  mkdirSync(base, { recursive: true, mode: 0o700 });
+  let baseStat = null;
+  try {
+    baseStat = lstatSync(base);
+  } catch { /* unreadable → refused below */ }
+  const unsafe = unsafeBaseReason(baseStat, typeof process.getuid === "function" ? process.getuid() : undefined);
+  if (unsafe) return fail(`refusing to use the review directory ${base}: ${unsafe}`);
+  // Bounded by construction: only this base's own round directories.
+  if (args.fresh) {
+    for (const name of roundDirsToClear(readdirSync(base))) {
+      rmSync(path.join(base, name), { recursive: true, force: true });
+    }
+  }
 
   // `--round` with no value parses as `true`, and `Number(true)` is 1 — which
   // would silently overwrite round 1 instead of reporting a usage error. Reject
