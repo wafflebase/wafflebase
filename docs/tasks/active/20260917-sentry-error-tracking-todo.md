@@ -73,9 +73,16 @@ It also disposes of a deploy-ordering hazard on its own; see §4.
 - `main.tsx` calls it before `createRoot`, and before the existing
   `setCredentialedImageOrigins` call, so an error thrown during bootstrap is
   still captured.
-- `App.tsx` gains a `Sentry.ErrorBoundary` at the router root. There is no
-  existing error boundary anywhere in the package (checked), so today a render
-  throw blanks the page with nothing reported.
+- A `Sentry.ErrorBoundary` at the tree root. There is no existing error
+  boundary anywhere in the package (checked), so today a render throw blanks
+  the page with nothing reported.
+
+  **Landed in `main.tsx`, not `App.tsx` as planned.** Wrapping `App.tsx`'s
+  tree meant re-indenting ~90 lines; wrapping `<App />` one level up is a
+  three-line change and catches strictly more, because `ThemeProvider` writes
+  its class onto `document.documentElement` rather than a wrapper — so the
+  fallback is themed correctly from outside `App`, and a throw inside the
+  provider tree is caught too.
 
 ### 3. Source maps
 
@@ -101,9 +108,13 @@ first build rather than guessing.
   first line** of `main.ts`. This ordering is a hard requirement of the SDK,
   not a style preference: the auto-instrumentation patches `http`, `express`
   and `pg` as they are first required, so anything imported ahead of it is
-  loaded unpatched and emits no spans. It needs an `eslint-disable` for
-  import-order and a comment saying why, or the next lint autofix silently
-  breaks tracing.
+  loaded unpatched and emits no spans.
+
+  Planned an `eslint-disable` for import-order alongside it; **not needed and
+  in fact harmful** — no import-sorting rule is configured in this package, and
+  an `eslint-disable` naming an unconfigured rule is itself an error
+  ("Definition for rule 'import/order' was not found"). A comment carries the
+  constraint instead.
 - `app.module.ts` gains `SentryModule.forRoot()` and `SentryGlobalFilter` as an
   `APP_FILTER`. The backend has no global exception filter today (checked), so
   nothing is displaced; `SentryGlobalFilter` reports and then delegates to
@@ -134,35 +145,35 @@ tokens out of URLs has to come with it.
 
 ### Frontend
 
-- [ ] Add `@sentry/react` + `@sentry/vite-plugin`
-- [ ] `src/sentry.ts` — guarded init, release/environment/tracesSampleRate
-- [ ] `main.tsx` — call it first
-- [ ] `App.tsx` — `Sentry.ErrorBoundary` at the router root
-- [ ] `vite.config.ts` — conditional plugin + `build.sourcemap`
-- [ ] `.env.production.example` — document the three `VITE_SENTRY_*` variables
-- [ ] Unit test: init is a no-op with an empty DSN
+- [x] Add `@sentry/react` + `@sentry/vite-plugin`
+- [x] `src/sentry.ts` — guarded init, release/environment/tracesSampleRate
+- [x] `main.tsx` — call it first
+- [x] `Sentry.ErrorBoundary` at the tree root (landed in `main.tsx`)
+- [x] `vite.config.ts` — conditional plugin + `build.sourcemap`
+- [x] `.env.production.example` — document the three `VITE_SENTRY_*` variables
+- [x] Unit test: init is a no-op with an empty DSN
 
 ### Backend
 
-- [ ] Add `@sentry/nestjs`
-- [ ] `src/instrument.ts` + first-line import in `main.ts`
-- [ ] `app.module.ts` — `SentryModule.forRoot()` + `SentryGlobalFilter`
-- [ ] `enableCors` — allow `sentry-trace`, `baggage`
-- [ ] `packages/backend/README.md` — env table
+- [x] Add `@sentry/nestjs`
+- [x] `src/instrument.ts` + first-line import in `main.ts`
+- [x] `app.module.ts` — `SentryModule.forRoot()` + `SentryGlobalFilter`
+- [x] `enableCors` — allow `sentry-trace`, `baggage`
+- [x] `packages/backend/README.md` — env table
 
 ### CI / docs
 
-- [ ] `publish-ghpage.yml` — `VITE_SENTRY_DSN` (vars), `SENTRY_AUTH_TOKEN` (secrets)
-- [ ] `docs/design/` — a short observability doc, or a section in `frontend.md`/`backend.md`
-- [ ] Update `docs/design/README.md` index if a new doc lands
+- [x] `publish-ghpage.yml` — `VITE_SENTRY_DSN` (vars), `SENTRY_AUTH_TOKEN` (secrets)
+- [x] `docs/design/` — a short observability doc, or a section in `frontend.md`/`backend.md`
+- [x] Update `docs/design/README.md` index if a new doc lands
 
 ### Verify
 
-- [ ] `pnpm verify:fast`
-- [ ] `pnpm frontend build` — chunk gate still green, record measured KB/count
-- [ ] Throwaway local run with real DSNs: confirm one frontend and one backend
+- [x] `pnpm verify:fast`
+- [x] `pnpm frontend build` — chunk gate still green, record measured KB/count
+- [x] Throwaway local run with real DSNs: confirm one frontend and one backend
       event actually arrive, then revert the local env
-- [ ] `pnpm verify:self` before push
+- [x] `pnpm verify:self` before push
 
 ## Operator steps (not automatable here)
 
@@ -180,4 +191,50 @@ Until step 3/4 happen, everything in this task is inert by design.
 
 ## Review
 
-_(filled in when the work lands)_
+Landed as `Add Sentry error tracking to the frontend and backend`, plus the
+follow-up commit carrying the two test files. Design written up in
+`docs/design/observability.md`; lessons in the paired `-lessons.md`.
+
+### Verified, not assumed
+
+- **Backend event arrives.** Loaded the *compiled* `dist/instrument.js` the way
+  `dist/main.js` does, with the real DSN, and threw through it. Landed as
+  `WAFFLEBASE-BACKEND-1`. `flush()` resolved true.
+- **Backend guard holds.** Same script with `SENTRY_DSN` deleted:
+  `Sentry.getClient()` is `undefined` and `flush()` resolves `false` — the SDK
+  is genuinely uninitialized, not initialized-with-a-falsy-DSN.
+- **Frontend event arrives.** Dev server on :5199 with the real DSN, a genuine
+  *unhandled* throw (not a manual capture) from the login route. Observed the
+  `POST .../api/4511444694335488/envelope/` return **200**, and the issue
+  appear as `WAFFLEBASE-1`, tagged `Unhandled`, route `/login`.
+- **Import ordering survives compilation.** `require("./instrument")` is the
+  first statement of `dist/main.js`.
+- **Source maps, both branches.** Without `SENTRY_AUTH_TOKEN`: zero `.map`
+  files in `dist`, no upload attempted. With a dummy token: the plugin runs,
+  the upload fails 401, **the build still succeeds**, and `dist` still holds
+  zero `.map` files — so a bad token leaks no source but also degrades
+  silently. Both facts are now comments in `vite.config.ts`.
+- **Chunk gate.** 224 JS chunks against the limit of 228 (baseline was 223 —
+  the SDK adds one chunk, ~72 kB raw). Largest chunk unchanged. Headroom is
+  down to 4.
+- **`pnpm verify:fast`** green (exit 0), run again by the pre-commit hook.
+- **Unit tests**: `tests/sentry-init.test.ts` (4) and
+  `tests/app-crash-fallback.test.tsx` (2) pass.
+
+### Not verified here
+
+- **A real source-map upload.** Needs a genuine `SENTRY_AUTH_TOKEN`, which was
+  deliberately not created in this session. The first `publish-ghpage` run
+  after the operator adds it is the real test; check that a frontend stack
+  trace de-minifies.
+- **Cross-boundary trace linking.** Both halves emit traces, but no run had
+  the frontend and backend configured at once against a live API, so the
+  `sentry-trace` header actually stitching a browser trace to a server one is
+  argued from the CORS allow-list, not observed.
+- **`pnpm verify:self` / browser lanes.** Run by the pre-push hook.
+
+### Left behind
+
+Two smoke-test issues, `WAFFLEBASE-1` and `WAFFLEBASE-BACKEND-1`, both titled
+"… safe to resolve". Left in place deliberately as the evidence above; resolve
+them from the Sentry UI whenever.
