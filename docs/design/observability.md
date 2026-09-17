@@ -113,8 +113,21 @@ or unparseable falls back to the default rather than to `1.0` — a typo must
 not become "sample everything", because that is the direction that costs
 money.
 
-Both halves report the same `release` string (the root `package.json`
-version), so one deploy's frontend and backend events line up.
+Both halves report the same `release` string, so one deploy's frontend and
+backend events line up — **with neither side configured**. The frontend bakes
+in `__APP_VERSION__` from the root `package.json`; the backend reads its own
+package version, which is kept in lockstep with it. `SENTRY_RELEASE` still
+overrides.
+
+That default is what makes the guarantee hold. The alternative was a value
+hand-synced with the container image tag on every bump, and a missed bump does
+not fail — it silently attributes backend errors to the wrong release, which is
+the failure mode that survives review precisely because nothing looks broken.
+
+Empty strings are normalized to unset on the backend for the same class of
+reason: `value: ""` in a k8s manifest, or a bare `SENTRY_ENVIRONMENT=` line, is
+how "unset" actually arrives, and `??` would pass it straight through to the
+SDK.
 
 ### 5. What is not sent
 

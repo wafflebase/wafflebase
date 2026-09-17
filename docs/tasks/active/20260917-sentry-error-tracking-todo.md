@@ -116,12 +116,19 @@ first build rather than guessing.
   an `eslint-disable` naming an unconfigured rule is itself an error
   ("Definition for rule 'import/order' was not found"). A comment carries the
   constraint instead.
-- `app.module.ts` gains `SentryModule.forRoot()` and `SentryGlobalFilter` as an
-  `APP_FILTER`. The backend has no global exception filter today (checked), so
-  nothing is displaced; `SentryGlobalFilter` reports and then delegates to
-  Nest's default handling, and deliberately does not report the
-  `HttpException`s this codebase throws for ordinary refusals (a 404 on a
-  template tier is not an error).
+- `app.module.ts` gains `SentryModule.forRoot()` and a global `APP_FILTER`. The
+  backend has no global exception filter today (checked), so nothing is
+  displaced; the filter reports and then delegates to Nest's default handling.
+
+  **Landed as `SentryServerErrorFilter`, not the stock `SentryGlobalFilter` the
+  plan named.** Self-review caught that the stock filter decides via
+  `isExpectedError()`, which never reads the status code — it returns true for
+  anything with `getStatus`/`getResponse`/`initMessage`, i.e. every
+  `HttpException`. The plan's reasoning ("a 404 on a template tier is not an
+  error") was right about 4xx and wrong about the half that mattered: this
+  backend throws 5xx `HttpException`s at seven sites for real external
+  failures, and all of them would have gone unreported. The subclass captures
+  `>= 500` before delegating; 4xx stays unreported as planned.
 - `main.ts` `enableCors` currently lists `allowedHeaders: ['Content-Type',
   'Authorization']`. **Distributed tracing needs `sentry-trace` and `baggage`
   added to that list.** Without them the browser's preflight rejects the
@@ -158,7 +165,8 @@ tokens out of URLs has to come with it.
 
 - [x] Add `@sentry/nestjs`
 - [x] `src/instrument.ts` + first-line import in `main.ts`
-- [x] `app.module.ts` — `SentryModule.forRoot()` + `SentryGlobalFilter`
+- [x] `app.module.ts` — `SentryModule.forRoot()` + `SentryServerErrorFilter`
+      (see above: the stock `SentryGlobalFilter` drops 5xx)
 - [x] `enableCors` — allow `sentry-trace`, `baggage`
 - [x] `packages/backend/README.md` — env table
 

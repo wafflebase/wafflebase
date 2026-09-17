@@ -20,8 +20,11 @@ vi.mock("@sentry/react", () => ({
   browserTracingIntegration: vi.fn(() => ({ name: "BrowserTracing" })),
 }));
 
+// Mutable, because the empty-origin case below is a distinct branch and a
+// fixed non-empty mock would let a regression to `[""]` pass unnoticed.
+let mockOrigin = "https://api.example.com";
 vi.mock("@/api/images", () => ({
-  backendOrigin: () => "https://api.example.com",
+  backendOrigin: () => mockOrigin,
 }));
 
 async function loadWithDsn(dsn: string | undefined) {
@@ -35,6 +38,7 @@ async function loadWithDsn(dsn: string | undefined) {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
+  mockOrigin = "https://api.example.com";
 });
 
 describe("initSentry", () => {
@@ -63,6 +67,21 @@ describe("initSentry", () => {
     expect(
       vi.mocked(Sentry.init).mock.calls[0][0]?.tracePropagationTargets
     ).toEqual(["https://api.example.com"]);
+  });
+
+  it("omits trace targets entirely on a same-origin deployment", async () => {
+    // `backendOrigin()` is "" when VITE_BACKEND_API_URL is unset. Sentry
+    // matches these entries as SUBSTRINGS, and every URL contains "", so
+    // `[""]` would attach sentry-trace/baggage to third-party requests —
+    // a leak, not a no-op. Omitting the key falls back to the SDK default of
+    // same-origin plus localhost.
+    mockOrigin = "";
+    const { Sentry, initSentry } = await loadWithDsn("https://k@example/1");
+    initSentry();
+
+    const options = vi.mocked(Sentry.init).mock.calls[0][0]!;
+    expect(options.tracePropagationTargets).toBeUndefined();
+    expect("tracePropagationTargets" in options).toBe(false);
   });
 
   it("never throws, so a broken SDK cannot stop the app from mounting", async () => {

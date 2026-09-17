@@ -185,11 +185,18 @@ SENTRY_DSN=                             # Optional. Unset — the default —
                                         # errors to somebody else.
 SENTRY_ENVIRONMENT=                     # Optional, the `environment` tag on
                                         # every event. Defaults to NODE_ENV.
-SENTRY_RELEASE=                         # Optional, the `release` tag. Set it
-                                        # to the same string the frontend
-                                        # build used (its root package.json
-                                        # version) and one deploy's frontend
-                                        # and backend events line up.
+                                        # An EMPTY value counts as unset: that
+                                        # is how "unset" actually arrives from
+                                        # a k8s `value: ""` or a bare `=` line.
+SENTRY_RELEASE=                         # Optional, the `release` tag. Defaults
+                                        # to this package's own version, which
+                                        # is kept in lockstep with the root
+                                        # package.json the frontend bakes in —
+                                        # so with both unset the two halves
+                                        # still report the SAME release and one
+                                        # deploy's events line up. Override
+                                        # only if your build stamps something
+                                        # else. Empty counts as unset.
 SENTRY_TRACES_SAMPLE_RATE=0.1           # Optional, 0..1. Anything outside that
                                         # range, or unparseable, falls back to
                                         # 0.1 rather than to 1.0 — a typo must
