@@ -36,6 +36,27 @@ import {
  * content that is not what the user wrote". A rehydrated archive is a live
  * document, so the live readers are the correct ones.
  */
+/**
+ * Whether this is a type an archive can be rebuilt into at all.
+ *
+ * Asked separately from reading, because `readContent` answers `undefined` to
+ * two different questions — "there is no reader for this type" and "the reader
+ * found nothing in it" — and the person on the other end needs to be told
+ * which. Told the first when it was really the second, they are informed their
+ * document is a kind that cannot be recovered, which is both false and
+ * unactionable; the archive stays, so the same wrong sentence returns every
+ * session.
+ */
+function canRebuild(type: DocumentType): boolean {
+  return (
+    type === "sheet" ||
+    type === "doc" ||
+    type === "slides" ||
+    type === "board" ||
+    type === "note"
+  );
+}
+
 function readContent(
   type: DocumentType,
   doc: Document<never>,
@@ -163,6 +184,10 @@ export async function recoverOfflineCopy(
 
   const title = offlineCopyTitle(source.title);
 
+  if (!canRebuild(source.type)) {
+    return { complete: rebuilt.complete, refused: "unsupported-type" };
+  }
+
   if (source.type === "note") {
     const markdown = readNote(rebuilt.doc);
     if (!markdown) {
@@ -176,7 +201,10 @@ export async function recoverOfflineCopy(
 
   const content = readContent(source.type, rebuilt.doc);
   if (!content) {
-    return { complete: rebuilt.complete, refused: "unsupported-type" };
+    // The type is one we rebuild — `canRebuild` said so above — so a reader
+    // that found nothing means the archive held nothing, not that the document
+    // is unrecoverable in kind.
+    return { complete: rebuilt.complete, refused: "empty" };
   }
 
   const created = await createDocument({ title, type: source.type });

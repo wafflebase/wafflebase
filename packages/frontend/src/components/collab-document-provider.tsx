@@ -216,24 +216,34 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
    * after it. The one thing that may still demote is `standDown`, and it is
    * the opposite case: the SDK refused the attach, so there is nothing
    * attached to lose and re-mounting on the ambient client is the repair.
+   *
+   * Held per *open*, and an open is a document **and** the person who has it:
+   * another tab can sign this one out and somebody else in, and React Query
+   * refetches the identity on focus without unmounting this route. Keyed on
+   * the document alone, the decision would keep the previous person's client
+   * key — writing the new person's edits under the previous person's Yorkie
+   * actor and into their store scope, which is the cross-account leak every
+   * other part of this feature is scoped to avoid. So the identity is part of
+   * the subject, and changing it re-decides.
    */
+  const subject = `${me?.id ?? 'anon'}:${docKey}`;
   const held = useRef<{
-    docKey: string;
+    subject: string;
     durable: boolean;
     clientKey?: string;
   }>(null);
   const [stoodDown, setStoodDown] = useState<string | null>(null);
   const giveUp = useCallback(() => {
-    setStoodDown(docKey);
+    setStoodDown(subject);
     standDown();
-  }, [docKey, standDown]);
+  }, [subject, standDown]);
 
   const ready = settled && identified;
-  if (ready && held.current?.docKey !== docKey) {
-    held.current = { docKey, durable, clientKey };
+  if (ready && held.current?.subject !== subject) {
+    held.current = { subject, durable, clientKey };
   }
   const decided =
-    held.current?.docKey === docKey && stoodDown !== docKey
+    held.current?.subject === subject && stoodDown !== subject
       ? held.current
       : undefined;
 

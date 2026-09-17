@@ -241,7 +241,18 @@ detached:
 | Logout | Drop every entry for that user |
 | Document deleted, or workspace access lost | Drop that entry |
 | Periodic | Drop entries untouched for 30 days (store `updatedAt` beside the envelope) |
-| `QuotaExceededError` | Evict oldest-first, retry once, then report undurable |
+| `QuotaExceededError` | Evict the oldest entry whose log is empty, retry once, then report undurable |
+
+Eviction deletes outright — no archive, nothing offered back — so it may only
+take an entry that has been compacted. A non-empty log is work that may never
+have reached the server, and freeing space with it would spend one document's
+unsent edits to save another's, silently, on the one failure the rest of this
+design is built to survive. The store cannot tell an acked change from an
+unacked one (that lives in the SDK's own header, opaque bytes here), so it
+over-counts and spares an acked log too. When nothing is free to take, the
+write is refused and the chip says so — a full device that reports itself full
+is the honest outcome, and the only alternative on offer is a document that is
+quietly no longer there.
 
 ### Client identity and the provider move
 
@@ -290,9 +301,20 @@ tab's detach cannot disturb another tab holding a different document.
 
 > **Trap.** `YorkieProvider` memoizes its client on `[apiKey, rpcAddr]` only.
 > Navigating from document A to B changes `key` and `store` without recreating
-> the client, so the provider must be given a React key covering both the
-> document and the preference — `key={`${docKey}:${enabled}`}` — which also
-> makes toggling the setting mid-session take effect.
+> the client, so the provider must be rebuilt when the client key changes.
+> Fixed upstream in yorkie-js-sdk#1357, which adds `clientKey` to the memo and
+> effect dependencies, so no React key is needed for this at all.
+>
+> The preference must **not** be part of it. The durable and non-durable
+> branches are different element types at one position, so a key that changes
+> with the setting unmounts the `DocumentProvider` and the editor under it —
+> discarding Yorkie's unsent queue, which is the loss this feature exists to
+> prevent, and doing it to whoever flipped the switch in another tab. So the
+> decision is latched per open (`{userId}:{docKey}`), and the preference
+> reaches the documents opened after it. The identity is in the subject
+> because another tab can sign this one out and somebody else in; keyed on the
+> document alone, the decision would hand the new person the previous one's
+> client key and store scope.
 
 ### Multi-tab
 

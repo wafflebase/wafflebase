@@ -32,9 +32,17 @@ export const MinClientKeyVersion = "0.7.23";
  * the gate on a build that may not carry the prop at all, leaving the store
  * under a key the SDK minted at random and unable to resume. The whole point of
  * the gate is to be wrong in the other direction.
+ *
+ * Only `^` and `~` are read past, because they are the two prefixes whose
+ * *floor* is the version they are written with. A comparator is not: `<0.8.0`
+ * and `<=0.7.23` both contain the required release, so skipping over the sign
+ * and comparing the number answers yes — while the range installs whatever
+ * satisfies it, which for either of those may be 0.7.22. Ranges are refused
+ * rather than interpreted, which costs an unusual pin the feature and never
+ * costs a document its unsent work.
  */
 function atLeast(a: string, b: string): boolean {
-  const release = /^[\^~>=<\s]*(\d+)\.(\d+)\.(\d+)\s*$/;
+  const release = /^\s*[\^~]?\s*(\d+)\.(\d+)\.(\d+)\s*$/;
   const left = release.exec(a);
   const right = release.exec(b);
   if (!left || !right) {

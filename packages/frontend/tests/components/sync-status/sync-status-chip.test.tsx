@@ -475,6 +475,36 @@ describe('SyncStatusChip unsaved-work probe', () => {
   });
 });
 
+describe('the offer to turn offline saving on', () => {
+  it('never promises to save the changes it is shown beside', async () => {
+    // The preference is read when a document opens and held until it closes,
+    // so accepting this offer reaches the documents opened after it and never
+    // the one the toast is about. Copy that says otherwise invites the exact
+    // sequence it warns about: click, reload, lose the work.
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    const options = warning.mock.calls[0][1] as {
+      action?: { label: string };
+    };
+    expect(options.action?.label).toBeTruthy();
+    // "Save on this device", sitting under "closing it will lose them", reads
+    // as an offer to save *them*.
+    expect(options.action!.label).not.toMatch(/^save /i);
+    expect(options.action!.label).toMatch(/later/i);
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('SyncStatusChip on a durable document', () => {
   it('reports the work as saved to this device instead of not saved', () => {
     // The entire user-facing value of offline persistence: the same situation

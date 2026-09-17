@@ -225,6 +225,32 @@ describe("handing the work back", () => {
     expect(outcome.complete).toBe(false);
   });
 
+  it("says the archive was empty rather than blaming the type", async () => {
+    // Both answers used to be `unsupported-type`, and a sheet whose snapshot
+    // carries no tabs is by far the reachable one — the toast then tells
+    // somebody their spreadsheet is a kind of document that cannot be
+    // recovered. It is not, and the archive stays, so the same wrong sentence
+    // comes back every session.
+    const store = freshStore();
+    const doc = new Document<SheetRoot>("sheet-11");
+    doc.setActor("000000000000000000000001");
+    doc.update((root) => {
+      root.tabOrder = [];
+    });
+    await store.saveSnapshot("sheet-11", doc.toBytes());
+    store.expectLoss("sheet-11");
+    await store.remove("sheet-11");
+
+    const [work] = await listRecoverableWork(store);
+    const outcome = await recoverOfflineCopy(store, work, {
+      title: "Quarterly plan",
+      type: "sheet",
+    });
+
+    expect(outcome.refused).toBe("empty");
+    expect(created).toEqual([]);
+  });
+
   it("creates nothing for a type it cannot rebuild", async () => {
     // Better an archive the user still has than a document presented as their
     // work with nothing of it inside.

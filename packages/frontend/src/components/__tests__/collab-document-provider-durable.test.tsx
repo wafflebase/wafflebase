@@ -147,6 +147,34 @@ describe('when the document is durable', () => {
     // And the editor still renders, on that client.
     expect(getByTestId('child')).toBeTruthy();
   });
+
+  it('re-decides when the person signed in changes underneath it', async () => {
+    // A document can sit open in this tab while another tab signs out and
+    // signs somebody else in; React Query refetches the identity on focus
+    // without unmounting this route. The decision is held per open, and held
+    // on `docKey` alone it would keep the first user's client key — so the
+    // second user's edits would be written under the first user's Yorkie
+    // actor, into the first user's store scope, on the shared device this
+    // feature is most careful about.
+    setOfflinePersistenceEnabled(true);
+    const { rerender } = mount('note-7');
+    await waitFor(() => expect(mounted.length).toBe(1));
+    expect(mounted[0].clientKey).toBe('wb:7:note-7');
+
+    me.data = { id: 9, username: 'grace' };
+    rerender(
+      <CollabDocumentProvider docKey="note-7" initialRoot={{}}>
+        <div data-testid="child" />
+      </CollabDocumentProvider>,
+    );
+
+    await waitFor(() => expect(mounted.length).toBe(2));
+    expect(mounted[1].clientKey).toBe('wb:9:note-7');
+    // And nothing is left mounted under the previous person's key.
+    expect(
+      mounted.filter((props) => props.clientKey === 'wb:7:note-7'),
+    ).toHaveLength(1);
+  });
 });
 
 describe('when it is not', () => {

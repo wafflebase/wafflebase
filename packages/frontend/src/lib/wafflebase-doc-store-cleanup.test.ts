@@ -43,6 +43,23 @@ async function seed(store: WafflebaseDocStore, key: string): Promise<void> {
 }
 
 /**
+ * Seeds a document the way a compaction leaves one: a snapshot and an empty
+ * log.
+ *
+ * This is what an evictable entry looks like. `seed` leaves a change in the
+ * log, and the log is the only thing the store can read that might be work the
+ * server has not taken — so eviction spares it. Tests about the *mechanics* of
+ * eviction (which entry, whose entry, how many times) seed this way so that
+ * the thing they are asking about is the thing they measure.
+ */
+async function seedSynced(
+  store: WafflebaseDocStore,
+  key: string,
+): Promise<void> {
+  await store.saveSnapshot(key, new Uint8Array([1, 2, 3]));
+}
+
+/**
  * A second store over the same database — a later session.
  *
  * Collection and eviction deliberately spare whatever the *current* session is
@@ -224,6 +241,57 @@ describe("quota pressure", () => {
     vi.restoreAllMocks();
   });
 
+  it("spares an entry holding work the server may not have", async () => {
+    // The whole promise of the feature, against itself. Eviction frees space
+    // by deleting a document outright — no archive, no warning — so an entry
+    // with changes still in its log is the one thing it must not take: that
+    // log is unsent work, and spending it to make room for another document's
+    // unsent work is a trade nobody asked for and nobody is told about.
+    //
+    // The store cannot tell an acked change from an unacked one — that lives
+    // in the SDK's own header — so a non-empty log counts as unsent. The cost
+    // of being wrong that way is a refused write the chip reports honestly;
+    // the cost of being wrong the other way is a document that silently is
+    // not there any more.
+    const time = clock("2026-01-01T00:00:00Z");
+    const store = freshStore("user-1", time.now);
+
+    await seed(store, "oldest-with-work");
+    time.set("2026-02-01T00:00:00Z");
+    await seedSynced(store, "newer-compacted");
+    time.set("2026-03-01T00:00:00Z");
+
+    const later = reopen(store, "user-1", time.now);
+    failPuts(1);
+    await later.saveSnapshot("arriving", new Uint8Array([9]));
+
+    // Age said take the first one. Its log said otherwise.
+    expect(await later.load("oldest-with-work")).toBeDefined();
+    expect(await later.load("newer-compacted")).toBeUndefined();
+    expect(await later.load("arriving")).toBeDefined();
+  });
+
+  it("refuses the write rather than evicting the last unsent copy", async () => {
+    // With nothing free to take, the honest answer is that this device cannot
+    // hold the document — which surfaces as an undurable store and a chip
+    // that says so. Freeing space anyway would mean answering "saved" by
+    // deleting something else the user believes is saved.
+    const time = clock("2026-01-01T00:00:00Z");
+    const store = freshStore("user-1", time.now);
+
+    await seed(store, "the-only-one");
+    time.set("2026-03-01T00:00:00Z");
+
+    const later = reopen(store, "user-1", time.now);
+    failPuts(1);
+    await expect(
+      later.saveSnapshot("arriving", new Uint8Array([9])),
+    ).rejects.toThrow();
+
+    expect(await later.load("the-only-one")).toBeDefined();
+    expect((await later.load("the-only-one"))!.changes).toHaveLength(1);
+  });
+
   it("evicts the oldest entry and keeps the write that hit the wall", async () => {
     // The point of eviction is that the *new* write lands. A store that frees
     // space and then drops the write on the floor has spent the eviction and
@@ -231,9 +299,9 @@ describe("quota pressure", () => {
     const time = clock("2026-01-01T00:00:00Z");
     const store = freshStore("user-1", time.now);
 
-    await seed(store, "oldest");
+    await seedSynced(store, "oldest");
     time.set("2026-02-01T00:00:00Z");
-    await seed(store, "newer");
+    await seedSynced(store, "newer");
     time.set("2026-03-01T00:00:00Z");
 
     // A later session: neither seeded document is one this store is
@@ -256,7 +324,7 @@ describe("quota pressure", () => {
     // about.
     const time = clock("2026-01-01T00:00:00Z");
     const theirs = freshStore("user-2", time.now);
-    await seed(theirs, "their-oldest");
+    await seedSynced(theirs, "their-oldest");
 
     time.set("2026-02-01T00:00:00Z");
     const mine = new WafflebaseDocStore({
@@ -264,9 +332,9 @@ describe("quota pressure", () => {
       userId: "user-1",
       now: time.now,
     });
-    await seed(mine, "my-older");
+    await seedSynced(mine, "my-older");
     time.set("2026-03-01T00:00:00Z");
-    await seed(mine, "my-newer");
+    await seedSynced(mine, "my-newer");
 
     time.set("2026-04-01T00:00:00Z");
     const later = reopen(mine, "user-1", time.now);
@@ -286,9 +354,9 @@ describe("quota pressure", () => {
     // it has deleted every document the user had.
     const time = clock("2026-01-01T00:00:00Z");
     const store = freshStore("user-1", time.now);
-    await seed(store, "oldest");
+    await seedSynced(store, "oldest");
     time.set("2026-02-01T00:00:00Z");
-    await seed(store, "keep-me");
+    await seedSynced(store, "keep-me");
     time.set("2026-03-01T00:00:00Z");
 
     const later = reopen(store, "user-1", time.now);
@@ -328,7 +396,7 @@ describe("quota pressure", () => {
     // call resolves as a success with the snapshot, the log and the document
     // all gone. Reproduced exactly this way before the exclusion existed.
     const store = freshStore("user-1");
-    await seed(store, "only-doc");
+    await seedSynced(store, "only-doc");
 
     const later = reopen(store, "user-1");
     failPuts(1);
@@ -340,10 +408,12 @@ describe("quota pressure", () => {
     ).rejects.toThrow(/quota/i);
     vi.restoreAllMocks();
 
-    // Still there, with its log, and the failure was reported.
+    // Still there, and the failure was reported. Seeded compacted on purpose:
+    // an entry with a log would be spared by the log rule as well, and then
+    // this case would pass without the exclusion it exists to prove.
     const stored = await later.load("only-doc");
     expect(stored).toBeDefined();
-    expect(stored!.changes.map((c) => c.clientSeq)).toEqual([1]);
+    expect(stored!.changes).toEqual([]);
   });
 
   it("never evicts a document this session has open, even the oldest one", async () => {
@@ -354,9 +424,9 @@ describe("quota pressure", () => {
     // pick exactly the wrong entry here.
     const time = clock("2026-01-01T00:00:00Z");
     const previous = freshStore("user-1", time.now);
-    await seed(previous, "opened-but-idle");
+    await seedSynced(previous, "opened-but-idle");
     time.set("2026-02-01T00:00:00Z");
-    await seed(previous, "truly-idle");
+    await seedSynced(previous, "truly-idle");
 
     time.set("2026-03-01T00:00:00Z");
     const session = reopen(previous, "user-1", time.now);
@@ -381,7 +451,7 @@ describe("quota pressure", () => {
     // write a fresh snapshot.
     const time = clock("2026-01-01T00:00:00Z");
     const store = freshStore("user-1", time.now);
-    await seed(store, "victim");
+    await seedSynced(store, "victim");
 
     time.set("2026-02-01T00:00:00Z");
     const session = reopen(store, "user-1", time.now);
@@ -437,7 +507,7 @@ describe("documents open in another tab", () => {
     // edit after that goes nowhere while the chip reports it saved.
     const time = clock("2026-01-01T00:00:00Z");
     const seeder = freshStore("user-1", time.now);
-    await seed(seeder, "open-in-tab-a");
+    await seedSynced(seeder, "open-in-tab-a");
 
     const openElsewhere = new Set(["open-in-tab-a"]);
     time.set("2026-02-01T00:00:00Z");

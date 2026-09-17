@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { fetchDocument } from '@/api/documents';
@@ -35,6 +35,17 @@ import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
  */
 export function OfflineRuntime({ userId }: { userId: string }) {
   const navigate = useNavigate();
+  // Held in a ref, and deliberately out of the effect's dependencies below.
+  //
+  // The app mounts a declarative `<BrowserRouter>`, where `useNavigate()` does
+  // not keep a stable identity across location changes. As a dependency it
+  // would re-run this whole effect on every in-app navigation that leaves
+  // `PrivateRoute` mounted — a new database handle, the thirty-day sweep
+  // again, the archive listing again, and a title fetch per archive — for an
+  // identity that has not changed. The toast id dedupes what the user sees,
+  // which is exactly why the repetition would go unnoticed.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
 
   useEffect(() => {
     // Logout has no identity of its own by the time it runs, so it is told one
@@ -77,7 +88,9 @@ export function OfflineRuntime({ userId }: { userId: string }) {
         // A getter, not the value: this loop awaits the network between
         // items, and a boolean copied in at call time would still read
         // `false` long after the component unmounted.
-        await offerRecoverableWork(store, () => cancelled, navigate);
+        await offerRecoverableWork(store, () => cancelled, (to: string) =>
+          navigateRef.current(to),
+        );
       } catch (err) {
         console.warn('[offline] could not list recoverable work:', err);
       }
@@ -93,7 +106,7 @@ export function OfflineRuntime({ userId }: { userId: string }) {
       // documents. `logout()` is what spends and clears it.
       store.close();
     };
-  }, [userId, navigate]);
+  }, [userId]);
 
   return null;
 }
@@ -110,7 +123,7 @@ export function OfflineRuntime({ userId }: { userId: string }) {
 async function offerRecoverableWork(
   store: WafflebaseDocStore,
   cancelled: () => boolean,
-  navigate: ReturnType<typeof useNavigate>,
+  navigate: (to: string) => void,
 ): Promise<void> {
   const work = await listRecoverableWork(store);
   for (const item of work) {
@@ -149,7 +162,9 @@ async function offerRecoverableWork(
                   description:
                     outcome.refused === 'empty'
                       ? 'There was nothing left to recover.'
-                      : 'The stored copy could not be read.',
+                      : outcome.refused === 'unsupported-type'
+                        ? 'This kind of document cannot be recovered as a copy.'
+                        : 'The stored copy could not be read.',
                 });
                 return;
               }

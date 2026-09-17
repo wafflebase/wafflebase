@@ -108,8 +108,16 @@ function tooltipFor(
       // The one row of the design's table that is a call to action rather than
       // a fault: this is where somebody is standing when they find out they
       // wanted the setting, so the offer belongs here and not only in Settings.
+      //
+      // What it must not say is that clicking saves *these* edits. The
+      // durability decision is made when a document opens and held until it
+      // closes — deliberately, since re-deciding would remount the editor and
+      // discard the very queue at risk — so the preference reaches documents
+      // opened after it and never this one. Somebody who read the older
+      // wording could reasonably click, then reload, and lose exactly the work
+      // the sentence promised to keep.
       const offer = offerOffline
-        ? ' Click to keep un-sent changes on this device, so a reload no longer loses them.'
+        ? ' Click to save documents you open later on this device. These changes stay in this tab.'
         : '';
       return `${why} ${risk}${offer}`;
     }
@@ -231,9 +239,14 @@ export function SyncStatusChip({ className }: { className?: string }) {
           // is actually looking at when they discover they wanted the setting.
           // Absent once the device has opted in, and on a build that cannot
           // honour it.
+          //
+          // Named for what it does: the preference applies to documents opened
+          // after it, never to the one this toast is about. `Save on this
+          // device`, next to "closing this tab will lose them", reads as an
+          // offer to save *them*.
           action: offerOffline
             ? {
-                label: 'Save on this device',
+                label: 'Turn on for later documents',
                 onClick: turnOnOfflineSaving,
               }
             : undefined,

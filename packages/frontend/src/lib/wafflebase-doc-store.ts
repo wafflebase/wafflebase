@@ -1088,12 +1088,24 @@ export class WafflebaseDocStore implements DocStore {
 
   /**
    * Drops the least recently touched entry that is not open in this session,
-   * and is not the one being written. False when there is no such entry.
+   * is not the one being written, and holds no changes in its log. False when
+   * there is no such entry.
    *
-   * The exclusion is the whole point. Evicting the key currently being written
-   * makes its own retry write into nothing; evicting another open document
-   * makes every later append for it silently vanish while the chip still says
-   * the document is saved. Entries from earlier sessions are the safe ones.
+   * The exclusions are the whole point. Evicting the key currently being
+   * written makes its own retry write into nothing; evicting another open
+   * document makes every later append for it silently vanish while the chip
+   * still says the document is saved.
+   *
+   * The log is the third, and it is the one that costs the most. Eviction
+   * deletes outright — no archive, nothing offered back — so an entry whose
+   * log is non-empty is work that may never have reached the server, and
+   * freeing space with it would be spending one document's unsent edits to
+   * save another's. This store cannot tell an acked change from an unacked
+   * one: that lives in the SDK's own header, which is opaque bytes here. So a
+   * non-empty log counts as unsent, which over-counts — an acked log that has
+   * not been compacted yet is spared too. Being wrong that way costs a refused
+   * write the chip reports honestly; being wrong the other way costs a
+   * document that is silently no longer there.
    */
   private async evictOldest(exceptDocKey: string): Promise<boolean> {
     // Only this user's entries are ours to free. The database is per origin,
@@ -1114,6 +1126,7 @@ export class WafflebaseDocStore implements DocStore {
       if (!mine.has(docKey)) continue;
       if (docKey === exceptDocKey) continue;
       if (await this.isLive(docKey)) continue;
+      if ((await this.changeCount(docKey)) > 0) continue;
       victim = docKey;
       break;
     }

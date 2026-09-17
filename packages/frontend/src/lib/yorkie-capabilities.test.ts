@@ -65,4 +65,17 @@ describe("versions that are not a plain release", () => {
     expect(await withVersion(">=0.7.23 <0.8")).toBe(false);
     expect(await withVersion("workspace:*")).toBe(false);
   });
+
+  it("refuses a comparator that bounds the version from above", async () => {
+    // The dangerous direction. `<0.8.0` and `<=0.7.23` both *contain* the
+    // required release, so a parse that reads past the comparator and compares
+    // the number alone answers yes — while the range resolves to whatever is
+    // installed, which may be 0.7.22. A build with no `clientKey` prop would
+    // then take the durable path and write every entry under a key the SDK
+    // minted at random, unable to resume any of it.
+    expect(await withVersion("<0.8.0")).toBe(false);
+    expect(await withVersion("<=0.7.23")).toBe(false);
+    expect(await withVersion(">0.7.23")).toBe(false);
+    expect(await withVersion(">=0.7.23")).toBe(false);
+  });
 });

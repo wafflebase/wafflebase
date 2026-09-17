@@ -251,6 +251,41 @@ more pieces nobody has reviewed.
 > --noEmit` and filter — the frontend carries ~147 pre-existing errors, which
 > is why `verify:fast` has no frontend typecheck lane.
 
+## Task 9: the review round after the wiring
+
+Six of seven open findings held up; one was already answered by the wiring.
+
+- [x] **9.1** Eviction spares an entry whose log is non-empty. It deletes
+      outright — no archive — so the entry it was happiest to take was
+      somebody's unsent work. A non-empty log now counts as unsent, which
+      over-counts (an acked log that has not compacted is spared too) and is
+      the direction the feature has to be wrong in. With nothing free, the
+      write is refused and reported undurable.
+- [x] **9.2** The held decision is keyed `{userId}:{docKey}`, not `docKey`.
+      Another tab can sign this one out and somebody else in; on the document
+      alone, the new person got the previous person's client key and store
+      scope.
+- [x] **9.3** The capability gate refuses comparator ranges. `<0.8.0` and
+      `<=0.7.23` both parsed past the sign and answered *yes* while resolving
+      to anything — 0.7.22 included.
+- [x] **9.4** `unsupported-type` no longer stands in for "the archive was
+      empty". The reachable case was a sheet with no tabs, told it was a kind
+      of document that cannot be recovered.
+- [x] **9.5** The chip's offer says it applies to documents opened later. The
+      decision is latched per open, so clicking never saves the edits the
+      toast is standing next to — and the old wording said it did.
+- [x] **9.6** The sweep no longer takes `navigate` as a dependency. Under a
+      declarative router its identity changes per navigation, re-running the
+      whole effect — new handle, sweep, archive listing, a title fetch each —
+      behind a toast id that hid the repetition.
+- [x] **9.7** Answered rather than changed: the W1 lessons rule ("the store,
+      the section and the erase land together") is what Task 8 satisfied.
+- [x] **9.8** Two pre-existing flakes in the durable suite, found while
+      re-running it: a latch case that fired its event before the subscription
+      effect had run (~1 in 5), and a liveness case whose `collectStale(0)`
+      compared against an entry written in the same millisecond (~1 in 8).
+      Neither said anything about the code it named.
+
 ## Review
 
 _Filled in when the PR lands._
