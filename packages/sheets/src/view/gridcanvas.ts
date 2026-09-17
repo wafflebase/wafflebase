@@ -1693,7 +1693,7 @@ export class GridCanvas {
       // HYPERLINK() label were mistaken for a URL — but a label that is not a
       // URL never matches, so the guard only cost the cases that do work
       // (`=A1&"/"&B1`, single-argument `=HYPERLINK("https://…")`).
-      const linkSpans = lines.map(detectLinks);
+      const linkSpans = lines.map((line) => detectLinks(line));
 
       // Build font string (needed for measuring text width)
       const fontStr = this.toCellFont(style);
@@ -1817,14 +1817,14 @@ export class GridCanvas {
             ctx.fillStyle = linkColor;
             ctx.fillText(line.slice(span.start, span.end), box.x, textY);
 
-            const underlineY = textY + CellFontSize + 1;
-            ctx.beginPath();
             // Skipped when the cell is explicitly underlined: that stroke
             // already spans this range, and drawing both stacks two lines on
             // the same pixels.
-            ctx.strokeStyle = linkColor;
-            ctx.lineWidth = 1;
             if (!style?.u) {
+              const underlineY = textY + CellFontSize + 1;
+              ctx.beginPath();
+              ctx.strokeStyle = linkColor;
+              ctx.lineWidth = 1;
               ctx.moveTo(box.x, underlineY);
               ctx.lineTo(box.x + box.width, underlineY);
               ctx.stroke();

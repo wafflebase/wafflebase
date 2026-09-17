@@ -144,6 +144,38 @@ a bare address opens `mailto:`; the pointer turns only over a span, not over
 the gap between two spans in the same cell. Glyphs are painted once — the
 segment walk shows no double-drawn bolding.
 
+### Second review round
+
+A review of the *fixes* found that the linearity claim was still false and that
+the bound introduced for it had changed behaviour:
+
+- **The scanner was still quadratic, by its own route.** A scheme match
+  consumes URL characters forward; when the result does not parse the scan
+  resumes one character later and re-reads the same run, so
+  `'https://['.repeat(4000)` measured **429 ms** — the original defect, reached
+  differently. It survived because all four adversarial fixtures had been
+  written against the *regex*, not against the scanner that replaced it.
+  Bounded now by `MaxUrlLength`, with that shape added to the suite.
+- **`MaxEmailLocal` truncated instead of rejecting.** `'x'.repeat(70) +
+  '@b.com'` underlined from index 6 and opened a 64-character suffix of the
+  local part. Both bounds now reject, because a truncated address and a
+  truncated URL both still parse.
+- **The email branch reintroduced the hazard §3 refuses for hostnames.**
+  `image@2x.png`, `logo@3x.jpg` and `build@2.sh` all linkified, because
+  `isHostname` accepts any two-letter alpha TLD and `.png`/`.sh` are both.
+  Addresses now refuse a TLD that is a common file extension; `www.` is
+  hostname-checked too (`www.x` was a link).
+- **The hover card never appeared on merged or overflowing cells.** The
+  pointer's cell and the painter's cell disagree there — a merged cell paints
+  under its anchor's reference, overflowing text paints outside its own cell —
+  so the cursor turned with no card behind it, on exactly the wide cells that
+  hold several links. The card now takes its cell from the hit itself.
+- **The clip threading had no test**, only the browser session below. Added
+  `test/view/gridcanvas-links.test.ts`, driving `recordRenderedLink` and
+  `linkAt` against a hand-built `this` the way `worksheet-mouse.test.ts` does.
+  Mutation-checked: removing the `paintRegion` intersection fails 4 of its 10
+  cases.
+
 ### Known limitations
 
 - **Ctrl/Cmd+click no longer multi-selects a cell containing a URL.** The

@@ -149,6 +149,11 @@ describe('detectLinks', () => {
       ['a run that only looks like a scheme', 'a'.repeat(32767) + '://x'],
       ['repeated local-part characters', 'AB.cd_ef-12'.repeat(2000) + ' a@x.com'],
       ['many adjacent at-signs', 'a@'.repeat(8000)],
+      // The scanner's own re-entry path, which the shapes above do not reach:
+      // every `https://` here starts a run of URL characters that reaches the
+      // end of the string, and none of them parses, so a naive scanner
+      // rescans the whole tail from each one.
+      ['repeated unparseable schemes', 'https://['.repeat(4000)],
     ])('scans %s in well under a frame', (_label, text) => {
       const started = performance.now();
       detectLinks(text);
@@ -181,6 +186,28 @@ describe('detectLinks', () => {
       expect(detectLinks('a@b')).toEqual([]);
       expect(detectLinks('a@b.c')).toEqual([]);
       expect(detectLinks('a@b..com')).toEqual([]);
+    });
+
+    it('refuses an address whose local part it could not read whole', () => {
+      // The backward walk is bounded so the scan stays linear. Stopping at the
+      // bound and using what it got would underline from the middle of a word
+      // and navigate to an address nobody typed.
+      expect(detectLinks('x'.repeat(70) + '@b.example.com')).toEqual([]);
+    });
+
+    it.each([
+      ['a retina asset', 'image@2x.png'],
+      ['another retina asset', 'logo@3x.jpg'],
+      ['a build script', 'build@2.sh'],
+    ])('does not read %s as an address', (_label, text) => {
+      // Same argument §3 makes for hostnames: a file extension that is also a
+      // TLD must not win in a cell, where a stray underline changes how the
+      // value reads.
+      expect(detectLinks(text)).toEqual([]);
+    });
+
+    it('refuses a www. prefix with no real TLD', () => {
+      expect(detectLinks('www.x')).toEqual([]);
     });
   });
 

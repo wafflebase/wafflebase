@@ -926,18 +926,29 @@ export class Worksheet {
    * strobe over a cell whose card already lists both links.
    */
   private updateLinkHover(x: number, y: number): void {
-    this.pointerOverLink = this.linkAtMouse(x, y) !== null;
+    const hit = this.linkAtMouse(x, y);
+    this.pointerOverLink = hit !== null;
 
-    let sref: string | null = null;
-    let urls: Array<string> = [];
-    if (x > RowHeaderWidth && y > DefaultCellHeight) {
+    // The hit knows which cell painted it. Asking the grid instead would
+    // disagree with it twice: a merged cell paints under its anchor's
+    // reference while the pointer resolves to a covered sub-cell, and text
+    // that overflows into empty neighbours paints outside its own cell
+    // entirely. Both are wide cells — exactly the ones that hold several
+    // links — and the pointer would turn with no card ever appearing.
+    let sref: string | null = hit?.sref ?? null;
+
+    // With no hit, fall back to the cell under the pointer so that crossing
+    // the plain text between two links does not close a card that lists both.
+    if (!sref && x > RowHeaderWidth && y > DefaultCellHeight) {
       const candidate = toSref(this.toRefFromMouse(x, y));
-      const links = this.gridCanvas.linksInCell(candidate);
-      if (links.length > 0) {
+      if (this.gridCanvas.linksInCell(candidate).length > 0) {
         sref = candidate;
-        urls = links.map((each) => each.url);
       }
     }
+
+    const urls = sref
+      ? this.gridCanvas.linksInCell(sref).map((each) => each.url)
+      : [];
 
     if (sref === this.hoveredLinkSref) {
       return;

@@ -89,10 +89,15 @@ scroll offset, zoom, freeze split, merge span and overflow clip in hand.
 It therefore records what it drew:
 
 ```ts
-type LinkBox = { line: number; x: number; width: number; url: string };
+type RenderedLink = {
+  sref: string;
+  left: number; top: number; width: number; height: number;
+  url: string;
+};
 // GridCanvas, rebuilt each render():
-private linkBoxes: Map<Sref, LinkBox[]>;
-public linkAt(x: number, y: number): string | null;
+private renderedLinks: Array<RenderedLink>;
+public linkAt(x: number, y: number): RenderedLink | null;
+public linksInCell(sref: string): Array<RenderedLink>;
 ```
 
 Hover and click read that map with a synchronous rect test. Two consequences:
@@ -118,10 +123,18 @@ harmless; the moment character indices address a substring it is wrong.
 
 Accepted: `http://`, `https://`, `mailto:`, a `www.` prefix (normalized to
 `https://`), and bare email addresses (also normalized to `mailto:`). The span
-charset is RFC 3986's, and trailing `.,;:!?)]}` is trimmed — which is also what stops a
-Korean particle (`https://example.com를`) and a wrapping paren from being
-swallowed, since neither is in the charset. `isSafeUrl`
-(`@wafflebase/core/url`) remains the final gate.
+charset is RFC 3986's, and trailing `.,;:!?'` is trimmed along with any
+closing bracket the span did not open — so a Wikipedia path (`/wiki/Foo_(bar)`)
+survives while a parenthesised link gives its paren back to the sentence. A
+Korean particle (`https://example.com를`) needs no rule at all, being outside
+the charset. `isSafeUrl` (`@wafflebase/core/url`) remains the final gate.
+
+Two shape rules keep the accepted forms honest. A `www.` prefix is the one
+accepted form carrying no scheme, so its host is checked for shape — `www.x` is
+not a destination. And an **address** additionally refuses a TLD that is a
+common file extension, because `isHostname` cannot tell `example.sh` from
+`build@2.sh`: the argument below about hostnames applies verbatim to the `@`
+form, where `image@2x.png` reading as mail to `2x.png` is the common case.
 
 **Schemeless hostnames are refused**, and this is a deliberate divergence from
 Docs, which prepends `https://` to them
@@ -144,9 +157,18 @@ the detector, so the guard prevents nothing and costs the cases that do work:
 | Gesture | Result |
 | --- | --- |
 | Hover a span | pointer cursor immediately; hover card after ~300 ms |
+| Cross the text between two spans in one cell | card stays open |
 | Ctrl/Cmd+click a span | open that span's URL |
 | Plain click, read-only | open the span's URL |
 | Plain click, editable | select the cell (unchanged) |
+
+The card is keyed on the **cell**, not on the span: the gap between two links
+in one cell resolves to no span, so keying it on the span would close and
+reopen the card while crossing ` and ` in `https://a.com and https://b.com`.
+The cell comes from the hit itself (`RenderedLink.sref`) rather than from the
+pointer's coordinates, because the two disagree exactly where it matters — a
+merged cell paints under its anchor's reference, and overflowing text paints
+outside its own cell — and those are the wide cells that hold several links.
 
 Read-only is available as `this.readOnly` inside the worksheet mouse handler
 (precedent: the checkbox guard at `worksheet.ts:3521`). Giving viewers the
@@ -165,10 +187,13 @@ A new `SheetLinkPopover` under
 `packages/frontend/src/app/spreadsheet/components/`, listing every link in the
 hovered cell with Open and Copy.
 
-It follows `CommentPopover` — a plain absolutely-positioned div with manual
-outside-click and Escape dismissal — and reuses the flip/clamp measurement
+It follows `CommentPopover`'s shape — a plain absolutely-positioned div rather
+than a Radix portal — and reuses the flip/clamp measurement
 pass at `sheet-view.tsx:1479-1550`, which composes `getGridViewportRect()`
-with `getCellRect()` into **container-relative** coordinates.
+with `getCellRect()` into **container-relative** coordinates. It needs no
+outside-click or Escape handler of its own: unlike the comment popover it is
+not opened by a click and owns no focus, so pointer-leave is the whole
+lifecycle — with the close deferred so the pointer can cross the gap into it.
 
 It does not reuse `docs-link-popover.tsx`. That component emits
 **client/fixed** coordinates and has no flip or clamp at all; and of its 286
@@ -198,11 +223,29 @@ long token or importing a CSV column.
 So `detectLinks` is an index scanner, not a pattern match. It walks the string
 once; at each position it tests for a scheme prefix (gated on the first
 character, so the common case allocates nothing) and consumes URL characters
-forward, and it reads a bare address by expanding outwards from an `@` with the
-local part bounded by RFC 5321's 64-character ceiling — which is what keeps the
-work per `@` constant rather than linear. Hostname shape is checked with string
-operations for the same reason: `(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}` reintroduces
-the nested quantifier the scanner exists to avoid.
+forward, and it reads a bare address by expanding outwards from an `@`.
+Hostname shape is checked with string operations for the same reason:
+`(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}` reintroduces the nested quantifier the
+scanner exists to avoid.
+
+**Both of the scanner's walks are bounded, and neither bound is cosmetic.** A
+scanner is only linear if the work it does at each position is constant, and
+each walk had its own way of not being:
+
+- Expanding backwards from every `@` is quadratic on `('a'.repeat(k) + '@')`
+  repeated. Bounded by RFC 5321's 64-character local part.
+- Consuming forwards from a scheme is quadratic when the result does not
+  parse, because the scan then resumes one character later and re-reads the
+  same run — `'https://['.repeat(4000)` measured **429 ms**, which is the
+  original defect reached by a different route and was missed because every
+  adversarial fixture had been written against the *regex*. Bounded by
+  `MaxUrlLength` (2048; Google's own limit on a link destination is 2000).
+
+In both cases hitting the bound **rejects** rather than truncates. Truncating
+is not the conservative choice it looks like: a 64-character suffix of a local
+part still parses as an address, and a 2048-character prefix of a URL still
+parses as a URL, so the cell would underline from the middle of a word and
+navigate somewhere nobody typed.
 
 Scanning left to right also removes a defect the alternation had: in
 `a.b@c.dhttps://real.example.com` the address branch matched `a.b@c.dhttps`,

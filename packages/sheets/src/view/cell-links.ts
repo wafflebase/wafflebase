@@ -58,6 +58,37 @@ const SCHEMES = ['https://', 'http://', 'mailto:', 'www.'];
 const MaxEmailLocal = 64;
 
 /**
+ * Longest run of URL characters worth reading as one link.
+ *
+ * Bounds the scanner's other unbounded walk. A scheme match consumes URL
+ * characters forward, and when the result does not parse the scan resumes one
+ * character later — so a run holding many non-parsing schemes
+ * (`'https://['.repeat(n)`) is re-read from each of them, which is quadratic
+ * again just by a different route. Google's own limit on a link destination is
+ * 2000 bytes, so nothing real is lost.
+ */
+const MaxUrlLength = 2048;
+
+/**
+ * Extensions that are also country-code TLDs.
+ *
+ * `isHostname` cannot tell `example.sh` from `build@2.sh`, and §3's argument
+ * for refusing schemeless hostnames applies verbatim to an address: in a cell,
+ * `image@2x.png` reading as mail to `2x.png` is a correctness bug, not noise.
+ * Retina asset names are the common case.
+ */
+const FILE_EXTENSIONS = charSetOf(
+  `png jpg jpeg gif webp svg ico bmp tiff pdf doc docx xls xlsx ppt pptx
+   zip tar gz rar sh bat ps1 exe dll so dylib txt md csv tsv json xml yml
+   yaml toml ini log lock ts tsx js jsx py rb go rs java cpp css scss
+   html mp3 mp4 mov avi wav ai psd`,
+);
+
+function charSetOf(words: string): Set<string> {
+  return new Set(words.split(/\s+/).filter(Boolean));
+}
+
+/**
  * A match glued to the right of one of these is a coincidence, not a link —
  * `xhttps://evil.example.com` contains `https://evil.example.com` at index 1.
  *
@@ -152,7 +183,7 @@ function schemeAt(text: string, at: number): string | null {
  * `(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`, whose nested quantifier is the same
  * backtracking hazard the scanner exists to avoid.
  */
-function isHostname(domain: string): boolean {
+function isHostname(domain: string, refuseFileExtensions = false): boolean {
   const dot = domain.lastIndexOf('.');
   if (dot <= 0 || dot === domain.length - 1) return false;
   const tld = domain.slice(dot + 1);
@@ -160,7 +191,16 @@ function isHostname(domain: string): boolean {
   for (const ch of tld) {
     if (!/[A-Za-z]/.test(ch)) return false;
   }
+  if (refuseFileExtensions && FILE_EXTENSIONS.has(tld.toLowerCase())) {
+    return false;
+  }
   return !domain.startsWith('.') && !domain.includes('..');
+}
+
+/** The host part of a `www.`-prefixed span, before any path or query. */
+function hostOf(span: string): string {
+  const cut = span.search(/[/?#]/);
+  return cut === -1 ? span : span.slice(0, cut);
 }
 
 /**
@@ -181,13 +221,18 @@ function emailAt(text: string, at: number): { start: number; end: number } | nul
     start--;
   }
   if (start === at) return null;
+  // The walk stopped at the bound rather than at a boundary, so what it got is
+  // a suffix of the local part, not the local part. Using it would underline
+  // from the middle of a word and navigate to an address nobody typed; a local
+  // part this long is invalid under RFC 5321 anyway.
+  if (start > 0 && EMAIL_LOCAL_CHAR.has(text[start - 1])) return null;
 
   let end = at + 1;
   while (end < text.length && EMAIL_DOMAIN_CHAR.has(text[end])) end++;
   if (text.startsWith('://', end)) return null;
 
   const domain = trimTrailing(text.slice(at + 1, end));
-  if (!isHostname(domain)) return null;
+  if (!isHostname(domain, true)) return null;
   return { start, end: at + 1 + domain.length };
 }
 
@@ -222,10 +267,22 @@ export function detectLinks(text: string): Array<LinkSpan> {
 
     const scheme = schemeAt(text, i);
     if (scheme && !gluedLeft) {
+      const limit = Math.min(text.length, i + MaxUrlLength);
       let end = i + scheme.length;
-      while (end < text.length && URL_CHAR.has(text[end])) end++;
-      const span = trimTrailing(text.slice(i, end));
-      const url = span.length > scheme.length ? toUrl(span) : null;
+      while (end < limit && URL_CHAR.has(text[end])) end++;
+      // A run that hit the bound is not a link we are prepared to read: the
+      // prefix we have may well parse, and linking a truncated destination is
+      // worse than linking nothing.
+      const overlong =
+        end === limit && end < text.length && URL_CHAR.has(text[end]);
+      const span = overlong ? '' : trimTrailing(text.slice(i, end));
+      // A `www.` prefix is the one accepted form carrying no scheme, so its
+      // host is checked for shape the way an address's is — `www.x` is not a
+      // destination.
+      const shaped =
+        span.length > scheme.length &&
+        (scheme !== 'www.' || isHostname(hostOf(span)));
+      const url = shaped ? toUrl(span) : null;
       if (url) {
         spans.push({ start: i, end: i + span.length, url });
         i += span.length;
