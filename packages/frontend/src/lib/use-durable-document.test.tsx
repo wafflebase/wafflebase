@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, renderHook, waitFor, act } from "@testing-library/react";
 import {
   setDurableLockForTest,
@@ -7,6 +7,7 @@ import {
 } from "./durable-session";
 import { setOfflinePersistenceEnabled } from "./offline-persistence-preference";
 import { useDurableDocument } from "./use-durable-document";
+import * as capabilities from "./yorkie-capabilities";
 
 /**
  * The policy that decides whether a document is persisted locally.
@@ -27,6 +28,13 @@ function fakeLocks(): DurableLock & { held: Set<string> } {
     },
   };
 }
+
+beforeEach(() => {
+  // These cases are about the policy, not about which version this repo is
+  // pinned to. The pin has its own test, and one case below closes this gate
+  // on purpose.
+  vi.spyOn(capabilities, "supportsClientKey").mockReturnValue(true);
+});
 
 afterEach(() => {
   setDurableLockForTest(undefined);
@@ -263,5 +271,28 @@ describe("what it says on the way between answers", () => {
     expect(result.current.clientKey).toBeUndefined();
 
     await waitFor(() => expect(result.current.clientKey).toBe("wb:u2:note-7"));
+  });
+});
+
+describe("on a build that cannot carry a client key", () => {
+  it("refuses, and takes no lock", async () => {
+    // The store is keyed `apiKey/clientKey/docKey`, so without a key of our own
+    // the SDK mints one at random per session: every page load writes to a
+    // fresh scope and resumes nothing. Going durable there would fill the
+    // store with unusable entries and let the chip claim a durability that
+    // does not survive a reload.
+    vi.spyOn(capabilities, "supportsClientKey").mockReturnValue(false);
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+    setOfflinePersistenceEnabled(true);
+
+    const { result } = renderHook(() =>
+      useDurableDocument({ docKey: "note-7", userId: "u1" }),
+    );
+
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(result.current.durable).toBe(false);
+    expect(result.current.clientKey).toBeUndefined();
+    expect(locks.held.size).toBe(0);
   });
 });

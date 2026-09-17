@@ -1,6 +1,10 @@
-import { useEffect } from "react";
-import { DocumentProvider, useDocument } from "@yorkie-js/react";
-import type { Indexable } from "@yorkie-js/sdk";
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { DocumentProvider, useDocument } from '@yorkie-js/react';
+import type { Indexable } from '@yorkie-js/sdk';
+import { fetchMe, fetchYorkieToken } from '@/api/auth';
+import { useDurableDocument } from '@/lib/use-durable-document';
+import { DurableYorkieProvider } from '@/components/durable-yorkie-provider';
 
 /**
  * `DocumentProvider` with `initialPresence` made reliable.
@@ -67,9 +71,9 @@ function PresenceIdentityRepair<P extends Indexable>({
     // unmounts the tree: a missing avatar is a blemish, a blank editor is an
     // outage. Hence the capability check and the swallow.
     if (
-      typeof doc.getStatus !== "function" ||
-      typeof doc.getMyPresence !== "function" ||
-      typeof doc.update !== "function"
+      typeof doc.getStatus !== 'function' ||
+      typeof doc.getMyPresence !== 'function' ||
+      typeof doc.update !== 'function'
     ) {
       return;
     }
@@ -78,7 +82,7 @@ function PresenceIdentityRepair<P extends Indexable>({
       // A document that is not attached has no presence of its own to repair,
       // and `getMyPresence()` answers `{}` for it regardless — writing then
       // would fabricate an entry rather than restore one.
-      if (doc.getStatus() !== "attached") return;
+      if (doc.getStatus() !== 'attached') return;
 
       const current = doc.getMyPresence() ?? {};
       const missing = Object.keys(initialPresence).filter(
@@ -99,7 +103,7 @@ function PresenceIdentityRepair<P extends Indexable>({
       }
       doc.update((_root, presence) => presence.set(patch as Partial<P>));
     } catch (err) {
-      console.warn("[presence] could not restore initialPresence:", err);
+      console.warn('[presence] could not restore initialPresence:', err);
     }
     // `initialPresence` is a fresh object literal at every call site, so it is
     // deliberately not a dependency — it would re-run this on every render of
@@ -116,16 +120,73 @@ function PresenceIdentityRepair<P extends Indexable>({
  * document that carries user identity in its presence. It renders the real
  * provider and mounts {@link PresenceIdentityRepair} inside it, so the repair
  * cannot be forgotten when a new document type is added.
+ *
+ * ## Offline persistence
+ *
+ * This is also where a document becomes durable, because it is already the one
+ * seam every editor passes through — all five detail routes and
+ * `files/pdf-collab.tsx` render it. When the opt-in applies and this tab won
+ * the election, it nests its own `YorkieProvider`: a client keyed
+ * `wb:{userId}:{docKey}`, with the IndexedDB store attached.
+ *
+ * Otherwise it renders exactly what it always did, on the ambient
+ * session-wide client. That is what keeps the opt-in free for everyone who
+ * declines it — no second `ActivateClient`, no new identity, no behavior to
+ * regress. Design: `docs/design/offline-local-persistence.md`.
+ *
+ * No route file changes, and none are wanted: the PDF exclusion is derived
+ * from the `docKey` prefix this component already receives, and
+ * `shared-document.tsx` mounts its own provider, so anonymous share links are
+ * excluded structurally rather than by a condition somebody has to remember.
+ *
+ * One cost worth naming: deciding this needs to know who is signed in, so this
+ * component now requires a `QueryClientProvider` above it. The app mounts one
+ * at its root, but a test that renders an editor in isolation has to supply
+ * one — three existing suites needed it when this landed.
  */
 export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   initialPresence,
   children,
   ...rest
 }: Parameters<typeof DocumentProvider<R, P>>[0]) {
-  return (
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: fetchMe,
+    retry: false,
+  });
+  const docKey = (rest as { docKey: string }).docKey;
+  const { durable, clientKey, settled } = useDurableDocument({
+    docKey,
+    userId: me?.id === undefined ? undefined : String(me.id),
+  });
+
+  const inner = (
     <DocumentProvider<R, P> initialPresence={initialPresence} {...rest}>
       <PresenceIdentityRepair<P> initialPresence={initialPresence} />
       {children}
     </DocumentProvider>
+  );
+
+  // Until the election has answered, render on the ambient client. Mounting
+  // the durable one first and swapping would cost an attach and a detach on
+  // every open, and mounting the *non*-durable one and swapping would do the
+  // same in reverse — `settled` exists so neither happens.
+  if (!settled || !durable || !clientKey || !me) {
+    return inner;
+  }
+
+  return (
+    <DurableYorkieProvider
+      clientKey={clientKey}
+      userId={String(me.id)}
+      rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
+      apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
+      metadata={{
+        userID: encodeURIComponent(me.username || 'anonymous-user'),
+      }}
+      authTokenInjector={fetchYorkieToken}
+    >
+      {inner}
+    </DurableYorkieProvider>
   );
 }

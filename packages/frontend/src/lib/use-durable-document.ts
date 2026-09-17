@@ -5,6 +5,7 @@ import {
   type DurableSession,
 } from "./durable-session";
 import { useOfflinePersistenceEnabled } from "./offline-persistence-preference";
+import { supportsClientKey } from "./yorkie-capabilities";
 
 /**
  * Decides whether one open document is persisted locally, and holds the
@@ -60,7 +61,12 @@ export function useDurableDocument({
   userId?: string;
 }): DurableDocument {
   const enabled = useOfflinePersistenceEnabled();
-  const eligible = enabled && !!userId && !isExcluded(docKey);
+  // `supportsClientKey` is first because it is the one term that cannot change
+  // at runtime: on a build whose provider cannot carry a client key, the store
+  // would fill with entries no reload can use while the chip promised a
+  // durability that does not survive one.
+  const eligible =
+    supportsClientKey() && enabled && !!userId && !isExcluded(docKey);
 
   /**
    * What the decision below was made *for*.
