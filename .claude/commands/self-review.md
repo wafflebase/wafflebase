@@ -28,11 +28,15 @@ restates itself:
 | Round | Weight it toward | Reviewer |
 | --- | --- | --- |
 | 1 | correctness, test adequacy | `node ./scripts/agent/spec-to-pr.mjs review` |
-| 2 | design fit, simplification, blast radius | the same, plus `/simplify` over the diff |
+| 2 | design fit, simplification, blast radius | the same, plus `superpowers:requesting-code-review` |
 | 3 | security, docs, design-doc consistency | the same — it is the machine gate, so finish here |
 
 The panel itself always runs all six lenses; the weighting is what *you* dig into
 between rounds, not a flag.
+
+**You cannot launch `/code-review`, `/ultrareview` or `/simplify` yourself** —
+they are user-invoked and billed. If a round wants one, say so and let the
+developer run it; do not quietly substitute your own read and call it a review.
 
 ### Each round
 

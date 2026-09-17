@@ -134,5 +134,18 @@ test("renderBlockingFindings: cites location, summary and the rebuttal key", () 
   assert.match(out, /\[major\] docs — \(no file cited\)/);
   assert.equal(renderBlockingFindings([]), "");
   assert.equal(renderBlockingFindings(undefined), "");
+  // A junk entry must not crash the report the developer is about to read.
+  assert.equal(renderBlockingFindings([null, 42]), "");
+});
+
+test("renderBlockingFindings: a blocking lens with nothing to print says so", () => {
+  // The "review could not run" record is dropped by the carry-forward, so an
+  // infra-failed lens arrives here empty. Printing nothing would read as "failed
+  // but found nothing" — the one reading that must not be available.
+  const out = renderBlockingFindings([{ lens: "security", findings: [] }]);
+  assert.match(out, /no finding recorded \(the lens may not have run\)/);
+  assert.match(out, /security\/summary\.md/);
+  // A non-empty findings array of pure junk takes the per-finding path, not the
+  // "did not run" one: the lens DID produce a verdict, it just cited nothing.
   assert.equal(renderBlockingFindings([{ lens: "x", findings: [null] }]), "");
 });

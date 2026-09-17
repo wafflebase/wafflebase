@@ -227,8 +227,20 @@ export function roundBoundNotice(round, max = MAX_SELF_REVIEW_ROUNDS) {
  */
 export function renderBlockingFindings(entries) {
   const lines = [];
-  for (const { lens, findings } of Array.isArray(entries) ? entries : []) {
-    for (const f of Array.isArray(findings) ? findings : []) {
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || typeof entry !== "object") continue;
+    const { lens, findings } = entry;
+    // A lens can CONCLUDE blocking and still have nothing printable here: the
+    // synthesised "review could not run" record is dropped by the carry-forward
+    // (it is not a code finding). Saying so is the point — a silent gap reads as
+    // "the lens failed but found nothing", i.e. as noise to be overridden, when
+    // it actually means the lens never reviewed.
+    if (!Array.isArray(findings) || findings.length === 0) {
+      lines.push(`  [blocking] ${lens} — no finding recorded (the lens may not have run)`);
+      lines.push(`      read ${lens}/summary.md in the round directory`);
+      continue;
+    }
+    for (const f of findings) {
       if (!f || typeof f !== "object") continue;
       const where = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : "(no file cited)";
       lines.push(`  [${f.severity ?? "major"}] ${lens} — ${where}`);
@@ -462,6 +474,12 @@ function cmdReview(args) {
   if (args.fresh && existsSync(base)) rmSync(base, { recursive: true, force: true });
   mkdirSync(base, { recursive: true });
 
+  // `--round` with no value parses as `true`, and `Number(true)` is 1 — which
+  // would silently overwrite round 1 instead of reporting a usage error. Reject
+  // the boolean explicitly rather than letting a typo clobber a round's verdicts.
+  if (args.round !== undefined && typeof args.round !== "string") {
+    return fail("--round needs a value (e.g. --round 2)");
+  }
   const round = args.round === undefined ? nextRound(readdirSync(base)) : Number(args.round);
   if (!Number.isInteger(round) || round < 1) {
     return fail(`--round must be a positive integer (got ${JSON.stringify(args.round)})`);
