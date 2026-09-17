@@ -851,6 +851,22 @@ function cmdReview(args) {
   // is what the NEXT round reads back, so nesting it under a second directory
   // would only give `roundsOnDisk` one more level to agree about.
   const outDir = dir;
+
+  // BEFORE the network and the diff, because every failure below this line is a
+  // usage error the caller can fix from the message alone. Ordered the other way
+  // round, a mistyped `--rebuttals` path cost a fetch and two `git diff`s first —
+  // and on a repository where the diff cannot be built (a shallow clone has no
+  // merge base) it reported THAT instead, which is a confusing answer to a
+  // question the caller never asked.
+  const prior = round > 1 ? priorFindingsFor(base, round) : [];
+  let inputs;
+  try {
+    inputs = prepareRoundInputs({ dir, prior, rebuttalsPath: args.rebuttals ? path.resolve(String(args.rebuttals)) : null });
+  } catch (e) {
+    return fail(e.message);
+  }
+  if (inputs.rebuttalCount > 0) console.log(`adjudicating ${inputs.rebuttalCount} rebuttal(s)`);
+
   try {
     git(["fetch", "origin", "main"]);
     writeFileSync(diffFile, execFileSync("git", ["diff", "origin/main...HEAD"], { encoding: "utf8" }));
@@ -868,19 +884,6 @@ function cmdReview(args) {
   try {
     baseSha = execFileSync("git", ["merge-base", "origin/main", "HEAD"], { encoding: "utf8" }).trim();
   } catch { /* gate runs inert */ }
-  // Round > 1 carries the earlier rounds' still-gating findings, so a finding
-  // nobody fixed cannot vanish because THIS round's fresh pass happened to miss
-  // it. Written into the round directory rather than piped, so a developer can
-  // read what round N was told about round N-1.
-  const prior = round > 1 ? priorFindingsFor(base, round) : [];
-  let inputs;
-  try {
-    inputs = prepareRoundInputs({ dir, prior, rebuttalsPath: args.rebuttals ? path.resolve(String(args.rebuttals)) : null });
-  } catch (e) {
-    return fail(e.message);
-  }
-  if (inputs.rebuttalCount > 0) console.log(`adjudicating ${inputs.rebuttalCount} rebuttal(s)`);
-
   console.log(`spec-to-pr: self-review round ${round} on ${branch} → ${outDir}`);
   if (prior.length > 0) console.log(`carrying ${prior.length} prior finding(s) forward`);
   try {
