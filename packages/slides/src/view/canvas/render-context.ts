@@ -58,9 +58,16 @@ export function resolveStrokeColor(color: Stroke['color'], theme: Theme): string
 }
 
 /**
- * Map a stroke dash style to a canvas line-dash array. Shared by the
- * text-box and table renderers so dashed / dotted strokes look identical
- * across surfaces. Absent / `'solid'` ⇒ a continuous line.
+ * Map a stroke dash style to a canvas line-dash array. Absent /
+ * `'solid'` ⇒ a continuous line.
+ *
+ * The single source of the patterns: every content painter that strokes
+ * a user-controlled `Stroke` goes through it (shapes, action buttons,
+ * connectors, text boxes, tables), so the same style looks identical on
+ * every surface. It is also exported from the package for the toolbar's
+ * border previews, which draw the pattern they are offering rather than
+ * naming it — a picker fed by anything else would drift from what the
+ * canvas paints.
  */
 export function dashArray(dash: Stroke['dash']): number[] {
   if (dash === 'dashed') return [6, 4];

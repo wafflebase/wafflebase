@@ -37,13 +37,18 @@ function dashCalls(ctx: CtxSpy): unknown[] {
 }
 
 describe('shape stroke dash', () => {
-  // One case per independent stroke path in `drawShape` — they do not
-  // share a single code path, so a fix to one says nothing about the rest.
+  // One case per branch `drawShape` can take — they do not share a
+  // single code path, so a fix to one says nothing about the rest. This
+  // table is the registry of those branches: when `drawShape` grows an
+  // early return, it needs a row here. The action-button row exists
+  // because that one returns before `shape-renderer` strokes anything
+  // (it paints in `shape-special.ts`) and was missed on the first pass.
   const KINDS: Array<[label: string, kind: string]> = [
     ['parametric (paintFillStroke)', 'rect'],
     ['freeform', 'freeform'],
     ['3D faces (FACE_BUILDERS)', 'cube'],
     ['border callout leader', 'borderCallout1'],
+    ['action button (shape-special)', 'actionButtonHome'],
     ['unknown kind placeholder', 'notAShapeKindWeKnow'],
   ];
 
@@ -79,6 +84,10 @@ describe('shape stroke dash', () => {
     for (const dash of ['solid', undefined] as const) {
       const ctx = createCtxSpy();
       drawShape(asCtx(ctx), SIZE, shapeData('rect', dash), THEME);
+      // Assert the solid path is actually exercised: `every` over an
+      // empty array is vacuously true, so without this the case would
+      // also pass on a renderer that never sets a dash at all.
+      expect(ctx.setLineDash).toHaveBeenCalled();
       // A continuous line is `[]`; no pattern may ever be set.
       expect(dashCalls(ctx).every((d) => Array.isArray(d) && d.length === 0)).toBe(true);
     }
@@ -132,6 +141,7 @@ describe('connector stroke dash', () => {
   it('solid stays continuous', () => {
     const ctx = createCtxSpy();
     drawConnector(asCtx(ctx), connector('straight', 'solid'), new Map(), THEME);
+    expect(ctx.setLineDash).toHaveBeenCalled();
     expect(dashCalls(ctx).every((d) => Array.isArray(d) && d.length === 0)).toBe(true);
   });
 });

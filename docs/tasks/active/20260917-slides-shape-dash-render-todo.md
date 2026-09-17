@@ -26,21 +26,39 @@ Not a data bug — `export/pptx/shape.ts:152` maps `dash` to
 `<a:prstDash val="sysDot"/>`, so the same deck exports to PowerPoint as
 dotted while rendering solid in the app.
 
+**Correction (from review): the round trip is only half closed.** PPTX
+**import** drops `dash` entirely — `parseShapeStroke`
+(`import/pptx/shape.ts:971`) reads `<a:ln w>` and `<a:solidFill>` and
+returns `{ color, width }`; there is no `prstDash` read anywhere under
+`import/`. So a PowerPoint deck with a dashed border imports as solid,
+and after this branch it renders solid *correctly*, which is harder to
+notice than the bug it replaces. Out of scope here (see Non-goals), but
+it is a real follow-up, not a footnote.
+
 **Board is affected too**: it reuses the slides scene engine, and the Miro
 importer sets `dash` (`board/src/import/miro/map-items.ts:115`).
 
 ## Stroke sites to fix
 
-`shape-renderer.ts` — four independent stroke paths, all missing it:
+Enumerate by **branch `drawShape` can take**, not by "stroke calls in
+`shape-renderer.ts`" — the first pass used the latter and missed the
+action-button early return, which paints in another file. The `KINDS`
+table in `stroke-dash.test.ts` is now the registry of these branches.
 
-- [ ] `paintFillStroke()` (`:403`) — main path for every parametric kind + freeform
-- [ ] 3D/folded silhouette stroke in `drawShape()` (`:221`) — cube/can/bevel/ribbon/scroll
-- [ ] border-callout leader polyline in `drawShape()` (`:239`)
-- [ ] `drawPlaceholderRect()` (`:421`) — unknown kinds
+`shape-renderer.ts`:
+
+- [x] `paintFillStroke()` — main path for every parametric kind + freeform
+- [x] 3D/folded silhouette stroke in `drawShape()` — cube/can/bevel/ribbon/scroll
+- [x] border-callout leader polyline in `drawShape()`
+- [x] `drawPlaceholderRect()` — unknown kinds
+
+`shape-special.ts`:
+
+- [x] `drawActionButton()` — returns before `shape-renderer` strokes anything (found in review)
 
 `connector-renderer.ts`:
 
-- [ ] `drawConnector()` (`:33`) — straight / elbow / bezier
+- [x] `drawConnector()` — straight / elbow / bezier
 
 ## Reset discipline
 
@@ -59,7 +77,7 @@ text/table. Two call sites make this load-bearing rather than cosmetic:
 - [x] Failing tests first (spy ctx): dotted/dashed shape, 3D-face shape, callout leader, placeholder kind, connector — assert pattern set **and** reset
 - [x] Implement the five sites
 - [x] `pnpm verify:fast` green (enforced by the pre-commit hook)
-- [ ] Self code review over the branch diff
+- [x] Self code review over the branch diff
 - [ ] PR
 
 ## Follow-up: the picker said it in words
@@ -104,4 +122,42 @@ separate client-side defect and is not investigated here.
 
 ## Review
 
-_(filled in before merge)_
+Reviewed over the full branch diff before pushing. One Important finding
+and five Minor, all addressed:
+
+- **Important — a fifth stroke site.** `drawActionButton`
+  (`shape-special.ts`) strokes the bevel outline and was missed: the
+  eleven `actionButton*` kinds return from `drawShape` before any of the
+  four fixed paths, and `BorderPicker` is mounted for them with no kind
+  gating. The reported symptom survived there. Fixed, with a row added to
+  the `KINDS` table; verified it fails without the fix.
+- **Minor — two vacuous assertions.** The "stays continuous" cases used
+  `every(...)` over the `setLineDash` calls, which is true of an empty
+  array, so they also passed on unfixed code. Added
+  `expect(setLineDash).toHaveBeenCalled()`.
+- **Minor — a weak clamp assertion.** `Number(null)` is `0`, so a dropped
+  `stroke-width` satisfied `<= 3`. Tightened to `toBe(3)`.
+- **Minor — stale `dashArray` docstring.** It named two consumers; there
+  are now five plus the exported toolbar preview.
+- **Minor — PPTX import drops `dash`.** Corrected the claim above; noted
+  as a follow-up rather than fixed here.
+- **Minor — an absent `dash` left every row unchecked.** Harmless while
+  the row said "Solid"; with only a drawn line it told the user nothing.
+  Now reads absent as `'solid'`, matching `dashArray()`.
+
+The reviewer independently confirmed three things this branch asserts
+rather than leaving them as claims: that Board needs no change of its own
+(no renderer in `packages/board/src`), that Tailwind 4.1.3 in this repo
+emits `.size-auto`, and that an inline `<svg>` carrying it measures
+64×16 in Chromium rather than collapsing.
+
+`drawPlaceholderRect` keeping its own `setLineDash` pair was raised and
+deliberately kept: it strokes a rect, not a `Path2D`, so it cannot use
+the helper without widening its signature, and as written it mirrors
+`paintTextBoxDecorations`.
+
+## Follow-ups (not in this branch)
+
+- PPTX import: read `<a:prstDash>` in `parseShapeStroke` so a dashed
+  border survives a round trip in both directions.
+- The `/d/:id` and `/shared/:token` loading hang noted under Known gap.

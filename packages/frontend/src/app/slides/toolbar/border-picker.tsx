@@ -186,7 +186,12 @@ export function BorderPicker({
           {DASH_STYLES.map((d) => (
             <DropdownMenuCheckboxItem
               key={d}
-              checked={value?.dash === d}
+              // `dash` is optional — PPTX-imported and older stored
+              // strokes carry none, and `dashArray()` draws those solid.
+              // Reading absent as `'solid'` keeps a row checked; with the
+              // text labels gone, an all-unchecked menu says nothing at
+              // all about what the border currently is.
+              checked={(value?.dash ?? 'solid') === d}
               onClick={() => onDashChange(d)}
               aria-label={d.charAt(0).toUpperCase() + d.slice(1)}
             >

@@ -47,9 +47,23 @@ describe('BorderPicker dash menu', () => {
     await openDash();
 
     const dotted = screen.getByRole('menuitemcheckbox', { name: 'Dotted' });
-    expect(Number(lineIn(dotted)?.getAttribute('stroke-width'))).toBeLessThanOrEqual(3);
+    // Exact, not `<= 3`: a missing attribute reads as 0, which would
+    // satisfy an upper bound while drawing nothing.
+    expect(Number(lineIn(dotted)?.getAttribute('stroke-width'))).toBe(3);
     // Still dotted, just thinner.
     expect(lineIn(dotted)?.getAttribute('stroke-dasharray')).toBe('2 2');
+  });
+
+  it('checks Solid when the stroke carries no dash', async () => {
+    // Optional in the model: PPTX import never sets it and older stored
+    // strokes predate it. Such a border renders solid, so the menu has
+    // to say Solid — with the text labels gone, nothing else would.
+    renderPicker({ color: '#000', width: 1 });
+    await openDash();
+
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'Solid' }),
+    ).toHaveAttribute('aria-checked', 'true');
   });
 
   it('marks the active style and emits the picked one', async () => {
