@@ -117,6 +117,21 @@ test("roundsIn / nextRound: a round is a directory, junk is ignored", () => {
   assert.equal(nextRound(["round-10", "round-9"]), 11);
 });
 
+test("nextRound: a round that reviewed nothing does not consume a number", () => {
+  // A panel run can end with every lens failing on an HTTP 429 and still leave a
+  // directory. Counting it would let a quota outage push a branch toward a bound
+  // that is supposed to mean "this is not converging".
+  const reviewed = [
+    { round: 1, lenses: ["correctness", "docs"] },
+    { round: 2, lenses: ["correctness"] },
+  ];
+  assert.equal(nextRound(reviewed), 3);
+  assert.equal(nextRound([...reviewed, { round: 3, lenses: [] }]), 3);
+  // Every round an outage: still round 1, and the retry overwrites it.
+  assert.equal(nextRound([{ round: 1, lenses: [] }]), 1);
+  assert.equal(nextRound([]), 1);
+});
+
 test("pickLatestVerdicts: latest round PER LENS, below the current one", () => {
   const available = [
     { round: 1, lenses: ["correctness", "security", "docs"] },
@@ -432,5 +447,26 @@ test("review --dry-run --fresh reports the reset round without deleting one", ()
     assert.ok(readdirSync(path.join(base, "round-1")).includes("docs"));
   } finally {
     rmSync(path.dirname(base), { recursive: true, force: true });
+  }
+});
+
+test("a 429-shaped round leaves the counter where it was", () => {
+  const base = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-429-"));
+  try {
+    const write = (round, lens, verdict) => {
+      mkdirSync(path.join(base, `round-${round}`, lens), { recursive: true });
+      writeFileSync(path.join(base, `round-${round}`, lens, "verdict.json"), JSON.stringify(verdict));
+    };
+    write(1, "docs", { valid: true, conclusion: "failure", findings: [{ severity: "major", file: "a.ts", summary: "x" }] });
+    // What a quota outage writes: every lens invalid, holding only the synthesised
+    // "review did not run" record.
+    for (const lens of ["docs", "correctness", "security"]) {
+      write(2, lens, { valid: false, conclusion: "failure", findings: [] });
+    }
+    assert.equal(nextRound(roundsOnDisk(base)), 2, "the outage round is retried, not skipped past");
+    // And the real round-1 findings are still carried into that retry.
+    assert.deepEqual(priorFindingsFor(base, 2).map((f) => [f.lens, f.file]), [["docs", "a.ts"]]);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
 });

@@ -162,9 +162,25 @@ export function roundsIn(entries) {
     .sort((a, b) => a - b);
 }
 
-/** The next round to run: one past the highest present, or 1. */
-export function nextRound(entries) {
-  const rounds = roundsIn(entries);
+/**
+ * The next round to run: one past the highest that ACTUALLY REVIEWED, or 1.
+ *
+ * `available` is `roundsOnDisk`'s output; a round whose `lenses` list is empty
+ * produced no usable verdict and is not a round. That case is not hypothetical —
+ * a panel run can end with every lens failing on an HTTP 429 usage limit, having
+ * reviewed nothing at all, and it still leaves a directory behind. Counting it
+ * would let a quota outage push a branch toward the three-round bound, which is
+ * supposed to mean "this is not converging", not "the account ran out". The
+ * retry reuses the number, and overwrites the empty directory.
+ *
+ * Falls back to the bare directory names when `available` is a plain string list,
+ * so a caller that has not read the verdicts still gets the old behaviour.
+ */
+export function nextRound(available) {
+  const rounds = Array.isArray(available) && available.some((e) => e && typeof e === "object")
+    ? available.filter((e) => e && Array.isArray(e.lenses) && e.lenses.length > 0).map((e) => Number(e.round))
+      .filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b)
+    : roundsIn(available);
   return rounds.length === 0 ? 1 : rounds[rounds.length - 1] + 1;
 }
 
@@ -725,12 +741,13 @@ function cmdReview(args) {
     }
   }
 
-  // Validated by `reviewArgsError` above. Under `--dry-run --fresh` nothing was
+  // Validated by `reviewArgsError` above. Read from the VERDICTS, not the
+  // directory names, so a round that reviewed nothing (a 429 leaves a full set of
+  // empty ones) does not consume a number. Under `--dry-run --fresh` nothing was
   // deleted, so the rounds are discounted here instead — a dry run has to report
   // the round the real run would use, not the one the un-cleared directory has.
-  const entries = readdirSync(base);
-  const remaining = args.fresh ? entries.filter((e) => !ROUND_DIR_RE.test(String(e))) : entries;
-  const round = args.round === undefined ? nextRound(remaining) : Number(args.round);
+  const onDisk = args.fresh ? [] : roundsOnDisk(base);
+  const round = args.round === undefined ? nextRound(onDisk) : Number(args.round);
   const notice = roundBoundNotice(round);
   if (notice) console.warn(`spec-to-pr: ${notice}`);
 
