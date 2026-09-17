@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 /**
@@ -21,30 +21,51 @@ const mounted: Array<Record<string, unknown>> = [];
 /** `local-changes-dropped` handlers the provider registered. */
 const subscribers: Array<(event: unknown) => void> = [];
 
-vi.mock('@yorkie-js/react', () => ({
-  DocumentProvider: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  YorkieProvider: (props: Record<string, unknown>) => {
-    mounted.push(props);
-    return <>{props.children as React.ReactNode}</>;
-  },
-  useDocument: () => ({
-    doc: {
-      getKey: () => 'note-7',
-      subscribe: (_event: string, fn: (e: unknown) => void) => {
-        subscribers.push(fn);
-        return () => {
-          subscribers.splice(subscribers.indexOf(fn), 1);
-        };
-      },
+/** What `useYorkie()` reports, so a refused attach can be driven. */
+let yorkieError: unknown;
+
+/**
+ * `useDocument()` is scoped to its provider here, exactly as the real one is.
+ *
+ * Not a detail. A global `useDocument()` mock reports a document to any caller
+ * anywhere in the tree, which is precisely what hid the loss watch sitting
+ * *above* the `DocumentProvider` it was meant to watch — there it can only ever
+ * see no document, so the latch is never set and every unreconcilable removal
+ * silently deletes the work instead of archiving it. With the context modelled,
+ * putting it back outside fails the latch case below.
+ */
+vi.mock('@yorkie-js/react', async () => {
+  const React = await import('react');
+  const DocContext = React.createContext<{ doc: unknown } | undefined>(
+    undefined,
+  );
+  const doc = {
+    getKey: () => 'note-7',
+    subscribe: (_event: string, fn: (e: unknown) => void) => {
+      subscribers.push(fn);
+      return () => {
+        subscribers.splice(subscribers.indexOf(fn), 1);
+      };
     },
-  }),
-  // The durable provider watches for an attach the SDK refused for its own
-  // lock. No error here means it never fires, which is the case these cases
-  // are about.
-  useYorkie: () => ({ client: undefined, loading: false, error: undefined }),
-}));
+  };
+  return {
+    DocumentProvider: ({ children }: { children: React.ReactNode }) =>
+      React.createElement(DocContext.Provider, { value: { doc } }, children),
+    YorkieProvider: (props: Record<string, unknown>) => {
+      mounted.push(props);
+      return React.createElement(
+        React.Fragment,
+        null,
+        props.children as React.ReactNode,
+      );
+    },
+    useDocument: () => React.useContext(DocContext) ?? { doc: undefined },
+    // The durable provider watches for an attach the SDK refused for its own
+    // lock. `undefined` — the default for every case but one — means it never
+    // fires.
+    useYorkie: () => ({ client: undefined, loading: false, error: yorkieError }),
+  };
+});
 
 const me = { data: { id: 7, username: 'ada' } };
 vi.mock('@tanstack/react-query', () => ({
@@ -52,6 +73,7 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 import { CollabDocumentProvider } from '../collab-document-provider';
+import { NonDurableScope } from '@/lib/use-durable-document';
 import {
   setDurableLockForTest,
   resetElectionsForTest,
@@ -59,6 +81,8 @@ import {
 } from '@/lib/durable-session';
 import { setOfflinePersistenceEnabled } from '@/lib/offline-persistence-preference';
 import * as capabilities from '@/lib/yorkie-capabilities';
+import * as session from '@/lib/durable-session';
+import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 
 function fakeLocks(): DurableLock & { held: Set<string> } {
   const held = new Set<string>();
@@ -72,11 +96,15 @@ function fakeLocks(): DurableLock & { held: Set<string> } {
   };
 }
 
+let locks: ReturnType<typeof fakeLocks>;
+
 beforeEach(() => {
   mounted.length = 0;
   subscribers.length = 0;
+  yorkieError = undefined;
   vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(true);
-  setDurableLockForTest(fakeLocks());
+  locks = fakeLocks();
+  setDurableLockForTest(locks);
 });
 
 afterEach(() => {
@@ -145,6 +173,29 @@ describe('when it is not', () => {
     expect(mounted.length).toBe(1);
   });
 
+  it('never persists anything reached through a share link', async () => {
+    // Share routes mount their own `YorkieProvider` *above* this component,
+    // not instead of it, so the nesting excludes nothing on its own. The
+    // durable branch would give a signed-in visitor their own client,
+    // authenticated with their personal Yorkie token rather than the share
+    // token whose role and expiry the auth webhook validates — and would write
+    // the shared document to a disk the link's revocation cannot reach.
+    setOfflinePersistenceEnabled(true);
+    render(
+      <NonDurableScope>
+        <CollabDocumentProvider docKey="note-7" initialRoot={{}}>
+          <div data-testid="child" />
+        </CollabDocumentProvider>
+      </NonDurableScope>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('child')).toBeTruthy());
+    expect(mounted).toEqual([]);
+    // And no election was taken, so a tab that *can* persist this document
+    // still may.
+    expect(locks.held.size).toBe(0);
+  });
+
   it('stays on the ambient client when the build cannot carry a key', async () => {
     vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(false);
     setOfflinePersistenceEnabled(true);
@@ -197,5 +248,83 @@ describe('telling the store which removals are losses', () => {
     subscribers.forEach((fn) => fn({ value: { reason: 'epoch-reanchor' } }));
 
     expect(spy).toHaveBeenCalledWith('note-7');
+  });
+
+  it('subscribes from inside the DocumentProvider, not above it', async () => {
+    // The watch reads `useDocument()`. Mounted around the provider's children
+    // — which *are* the `DocumentProvider` — it sits above the context it
+    // needs and can only ever see no document, so nothing subscribes and no
+    // removal is ever recognised as a loss.
+    setOfflinePersistenceEnabled(true);
+    mount('note-7');
+
+    await waitFor(() => expect(mounted.length).toBe(1));
+    expect(subscribers.length).toBe(1);
+  });
+});
+
+describe('the cross-tab guard', () => {
+  it('builds the store with a liveness check that can see other tabs', async () => {
+    // Without it the store knows only what this instance has touched, while
+    // the ordering eviction and collection read is a shared database — so one
+    // tab's sweep deletes another tab's open document and every append after
+    // that silently goes nowhere.
+    const openElsewhere = vi
+      .spyOn(session, 'isOpenInAnyTab')
+      .mockResolvedValue(true);
+
+    setOfflinePersistenceEnabled(true);
+    mount('note-7');
+    await waitFor(() => expect(mounted.length).toBe(1));
+    const store = mounted[0].store as WafflebaseDocStore;
+
+    // An entry this instance never touched, aged past any cutoff, written
+    // through a second store over the same database — i.e. another tab's.
+    const other = new WafflebaseDocStore({
+      userId: '7',
+      dbName: store.databaseName,
+    });
+    await other.saveSnapshot('sheet-9', new Uint8Array([1, 2, 3]));
+    other.close();
+
+    await store.collectStale(0);
+
+    expect(openElsewhere).toHaveBeenCalledWith('sheet-9');
+    // And it was believed: the other tab's document is still there.
+    const reader = new WafflebaseDocStore({
+      userId: '7',
+      dbName: store.databaseName,
+    });
+    expect(await reader.load('sheet-9')).toBeDefined();
+    reader.close();
+  });
+});
+
+describe('when the SDK refuses the attach for its own lock', () => {
+  it('stands down so another tab can take the election', async () => {
+    // The app elects before the SDK's lock is reached, so this should not
+    // fire. It is the backstop for the race where the two disagree: holding
+    // the election while the attach is refused leaves this tab non-durable
+    // *and* every other tab refused, which is strictly worse than having lost
+    // the election in the first place.
+    yorkieError = { code: 'ErrDocumentOpenElsewhere' };
+    setOfflinePersistenceEnabled(true);
+    mount('note-7');
+
+    await waitFor(() => expect(mounted.length).toBe(1));
+    // The name is given back, so the next tab to ask wins it.
+    await waitFor(() => expect(locks.held.size).toBe(0));
+  });
+
+  it('keeps the election for any other attach failure', async () => {
+    // A failed attach for another reason is not a reason to give up an
+    // election that is doing its job.
+    yorkieError = { code: 'ErrClientNotActivated' };
+    setOfflinePersistenceEnabled(true);
+    mount('note-7');
+
+    await waitFor(() => expect(mounted.length).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(locks.held.size).toBe(1);
   });
 });

@@ -4,6 +4,7 @@ import { Loader } from "./components/loader";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMe, fetchYorkieToken } from "./api/auth";
 import { YorkieProvider } from "@yorkie-js/react";
+import { OfflineRuntime } from "./components/offline-runtime";
 
 /**
  * Guards routes that require authenticated access.
@@ -26,6 +27,12 @@ export const PrivateRoute = (): ReactElement => {
       metadata={{ userID: encodeURIComponent(me.username || "anonymous-user") }}
       authTokenInjector={fetchYorkieToken}
     >
+      {/* The offline feature's housekeeping — the erase-on-disable watcher,
+          the thirty-day sweep, and the offer of work that could not be
+          reconciled. Here because every one of those happens when no editor is
+          mounted, and this is the only place with both an identity and a
+          lifetime longer than one document. Renders nothing. */}
+      <OfflineRuntime userId={String(me.id)} />
       <Outlet />
     </YorkieProvider>
   ) : (

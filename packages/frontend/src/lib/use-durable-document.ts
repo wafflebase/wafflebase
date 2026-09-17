@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   acquireDurableSession,
   durableClientKey,
@@ -30,6 +38,34 @@ import { supportsClientKey } from "./yorkie-capabilities";
  */
 function isExcluded(docKey: string): boolean {
   return docKey.startsWith("pdf-");
+}
+
+/**
+ * Whether persisting is permitted at all in this part of the tree.
+ *
+ * Share links are excluded, and the exclusion has to be positional rather than
+ * key-derived: a share-link view of `sheet-7` has the same document key as its
+ * owner's, and only the route knows the difference. The design called this
+ * "structural" on the belief that share routes mount their own provider
+ * *instead of* `CollabDocumentProvider` — they do not, they mount one *above*
+ * it, so a signed-in visitor on somebody's share link would otherwise get the
+ * durable branch: their own `wb:{userId}:{docKey}` client, re-authenticated
+ * with their personal Yorkie token rather than the share token whose role and
+ * expiry the auth webhook validates, writing the shared document's content to
+ * their disk where it outlives the link's revocation.
+ *
+ * Defaults to permitted, so every owned editor is unchanged and only the
+ * routes that opt out have to say so.
+ */
+const DurabilityPermitted = createContext(true);
+
+/**
+ * Marks a subtree as never durable — one wrapper per route, above whatever it
+ * mounts, rather than a prop each of a route's five document types must
+ * remember to pass.
+ */
+export function NonDurableScope({ children }: { children: ReactNode }) {
+  return createElement(DurabilityPermitted.Provider, { value: false }, children);
 }
 
 export interface DurableDocument {
@@ -71,12 +107,17 @@ export function useDurableDocument({
   userId?: string;
 }): DurableDocument {
   const enabled = useOfflinePersistenceEnabled();
+  const permitted = useContext(DurabilityPermitted);
   // `supportsClientKey` is first because it is the one term that cannot change
   // at runtime: on a build whose provider cannot carry a client key, the store
   // would fill with entries no reload can use while the chip promised a
   // durability that does not survive one.
   const eligible =
-    supportsClientKey() && enabled && !!userId && !isExcluded(docKey);
+    supportsClientKey() &&
+    permitted &&
+    enabled &&
+    !!userId &&
+    !isExcluded(docKey);
 
   /**
    * What the decision below was made *for*.

@@ -1,9 +1,28 @@
 import "fake-indexeddb/auto";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Document } from "@yorkie-js/sdk";
+import yorkie, { Document, Text } from "@yorkie-js/sdk";
 
 const created: Array<{ title: string; type?: string }> = [];
 const applied: Array<{ docId: string; content: unknown }> = [];
+
+/** Note documents are seeded through a live client; this stands in for it. */
+const attached: Array<Document<{ content?: Text }>> = [];
+
+vi.mock("@yorkie-js/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@yorkie-js/sdk")>();
+  class FakeClient {
+    async activate() {}
+    async attach(doc: Document<{ content?: Text }>) {
+      attached.push(doc);
+    }
+    async detach() {}
+    isActive() {
+      return true;
+    }
+    async deactivate() {}
+  }
+  return { ...actual, Client: FakeClient };
+});
 
 vi.mock("@/api/documents", () => ({
   createDocument: (payload: { title: string; type?: string }) => {
@@ -19,9 +38,18 @@ vi.mock("@/app/documents/apply-imported-content", () => ({
   },
 }));
 
+vi.mock("@/api/auth", () => ({
+  fetchYorkieToken: () => Promise.resolve("token"),
+}));
+
+import { YorkieDocStore } from "@/app/docs/yorkie-doc-store";
+import type { YorkieDocsRoot } from "@/types/docs-document";
 import { WafflebaseDocStore } from "./wafflebase-doc-store";
 import { listRecoverableWork } from "./offline-copy";
-import { recoverOfflineCopy } from "./offline-copy-recovery";
+import {
+  describeArchivedDocument,
+  recoverOfflineCopy,
+} from "./offline-copy-recovery";
 
 /**
  * The last stage: archived bytes become a document the user can open.
@@ -72,9 +100,41 @@ async function archiveSheet(
   await store.remove(docKey);
 }
 
+/**
+ * Archives any document shape, with one edit made after the snapshot.
+ *
+ * The post-snapshot edit is the part that matters: the snapshot alone is the
+ * document as it stood *before* the unsent work, so a reader that dropped the
+ * replayed log would hand back precisely what the user did not lose.
+ */
+async function archiveDocument<R>(
+  store: WafflebaseDocStore,
+  docKey: string,
+  seed: (doc: Document<R>) => void,
+  edit: (doc: Document<R>) => void,
+): Promise<void> {
+  const doc = new Document<R>(docKey);
+  doc.setActor("000000000000000000000001");
+  seed(doc);
+  await store.saveSnapshot(docKey, doc.toBytes());
+
+  const before = doc.getPendingChangesAfter(0).length;
+  edit(doc);
+  for (const change of doc.getPendingChangesAfter(0).slice(before)) {
+    await store.appendChange(docKey, {
+      clientSeq: change.clientSeq,
+      bytes: new TextEncoder().encode(JSON.stringify(change.struct)),
+    });
+  }
+
+  store.expectLoss(docKey);
+  await store.remove(docKey);
+}
+
 beforeEach(() => {
   created.length = 0;
   applied.length = 0;
+  attached.length = 0;
 });
 
 afterEach(() => {
@@ -196,5 +256,234 @@ describe("handing the work back", () => {
 
     expect(outcome.refused).toBe("unreadable");
     expect(created).toEqual([]);
+  });
+});
+
+/**
+ * Every type has its own reader, and a wrong one does not throw.
+ *
+ * That is the whole reason these exist. The readers disagree about shape, not
+ * about validity — pointing the sheet reader at a docs root yields a plausible
+ * document that is not what the user wrote, handed back as the *last* copy of
+ * work the SDK has already dropped.
+ */
+describe("rebuilding each document type", () => {
+  it("rebuilds a docs document through the docs store", async () => {
+    const store = freshStore();
+    // Seeded through `YorkieDocStore` itself rather than by hand-building a
+    // Tree: the tree's node shape is the store's own private contract, and a
+    // fixture that guesses it tests the guess.
+    await archiveDocument<YorkieDocsRoot>(
+      store,
+      "doc-7",
+      (doc) => {
+        const writer = new YorkieDocStore(doc as never);
+        writer.setDocument({
+          blocks: [{ id: "b1", type: "paragraph", inlines: [{ text: "before", style: {} }] }],
+        });
+        writer.dispose();
+      },
+      (doc) => {
+        const writer = new YorkieDocStore(doc as never);
+        writer.setDocument({
+          blocks: [
+            { id: "b1", type: "paragraph", inlines: [{ text: "before offline", style: {} }] },
+          ],
+        });
+        writer.dispose();
+      },
+    );
+    const [work] = await listRecoverableWork(store);
+
+    const outcome = await recoverOfflineCopy(store, work, {
+      title: "Plan",
+      type: "doc",
+    });
+
+    expect(outcome.documentId).toBe("new-1");
+    expect(created[0].type).toBe("doc");
+    const content = applied[0].content as {
+      type: string;
+      document: { blocks: Array<{ inlines: Array<{ text?: string }> }> };
+    };
+    expect(content.type).toBe("doc");
+    // The post-snapshot edit is present, which is what proves the log was
+    // replayed rather than only the snapshot read.
+    expect(
+      content.document.blocks
+        .flatMap((block) => block.inlines.map((inline) => inline.text ?? ""))
+        .join(""),
+    ).toContain("offline");
+  });
+
+  it("rebuilds a slides document through the slides store", async () => {
+    const store = freshStore();
+    await archiveDocument<{
+      meta?: { title?: string };
+      slides?: Array<Record<string, unknown>>;
+    }>(
+      store,
+      "slides-7",
+      (doc) => doc.update((root) => {
+        root.meta = { title: "Deck" };
+        root.slides = [
+          { id: "s1", layoutId: "blank", background: {}, elements: [], notes: [] },
+        ];
+      }),
+      (doc) => doc.update((root) => {
+        root.slides!.push({
+          id: "s2",
+          layoutId: "blank",
+          background: {},
+          elements: [],
+          notes: [],
+        });
+      }),
+    );
+    const [work] = await listRecoverableWork(store);
+
+    const outcome = await recoverOfflineCopy(store, work, {
+      title: "Deck",
+      type: "slides",
+    });
+
+    expect(outcome.documentId).toBe("new-1");
+    expect(created[0].type).toBe("slides");
+    const content = applied[0].content as {
+      type: string;
+      document: { slides: Array<{ id: string }> };
+    };
+    expect(content.type).toBe("slides");
+    expect(content.document.slides.map((slide) => slide.id)).toEqual([
+      "s1",
+      "s2",
+    ]);
+  });
+
+  it("rebuilds a board document as the elements of its one slide", async () => {
+    const store = freshStore();
+    await archiveDocument<{
+      meta?: { title?: string };
+      elements?: Array<Record<string, unknown>>;
+    }>(
+      store,
+      "board-7",
+      (doc) => doc.update((root) => {
+        root.meta = { title: "Board" };
+        root.elements = [];
+      }),
+      (doc) => doc.update((root) => {
+        root.elements!.push({
+          id: "e1",
+          kind: "shape",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          rotation: 0,
+          data: { shape: "rect" },
+        });
+      }),
+    );
+    const [work] = await listRecoverableWork(store);
+
+    const outcome = await recoverOfflineCopy(store, work, {
+      title: "Board",
+      type: "board",
+    });
+
+    expect(outcome.documentId).toBe("new-1");
+    expect(created[0].type).toBe("board");
+    const content = applied[0].content as {
+      type: string;
+      elements: Array<{ id: string }>;
+    };
+    expect(content.type).toBe("board");
+    expect(content.elements.map((element) => element.id)).toEqual(["e1"]);
+  });
+
+  it("rebuilds a note as markdown written straight into a new note", async () => {
+    // A note is not an engine document — it is one Yorkie `Text` at
+    // `root.content` — so `applyImportedContent` has no branch for it and the
+    // caller seeds it with a single edit instead.
+    const store = freshStore();
+    await archiveDocument<{ content?: Text }>(
+      store,
+      "note-7",
+      (doc) => doc.update((root) => {
+        root.content = new yorkie.Text();
+        root.content.edit(0, 0, "# Title");
+      }),
+      (doc) => doc.update((root) => {
+        root.content!.edit(7, 7, "\n\ntyped offline");
+      }),
+    );
+    const [work] = await listRecoverableWork(store);
+
+    const outcome = await recoverOfflineCopy(store, work, {
+      title: "Ideas",
+      type: "note",
+    });
+
+    expect(outcome.documentId).toBe("new-1");
+    expect(created[0]).toEqual({ title: "Ideas (offline copy)", type: "note" });
+    // Notes bypass `applyImportedContent` entirely.
+    expect(applied).toEqual([]);
+    const seeded = attached[0].getRoot().content?.toString() ?? "";
+    expect(seeded).toContain("# Title");
+    expect(seeded).toContain("typed offline");
+  });
+
+  it("creates nothing for a note whose archive rebuilt empty", async () => {
+    // An empty document is not work to hand back, and creating one would fill
+    // the user's list with blank copies they then have to clean up.
+    const store = freshStore();
+    await archiveDocument<{ content?: Text }>(
+      store,
+      "note-8",
+      (doc) => doc.update((root) => {
+        root.content = new yorkie.Text();
+      }),
+      (doc) => doc.update((root) => {
+        root.content!.edit(0, 0, "");
+      }),
+    );
+    const [work] = await listRecoverableWork(store);
+
+    const outcome = await recoverOfflineCopy(store, work, {
+      title: "Ideas",
+      type: "note",
+    });
+
+    expect(outcome.refused).toBe("empty");
+    expect(created).toEqual([]);
+    expect(await listRecoverableWork(store)).not.toEqual([]);
+  });
+});
+
+describe("reading a type off an archived key", () => {
+  it("answers the document and its type for every persisted key shape", () => {
+    // Read off the key rather than fetched, because "the document was deleted
+    // upstream" is one of the three paths that produce an archive at all — so
+    // the server is exactly the thing that may no longer be able to answer.
+    expect(describeArchivedDocument("pk/wb:1:sheet-7/sheet-7")).toEqual({
+      id: "7",
+      type: "sheet",
+    });
+    expect(describeArchivedDocument("doc-abc")).toEqual({
+      id: "abc",
+      type: "doc",
+    });
+    expect(describeArchivedDocument("slides-abc")?.type).toBe("slides");
+    expect(describeArchivedDocument("board-abc")?.type).toBe("board");
+    expect(describeArchivedDocument("note-abc")?.type).toBe("note");
+  });
+
+  it("refuses a key it cannot read rather than guessing", () => {
+    // A guess writes the user's content into the wrong engine's shape, which
+    // does not throw — it produces a plausible document that is not theirs.
+    expect(describeArchivedDocument("pdf-7")).toBeUndefined();
+    expect(describeArchivedDocument("mystery")).toBeUndefined();
+    expect(describeArchivedDocument("sheet-")).toBeUndefined();
   });
 });

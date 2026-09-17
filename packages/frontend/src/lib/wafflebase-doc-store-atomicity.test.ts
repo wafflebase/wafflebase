@@ -128,3 +128,63 @@ describe("an entry that predates the header rule", () => {
     expect(await store.load("doc-a")).toBeUndefined();
   });
 });
+
+describe("a removal that fails part way", () => {
+  it("deletes nothing when the archive could not be written", async () => {
+    // The deletes and the archive `put` go into one transaction precisely so
+    // this cannot happen: committing the deletes alone would destroy the only
+    // copy of work the SDK has already given up on, which is the single worst
+    // outcome available to this store.
+    const store = freshStore();
+    await store.saveSnapshot("doc-a", new Uint8Array([1]));
+    await store.appendChange("doc-a", {
+      clientSeq: 1,
+      bytes: new Uint8Array([2]),
+    });
+
+    store.expectLoss("doc-a");
+    failPutOn("archives");
+    await expect(store.remove("doc-a")).rejects.toThrow();
+    vi.restoreAllMocks();
+
+    const stored = await store.load("doc-a");
+    expect(stored).toBeDefined();
+    expect(stored!.changes.map((c) => c.clientSeq)).toEqual([1]);
+    expect(await store.listArchives()).toEqual([]);
+  });
+
+  it("keeps the loss latch, so the retry still archives", async () => {
+    // The latch is the only thing that makes a removal an archive rather than
+    // a delete. Spending it before the commit turns a failed removal into a
+    // silent downgrade: the retry finds no latch and deletes outright.
+    const store = freshStore();
+    await store.saveSnapshot("doc-a", new Uint8Array([1]));
+
+    store.expectLoss("doc-a");
+    failPutOn("archives");
+    await expect(store.remove("doc-a")).rejects.toThrow();
+    vi.restoreAllMocks();
+
+    await store.remove("doc-a");
+
+    expect((await store.listArchives()).map((a) => a.docKey)).toEqual([
+      "doc-a",
+    ]);
+    expect(await store.load("doc-a")).toBeUndefined();
+  });
+
+  it("spends the latch once the removal has committed", async () => {
+    // The other half: a document removed as a loss and then opened, edited and
+    // closed normally must not archive a second time. Archiving every close is
+    // what makes the archive mean "everything you ever closed".
+    const store = freshStore();
+    await store.saveSnapshot("doc-a", new Uint8Array([1]));
+    store.expectLoss("doc-a");
+    await store.remove("doc-a");
+
+    await store.saveSnapshot("doc-a", new Uint8Array([2]));
+    await store.remove("doc-a");
+
+    expect(await store.listArchives()).toHaveLength(1);
+  });
+});

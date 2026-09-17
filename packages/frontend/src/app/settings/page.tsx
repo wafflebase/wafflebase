@@ -17,6 +17,10 @@ import {
   useDateFormat,
   type DateDisplayFormat,
 } from "@/lib/date-format-preference";
+import {
+  setOfflinePersistenceEnabled,
+  useOfflinePersistenceEnabled,
+} from "@/lib/offline-persistence-preference";
 
 /**
  * Renders the application settings page.
@@ -24,6 +28,7 @@ import {
 export default function Settings() {
   const { theme, setTheme } = useContext(ThemeProviderContext);
   const dateFormat = useDateFormat();
+  const offlineEnabled = useOfflinePersistenceEnabled();
 
   const handleThemeToggle = () => {
     setTheme(theme === "dark" ? "light" : "dark");
@@ -82,6 +87,32 @@ export default function Settings() {
               </SelectItem>
             </SelectContent>
           </Select>
+        </div>
+      </section>
+
+      {/* Per device, deliberately, and the copy says so: persisting writes
+          document content to whatever machine the user is on, where it
+          outlives the session. An account-level setting would follow them onto
+          a shared machine and re-enable there, which is the case this toggle
+          exists to prevent (docs/design/offline-local-persistence.md). */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Offline</h2>
+        <div className="flex items-center justify-between gap-4 rounded-md border p-4">
+          <div>
+            <label htmlFor="offline-switch" className="text-sm font-medium">
+              Save documents on this device
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Keeps edits that have not reached the server on this device, so
+              they survive a reload or a crash while you are offline. Applies to
+              this device only, and turning it off deletes what was stored.
+            </p>
+          </div>
+          <Switch
+            id="offline-switch"
+            checked={offlineEnabled}
+            onCheckedChange={setOfflinePersistenceEnabled}
+          />
         </div>
       </section>
     </div>

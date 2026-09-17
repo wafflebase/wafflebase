@@ -666,42 +666,58 @@ export class WafflebaseDocStore implements DocStore {
       [SNAPSHOTS, HEADERS, CHANGES, ARCHIVES],
       "readwrite",
     );
-    const snapshots = tx.objectStore(SNAPSHOTS);
-    const headers = tx.objectStore(HEADERS);
-    const changes = tx.objectStore(CHANGES);
 
-    const [record, header, changeRows] = await Promise.all([
-      requested<SnapshotRecord | undefined>(snapshots.get(docKey)),
-      requested<HeaderRecord | undefined>(headers.get(docKey)),
-      requested<Array<ChangeRecord>>(
-        changes.getAll(WafflebaseDocStore.rangeFor(docKey)),
-      ),
-    ]);
+    // Read, never consumed here. The latch is the only thing that makes this
+    // removal an archive rather than a delete, so spending it before the
+    // transaction commits would turn a torn or aborted removal into a silent
+    // downgrade: the retry would find no latch, delete the entry outright, and
+    // the work the user could not reconcile would be gone with nothing kept.
+    // It is cleared below, once the commit has actually happened.
+    const documentKey = documentKeyOf(docKey);
+    const losing = this.expectedLosses.has(documentKey);
 
-    const losing = this.expectedLosses.delete(documentKeyOf(docKey));
-    if (record && losing) {
-      const archive: ArchiveRecord = {
-        docKey,
-        snapshot: record.snapshot,
-        meta: header?.meta,
-        changes: changeRows
-          .sort((a, b) => a.clientSeq - b.clientSeq)
-          .map((row) => ({ clientSeq: row.clientSeq, bytes: row.bytes })),
-        archivedAt: this.now(),
-        userId: header?.userId ?? this.userId,
-      };
-      tx.objectStore(ARCHIVES).put(archive);
-    }
+    // `atomically` for the same reason every other writer here uses it: this
+    // issues an archive `put` and three deletes into one transaction, and a
+    // throw between them unwinds the async function without touching the
+    // transaction — IndexedDB then commits whatever was already issued, which
+    // is how a delete lands with no archive beside it.
+    await WafflebaseDocStore.atomically(tx, async () => {
+      const snapshots = tx.objectStore(SNAPSHOTS);
+      const headers = tx.objectStore(HEADERS);
+      const changes = tx.objectStore(CHANGES);
 
-    // Unconditionally, not gated on the snapshot: a header without one is a
-    // shape a torn write can produce, and gating would leave it behind for a
-    // `load` that answers on the snapshot alone and a cleanup that walks
-    // headers — invisible and uncollectable at once.
-    snapshots.delete(docKey);
-    headers.delete(docKey);
-    changes.delete(WafflebaseDocStore.rangeFor(docKey));
+      const [record, header, changeRows] = await Promise.all([
+        requested<SnapshotRecord | undefined>(snapshots.get(docKey)),
+        requested<HeaderRecord | undefined>(headers.get(docKey)),
+        requested<Array<ChangeRecord>>(
+          changes.getAll(WafflebaseDocStore.rangeFor(docKey)),
+        ),
+      ]);
 
-    await WafflebaseDocStore.completed(tx);
+      if (record && losing) {
+        const archive: ArchiveRecord = {
+          docKey,
+          snapshot: record.snapshot,
+          meta: header?.meta,
+          changes: changeRows
+            .sort((a, b) => a.clientSeq - b.clientSeq)
+            .map((row) => ({ clientSeq: row.clientSeq, bytes: row.bytes })),
+          archivedAt: this.now(),
+          userId: header?.userId ?? this.userId,
+        };
+        tx.objectStore(ARCHIVES).put(archive);
+      }
+
+      // Unconditionally, not gated on the snapshot: a header without one is a
+      // shape a torn write can produce, and gating would leave it behind for a
+      // `load` that answers on the snapshot alone and a cleanup that walks
+      // headers — invisible and uncollectable at once.
+      snapshots.delete(docKey);
+      headers.delete(docKey);
+      changes.delete(WafflebaseDocStore.rangeFor(docKey));
+    });
+
+    this.expectedLosses.delete(documentKey);
     this.touched.delete(docKey);
   }
 
@@ -722,6 +738,37 @@ export class WafflebaseDocStore implements DocStore {
     tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
     await WafflebaseDocStore.completed(tx);
     this.touched.delete(docKey);
+  }
+
+  /**
+   * `purgeDocument` drops every entry **this user** holds for one document —
+   * the document was deleted, or access to it was lost, and its content must
+   * not outlive the authority to read it.
+   *
+   * Matched on the document key rather than the SDK's full store key, because
+   * the caller knows a document id and the stored key is
+   * `apiKey/clientKey/docKey` with a type-prefixed `docKey` (`sheet-<id>`).
+   * Both spellings are accepted so a caller may pass either.
+   *
+   * Archives are deliberately left alone. "The document was deleted upstream"
+   * is one of the three paths the SDK reports as `LocalChangesDropped`, so an
+   * archive for it is precisely the unsent work this feature promises to hand
+   * back — deleting it here would erase the user's own edits in the name of
+   * cleaning up somebody else's deletion.
+   */
+  public async purgeDocument(documentId: string): Promise<number> {
+    const keys = await this.headerKeysWhere(
+      BY_USER,
+      IDBKeyRange.only(this.userId),
+    );
+    const matching = keys.filter((key) => {
+      const docKey = documentKeyOf(key);
+      return docKey === documentId || docKey.endsWith(`-${documentId}`);
+    });
+    for (const key of matching) {
+      await this.purge(key);
+    }
+    return matching.length;
   }
 
   /**
@@ -978,12 +1025,22 @@ export class WafflebaseDocStore implements DocStore {
    * the document is saved. Entries from earlier sessions are the safe ones.
    */
   private async evictOldest(exceptDocKey: string): Promise<boolean> {
+    // Only this user's entries are ours to free. The database is per origin,
+    // and on a device two accounts share, the `updatedAt` index spans both —
+    // so an unscoped scan makes one person's edit delete the other's unsent
+    // work, the exact harm `dropAllForUser` and `listArchives` are careful to
+    // avoid. Keys on both sides, so scoping still materializes no snapshot,
+    // which matters most here: eviction runs when the origin is already full.
+    const mine = new Set(
+      await this.headerKeysWhere(BY_USER, IDBKeyRange.only(this.userId)),
+    );
     const candidates = await this.headerKeysWhere(
       BY_UPDATED_AT,
       IDBKeyRange.lowerBound(-Infinity),
     );
     let victim: string | undefined;
     for (const docKey of candidates) {
+      if (!mine.has(docKey)) continue;
       if (docKey === exceptDocKey) continue;
       if (await this.isLive(docKey)) continue;
       victim = docKey;

@@ -1,6 +1,7 @@
 import { User } from "@/types/users";
 import { toast } from "sonner";
 import { createSingleFlightRunner } from "./single-flight";
+import { eraseOfflineDataOnLogout } from "@/lib/offline-erase";
 
 export class AuthExpiredError extends Error {
   constructor() {
@@ -95,6 +96,13 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
       throw error;
     }
   }
+
+  // Offline persistence writes document content to this device's disk, and
+  // signing out is where it must stop outliving the session — the whole point
+  // of the setting being per device is that the device may be shared. Awaited
+  // before the redirect so the erase is not raced by the page unloading, and
+  // never able to fail the sign-out itself.
+  await eraseOfflineDataOnLogout();
 
   if (res && !res.ok && !suppressFailure) {
     throw new Error("Failed to log out");

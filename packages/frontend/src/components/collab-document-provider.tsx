@@ -2,9 +2,12 @@ import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DocumentProvider, useDocument } from '@yorkie-js/react';
 import type { Indexable } from '@yorkie-js/sdk';
-import { fetchMe, fetchYorkieToken } from '@/api/auth';
+import { fetchMeOptional, fetchYorkieToken } from '@/api/auth';
 import { useDurableDocument } from '@/lib/use-durable-document';
-import { DurableYorkieProvider } from '@/components/durable-yorkie-provider';
+import {
+  DurableLossWatch,
+  DurableYorkieProvider,
+} from '@/components/durable-yorkie-provider';
 
 /**
  * `DocumentProvider` with `initialPresence` made reliable.
@@ -134,15 +137,25 @@ function PresenceIdentityRepair<P extends Indexable>({
  * declines it — no second `ActivateClient`, no new identity, no behavior to
  * regress. Design: `docs/design/offline-local-persistence.md`.
  *
- * No route file changes, and none are wanted: the PDF exclusion is derived
- * from the `docKey` prefix this component already receives, and
- * `shared-document.tsx` mounts its own provider, so anonymous share links are
- * excluded structurally rather than by a condition somebody has to remember.
+ * The PDF exclusion is derived from the `docKey` prefix this component already
+ * receives. Share links need one line at their route instead: they mount their
+ * own `YorkieProvider` *above* this component rather than instead of it, so
+ * they are not excluded by the nesting the way the design first claimed —
+ * `shared-document.tsx` wraps itself in `NonDurableScope`, and the reasoning
+ * is recorded there.
  *
  * One cost worth naming: deciding this needs to know who is signed in, so this
  * component now requires a `QueryClientProvider` above it. The app mounts one
  * at its root, but a test that renders an editor in isolation has to supply
  * one — three existing suites needed it when this landed.
+ *
+ * It asks with `fetchMeOptional`, never `fetchMe`. This renders on the public
+ * `/shared/:token` route, where there is usually nobody signed in, and
+ * `fetchMe` goes through `fetchWithAuth` — whose 401 arm logs the session out
+ * and hard-redirects to `/login`. Asking the mandatory question here would
+ * therefore bounce every anonymous share-link visitor off the document they
+ * were sent. `["me", "optional"]` is the key the share route already reads
+ * under, so on that route this costs no extra request.
  */
 export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   initialPresence,
@@ -150,8 +163,8 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   ...rest
 }: Parameters<typeof DocumentProvider<R, P>>[0]) {
   const { data: me } = useQuery({
-    queryKey: ['me'],
-    queryFn: fetchMe,
+    queryKey: ['me', 'optional'],
+    queryFn: fetchMeOptional,
     retry: false,
   });
   const docKey = (rest as { docKey: string }).docKey;
@@ -163,6 +176,11 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   const inner = (
     <DocumentProvider<R, P> initialPresence={initialPresence} {...rest}>
       <PresenceIdentityRepair<P> initialPresence={initialPresence} />
+      {/* Inside the `DocumentProvider`, because it reads `useDocument()`. It
+          is a no-op unless a durable client is mounted above, which is what
+          lets it be rendered unconditionally from here — the one place that is
+          inside both providers. */}
+      <DurableLossWatch />
       {children}
     </DocumentProvider>
   );

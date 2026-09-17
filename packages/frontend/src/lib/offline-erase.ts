@@ -31,6 +31,84 @@ export async function eraseOfflineData(
 }
 
 /**
+ * Who the erase on sign-out is for.
+ *
+ * Logout is the one cleanup trigger with no identity of its own to work from:
+ * `logout()` clears the session cookie and knows nothing about the user it just
+ * signed out, and by the time anything could ask, `/auth/me` answers 401. So
+ * the authenticated shell records the identity while it has one, and logout
+ * spends it.
+ *
+ * Module state rather than a React ref because the caller is `api/auth.ts`,
+ * which is reached from outside the tree — including from `fetchWithAuth`'s
+ * 401 arm, where no component is in a position to run anything.
+ */
+let signedInUserId: string | undefined;
+
+/** Records who is signed in, for {@link eraseOfflineDataOnLogout}. */
+export function rememberOfflineUser(userId: string | undefined): void {
+  signedInUserId = userId;
+}
+
+/**
+ * Erases the signed-in user's local documents, for logout to call.
+ *
+ * Runs whatever the preference says. The preference decides whether new
+ * content is written; it says nothing about content written while it was on,
+ * and leaving a signed-out account's documents on a shared machine because the
+ * toggle has since been flipped would be the worst reading of it.
+ *
+ * Never throws, and never blocks the sign-out: a logout that failed because a
+ * database would not open is a worse outcome than one that left a cleanup for
+ * the thirty-day sweep.
+ */
+export async function eraseOfflineDataOnLogout(): Promise<void> {
+  const who = signedInUserId;
+  signedInUserId = undefined;
+  if (!who) {
+    return;
+  }
+  const store = new WafflebaseDocStore({ userId: who });
+  try {
+    await eraseOfflineData(store, who);
+  } catch (err) {
+    console.warn("[offline] could not erase local documents on logout:", err);
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * Drops whatever this device holds for documents that are gone.
+ *
+ * The other half of the design's cleanup table: content must not outlive the
+ * authority to read it, and a deleted document is the clearest case of losing
+ * that authority. Archives are deliberately spared — see
+ * `WafflebaseDocStore.purgeDocument`.
+ *
+ * Silent and best effort. This is called after a delete the server has already
+ * accepted, so failing it would report a successful deletion as an error.
+ */
+export async function purgeOfflineDocuments(
+  documentIds: Array<string>,
+): Promise<void> {
+  const who = signedInUserId;
+  if (!who || documentIds.length === 0) {
+    return;
+  }
+  const store = new WafflebaseDocStore({ userId: who });
+  try {
+    for (const id of documentIds) {
+      await store.purgeDocument(id);
+    }
+  } catch (err) {
+    console.warn("[offline] could not drop local copies of a document:", err);
+  } finally {
+    store.close();
+  }
+}
+
+/**
  * Erases when the preference is switched off, for as long as the returned
  * function is not called.
  *

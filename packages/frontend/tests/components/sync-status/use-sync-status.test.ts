@@ -12,7 +12,10 @@ vi.mock('@yorkie-js/react', () => ({
   useDocument: () => mockCtx,
 }));
 
+import { createElement } from 'react';
 import { useSyncStatus } from '@/components/sync-status/use-sync-status';
+import { DurableDocumentScope } from '@/lib/durable-document-context';
+import type { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 
 type DocEvent = { type: string; value: unknown };
 
@@ -394,5 +397,66 @@ describe('useSyncStatus', () => {
     const { result } = renderHook(() => useSyncStatus());
 
     expect(result.current.state).toBe('saved');
+  });
+});
+
+describe('useSyncStatus under a durable client', () => {
+  it('passes durability through, so the chip can reach saved-locally', () => {
+    // The pure state machine has had `saved-locally` since W3; what was
+    // missing was anyone supplying `durable`, which left the state
+    // unreachable from the app and a durable document still reporting the
+    // destructive "Not saved".
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { result } = renderHook(() => useSyncStatus(), {
+      wrapper: ({ children }) =>
+        createElement(
+          DurableDocumentScope,
+          {
+            value: {
+              store: {} as WafflebaseDocStore,
+              durable: true,
+              reportLoss: () => {},
+            },
+          },
+          children,
+        ),
+    });
+
+    act(() => {
+      doc.type();
+    });
+
+    expect(result.current.state).toBe('saved-locally');
+  });
+
+  it('still reports not-saved once the durable client says the work was dropped', () => {
+    // `durable` is the chip's promise, not the client's existence. Once the
+    // SDK has given up on the local work, promising it is on disk would be the
+    // one direction this feature must never fail in.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { result } = renderHook(() => useSyncStatus(), {
+      wrapper: ({ children }) =>
+        createElement(
+          DurableDocumentScope,
+          {
+            value: {
+              store: {} as WafflebaseDocStore,
+              durable: false,
+              reportLoss: () => {},
+            },
+          },
+          children,
+        ),
+    });
+
+    act(() => {
+      doc.type();
+    });
+
+    expect(result.current.state).toBe('not-saved');
   });
 });

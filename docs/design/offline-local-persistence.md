@@ -227,11 +227,31 @@ used exactly as today.
 editor passes through — it exists to repair `initialPresence`, and all five
 detail routes plus `files/pdf-collab.tsx` render it — so it nests a
 `YorkieProvider` inside itself *when persistence applies*, and renders its
-children unchanged when it does not. No route file changes: the PDF exclusion
-above is derived from the `docKey` prefix the provider already receives
-(`pdf-`), not from a new prop threaded through the call sites.
-`shared-document.tsx` mounts its own provider and is therefore excluded
-structurally, without a conditional.
+children unchanged when it does not. The PDF exclusion above is derived from
+the `docKey` prefix the provider already receives (`pdf-`), not from a new prop
+threaded through the call sites.
+
+Share links need one line at their route. An earlier draft of this document
+claimed they were "excluded structurally" because `shared-document.tsx` mounts
+its own provider — it does, but **above** `CollabDocumentProvider` rather than
+instead of it, so the nesting excludes nothing. For an *anonymous* visitor the
+missing identity happened to refuse the durable branch anyway; for a
+**signed-in** visitor on somebody else's share link it did not, and they would
+have been given their own `wb:{userId}:{docKey}` client authenticating with
+their personal Yorkie token instead of the share token whose role and expiry
+the auth webhook validates — while writing the shared document to a disk the
+link's revocation cannot reach.
+
+The refusal is therefore positional, because nothing else can express it: a
+share view of `sheet-7` carries the same document key as its owner's view.
+`shared-document.tsx` wraps itself in a `NonDurableScope`, a context the
+decision hook reads, so the whole route opts out once rather than each of its
+five document types remembering a prop.
+
+For the same reason, the provider asks who is signed in with `fetchMeOptional`
+and never `fetchMe`: it renders on the public `/shared/:token` route, and
+`fetchMe` goes through `fetchWithAuth`, whose 401 arm logs the session out and
+hard-redirects to `/login`.
 
 Keeping the non-persisting path on the ambient client is what makes the opt-in
 free for everyone who declines it: no second `ActivateClient`, no new identity,

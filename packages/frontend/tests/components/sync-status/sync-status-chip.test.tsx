@@ -24,6 +24,8 @@ import {
   hasUnsavedWork,
   resetUnsavedWorkProbes,
 } from '@/lib/unsaved-work';
+import { DurableDocumentScope } from '@/lib/durable-document-context';
+import type { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 type DocEvent = { type: string; value: unknown };
@@ -80,6 +82,30 @@ function renderChip() {
   return render(
     <TooltipProvider>
       <SyncStatusChip />
+    </TooltipProvider>,
+  );
+}
+
+/**
+ * The chip under a durable client — the one thing this feature changes.
+ *
+ * The provider publishes durability through context, which is the seam the
+ * chip reads; supplying it here is what lets these cases ask whether the state
+ * actually reaches the user rather than only whether the pure function can
+ * compute it.
+ */
+function renderDurableChip() {
+  return render(
+    <TooltipProvider>
+      <DurableDocumentScope
+        value={{
+          store: {} as WafflebaseDocStore,
+          durable: true,
+          reportLoss: () => {},
+        }}
+      >
+        <SyncStatusChip />
+      </DurableDocumentScope>
     </TooltipProvider>,
   );
 }
@@ -446,5 +472,76 @@ describe('SyncStatusChip unsaved-work probe', () => {
     unmount();
 
     expect(hasUnsavedWork()).toBe(false);
+  });
+});
+
+describe('SyncStatusChip on a durable document', () => {
+  it('reports the work as saved to this device instead of not saved', () => {
+    // The entire user-facing value of offline persistence: the same situation
+    // drops from destructive to muted, because the pending work is on disk.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { container } = renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(screen.getByText('Saved to this device')).toBeTruthy();
+    expect(screen.queryByText('Not saved')).toBeNull();
+    // And it is not dressed as an alarm — no destructive colouring, since
+    // nothing is about to be lost.
+    expect(
+      container.querySelector('[role="status"]')?.className ?? '',
+    ).not.toMatch(/destructive/);
+  });
+
+  it('announces politely rather than interrupting a screen reader', () => {
+    // `assertive` is reserved for the one state where closing the tab destroys
+    // work. This is not it, and announcing it as if it were would make the
+    // urgent case indistinguishable from the safe one.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { container } = renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(
+      container.querySelector('[role="status"]')?.getAttribute('aria-live'),
+    ).toBe('polite');
+  });
+
+  it('neither warns nor guards the unload', () => {
+    // Deliberate, and the reason the state exists: closing the tab no longer
+    // ends these edits, so interrupting the user would be a false alarm.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(warning).not.toHaveBeenCalled();
+    expect(unloadGuards()).toBe(0);
+  });
+
+  it('still says Saving while the push is in flight', () => {
+    // Durability changes the stranded row and nothing else: connected with
+    // work outstanding is still on its way to the server.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+
+    const { container } = renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(container.textContent).toContain('Saving');
   });
 });

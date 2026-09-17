@@ -70,6 +70,7 @@ import {
   type ZoomController,
 } from "@/app/slides/zoom-controller";
 import { CollabDocumentProvider } from "@/components/collab-document-provider";
+import { NonDurableScope } from "@/lib/use-durable-document";
 import {
   Sheet,
   SheetContent,
@@ -1004,12 +1005,24 @@ function SharedDocumentInner({
       : `sheet-${resolved.documentId}`;
 
   return (
-    <YorkieProvider
-      rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
-      apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
-      metadata={{ userID: presence.username }}
-      authTokenInjector={token ? () => fetchYorkieShareToken(token) : undefined}
-    >
+    // Nothing reached through a share link is persisted locally, and the
+    // refusal is positional because nothing else can express it: a share view
+    // of `sheet-7` carries the same document key as its owner's view, so no
+    // key-derived rule can tell them apart. Two reasons, and either alone
+    // would be enough. The client here authenticates with the *share* token,
+    // whose role and expiry the Yorkie auth webhook validates; the durable
+    // branch would mount its own client with the signed-in visitor's personal
+    // token instead. And a share link is a capability that can be revoked,
+    // while a document written to disk is not.
+    <NonDurableScope>
+      <YorkieProvider
+        rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
+        apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
+        metadata={{ userID: presence.username }}
+        authTokenInjector={
+          token ? () => fetchYorkieShareToken(token) : undefined
+        }
+      >
       {resolved.type === "doc" ? (
         <CollabDocumentProvider<YorkieDocsRoot>
           docKey={docKey}
@@ -1076,7 +1089,8 @@ function SharedDocumentInner({
           <SharedDocumentLayout resolved={resolved} />
         </CollabDocumentProvider>
       )}
-    </YorkieProvider>
+      </YorkieProvider>
+    </NonDurableScope>
   );
 }
 

@@ -45,11 +45,11 @@ something corrupt), it just has nothing to convert.
 
 In:
 
-- [ ] `lib/wafflebase-doc-store.ts` — `DocStore` over IndexedDB, gzip-compressed
-- [ ] Cleanup: `dropAllForUser`, `dropDocument`, `collectStale`, quota eviction
-- [ ] `remove()` archives before deleting, so W5 can return the work
-- [ ] The contract suite, run against both this store and `MemoryDocStore`
-- [ ] `fake-indexeddb` as a devDependency — jsdom has no IndexedDB
+- [x] `lib/wafflebase-doc-store.ts` — `DocStore` over IndexedDB, gzip-compressed
+- [x] Cleanup: `dropAllForUser`, `dropDocument`, `collectStale`, quota eviction
+- [x] `remove()` archives before deleting, so W5 can return the work
+- [x] The contract suite, run against both this store and `MemoryDocStore`
+- [x] `fake-indexeddb` as a devDependency — jsdom has no IndexedDB
 
 Out:
 
@@ -87,14 +87,18 @@ noted here so it is a deferred decision rather than a forgotten one.
 
 ## Task 1: the contract suite and a store that fails it
 
-**Files:** create
-`packages/frontend/src/lib/doc-store-contract.test.ts`,
+**Files:** created as
+`packages/frontend/src/lib/doc-store-contract.ts` (**not** `-contract.test.ts`
+as planned: the cases are a parameterized `testDocStoreContract()` two suites
+call, and a `*.test.ts` file with no `describe` of its own at import time is a
+failure in this runner), plus
+`packages/frontend/src/lib/wafflebase-doc-store.test.ts` which invokes it, and
 `packages/frontend/src/lib/wafflebase-doc-store.ts`
 
-- [ ] **1.1** Add `fake-indexeddb` to `packages/frontend` devDependencies and
+- [x] **1.1** Add `fake-indexeddb` to `packages/frontend` devDependencies and
       import `fake-indexeddb/auto` from the test file. jsdom provides no
       IndexedDB at all, so without it every case errors rather than fails.
-- [ ] **1.2** Write the contract cases, transcribed from the SDK's
+- [x] **1.2** Write the contract cases, transcribed from the SDK's
       `test/unit/client/doc_store_contract.ts` at the 0.7.22 tag, with a header
       naming that path and tag. The rules it asserts:
 
@@ -108,11 +112,11 @@ noted here so it is a deferred decision rather than a forgotten one.
   - `remove` makes `load` resolve `undefined`
   - changes come back ordered by `clientSeq`, whatever order they went in
 
-- [ ] **1.3** Run both parameterizations. `MemoryDocStore` passes (it is the
+- [x] **1.3** Run both parameterizations. `MemoryDocStore` passes (it is the
       reference); `WafflebaseDocStore` fails on import — the module does not
       exist. That asymmetry is the point: it proves the suite is a real
       contract and not a restatement of whatever we are about to write.
-- [ ] **1.4** Implement `WafflebaseDocStore`:
+- [x] **1.4** Implement `WafflebaseDocStore`:
 
   - One database, one entry per SDK-supplied scoped key
     (`apiKey/clientKey/docKey` — already identity-scoped, so a shared device
@@ -124,12 +128,12 @@ noted here so it is a deferred decision rather than a forgotten one.
     `DecompressionStream` on the way out. A browser built-in, so no dependency,
     and the SDK stays out of it because `DocStore` takes opaque bytes.
 
-- [ ] **1.5** Run the suite. Both parameterizations pass.
-- [ ] **1.6** Verify the suite bites: break one rule in the implementation
+- [x] **1.5** Run the suite. Both parameterizations pass.
+- [x] **1.6** Verify the suite bites: break one rule in the implementation
       (make `saveSnapshot` keep the log) and confirm the matching case fails
       for `WafflebaseDocStore` and still passes for `MemoryDocStore`. Restore.
-- [ ] **1.7** `pnpm verify:fast`
-- [ ] **1.8** Commit: `Store offline documents in a compressed IndexedDB store`
+- [x] **1.7** `pnpm verify:fast`
+- [x] **1.8** Commit: `Store offline documents in a compressed IndexedDB store`
 
 ## Task 2: cleanup, which is entirely ours
 
@@ -150,17 +154,17 @@ is still ours to collect.
 | Periodic | Drop entries untouched for 30 days (`updatedAt` beside the envelope) |
 | `QuotaExceededError` | Evict oldest-first, retry once, then report undurable |
 
-- [ ] **2.1** Write the failing tests, one per row. The quota case is the one
+- [x] **2.1** Write the failing tests, one per row. The quota case is the one
       worth care: assert that a write which first throws `QuotaExceededError`
       and then succeeds leaves the *newest* entry stored and an older one gone
       — not merely that eviction was attempted.
-- [ ] **2.2** Run them. Expect failure.
-- [ ] **2.3** Implement. Eviction orders by `updatedAt`, and the retry happens
+- [x] **2.2** Run them. Expect failure.
+- [x] **2.3** Implement. Eviction orders by `updatedAt`, and the retry happens
       once: a store that never accepts a write must report undurable rather
       than loop.
-- [ ] **2.4** Run. Expect pass.
-- [ ] **2.5** `pnpm verify:fast`
-- [ ] **2.6** Commit: `Collect offline entries the SDK will never collect`
+- [x] **2.4** Run. Expect pass.
+- [x] **2.5** `pnpm verify:fast`
+- [x] **2.6** Commit: `Collect offline entries the SDK will never collect`
 
 ## Task 3: archive on remove, so W5 has something to return
 
@@ -171,33 +175,54 @@ cannot be reconciled. Deleting there is what loses the work W5 exists to give
 back, so the archive has to be written by this PR even though nothing reads it
 until W5.
 
-- [ ] **3.1** Write the failing test: after `remove(key)`, `load(key)` is
+- [x] **3.1** Write the failing test: after `remove(key)`, `load(key)` is
       `undefined` **and** the archived bytes are retrievable by a separate
       call, with the doc key and a timestamp.
-- [ ] **3.2** Run it. Expect failure.
-- [ ] **3.3** Implement: copy the snapshot (and log) into an `archives` store
+- [x] **3.2** Run it. Expect failure.
+- [x] **3.3** Implement: copy the snapshot (and log) into an `archives` store
       inside the same transaction as the delete, so a crash between them cannot
       lose the only copy.
-- [ ] **3.4** Run. Expect pass.
-- [ ] **3.5** Confirm archives are subject to the same 30-day collection as
+- [x] **3.4** Run. Expect pass.
+- [x] **3.5** Confirm archives are subject to the same 30-day collection as
       live entries — an unbounded archive store is a quota leak that looks
       like a feature.
-- [ ] **3.6** `pnpm verify:fast`
-- [ ] **3.7** Commit: `Archive an entry before removing it, for offline copies`
+- [x] **3.6** `pnpm verify:fast`
+- [x] **3.7** Commit: `Archive an entry before removing it, for offline copies`
 
 ## Verification
 
-- [ ] `pnpm verify:fast` green, `pnpm verify:self` green (pre-push), CI green
-- [ ] Nothing imports `wafflebase-doc-store` outside its own tests —
-      `rg -l wafflebase-doc-store packages/frontend/src` lists only the module
-      and the two test files
-- [ ] Every contract case passes against `MemoryDocStore` as well, from the
+- [x] `pnpm verify:fast` green, `pnpm verify:self` green (pre-push), CI green
+- [ ] ~~Nothing imports `wafflebase-doc-store` outside its own tests~~ —
+      true when this PR was written and **no longer true**: W3–W5 landed on the
+      same branch, so the provider, the runtime and the erase paths all
+      construct it. Kept rather than deleted because the claim is what the
+      original scope promised, and a reader comparing the two should see that
+      it moved rather than that it held
+- [x] Every contract case passes against `MemoryDocStore` as well, from the
       `@yorkie-js/sdk` version in `package.json`
-- [ ] At least one test asserts on a whole round-tripped document rather than a
+- [x] At least one test asserts on a whole round-tripped document rather than a
       field, and at least one uses a *relative* edit — W1's lessons file
       records why absolute `set`s hid a data-loss bug through two SDK review
       passes
 
 ## Review
 
-_Filled in when the PR lands._
+Landed on the `w1/offline-opt-in` branch together with W3–W5 rather than as
+its own PR, which is why every box above is checked while the branch was still
+open. What the review round asked for, and what changed in this file's code:
+
+- **Eviction was not scoped to the user.** `evictOldest` walked the `updatedAt`
+  index over every header row in the origin database, so on a shared device one
+  account's edit could free space by deleting another's unsent work. Now
+  intersected with the `userId` index, keys on both sides so the scoping still
+  materializes no snapshot.
+- **`remove()` was not atomic, and spent its loss latch too early.** It issued
+  the archive `put` and three deletes outside `atomically`, so a throw between
+  them committed the deletes alone — destroying the only copy of work the SDK
+  had already given up on — and it consumed `expectedLosses` *before* the
+  commit, so a retried removal deleted outright. Both fixed; three cases in
+  `wafflebase-doc-store-atomicity.test.ts` cover them.
+- **`purgeDocument`** was added for the cleanup table's "document deleted or
+  access lost" row, matching on the type-prefixed document key inside the SDK's
+  scoped key. Archives are deliberately spared: "deleted upstream" is one of the
+  three paths that produce an archive in the first place.

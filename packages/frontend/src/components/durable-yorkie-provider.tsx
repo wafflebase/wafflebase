@@ -1,6 +1,16 @@
-import { useEffect, useMemo, type PropsWithChildren } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type PropsWithChildren,
+} from 'react';
 import { YorkieProvider, useDocument, useYorkie } from '@yorkie-js/react';
 import { isOpenInAnyTab } from '@/lib/durable-session';
+import {
+  DurableDocumentScope,
+  useDurableDocumentContext,
+} from '@/lib/durable-document-context';
 import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 
 /**
@@ -86,6 +96,18 @@ export function DurableYorkieProvider({
     [userId],
   );
 
+  // Latched, not toggled back. Once the SDK has reported that it dropped local
+  // work, the entry the chip would be promising has been removed — and it is
+  // the chip's promise, not the client's existence, that this boolean stands
+  // for. Over-reporting durability is the one direction this feature must not
+  // fail in.
+  const [lost, setLost] = useState(false);
+  const reportLoss = useCallback(() => setLost(true), []);
+  const value = useMemo(
+    () => ({ store, durable: !lost, reportLoss }),
+    [store, lost, reportLoss],
+  );
+
   return (
     <KeyedYorkieProvider
       rpcAddr={rpcAddr}
@@ -96,7 +118,7 @@ export function DurableYorkieProvider({
       store={store}
     >
       <LockRefusalWatch onLockRefused={onLockRefused}>
-        <LossWatch store={store}>{children}</LossWatch>
+        <DurableDocumentScope value={value}>{children}</DurableDocumentScope>
       </LockRefusalWatch>
     </KeyedYorkieProvider>
   );
@@ -114,21 +136,34 @@ export function DurableYorkieProvider({
  * Without it, closing a document would archive a full copy of it, every time,
  * forever: an unbounded pile on the user's disk, and an archive that means
  * "everything you have ever closed" instead of "work that could not be saved".
+ *
+ * **Mounted by `CollabDocumentProvider` inside the `DocumentProvider`**, not
+ * here. This reads `useDocument()`, and the durable provider's children *are*
+ * the `DocumentProvider` — so wrapping them from out here put the hook above
+ * the context it needs, where it can only ever answer with no document and the
+ * latch can never be set. The store comes through context instead, which is
+ * what lets the component sit where its hook works; outside a durable client
+ * there is no context and this is a no-op, which is why the call site can
+ * render it unconditionally.
  */
-function LossWatch({
-  store,
-  children,
-}: PropsWithChildren<{ store: WafflebaseDocStore }>) {
+export function DurableLossWatch() {
+  const durable = useDurableDocumentContext();
   const { doc } = useDocument();
 
   useEffect(() => {
-    if (!doc || typeof doc.subscribe !== 'function') return;
+    if (!durable || !doc) return;
+    // `useDocument()` also yields doc-like stubs — several suites supply only
+    // the members they need — and this is mounted in the provider of every
+    // collaborative document, so it must not be able to break one.
+    if (typeof doc.subscribe !== 'function' || typeof doc.getKey !== 'function')
+      return;
     return doc.subscribe('local-changes-dropped', () => {
-      store.expectLoss(doc.getKey());
+      durable.store.expectLoss(doc.getKey());
+      durable.reportLoss();
     });
-  }, [doc, store]);
+  }, [doc, durable]);
 
-  return <>{children}</>;
+  return null;
 }
 
 /**

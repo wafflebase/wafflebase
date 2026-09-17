@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDocument } from '@yorkie-js/react';
+import { useDocumentDurability } from '@/lib/durable-document-context';
 import { deriveSyncState, type SyncState } from './sync-state';
 
 /**
@@ -67,6 +68,11 @@ export interface SyncStatus {
 export function useSyncStatus(): SyncStatus {
   const { doc, connection } = useDocument();
   const connected = String(connection) === CONNECTED;
+  // Whether this document's unsent work is on this device's disk, published by
+  // the durable client when one is mounted. `false` on every other document,
+  // which is all of them while the opt-in is declined — so nothing about the
+  // existing four states changes.
+  const durable = useDocumentDurability();
 
   const [pending, setPending] = useState(false);
   const [pendingSince, setPendingSince] = useState<Date | null>(null);
@@ -211,7 +217,7 @@ export function useSyncStatus(): SyncStatus {
   }
 
   return {
-    state: deriveSyncState({ connected, pending, syncFailed }),
+    state: deriveSyncState({ connected, pending, syncFailed, durable }),
     connected,
     hasUnsentEdits: unflushed,
     pendingSince,

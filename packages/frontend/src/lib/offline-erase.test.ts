@@ -1,7 +1,13 @@
 import "fake-indexeddb/auto";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WafflebaseDocStore } from "./wafflebase-doc-store";
-import { eraseOfflineData, watchForOfflineDisable } from "./offline-erase";
+import {
+  eraseOfflineData,
+  eraseOfflineDataOnLogout,
+  purgeOfflineDocuments,
+  rememberOfflineUser,
+  watchForOfflineDisable,
+} from "./offline-erase";
 import {
   setOfflinePersistenceEnabled,
   getOfflinePersistenceEnabled,
@@ -218,5 +224,91 @@ describe("when no editor is open", () => {
 
     expect(await store.load("doc-a")).toBeDefined();
     stop();
+  });
+});
+
+describe("signing out", () => {
+  /**
+   * These use the default database, because that is what the logout path
+   * opens: it has no store instance to borrow, only the identity the shell
+   * recorded while there was one. Keys are unique per case so the shared
+   * database cannot leak between them.
+   */
+  function defaultStore(userId: string): WafflebaseDocStore {
+    return new WafflebaseDocStore({ userId });
+  }
+
+  it("erases the signed-out user's documents and nobody else's", async () => {
+    // A device two accounts share is the case this feature is careful about,
+    // and signing out is where content must stop outliving the session.
+    const mine = defaultStore("logout-1");
+    const theirs = defaultStore("logout-2");
+    await seed(mine, "logout-mine");
+    await seed(theirs, "logout-theirs");
+
+    rememberOfflineUser("logout-1");
+    await eraseOfflineDataOnLogout();
+
+    expect(await mine.load("logout-mine")).toBeUndefined();
+    expect(await theirs.load("logout-theirs")).toBeDefined();
+  });
+
+  it("erases regardless of what the preference now says", async () => {
+    // The preference decides whether new content is written. It says nothing
+    // about content written while it was on, and leaving a signed-out
+    // account's documents behind because the toggle has since been flipped
+    // would be the worst reading of it.
+    const mine = defaultStore("logout-3");
+    await seed(mine, "logout-pref");
+    setOfflinePersistenceEnabled(false);
+
+    rememberOfflineUser("logout-3");
+    await eraseOfflineDataOnLogout();
+
+    expect(await mine.load("logout-pref")).toBeUndefined();
+  });
+
+  it("does nothing, and throws nothing, when nobody was recorded", async () => {
+    rememberOfflineUser(undefined);
+    await expect(eraseOfflineDataOnLogout()).resolves.toBeUndefined();
+  });
+});
+
+describe("a document that was deleted", () => {
+  it("drops this device's copy, matching the SDK's scoped key", async () => {
+    // Entries are keyed `apiKey/clientKey/docKey` with a type-prefixed
+    // document key, while the caller knows only a document id.
+    const store = new WafflebaseDocStore({ userId: "purge-1" });
+    await seed(store, "pk/wb:1:sheet-abc/sheet-abc");
+    rememberOfflineUser("purge-1");
+
+    await purgeOfflineDocuments(["abc"]);
+
+    expect(await store.load("pk/wb:1:sheet-abc/sheet-abc")).toBeUndefined();
+  });
+
+  it("keeps the archives, which are the user's own unsent work", async () => {
+    // "Deleted upstream" is one of the three paths that produce an archive at
+    // all, so dropping it here would erase the user's edits in the name of
+    // cleaning up somebody else's deletion.
+    const store = new WafflebaseDocStore({ userId: "purge-2" });
+    await seed(store, "sheet-keep");
+    store.expectLoss("sheet-keep");
+    await store.remove("sheet-keep");
+    rememberOfflineUser("purge-2");
+
+    await purgeOfflineDocuments(["keep"]);
+
+    expect(await store.listArchives()).toHaveLength(1);
+  });
+
+  it("does nothing while signed out", async () => {
+    const store = new WafflebaseDocStore({ userId: "purge-3" });
+    await seed(store, "sheet-anon");
+    rememberOfflineUser(undefined);
+
+    await purgeOfflineDocuments(["anon"]);
+
+    expect(await store.load("sheet-anon")).toBeDefined();
   });
 });

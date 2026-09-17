@@ -93,6 +93,46 @@ function readNote(doc: Document<never>): string {
   return root.content ? root.content.toString() : "";
 }
 
+/**
+ * The document type prefixes every CRDT docKey carries, and what they mean.
+ *
+ * `pdf-` is absent deliberately: those documents are excluded from the opt-in,
+ * so an archive under that prefix cannot exist — and if one somehow did, there
+ * is no document to hand it back as.
+ */
+const TYPE_PREFIXES: Array<[string, DocumentType]> = [
+  ["sheet-", "sheet"],
+  ["slides-", "slides"],
+  ["board-", "board"],
+  ["note-", "note"],
+  ["doc-", "doc"],
+];
+
+/**
+ * What an archived store key is a document of, and which document.
+ *
+ * Read off the key rather than fetched, because one of the three loss paths is
+ * "the document was deleted upstream" — so the server is exactly the thing
+ * that may no longer be able to answer. `undefined` for a key that matches
+ * nothing, which is left archived rather than guessed at.
+ *
+ * `doc-` is matched last: every prefix here is distinct, but ordering it after
+ * the others keeps the rule readable as "the specific ones, then the general".
+ */
+export function describeArchivedDocument(
+  docKey: string,
+): { id: string; type: DocumentType } | undefined {
+  const parts = docKey.split("/");
+  const key = parts[parts.length - 1] || docKey;
+  for (const [prefix, type] of TYPE_PREFIXES) {
+    if (key.startsWith(prefix)) {
+      const id = key.slice(prefix.length);
+      return id ? { id, type } : undefined;
+    }
+  }
+  return undefined;
+}
+
 export interface RecoveryOutcome {
   /** The new document, when one was created. */
   documentId?: string;

@@ -92,11 +92,12 @@ non-durable one when its precondition is missing, not merely unavailable.
       written and then **removed** — nothing consumed it, and shipping a type
       no caller reads is the same dead weight as shipping dead code. It returns
       with the tooltip that needs it.
-- [ ] **3.5** Wire `durable` from the provider into `use-sync-status.ts`.
-      **Not done**, and it is the gap that matters most: that file still calls
-      `deriveSyncState` without `durable`, so `saved-locally` — "the entire
-      user-facing value of this feature", in the design's own words — cannot be
-      reached from the app.
+- [x] **3.5** Wire `durable` from the provider into `use-sync-status.ts`.
+      Done in the review round: the durable client publishes
+      `{ store, durable, reportLoss }` through `lib/durable-document-context.ts`,
+      `useSyncStatus` reads `useDocumentDurability()` and passes it, and the
+      chip suite now covers the state, its politeness, and the deliberate
+      absence of a toast and an unload guard.
 
 ## Task 4: keeping the toggle's promise — done
 
@@ -125,11 +126,32 @@ wired.
       `ActivateClient`
 - [x] **5.2** Construct `WafflebaseDocStore` with `isOpenInAnyTab` so eviction
       and collection can see other tabs
-- [ ] **5.3** Publish `durable` for the chip, including a `PersistDisabled`
-      latch and store write failures
-- [x] **5.4** No route file changes: the PDF exclusion comes from the docKey
-      prefix the provider already receives, and `shared-document.tsx` mounts
-      its own provider so it is excluded structurally
+- [x] **5.3** Publish `durable` for the chip. The value latches to `false` on
+      `LocalChangesDropped` and never back: it stands for the chip's promise,
+      not the client's existence, and over-reporting durability is the one
+      direction this must not fail in. Store *write* failures still do not
+      lower it — they are not observable from the provider — which is recorded
+      as a known limitation rather than claimed.
+- [x] **5.5** The loss watch moved **inside** the `DocumentProvider`. It reads
+      `useDocument()`, and wrapping the durable provider's children put it
+      above the context it needs, where it could only ever see no document —
+      so the latch was never set and every unreconcilable removal would have
+      deleted the work instead of archiving it. The suite's `useDocument` mock
+      was global, which is exactly what hid it; it is now scoped to its
+      provider.
+- [x] **5.6** Share links are excluded by a `NonDurableScope` wrapper at the
+      route, not by the nesting. `shared-document.tsx` mounts its own
+      `YorkieProvider` *above* `CollabDocumentProvider` rather than instead of
+      it, so 5.4's "excluded structurally" was false for a **signed-in**
+      visitor: they would have got a durable client carrying their personal
+      Yorkie token instead of the share token the auth webhook validates.
+- [x] **5.7** Identity is asked with `fetchMeOptional`, never `fetchMe`. This
+      component renders on the public `/shared/:token` route, and `fetchMe`
+      goes through `fetchWithAuth`, whose 401 arm logs out and hard-redirects
+      to `/login` — so the first version bounced every anonymous share-link
+      visitor off the document they had been sent.
+- [ ] ~~**5.4** No route file changes~~ — the PDF exclusion does come from the
+      docKey prefix, but the share-link half of this claim was wrong; see 5.6.
 
 ## Task 6: handing the work back — partly done
 
@@ -147,6 +169,43 @@ wired.
 - [x] **6.5** Create the document and write the rehydrated root into it —
       needs a live client, so it belongs with Task 5
 
+## Task 8: the wiring, added in the review round
+
+Every module below had been written, tested, and left without a caller. The
+review's finding was that the branch shipped the risky half of PR 4 — a store
+attached to a live client — without the half that makes it usable or
+trustworthy. These close that.
+
+**Files:** `components/offline-runtime.tsx` (new), `PrivateRoute.tsx`,
+`app/settings/page.tsx`, `api/auth.ts`, `api/documents.ts`,
+`lib/offline-erase.ts`, `lib/offline-copy-recovery.ts`
+
+- [x] **8.1** The Settings opt-in: an "Offline" section beside Appearance and
+      Dates, with the per-device wording and "turning it off deletes what was
+      stored"
+- [x] **8.2** `OfflineRuntime`, mounted once by `PrivateRoute` — the only place
+      with both an identity and a lifetime longer than one document. It
+      installs `watchForOfflineDisable`, runs `collectStale()` once per
+      session, and offers back anything archived
+- [x] **8.3** Logout erases: `rememberOfflineUser` records the identity while
+      there is one, and `logout()` spends it. Runs whatever the preference now
+      says — the preference governs new writes, not content already on the disk
+      of a device that may be shared
+- [x] **8.4** A deleted document drops its local copy, in `deleteDocument` and
+      `deleteDocuments` (the latter only for ids the server reports deleted).
+      Archives are spared on purpose
+- [x] **8.5** Recovery is *offered*, not performed: a toast per archive with a
+      "Save a copy" action, then a link to the new document. Creating documents
+      unasked on a page load would fill the list with copies nobody chose, and
+      a declined offer survives to the next session because the archive is
+      dropped only after the content is written
+- [x] **8.6** `describeArchivedDocument` reads the type off the archived key
+      rather than fetching it — "the document was deleted upstream" is one of
+      the three paths that produce an archive, so the server is exactly what
+      may no longer be able to answer
+- [x] **8.7** Tests for the doc / slides / board / note rebuild paths, which
+      had only ever been exercised for `sheet`
+
 ## Task 7: the documents — done
 
 - [x] **7.1** `sync-status.md`: offline persistence and the toggle are no longer
@@ -161,23 +220,30 @@ wired.
 - [ ] Manual smoke — needs the dependency bump, since nothing durable mounts
       until the gate opens
 
-## What is written but not reachable
+## What was written but not reachable — now wired
 
-Recorded because a reader would otherwise assume the feature ships working.
-Every module below is implemented and tested, and **has no production caller**:
+Recorded because the first draft of this branch shipped every module below
+implemented, tested, and with **no production caller**. W1's review had set the
+rule: *the store, the section and the erase land together, or none of them do.*
+The version gate being closed made the branch internally consistent, but
+opening it without the rest would have been exactly what that rule forbids.
+Task 8 closes each row.
 
-| | |
+| | Now called from |
 |---|---|
-| `setOfflinePersistenceEnabled` | the Settings section is still W1 Task 2 |
-| `watchForOfflineDisable` | so "turning this off deletes them" is unimplemented |
-| `collectStale` / `dropAllForUser` / `purge` | no sweep, no logout erase, no delete/access-loss cleanup |
-| `listRecoverableWork` / `recoverOfflineCopy` | archives are never offered back |
-| `durable` in `use-sync-status.ts` | so the chip cannot reach `saved-locally` |
+| `setOfflinePersistenceEnabled` | the Settings "Offline" switch |
+| `watchForOfflineDisable` | `OfflineRuntime`, mounted by `PrivateRoute` |
+| `collectStale` | `OfflineRuntime`, once per session |
+| `dropAllForUser` | `logout()`, via `eraseOfflineDataOnLogout` |
+| `purgeDocument` | `deleteDocument` / `deleteDocuments` |
+| `listRecoverableWork` / `recoverOfflineCopy` | `OfflineRuntime`'s recovery offer |
+| `durable` in `use-sync-status.ts` | `useDocumentDurability()` |
 
-W1's review set the rule this must satisfy before it is user-visible: *the
-store, the section and the erase land together, or none of them do.* With the
-version gate closed nothing writes either, so the branch is consistent — but
-opening the gate without the rest would be exactly what that rule forbids.
+What is still unreachable, and deliberately: the durable client itself, behind
+`supportsClientKey()`. The pin is `@yorkie-js/react@0.7.22` and the gate opens
+at 0.7.23, so nothing writes to IndexedDB on this branch — the wiring above is
+what makes the dependency bump the whole switch, rather than the bump plus five
+more pieces nobody has reviewed.
 
 > **Note on typechecking.** `pnpm --filter @wafflebase/frontend exec tsc
 > --noEmit` checks **nothing**: the package's root `tsconfig.json` has

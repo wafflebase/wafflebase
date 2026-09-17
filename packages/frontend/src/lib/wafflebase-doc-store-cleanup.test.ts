@@ -200,6 +200,38 @@ describe("quota pressure", () => {
     expect(Array.from(arrived!.snapshot)).toEqual([9, 9, 9]);
   });
 
+  it("never evicts another account's entry on a shared device", async () => {
+    // The database is per origin and the `updatedAt` index spans every row in
+    // it, so an unscoped scan makes one person's edit delete the other's
+    // unsent work — on the one kind of machine this whole feature is careful
+    // about.
+    const time = clock("2026-01-01T00:00:00Z");
+    const theirs = freshStore("user-2", time.now);
+    await seed(theirs, "their-oldest");
+
+    time.set("2026-02-01T00:00:00Z");
+    const mine = new WafflebaseDocStore({
+      dbName: theirs.databaseName,
+      userId: "user-1",
+      now: time.now,
+    });
+    await seed(mine, "my-older");
+    time.set("2026-03-01T00:00:00Z");
+    await seed(mine, "my-newer");
+
+    time.set("2026-04-01T00:00:00Z");
+    const later = reopen(mine, "user-1", time.now);
+    failPuts(1);
+    await later.saveSnapshot("arriving", new Uint8Array([9]));
+
+    // The other account's document — the oldest row in the whole database —
+    // is untouched, and the eviction came out of this user's own entries.
+    const theirReader = reopen(theirs, "user-2", time.now);
+    expect(await theirReader.load("their-oldest")).toBeDefined();
+    expect(await later.load("my-older")).toBeUndefined();
+    expect(await later.load("my-newer")).toBeDefined();
+  });
+
   it("gives up after one retry rather than evicting everything", async () => {
     // A store that never accepts a write must report undurable, not loop until
     // it has deleted every document the user had.
