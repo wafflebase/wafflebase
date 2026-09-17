@@ -54,8 +54,41 @@ operator guides.
 | Design → code | `pnpm design`, then `pnpm design-pr` | `scripts/design.mjs`, `scripts/design-pr.mjs`, `packages/design-editor`, `packages/design-sandbox` | [`design-editor-local-plugin.md`](design-editor/design-editor-local-plugin.md) — start there |
 | Debug reporter | `Mod+Shift+Y` in the running app, then `/report-intake` | `packages/debug-report`, `scripts/agent/report-intake.mjs` and its siblings | [`debug-report.md`](debug-report.md) + harness Phase 32 |
 | Review panel | automatic on an `agent/` branch; `@claude review` on demand | `.github/workflows/agent-review-panel.yml`, `scripts/agent/review-panel.mjs` | harness Phases 24, 27, 28, 29 |
+| Self review | `/self-review` — `.claude/commands/self-review.md` | `scripts/agent/spec-to-pr.mjs review` (the same panel, locally) | this doc, §1.1 |
 | Fix agent | `@claude fix` on a **PR**; also automatic within a panel round | `.github/workflows/agent-fix.yml`, `scripts/agent/fix-eligible.mjs` | harness Phase 30 |
 | Eval / benchmark | `eval-replay` and `eval-score`, dispatch only | `scripts/agent/eval/` | **none** — see §4 |
+
+#### 1.1 The panel is opt-in, and most PRs do not opt in
+
+The `gate` job of both `agent-review-panel.yml` and `agent-iterate-ci.yml` admits
+a PR on one condition:
+
+```js
+let managed = branch.startsWith('agent/');
+if ((pr.labels||[]).some(l => (l.name||l) === 'agent:managed')) managed = true;
+```
+
+Nothing else. A hand-authored branch gets CI and no lens checks at all —
+`#1071`, `#1063` and `#1057` are three merged examples. `#1061` is the control:
+a human branch (`feat/member-api-keys`) that carried `agent:managed` got all
+seven. So the property is **opt-in, not branch-shaped**, and the three ways in
+are worth naming together because they are easy to confuse:
+
+| Path | When | What it is |
+| --- | --- | --- |
+| `/self-review` | before the PR | the same lenses, run locally on `origin/main...HEAD`, in bounded rounds. Exit code is the gate |
+| `@claude review` | after the PR, any PR including forks | one advisory panel run posted as a comment. No check runs, no fix loop, throttled per head SHA |
+| `@claude loop` | after the PR, same-repo only | labels it `agent:managed`: panel, auto-fix rounds, promotion |
+
+This is why the contributor workflow's self-review step is a **loop** rather than
+a single pass: for the ordinary branch it is not a pre-filter ahead of an
+authoritative cloud review, it is the only machine review the change gets.
+
+The local loop is bounded at three rounds and carries each round's still-gating
+findings into the next (`carryForwardFindings`, shared with the cloud's
+projection). It deliberately does **not** narrow the diff between rounds the way
+`--review-mode incremental` does: that decision belongs to `review-scope.mjs`
+reading a PR's history, which does not exist yet.
 
 ### 2. Where work comes from
 

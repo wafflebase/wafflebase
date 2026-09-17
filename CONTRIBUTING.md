@@ -179,11 +179,27 @@ detached.
 2. **Implement and self-verify.** `pnpm verify:fast` per commit;
    `pnpm verify:self` (and `verify:integration:docker` where relevant)
    before pushing.
-3. **Self review.** Run a code review skill over the full branch diff
-   before opening the PR — `/code-review`,
-   `superpowers:requesting-code-review`, or `/ultrareview`. Apply
-   blocking findings; note non-blocking ones in the PR body as known
-   limitations.
+3. **Self review.** A **bounded loop** over the full branch diff before
+   opening the PR — review → fix → `pnpm verify:fast` → re-review, at
+   most **3 rounds**, stopping at the first round that finds nothing
+   blocking. `/self-review` drives it; `/code-review`,
+   `superpowers:requesting-code-review` and `/ultrareview` are also
+   reviewers you can spend a round on.
+
+   Rotate the lens per round (1 correctness and tests, 2 design fit and
+   simplification, 3 security and docs) — asking the same reviewer three
+   times mostly gets you the same answer reworded. Apply blocking
+   findings; a finding you believe is *wrong* should be disputed with
+   evidence (`--rebuttals`), because one you merely ignore comes back
+   every round. Non-blocking findings go in the PR body as known
+   limitations. If round 3 still blocks, stop looping and ask for a human
+   review — three rounds is a statement about convergence.
+
+   **Your PR is not reviewed automatically.** The panel admits a PR only
+   when its branch starts with `agent/` or it carries the
+   `agent:managed` label, so a normal branch gets CI and nothing else.
+   Comment `@claude review` for an advisory panel run (once per commit),
+   or `@claude loop` to opt into the panel plus its auto-fix rounds.
 4. **Rebase.** `git fetch && git rebase origin/main` to surface
    conflicts before pushing.
 5. **Open the PR.** Use the [PR template](.github/PULL_REQUEST_TEMPLATE.md).
