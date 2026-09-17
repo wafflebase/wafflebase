@@ -112,6 +112,31 @@ describe('detectLinks', () => {
       ]);
     });
 
+    // The trim keeps one running bracket tally rather than re-counting the
+    // remaining span per character it removes — the latter is O(L²) inside the
+    // paint loop, on text the author controls. These pin the behaviour that
+    // rewrite has to preserve: each kind of bracket balances on its own, and a
+    // run of them comes off one at a time.
+    it.each([
+      ['https://example.com)))', 'https://example.com'],
+      ['[see https://example.com]', 'https://example.com'],
+      ['{https://example.com}', 'https://example.com'],
+      ['(https://example.com/a(b))', 'https://example.com/a(b)'],
+      ['https://example.com/a[b]', 'https://example.com/a[b]'],
+      ['(https://example.com/a[b])', 'https://example.com/a[b]'],
+      ['https://example.com/a(b)).', 'https://example.com/a(b)'],
+      // Trailing punctuation between two brackets is removed too, and the
+      // bracket behind it is still judged against the whole span.
+      ['(https://example.com/a.)', 'https://example.com/a'],
+    ])('trims %s to %s', (text, expected) => {
+      expect(spanTexts(text)).toEqual([expected]);
+    });
+
+    it('trims a long run of closing brackets in one pass', () => {
+      const text = `https://example.com/${')'.repeat(1000)}`;
+      expect(spanTexts(text)).toEqual(['https://example.com/']);
+    });
+
     it('does not match a scheme glued to a preceding word', () => {
       expect(detectLinks('xhttps://evil.example.com')).toEqual([]);
     });

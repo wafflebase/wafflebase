@@ -160,8 +160,9 @@ the detector, so the guard prevents nothing and costs the cases that do work:
 | Hover a span | pointer cursor immediately; hover card after ~300 ms |
 | Cross the text between two spans in one cell | card stays open |
 | Ctrl/Cmd+click a span | open that span's URL |
-| Plain click, read-only | open the span's URL |
+| Plain click, read-only document view | open the span's URL |
 | Plain click, editable | select the cell (unchanged) |
+| Plain click, read-only *result grid* | select the cell (unchanged) |
 
 The card is keyed on the **cell**, not on the span: the gap between two links
 in one cell resolves to no span, so keying it on the span would close and
@@ -175,6 +176,15 @@ Read-only is available as `this.readOnly` inside the worksheet mouse handler
 (precedent: the checkbox guard at `worksheet.ts:3521`). Giving viewers the
 plain click and editors the modifier follows the conflict each one actually
 has: an editor clicks cells to select them all day, a viewer does not.
+
+`readOnly` alone is *not* the condition, though, because read-only is not one
+kind of surface. Three other frontend mounts pass it — the datasource result
+grid (`datasource-view.tsx`), the lakehouse result grid
+(`lakehouse-view.tsx`), and the revision preview (`revision-preview.tsx`) —
+and in all three the click is how you select a cell to read or copy it. So the
+plain-click rule is an opt-in `Options.openLinksOnClick`, set only by
+`SheetView`, which is also the only mount that wires the hover card. The
+modifier is unconditional, so a link in a result grid is still reachable.
 
 `handleMouseMove` is bound raw, with no throttle or rAF (`worksheet.ts:3239`),
 but `linkAt` is a synchronous scan over the boxes currently on screen, so it

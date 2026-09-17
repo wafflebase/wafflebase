@@ -1044,6 +1044,12 @@ export function SheetView({
       hideFormulaBar: isMobileRef.current,
       hideAutofillHandle: isMobileRef.current,
       showMobileHandles: isMobileRef.current,
+      // A read-only viewer here is reading a document, so a plain click opens
+      // the link under it (docs/design/sheets/sheet-hyperlink.md §5). The
+      // engine's other read-only mounts — the datasource and lakehouse result
+      // grids, the revision preview — are grids you click to select in, and
+      // opt out by leaving this unset.
+      openLinksOnClick: true,
     }).then((s) => {
       if (cancelled) {
         s.cleanup();

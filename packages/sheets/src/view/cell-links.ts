@@ -116,6 +116,27 @@ const BRACKET_PAIRS: Array<[string, string]> = [
  * gives its paren back to the sentence.
  */
 function trimTrailing(text: string): string {
+  // Bracket balance is counted once, in a single forward pass, and then kept
+  // in step as characters come off the end. Re-slicing and re-splitting the
+  // remaining span per removed character — the obvious way to write this — is
+  // O(L) work per character, i.e. O(L²) for the span, and this runs inside the
+  // paint loop on author-controlled text bounded only by `MaxUrlLength`. A
+  // cell of 2048 closing brackets would then cost millions of character
+  // comparisons every frame.
+  //
+  // The counts stay correct because of what the loop below can remove: only
+  // trailing punctuation (which holds no bracket) and a closing bracket (whose
+  // own tally is decremented as it goes). An opening bracket is never removed
+  // — it is neither, so the loop stops on it.
+  const opened = new Map<string, number>();
+  const closed = new Map<string, number>();
+  for (const ch of text) {
+    for (const [open, close] of BRACKET_PAIRS) {
+      if (ch === open) opened.set(open, (opened.get(open) ?? 0) + 1);
+      else if (ch === close) closed.set(close, (closed.get(close) ?? 0) + 1);
+    }
+  }
+
   let end = text.length;
   for (;;) {
     const last = text[end - 1];
@@ -128,10 +149,9 @@ function trimTrailing(text: string): string {
 
     const pair = BRACKET_PAIRS.find(([, close]) => close === last);
     if (pair) {
-      const span = text.slice(0, end);
-      const opened = span.split(pair[0]).length - 1;
-      const closed = span.split(pair[1]).length - 1;
-      if (closed > opened) {
+      const closes = closed.get(pair[1]) ?? 0;
+      if (closes > (opened.get(pair[0]) ?? 0)) {
+        closed.set(pair[1], closes - 1);
         end--;
         continue;
       }

@@ -29,6 +29,15 @@ export interface Options {
   hideFormulaBar?: boolean;
   hideAutofillHandle?: boolean;
   showMobileHandles?: boolean;
+  /**
+   * Opens a hyperlink on a *plain* left click when `readOnly` is also set.
+   *
+   * Off by default: a read-only result grid (datasource, lakehouse) or a
+   * revision preview still spends its click on selecting a cell. A host that
+   * turns this on should also wire {@link Spreadsheet.onLinkHover}, so the
+   * reader can see the destination before committing to it.
+   */
+  openLinksOnClick?: boolean;
 }
 
 export type LayoutRect = {
@@ -79,7 +88,7 @@ export class Spreadsheet {
     this.theme = options?.theme || 'light';
     this._readOnly = options?.readOnly || false;
 
-    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar, options?.hideAutofillHandle, options?.showMobileHandles);
+    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar, options?.hideAutofillHandle, options?.showMobileHandles, options?.openLinksOnClick);
   }
 
   /**

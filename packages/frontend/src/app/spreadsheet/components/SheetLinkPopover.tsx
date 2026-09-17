@@ -96,7 +96,11 @@ export function SheetLinkPopover({
               );
             }}
           >
-            {copied === url ? <IconCheck size={14} /> : <IconCopy size={14} />}
+            {copied === url ? (
+              <IconCheck size={14} data-testid="sheet-link-copied" />
+            ) : (
+              <IconCopy size={14} />
+            )}
           </button>
         </div>
       ))}

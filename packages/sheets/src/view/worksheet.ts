@@ -275,6 +275,18 @@ export class Worksheet {
   private cellDragMovePreview: Range | undefined;
   private onRenderCallback?: () => void;
   private readOnly: boolean;
+  /**
+   * Whether a *plain* left click on a hyperlink opens it (read-only only).
+   *
+   * Opt-in per mount rather than implied by `readOnly`, because read-only is
+   * not one kind of surface: a share-linked document is a page to read, where
+   * a click that opens the link is what the reader expects, while a datasource
+   * or lakehouse result grid and a revision preview are read-only *grids* —
+   * their click is how you select a cell to copy it, and spending it on
+   * navigation would take that away. Those hosts keep Ctrl/Cmd+click, which
+   * every mount has.
+   */
+  private openLinksOnClick: boolean;
   private hideAutofillHandle: boolean;
   private showMobileHandles: boolean;
   private _searchResults: Ref[] = [];
@@ -308,10 +320,12 @@ export class Worksheet {
     hideFormulaBar?: boolean,
     hideAutofillHandle?: boolean,
     showMobileHandles?: boolean,
+    openLinksOnClick?: boolean,
   ) {
     this.container = container;
     this.theme = theme;
     this.readOnly = readOnly;
+    this.openLinksOnClick = openLinksOnClick ?? false;
     this.hideAutofillHandle = hideAutofillHandle ?? false;
     this.showMobileHandles = showMobileHandles ?? false;
 
@@ -3664,9 +3678,11 @@ export class Worksheet {
     // Opening a hyperlink.
     //
     // An editor clicks cells to select them all day, so they need the modifier
-    // Docs uses. A read-only viewer has no such conflict — and no reason to
+    // Docs uses. A read-only *viewer* has no such conflict — and no reason to
     // guess a modifier either, which is how a share-linked document ends up
-    // with links nobody can open — so a plain click opens it for them.
+    // with links nobody can open — so a plain click opens it for them, on the
+    // hosts that asked for it with `openLinksOnClick`. A read-only result grid
+    // did not, and keeps its click for selecting cells.
     //
     // The span under the pointer decides which URL, so a cell holding a
     // release note and a PR link opens the one that was clicked. No cell read
@@ -3678,7 +3694,7 @@ export class Worksheet {
     if (
       e.button === 0 &&
       e.detail === 1 &&
-      (this.readOnly || e.ctrlKey || e.metaKey) &&
+      ((this.readOnly && this.openLinksOnClick) || e.ctrlKey || e.metaKey) &&
       this.isInsideGrid(x, y)
     ) {
       const link = this.linkAtMouse(x, y);
