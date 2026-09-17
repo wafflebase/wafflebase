@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Worksheet } from '../../src/view/worksheet';
 import { RenderedLink } from '../../src/view/gridcanvas';
+import { parseRef } from '../../src/model/core/coordinates';
 
 /**
  * The hyperlink hover state machine and the click that opens a link.
@@ -378,5 +379,117 @@ describe('handleMouseDown link opening', () => {
       mouseDown({ offsetX: 20, offsetY: 105 }),
     );
     expect(open).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The keyboard route to a link. A viewer can reach the hover card only with a
+ * pointer, so without this there is no keyboard access at all — and the grid
+ * keymap is where it has to live, because the Alt+Enter that inserts a line
+ * break belongs to the cell-input keymap.
+ */
+describe('activeCellLinks', () => {
+  const activeCellLinks = (
+    Worksheet.prototype as unknown as {
+      activeCellLinks(): Array<string>;
+    }
+  ).activeCellLinks;
+
+  function ctx(sref: string, links: Array<{ url: string }>) {
+    return {
+      sheet: { getActiveCell: () => parseRef(sref) },
+      gridCanvas: {
+        linksInCell: (asked: string) => (asked === sref ? links : []),
+      },
+    };
+  }
+
+  it('returns the destinations painted in the active cell', () => {
+    expect(
+      activeCellLinks.call(
+        ctx('C5', [{ url: 'https://a.example.com' }, { url: 'https://b.example.com' }]),
+      ),
+    ).toEqual(['https://a.example.com', 'https://b.example.com']);
+  });
+
+  it('returns nothing for a cell with no links', () => {
+    expect(activeCellLinks.call(ctx('C5', []))).toEqual([]);
+  });
+
+  it('returns nothing before a sheet is attached', () => {
+    expect(activeCellLinks.call({ sheet: undefined })).toEqual([]);
+  });
+});
+
+/**
+ * A repaint can replace the hovered cell's destinations — a collaborator
+ * editing the cell the pointer rests on — and no mouse move follows it, so
+ * `updateLinkHover` never runs and the card would keep the old list.
+ */
+describe('refreshLinkHoverAfterRender', () => {
+  const refresh = (
+    Worksheet.prototype as unknown as {
+      refreshLinkHoverAfterRender(): void;
+    }
+  ).refreshLinkHoverAfterRender;
+
+  function ctx(opts: {
+    sref: string | null;
+    shown: Array<string>;
+    painted: Array<string>;
+    timer?: unknown;
+  }) {
+    const notified: Array<unknown> = [];
+    return {
+      notified,
+      hoveredLinkSref: opts.sref,
+      hoveredLinkUrls: opts.shown,
+      linkHoverTimer: opts.timer ?? null,
+      gridCanvas: { linksInCell: () => opts.painted.map((url) => ({ url })) },
+      clearLinkHoverTimer() {
+        this.linkHoverTimer = null;
+      },
+      onLinkHoverCallback: (info: unknown) => notified.push(info),
+    };
+  }
+
+  it('re-sends the card when the destinations changed', () => {
+    const c = ctx({ sref: 'C5', shown: ['https://old.example.com'], painted: ['https://new.example.com'] });
+    refresh.call(c);
+    expect(c.notified).toEqual([
+      { sref: 'C5', urls: ['https://new.example.com'] },
+    ]);
+    expect(c.hoveredLinkUrls).toEqual(['https://new.example.com']);
+  });
+
+  it('says nothing when they are unchanged', () => {
+    const c = ctx({ sref: 'C5', shown: ['https://x.example.com'], painted: ['https://x.example.com'] });
+    refresh.call(c);
+    expect(c.notified).toEqual([]);
+  });
+
+  it('closes the card when the cell lost its links', () => {
+    const c = ctx({ sref: 'C5', shown: ['https://x.example.com'], painted: [] });
+    refresh.call(c);
+    expect(c.notified).toEqual([null]);
+    expect(c.hoveredLinkSref).toBeNull();
+  });
+
+  it('leaves a pending card to its own timer, with the new list stored', () => {
+    const c = ctx({
+      sref: 'C5',
+      shown: ['https://old.example.com'],
+      painted: ['https://new.example.com'],
+      timer: 1,
+    });
+    refresh.call(c);
+    expect(c.notified).toEqual([]);
+    expect(c.hoveredLinkUrls).toEqual(['https://new.example.com']);
+  });
+
+  it('does nothing when no cell is hovered', () => {
+    const c = ctx({ sref: null, shown: [], painted: ['https://x.example.com'] });
+    refresh.call(c);
+    expect(c.notified).toEqual([]);
   });
 });

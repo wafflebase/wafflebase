@@ -203,6 +203,12 @@ describe('detectLinks', () => {
       // every `https://` here starts a run of URL characters reaching the end
       // of the string, and none of them parses.
       ['repeated unparseable schemes', (n: number) => 'https://['.repeat(1000 * n)],
+      // A candidate the authority prefilter lets through and only `toUrl`
+      // refuses, so it reaches the expensive path and emits nothing.
+      [
+        'repeated out-of-range ports',
+        (n: number) => '/https://example.com:99999/'.repeat(1000 * n),
+      ],
     ])('scales linearly on %s', (_label, build) => {
       const small = fastest(build(1));
       const large = fastest(build(4));
@@ -282,6 +288,21 @@ describe('detectLinks', () => {
 
     it('refuses a www. prefix with no real TLD', () => {
       expect(detectLinks('www.x')).toEqual([]);
+    });
+
+    it('refuses a dotted quad written with leading zeros', () => {
+      // `Number('010')` is 10, but the URL parser reads it as octal: the cell
+      // would paint `010.000.000.001` and open `8.0.0.1`. Painting one host
+      // and opening another is the defect the userinfo rule exists to stop.
+      expect(detectLinks('https://010.000.000.001/')).toEqual([]);
+      expect(detectLinks('https://192.168.000.1/')).toEqual([]);
+    });
+
+    it('still links a canonical dotted quad', () => {
+      expect(urls('https://127.0.0.1/')).toEqual(['https://127.0.0.1/']);
+      expect(urls('https://10.0.0.1:8080/x')).toEqual([
+        'https://10.0.0.1:8080/x',
+      ]);
     });
   });
 

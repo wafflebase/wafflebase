@@ -221,6 +221,38 @@ It is a genuine gap and is listed below, but it needs a keybinding decision,
 a catalog entry, host wiring and an answer to "which link, when the cell has
 several" — a feature, not a review fix.
 
+### Second PR review round (CodeRabbit)
+
+Three findings on the authority prefilter added for the first round; two
+applied, one rejected with measurements. Plus the keyboard gap, previously
+declined and now closed.
+
+- **A dotted quad with leading zeros painted one host and opened another.**
+  `isIPv4` accepted `010.000.000.001` because `Number('010')` is 10, while the
+  URL parser reads the part as octal and resolves `8.0.0.1`. Canonical form is
+  now required. Mutation-checked.
+- **The hover card could outlive a repaint.** The URL comparison ran only from
+  `handleMouseMove`, so a remote edit to the cell under a stationary pointer
+  repainted new destinations behind an unchanged card. `render()` now
+  re-reads them; a pending card's timer reads the list at fire time rather
+  than from its closure, which was a second instance of the same staleness.
+- **Rejected: "invalid ports retain large constant-factor amplification."**
+  Measured after the memoization that landed with the prefilter:
+  `'/https://example.com:99999/'` repeated to **108,000 characters scans in
+  6.0 ms**, ratio 1.6 across a 4x input increase. There is no amplification to
+  remove. The useful half of the finding was taken anyway — that shape is now
+  one of the growth-rate cases, so the property is guarded rather than
+  argued.
+- **`Alt+Enter` opens the active cell's links.** Declined in the first round
+  as a feature rather than a review fix; closed here at the maintainer's
+  request. It is free in the grid keymap — the `Alt+Enter` that inserts a line
+  break belongs to the cell-input keymap — and it must precede the bare
+  `Enter` rule, which does not read modifiers.
+
+**Still untested:** that `render()` calls `refreshLinkHoverAfterRender`, the
+same one-line wiring gap as `paintRegion`'s five call sites. Both need a DOM
+the node-environment suite does not have; the methods themselves are covered.
+
 ### Known limitations
 
 - **Ctrl/Cmd+click no longer multi-selects a cell containing a URL.** The
@@ -237,8 +269,9 @@ several" — a feature, not a review fix.
   is not handed back as `mailto:`. The plain-click path skips the hover card,
   which was the only surface showing the real host, so nothing else was going
   to be honest about it.
-- **The card is mouse-only.** There is no keyboard route to a link, and
-  `role="dialog"` is not the right role for a non-modal hover card.
+- **`role="dialog"` is not the right role** for a non-modal hover card, and
+  nothing moves focus into it. `Alt+Enter` now gives keyboard access to the
+  links themselves, so the card is no longer the only surface.
 - **Nothing is persisted**, so a span stops being a link the moment the
   surrounding text changes, and nothing survives xlsx or CSV. That is the
   accepted cost of not touching the model; roadmap step 3 pays it off.

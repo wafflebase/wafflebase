@@ -254,6 +254,12 @@ function isIPv4(host: string): boolean {
         part.length > 0 &&
         part.length <= 3 &&
         !/[^0-9]/.test(part) &&
+        // A leading zero is not a longer spelling of the same number: the URL
+        // parser reads `010` as octal, so `010.000.000.001` paints as itself
+        // and opens `8.0.0.1`. The URL Standard's canonical form has none, and
+        // painting one host while opening another is the defect the userinfo
+        // rule above exists to prevent.
+        (part === '0' || part[0] !== '0') &&
         Number(part) <= 255,
     )
   );

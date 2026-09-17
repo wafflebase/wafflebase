@@ -921,6 +921,19 @@ export class Worksheet {
   }
 
   /**
+   * The destinations painted in the active cell, in reading order.
+   *
+   * Reads what was painted rather than the cell's value, so it agrees with
+   * what the user can see — and the active cell is always on screen, because
+   * moving the selection scrolls it into view.
+   */
+  private activeCellLinks(): Array<string> {
+    if (!this.sheet) return [];
+    const sref = toSref(this.sheet.getActiveCell());
+    return this.gridCanvas.linksInCell(sref).map((each) => each.url);
+  }
+
+  /**
    * Is a mouse position inside the scrollable grid, rather than over a header?
    *
    * The headers are `RowHeaderWidth` / `DefaultCellHeight` in *unzoomed* space
@@ -1006,7 +1019,10 @@ export class Worksheet {
 
     this.linkHoverTimer = setTimeout(() => {
       this.linkHoverTimer = null;
-      this.onLinkHoverCallback?.({ sref, urls });
+      // Read at fire time, not from the closure: a repaint between the hover
+      // and the card appearing can replace the destinations, and the card
+      // should open on what the cell says now.
+      this.onLinkHoverCallback?.({ sref, urls: this.hoveredLinkUrls });
     }, LinkHoverDelayMS);
   }
 
@@ -5177,6 +5193,25 @@ export class Worksheet {
 
     await runKeyRules(e, [
       {
+        // The keyboard route to a link, and the only one a viewer has: the
+        // card is reachable by pointer alone. Alt+Enter is what Google Sheets
+        // binds, and it is free *here* — the Alt+Enter that inserts a line
+        // break lives in the cell-input keymap, which this is not. It must
+        // precede the bare `Enter` rule below, which does not read modifiers.
+        //
+        // Every link in the cell opens, as Google's does: a cell holding a
+        // release note and a PR link has no one link the keyboard could mean.
+        match: (event) => matchesKeyCombo(event, { key: 'Enter', alt: true }),
+        run: (event) => {
+          const links = this.activeCellLinks();
+          if (links.length === 0) return;
+          event.preventDefault();
+          for (const url of links) {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }
+        },
+      },
+      {
         match: (event) => keyEquals(event, 'ArrowDown'),
         run: (event) => move(event, 'down'),
       },
@@ -6268,6 +6303,40 @@ export class Worksheet {
       commentCellKeys,
       sheet.getDataValidations(),
     );
+
+    this.refreshLinkHoverAfterRender();
+  }
+
+  /**
+   * Re-reads the hovered cell's links once the painter has rebuilt them.
+   *
+   * `updateLinkHover` only runs from a mouse move, so a remote edit to the
+   * cell the pointer is resting on would repaint new destinations while the
+   * card kept showing the old ones — for as long as the pointer stayed still.
+   */
+  private refreshLinkHoverAfterRender(): void {
+    const sref = this.hoveredLinkSref;
+    if (sref === null) return;
+
+    const urls = this.gridCanvas.linksInCell(sref).map((each) => each.url);
+    const same =
+      urls.length === this.hoveredLinkUrls.length &&
+      urls.every((url, i) => url === this.hoveredLinkUrls[i]);
+    if (same) return;
+
+    this.hoveredLinkUrls = urls;
+    // The cell lost its links entirely — close rather than show an empty card.
+    if (urls.length === 0) {
+      this.clearLinkHoverTimer();
+      this.hoveredLinkSref = null;
+      this.onLinkHoverCallback?.(null);
+      return;
+    }
+    // Already-shown card: replace its contents now. Still pending: the timer
+    // will fire with the list this method just stored.
+    if (this.linkHoverTimer === null) {
+      this.onLinkHoverCallback?.({ sref, urls });
+    }
   }
 
   /**

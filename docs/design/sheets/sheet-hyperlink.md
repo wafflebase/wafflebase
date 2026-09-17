@@ -159,6 +159,12 @@ characters — enough to stall the render loop for every viewer without changing
 the curve's shape. Every shape that now reaches the expensive path goes on to
 emit a span, so the scan skips past it instead of re-reading it.
 
+A dotted quad must be in the URL Standard's canonical form: `010.000.000.001`
+is refused, because `Number('010')` is 10 while the URL parser reads the part
+as octal and resolves the host to `8.0.0.1`. Painting one host and opening
+another is the same defect the userinfo rule refuses, reached by arithmetic
+instead of syntax.
+
 Two shape rules keep the accepted forms honest. A `www.` prefix is the one
 accepted form carrying no scheme, so its host is checked for shape — `www.x` is
 not a destination. And an **address** additionally refuses a TLD that is a
@@ -192,6 +198,7 @@ the detector, so the guard prevents nothing and costs the cases that do work:
 | Ctrl/Cmd+click a span | open that span's URL |
 | Plain click, read-only document view | open the span's URL |
 | Plain click, editable | select the cell (unchanged) |
+| `Alt+Enter` | open every link in the **active cell** |
 | Plain click, read-only *result grid* | select the cell (unchanged) |
 
 The card is keyed on the **cell**, not on the span: the gap between two links
@@ -201,6 +208,13 @@ The cell comes from the hit itself (`RenderedLink.sref`) rather than from the
 pointer's coordinates, because the two disagree exactly where it matters — a
 merged cell paints under its anchor's reference, and overflowing text paints
 outside its own cell — and those are the wide cells that hold several links.
+
+`Alt+Enter` is the keyboard route, and the only one a viewer has — the card is
+reachable by pointer alone. It is what Google Sheets binds, and it is free in
+the *grid* keymap: the `Alt+Enter` that inserts a line break belongs to the
+cell-input keymap, which a focused grid does not use. It opens every link in
+the cell, as Google's does, because a cell holding a release note and a PR link
+offers the keyboard no one link it could mean.
 
 Read-only is available as `this.readOnly` inside the worksheet mouse handler
 (precedent: the checkbox guard at `worksheet.ts:3521`). Giving viewers the
