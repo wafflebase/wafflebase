@@ -76,6 +76,15 @@ type ChangeStruct = Parameters<
 export interface RehydratedArchive<R> {
   docKey: string;
   documentId: string;
+  /**
+   * The rebuilt document itself.
+   *
+   * Handed back live rather than as JSON because the engines read a document
+   * through their own stores, and the live-proxy dialect differs from the
+   * serialized one in ways that do not throw — they yield plausible content
+   * that is not what the user wrote.
+   */
+  doc: Document<R>;
   /** The content, including the edits made after the snapshot was taken. */
   root: R;
   /**
@@ -162,13 +171,15 @@ export async function rehydrateArchive<R>(
   } catch {
     // A run that decoded but would not apply. The snapshot alone still is the
     // document as the server last knew it, which is worth more than nothing.
+    // Rebuilt rather than reused: the failed replay may have left the first
+    // document partly applied, and a half-applied root is the one thing worse
+    // than a stale one.
+    const base = Document.fromBytes<R>(summary.docKey, stored.snapshot);
     return {
       docKey: summary.docKey,
       documentId: documentIdOf(summary.docKey),
-      root: Document.fromBytes<R>(
-        summary.docKey,
-        stored.snapshot,
-      ).getRoot() as R,
+      doc: base,
+      root: base.getRoot() as R,
       complete: false,
       replayed: 0,
       of: stored.changes.length,
@@ -178,6 +189,7 @@ export async function rehydrateArchive<R>(
   return {
     docKey: summary.docKey,
     documentId: documentIdOf(summary.docKey),
+    doc,
     root: doc.getRoot() as R,
     complete: truncatedAt === undefined,
     replayed: replayable.length,

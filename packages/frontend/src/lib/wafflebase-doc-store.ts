@@ -712,6 +712,18 @@ export class WafflebaseDocStore implements DocStore {
   }
 
   /**
+   * `dropArchive` forgets one archived entry, once its work has been handed
+   * back as a document. Dropping it before that would trade an archive for
+   * nothing if the hand-back failed.
+   */
+  public async dropArchive(id: number): Promise<void> {
+    const db = await this.open();
+    const tx = db.transaction(ARCHIVES, "readwrite");
+    tx.objectStore(ARCHIVES).delete(id);
+    return WafflebaseDocStore.completed(tx);
+  }
+
+  /**
    * `dropAllForUser` drops every entry that user wrote — logout, on a machine
    * whose disk should not keep their documents.
    *
