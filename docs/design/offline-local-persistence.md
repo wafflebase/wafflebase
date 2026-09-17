@@ -125,11 +125,17 @@ and re-enable there, which is precisely the case the toggle exists to prevent.
 It is therefore a `localStorage` preference alongside the existing ones, built
 on `lib/date-format-preference.ts`'s shape — `useSyncExternalStore`, a same-tab
 change event beside the cross-tab `storage` event, and a session-only fallback
-when `localStorage` itself refuses the write. That last path is coherent rather
-than awkward here: a browser that will not persist a preference (Safari private
-mode) is the same browser that will not give us IndexedDB, so the toggle
-degrades to a session-only "on" and the store then reports itself undurable for
-its own reasons.
+when `localStorage` itself refuses the write.
+
+That last path degrades to a session-only "on" — the choice applies until the
+tab closes, and does not survive a reload. It is tempting to justify it by
+saying a browser that will not persist a preference will not give us IndexedDB
+either, and for the case that motivated it (Safari private mode) that happens
+to hold. **It is not a rule, and nothing here relies on it**: a `setItem` can
+fail on quota alone while IndexedDB is perfectly available. So durability is
+reported from whether the store actually works, never inferred from the
+preference write, and the erase on disable runs against the store regardless of
+how the preference was recorded.
 
 Two entry points, because the Settings page is not where someone is standing
 when they need this:
