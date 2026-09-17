@@ -24,6 +24,7 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { BLOCKING, normalizeSeverity } from "./severity.mjs";
 import { latestLensRuns } from "./review-state.mjs";
 import { gh, prCommitsWithCheckRuns, allCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
 
@@ -107,6 +108,50 @@ export function tagPriorFindings(runsByLens) {
     }
   }
   return out;
+}
+
+/**
+ * What ONE lens carries into the next round, read from its own `verdict.json`.
+ *
+ * The cloud never needs this: a round there reads the PREVIOUS round's findings
+ * back out of a check run's `output.text`, which is exactly the projection
+ * `agent-review-panel.yml` applies inline when it writes that field. A LOCAL
+ * round has no check runs — `spec-to-pr.mjs review` writes its verdicts to a
+ * directory — so it needs the same projection applied to the same source
+ * (`verdict.json` is what the workflow's inline copy reads too).
+ *
+ * SELECTION ONLY, and that word is the contract. The workflow also trims every
+ * field to fit a check run's 60k `output.text` budget; that is TRANSPORT, it has
+ * no local equivalent, and copying it here would only lose evidence the local
+ * verifier can use. What must not drift is WHICH findings carry, so only that
+ * half is mirrored — and `prior-findings.test.mjs` asserts the workflow's inline
+ * copy still applies both filters:
+ *
+ *   - blocking severity only (`normalizeSeverity` is the workflow's `norm`), and
+ *   - not demoted to the `backlog` lane.
+ *
+ * A demoted finding is wrong input for a carry-forward for the reason the
+ * workflow states at length: it is nobody's to fix, its recorded line has since
+ * been rewritten, and it can never shrink round over round — so carrying it
+ * would make the loop unable to converge.
+ *
+ * `isInfraRecord` is applied for the same reason `tagPriorFindings` applies it:
+ * a lens that hit a quota outage never reviewed, and "the review could not run"
+ * is not a finding the next round's verifier can refute.
+ *
+ * Junk in → `[]`. Like everything else on this path, carrying fewer findings is
+ * the safe failure.
+ */
+export function carryForwardFindings(verdict, lensId) {
+  const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
+  return findings
+    .filter((f) => f && typeof f === "object" && !Array.isArray(f))
+    .filter((f) => !isInfraRecord(f))
+    .filter((f) => BLOCKING.has(normalizeSeverity(f.severity)))
+    .filter((f) => f.lane !== "backlog")
+    // `lens` last, mirroring `tagPriorFindings`: the panel filters prior findings
+    // by `p.lens === lens.id`, so an untagged one is carried by nobody.
+    .map((f) => ({ ...f, lens: typeof lensId === "string" && lensId !== "" ? lensId : f.lens }));
 }
 
 /** Lens check-run names from a lenses.json manifest. Junk → []. */
