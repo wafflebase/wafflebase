@@ -134,7 +134,8 @@ did not agree to also send it timings for our builds.
 SDK instruments `http`, `express` and `pg` by patching them as they are first
 required, so anything loaded above that line is loaded unpatched and emits no
 spans — silently, with no error and no missing-configuration warning. The
-compiled `dist/main.js` was checked to confirm `require("./instrument")` stays
+compiled output of `packages/backend/src/main.ts` was checked to confirm that
+`require("./instrument")` stays
 first.
 
 No import-sorting rule is configured in that package today, so nothing
