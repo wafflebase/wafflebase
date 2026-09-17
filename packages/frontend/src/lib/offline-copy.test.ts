@@ -158,7 +158,14 @@ describe("listing what can be recovered", () => {
 });
 
 describe("a log that is not whole", () => {
-  /** Stores a snapshot plus exactly the clientSeqs given, in order. */
+  /**
+   * Stores a snapshot plus exactly the clientSeqs given, in order.
+   *
+   * The snapshot carries one un-pushed change of its own (the title edit), so
+   * its watermark is 1 and a *healthy* log written after it begins at 2. Cases
+   * below choose their sequences against that, which is what makes a head of
+   * 3 a hole rather than a renumbering.
+   */
   async function archiveWithSeqs(
     store: WafflebaseDocStore,
     docKey: string,
@@ -217,7 +224,7 @@ describe("a log that is not whole", () => {
     // One bad entry is not a reason to throw away the snapshot and the entries
     // that were fine — that turns a partial loss into a total one.
     const store = freshStore();
-    await archiveWithSeqs(store, "note-8", [1, 2], [2]);
+    await archiveWithSeqs(store, "note-8", [2, 3], [3]);
 
     const [entry] = await store.listArchives();
     const recovered = await rehydrateArchive<Root>(store, entry.id);
@@ -225,12 +232,33 @@ describe("a log that is not whole", () => {
     expect(recovered).toBeDefined();
     expect(recovered!.complete).toBe(false);
     expect(recovered!.replayed).toBe(1);
-    expect(recovered!.root.body).toBe("edit 1");
+    expect(recovered!.root.body).toBe("edit 2");
+  });
+
+  it("refuses a log whose head is missing, rather than calling it whole", async () => {
+    // The hole is between the snapshot and the first stored entry, so every
+    // pair in the log is contiguous with its neighbour and the run still does
+    // not join onto the document it extends. That is the shape a torn append
+    // or a partial eviction leaves — the population this path exists for — and
+    // reporting it `complete` would hand back a document missing an edit with
+    // nothing to say so.
+    const store = freshStore();
+    await archiveWithSeqs(store, "note-10", [3, 4]);
+
+    const [entry] = await store.listArchives();
+    const recovered = await rehydrateArchive<Root>(store, entry.id);
+
+    expect(recovered).toBeDefined();
+    expect(recovered!.complete).toBe(false);
+    expect(recovered!.replayed).toBe(0);
+    // The snapshot alone, which is true as far as it goes.
+    expect(recovered!.root.title).toBe("Quarterly plan");
+    expect(recovered!.root.body).toBeUndefined();
   });
 
   it("reports a whole log as complete", async () => {
     const store = freshStore();
-    await archiveWithSeqs(store, "note-9", [1, 2]);
+    await archiveWithSeqs(store, "note-9", [2, 3]);
 
     const [entry] = await store.listArchives();
     const recovered = await rehydrateArchive<Root>(store, entry.id);

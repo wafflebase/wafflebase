@@ -15,6 +15,11 @@ import {
 import { useNavigationGuard } from '@/components/navigation-guard/use-navigation-guard';
 import { useUnsavedWorkProbe } from './use-unsaved-work-probe';
 import { cn } from '@/lib/utils';
+import {
+  setOfflinePersistenceEnabled,
+  useOfflinePersistenceEnabled,
+} from '@/lib/offline-persistence-preference';
+import { supportsClientKey } from '@/lib/yorkie-capabilities';
 import { useSyncStatus } from './use-sync-status';
 import type { SyncState } from './sync-state';
 
@@ -54,7 +59,12 @@ const ICONS: Record<SyncState, typeof IconCheck> = {
   'not-saved': IconAlertTriangle,
 };
 
-function tooltipFor(state: SyncState, pendingSince: Date | null): string {
+function tooltipFor(
+  state: SyncState,
+  pendingSince: Date | null,
+  connected: boolean,
+  offerOffline: boolean,
+): string {
   switch (state) {
     case 'saved':
       return 'All changes are on the server.';
@@ -83,10 +93,25 @@ function tooltipFor(state: SyncState, pendingSince: Date | null): string {
       const since = pendingSince
         ? `Changes since ${pendingSince.toLocaleTimeString()}`
         : 'Recent changes';
+      // `Not saved` is reached two ways and they call for different advice —
+      // the same split the toast already makes. Telling somebody whose
+      // connection is fine that it dropped sends them to debug the wrong
+      // thing, and the reverse hides the only thing they can act on.
+      const why = connected
+        ? `${since} were rejected by the server, so they haven't been saved.`
+        : `${since} haven't reached the server because the connection dropped.`;
       // Deliberately names the tab as the only copy. Yorkie keeps the change
       // queue in memory, so anything that ends this tab ends these edits —
       // wording that implied local storage would be a false promise.
-      return `${since} haven't reached the server. They exist only in this tab, so closing or reloading it will lose them.`;
+      const risk =
+        'They exist only in this tab, so closing or reloading it will lose them.';
+      // The one row of the design's table that is a call to action rather than
+      // a fault: this is where somebody is standing when they find out they
+      // wanted the setting, so the offer belongs here and not only in Settings.
+      const offer = offerOffline
+        ? ' Click to keep un-sent changes on this device, so a reload no longer loses them.'
+        : '';
+      return `${why} ${risk}${offer}`;
     }
   }
 }
@@ -105,6 +130,25 @@ function tooltipFor(state: SyncState, pendingSince: Date | null): string {
 export function SyncStatusChip({ className }: { className?: string }) {
   const { state, connected, hasUnsentEdits, pendingSince } = useSyncStatus();
   const stranded = state === 'not-saved';
+  const offlineEnabled = useOfflinePersistenceEnabled();
+  // Offered only where it is both possible and useful: a build that can carry
+  // a client key (see `yorkie-capabilities.ts` — without one nothing is
+  // persisted), the device has not already opted in, and there is work at risk
+  // right now. A call to action on a healthy document would be an
+  // advertisement.
+  const offerOffline = stranded && supportsClientKey() && !offlineEnabled;
+
+  const turnOnOfflineSaving = useCallback(() => {
+    setOfflinePersistenceEnabled(true);
+    // Honest about when it applies. The decision to persist is made when a
+    // document is opened — changing it under a mounted editor would tear the
+    // editor down and take the very changes this chip is warning about with
+    // it — so this one is not rescued retroactively.
+    toast.success('Saving on this device is on', {
+      description:
+        'Documents you open from now on keep un-sent changes on this device, so a reload no longer loses them. Turn it off in Settings; doing so deletes what was stored.',
+    });
+  }, []);
   // `Saving…` is not safe either — the work is not on the server yet, and a
   // reload during it loses the edit just as surely as one while disconnected.
   const mayHaveUnsent = stranded || state === 'saving';
@@ -183,6 +227,16 @@ export function SyncStatusChip({ className }: { className?: string }) {
           description: connected
             ? "The server rejected your recent changes, so they haven't been saved. Keep this tab open — closing it will lose them."
             : "Your connection dropped and recent changes haven't reached the server. Keep this tab open; they'll sync when the connection returns.",
+          // The second of the design's two entry points, and the one somebody
+          // is actually looking at when they discover they wanted the setting.
+          // Absent once the device has opted in, and on a build that cannot
+          // honour it.
+          action: offerOffline
+            ? {
+                label: 'Save on this device',
+                onClick: turnOnOfflineSaving,
+              }
+            : undefined,
         });
       }, TOAST_DELAY_MS);
       return () => clearTimeout(timer);
@@ -204,7 +258,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
       id: RECOVERY_TOAST_ID,
       description: 'Your changes reached the server.',
     });
-  }, [stranded, state, connected]);
+  }, [stranded, state, connected, offerOffline, turnOnOfflineSaving]);
 
   // `<Toaster />` is mounted outside the router, and the warning is
   // `duration: Infinity` with no close button. Without this, leaving the
@@ -223,27 +277,51 @@ export function SyncStatusChip({ className }: { className?: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span
-          role="status"
-          aria-live={stranded ? 'assertive' : 'polite'}
-          // Radix adds no tabIndex to a bare span, which would leave the
-          // tooltip hover-only — and the tooltip is where the "this tab is the
-          // only copy" wording lives.
-          tabIndex={0}
-          className={cn(
-            'flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs whitespace-nowrap',
-            stranded ? 'text-destructive font-medium' : 'text-muted-foreground',
-            // The steady state is the least interesting thing in the header,
-            // so it yields its room first when there is none to spare.
-            state === 'saved' && 'hidden sm:flex',
-            className,
-          )}
-        >
-          <Icon size={14} aria-hidden />
-          {LABELS[state]}
-        </span>
+        {/* A button only while it has something to do. The chip is a status
+            first, so it stays a plain span in every other state rather than
+            presenting an action that would do nothing. */}
+        {offerOffline ? (
+          <button
+            type="button"
+            role="status"
+            aria-live="assertive"
+            onClick={turnOnOfflineSaving}
+            className={cn(
+              'flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs whitespace-nowrap',
+              'text-destructive font-medium underline-offset-2 hover:underline',
+              className,
+            )}
+          >
+            <Icon size={14} aria-hidden />
+            {LABELS[state]}
+          </button>
+        ) : (
+          <span
+            role="status"
+            aria-live={stranded ? 'assertive' : 'polite'}
+            // Radix adds no tabIndex to a bare span, which would leave the
+            // tooltip hover-only — and the tooltip is where the "this tab is
+            // the only copy" wording lives.
+            tabIndex={0}
+            className={cn(
+              'flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs whitespace-nowrap',
+              stranded
+                ? 'text-destructive font-medium'
+                : 'text-muted-foreground',
+              // The steady state is the least interesting thing in the header,
+              // so it yields its room first when there is none to spare.
+              state === 'saved' && 'hidden sm:flex',
+              className,
+            )}
+          >
+            <Icon size={14} aria-hidden />
+            {LABELS[state]}
+          </span>
+        )}
       </TooltipTrigger>
-      <TooltipContent>{tooltipFor(state, pendingSince)}</TooltipContent>
+      <TooltipContent>
+        {tooltipFor(state, pendingSince, connected, offerOffline)}
+      </TooltipContent>
     </Tooltip>
   );
 }

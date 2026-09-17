@@ -102,6 +102,25 @@ describe("dropping a user's entries", () => {
     expect(await theirs.load("doc-c")).toBeDefined();
   });
 
+  it("refuses a later append for an entry it dropped under a live client", async () => {
+    // The erase is a promise about content, so unlike collection and eviction
+    // it does not spare a document that happens to be open — the open one is
+    // exactly the content the user is worried about. What it must not do is
+    // fall silent: an append landing in nothing while the chip still says
+    // "saved to this device" is the false promise this feature cannot make.
+    const store = freshStore("user-1");
+    await seed(store, "doc-live");
+
+    await store.dropAllForUser("user-1");
+
+    await expect(
+      store.appendChange("doc-live", {
+        clientSeq: 2,
+        bytes: new Uint8Array([9]),
+      }),
+    ).rejects.toThrow();
+  });
+
   it("drops the change log with the snapshot, not just the snapshot", async () => {
     // An orphaned log is invisible to `load` and still occupies quota, so a
     // drop that leaves it behind looks complete and is not.
@@ -146,6 +165,36 @@ describe("collecting stale entries", () => {
     expect(collected).toBe(1);
     expect(await later.load("old")).toBeUndefined();
     expect(await later.load("recent")).toBeDefined();
+  });
+
+  it("leaves another account's stale entries and archives alone", async () => {
+    // The database is per origin and the `updatedAt` index spans every account
+    // that has used this device, so an unscoped sweep has one person's session
+    // deleting another's documents — and their archives, which are the only
+    // copy of work the SDK could not reconcile. Every other deletion path here
+    // is user-scoped for exactly that reason.
+    const time = clock("2026-01-01T00:00:00Z");
+    const mine = freshStore("user-1", time.now);
+    await seed(mine, "mine-old");
+
+    const theirs = new WafflebaseDocStore({
+      dbName: mine.databaseName,
+      userId: "user-2",
+      now: time.now,
+    });
+    await seed(theirs, "theirs-old");
+    await seed(theirs, "theirs-lost");
+    theirs.expectLoss("theirs-lost");
+    await theirs.remove("theirs-lost");
+
+    time.set("2026-03-01T00:00:00Z");
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    const later = reopen(mine, "user-1", time.now);
+
+    expect(await later.collectStale(thirtyDays)).toBe(1);
+    expect(await later.load("mine-old")).toBeUndefined();
+    expect(await theirs.load("theirs-old")).toBeDefined();
+    expect(await theirs.listArchives()).toHaveLength(1);
   });
 
   it("counts an appended change as touching the entry", async () => {

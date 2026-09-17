@@ -30,7 +30,10 @@ vi.mock('@yorkie-js/react', () => ({
 // The provider asks who is signed in; these cases do not care, and a real
 // query client would make every one of them need a wrapper.
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: undefined }),
+  useQuery: () => ({ data: undefined, isPending: false }),
+  // The provider seeds its optional-me query from the one the authenticated
+  // shell already resolved, so it needs the client to read that cache.
+  useQueryClient: () => ({ getQueryData: () => undefined }),
 }));
 
 import { CollabDocumentProvider } from '../collab-document-provider';

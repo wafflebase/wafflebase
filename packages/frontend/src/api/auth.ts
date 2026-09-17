@@ -21,6 +21,15 @@ type LogoutOptions = {
   redirect?: boolean;
   showSuccessToast?: boolean;
   suppressFailure?: boolean;
+  /**
+   * Whether this sign-out also erases what offline persistence wrote to this
+   * device. Defaults to true, because a person choosing "Log out" on a shared
+   * machine is exactly who that erase is for.
+   *
+   * The 401 arm of {@link fetchWithAuth} passes `false`, and that is the whole
+   * reason the option exists — see the comment there.
+   */
+  eraseLocalData?: boolean;
 };
 
 let isRedirecting = false;
@@ -83,6 +92,7 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
     redirect = true,
     showSuccessToast = true,
     suppressFailure = false,
+    eraseLocalData = true,
   } = options;
   let res: Response | null = null;
 
@@ -102,7 +112,15 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
   // of the setting being per device is that the device may be shared. Awaited
   // before the redirect so the erase is not raced by the page unloading, and
   // never able to fail the sign-out itself.
-  await eraseOfflineDataOnLogout();
+  //
+  // Only when the person asked to sign out. An involuntary expiry runs the
+  // same function with `eraseLocalData: false`, because this erase is
+  // destructive in a way nothing else here is: it deletes the archives, which
+  // are by this feature's own design the *only* remaining copy of work the SDK
+  // could not reconcile.
+  if (eraseLocalData) {
+    await eraseOfflineDataOnLogout();
+  }
 
   if (res && !res.ok && !suppressFailure) {
     throw new Error("Failed to log out");
@@ -230,6 +248,14 @@ export async function fetchWithAuth(
       redirect: false,
       showSuccessToast: false,
       suppressFailure: true,
+      // Nobody asked for this. A 401 whose refresh failed is a session that
+      // expired, a cookie a browser dropped, or a backend that restarted — and
+      // the user is about to log straight back in on the same device. Erasing
+      // here would destroy this device's locally persisted unsent work,
+      // including the archives that hold changes the server never took, on an
+      // event the user neither chose nor can undo. Signing out deliberately
+      // still erases; this path only ends the session.
+      eraseLocalData: false,
     });
     redirectTo("/login");
     throw new AuthExpiredError();

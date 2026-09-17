@@ -67,6 +67,35 @@ export async function listRecoverableWork(
   }));
 }
 
+/**
+ * How far a restored snapshot already reaches, in `clientSeq`.
+ *
+ * The first log entry that extends it must be this plus one — the rule the
+ * SDK's own store-backed attach applies before it will replay anything, and
+ * the reason a `LocalChangesDropped` carries `log-discontinuity`.
+ *
+ * `undefined` when the document cannot answer (a stub, a shape an older SDK
+ * did not expose). The caller then falls back to neighbour-only contiguity,
+ * which is weaker but is what was checkable.
+ */
+function snapshotWatermark(doc: Document<unknown>): number | undefined {
+  try {
+    if (
+      typeof doc.getPendingChangesAfter !== "function" ||
+      typeof doc.getCheckpoint !== "function"
+    ) {
+      return undefined;
+    }
+    const carried = doc.getPendingChangesAfter(0);
+    const lastCarried = carried.length
+      ? carried[carried.length - 1].clientSeq
+      : 0;
+    return Math.max(lastCarried, doc.getCheckpoint().getClientSeq());
+  } catch {
+    return undefined;
+  }
+}
+
 /** The shape the SDK's `restoreAppendedChanges` accepts. */
 type ChangeStruct = Parameters<
   Document<unknown>["restoreAppendedChanges"]
@@ -143,12 +172,27 @@ export async function rehydrateArchive<R>(
   // rebuilt from 2 and 4 is not the document the user had with 2, 3 and 4 —
   // it is a plausible-looking one missing an edit, handed back with no sign
   // that anything is absent. A prefix is at least true as far as it goes.
+  //
+  // Contiguity is measured **from the snapshot**, not merely between
+  // neighbours. A log whose head is missing — which is exactly what a torn
+  // append or a partial eviction leaves, and exactly the population this
+  // recovery path serves — is contiguous with itself and still does not join
+  // onto the document it claims to extend. Checking only neighbours reported
+  // such a copy as `complete`. The watermark is computed the way the SDK's own
+  // resume path computes it: the last change the snapshot already carries, or
+  // the acknowledged checkpoint, whichever is further along.
+  const watermark = snapshotWatermark(doc);
   const decoder = new TextDecoder();
   const replayable: Array<ChangeStruct> = [];
-  let expected: number | undefined;
+  let expected: number | undefined =
+    watermark === undefined ? undefined : watermark + 1;
   let truncatedAt: number | undefined;
 
   for (const change of stored.changes) {
+    // Already inside the snapshot: re-applying would double the operation.
+    if (watermark !== undefined && change.clientSeq <= watermark) {
+      continue;
+    }
     if (expected !== undefined && change.clientSeq !== expected) {
       truncatedAt = change.clientSeq;
       break;

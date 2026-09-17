@@ -86,7 +86,11 @@ export function OfflineRuntime({ userId }: { userId: string }) {
     return () => {
       cancelled = true;
       stopWatching();
-      rememberOfflineUser(undefined);
+      // The identity is deliberately *not* forgotten here. This component
+      // unmounts whenever the authenticated shell does — navigating to a share
+      // link, to a public page, to Settings on a route tree of its own — and
+      // signing out from any of those must still erase this device's stored
+      // documents. `logout()` is what spends and clears it.
       store.close();
     };
   }, [userId, navigate]);

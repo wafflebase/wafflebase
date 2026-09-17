@@ -1,9 +1,15 @@
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DocumentProvider, useDocument } from '@yorkie-js/react';
 import type { Indexable } from '@yorkie-js/sdk';
+import type { User } from '@/types/users';
 import { fetchMeOptional, fetchYorkieToken } from '@/api/auth';
-import { useDurableDocument } from '@/lib/use-durable-document';
+import {
+  useDurabilityPermitted,
+  useDurableDocument,
+} from '@/lib/use-durable-document';
+import { useOfflinePersistenceEnabled } from '@/lib/offline-persistence-preference';
+import { supportsClientKey } from '@/lib/yorkie-capabilities';
 import {
   DurableLossWatch,
   DurableYorkieProvider,
@@ -156,22 +162,80 @@ function PresenceIdentityRepair<P extends Indexable>({
  * therefore bounce every anonymous share-link visitor off the document they
  * were sent. `["me", "optional"]` is the key the share route already reads
  * under, so on that route this costs no extra request.
+ *
+ * On a *private* route it is a different query from the `["me"]` one
+ * `PrivateRoute` has already resolved, so it starts out pending — and a
+ * pending identity reads as "not eligible", which is a wrong answer, not a
+ * missing one: the document would attach on the ambient client and then be
+ * torn down and re-attached on the durable one. So the resolved `["me"]` entry
+ * seeds this query's initial data, and where nothing seeds it the render is
+ * held until the question is answered — but only when persisting is possible
+ * at all, so an anonymous visitor waits for nothing.
  */
 export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   initialPresence,
   children,
   ...rest
 }: Parameters<typeof DocumentProvider<R, P>>[0]) {
-  const { data: me } = useQuery({
+  const queryClient = useQueryClient();
+  const { data: me, isPending: identityPending } = useQuery({
     queryKey: ['me', 'optional'],
     queryFn: fetchMeOptional,
     retry: false,
+    // The same user, under the key the authenticated shell resolved it as.
+    // Absent on a public route, where this simply falls back to asking.
+    initialData: () => queryClient.getQueryData<User>(['me']),
   });
   const docKey = (rest as { docKey: string }).docKey;
+  const offlineEnabled = useOfflinePersistenceEnabled();
+  const permitted = useDurabilityPermitted();
+  // Every term here is synchronous, so the answer is known on the first render.
+  // It exists only to decide whether the identity is worth waiting for: with
+  // the opt-in declined — which is every document today — nothing about this
+  // component's timing changes.
+  const mayPersist = supportsClientKey() && offlineEnabled && permitted;
+  const identified = !mayPersist || !identityPending;
+
   const { durable, clientKey, settled, standDown } = useDurableDocument({
     docKey,
     userId: me?.id === undefined ? undefined : String(me.id),
   });
+
+  /**
+   * The election, answered once per document and then held.
+   *
+   * The two branches below are different element types at the same position,
+   * so switching between them unmounts the `DocumentProvider` and the entire
+   * editor subtree under it — discarding the Yorkie change queue, which on a
+   * document with unsent edits is the loss this whole feature exists to
+   * prevent. `durable` is derived from the preference, which a person can flip
+   * in another tab while an editor sits here with work in it.
+   *
+   * So the decision is made when the document mounts and applies until it is
+   * closed; flipping the preference takes effect on the documents opened
+   * after it. The one thing that may still demote is `standDown`, and it is
+   * the opposite case: the SDK refused the attach, so there is nothing
+   * attached to lose and re-mounting on the ambient client is the repair.
+   */
+  const held = useRef<{
+    docKey: string;
+    durable: boolean;
+    clientKey?: string;
+  }>(null);
+  const [stoodDown, setStoodDown] = useState<string | null>(null);
+  const giveUp = useCallback(() => {
+    setStoodDown(docKey);
+    standDown();
+  }, [docKey, standDown]);
+
+  const ready = settled && identified;
+  if (ready && held.current?.docKey !== docKey) {
+    held.current = { docKey, durable, clientKey };
+  }
+  const decided =
+    held.current?.docKey === docKey && stoodDown !== docKey
+      ? held.current
+      : undefined;
 
   const inner = (
     <DocumentProvider<R, P> initialPresence={initialPresence} {...rest}>
@@ -185,7 +249,7 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
     </DocumentProvider>
   );
 
-  // Nothing is attached until the election has answered.
+  // Nothing is attached until the election *and* the identity have answered.
   //
   // Rendering the ambient client first and swapping would attach the document
   // twice on every durable open — and worse, an edit made in that window would
@@ -193,20 +257,20 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   // it would be lost. The window is short, but "short" is not a property this
   // feature is allowed to rely on.
   //
-  // It costs no blank frame in the common case: a document that is not
-  // eligible answers synchronously, so `settled` is already true on the first
-  // render whenever the feature is off — which is every document today.
-  if (!settled) {
+  // It costs no blank frame in the common case: a document that cannot persist
+  // waits for neither, so this is already true on the first render whenever the
+  // feature is off — which is every document today.
+  if (!ready) {
     return null;
   }
 
-  if (!durable || !clientKey || !me) {
+  if (!decided?.durable || !decided.clientKey || !me) {
     return inner;
   }
 
   return (
     <DurableYorkieProvider
-      clientKey={clientKey}
+      clientKey={decided.clientKey}
       userId={String(me.id)}
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
@@ -219,7 +283,7 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
       // disagree: holding the election while the attach is refused leaves this
       // tab non-durable *and* every other tab refused, which is strictly worse
       // than having lost the election in the first place.
-      onLockRefused={standDown}
+      onLockRefused={giveUp}
     >
       {inner}
     </DurableYorkieProvider>

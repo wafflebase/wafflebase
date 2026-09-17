@@ -157,8 +157,35 @@ Two consequences elsewhere in this design:
   extra `ActivateClient`. Users who never opt in pay nothing for this feature
   existing. The `PrivateRoute` provider therefore **stays**; it is not
   redundant.
-- Toggling mid-session must remount the provider, so the flag joins `docKey` in
-  its React `key`.
+- Toggling mid-session does **not** remount an open document — reversing this
+  design's first answer, which had the flag join `docKey` in the provider's
+  React `key`. The durable and non-durable branches are different element types
+  at the same position, so switching between them unmounts the
+  `DocumentProvider` and the whole editor under it, discarding Yorkie's
+  in-memory change queue: on a document with unsent edits, the toggle would
+  destroy exactly the work it exists to protect, and the preference is
+  reachable from another tab while an editor sits here with work in it. So the
+  decision is made when a document is opened and holds until it is closed; a
+  flip applies to the documents opened after it. The one exception is the SDK
+  refusing the attach for its own lock — nothing is attached there, so
+  re-mounting on the ambient client is the repair rather than a loss.
+
+**Signing out erases; being signed out does not.** The erase runs from
+`logout()`, which is also what `fetchWithAuth` calls on a 401 whose refresh
+failed. That path is an expired cookie or a restarted backend, not a decision:
+the user is about to sign straight back in on the same device, and the archives
+are by this design the only remaining copy of work the server never took. So
+the involuntary path ends the session and erases nothing, and only a deliberate
+sign-out spends the identity. The identity itself is mirrored in
+`localStorage` (an id, never content) because sign-out is reachable from routes
+the authenticated shell does not cover, where in-memory state is simply absent
+and the erase would otherwise be a silent no-op.
+
+**Both opt-in entry points are gated on `supportsClientKey()`**, not only the
+code that persists. On a build pinned below `MinClientKeyVersion` nothing can
+be stored, so a control offering to save documents on this device would promise
+storage — and an erasure of it — that cannot happen. That is the Rollout rule
+below applied to the version pin rather than to the PR order.
 
 ### Storage: `WafflebaseDocStore`
 

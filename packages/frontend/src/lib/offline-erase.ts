@@ -42,12 +42,64 @@ export async function eraseOfflineData(
  * Module state rather than a React ref because the caller is `api/auth.ts`,
  * which is reached from outside the tree — including from `fetchWithAuth`'s
  * 401 arm, where no component is in a position to run anything.
+ *
+ * And mirrored into `localStorage`, because module state only exists where the
+ * authenticated shell is mounted. Sign-out is reachable from routes it does
+ * not cover — a share link, a public page, a reload that lands outside it —
+ * and there the in-memory identity is simply absent, so the erase would
+ * silently do nothing and leave document content on a shared device. The
+ * mirror is an id, never content, and it is cleared the moment it is spent.
  */
+const LAST_USER_KEY = "wafflebase-offline-user";
+
 let signedInUserId: string | undefined;
 
-/** Records who is signed in, for {@link eraseOfflineDataOnLogout}. */
+/**
+ * Records who is signed in, for {@link eraseOfflineDataOnLogout}.
+ *
+ * Passing `undefined` is an explicit *forget* — "nobody is signed in on this
+ * device" — and clears the mirror too. It is deliberately not what an
+ * unmounting shell does: a component going away is not a sign-out, and
+ * clearing there is precisely what made the erase a no-op everywhere the shell
+ * is not.
+ */
 export function rememberOfflineUser(userId: string | undefined): void {
   signedInUserId = userId;
+  try {
+    if (userId === undefined) {
+      localStorage.removeItem(LAST_USER_KEY);
+    } else {
+      localStorage.setItem(LAST_USER_KEY, userId);
+    }
+  } catch {
+    // Storage may be refused outright (Safari private mode, blocked
+    // third-party storage). The in-memory identity still covers the ordinary
+    // case, and a browser that refuses storage cannot hold a durable store to
+    // erase either.
+  }
+}
+
+/** Who this device's stored documents belong to, if anyone. */
+function offlineUserId(): string | undefined {
+  if (signedInUserId !== undefined) {
+    return signedInUserId;
+  }
+  try {
+    return localStorage.getItem(LAST_USER_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether `userId` is the account whose documents this device holds.
+ *
+ * For the callers that lose access on somebody else's behalf: removing another
+ * member from a workspace must not purge *this* user's copies of documents
+ * they still have every right to read.
+ */
+export function isOfflineUser(userId: string): boolean {
+  return offlineUserId() === userId;
 }
 
 /**
@@ -63,8 +115,8 @@ export function rememberOfflineUser(userId: string | undefined): void {
  * the thirty-day sweep.
  */
 export async function eraseOfflineDataOnLogout(): Promise<void> {
-  const who = signedInUserId;
-  signedInUserId = undefined;
+  const who = offlineUserId();
+  rememberOfflineUser(undefined);
   if (!who) {
     return;
   }
@@ -92,7 +144,7 @@ export async function eraseOfflineDataOnLogout(): Promise<void> {
 export async function purgeOfflineDocuments(
   documentIds: Array<string>,
 ): Promise<void> {
-  const who = signedInUserId;
+  const who = offlineUserId();
   if (!who || documentIds.length === 0) {
     return;
   }

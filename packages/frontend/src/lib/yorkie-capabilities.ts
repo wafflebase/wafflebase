@@ -57,6 +57,13 @@ function atLeast(a: string, b: string): boolean {
  * already attached.
  *
  * Bumping the dependency is the only action needed to turn the feature on.
+ *
+ * **Every surface that offers the feature goes behind this, not only the code
+ * that performs it.** A build pinned below `MinClientKeyVersion` can persist
+ * nothing, so a control offering to save documents on this device — the
+ * Settings switch, the sync chip's offer — would promise storage, and an
+ * erasure of it, that cannot happen. The design's Rollout section puts it as:
+ * the preference may land early because nothing reads it; the toggle may not.
  */
 export function supportsClientKey(): boolean {
   const version =

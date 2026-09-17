@@ -21,6 +21,7 @@ import {
   setOfflinePersistenceEnabled,
   useOfflinePersistenceEnabled,
 } from "@/lib/offline-persistence-preference";
+import { supportsClientKey } from "@/lib/yorkie-capabilities";
 
 /**
  * Renders the application settings page.
@@ -29,6 +30,9 @@ export default function Settings() {
   const { theme, setTheme } = useContext(ThemeProviderContext);
   const dateFormat = useDateFormat();
   const offlineEnabled = useOfflinePersistenceEnabled();
+  // Read once per render, not stored: it is a build-time fact about the pinned
+  // `@yorkie-js/react`, not a preference.
+  const offlineAvailable = supportsClientKey();
 
   const handleThemeToggle = () => {
     setTheme(theme === "dark" ? "light" : "dark");
@@ -94,7 +98,17 @@ export default function Settings() {
           document content to whatever machine the user is on, where it
           outlives the session. An account-level setting would follow them onto
           a shared machine and re-enable there, which is the case this toggle
-          exists to prevent (docs/design/offline-local-persistence.md). */}
+          exists to prevent (docs/design/offline-local-persistence.md).
+
+          Offered only on a build that can honour it. `supportsClientKey()` is
+          a hard precondition — without a client key the store fills with
+          entries no reload can use — and every other consumer is already
+          behind it. A switch is not: it would promise storage and erasure that
+          this build cannot perform, which is what the design's Rollout section
+          means by "the preference may land early because nothing reads it; the
+          toggle may not". Bumping `@yorkie-js/react` past
+          `MinClientKeyVersion` is the one action that reveals it. */}
+      {offlineAvailable && (
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Offline</h2>
         <div className="flex items-center justify-between gap-4 rounded-md border p-4">
@@ -115,6 +129,7 @@ export default function Settings() {
           />
         </div>
       </section>
+      )}
     </div>
   );
 }

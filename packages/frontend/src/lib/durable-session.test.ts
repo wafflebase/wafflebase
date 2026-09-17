@@ -183,6 +183,146 @@ describe("electing a tab", () => {
   });
 });
 
+describe("the real Web Locks adapter", () => {
+  /**
+   * Every other election case injects a fake lock manager, which makes the
+   * shipped `webLocks()` adapter — the only one a browser ever runs —
+   * unreachable from the suite. It is not trivial code: a Web Lock is held for
+   * as long as the callback's promise is pending, so the adapter resolves the
+   * *caller* with a release function from inside a callback it deliberately
+   * leaves parked. Getting that inverted holds the lock forever, or releases it
+   * immediately, and neither shows up anywhere else.
+   *
+   * So these drive it against a stand-in that behaves like the real API:
+   * `ifAvailable` hands the callback `null` when the name is taken, and the
+   * name is freed when the callback's promise settles.
+   */
+  /** Lets the parked lock promise settle, the way a real turn of the loop does. */
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  function installLockManager(): { held: Set<string>; restore: () => void } {
+    const held = new Set<string>();
+    const original = (navigator as { locks?: unknown }).locks;
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: {
+        request: (
+          name: string,
+          _options: unknown,
+          callback: (lock: { name: string } | null) => unknown,
+        ) => {
+          if (held.has(name)) {
+            return Promise.resolve(callback(null));
+          }
+          held.add(name);
+          return Promise.resolve(callback({ name })).finally(() => {
+            held.delete(name);
+          });
+        },
+        query: async () => ({
+          held: [...held].map((name) => ({ name })),
+          pending: [],
+        }),
+      },
+    });
+    return {
+      held,
+      restore: () =>
+        Object.defineProperty(navigator, "locks", {
+          configurable: true,
+          value: original,
+        }),
+    };
+  }
+
+  it("holds the name for as long as the session lives, and frees it on release", async () => {
+    setDurableLockForTest(undefined);
+    const locks = installLockManager();
+    try {
+      const session = await acquireDurableSession("u1", "note-7");
+      expect(session).toBeDefined();
+      // Still held while the session exists — the property the parked callback
+      // is there to provide.
+      expect(locks.held.has("wb-durable:u1:note-7")).toBe(true);
+
+      session!.release();
+      // The release resolves the parked promise; the manager frees the name
+      // when that promise settles, which is a turn of the loop later.
+      await flush();
+      expect(locks.held.has("wb-durable:u1:note-7")).toBe(false);
+    } finally {
+      locks.restore();
+    }
+  });
+
+  it("refuses a second tab while the first holds the name", async () => {
+    setDurableLockForTest(undefined);
+    const locks = installLockManager();
+    try {
+      expect(await acquireDurableSession("u1", "note-7")).toBeDefined();
+
+      asAnotherTab();
+      expect(await acquireDurableSession("u1", "note-7")).toBeUndefined();
+    } finally {
+      locks.restore();
+    }
+  });
+
+  it("lets a later tab in once the name is free", async () => {
+    // Released *before* the other tab asks — `asAnotherTab()` forgets this
+    // tab's elections, and a handle whose election has been forgotten has
+    // nothing left to release, which is a property of the test double rather
+    // than of a browser.
+    setDurableLockForTest(undefined);
+    const locks = installLockManager();
+    try {
+      const first = await acquireDurableSession("u1", "note-7");
+      first!.release();
+      await flush();
+      expect(locks.held.size).toBe(0);
+
+      asAnotherTab();
+      expect(await acquireDurableSession("u1", "note-7")).toBeDefined();
+    } finally {
+      locks.restore();
+    }
+  });
+
+  it("elects independently per document", async () => {
+    setDurableLockForTest(undefined);
+    const locks = installLockManager();
+    try {
+      expect(await acquireDurableSession("u1", "note-7")).toBeDefined();
+      expect(await acquireDurableSession("u1", "sheet-9")).toBeDefined();
+      expect(locks.held.size).toBe(2);
+    } finally {
+      locks.restore();
+    }
+  });
+
+  it("fails closed when the lock manager itself errors", async () => {
+    // A manager that rejected has told us nothing about who holds what, and
+    // durability without the guard is the silent-edit-loss case.
+    setDurableLockForTest(undefined);
+    const original = (navigator as { locks?: unknown }).locks;
+    try {
+      Object.defineProperty(navigator, "locks", {
+        configurable: true,
+        value: {
+          request: () => Promise.reject(new Error("no locks for you")),
+          query: async () => ({ held: [], pending: [] }),
+        },
+      });
+      expect(await acquireDurableSession("u1", "note-7")).toBeUndefined();
+    } finally {
+      Object.defineProperty(navigator, "locks", {
+        configurable: true,
+        value: original,
+      });
+    }
+  });
+});
+
 describe("runtimes without the Web Locks API", () => {
   it("reports itself unsupported rather than pretending to guard", () => {
     // `navigator.locks` is absent on insecure origins and in older browsers.

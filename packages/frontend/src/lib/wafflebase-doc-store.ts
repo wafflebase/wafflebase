@@ -842,7 +842,24 @@ export class WafflebaseDocStore implements DocStore {
   public async dropAllForUser(userId: string): Promise<number> {
     const keys = await this.headerKeysWhere(BY_USER, IDBKeyRange.only(userId));
     for (const docKey of keys) {
+      // Unlike collection and eviction, this does **not** spare a document
+      // that is open right now. It cannot: "turning this off deletes them" and
+      // "signing out leaves nothing behind" are promises about content, and an
+      // exception for whatever happens to be on screen is exactly the document
+      // whose content the user is worried about.
+      //
+      // What those paths are actually avoiding is the *silence* — an entry
+      // deleted under a live client makes every later append vanish while the
+      // chip still says the document is saved. So the key is remembered the
+      // same way eviction remembers its victims: the next append for it throws
+      // instead of being ignored, the SDK reports the loss, and the chip drops
+      // out of `saved-locally` rather than promising a durability that was
+      // deleted on request.
+      const live = await this.isLive(docKey);
       await this.purge(docKey);
+      if (live) {
+        this.evicted.add(docKey);
+      }
     }
 
     // Archives hold document content too, so the erase logout promises has to
@@ -867,12 +884,23 @@ export class WafflebaseDocStore implements DocStore {
     const cutoff = this.now() - maxAgeMs;
     const range = IDBKeyRange.upperBound(cutoff, true);
 
+    // Only this user's entries. The database is per origin and the
+    // `updatedAt` index spans every account that has used this device, so an
+    // unscoped sweep has one person's session deleting another's documents —
+    // and their archives, which are the only copy of work the SDK could not
+    // reconcile. The same scoping `evictOldest`, `listArchives` and
+    // `dropAllForUser` apply, for the same reason.
+    const mine = new Set(
+      await this.headerKeysWhere(BY_USER, IDBKeyRange.only(this.userId)),
+    );
+
     // A document open right now is not stale, whatever its timestamp says:
     // purging it out from under a live SDK client is the same silent loss
     // eviction has to avoid, and it needs no quota failure to happen.
     const aged = await this.headerKeysWhere(BY_UPDATED_AT, range);
     const keys: Array<string> = [];
     for (const docKey of aged) {
+      if (!mine.has(docKey)) continue;
       if (!(await this.isLive(docKey))) {
         keys.push(docKey);
       }
@@ -882,8 +910,13 @@ export class WafflebaseDocStore implements DocStore {
     }
 
     // On the same schedule: an archive store nothing ever collects is a quota
-    // leak that looks like a feature.
-    const archived = await this.dropArchivesWhere(BY_ARCHIVED_AT, range);
+    // leak that looks like a feature. Scoped to this user as well — another
+    // account's archive is not ours to collect, however old it is.
+    const archived = await this.dropArchivesWhere(
+      BY_ARCHIVED_AT,
+      range,
+      this.userId,
+    );
 
     // And anything with a snapshot but no header. Every other path here walks
     // the header indexes, so such a row is unreachable by all of them while
@@ -946,8 +979,26 @@ export class WafflebaseDocStore implements DocStore {
     ]);
     const known = new Set(headerKeys as Array<string>);
     return (snapshotKeys as Array<string>).filter(
-      (docKey) => !known.has(docKey),
+      (docKey) => !known.has(docKey) && !this.belongsToAnotherUser(docKey),
     );
+  }
+
+  /**
+   * Whether a key's own client-key segment names somebody else.
+   *
+   * An orphan row is exactly the case with no header, so there is no recorded
+   * `userId` to scope it by — and the key is the only attribution left. The
+   * SDK's store key is `apiKey/clientKey/docKey` and the durable client key is
+   * `wb:{userId}:{docKey}`, so a mismatch here is a positive signal that the
+   * row is another account's.
+   *
+   * Used only to **skip**, never to claim: a key that names nobody is left to
+   * the ordinary rules, so the parse can only ever make this sweep do less.
+   * That is the safe direction — the other account's own session collects it.
+   */
+  private belongsToAnotherUser(docKey: string): boolean {
+    const owner = /(?:^|\/)wb:([^:/]+):/.exec(docKey);
+    return !!owner && owner[1] !== this.userId;
   }
 
   /**
@@ -969,10 +1020,19 @@ export class WafflebaseDocStore implements DocStore {
     return keys as Array<string>;
   }
 
-  /** Drops archives matching a range on an index, returning how many went. */
+  /**
+   * Drops archives matching a range on an index, returning how many went.
+   *
+   * `onlyUser` narrows the range to that account's rows, for the indexes that
+   * do not already carry an identity — an archive holds a whole document, so a
+   * sweep over `archivedAt` alone would delete another account's on a shared
+   * device. Both reads happen inside the one transaction, so the intersection
+   * cannot see a row appear or vanish between them.
+   */
   private async dropArchivesWhere(
     index: string,
     range: IDBKeyRange,
+    onlyUser?: string,
   ): Promise<number> {
     const db = await this.open();
     const tx = db.transaction(ARCHIVES, "readwrite");
@@ -980,11 +1040,22 @@ export class WafflebaseDocStore implements DocStore {
     const ids = await requested<Array<IDBValidKey>>(
       store.index(index).getAllKeys(range),
     );
+    const theirs =
+      onlyUser === undefined
+        ? undefined
+        : new Set(
+            await requested<Array<IDBValidKey>>(
+              store.index(BY_USER).getAllKeys(IDBKeyRange.only(onlyUser)),
+            ),
+          );
+    let dropped = 0;
     for (const id of ids) {
+      if (theirs && !theirs.has(id)) continue;
       store.delete(id);
+      dropped += 1;
     }
     await WafflebaseDocStore.completed(tx);
-    return ids.length;
+    return dropped;
   }
 
   /**

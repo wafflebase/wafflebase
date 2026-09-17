@@ -67,9 +67,19 @@ vi.mock('@yorkie-js/react', async () => {
   };
 });
 
-const me = { data: { id: 7, username: 'ada' } };
+/**
+ * Who is signed in, and whether that is known yet.
+ *
+ * Mutable because durability cannot be decided without an identity: a pending
+ * answer is a *wrong* answer, not a missing one, and the case below drives it.
+ */
+const me: { data?: { id: number; username: string }; isPending: boolean } = {
+  data: { id: 7, username: 'ada' },
+  isPending: false,
+};
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => me,
+  useQueryClient: () => ({ getQueryData: () => me.data }),
 }));
 
 import { CollabDocumentProvider } from '../collab-document-provider';
@@ -99,6 +109,8 @@ function fakeLocks(): DurableLock & { held: Set<string> } {
 let locks: ReturnType<typeof fakeLocks>;
 
 beforeEach(() => {
+  me.data = { id: 7, username: 'ada' };
+  me.isPending = false;
   mounted.length = 0;
   subscribers.length = 0;
   yorkieError = undefined;
@@ -222,6 +234,24 @@ describe('before the election has answered', () => {
     expect(getByTestId('child')).toBeTruthy();
   });
 
+  it('waits for the identity rather than reading a pending one as "not eligible"', async () => {
+    // The identity comes from a query the authenticated shell resolved under a
+    // *different* key, so on a private route it starts out pending — and
+    // deciding from that answers "not durable", mounts the ambient client,
+    // attaches the document, and then tears the whole subtree down when the
+    // answer arrives. Attaching nothing is the only safe thing to do while the
+    // question is open.
+    setOfflinePersistenceEnabled(true);
+    me.data = undefined;
+    me.isPending = true;
+
+    const { queryByTestId } = mount('note-7');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(queryByTestId('child')).toBeNull();
+    expect(mounted).toEqual([]);
+  });
+
   it('renders immediately when the feature is off', async () => {
     // The answer needs no effect, so making every editor wait for one would
     // put a blank frame in front of a feature that is switched off — which is
@@ -229,6 +259,30 @@ describe('before the election has answered', () => {
     const { getByTestId } = mount('note-7');
     expect(getByTestId('child')).toBeTruthy();
     expect(mounted).toEqual([]);
+  });
+});
+
+describe('once a document is open', () => {
+  it('keeps its client when the preference changes underneath it', async () => {
+    // The two branches are different element types at the same position, so
+    // switching between them unmounts the `DocumentProvider` and every editor
+    // under it — discarding the Yorkie change queue, which on a document with
+    // unsent edits is the loss this feature exists to prevent. The preference
+    // is reachable from Settings and from another tab while an editor sits
+    // here with work in it, so the decision is made once per open and applies
+    // to the documents opened after it.
+    setOfflinePersistenceEnabled(true);
+    const { getByTestId } = mount('note-7');
+    await waitFor(() => expect(mounted.length).toBe(1));
+    // The identity of the rendered node is what says the subtree survived: a
+    // remount builds a new one.
+    const child = getByTestId('child');
+
+    setOfflinePersistenceEnabled(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(getByTestId('child')).toBe(child);
+    expect(mounted[mounted.length - 1].clientKey).toBe('wb:7:note-7');
   });
 });
 

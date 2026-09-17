@@ -68,6 +68,17 @@ export function NonDurableScope({ children }: { children: ReactNode }) {
   return createElement(DurabilityPermitted.Provider, { value: false }, children);
 }
 
+/**
+ * Whether persisting is permitted here at all.
+ *
+ * Exported for the one caller that has to know *before* it decides whether to
+ * wait for anything: a share-link visitor must never be held on a blank frame
+ * for an identity that could not make their document durable anyway.
+ */
+export function useDurabilityPermitted(): boolean {
+  return useContext(DurabilityPermitted);
+}
+
 export interface DurableDocument {
   /** Whether this tab persists this document locally. */
   durable: boolean;
