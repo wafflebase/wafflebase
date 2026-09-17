@@ -230,6 +230,8 @@ export class Worksheet {
 
   /** Cell whose links the hover card is showing (or is about to show). */
   private hoveredLinkSref: string | null = null;
+  /** The destinations that card was built from, so a change to them shows. */
+  private hoveredLinkUrls: Array<string> = [];
   private linkHoverTimer: ReturnType<typeof setTimeout> | null = null;
   /** Whether the last mouse move landed on a painted hyperlink span. */
   private pointerOverLink = false;
@@ -905,6 +907,19 @@ export class Worksheet {
   }
 
   /**
+   * Is a mouse position inside the scrollable grid, rather than over a header?
+   *
+   * The headers are `RowHeaderWidth` / `DefaultCellHeight` in *unzoomed* space
+   * while the event carries CSS pixels, so the constants are scaled rather
+   * than compared raw — at zoom 0.5 an unscaled check writes off the leftmost
+   * 25 screen pixels of the grid, which is where a link in column A lives.
+   */
+  private isInsideGrid(x: number, y: number): boolean {
+    const zoom = this.zoom;
+    return x > RowHeaderWidth * zoom && y > DefaultCellHeight * zoom;
+  }
+
+  /**
    * `linkAtMouse` returns the hyperlink span painted under the pointer.
    *
    * Mouse coordinates arrive in CSS pixels while the painter draws in unzoomed
@@ -939,7 +954,7 @@ export class Worksheet {
 
     // With no hit, fall back to the cell under the pointer so that crossing
     // the plain text between two links does not close a card that lists both.
-    if (!sref && x > RowHeaderWidth && y > DefaultCellHeight) {
+    if (!sref && this.isInsideGrid(x, y)) {
       const candidate = toSref(this.toRefFromMouse(x, y));
       if (this.gridCanvas.linksInCell(candidate).length > 0) {
         sref = candidate;
@@ -950,9 +965,17 @@ export class Worksheet {
       ? this.gridCanvas.linksInCell(sref).map((each) => each.url)
       : [];
 
-    if (sref === this.hoveredLinkSref) {
+    // Compared by destination, not just by cell: a collaborator editing the
+    // cell under the pointer changes its URLs without changing its reference,
+    // and returning here would leave the card listing links that are gone.
+    const same =
+      sref === this.hoveredLinkSref &&
+      urls.length === this.hoveredLinkUrls.length &&
+      urls.every((url, i) => url === this.hoveredLinkUrls[i]);
+    if (same) {
       return;
     }
+    this.hoveredLinkUrls = urls;
 
     // Moving link cell → link cell must close the old card before opening the
     // new one; otherwise the previous cell's URLs sit at the previous cell's
@@ -986,6 +1009,7 @@ export class Worksheet {
   private resetLinkHover(): void {
     this.clearLinkHoverTimer();
     this.pointerOverLink = false;
+    this.hoveredLinkUrls = [];
     if (this.hoveredLinkSref !== null) {
       this.hoveredLinkSref = null;
       this.onLinkHoverCallback?.(null);
@@ -3655,8 +3679,7 @@ export class Worksheet {
       e.button === 0 &&
       e.detail === 1 &&
       (this.readOnly || e.ctrlKey || e.metaKey) &&
-      x > RowHeaderWidth &&
-      y > DefaultCellHeight
+      this.isInsideGrid(x, y)
     ) {
       const link = this.linkAtMouse(x, y);
       if (link) {

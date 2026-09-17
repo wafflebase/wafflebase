@@ -86,8 +86,14 @@ export function SheetLinkPopover({
             aria-label={`Copy ${url}`}
             className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={() => {
-              void navigator.clipboard.writeText(url);
-              setCopied(url);
+              // The write can be refused — an insecure origin, a lost focus,
+              // a cross-origin frame — and showing the check mark regardless
+              // tells the user their clipboard holds something it does not.
+              // The URL is not logged: it is cell content.
+              navigator.clipboard.writeText(url).then(
+                () => setCopied(url),
+                (error) => console.warn('copying a cell link failed', error),
+              );
             }}
           >
             {copied === url ? <IconCheck size={14} /> : <IconCopy size={14} />}

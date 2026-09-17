@@ -34,8 +34,8 @@ people actually type.
 
 `GridCanvas.render()` repaints the whole canvas every frame
 (`gridcanvas.ts:181`), so the painter records each span's screen box into a
-`Map<Sref, LinkBox[]>` as it paints, and hover/click read that map
-synchronously. Hit geometry is therefore *the same arithmetic that drew the
+`Array<RenderedLink>` as it paints, and hover/click read that back
+synchronously — `linkAt` scans it, `linksInCell` filters it by reference. Hit geometry is therefore *the same arithmetic that drew the
 pixels*, not a reconstruction of it — the two cannot drift. It also deletes the
 async `getCell` from the click path (`worksheet.ts:3505`): the map already
 carries the URL.
@@ -190,6 +190,36 @@ trying to say in the first place and survives instrumentation, because both
 halves pay the same overhead. Mutation-checked: removing `MaxUrlLength` fails
 it (388.8 ms against a 216.3 ms bound), and the whole suite passes under
 `--coverage` locally.
+
+### PR review round (CodeRabbit)
+
+Six findings, all Minor; five applied, one declined.
+
+- **Zoom-incorrect grid-boundary checks.** `x > RowHeaderWidth` compared CSS
+  pixels against unzoomed constants, so at zoom 0.5 the leftmost 25 screen
+  pixels of the grid — where column A is — failed the check, costing the
+  hover fallback and the link-open branch. Extracted as `isInsideGrid`, which
+  scales by zoom, with a test. (The checkbox branch below it has the same
+  pre-existing flaw; left alone as out of scope.)
+- **The card could show URLs that were gone.** `updateLinkHover` returned
+  early when the cell reference was unchanged, so a collaborator editing the
+  hovered cell left the old destinations on screen. Now compared by
+  destination as well as by reference.
+- **A refused clipboard write still showed the check mark.** `writeText` can
+  reject — insecure origin, lost focus, cross-origin frame — and the `void`
+  discarded it. The URL is deliberately not logged: it is cell content.
+- **Two documents described a contract that did not ship** — the task doc
+  still said `Map<Sref, LinkBox[]>`, and the design doc said `linkAt` scans
+  one cell.
+- **The design doc claimed "no test anywhere exercises `worksheet.ts` mouse
+  handling".** False, and inherited from the subagent error this task's
+  lessons file already records — the lesson was written and the sentence it
+  came from was left standing. Replaced with the real remaining gap.
+
+**Declined:** adding a keyboard command to open a link in the active cell.
+It is a genuine gap and is listed below, but it needs a keybinding decision,
+a catalog entry, host wiring and an answer to "which link, when the cell has
+several" — a feature, not a review fix.
 
 ### Known limitations
 

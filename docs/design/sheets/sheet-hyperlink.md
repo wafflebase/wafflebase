@@ -177,8 +177,8 @@ plain click and editors the modifier follows the conflict each one actually
 has: an editor clicks cells to select them all day, a viewer does not.
 
 `handleMouseMove` is bound raw, with no throttle or rAF (`worksheet.ts:3239`),
-but `linkAt` is a synchronous scan over the boxes of one cell, so it needs
-none of the async staleness dance `updateValidationTooltip` uses. The new
+but `linkAt` is a synchronous scan over the boxes currently on screen, so it
+needs none of the async staleness dance `updateValidationTooltip` uses. The new
 hover state must be cleared in `handleScrollContainerMouseLeave` (`:3404`)
 alongside the existing flags.
 
@@ -285,11 +285,18 @@ Sheets view tests run in Vitest's default **node** environment
 `overlay-peer-labels.test.ts:4-17` establishes the pattern: a hand-rolled
 canvas mock whose `measureText` returns `{ width: text.length * 7 }`. Keeping
 `detectLinks` and `layoutLinkBoxes` pure — one taking a string, the other
-taking a measure function — makes both directly testable without jsdom, which
-matters because **no test anywhere exercises `worksheet.ts` mouse handling**.
+taking a measure function — makes both directly testable without jsdom.
 
-`detectLinks` fixtures are taken from the real cells that motivated the work,
-and from the false positives named in §3.
+The same trick reaches the view classes: `worksheet-mouse.test.ts` already
+drove `handleMouseMove` and `handleScrollContainerMouseLeave` against a
+hand-built `this`, and `gridcanvas-links.test.ts` extends that to
+`recordRenderedLink` and `linkAt`. What stays untested is the wiring between
+them — that `render()` sets `paintRegion` correctly at each of its five call
+sites, and the React popover's placement — because both need a DOM the suite
+does not have.
+
+`detectLinks` fixtures reproduce the shapes of the real cells that motivated
+the work, with reserved hostnames, and the false positives named in §3.
 
 ### Roadmap
 
