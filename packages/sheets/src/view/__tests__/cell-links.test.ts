@@ -1,0 +1,472 @@
+import { describe, it, expect } from 'vitest';
+import { clipLinkBox, detectLinks, layoutLinkBoxes } from '../cell-links';
+
+/** Convenience: the substrings `detectLinks` picked out of `text`. */
+function spanTexts(text: string): Array<string> {
+  return detectLinks(text).map((s) => text.slice(s.start, s.end));
+}
+
+/** Convenience: the URLs `detectLinks` would navigate to. */
+function urls(text: string): Array<string> {
+  return detectLinks(text).map((s) => s.url);
+}
+
+describe('detectLinks', () => {
+  describe('the cells this feature exists for', () => {
+    // The shapes measured on the sprint-planning sheet in
+    // docs/tasks/active/20260917-sheets-cell-link-spans-todo.md, where one
+    // screen held 9 URLs and the old whole-cell rule linked 2 of them.
+    //
+    // Hosts are RFC 2606 reserved names, not the ones observed: a fixture
+    // needs the *shape* — a label before the URL, a version suffix inside the
+    // path, several URLs in one value — and a public repository should not
+    // carry another organisation's internal hostnames or document ids.
+
+    it('links a URL that follows a label', () => {
+      const text = '- PR: https://git.example.com/acme/web/pull/2466';
+      expect(spanTexts(text)).toEqual([
+        'https://git.example.com/acme/web/pull/2466',
+      ]);
+    });
+
+    it('keeps a version suffix that is part of the path', () => {
+      const text =
+        '- 릴리즈노트: https://git.example.com/acme/media-tool/releases/tag/v0.2.3-rc.5';
+      expect(spanTexts(text)).toEqual([
+        'https://git.example.com/acme/media-tool/releases/tag/v0.2.3-rc.5',
+      ]);
+    });
+
+    it('links every URL in a multi-line cell', () => {
+      const text = [
+        '시제품 : https://open-api-test-partner.example.com/sign-up',
+        '기획 필요사항 : https://wiki.example.com/x/fCl3WwE',
+        '계획 문서: https://notes.example.com/n/11111111-2222-3333-4444-555555555555',
+      ].join('\n');
+      expect(spanTexts(text)).toEqual([
+        'https://open-api-test-partner.example.com/sign-up',
+        'https://wiki.example.com/x/fCl3WwE',
+        'https://notes.example.com/n/11111111-2222-3333-4444-555555555555',
+      ]);
+    });
+
+    it('still links a cell whose whole value is a URL', () => {
+      const text = 'https://notes.example.com/n/66666666-7777-8888-9999-aaaaaaaaaaaa';
+      const spans = detectLinks(text);
+      expect(spans).toHaveLength(1);
+      expect(spans[0]).toMatchObject({ start: 0, end: text.length, url: text });
+    });
+
+    it('links two URLs on one line', () => {
+      const text = 'before https://a.example.com then https://b.example.com end';
+      expect(spanTexts(text)).toEqual([
+        'https://a.example.com',
+        'https://b.example.com',
+      ]);
+    });
+  });
+
+  describe('refuses schemeless hostnames', () => {
+    // A cell is data: a stray underline changes how the value reads, so the
+    // detector is deliberately stricter than the Docs one, which prepends
+    // https:// to a bare hostname.
+
+    it.each([
+      ['a shell script', 'build.sh'],
+      ['a version string', 'v0.2.3-rc.5'],
+      ['a branch name', 'creators/26.09.1700'],
+      ['a bare hostname', 'example.com'],
+      ['a source path', 'src/index.io'],
+      ['prose', 'hello world'],
+      ['a number', '42'],
+    ])('does not link %s', (_label, text) => {
+      expect(detectLinks(text)).toEqual([]);
+    });
+  });
+
+  describe('span boundaries', () => {
+    it('stops before an adjacent Korean particle', () => {
+      expect(spanTexts('자세한 건 https://example.com를 보세요')).toEqual([
+        'https://example.com',
+      ]);
+    });
+
+    it('strips trailing sentence punctuation', () => {
+      expect(spanTexts('see https://example.com.')).toEqual([
+        'https://example.com',
+      ]);
+      expect(spanTexts('see https://example.com, then')).toEqual([
+        'https://example.com',
+      ]);
+    });
+
+    it('strips an unbalanced closing paren', () => {
+      expect(spanTexts('(https://example.com)')).toEqual([
+        'https://example.com',
+      ]);
+    });
+
+    it('keeps a balanced paren that belongs to the path', () => {
+      expect(spanTexts('https://en.wikipedia.org/wiki/Foo_(bar)')).toEqual([
+        'https://en.wikipedia.org/wiki/Foo_(bar)',
+      ]);
+    });
+
+    // The trim keeps one running bracket tally rather than re-counting the
+    // remaining span per character it removes — the latter is O(L²) inside the
+    // paint loop, on text the author controls. These pin the behaviour that
+    // rewrite has to preserve: each kind of bracket balances on its own, and a
+    // run of them comes off one at a time.
+    it.each([
+      ['https://example.com)))', 'https://example.com'],
+      ['[see https://example.com]', 'https://example.com'],
+      ['{https://example.com}', 'https://example.com'],
+      ['(https://example.com/a(b))', 'https://example.com/a(b)'],
+      ['https://example.com/a[b]', 'https://example.com/a[b]'],
+      ['(https://example.com/a[b])', 'https://example.com/a[b]'],
+      ['https://example.com/a(b)).', 'https://example.com/a(b)'],
+      // Trailing punctuation between two brackets is removed too, and the
+      // bracket behind it is still judged against the whole span.
+      ['(https://example.com/a.)', 'https://example.com/a'],
+    ])('trims %s to %s', (text, expected) => {
+      expect(spanTexts(text)).toEqual([expected]);
+    });
+
+    it('trims a long run of closing brackets in one pass', () => {
+      const text = `https://example.com/${')'.repeat(1000)}`;
+      expect(spanTexts(text)).toEqual(['https://example.com/']);
+    });
+
+    it('does not match a scheme glued to a preceding word', () => {
+      expect(detectLinks('xhttps://evil.example.com')).toEqual([]);
+    });
+  });
+
+  describe('normalization', () => {
+    it('promotes a www. prefix to https', () => {
+      expect(urls('see www.example.com today')).toEqual([
+        'https://www.example.com',
+      ]);
+    });
+
+    it('promotes a bare email address to mailto', () => {
+      expect(urls('담당: foo.bar@example.com')).toEqual([
+        'mailto:foo.bar@example.com',
+      ]);
+    });
+
+    it('does not take an email out of a URL that already contains one', () => {
+      expect(urls('https://example.com/u@h/x')).toEqual([
+        'https://example.com/u@h/x',
+      ]);
+    });
+
+    it('leaves the painted span as the author typed it', () => {
+      const text = 'see www.example.com today';
+      expect(spanTexts(text)).toEqual(['www.example.com']);
+    });
+  });
+
+  describe('stays linear on adversarial text', () => {
+    // Detection runs per line, per visible cell, per frame, so linearity is a
+    // property of the render loop rather than a nicety. Two implementations
+    // have violated it: a regex alternation whose address branch backtracked
+    // (a 32k cell took ~2.1s), and the index scanner that replaced it, whose
+    // forward walk re-read the same run from every scheme start in it.
+    //
+    // These assert the *growth rate*, not a wall-clock budget. A budget is not
+    // a statement about the algorithm — it fails on a slow runner and passes
+    // on a fast one either way, and CI runs this suite under v8 coverage
+    // instrumentation, which inflates every measurement. A ratio survives all
+    // of that, because both measurements pay the same overhead.
+
+    /** Best of several runs, so a scheduler hiccup is not read as a regression. */
+    function fastest(text: string): number {
+      let best = Infinity;
+      for (let run = 0; run < 5; run += 1) {
+        const started = performance.now();
+        detectLinks(text);
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    }
+
+    it.each([
+      ['a run with no address after it', (n: number) => 'a'.repeat(8000 * n) + '@'],
+      ['a run that only looks like a scheme', (n: number) => 'a'.repeat(8000 * n) + '://x'],
+      [
+        'repeated local-part characters',
+        (n: number) => 'AB.cd_ef-12'.repeat(500 * n) + ' a@x.com',
+      ],
+      ['many adjacent at-signs', (n: number) => 'a@'.repeat(2000 * n)],
+      // The scanner's own re-entry path, which the shapes above do not reach:
+      // every `https://` here starts a run of URL characters reaching the end
+      // of the string, and none of them parses.
+      ['repeated unparseable schemes', (n: number) => 'https://['.repeat(1000 * n)],
+      // A candidate the authority prefilter lets through and only `toUrl`
+      // refuses, so it reaches the expensive path and emits nothing.
+      [
+        'repeated out-of-range ports',
+        (n: number) => '/https://example.com:99999/'.repeat(1000 * n),
+      ],
+    ])('scales linearly on %s', (_label, build) => {
+      const small = fastest(build(1));
+      const large = fastest(build(4));
+
+      // Quadruple the input: linear work grows ~4x, quadratic ~16x. The bound
+      // sits between them. The floor keeps a sub-millisecond baseline from
+      // making the comparison a measurement of noise.
+      expect(large).toBeLessThan(Math.max(small, 2) * 8);
+    });
+
+    // A growth ratio cannot see a *constant* factor, and MaxUrlLength left a
+    // large one: a candidate that failed only after being sliced, trimmed and
+    // parsed cost up to 2048 characters of work, and `'/www.'` restarts one
+    // every five characters — ~400x, enough to stall the render loop for every
+    // viewer without changing the curve's shape. These compare the adversarial
+    // shapes against plain text of the same length, which is the baseline a
+    // constant factor is measured against.
+    it.each([
+      ['a repeated www. prefix', '/www.'],
+      ['a repeated unparseable scheme', 'https://['],
+      ['a repeated mailto:', 'mailto:'],
+    ])('costs no more than plain text of the same size on %s', (_l, unit) => {
+      const adversarial = unit.repeat(Math.ceil(60000 / unit.length));
+      // Same length, and it defeats the cheap reject too, so both
+      // measurements walk every character.
+      const plain = 'x'.repeat(adversarial.length) + ' a@';
+
+      expect(detectLinks(adversarial)).toEqual([]);
+      expect(fastest(adversarial)).toBeLessThan(Math.max(fastest(plain), 2) * 20);
+    });
+  });
+
+  describe('scheme and address do not eat each other', () => {
+    it('invents nothing from a run glued to a scheme', () => {
+      // The naive read is `a.b@c.dhttps`, i.e. a mailto: to a domain nobody
+      // typed. Nothing is linked instead: the trailing `https://…` is refused
+      // by the same glued-left rule that refuses `xhttps://evil.example.com`,
+      // and for the same reason — in a cell full of ids and paths, a link the
+      // author did not write is worse than a link they have to retype.
+      expect(detectLinks('a.b@c.dhttps://real.example.com')).toEqual([]);
+    });
+
+    it('paints a literal mailto: as part of the link', () => {
+      expect(spanTexts('mailto:foo@bar.com')).toEqual(['mailto:foo@bar.com']);
+      expect(urls('mailto:foo@bar.com')).toEqual(['mailto:foo@bar.com']);
+    });
+
+    it('keeps an address whose text ends in a sentence colon', () => {
+      expect(urls('담당 foo@bar.com: 확인')).toEqual([
+        'mailto:foo@bar.com',
+      ]);
+    });
+
+    it('refuses an address with no real TLD', () => {
+      expect(detectLinks('a@b')).toEqual([]);
+      expect(detectLinks('a@b.c')).toEqual([]);
+      expect(detectLinks('a@b..com')).toEqual([]);
+    });
+
+    it('refuses an address whose local part it could not read whole', () => {
+      // The backward walk is bounded so the scan stays linear. Stopping at the
+      // bound and using what it got would underline from the middle of a word
+      // and navigate to an address nobody typed.
+      expect(detectLinks('x'.repeat(70) + '@b.example.com')).toEqual([]);
+    });
+
+    it.each([
+      ['a retina asset', 'image@2x.png'],
+      ['another retina asset', 'logo@3x.jpg'],
+      ['a build script', 'build@2.sh'],
+    ])('does not read %s as an address', (_label, text) => {
+      // Same argument §3 makes for hostnames: a file extension that is also a
+      // TLD must not win in a cell, where a stray underline changes how the
+      // value reads.
+      expect(detectLinks(text)).toEqual([]);
+    });
+
+    it('refuses a www. prefix with no real TLD', () => {
+      expect(detectLinks('www.x')).toEqual([]);
+    });
+
+    it('refuses a dotted quad written with leading zeros', () => {
+      // `Number('010')` is 10, but the URL parser reads it as octal: the cell
+      // would paint `010.000.000.001` and open `8.0.0.1`. Painting one host
+      // and opening another is the defect the userinfo rule exists to stop.
+      expect(detectLinks('https://010.000.000.001/')).toEqual([]);
+      expect(detectLinks('https://192.168.000.1/')).toEqual([]);
+    });
+
+    it('still links a canonical dotted quad', () => {
+      expect(urls('https://127.0.0.1/')).toEqual(['https://127.0.0.1/']);
+      expect(urls('https://10.0.0.1:8080/x')).toEqual([
+        'https://10.0.0.1:8080/x',
+      ]);
+    });
+  });
+
+  describe('hosts with no TLD to check', () => {
+    // The authority prefilter reads the host before anything is parsed, so
+    // these are the forms it has to let through on their own terms.
+
+    it.each([
+      ['a dev server', 'http://localhost:5173/sheet/1'],
+      ['an internal service', 'http://10.0.0.5:8080/status'],
+    ])('links %s', (_label, text) => {
+      expect(spanTexts(text)).toEqual([text]);
+    });
+
+    it('keeps a host whose trailing dot ends the sentence', () => {
+      expect(urls('see www.example.com. Next')).toEqual([
+        'https://www.example.com',
+      ]);
+    });
+  });
+
+  describe('non-ASCII paths', () => {
+    // The span charset is ASCII, which is what stops an adjacent Korean
+    // particle from being swallowed. Applied to a *path* the same rule
+    // silently cut the URL in half and linked the prefix — a different
+    // destination that parses and passes isSafeUrl, i.e. exactly the
+    // truncated link the scheme branch refuses elsewhere on principle.
+
+    it('links a Korean path whole rather than truncating it', () => {
+      const text = 'https://wiki.example.com/x/기획문서';
+      expect(spanTexts(text)).toEqual([text]);
+      expect(urls(text)).toEqual([text]);
+    });
+
+    it('links a CJK query whole', () => {
+      const text = 'https://example.com/search?q=見積もり';
+      expect(spanTexts(text)).toEqual([text]);
+    });
+
+    it('carries a path character outside the BMP', () => {
+      const text = 'https://example.com/a/𠜎b';
+      expect(spanTexts(text)).toEqual([text]);
+    });
+
+    it('still stops before a particle glued to a bare host', () => {
+      // No path has started, so the host stays ASCII — which is also what
+      // keeps an IDN homograph out of a span.
+      expect(spanTexts('자세한 건 https://example.com를 보세요')).toEqual([
+        'https://example.com',
+      ]);
+    });
+
+    it('does not read a non-ASCII host', () => {
+      expect(detectLinks('https://аpple.com')).toEqual([]);
+    });
+  });
+
+  describe('safety', () => {
+    it.each([
+      ['javascript', 'javascript:alert(1)'],
+      ['data', 'data:text/html,<h1>x</h1>'],
+      ['file', 'file:///etc/passwd'],
+    ])('refuses a %s URL', (_label, text) => {
+      expect(detectLinks(text)).toEqual([]);
+    });
+
+    it('refuses a scheme with nothing after it', () => {
+      expect(detectLinks('https://')).toEqual([]);
+    });
+
+    // Userinfo is the one shape where the painted span and the destination
+    // disagree while both look legitimate, and the plain-click path a viewer
+    // gets deliberately skips the hover card that would show the real host.
+    it.each([
+      ['a trusted-looking host', 'https://accounts.example.com@evil.example/x'],
+      ['a www. prefix', 'www.paypal.example@evil.example/x'],
+      ['credentials', 'https://user:pw@evil.example/x'],
+    ])('refuses userinfo in %s', (_label, text) => {
+      expect(urls(text).filter((url) => /^https?:/.test(url))).toEqual([]);
+    });
+
+    it('does not fall back to mailing the userinfo host', () => {
+      expect(detectLinks('https://accounts.example.com@evil.example/x')).toEqual(
+        [],
+      );
+    });
+
+    // These reach `toUrl`/`isSafeUrl` rather than being dropped by the cheap
+    // reject, so they exercise the gate itself rather than the shortcut.
+    it.each([
+      ['an unparseable authority', 'see https://[ here'],
+      ['a stray percent escape', 'see https://% here'],
+    ])('refuses %s', (_label, text) => {
+      expect(detectLinks(text)).toEqual([]);
+    });
+  });
+
+  describe('empty input', () => {
+    it.each([
+      ['empty', ''],
+      ['blank', '   '],
+    ])('returns no spans for %s input', (_label, text) => {
+      expect(detectLinks(text)).toEqual([]);
+    });
+  });
+});
+
+describe('layoutLinkBoxes', () => {
+  // Matches the canvas mock in overlay-peer-labels.test.ts.
+  const measure = (text: string) => text.length * 7;
+
+  it('offsets a span by the width of the text before it', () => {
+    const line = 'PR: https://x.com';
+    const spans = detectLinks(line);
+    expect(layoutLinkBoxes(measure, line, spans, 100)).toEqual([
+      { x: 100 + 4 * 7, width: 'https://x.com'.length * 7, url: 'https://x.com' },
+    ]);
+  });
+
+  it('lays out several spans left to right', () => {
+    const line = 'https://a.com and https://b.com';
+    const boxes = layoutLinkBoxes(measure, line, detectLinks(line), 0);
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0].x).toBe(0);
+    expect(boxes[1].x).toBe(line.indexOf('https://b.com') * 7);
+  });
+
+  it('returns nothing when the line has no spans', () => {
+    expect(layoutLinkBoxes(measure, 'plain text', [], 0)).toEqual([]);
+  });
+});
+
+describe('clipLinkBox', () => {
+  const clip = { left: 100, top: 50, width: 80, height: 20 };
+
+  it('passes a box that is wholly inside the clip', () => {
+    const box = { left: 110, top: 55, width: 40, height: 10 };
+    expect(clipLinkBox(box, clip)).toEqual(box);
+  });
+
+  it('trims a box that runs past the right edge', () => {
+    expect(
+      clipLinkBox({ left: 160, top: 55, width: 60, height: 10 }, clip),
+    ).toEqual({ left: 160, top: 55, width: 20, height: 10 });
+  });
+
+  it('trims a box that starts before the left edge', () => {
+    expect(
+      clipLinkBox({ left: 80, top: 55, width: 40, height: 10 }, clip),
+    ).toEqual({ left: 100, top: 55, width: 20, height: 10 });
+  });
+
+  it('trims a line clipped by the bottom of a short row', () => {
+    expect(
+      clipLinkBox({ left: 110, top: 60, width: 40, height: 16 }, clip),
+    ).toEqual({ left: 110, top: 60, width: 40, height: 10 });
+  });
+
+  it('drops a box scrolled entirely out of the clip', () => {
+    expect(
+      clipLinkBox({ left: 200, top: 55, width: 40, height: 10 }, clip),
+    ).toBeNull();
+    expect(
+      clipLinkBox({ left: 110, top: 80, width: 40, height: 10 }, clip),
+    ).toBeNull();
+  });
+});

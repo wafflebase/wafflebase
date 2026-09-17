@@ -14,6 +14,7 @@ import {
   type Thread,
   type CommentAuthor,
   type CommentAnchor,
+  type LinkHoverInfo,
   type UndoSelection,
 } from "@wafflebase/sheets";
 import {
@@ -57,6 +58,7 @@ import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 import { CommentPopover } from "./components/comments/CommentPopover";
+import { SheetLinkPopover } from "./components/SheetLinkPopover";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { copyThread } from "./yorkie-worksheet-comments";
 import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
@@ -244,6 +246,28 @@ export function SheetView({
   useEffect(() => {
     isMobileRef.current = isMobile;
   }, [isMobile]);
+  // Hyperlink hover card (docs/design/sheets/sheet-hyperlink.md §5).
+  const [linkHover, setLinkHover] = useState<LinkHoverInfo | null>(null);
+  const linkHoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const cancelLinkHoverClose = useCallback(() => {
+    if (linkHoverCloseTimerRef.current !== null) {
+      clearTimeout(linkHoverCloseTimerRef.current);
+      linkHoverCloseTimerRef.current = null;
+    }
+  }, []);
+  // Long enough to cross the few pixels between the cell and the card, which
+  // belong to neither and so read to the engine as "the pointer left".
+  const scheduleLinkHoverClose = useCallback(() => {
+    cancelLinkHoverClose();
+    linkHoverCloseTimerRef.current = setTimeout(() => {
+      linkHoverCloseTimerRef.current = null;
+      setLinkHover(null);
+    }, 250);
+  }, [cancelLinkHoverClose]);
+  useEffect(() => cancelLinkHoverClose, [cancelLinkHoverClose]);
+
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const lastHandledCommentJumpRequestIdRef = useRef(0);
   const lastHandledUndoJumpRequestIdRef = useRef(0);
@@ -1049,6 +1073,12 @@ export function SheetView({
       hideFormulaBar: isMobileRef.current,
       hideAutofillHandle: isMobileRef.current,
       showMobileHandles: isMobileRef.current,
+      // A read-only viewer here is reading a document, so a plain click opens
+      // the link under it (docs/design/sheets/sheet-hyperlink.md §5). The
+      // engine's other read-only mounts — the datasource and lakehouse result
+      // grids, the revision preview — are grids you click to select in, and
+      // opt out by leaving this unset.
+      openLinksOnClick: true,
     }).then((s) => {
       if (cancelled) {
         s.cleanup();
@@ -1079,6 +1109,18 @@ export function SheetView({
       // block) so they don't look like the drag simply did nothing.
       s.onNotice((message) => {
         toast.error(message);
+      });
+
+      // Hyperlink hover card. The engine reports `null` as soon as the pointer
+      // leaves the cell — including when it is on its way into the card — so
+      // closing is deferred and the card cancels it on enter.
+      s.onLinkHover((info) => {
+        if (info) {
+          cancelLinkHoverClose();
+          setLinkHover(info);
+        } else {
+          scheduleLinkHoverClose();
+        }
       });
 
       // An undo can replay a step that belongs to another tab — Yorkie's
@@ -1376,6 +1418,12 @@ export function SheetView({
         sheet.cleanup();
       }
       sheetRef.current = undefined;
+      // The engine this card belongs to is going away. `tabId` is in this
+      // effect's deps, so a tab switch rebuilds the Spreadsheet without
+      // unmounting SheetView — leaving a card anchored by cell reference to
+      // the *new* tab's cell of the same name, still listing the old tab's
+      // URLs.
+      setLinkHover(null);
       storeRef.current = undefined;
       if (selectionFrame !== null) {
         cancelAnimationFrame(selectionFrame);
@@ -1391,7 +1439,17 @@ export function SheetView({
         unsub();
       }
     };
-  }, [clearPaintFormatState, didMount, containerRef, doc, tabId, readOnly, theme]);
+  }, [
+    cancelLinkHoverClose,
+    clearPaintFormatState,
+    didMount,
+    containerRef,
+    doc,
+    tabId,
+    readOnly,
+    scheduleLinkHoverClose,
+    theme,
+  ]);
 
   // The sheet's picture for the template gallery
   // (docs/design/template-gallery.md). The grid renderer belongs to the
@@ -1607,6 +1665,60 @@ export function SheetView({
     sheetRenderVersion,
   ]);
 
+  // Link card placement: under the cell, flipping above when the bottom would
+  // overflow, clamped horizontally. Unlike the comment popover it may cover
+  // the cell it belongs to — the card is what you came to read.
+  const linkPopoverWrapperRef = useRef<HTMLDivElement>(null);
+  const [linkPopoverPos, setLinkPopoverPos] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!linkHover) setLinkPopoverPos(null);
+  }, [linkHover]);
+
+  useLayoutEffect(() => {
+    if (!linkHover) return;
+    const wrapper = linkPopoverWrapperRef.current;
+    const sheet = sheetRef.current;
+    if (!wrapper || !sheet) return;
+    const parent = wrapper.parentElement;
+    if (!parent) return;
+
+    let cellRect;
+    let viewport;
+    try {
+      viewport = sheet.getGridViewportRect();
+      cellRect = sheet.getCellRect(parseRef(linkHover.sref));
+    } catch {
+      return;
+    }
+
+    const popoverRect = wrapper.getBoundingClientRect();
+    if (popoverRect.width === 0 || popoverRect.height === 0) return;
+    const parentRect = parent.getBoundingClientRect();
+
+    const GAP = 2;
+    const PAD = 8;
+    const cellLeft = viewport.left + cellRect.left;
+    const cellBottom = viewport.top + cellRect.top + cellRect.height;
+    const cellTop = viewport.top + cellRect.top;
+
+    const left = Math.max(
+      PAD,
+      Math.min(parentRect.width - PAD - popoverRect.width, cellLeft),
+    );
+    const top =
+      cellBottom + GAP + popoverRect.height <= parentRect.height - PAD
+        ? cellBottom + GAP
+        : Math.max(PAD, cellTop - GAP - popoverRect.height);
+
+    setLinkPopoverPos((prev) =>
+      prev && prev.left === left && prev.top === top ? prev : { left, top },
+    );
+  }, [linkHover, sheetRenderVersion]);
+
   if (loading) {
     return <Loader />;
   }
@@ -1806,6 +1918,23 @@ export function SheetView({
               onEditComment={handleCommentEdit}
               onDeleteComment={handleCommentDelete}
               onClose={() => setCommentPopoverOpen(false)}
+            />
+          </div>
+        )}
+        {linkHover && (
+          <div
+            ref={linkPopoverWrapperRef}
+            className="absolute z-30"
+            style={{
+              left: linkPopoverPos?.left ?? 0,
+              top: linkPopoverPos?.top ?? 0,
+              visibility: linkPopoverPos ? "visible" : "hidden",
+            }}
+          >
+            <SheetLinkPopover
+              urls={linkHover.urls}
+              onPointerEnter={cancelLinkHoverClose}
+              onPointerLeave={scheduleLinkHoverClose}
             />
           </div>
         )}

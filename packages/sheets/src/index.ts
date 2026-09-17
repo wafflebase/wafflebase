@@ -152,6 +152,7 @@ import {
   initialize,
   Spreadsheet,
   type LayoutRect,
+  type LinkHoverInfo,
   type Theme,
 } from './view/spreadsheet';
 import { getPeerCursorColor } from './view/theme';
@@ -453,6 +454,7 @@ export {
 
 export type {
   LayoutRect,
+  LinkHoverInfo,
   Store,
   UndoResult,
   UndoSelection,

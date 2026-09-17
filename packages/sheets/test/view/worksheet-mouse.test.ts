@@ -9,6 +9,7 @@ type MouseMoveContext = {
   renderOverlay: ReturnType<typeof vi.fn>;
   hoveredValidationCandidate: string | null;
   hideValidationTooltip: ReturnType<typeof vi.fn>;
+  resetLinkHover: ReturnType<typeof vi.fn>;
 };
 
 type MouseLeaveContext = {
@@ -21,6 +22,7 @@ type MouseLeaveContext = {
   render: ReturnType<typeof vi.fn>;
   hoveredValidationCandidate: string | null;
   hideValidationTooltip: ReturnType<typeof vi.fn>;
+  resetLinkHover: ReturnType<typeof vi.fn>;
 };
 
 const handleMouseMove = (
@@ -46,6 +48,7 @@ describe('Worksheet mouse hover behavior', () => {
       renderOverlay: vi.fn(),
       hoveredValidationCandidate: null,
       hideValidationTooltip: vi.fn(),
+      resetLinkHover: vi.fn(),
     };
 
     handleMouseMove.call(
@@ -57,6 +60,9 @@ describe('Worksheet mouse hover behavior', () => {
 
     expect(ctx.resizeHover).toBeNull();
     expect(ctx.renderOverlay).toHaveBeenCalledTimes(1);
+    // A drag returns before the hover pass, so the link card has to be
+    // dismissed here or it floats over the selection for the whole gesture.
+    expect(ctx.resetLinkHover).toHaveBeenCalledTimes(1);
   });
 
   it('clears hover artifacts when pointer leaves the sheet', () => {
@@ -71,6 +77,7 @@ describe('Worksheet mouse hover behavior', () => {
       render: vi.fn(),
       hoveredValidationCandidate: null,
       hideValidationTooltip: vi.fn(),
+      resetLinkHover: vi.fn(),
     };
 
     handleScrollContainerMouseLeave.call(ctx);
@@ -80,5 +87,40 @@ describe('Worksheet mouse hover behavior', () => {
     expect(ctx.resizeHover).toBeNull();
     expect(ctx.freezeHandleHover).toBeNull();
     expect(ctx.render).toHaveBeenCalledTimes(1);
+    // The link card is anchored to a cell the pointer has now left, so it must
+    // go with the rest of the hover state rather than outlive the grid.
+    expect(ctx.resetLinkHover).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The headers are `RowHeaderWidth` / `DefaultCellHeight` in unzoomed space
+ * while a mouse event carries CSS pixels, so a raw comparison writes off part
+ * of the grid whenever zoom is below 1 — the part where column A lives.
+ */
+const isInsideGrid = (
+  Worksheet.prototype as unknown as {
+    isInsideGrid(x: number, y: number): boolean;
+  }
+).isInsideGrid;
+
+describe('isInsideGrid', () => {
+  it('scales the header dimensions by zoom', () => {
+    // At 0.5 the row header ends at 25 CSS px and the column header at 11.5.
+    expect(isInsideGrid.call({ zoom: 0.5 }, 30, 20)).toBe(true);
+    expect(isInsideGrid.call({ zoom: 0.5 }, 20, 20)).toBe(false);
+    expect(isInsideGrid.call({ zoom: 0.5 }, 30, 10)).toBe(false);
+  });
+
+  it('is unchanged at zoom 1', () => {
+    expect(isInsideGrid.call({ zoom: 1 }, 60, 30)).toBe(true);
+    expect(isInsideGrid.call({ zoom: 1 }, 40, 30)).toBe(false);
+    expect(isInsideGrid.call({ zoom: 1 }, 60, 20)).toBe(false);
+  });
+
+  it('keeps a zoomed-in grid from claiming the headers', () => {
+    // At 2 the row header ends at 100 CSS px, so 60 is over the header.
+    expect(isInsideGrid.call({ zoom: 2 }, 60, 60)).toBe(false);
+    expect(isInsideGrid.call({ zoom: 2 }, 110, 60)).toBe(true);
   });
 });
