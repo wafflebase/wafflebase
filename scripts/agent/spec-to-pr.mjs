@@ -17,19 +17,36 @@
 // (fork pushes are rejected). This front door therefore works only for a
 // developer with push rights to the base repo.
 //
+// THE `review` SUBCOMMAND IS NOT AGENT-TRACK-ONLY, despite this file's name. It
+// diffs `origin/main...HEAD` and runs the panel; nothing about it wants an
+// `agent/` branch, a PR, or a handoff. It is what `/self-review` drives on an
+// ordinary feature branch, which is the only automated review such a branch ever
+// gets: agent-review-panel.yml admits a PR only when its head branch starts with
+// `agent/` or it carries the `agent:managed` label. `handoff` is the agent-track
+// half.
+//
 // Usage:
 //   node ./scripts/agent/spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title t] [--dry-run]
-//   node ./scripts/agent/spec-to-pr.mjs review [--dry-run]
+//   node ./scripts/agent/spec-to-pr.mjs review [--round N] [--fresh] [--rebuttals <f>] [--out <dir>] [--dry-run]
+//
+// `review` keeps its rounds in a per-branch temp directory and carries each
+// round's unfixed blocking findings into the next. It does NOT narrow the diff
+// between rounds: the cloud's `--review-mode incremental` is decided by
+// review-scope.mjs from a PR's own history, and a local loop has neither that
+// history nor a reason to trade recall for latency on a diff this size.
 //
 // Pure helpers are exported and unit-tested (no gh/git). The CLI shells out to
 // `git`/`gh` and to the sibling set-state.mjs / review-panel.mjs.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
+import { carryForwardFindings } from "./prior-findings.mjs";
+import { findingKey } from "./finding-key.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -117,6 +134,109 @@ export function parseRepoFromRemoteUrl(url) {
 function fail(msg) {
   console.error(`spec-to-pr: ${msg}`);
   process.exit(1);
+}
+
+// --- the local review loop's round bookkeeping ------------------------------
+//
+// The panel has always supported rounds; the LOCAL entry point never used them.
+// It wrote to `mkdtempSync` — a fresh random directory per invocation, whose path
+// it never even printed — so round N could not see round N-1 and the developer
+// could not read the findings they were told to fix.
+//
+// A round is a directory: `<base>/round-<n>`. That is the whole state. Nothing is
+// written outside the temp base, so an abandoned branch cleans itself up on
+// reboot, and `--fresh` resets a branch deliberately.
+
+/** The bound the workflow documents. Advisory here — see `roundBoundNotice`. */
+export const MAX_SELF_REVIEW_ROUNDS = 3;
+
+export const ROUND_DIR_RE = /^round-(\d+)$/;
+
+/** Round numbers present among directory entries, ascending. Junk ignored. */
+export function roundsIn(entries) {
+  return (Array.isArray(entries) ? entries : [])
+    .map((name) => ROUND_DIR_RE.exec(String(name)))
+    .filter(Boolean)
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .sort((a, b) => a - b);
+}
+
+/** The next round to run: one past the highest present, or 1. */
+export function nextRound(entries) {
+  const rounds = roundsIn(entries);
+  return rounds.length === 0 ? 1 : rounds[rounds.length - 1] + 1;
+}
+
+/**
+ * Which round each lens's carry-forward should come from: the LATEST round below
+ * `round` in which that lens produced a verdict.
+ *
+ * Per-lens rather than "the previous round" wholesale, because that is what the
+ * cloud does — `collectPrior` takes the latest check run PER LENS across every
+ * commit, so a lens that crashed in round 2 still carries its round-1 findings
+ * into round 3. Taking round-2-only would silently clear them, which is the
+ * false negative the carry-forward exists to prevent.
+ *
+ * `available` is `[{ round, lenses: [id, …] }]`; order does not matter.
+ */
+export function pickLatestVerdicts(available, round) {
+  const out = {};
+  const seen = {};
+  for (const entry of Array.isArray(available) ? available : []) {
+    const r = Number(entry?.round);
+    if (!Number.isInteger(r) || r < 1 || r >= round) continue;
+    for (const lens of Array.isArray(entry?.lenses) ? entry.lenses : []) {
+      if (typeof lens !== "string" || lens === "") continue;
+      if (seen[lens] !== undefined && seen[lens] >= r) continue;
+      seen[lens] = r;
+      out[lens] = r;
+    }
+  }
+  return out;
+}
+
+/**
+ * The advisory the command prints when a round exceeds the documented bound.
+ *
+ * Deliberately NOT a refusal. The bound is a statement about convergence — three
+ * rounds that still find blockers means the loop is not the right tool — and a
+ * hard stop would also block the legitimate case where a developer reworked the
+ * branch substantially and wants a fresh read. So it says the thing a refusal
+ * would be trying to say, and lets the human decide.
+ */
+export function roundBoundNotice(round, max = MAX_SELF_REVIEW_ROUNDS) {
+  if (!Number.isInteger(round) || round <= max) return "";
+  return (
+    `round ${round} is past the self-review bound of ${max}. A loop that has not ` +
+    `converged in ${max} rounds is not going to converge in one more — open the PR ` +
+    `and get a human (or \`@claude review\`) onto it instead.`
+  );
+}
+
+/**
+ * The blocking findings, rendered for a terminal.
+ *
+ * Until now this command printed the ID of every failing lens and nothing else,
+ * with the actual verdicts in a temp directory whose path was never shown. The
+ * `findingKey` is here because it is the identifier a rebuttal is addressed to
+ * (`rebuttal.mjs`'s record keys on it), so a developer who wants to dispute a
+ * finding can copy it rather than reconstruct it.
+ *
+ * `entries` is `[{ lens, findings }]`.
+ */
+export function renderBlockingFindings(entries) {
+  const lines = [];
+  for (const { lens, findings } of Array.isArray(entries) ? entries : []) {
+    for (const f of Array.isArray(findings) ? findings : []) {
+      if (!f || typeof f !== "object") continue;
+      const where = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : "(no file cited)";
+      lines.push(`  [${f.severity ?? "major"}] ${lens} — ${where}`);
+      lines.push(`      ${String(f.summary ?? "").trim()}`);
+      lines.push(`      key: ${findingKey(f)}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 function parseArgs(argv, start) {
@@ -268,6 +388,59 @@ function cmdHandoff(args) {
   if (pr) console.log(`\nPreview the ready-gate locally (no promotion): node ./scripts/agent/mark-ready.mjs ${pr}`);
 }
 
+/**
+ * Where this branch's rounds live. Keyed by branch so two branches never
+ * interleave rounds, and hashed so two branch names that sanitize to the same
+ * string cannot share a slot.
+ */
+function reviewBase(branch) {
+  const safe = String(branch).replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 60);
+  const hash = createHash("sha1").update(String(branch)).digest("hex").slice(0, 8);
+  return path.join(os.tmpdir(), "wafflebase-self-review", `${safe}-${hash}`);
+}
+
+/** `[{ round, lenses }]` for every round already written under `base`. */
+function roundsOnDisk(base) {
+  return roundsIn(readdirSync(base)).map((round) => {
+    const dir = path.join(base, `round-${round}`);
+    const lenses = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && existsSync(path.join(dir, e.name, "verdict.json")))
+      .map((e) => e.name);
+    return { round, lenses };
+  });
+}
+
+/**
+ * Assemble this round's `--prior-findings` from the rounds already on disk.
+ *
+ * Never throws: a verdict that will not parse carries nothing for that lens,
+ * matching `tagPriorFindings`' per-lens fail direction. Carrying fewer findings
+ * is the safe failure — prior findings can only ever re-raise a blocker.
+ */
+function priorFindingsFor(base, round) {
+  const picks = pickLatestVerdicts(roundsOnDisk(base), round);
+  const out = [];
+  for (const [lens, from] of Object.entries(picks)) {
+    try {
+      const verdict = JSON.parse(readFileSync(path.join(base, `round-${from}`, lens, "verdict.json"), "utf8"));
+      out.push(...carryForwardFindings(verdict, lens));
+    } catch { /* this lens carries nothing */ }
+  }
+  return out;
+}
+
+/** Gating findings per failing lens, for the terminal report. */
+function blockingFindingsIn(outDir, lensIds) {
+  const entries = [];
+  for (const lens of lensIds) {
+    try {
+      const verdict = JSON.parse(readFileSync(path.join(outDir, lens, "verdict.json"), "utf8"));
+      entries.push({ lens, findings: carryForwardFindings(verdict, lens) });
+    } catch { /* the summary above still names the lens */ }
+  }
+  return entries;
+}
+
 function cmdReview(args) {
   const dryRun = Boolean(args["dry-run"]);
   // Local review is a convenience pre-filter; the cloud panel is authoritative.
@@ -279,10 +452,31 @@ function cmdReview(args) {
     );
     return;
   }
-  const dir = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-review-"));
+  let branch;
+  try {
+    branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
+  } catch (e) {
+    return fail(`could not read the current branch: ${e.message}`);
+  }
+  const base = args.out ? path.resolve(String(args.out)) : reviewBase(branch);
+  if (args.fresh && existsSync(base)) rmSync(base, { recursive: true, force: true });
+  mkdirSync(base, { recursive: true });
+
+  const round = args.round === undefined ? nextRound(readdirSync(base)) : Number(args.round);
+  if (!Number.isInteger(round) || round < 1) {
+    return fail(`--round must be a positive integer (got ${JSON.stringify(args.round)})`);
+  }
+  const notice = roundBoundNotice(round);
+  if (notice) console.warn(`spec-to-pr: ${notice}`);
+
+  const dir = path.join(base, `round-${round}`);
+  mkdirSync(dir, { recursive: true });
   const diffFile = path.join(dir, "pr.diff");
   const changedFile = path.join(dir, "changed.txt");
-  const outDir = path.join(dir, ".agent-review");
+  // The round directory IS the panel's `--out`: `<round-n>/<lens>/verdict.json`
+  // is what the NEXT round reads back, so nesting it under a second directory
+  // would only give `roundsOnDisk` one more level to agree about.
+  const outDir = dir;
   try {
     git(["fetch", "origin", "main"]);
     writeFileSync(diffFile, execFileSync("git", ["diff", "origin/main...HEAD"], { encoding: "utf8" }));
@@ -300,10 +494,30 @@ function cmdReview(args) {
   try {
     baseSha = execFileSync("git", ["merge-base", "origin/main", "HEAD"], { encoding: "utf8" }).trim();
   } catch { /* gate runs inert */ }
+  // Round > 1 carries the earlier rounds' still-gating findings, so a finding
+  // nobody fixed cannot vanish because THIS round's fresh pass happened to miss
+  // it. Written into the round directory rather than piped, so a developer can
+  // read what round N was told about round N-1.
+  const prior = round > 1 ? priorFindingsFor(base, round) : [];
+  const priorFile = path.join(dir, "prior-findings.json");
+  if (prior.length > 0) writeFileSync(priorFile, JSON.stringify(prior, null, 2) + "\n");
+
+  // The author's structured "this finding is wrong" claims, adjudicated by a
+  // fresh subagent that is biased to uphold. The cloud reads these from hidden PR
+  // comments (`rebuttal.mjs read <pr>`), which before a PR exists is nothing at
+  // all — so locally the file is supplied by hand. Without it, a finding you
+  // deliberately declined is re-raised identically for the rest of the loop.
+  const rebuttals = args.rebuttals ? path.resolve(String(args.rebuttals)) : null;
+  if (rebuttals && !existsSync(rebuttals)) return fail(`--rebuttals file not found: ${rebuttals}`);
+
   if (dryRun) {
-    console.log(`[dry-run] would review ${diffFile} via review-panel.mjs → ${outDir}`);
+    console.log(`[dry-run] round ${round} would review ${diffFile} via review-panel.mjs → ${outDir}`);
+    if (prior.length > 0) console.log(`[dry-run] carrying ${prior.length} prior finding(s) from earlier rounds`);
+    if (rebuttals) console.log(`[dry-run] adjudicating rebuttals from ${rebuttals}`);
     return;
   }
+  console.log(`spec-to-pr: self-review round ${round} on ${branch} → ${outDir}`);
+  if (prior.length > 0) console.log(`carrying ${prior.length} prior finding(s) forward`);
   try {
     execFileSync(
       "node",
@@ -312,6 +526,8 @@ function cmdReview(args) {
         "--diff-file", diffFile,
         "--changed-files", changedFile,
         ...(baseSha ? ["--base-sha", baseSha] : []),
+        ...(prior.length > 0 ? ["--prior-findings", priorFile] : []),
+        ...(rebuttals ? ["--rebuttals", rebuttals] : []),
         "--lenses-dir", path.join(HERE, "lenses"),
         "--out", outDir,
       ],
@@ -323,17 +539,24 @@ function cmdReview(args) {
   // Report blocking lenses from panel.json (failure = blocking).
   let panel = [];
   try {
-    panel = JSON.parse(execFileSync("cat", [path.join(outDir, "panel.json")], { encoding: "utf8" }));
+    panel = JSON.parse(readFileSync(path.join(outDir, "panel.json"), "utf8"));
   } catch {
     return fail("review panel produced no panel.json — treat as blocking and inspect the output above");
   }
   const blocking = panel.filter((p) => p && p.applicable !== false && p.conclusion !== "success" && p.conclusion !== "skipped");
+  console.log(`Round ${round} output: ${outDir}`);
   if (blocking.length > 0) {
     console.error(`spec-to-pr: ${blocking.length} blocking lens verdict(s): ${blocking.map((p) => p.id).join(", ")}`);
-    console.error("Fix these as follow-up commits before handoff.");
+    const report = renderBlockingFindings(blockingFindingsIn(outDir, blocking.map((p) => p.id)));
+    if (report !== "") console.error(`\n${report}\n`);
+    console.error(
+      `Fix these, keep \`pnpm verify:fast\` green, then re-run for round ${round + 1}. ` +
+        "A finding you believe is wrong belongs in a --rebuttals file, not in silence — " +
+        "an un-rebutted finding is re-raised every round.",
+    );
     process.exit(1);
   }
-  console.log("Local review panel: no blocking findings.");
+  console.log(`Local review panel: no blocking findings (round ${round}). The loop can stop here.`);
 }
 
 // Only run the CLI when executed directly (not when imported for tests).
@@ -343,7 +566,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (cmd === "handoff") cmdHandoff(args);
   else if (cmd === "review") cmdReview(args);
   else {
-    console.error("usage: spec-to-pr.mjs <handoff|review> [--slug s] [--issue NN] [--title t] [--dry-run]");
+    console.error(
+      "usage: spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title t] [--dry-run]\n" +
+        "       spec-to-pr.mjs review [--round N] [--fresh] [--rebuttals <file>] [--out <dir>] [--dry-run]",
+    );
     process.exit(2);
   }
 }
