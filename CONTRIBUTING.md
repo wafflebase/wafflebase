@@ -184,9 +184,10 @@ detached.
    most **3 rounds**, stopping at the first round that finds nothing
    blocking. `/self-review` drives it; `/code-review`,
    `superpowers:requesting-code-review` and `/ultrareview` are also
-   reviewers you can spend a round on — though only the middle one can be
-   launched by an agent, so an agent that wants the other two has to ask
-   you to run them.
+   reviewers you can spend a round on. Whether an agent can launch the
+   first and third itself depends on its harness (`/ultrareview` is
+   always user-triggered), so one that cannot should ask you rather than
+   skip the round.
 
    Rotate the lens per round (1 correctness and tests, 2 design fit and
    simplification, 3 security and docs) — asking the same reviewer three

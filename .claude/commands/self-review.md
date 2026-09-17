@@ -34,9 +34,11 @@ restates itself:
 The panel itself always runs all six lenses; the weighting is what *you* dig into
 between rounds, not a flag.
 
-**You cannot launch `/code-review`, `/ultrareview` or `/simplify` yourself** —
-they are user-invoked and billed. If a round wants one, say so and let the
-developer run it; do not quietly substitute your own read and call it a review.
+`/ultrareview` is always user-triggered, and **some harnesses also block
+`/code-review` and `/simplify`** — try it, and if the skill refuses, say so and
+let the developer run it. Do not quietly substitute your own read of your own
+diff and call it a review: it shares your context, so it inherits your
+misreadings. That is what the panel's independent lenses are for.
 
 ### Each round
 

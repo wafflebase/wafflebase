@@ -474,6 +474,50 @@ export function unsafeBaseReason(stat, uid) {
 }
 
 /**
+ * The directories this command created, leaf first, stopping below `stopAt`.
+ *
+ * `mkdirSync(base, { recursive: true })` makes intermediates too, and they are
+ * ours to validate for the same reason the leaf is — see the call site. `stopAt`
+ * is the boundary we did NOT create (the system temp directory, or the parent a
+ * caller pointed `--out` at), so it is excluded: refusing to run because
+ * `/tmp` is world-writable would refuse every run on every machine.
+ *
+ * Returns [] rather than looping forever if `base` is not under `stopAt`.
+ */
+export function ownedPathChain(base, stopAt) {
+  const stop = path.resolve(String(stopAt));
+  const chain = [];
+  let cur = path.resolve(String(base));
+  // `parse().root` terminates the walk on a path that never meets `stop`.
+  while (cur !== stop && cur !== path.parse(cur).root) {
+    chain.push(cur);
+    cur = path.dirname(cur);
+  }
+  return cur === stop ? chain : [];
+}
+
+/**
+ * Usage errors in `review`'s arguments, or "" — pure so the guards are testable
+ * without spawning the command.
+ *
+ * `parseArgs` turns a flag with no value into `true`, and both of these were
+ * silent data loss rather than a usage error: `Number(true)` is 1, so `--round`
+ * alone overwrote round 1, and `path.resolve(String(true))` is `./true`, which
+ * `--fresh` would then have deleted.
+ */
+export function reviewArgsError(args) {
+  const a = args ?? {};
+  if (a.out !== undefined && typeof a.out !== "string") return "--out needs a value (e.g. --out /tmp/my-review)";
+  if (a.round !== undefined && typeof a.round !== "string") return "--round needs a value (e.g. --round 2)";
+  if (a.rebuttals !== undefined && typeof a.rebuttals !== "string") return "--rebuttals needs a file path";
+  if (a.round !== undefined) {
+    const n = Number(a.round);
+    if (!Number.isInteger(n) || n < 1) return `--round must be a positive integer (got ${JSON.stringify(a.round)})`;
+  }
+  return "";
+}
+
+/**
  * The entries `--fresh` may delete: this base's own round directories, nothing
  * else.
  *
@@ -501,12 +545,43 @@ function reviewBase(branch) {
   return path.join(os.tmpdir(), "wafflebase-self-review", `${safe}-${hash}`);
 }
 
-/** `[{ round, lenses }]` for every round already written under `base`. */
+/**
+ * Did this lens actually REVIEW in this round?
+ *
+ * "A verdict.json exists" is not the same question, and reading it as one broke
+ * the per-lens rule from the inside. `review-panel.mjs` writes a verdict file for
+ * a lens it SKIPPED (`{ valid: true, conclusion: "skipped" }`, when the lens does
+ * not apply to this diff) and for one that CRASHED or hit a quota error
+ * (`{ valid: false }`, holding only the synthesised "review did not run" record,
+ * which `carryForwardFindings` correctly drops). Either file made
+ * `pickLatestVerdicts` select that round for the lens, and the lens then carried
+ * NOTHING — silently discarding the real findings it raised in an earlier round.
+ *
+ * That is precisely the false negative the per-lens rule exists to prevent, so the
+ * predicate has to match what the panel means by a verdict: valid, and not a skip.
+ * An unusable round is invisible here, which lets the lens keep reaching further
+ * back — the same thing `collectPrior` gets from taking the latest *check run*
+ * that carries findings.
+ */
+export function verdictProduced(verdict) {
+  if (!verdict || typeof verdict !== "object") return false;
+  if (verdict.valid !== true) return false;
+  return verdict.conclusion !== "skipped";
+}
+
+/** `[{ round, lenses }]` for every round whose lens produced a usable verdict. */
 export function roundsOnDisk(base) {
   return roundsIn(readdirSync(base)).map((round) => {
     const dir = path.join(base, `round-${round}`);
     const lenses = readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && existsSync(path.join(dir, e.name, "verdict.json")))
+      .filter((e) => e.isDirectory())
+      .filter((e) => {
+        try {
+          return verdictProduced(JSON.parse(readFileSync(path.join(dir, e.name, "verdict.json"), "utf8")));
+        } catch {
+          return false; // absent or unparseable → this round did not settle the lens
+        }
+      })
       .map((e) => e.name);
     return { round, lenses };
   });
@@ -553,20 +628,29 @@ function cmdReview(args) {
   } catch (e) {
     return fail(`could not read the current branch: ${e.message}`);
   }
-  if (args.out !== undefined && typeof args.out !== "string") {
-    return fail("--out needs a value (e.g. --out /tmp/my-review)");
-  }
+  const argError = reviewArgsError(args);
+  if (argError) return fail(argError);
   const base = args.out ? path.resolve(args.out) : reviewBase(branch);
-  // 0700 on creation, and refuse a pre-existing base that is not ours — see
+  // 0700 on creation, and refuse a pre-existing directory that is not ours — see
   // `unsafeBaseReason`. Both matter because the path is predictable and its
   // contents are read back into a later round's prompt.
+  //
+  // EVERY LEVEL WE CREATE, not just the leaf. `recursive: true` also makes the
+  // intermediate `wafflebase-self-review`, and a leaf-only check is defeated by
+  // an attacker who owns that parent: they cannot read our 0700 directory, but
+  // they can replace or relocate it between this check and our writes. Checking
+  // the chain closes the window at the level where it opens. `os.tmpdir()`
+  // itself is the system's to secure (it is sticky), so the walk stops below it.
   mkdirSync(base, { recursive: true, mode: 0o700 });
-  let baseStat = null;
-  try {
-    baseStat = lstatSync(base);
-  } catch { /* unreadable → refused below */ }
-  const unsafe = unsafeBaseReason(baseStat, typeof process.getuid === "function" ? process.getuid() : undefined);
-  if (unsafe) return fail(`refusing to use the review directory ${base}: ${unsafe}`);
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+  for (const dir of ownedPathChain(base, args.out ? path.dirname(base) : os.tmpdir())) {
+    let st = null;
+    try {
+      st = lstatSync(dir);
+    } catch { /* unreadable → refused below */ }
+    const unsafe = unsafeBaseReason(st, uid);
+    if (unsafe) return fail(`refusing to use the review directory ${dir}: ${unsafe}`);
+  }
   // Bounded by construction: only this base's own round directories.
   if (args.fresh) {
     for (const name of roundDirsToClear(readdirSync(base))) {
@@ -574,16 +658,8 @@ function cmdReview(args) {
     }
   }
 
-  // `--round` with no value parses as `true`, and `Number(true)` is 1 — which
-  // would silently overwrite round 1 instead of reporting a usage error. Reject
-  // the boolean explicitly rather than letting a typo clobber a round's verdicts.
-  if (args.round !== undefined && typeof args.round !== "string") {
-    return fail("--round needs a value (e.g. --round 2)");
-  }
+  // Validated by `reviewArgsError` above.
   const round = args.round === undefined ? nextRound(readdirSync(base)) : Number(args.round);
-  if (!Number.isInteger(round) || round < 1) {
-    return fail(`--round must be a positive integer (got ${JSON.stringify(args.round)})`);
-  }
   const notice = roundBoundNotice(round);
   if (notice) console.warn(`spec-to-pr: ${notice}`);
 

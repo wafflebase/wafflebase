@@ -18,6 +18,9 @@ import {
   roundDirsToClear,
   roundsOnDisk,
   priorFindingsFor,
+  verdictProduced,
+  ownedPathChain,
+  reviewArgsError,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
@@ -219,9 +222,12 @@ test("roundsOnDisk + priorFindingsFor: read verdicts back off disk", () => {
       mkdirSync(path.join(base, `round-${round}`, lens), { recursive: true });
       writeFileSync(path.join(base, `round-${round}`, lens, "verdict.json"), JSON.stringify(verdict));
     };
-    write(1, "correctness", { findings: [{ severity: "critical", file: "a.ts", summary: "one" }] });
-    write(1, "docs", { findings: [{ severity: "major", file: "d.ts", summary: "doc gap" }] });
-    write(2, "correctness", { findings: [{ severity: "major", file: "b.ts", summary: "two" }] });
+    // `valid` + `conclusion` are what review-panel.mjs actually writes; a fixture
+    // without them is not a verdict the producer would ever emit.
+    const real = (findings) => ({ valid: true, conclusion: "failure", findings });
+    write(1, "correctness", real([{ severity: "critical", file: "a.ts", summary: "one" }]));
+    write(1, "docs", real([{ severity: "major", file: "d.ts", summary: "doc gap" }]));
+    write(2, "correctness", real([{ severity: "major", file: "b.ts", summary: "two" }]));
     // A lens directory with no verdict.json is not a verdict.
     mkdirSync(path.join(base, "round-2", "security"), { recursive: true });
     // Files in the round directory (the panel writes pr.diff and panel.json there)
@@ -238,10 +244,76 @@ test("roundsOnDisk + priorFindingsFor: read verdicts back off disk", () => {
     const prior = priorFindingsFor(base, 3);
     assert.deepEqual(prior.map((f) => [f.lens, f.file]).sort(), [["correctness", "b.ts"], ["docs", "d.ts"]]);
 
-    // An unparseable verdict costs that lens its carry-forward and nothing else.
+    // An unparseable verdict does not settle the lens, so it reaches further back
+    // rather than silently carrying nothing: correctness falls back to its ROUND-1
+    // finding. Losing a round's output must not look like "the issue is resolved".
     writeFileSync(path.join(base, "round-2", "correctness", "verdict.json"), "{ not json");
-    assert.deepEqual(priorFindingsFor(base, 3).map((f) => f.lens), ["docs"]);
+    assert.deepEqual(
+      priorFindingsFor(base, 3).map((f) => [f.lens, f.file]).sort(),
+      [["correctness", "a.ts"], ["docs", "d.ts"]],
+    );
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
+});
+
+// --- "a verdict.json exists" is not "the lens reviewed" ----------------------
+
+test("verdictProduced: a skipped or crashed lens did not settle anything", () => {
+  assert.equal(verdictProduced({ valid: true, conclusion: "failure", findings: [] }), true);
+  assert.equal(verdictProduced({ valid: true, conclusion: "success", findings: [] }), true);
+  // review-panel.mjs writes BOTH of these files; counting them as verdicts made
+  // the lens carry nothing and silently drop its earlier real findings.
+  assert.equal(verdictProduced({ valid: true, conclusion: "skipped" }), false);
+  assert.equal(verdictProduced({ valid: false, conclusion: "failure" }), false);
+  assert.equal(verdictProduced(null), false);
+  assert.equal(verdictProduced("{}"), false);
+});
+
+test("a skipped round lets the lens keep reaching further back", () => {
+  const base = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-skip-"));
+  try {
+    const write = (round, lens, verdict) => {
+      mkdirSync(path.join(base, `round-${round}`, lens), { recursive: true });
+      writeFileSync(path.join(base, `round-${round}`, lens, "verdict.json"), JSON.stringify(verdict));
+    };
+    write(1, "security", { valid: true, conclusion: "failure", findings: [{ severity: "critical", file: "a.ts", summary: "real" }] });
+    // Round 2: the lens did not apply to that round's diff. Its round-1 finding is
+    // still open and must still be carried.
+    write(2, "security", { valid: true, conclusion: "skipped", findings: [] });
+    assert.deepEqual(roundsOnDisk(base), [{ round: 1, lenses: ["security"] }, { round: 2, lenses: [] }]);
+    assert.deepEqual(priorFindingsFor(base, 3).map((f) => [f.lens, f.file]), [["security", "a.ts"]]);
+
+    // Same for a crashed/quota round (valid: false).
+    write(2, "security", { valid: false, conclusion: "failure", findings: [] });
+    assert.deepEqual(priorFindingsFor(base, 3).map((f) => [f.lens, f.file]), [["security", "a.ts"]]);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+// --- argument guards + the owned-path walk ----------------------------------
+
+test("reviewArgsError: a valueless flag is a usage error, not silent data loss", () => {
+  assert.equal(reviewArgsError({}), "");
+  assert.equal(reviewArgsError({ out: "/tmp/x", round: "2", rebuttals: "r.json" }), "");
+  // `parseArgs` yields `true`; `Number(true)` is 1 and `String(true)` is "true".
+  assert.match(reviewArgsError({ out: true }), /--out needs a value/);
+  assert.match(reviewArgsError({ round: true }), /--round needs a value/);
+  assert.match(reviewArgsError({ rebuttals: true }), /--rebuttals needs a file path/);
+  assert.match(reviewArgsError({ round: "zero" }), /positive integer/);
+  assert.match(reviewArgsError({ round: "0" }), /positive integer/);
+  assert.match(reviewArgsError({ round: "-1" }), /positive integer/);
+  assert.match(reviewArgsError({ round: "1.5" }), /positive integer/);
+  assert.equal(reviewArgsError(undefined), "");
+});
+
+test("ownedPathChain: every level we created, leaf first, excluding the boundary", () => {
+  assert.deepEqual(ownedPathChain("/tmp/a/b/c", "/tmp"), ["/tmp/a/b/c", "/tmp/a/b", "/tmp/a"]);
+  assert.deepEqual(ownedPathChain("/tmp/a", "/tmp"), ["/tmp/a"]);
+  // The boundary itself is never ours to judge: refusing because /tmp is
+  // world-writable would refuse every run on every machine.
+  assert.deepEqual(ownedPathChain("/tmp", "/tmp"), []);
+  // A base outside the boundary must terminate, not walk to the root forever.
+  assert.deepEqual(ownedPathChain("/var/other", "/tmp"), []);
 });
