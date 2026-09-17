@@ -46,6 +46,7 @@ export const SHORTCUTS: ReadonlyArray<ShortcutEntry> = [
   { category: 'Editing', keys: ['Esc'],                       description: 'Cancel cell edit / clear copy buffer' },
   { category: 'Editing', keys: ['Delete', 'Backspace'],       description: 'Clear cell contents' },
   { category: 'Editing', keys: ['Mod+Shift+M'],               description: 'Merge / unmerge selected cells' },
+  { category: 'Editing', keys: ['Mod+Click'],                 description: 'Open the hyperlink under the pointer' },
 
   // Clipboard ----------------------------------------------------------
   { category: 'Clipboard', keys: ['Mod+C'],              description: 'Copy' },

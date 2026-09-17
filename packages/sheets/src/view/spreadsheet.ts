@@ -16,7 +16,9 @@ import { Sheet } from '../model/worksheet/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
 import { defaultAlign } from '../model/worksheet/input';
-import { Worksheet } from './worksheet';
+import { LinkHoverInfo, Worksheet } from './worksheet';
+
+export type { LinkHoverInfo };
 
 export type Theme = 'light' | 'dark';
 
@@ -413,6 +415,15 @@ export class Spreadsheet {
    */
   public onNotice(callback: (message: string) => void): void {
     this.worksheet.setOnNotice(callback);
+  }
+
+  /**
+   * `onLinkHover` registers a callback fired when the pointer rests on a cell
+   * containing hyperlinks, and again with `null` when it leaves. Hosts use it
+   * to place the link card.
+   */
+  public onLinkHover(callback: (info: LinkHoverInfo | null) => void): void {
+    this.worksheet.setOnLinkHover(callback);
   }
 
   /**

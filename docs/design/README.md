@@ -27,6 +27,7 @@ Spreadsheet engine — data model, formulas, rendering, collaboration.
 | [mysql-connector.md](sheets/mysql-connector.md)                      | MySQL connector — read-only MySQL/MariaDB via native `mysql2`; extends the PostgreSQL datasource with an `engine` discriminator; smallest connector, reuses the datasource spine |
 | [axis-id-selection.md](sheets/axis-id-selection.md)                  | Axis ID based selection & presence — stable selection across remote structural edits              |
 | [comments.md](sheets/comments.md)                                    | Sheet cell comments — threaded comments, resolve flow, anchor stability, side panel UI            |
+| [sheet-hyperlink.md](sheets/sheet-hyperlink.md)                      | Sheet hyperlinks — widen render-time detection from "the whole cell value is a URL" to every URL span inside it (labelled and multi-line cells linkify), paint-time link boxes so hit geometry is the arithmetic that drew the pixels, hover card + viewer plain-click; records why a `Cell.link` field and Google-style `textFormatRuns` are both deferred, and that per-run links are structurally inexpressible in xlsx |
 | [data-validation.md](sheets/data-validation.md)                      | Data validation & in-cell controls — checkbox / list dropdown / date picker as special renders of typed cell values, worksheet-level range-scoped rules mirroring conditional formats, reject/warning per rule |
 
 ## Docs

@@ -9,6 +9,7 @@ type MouseMoveContext = {
   renderOverlay: ReturnType<typeof vi.fn>;
   hoveredValidationCandidate: string | null;
   hideValidationTooltip: ReturnType<typeof vi.fn>;
+  resetLinkHover: ReturnType<typeof vi.fn>;
 };
 
 type MouseLeaveContext = {
@@ -21,6 +22,7 @@ type MouseLeaveContext = {
   render: ReturnType<typeof vi.fn>;
   hoveredValidationCandidate: string | null;
   hideValidationTooltip: ReturnType<typeof vi.fn>;
+  resetLinkHover: ReturnType<typeof vi.fn>;
 };
 
 const handleMouseMove = (
@@ -46,6 +48,7 @@ describe('Worksheet mouse hover behavior', () => {
       renderOverlay: vi.fn(),
       hoveredValidationCandidate: null,
       hideValidationTooltip: vi.fn(),
+      resetLinkHover: vi.fn(),
     };
 
     handleMouseMove.call(
@@ -57,6 +60,9 @@ describe('Worksheet mouse hover behavior', () => {
 
     expect(ctx.resizeHover).toBeNull();
     expect(ctx.renderOverlay).toHaveBeenCalledTimes(1);
+    // A drag returns before the hover pass, so the link card has to be
+    // dismissed here or it floats over the selection for the whole gesture.
+    expect(ctx.resetLinkHover).toHaveBeenCalledTimes(1);
   });
 
   it('clears hover artifacts when pointer leaves the sheet', () => {
@@ -71,6 +77,7 @@ describe('Worksheet mouse hover behavior', () => {
       render: vi.fn(),
       hoveredValidationCandidate: null,
       hideValidationTooltip: vi.fn(),
+      resetLinkHover: vi.fn(),
     };
 
     handleScrollContainerMouseLeave.call(ctx);
@@ -80,5 +87,8 @@ describe('Worksheet mouse hover behavior', () => {
     expect(ctx.resizeHover).toBeNull();
     expect(ctx.freezeHandleHover).toBeNull();
     expect(ctx.render).toHaveBeenCalledTimes(1);
+    // The link card is anchored to a cell the pointer has now left, so it must
+    // go with the rest of the hover state rather than outlive the grid.
+    expect(ctx.resetLinkHover).toHaveBeenCalledTimes(1);
   });
 });

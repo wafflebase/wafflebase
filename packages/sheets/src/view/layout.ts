@@ -53,6 +53,29 @@ export function getTextBlockHeight(
 }
 
 /**
+ * Resolves a rendered line's left edge from the alignment-dependent text
+ * origin the painter draws with.
+ *
+ * `ctx.textAlign` positions glyphs around `textX`, but anything drawn *along*
+ * a line — an underline, a strikethrough, a hyperlink span — needs the left
+ * edge instead. Every such caller was deriving it inline, so the same three
+ * cases were spelled out once per decoration.
+ *
+ * @param align The horizontal alignment the line is painted with
+ * @param textX The alignment-dependent text origin passed to `fillText`
+ * @param lineWidth The measured width of the line
+ */
+export function toLineStartX(
+  align: 'left' | 'center' | 'right',
+  textX: number,
+  lineWidth: number,
+): number {
+  if (align === 'center') return textX - lineWidth / 2;
+  if (align === 'right') return textX - lineWidth;
+  return textX;
+}
+
+/**
  * Calculates the bounding rectangle for a cell reference with scroll position
  * @param id The cell reference
  * @param scroll The scroll position

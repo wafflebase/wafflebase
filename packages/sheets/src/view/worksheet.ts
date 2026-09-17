@@ -20,13 +20,13 @@ import { anchorToRef } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { RangeOpRefusal, Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
-import { cellHyperlink } from './url-detect';
 import { FormulaBar } from './formulabar';
 import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
 import { GridContainer } from './gridcontainer';
 import {
   GridCanvas,
+  RenderedLink,
   HiddenBtnArrowSize,
   HiddenBtnArrowGap,
   HiddenBtnPadding,
@@ -130,6 +130,24 @@ const CellEdgeHitThreshold = 2;
 const FilterPanelMaxVisibleValues = 200;
 const CellInputPinnedMargin = 8;
 
+/**
+ * How long the pointer must rest on a hyperlink before the card appears.
+ *
+ * Long enough that sweeping the mouse across a column of links does not strobe
+ * a popover, short enough to feel like a response to the hover.
+ */
+const LinkHoverDelayMS = 300;
+
+/**
+ * The hyperlinks of the cell the pointer is resting on.
+ *
+ * Carries the cell reference rather than a rectangle: the host already turns a
+ * ref into a positioned overlay for the comment popover (`getGridViewportRect`
+ * composed with `getCellRect`), and a second coordinate contract would be a
+ * second thing to keep in step with zoom, scroll and freeze.
+ */
+export type LinkHoverInfo = { sref: string; urls: Array<string> };
+
 function isImeComposingKeyEvent(e: KeyboardEvent): boolean {
   return e.isComposing || e.key === 'Process' || e.keyCode === 229;
 }
@@ -209,6 +227,13 @@ export class Worksheet {
   private hoveredValidationCandidate: string | null = null;
   private onValidationErrorCallback?: (message: string) => void;
   private onNoticeCallback?: (message: string) => void;
+
+  /** Cell whose links the hover card is showing (or is about to show). */
+  private hoveredLinkSref: string | null = null;
+  private linkHoverTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether the last mouse move landed on a painted hyperlink span. */
+  private pointerOverLink = false;
+  private onLinkHoverCallback?: (info: LinkHoverInfo | null) => void;
 
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
@@ -571,6 +596,7 @@ export class Worksheet {
     this.peerLabelTimers.clear();
     this.prevPeerActiveCells.clear();
     this.hoveredPeerClientID = null;
+    this.resetLinkHover();
 
     this.cancelActiveInteractions();
     this.removeAllEventListeners();
@@ -866,6 +892,93 @@ export class Worksheet {
    */
   public setOnNotice(callback: (message: string) => void): void {
     this.onNoticeCallback = callback;
+  }
+
+  /**
+   * `setOnLinkHover` registers a callback fired when the pointer comes to rest
+   * on a cell containing hyperlinks, and again with `null` when it leaves.
+   */
+  public setOnLinkHover(
+    callback: (info: LinkHoverInfo | null) => void,
+  ): void {
+    this.onLinkHoverCallback = callback;
+  }
+
+  /**
+   * `linkAtMouse` returns the hyperlink span painted under the pointer.
+   *
+   * Mouse coordinates arrive in CSS pixels while the painter draws in unzoomed
+   * logical space (`ctx.scale(ratio * zoom)`), so they divide out the zoom the
+   * same way `toRefFromMouse` does.
+   */
+  private linkAtMouse(x: number, y: number): RenderedLink | null {
+    const zoom = this.zoom;
+    return this.gridCanvas.linkAt(x / zoom, y / zoom);
+  }
+
+  /**
+   * Tracks which cell's links the hover card should show.
+   *
+   * Keyed on the **cell** rather than on the span under the pointer. Keying it
+   * on the span looks equivalent but is not: the gap between two links in one
+   * cell resolves to no span, so crossing the ` and ` in
+   * `https://a.com and https://b.com` would close the card and reopen it — a
+   * strobe over a cell whose card already lists both links.
+   */
+  private updateLinkHover(x: number, y: number): void {
+    this.pointerOverLink = this.linkAtMouse(x, y) !== null;
+
+    let sref: string | null = null;
+    let urls: Array<string> = [];
+    if (x > RowHeaderWidth && y > DefaultCellHeight) {
+      const candidate = toSref(this.toRefFromMouse(x, y));
+      const links = this.gridCanvas.linksInCell(candidate);
+      if (links.length > 0) {
+        sref = candidate;
+        urls = links.map((each) => each.url);
+      }
+    }
+
+    if (sref === this.hoveredLinkSref) {
+      return;
+    }
+
+    // Moving link cell → link cell must close the old card before opening the
+    // new one; otherwise the previous cell's URLs sit at the previous cell's
+    // position until the new timer fires.
+    const had = this.hoveredLinkSref !== null;
+    this.hoveredLinkSref = sref;
+    this.clearLinkHoverTimer();
+    if (had) {
+      this.onLinkHoverCallback?.(null);
+    }
+    if (!sref) {
+      return;
+    }
+
+    this.linkHoverTimer = setTimeout(() => {
+      this.linkHoverTimer = null;
+      this.onLinkHoverCallback?.({ sref, urls });
+    }, LinkHoverDelayMS);
+  }
+
+  private clearLinkHoverTimer(): void {
+    if (this.linkHoverTimer !== null) {
+      clearTimeout(this.linkHoverTimer);
+      this.linkHoverTimer = null;
+    }
+  }
+
+  /**
+   * Dismisses the hover card and forgets which cell it belonged to.
+   */
+  private resetLinkHover(): void {
+    this.clearLinkHoverTimer();
+    this.pointerOverLink = false;
+    if (this.hoveredLinkSref !== null) {
+      this.hoveredLinkSref = null;
+      this.onLinkHoverCallback?.(null);
+    }
   }
 
   /**
@@ -2639,6 +2752,10 @@ export class Worksheet {
     });
     this.addEventListener(scrollContainer, 'scroll', () => {
       this.hideFilterPanel();
+      // A wheel scroll fires no mousemove, so the hovered cell would keep its
+      // card and the host would re-anchor it to wherever that cell has now
+      // moved — including off screen.
+      this.resetLinkHover();
       this.updateCellInputPosition();
       this.render();
     });
@@ -3248,6 +3365,9 @@ export class Worksheet {
       }
       this.hoveredValidationCandidate = null;
       this.hideValidationTooltip();
+      // A drag returns before the hover pass below, so the card has to be
+      // dismissed here or it floats over the selection for the whole gesture.
+      this.resetLinkHover();
       return;
     }
 
@@ -3258,6 +3378,12 @@ export class Worksheet {
       e.clientX,
       e.clientY,
     );
+
+    // Hyperlink hover. Runs before the cursor cascade below because several of
+    // those branches return early, and a card left open over the autofill
+    // handle would outlive the pointer that opened it. Unlike the validation
+    // tooltip this needs no cell read — the painter already recorded the spans.
+    this.updateLinkHover(e.offsetX, e.offsetY);
 
     // Check freeze handle hover first (highest priority)
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
@@ -3364,6 +3490,13 @@ export class Worksheet {
       }
     }
 
+    // A hyperlink turns the pointer, but only where nothing else claimed the
+    // cursor: a resize edge or a selection border is still the gesture the
+    // user is closer to making.
+    if (this.pointerOverLink && scrollContainer.style.cursor === '') {
+      scrollContainer.style.cursor = 'pointer';
+    }
+
     // Peer cursor hover detection
     const hoverY = e.offsetY;
     const hoverX = e.offsetX;
@@ -3406,6 +3539,7 @@ export class Worksheet {
   private handleScrollContainerMouseLeave(): void {
     this.hoveredValidationCandidate = null;
     this.hideValidationTooltip();
+    this.resetLinkHover();
     const hadPeerHover = this.hoveredPeerClientID !== null;
     if (hadPeerHover) {
       this.hoveredPeerClientID = null;
@@ -3492,21 +3626,32 @@ export class Worksheet {
       return;
     }
 
-    // Ctrl/Cmd+Click on a cell whose plain value is a URL opens it in a new
-    // tab, matching the Docs editor's link behavior. Formula cells are
-    // excluded (their value is a computed result, not a raw URL).
+    // Opening a hyperlink.
+    //
+    // An editor clicks cells to select them all day, so they need the modifier
+    // Docs uses. A read-only viewer has no such conflict — and no reason to
+    // guess a modifier either, which is how a share-linked document ends up
+    // with links nobody can open — so a plain click opens it for them.
+    //
+    // The span under the pointer decides which URL, so a cell holding a
+    // release note and a PR link opens the one that was clicked. No cell read
+    // is needed: the painter recorded the URL along with the box.
+    //
+    // `e.detail === 1` keeps a double-click from opening the same URL twice:
+    // this runs on mousedown, and the second press of a double-click would
+    // otherwise take the branch again.
     if (
       e.button === 0 &&
-      (e.ctrlKey || e.metaKey) &&
+      e.detail === 1 &&
+      (this.readOnly || e.ctrlKey || e.metaKey) &&
       x > RowHeaderWidth &&
       y > DefaultCellHeight
     ) {
-      const ref = this.toRefFromMouse(x, y);
-      const cell = await this.sheet?.getCell(ref);
-      const url = cell && !cell.f ? cellHyperlink(cell.v) : null;
-      if (url) {
+      const link = this.linkAtMouse(x, y);
+      if (link) {
         e.preventDefault();
-        window.open(url, '_blank', 'noopener,noreferrer');
+        this.resetLinkHover();
+        window.open(link.url, '_blank', 'noopener,noreferrer');
         return;
       }
     }

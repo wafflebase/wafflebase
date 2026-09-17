@@ -24,7 +24,7 @@ import { DimensionIndex } from '../model/worksheet/dimensions';
 import { formatValue } from '../model/worksheet/format';
 import { defaultAlign } from '../model/worksheet/input';
 import { Theme, ThemeKey, getThemeColor } from './theme';
-import { cellHyperlink } from './url-detect';
+import { clipLinkBox, detectLinks, layoutLinkBoxes } from './cell-links';
 import { parseRef, toColumnLabel, toSref } from '../model/core/coordinates';
 import {
   DefaultCellWidth,
@@ -44,7 +44,27 @@ import {
   FreezeHandleThickness,
   toBoundingRect,
   getTextBlockHeight,
+  toLineStartX,
 } from './layout';
+
+/**
+ * A hyperlink span resolved to absolute grid coordinates by the painter, and
+ * the cell it belongs to.
+ *
+ * Recorded while drawing rather than reconstructed afterwards: the painter is
+ * the only place that holds the font, alignment, scroll, zoom, freeze split,
+ * merge span and overflow clip at once, so deriving the hit target from the
+ * same arithmetic is what keeps the underline and the clickable region from
+ * drifting apart.
+ */
+export type RenderedLink = {
+  sref: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  url: string;
+};
 
 type TextOverflowRenderData = {
   anchorToEndCol: Map<string, number>;
@@ -134,6 +154,33 @@ export class GridCanvas {
   private static checkIconPath2D: Path2D | null | undefined;
   private static listArrowPath2D: Path2D | null | undefined;
 
+  /**
+   * Hyperlink spans painted by the most recent {@link render}.
+   *
+   * `render()` repaints the whole canvas every frame, so this is rebuilt from
+   * scratch each time and only ever describes what is currently on screen —
+   * which is all a pointer can reach.
+   */
+  private renderedLinks: Array<RenderedLink> = [];
+
+  /**
+   * The region cells are currently being painted into.
+   *
+   * A cell's own rect is not the whole truth about where its text lands on
+   * screen: with a freeze the grid is drawn as four clipped quadrants, and
+   * without one the headers are simply painted over the cells afterwards. A
+   * hit target taken from the cell rect alone is therefore reachable in places
+   * the text is not — under a frozen pane, or under a header — which for a
+   * read-only viewer means a plain click opening a URL from a cell they cannot
+   * see.
+   */
+  private paintRegion: BoundingRect = {
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+  };
+
   constructor(theme: Theme = 'light') {
     this.theme = theme;
     this.canvas = document.createElement('canvas');
@@ -143,6 +190,43 @@ export class GridCanvas {
 
   public getCanvas(): HTMLCanvasElement {
     return this.canvas;
+  }
+
+  /**
+   * Returns the hyperlink span painted at a point, or `null`.
+   *
+   * Coordinates are relative to the grid canvas, matching the `offsetX` /
+   * `offsetY` the worksheet's mouse handlers already work in.
+   */
+  public linkAt(x: number, y: number): RenderedLink | null {
+    for (const link of this.renderedLinks) {
+      if (
+        x >= link.left &&
+        x <= link.left + link.width &&
+        y >= link.top &&
+        y <= link.top + link.height
+      ) {
+        return link;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns every hyperlink painted inside one cell, in reading order.
+   *
+   * The hover card lists them all: a cell holding several links offers several
+   * small targets, and picking from a list beats aiming at them.
+   */
+  public linksInCell(sref: string): Array<RenderedLink> {
+    // Deduplicated by destination: a cell that repeats one URL across its
+    // lines offers the reader one place to go, not three.
+    const seen = new Set<string>();
+    return this.renderedLinks.filter((link) => {
+      if (link.sref !== sref || seen.has(link.url)) return false;
+      seen.add(link.url);
+      return true;
+    });
   }
 
   public render(
@@ -178,6 +262,7 @@ export class GridCanvas {
     commentCellKeys?: Set<string>,
     dataValidations?: DataValidationRule[],
   ): void {
+    this.renderedLinks = [];
     this.canvas.width = 0;
     this.canvas.height = 0;
 
@@ -205,7 +290,15 @@ export class GridCanvas {
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
 
     if (!hasFrozen) {
-      // No freeze: render everything as before
+      // No freeze: render everything as before. Nothing is clipped here — the
+      // headers are painted over the cells afterwards — so the paint region is
+      // recorded rather than enforced.
+      this.paintRegion = {
+        left: RowHeaderWidth,
+        top: DefaultCellHeight,
+        width: viewport.width - RowHeaderWidth,
+        height: viewport.height - DefaultCellHeight,
+      };
       this.renderQuadrantCells(
         ctx,
         startID.r,
@@ -277,15 +370,13 @@ export class GridCanvas {
         : fc * DefaultCellWidth;
 
       // Quadrant D (bottom-right): scrolled H + V — draw first (background)
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(
+      this.clipToPaintRegion(
+        ctx,
         RowHeaderWidth + fw + gx,
         DefaultCellHeight + fh + gy,
         viewport.width - RowHeaderWidth - fw - gx,
         viewport.height - DefaultCellHeight - fh - gy,
       );
-      ctx.clip();
       this.renderQuadrantCells(
         ctx,
         startUnfrozenRow,
@@ -317,15 +408,13 @@ export class GridCanvas {
 
       // Quadrant B (top-right): frozen rows, scrolled H
       if (fr > 0) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(
+        this.clipToPaintRegion(
+          ctx,
           RowHeaderWidth + fw + gx,
           DefaultCellHeight,
           viewport.width - RowHeaderWidth - fw - gx,
           fh,
         );
-        ctx.clip();
         this.renderQuadrantCells(
           ctx,
           1,
@@ -355,15 +444,13 @@ export class GridCanvas {
 
       // Quadrant C (bottom-left): scrolled rows, frozen cols
       if (fc > 0) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(
+        this.clipToPaintRegion(
+          ctx,
           RowHeaderWidth,
           DefaultCellHeight + fh + gy,
           fw,
           viewport.height - DefaultCellHeight - fh - gy,
         );
-        ctx.clip();
         this.renderQuadrantCells(
           ctx,
           startUnfrozenRow,
@@ -393,10 +480,7 @@ export class GridCanvas {
 
       // Quadrant A (top-left): frozen R + C — draw last (foreground)
       if (fr > 0 && fc > 0) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(RowHeaderWidth, DefaultCellHeight, fw, fh);
-        ctx.clip();
+        this.clipToPaintRegion(ctx, RowHeaderWidth, DefaultCellHeight, fw, fh);
         this.renderQuadrantCells(
           ctx,
           1,
@@ -1598,10 +1682,18 @@ export class GridCanvas {
       });
       const lines = data.split('\n');
 
-      // Auto-detect a bare URL typed/pasted into a plain (non-formula) cell and
-      // render it as a clickable-looking hyperlink: link color + underline,
-      // unless the user set an explicit text color / already underlines.
-      const linkUrl = cell?.f ? null : cellHyperlink(rawData);
+      // Hyperlink spans inside the text, per line.
+      //
+      // Detection runs on the *formatted* string rather than the raw value,
+      // because these indices address the characters that are actually
+      // painted; detecting against one string and measuring against another
+      // silently misplaces the underline.
+      //
+      // Formula cells are included. They used to be skipped in case a
+      // HYPERLINK() label were mistaken for a URL — but a label that is not a
+      // URL never matches, so the guard only cost the cases that do work
+      // (`=A1&"/"&B1`, single-argument `=HYPERLINK("https://…")`).
+      const linkSpans = lines.map(detectLinks);
 
       // Build font string (needed for measuring text width)
       const fontStr = this.toCellFont(style);
@@ -1645,9 +1737,11 @@ export class GridCanvas {
       ctx.beginPath();
       ctx.rect(rect.left, rect.top, clipWidth, rect.height);
       ctx.clip();
-      ctx.fillStyle =
-        style?.tc ||
-        this.getThemeColor(linkUrl ? 'cellLinkColor' : 'cellTextColor');
+      // An explicit text color still wins over the link color: the user asked
+      // for that color, and a link is not a reason to overrule them.
+      const textColor = style?.tc || this.getThemeColor('cellTextColor');
+      const linkColor = style?.tc || this.getThemeColor('cellLinkColor');
+      ctx.fillStyle = textColor;
 
       ctx.font = fontStr;
       ctx.textBaseline = 'top';
@@ -1677,54 +1771,159 @@ export class GridCanvas {
         baseY = rect.top + CellPaddingY;
       }
 
-      for (let i = 0; i < lines.length; i++) {
-        const textY = baseY + i * (CellFontSize * CellLineHeight);
-        ctx.fillText(lines[i], textX, textY);
+      const measure = (text: string) => ctx.measureText(text).width;
+      const sref = toSref(id);
 
-        // Underline (explicit style, or the auto-link underline for URL cells)
-        if (style?.u || linkUrl) {
-          const metrics = ctx.measureText(lines[i]);
-          const lineY = textY + CellFontSize + 1;
-          let lineStartX: number;
-          if (align === 'center') {
-            lineStartX = textX - metrics.width / 2;
-          } else if (align === 'right') {
-            lineStartX = textX - metrics.width;
-          } else {
-            lineStartX = textX;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const textY = baseY + i * (CellFontSize * CellLineHeight);
+        const spans = linkSpans[i];
+        // Measured lazily: `main` only paid for this inside the underline and
+        // strikethrough branches, and it is one measureText per line per cell
+        // per frame on a grid that is mostly undecorated text.
+        const needsLineMetrics = spans.length > 0 || style?.u || style?.st;
+        const lineWidth = needsLineMetrics ? measure(line) : 0;
+        const lineStartX = needsLineMetrics
+          ? toLineStartX(align, textX, lineWidth)
+          : textX;
+
+        if (spans.length === 0) {
+          ctx.fillText(line, textX, textY);
+        } else {
+          // Draw the line in segments so every glyph is painted exactly once.
+          // Repainting the link text on top of the plain text would stack two
+          // anti-aliased renderings and read as bold.
+          //
+          // Every segment is placed by measuring the prefix before it — the
+          // same arithmetic layoutLinkBoxes uses — so the recorded hit boxes
+          // land exactly under the glyphs.
+          const boxes = layoutLinkBoxes(measure, line, spans, lineStartX);
+          ctx.save();
+          ctx.textAlign = 'left';
+
+          let cursor = 0;
+          for (let s = 0; s < spans.length; s++) {
+            const span = spans[s];
+            if (span.start > cursor) {
+              ctx.fillStyle = textColor;
+              ctx.fillText(
+                line.slice(cursor, span.start),
+                lineStartX + measure(line.slice(0, cursor)),
+                textY,
+              );
+            }
+
+            const box = boxes[s];
+            ctx.fillStyle = linkColor;
+            ctx.fillText(line.slice(span.start, span.end), box.x, textY);
+
+            const underlineY = textY + CellFontSize + 1;
+            ctx.beginPath();
+            // Skipped when the cell is explicitly underlined: that stroke
+            // already spans this range, and drawing both stacks two lines on
+            // the same pixels.
+            ctx.strokeStyle = linkColor;
+            ctx.lineWidth = 1;
+            if (!style?.u) {
+              ctx.moveTo(box.x, underlineY);
+              ctx.lineTo(box.x + box.width, underlineY);
+              ctx.stroke();
+            }
+
+            this.recordRenderedLink(sref, box, textY, rect, clipWidth);
+            cursor = span.end;
           }
+
+          if (cursor < line.length) {
+            ctx.fillStyle = textColor;
+            ctx.fillText(
+              line.slice(cursor),
+              lineStartX + measure(line.slice(0, cursor)),
+              textY,
+            );
+          }
+
+          ctx.restore();
+        }
+
+        // Underline
+        if (style?.u) {
+          const underlineY = textY + CellFontSize + 1;
           ctx.beginPath();
-          ctx.strokeStyle =
-            style?.tc ||
-            this.getThemeColor(linkUrl ? 'cellLinkColor' : 'cellTextColor');
+          ctx.strokeStyle = textColor;
           ctx.lineWidth = 1;
-          ctx.moveTo(lineStartX, lineY);
-          ctx.lineTo(lineStartX + metrics.width, lineY);
+          ctx.moveTo(lineStartX, underlineY);
+          ctx.lineTo(lineStartX + lineWidth, underlineY);
           ctx.stroke();
         }
 
         // Strikethrough
         if (style?.st) {
-          const metrics = ctx.measureText(lines[i]);
-          const lineY = textY + CellFontSize / 2;
-          let lineStartX: number;
-          if (align === 'center') {
-            lineStartX = textX - metrics.width / 2;
-          } else if (align === 'right') {
-            lineStartX = textX - metrics.width;
-          } else {
-            lineStartX = textX;
-          }
+          const strikeY = textY + CellFontSize / 2;
           ctx.beginPath();
-          ctx.strokeStyle = style?.tc || this.getThemeColor('cellTextColor');
+          ctx.strokeStyle = textColor;
           ctx.lineWidth = 1;
-          ctx.moveTo(lineStartX, lineY);
-          ctx.lineTo(lineStartX + metrics.width, lineY);
+          ctx.moveTo(lineStartX, strikeY);
+          ctx.lineTo(lineStartX + lineWidth, strikeY);
           ctx.stroke();
         }
       }
       ctx.restore();
     }
+  }
+
+  /**
+   * Clips `ctx` to a region and records it as the one cells are painted into,
+   * so {@link recordRenderedLink} can bound hit targets by the same rectangle
+   * that bounds the pixels.
+   */
+  private clipToPaintRegion(
+    ctx: CanvasRenderingContext2D,
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): void {
+    this.paintRegion = { left, top, width, height };
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, top, width, height);
+    ctx.clip();
+  }
+
+  /**
+   * Records a painted hyperlink span as a hit target, clipped to the region
+   * the text was actually drawn into.
+   *
+   * The painter clips to the cell (widened when the text overflows into empty
+   * neighbours), so a span can be drawn and then be wholly or partly invisible.
+   * Recording the unclipped box would leave a link clickable where nothing is
+   * on screen — the pointer would change over blank cells.
+   */
+  private recordRenderedLink(
+    sref: string,
+    box: { x: number; width: number; url: string },
+    textY: number,
+    rect: BoundingRect,
+    clipWidth: number,
+  ): void {
+    const inCell = clipLinkBox(
+      { left: box.x, top: textY, width: box.width, height: CellFontSize + 3 },
+      {
+        left: rect.left,
+        top: rect.top,
+        width: clipWidth,
+        height: rect.height,
+      },
+    );
+    // Then by the region the cells themselves are being painted into — the
+    // frozen quadrant, or the grid area the headers leave uncovered.
+    const clipped = inCell && clipLinkBox(inCell, this.paintRegion);
+    if (!clipped) {
+      return;
+    }
+
+    this.renderedLinks.push({ sref, ...clipped, url: box.url });
   }
 
   private buildTextOverflowRenderData(
