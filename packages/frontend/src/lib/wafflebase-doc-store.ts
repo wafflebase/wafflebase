@@ -28,6 +28,7 @@ const DEFAULT_DB_NAME = "wafflebase-offline";
 
 const SNAPSHOTS = "snapshots";
 const CHANGES = "changes";
+const ARCHIVES = "archives";
 
 interface SnapshotRecord {
   docKey: string;
@@ -51,6 +52,31 @@ interface ChangeRecord {
   clientSeq: number;
   /** gzip-compressed change bytes. */
   bytes: ArrayBuffer;
+}
+
+/**
+ * A whole entry, kept after `remove` deleted it.
+ *
+ * The log is inlined rather than left in `changes`, so that writing the archive
+ * and deleting the original is one `put` inside one transaction: a crash
+ * between the two halves must not be able to leave the only copy deleted.
+ */
+interface ArchiveRecord {
+  /** Auto-incremented, so two removals of one document both survive. */
+  id?: number;
+  docKey: string;
+  snapshot: ArrayBuffer;
+  meta?: ArrayBuffer;
+  changes: Array<{ clientSeq: number; bytes: ArrayBuffer }>;
+  archivedAt: number;
+  userId?: string;
+}
+
+/** What an archived entry looks like from outside, without its bytes. */
+export interface ArchiveSummary {
+  id: number;
+  docKey: string;
+  archivedAt: number;
 }
 
 export interface WafflebaseDocStoreOptions {
@@ -189,6 +215,15 @@ export class WafflebaseDocStore implements DocStore {
             // bounded range over one docKey comes back in clientSeq order.
             db.createObjectStore(CHANGES, {
               keyPath: ["docKey", "clientSeq"],
+            });
+          }
+          if (!db.objectStoreNames.contains(ARCHIVES)) {
+            // Auto-incremented rather than keyed by docKey: two documents can
+            // fail to reconcile in one session, and the same document can fail
+            // twice, so a removal must never replace an earlier one.
+            db.createObjectStore(ARCHIVES, {
+              keyPath: "id",
+              autoIncrement: true,
             });
           }
         };
@@ -332,13 +367,108 @@ export class WafflebaseDocStore implements DocStore {
     });
   }
 
-  /** `remove` clears the snapshot, the meta and the log. Missing keys are fine. */
+  /**
+   * `remove` clears the snapshot, the meta and the log — **archiving them
+   * first**. Missing keys are fine and archive nothing.
+   *
+   * The SDK calls this on exactly the paths where it has decided local work
+   * cannot be reconciled: a re-anchor after server-side compaction, a document
+   * purged upstream, an actor mismatch. Deleting outright there is what loses
+   * the user's unsent edits, so the bytes are kept and returned later as an
+   * offline copy. The archive is written in the same transaction as the delete,
+   * so no crash can land between them and leave the only copy gone.
+   */
   public async remove(docKey: string): Promise<void> {
     const db = await this.open();
-    const tx = db.transaction([SNAPSHOTS, CHANGES], "readwrite");
-    tx.objectStore(SNAPSHOTS).delete(docKey);
-    tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
+    const tx = db.transaction([SNAPSHOTS, CHANGES, ARCHIVES], "readwrite");
+    const snapshots = tx.objectStore(SNAPSHOTS);
+    const changes = tx.objectStore(CHANGES);
+
+    const [record, changeRows] = await Promise.all([
+      requested<SnapshotRecord | undefined>(snapshots.get(docKey)),
+      requested<Array<ChangeRecord>>(
+        changes.getAll(WafflebaseDocStore.rangeFor(docKey)),
+      ),
+    ]);
+
+    if (record) {
+      const archive: ArchiveRecord = {
+        docKey,
+        snapshot: record.snapshot,
+        meta: record.meta,
+        changes: changeRows
+          .sort((a, b) => a.clientSeq - b.clientSeq)
+          .map((row) => ({ clientSeq: row.clientSeq, bytes: row.bytes })),
+        archivedAt: this.now(),
+        userId: record.userId,
+      };
+      tx.objectStore(ARCHIVES).put(archive);
+      snapshots.delete(docKey);
+      changes.delete(WafflebaseDocStore.rangeFor(docKey));
+    }
+
     return WafflebaseDocStore.completed(tx);
+  }
+
+  /**
+   * `listArchives` describes what `remove` kept, newest last. Bytes are left
+   * out: the caller picks one and asks for it.
+   */
+  public async listArchives(): Promise<Array<ArchiveSummary>> {
+    const db = await this.open();
+    const tx = db.transaction(ARCHIVES, "readonly");
+    const rows = await requested<Array<ArchiveRecord>>(
+      tx.objectStore(ARCHIVES).getAll(),
+    );
+    return rows.map((row) => ({
+      id: row.id!,
+      docKey: row.docKey,
+      archivedAt: row.archivedAt,
+    }));
+  }
+
+  /** `loadArchive` returns an archived entry's bytes, decompressed. */
+  public async loadArchive(id: number): Promise<StoredDoc | undefined> {
+    const db = await this.open();
+    const tx = db.transaction(ARCHIVES, "readonly");
+    const row = await requested<ArchiveRecord | undefined>(
+      tx.objectStore(ARCHIVES).get(id),
+    );
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      snapshot: await inflate(row.snapshot),
+      meta: row.meta ? await inflate(row.meta) : undefined,
+      changes: await Promise.all(
+        row.changes.map(async (change) => ({
+          clientSeq: change.clientSeq,
+          bytes: await inflate(change.bytes),
+        })),
+      ),
+    };
+  }
+
+  /** Drops archived entries by id. */
+  private async dropArchives(ids: Array<number>): Promise<void> {
+    if (!ids.length) {
+      return;
+    }
+    const db = await this.open();
+    const tx = db.transaction(ARCHIVES, "readwrite");
+    const store = tx.objectStore(ARCHIVES);
+    for (const id of ids) {
+      store.delete(id);
+    }
+    return WafflebaseDocStore.completed(tx);
+  }
+
+  /** Every archive record, for the cleanup passes that scan rather than seek. */
+  private async allArchives(): Promise<Array<ArchiveRecord>> {
+    const db = await this.open();
+    const tx = db.transaction(ARCHIVES, "readonly");
+    return requested<Array<ArchiveRecord>>(tx.objectStore(ARCHIVES).getAll());
   }
 
   /**
@@ -373,6 +503,15 @@ export class WafflebaseDocStore implements DocStore {
     for (const docKey of keys) {
       await this.purge(docKey);
     }
+
+    // Archives hold document content too, so the erase logout promises has to
+    // reach them — otherwise signing out leaves the content on a shared machine
+    // in the one place the user cannot see.
+    await this.dropArchives(
+      (await this.allArchives())
+        .filter((row) => row.userId === userId)
+        .map((row) => row.id!),
+    );
     return keys.length;
   }
 
@@ -392,7 +531,14 @@ export class WafflebaseDocStore implements DocStore {
     for (const docKey of keys) {
       await this.purge(docKey);
     }
-    return keys.length;
+
+    // On the same schedule: an archive store nothing ever collects is a quota
+    // leak that looks like a feature.
+    const staleArchives = (await this.allArchives()).filter(
+      (row) => row.archivedAt < cutoff,
+    );
+    await this.dropArchives(staleArchives.map((row) => row.id!));
+    return keys.length + staleArchives.length;
   }
 
   /**
