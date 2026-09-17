@@ -1,3 +1,11 @@
+// MUST stay the first import in this file. The Sentry SDK instruments `http`,
+// `express` and `pg` by patching them as they are first required, so anything
+// loaded above this line is loaded unpatched and emits no spans — with no
+// error to notice. No import-sorting rule is configured in this package today
+// (checked), so nothing enforces or reverses this; if one is ever added, it
+// needs an exception here. See the comment in `instrument.ts`.
+import './instrument';
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import * as bodyParser from 'body-parser';
@@ -74,7 +82,18 @@ async function bootstrap() {
     origin: [process.env.FRONTEND_URL],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    // `sentry-trace` and `baggage` are what link a browser trace to this
+    // server's. They are listed because this is an explicit allow-list: the
+    // frontend SDK attaches both to every call bound for this origin, and a
+    // preflight that refuses them does not merely lose the trace — it fails
+    // the request. Harmless when nobody has configured Sentry, since the
+    // frontend attaches nothing unless `VITE_SENTRY_DSN` is set.
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'sentry-trace',
+      'baggage',
+    ],
   });
   await app.listen(process.env.PORT ?? 3000);
 }

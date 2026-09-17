@@ -888,7 +888,11 @@ erDiagram
 - `origin`: Only allows requests from `FRONTEND_URL`.
 - `credentials: true`: Required for cookie-based auth.
 - Allowed methods: GET, POST, PUT, DELETE, PATCH, OPTIONS.
-- Allowed headers: Content-Type, Authorization.
+- Allowed headers: Content-Type, Authorization, `sentry-trace`, `baggage`.
+  The last two carry the frontend's trace context so a browser trace links to
+  this server's ([observability.md](observability.md)). This is an explicit
+  allow-list, so a header missing from it does not degrade gracefully — the
+  preflight fails the request outright.
 
 **httpOnly cookies** — Access/refresh tokens are stored in httpOnly cookies,
 preventing client-side JavaScript from reading them. This mitigates XSS-based

@@ -42,6 +42,7 @@
     "@nestjs/platform-express": "^11.1.0",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "6.6.0",
+    "@sentry/nestjs": "^10.75.0",
     "@types/passport-github2": "^1.2.9",
     "@types/passport-google-oauth20": "^2.0.16",
     "@wafflebase/docs": "workspace:^",

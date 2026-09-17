@@ -171,6 +171,37 @@ WAFFLEBASE_KAFKA_ADDRESSES=             # Optional, comma-separated Kafka
 WAFFLEBASE_KAFKA_TOPIC=                 # Optional, Kafka topic for view
                                         # events. Unset disables analytics
                                         # ingestion.
+SENTRY_DSN=                             # Optional. Unset — the default —
+                                        # means `Sentry.init` is never called
+                                        # (`src/instrument.ts`): no handlers
+                                        # installed, no network egress, no
+                                        # behavior change. Set it to your own
+                                        # project's DSN to report unhandled
+                                        # exceptions and request traces.
+                                        # Nothing here is specific to
+                                        # wafflebase's own Sentry org, and no
+                                        # DSN is baked in as a default — a
+                                        # self-host must not report its users'
+                                        # errors to somebody else.
+SENTRY_ENVIRONMENT=                     # Optional, the `environment` tag on
+                                        # every event. Defaults to NODE_ENV.
+                                        # An EMPTY value counts as unset: that
+                                        # is how "unset" actually arrives from
+                                        # a k8s `value: ""` or a bare `=` line.
+SENTRY_RELEASE=                         # Optional, the `release` tag. Defaults
+                                        # to this package's own version, which
+                                        # is kept in lockstep with the root
+                                        # package.json the frontend bakes in —
+                                        # so with both unset the two halves
+                                        # still report the SAME release and one
+                                        # deploy's events line up. Override
+                                        # only if your build stamps something
+                                        # else. Empty counts as unset.
+SENTRY_TRACES_SAMPLE_RATE=0.1           # Optional, 0..1. Anything outside that
+                                        # range, or unparseable, falls back to
+                                        # 0.1 rather than to 1.0 — a typo must
+                                        # not become "sample everything".
+                                        # Only read when SENTRY_DSN is set.
 WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # (`user:pass@tcp(host:port)/db`) for
                                         # the analytics warehouse query path.

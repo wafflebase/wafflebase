@@ -6,18 +6,24 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 604
+Total archived tasks: 610
 
-## 2026/09 (29 tasks)
+## 2026/09 (35 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sentry error tracking (2026-09-17) | [20260917-sentry-error-tracking-todo.md](./2026/09/20260917-sentry-error-tracking-todo.md) | [20260917-sentry-error-tracking-lessons.md](./2026/09/20260917-sentry-error-tracking-lessons.md) |
+| sheets cell link spans (2026-09-17) | [20260917-sheets-cell-link-spans-todo.md](./2026/09/20260917-sheets-cell-link-spans-todo.md) | [20260917-sheets-cell-link-spans-lessons.md](./2026/09/20260917-sheets-cell-link-spans-lessons.md) |
 | sheets undo selection (2026-09-17) | [20260917-sheets-undo-selection-todo.md](./2026/09/20260917-sheets-undo-selection-todo.md) | [20260917-sheets-undo-selection-lessons.md](./2026/09/20260917-sheets-undo-selection-lessons.md) |
+| nav guard unsent edits (2026-09-16) | [20260916-nav-guard-unsent-edits-todo.md](./2026/09/20260916-nav-guard-unsent-edits-todo.md) | [20260916-nav-guard-unsent-edits-lessons.md](./2026/09/20260916-nav-guard-unsent-edits-lessons.md) |
+| google oauth login (2026-09-15) | [20260915-google-oauth-login-todo.md](./2026/09/20260915-google-oauth-login-todo.md) | [20260915-google-oauth-login-lessons.md](./2026/09/20260915-google-oauth-login-lessons.md) |
+| table drag merge selection (2026-09-14) | [20260914-table-drag-merge-selection-todo.md](./2026/09/20260914-table-drag-merge-selection-todo.md) | [20260914-table-drag-merge-selection-lessons.md](./2026/09/20260914-table-drag-merge-selection-lessons.md) |
 | member api keys (2026-09-13) | [20260913-member-api-keys-todo.md](./2026/09/20260913-member-api-keys-todo.md) | - |
 | release v0.6.10 (2026-09-13) | [20260913-release-v0.6.10-todo.md](./2026/09/20260913-release-v0.6.10-todo.md) | [20260913-release-v0.6.10-lessons.md](./2026/09/20260913-release-v0.6.10-lessons.md) |
 | release v0.6.11 (2026-09-13) | [20260913-release-v0.6.11-todo.md](./2026/09/20260913-release-v0.6.11-todo.md) | [20260913-release-v0.6.11-lessons.md](./2026/09/20260913-release-v0.6.11-lessons.md) |
 | sheets paste merge propagation (2026-09-12) | [20260912-sheets-paste-merge-propagation-todo.md](./2026/09/20260912-sheets-paste-merge-propagation-todo.md) | [20260912-sheets-paste-merge-propagation-lessons.md](./2026/09/20260912-sheets-paste-merge-propagation-lessons.md) |
 | agent rerun inflight ci (2026-09-10) | [20260910-agent-rerun-inflight-ci-todo.md](./2026/09/20260910-agent-rerun-inflight-ci-todo.md) | [20260910-agent-rerun-inflight-ci-lessons.md](./2026/09/20260910-agent-rerun-inflight-ci-lessons.md) |
+| slides frameless element (2026-09-10) | [20260910-slides-frameless-element-todo.md](./2026/09/20260910-slides-frameless-element-todo.md) | - |
 | agent fix timeout latch (2026-09-09) | [20260909-agent-fix-timeout-latch-todo.md](./2026/09/20260909-agent-fix-timeout-latch-todo.md) | - |
 | yorkie 0720 bump (2026-09-09) | [20260909-yorkie-0720-bump-todo.md](./2026/09/20260909-yorkie-0720-bump-todo.md) | [20260909-yorkie-0720-bump-lessons.md](./2026/09/20260909-yorkie-0720-bump-lessons.md) |
 | docs clear formatting keeps links (2026-09-08) | [20260908-docs-clear-formatting-keeps-links-todo.md](./2026/09/20260908-docs-clear-formatting-keeps-links-todo.md) | [20260908-docs-clear-formatting-keeps-links-lessons.md](./2026/09/20260908-docs-clear-formatting-keeps-links-lessons.md) |
