@@ -84,13 +84,10 @@ the whole reason the capability reads as unavailable to hand-driven work.
       the `lane: backlog` ones.
 - [x] `--fresh` resets to round 1; `--round 4` prints the bound advisory and
       still runs; `--round zero` and a valueless `--round` both exit 1.
-- [ ] **Not done: a real panel round.** `CLAUDE_CODE_OAUTH_TOKEN` is not
-      exported in this environment, so the panel skips with its warning. The
-      round threading, the carry-forward and the reporting are exercised by unit
-      tests and by `--dry-run`; what has NOT been run end-to-end is the panel
-      itself writing `verdict.json` files that the next round then reads back.
-      Run `node ./scripts/agent/spec-to-pr.mjs review` twice on a branch with a
-      real finding to close this.
+- [x] **Three real panel rounds ran** against this branch's own diff, on the
+      machine's logged-in Claude Code session. The carry-forward is no longer
+      theoretical: round 2 reported `carrying 7 prior finding(s) forward` and
+      round 3 `carrying 5`.
 
 ## Review
 
@@ -113,11 +110,53 @@ review round turned up.
    no printable finding rendering as silence — which is exactly the
    "the lens never ran" case that must not read as "found nothing".
 
-**Known limitations.**
+### The loop, run on itself
 
-- The panel round was not run for real (see Verification).
+The branch was reviewed by the thing it adds. Three rounds, then the bound.
+
+| Round | Reviewer | Lenses blocking | Findings | Carried in |
+| --- | --- | --- | --- | --- |
+| 0 | me, reading my own diff (no token, panel skipped) | — | 3 | — |
+| 1 | the panel | 5 of 6 | 7 (2 critical) | — |
+| 2 | the panel | 5 of 6 | 5 | 7 |
+| — | the panel | 6 of 6 **infra** | 0 — HTTP 429, usage limit | 5 |
+| 3 | the panel | 3 of 6 | 5 | 5 |
+
+Round 0 found three surface defects. It did not find the two criticals — a
+`--fresh` that deleted any `--out` path, and a prompt-injection channel into the
+next round's verifier — because a reviewer sharing the author's context inherits
+the author's blind spots. That is the argument for this feature, made against it.
+
+Round 2 found a hole in round 1's own fix (`roundsOnDisk` counted a *skipped* or
+*crashed* lens as having reviewed, so the per-lens carry-forward silently
+dropped findings — the exact failure its docblock claimed to prevent), and round
+3 found one in round 2's (`--out` reduced the new path-chain check to the
+leaf-only check it replaced). Each round's fix was itself reviewed.
+
+Two findings were about this repository rather than this branch: `/spec-to-pr`'s
+and CLAUDE.md's descriptions of the tool had gone stale within the same branch.
+
+**Nothing was rebutted.** Every finding across three rounds was accepted and
+fixed, so the `--rebuttals` path is still unexercised end to end.
+
+**Cost.** Four panel invocations, one of which reviewed nothing (429). The
+usage limit is the practical bound on running this locally, well before the
+three-round one.
+
+### Known limitations
+
+- **The loop stopped at the bound with 5 findings open**, all major, all fixed
+  in `d593412a0` — but the fixes themselves have not been reviewed. Round 4 is
+  what would do that, and the rule this branch adds says to get a human (or
+  `@claude review`, which spends the repository's pooled credential rather than
+  a developer's) instead of looping again.
+- `--rebuttals` is passed through and argv-asserted, never exercised against a
+  real adjudication.
 - `--review-mode incremental` is not wired. Deliberate: the decision belongs to
   `review-scope.mjs` reading a PR's history, which does not exist pre-PR.
+- A base directory a developer created by hand at the default umask is refused
+  (0700 is required). The message says why, but it is a papercut for anyone
+  passing `--out` at a path they made themselves.
 - A detached HEAD shares one round directory (the branch name is `HEAD`).
 - The round state lives in `os.tmpdir()`, so it does not survive a reboot. That
   is the intended lifetime — an abandoned branch cleans itself up — but a loop

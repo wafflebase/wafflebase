@@ -47,3 +47,38 @@ which says something about the first draft, not about the method.
 
 **Rule:** say which reviewer actually ran. "Reviewed" without naming the reviewer
 lets a skipped panel and a real one read identically in a task file.
+
+## Verification runs are part of the system under test
+
+Two `--dry-run` probes, used to check the guards from round 1, each created a
+round directory and wrote a diff into it. `nextRound` counted them, so a branch
+that had reviewed twice ran its next round as **round 5** and tripped the
+three-round bound. The probe changed the state it was probing.
+
+**Rule:** before using a command to verify itself, check what the verification
+path writes. A read-only-looking flag that creates a directory is not read-only,
+and the damage shows up as a confusing number several steps later.
+
+## An infra failure must not be able to look like a clean round
+
+Round 3's first attempt hit HTTP 429 and all six lenses failed with no findings.
+The output said `no finding recorded (the lens may not have run)` for each —
+wording added one round earlier for exactly this shape. Without it the run reads
+as "six lenses blocked, zero findings", which is indistinguishable from noise a
+developer would override.
+
+**Rule:** when a report can be empty for two opposite reasons — nothing was
+found, or nothing ran — the empty case has to say which. Silence defaults to the
+optimistic reading.
+
+## A fixture the producer would never emit hides the bug it was written for
+
+The on-disk carry-forward test used `{ findings: [...] }`. The real producer
+writes `{ valid, conclusion, findings }`, and the bug round 2 found was that a
+`{ valid: false }` or `{ conclusion: "skipped" }` file was being counted as a
+verdict. The fixture could not have caught it because it did not have the fields
+the bug was about. `prior-findings.test.mjs` warns about this at the top of the
+file; I wrote the fixture anyway.
+
+**Rule:** build fixtures from the producer's actual output shape — ideally from
+the producer — not from the fields the consumer happens to read.
