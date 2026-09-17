@@ -67,6 +67,58 @@ describe('connectorToXml', () => {
     expect(xml).toContain('FF0000');
   });
 
+  // `parseCxnSp` resolves its stroke through `parseShapeStroke`, which now
+  // reads `<a:prstDash>` — so a connector that imports dashed has to export
+  // dashed, or the round trip silently drops it.
+  it('emits prstDash inside a:ln for a dashed stroke', () => {
+    const dashed = {
+      ...el,
+      stroke: { color: '#000000', width: 2, dash: 'dashed' },
+      arrowheads: {},
+    } as unknown as ConnectorElement;
+    const xml = connectorToXml(dashed, { x: 0, y: 0, w: 100, h: 50, rotation: 0 });
+    expect(xml).toContain('<a:prstDash val="dash"/>');
+    // `CT_LineProperties` declares the fill before the dash.
+    expect(xml.indexOf('</a:solidFill>')).toBeLessThan(xml.indexOf('<a:prstDash'));
+  });
+
+  it('emits prstDash sysDot for a dotted stroke', () => {
+    const dotted = {
+      ...el,
+      stroke: { color: '#000000', width: 1, dash: 'dotted' },
+      arrowheads: {},
+    } as unknown as ConnectorElement;
+    const xml = connectorToXml(dotted, { x: 0, y: 0, w: 100, h: 50, rotation: 0 });
+    expect(xml).toContain('<a:prstDash val="sysDot"/>');
+  });
+
+  it('emits no prstDash for a solid or absent dash', () => {
+    const frame = { x: 0, y: 0, w: 100, h: 50, rotation: 0 };
+    const solid = {
+      ...el,
+      stroke: { color: '#000000', width: 1, dash: 'solid' },
+      arrowheads: {},
+    } as unknown as ConnectorElement;
+    expect(connectorToXml(solid, frame)).not.toContain('prstDash');
+    const plain = {
+      ...el,
+      stroke: { color: '#000000', width: 1 },
+      arrowheads: {},
+    } as unknown as ConnectorElement;
+    expect(connectorToXml(plain, frame)).not.toContain('prstDash');
+    const none = { ...el, arrowheads: {} } as unknown as ConnectorElement;
+    expect(connectorToXml(none, frame)).not.toContain('prstDash');
+  });
+
+  it('emits the tail arrowhead after the dash', () => {
+    const dashed = {
+      ...el,
+      stroke: { color: '#000000', width: 2, dash: 'dashed' },
+    } as unknown as ConnectorElement;
+    const xml = connectorToXml(dashed, { x: 0, y: 0, w: 100, h: 50, rotation: 0 });
+    expect(xml.indexOf('<a:prstDash')).toBeLessThan(xml.indexOf('<a:tailEnd'));
+  });
+
   it('uses default stroke width when no stroke is present', () => {
     const noStroke = { ...el, arrowheads: {} } as unknown as ConnectorElement;
     const xml = connectorToXml(noStroke, { x: 0, y: 0, w: 100, h: 50, rotation: 0 });

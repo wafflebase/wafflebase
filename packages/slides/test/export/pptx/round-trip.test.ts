@@ -279,4 +279,39 @@ describe('PPTX round-trip (model equivalence)', () => {
     // XML never carried. Absent renders continuous either way.
     expect(dashes).toEqual(['dashed', 'dotted', undefined]);
   });
+
+  it('connector dash survives export and re-import', async () => {
+    // `parseCxnSp` shares `parseShapeStroke` with shapes, so teaching the
+    // importer to read `<a:prstDash>` gave connectors a `dash` the connector
+    // exporter — which builds its `<a:ln>` by hand rather than through
+    // `lineXml` — did not write back.
+    const base = (await importPptx(await buildMinimalPptx())).document;
+    const deckA: SlidesDocument = {
+      ...base,
+      slides: [
+        {
+          ...base.slides[0],
+          elements: (['dashed', 'dotted', 'solid'] as const).map((dash, i) => ({
+            id: `c${i}`,
+            type: 'connector' as const,
+            frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+            routing: 'straight' as const,
+            start: { kind: 'free' as const, x: 10, y: 20 + i * 200 },
+            end: { kind: 'free' as const, x: 310, y: 120 + i * 200 },
+            arrowheads: {},
+            stroke: { color: '#112233', width: 2, dash },
+          })),
+        },
+      ],
+    };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const b = (await importPptx(toArrayBuffer(bytes))).document;
+
+    const dashes = b.slides[0].elements.map((el) =>
+      el.type === 'connector' ? el.stroke?.dash : 'not-a-connector',
+    );
+    // `'solid'` comes back absent for the same reason as the shape case.
+    expect(dashes).toEqual(['dashed', 'dotted', undefined]);
+  });
 });

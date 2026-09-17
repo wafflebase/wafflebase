@@ -11,6 +11,25 @@ const PREVIEW_W = 64;
  */
 const PREVIEW_H = 24;
 
+/**
+ * Shrink a dash pattern, in proportion, until two whole cycles fit in the
+ * preview box.
+ *
+ * `dashArray` scales with the stroke weight — at 16px, `'dashed'` is
+ * `[96, 64]`, whose first dash alone is longer than this 64px line, so it
+ * paints solid. Scaling the whole cycle keeps the dash:gap ratio that
+ * distinguishes "Dashed" from "Dotted" while guaranteeing a visible gap;
+ * clamping the weight instead would misreport the line's thickness, and
+ * cropping only the first dash would misreport the ratio. Patterns that
+ * already repeat (every weight up to 3px) are returned untouched.
+ */
+function fitPattern(pattern: number[]): number[] {
+  const cycle = pattern.reduce((sum, n) => sum + n, 0);
+  const max = PREVIEW_W / 2;
+  if (cycle <= max) return pattern;
+  return pattern.map((n) => (n * max) / cycle);
+}
+
 export interface StrokePreviewProps {
   /** Dash style to draw. Absent / `'solid'` ⇒ a continuous line. */
   dash?: Stroke['dash'];
@@ -23,22 +42,23 @@ export interface StrokePreviewProps {
  * weight, for the border toolbar's dropdown items.
  *
  * The pattern comes from the renderer's own `dashArray()` — at the same
- * weight, so it cannot drift from what the slide canvas strokes. That is
- * the same guarantee `shape-picker` gets by previewing through
+ * weight, so its shape cannot drift from what the slide canvas strokes.
+ * That is the same guarantee `shape-picker` gets by previewing through
  * `renderShapeIcon`. SVG rather than canvas because `currentColor`
  * resolves natively here, which is exactly what canvas previews have to
  * work around.
  *
- * Both menus draw the real weight. The dash menu used to clamp it to
- * 3px because a fixed `[2,2]` at 16px read as a solid bar — but so did
- * the border it was previewing, so the clamp made the picker flattering
- * rather than accurate. Now that `dashArray` scales with the weight the
- * clamp is gone, and a thick dashed line previews as the long blocks it
- * really is.
+ * Both menus draw the real weight. The dash menu used to clamp that
+ * weight to 3px, which made the picker flattering rather than accurate —
+ * a 16px dashed border really does read as long blocks. So the line is
+ * stroked at its true weight and only the *pattern* is bounded, by
+ * {@link fitPattern}: a preview is 64px of a line that is 960px wide on
+ * the slide, and a pattern too long to repeat inside it would show no
+ * gap at all, making "Dashed" indistinguishable from "Solid".
  */
 export function StrokePreview({ dash, width }: StrokePreviewProps) {
   const height = PREVIEW_H;
-  const pattern = dashArray(dash, width);
+  const pattern = fitPattern(dashArray(dash, width));
   return (
     <svg
       width={PREVIEW_W}

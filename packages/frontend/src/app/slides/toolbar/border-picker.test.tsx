@@ -49,17 +49,48 @@ describe('BorderPicker dash menu', () => {
 
   it('previews the dash at the border’s real weight', async () => {
     // The clamp this replaces drew every dash row at 3px, so the menu
-    // promised a crisp dotted line and the canvas painted a bar. Now
-    // that `dashArray` scales with the weight, the honest preview and
-    // the legible one are the same drawing.
+    // promised a crisp dotted line and the canvas painted a bar. The
+    // weight is now the real one; only the pattern is bounded, so the
+    // preview still reports the thickness the canvas will stroke.
     renderPicker({ color: '#000', width: 16, dash: 'dotted' });
     await openDash();
 
     const dotted = screen.getByRole('menuitemcheckbox', { name: 'Dotted' });
     expect(Number(lineIn(dotted)?.getAttribute('stroke-width'))).toBe(16);
-    expect(lineIn(dotted)?.getAttribute('stroke-dasharray')).toBe(
-      dashArray('dotted', 16).join(' '),
-    );
+
+    // The pattern keeps `dashArray`'s dash:gap ratio rather than a
+    // literal — hardcoding `'2 2'` is the drift this design prevents —
+    // but is scaled to repeat inside the preview box.
+    const [dash, gap] = lineIn(dotted)!
+      .getAttribute('stroke-dasharray')!
+      .split(' ')
+      .map(Number);
+    const [refDash, refGap] = dashArray('dotted', 16);
+    expect(dash / gap).toBeCloseTo(refDash / refGap);
+    // Two whole cycles inside the 64px preview, so a gap is visible at
+    // all: unbounded, `dashArray('dotted', 16)` is `[32, 32]`, whose
+    // first dash alone fills half the line and leaves it reading solid.
+    expect(dash + gap).toBeLessThanOrEqual(32);
+  });
+
+  it('keeps Dashed visibly dashed at the largest weight', async () => {
+    // At 16px `dashArray('dashed', 16)` is `[96, 64]` — one dash longer
+    // than the whole 64px preview line, which painted the Dashed row as
+    // an unbroken bar indistinguishable from Solid.
+    renderPicker({ color: '#000', width: 16, dash: 'dashed' });
+    await openDash();
+
+    const dashed = screen.getByRole('menuitemcheckbox', { name: 'Dashed' });
+    const [dash, gap] = lineIn(dashed)!
+      .getAttribute('stroke-dasharray')!
+      .split(' ')
+      .map(Number);
+    // A gap has to start and end inside the 64px box, not merely exist.
+    expect(dash + gap).toBeLessThanOrEqual(32);
+    expect(gap).toBeGreaterThan(0);
+    // Still distinguishable from Dotted, whose ratio is 1:1.
+    const [refDash, refGap] = dashArray('dashed', 16);
+    expect(dash / gap).toBeCloseTo(refDash / refGap);
   });
 
   it('checks Solid when the stroke carries no dash', async () => {
