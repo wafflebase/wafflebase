@@ -20,7 +20,10 @@ loop. This command is that branch's only review until a human opens the PR.
 
 Bounded at **3 rounds**, and it **exits early**: the first round that produces no
 blocking findings ends the loop. Three rounds that still block means the loop is
-the wrong tool — open the PR and get a person on it.
+the wrong tool — open the PR and get a person on it. The command **refuses** a
+fourth round; `--force` exists for the one case that earns it (a branch reworked
+enough to deserve a fresh read), and using it is a decision to report, not a
+formality.
 
 Each round rotates the lens, because the same reviewer asked three times mostly
 restates itself:

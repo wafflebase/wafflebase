@@ -27,6 +27,7 @@ import {
   panelArgs,
   normalizeRebuttals,
   prepareRoundInputs,
+  readRebuttalRecords,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
@@ -632,4 +633,73 @@ test("renderBlockingFindings: the key survives a very long summary", () => {
   const keyLine = out.split("\n").find((l) => l.includes("key:"));
   assert.ok(!keyLine.includes("\u2026"), "the key must not be truncated");
   assert.match(keyLine, /key: security::a\.ts::word-word-word-word-word-word$/);
+});
+
+// --- ancestors answer a different question than the leaf ---------------------
+
+test("unsafeBaseReason: an ancestor must be un-replaceable, not private", () => {
+  const anc = (mode, uid = 0) => ({ isSymbolicLink: () => false, isDirectory: () => true, uid, mode });
+  // 0755 is every home directory and /Users; refusing it (the leaf rule) refused
+  // every ordinary --out path, which is why the ancestor chain went unchecked.
+  assert.equal(unsafeBaseReason(anc(0o40755), 501, { leaf: false }), "");
+  // Root-owned is SAFER than ours, so ownership is a leaf rule only.
+  assert.equal(unsafeBaseReason(anc(0o40755, 0), 501, { leaf: false }), "");
+  assert.match(unsafeBaseReason(anc(0o40755, 0), 501, { leaf: true }), /owned by uid 0/);
+  // Foreign-writable and not sticky is the TOCTOU: another user can replace our
+  // directory between the check and the writes.
+  assert.match(unsafeBaseReason(anc(0o40777), 501, { leaf: false }), /writable by another user and not sticky/);
+  assert.match(unsafeBaseReason(anc(0o40757), 501, { leaf: false }), /writable by another user/);
+  // Sticky makes a world-writable directory safe again — only an owner may
+  // replace an entry. /tmp is the case this exists for.
+  assert.equal(unsafeBaseReason(anc(0o41777), 501, { leaf: false }), "");
+  // A symlinked or non-directory ancestor is still refused.
+  assert.match(unsafeBaseReason({ ...anc(0o40755), isSymbolicLink: () => true }, 501, { leaf: false }), /symlink/);
+});
+
+// --- the bound is enforced, with one explicit override -----------------------
+
+test("roundBoundNotice: names --force as the way past it", () => {
+  const notice = roundBoundNotice(MAX_SELF_REVIEW_ROUNDS + 1);
+  // A bound that only warns is not a bound; one with no override refuses the
+  // legitimate case (a reworked branch). The message has to offer the door.
+  assert.match(notice, /--force/);
+});
+
+// --- a dry run validates what the real run would reject ----------------------
+
+test("readRebuttalRecords: shared by both modes, so a dry run cannot lie", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-reb2-"));
+  try {
+    const good = path.join(dir, "good.json");
+    writeFileSync(good, JSON.stringify([{ lens: "agent-review-docs", claim: "no" }]));
+    assert.deepEqual(readRebuttalRecords(good), [{ lens: "docs", claim: "no" }]);
+    assert.throws(() => readRebuttalRecords(path.join(dir, "nope.json")), /not found/);
+    const bad = path.join(dir, "bad.json");
+    writeFileSync(bad, "{ not json");
+    assert.throws(() => readRebuttalRecords(bad), /not a readable JSON array/);
+    const empty = path.join(dir, "empty.json");
+    writeFileSync(empty, "[]");
+    assert.throws(() => readRebuttalRecords(empty), /no usable records/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("review --dry-run rejects a rebuttals file the real run would reject", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-dryreb-"));
+  try {
+    let stderr = "";
+    try {
+      execFileSync("node", [script, "review", "--dry-run", "--out", path.join(root, "base"),
+        "--rebuttals", path.join(root, "nope.json")], { encoding: "utf8", stdio: "pipe" });
+    } catch (e) {
+      stderr = String(e.stderr);
+    }
+    // Announcing that it will adjudicate a file the real run rejects is the one
+    // answer this mode must never give.
+    assert.match(stderr, /--rebuttals file not found/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

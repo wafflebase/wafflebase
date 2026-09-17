@@ -154,17 +154,12 @@ export function carryForwardFindings(verdict, lensId) {
   const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
   return findings
     .filter((f) => f && typeof f === "object" && !Array.isArray(f))
-    .filter((f) => !isInfraRecord(f))
+    // `lane` and `severity` are read BEFORE the projection drops them.
     .filter((f) => BLOCKING.has(normalizeSeverity(f.severity)))
     .filter((f) => f.lane !== "backlog")
     // PROJECT, never spread. `verdict.json`'s findings are MODEL OUTPUT with the
     // orchestrator's annotations added, and a spread carries every key a lens
-    // chose to write — including `infra`, which `isInfraRecord` treats as
-    // authoritative. A finding that wrote `infra: true` on itself would drop
-    // itself from its own carry-forward: it gates the round that raised it and
-    // then is never re-checked. The cloud cannot be told that, because the
-    // workflow's projection rebuilds each finding from an explicit field list;
-    // this is that list, so the two channels are equally unforgeable.
+    // chose to write — `infra` included.
     //
     // `line` is here and not in the cloud's list on purpose: the local reporter
     // prints `file:line`, and a line number changes no downstream decision.
@@ -181,7 +176,20 @@ export function carryForwardFindings(verdict, lensId) {
       // `lens` last, mirroring `tagPriorFindings`: the panel filters prior
       // findings by `p.lens === lens.id`, so an untagged one is carried by nobody.
       lens: typeof lensId === "string" && lensId !== "" ? lensId : f.lens,
-    }));
+    }))
+    // AFTER the projection, and that ordering is the whole point. `isInfraRecord`
+    // treats `infra: true` as authoritative because the PRODUCER sets it — which
+    // is true of a check run's text, projected by the workflow, and NOT true of a
+    // raw `verdict.json`, where the key sits on model output this function reads
+    // directly. Filtering first let a finding write `infra: true` on itself and
+    // vanish: dropped from its own lens's report AND from every later round,
+    // after gating the one that raised it.
+    //
+    // The projection has already removed the key, so the flag branch cannot fire
+    // on a forged one. The genuine synthesised record still goes, caught by the
+    // shape rule underneath it — no file, and the stable sentinel prefix — which
+    // is the branch that existed for records written before the flag did.
+    .filter((f) => !isInfraRecord(f));
 }
 
 /** Lens check-run names from a lenses.json manifest. Junk → []. */

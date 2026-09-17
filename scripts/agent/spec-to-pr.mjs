@@ -27,7 +27,8 @@
 //
 // Usage:
 //   node ./scripts/agent/spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title t] [--dry-run]
-//   node ./scripts/agent/spec-to-pr.mjs review [--round N] [--fresh] [--rebuttals <f>] [--out <dir>] [--dry-run]
+//   node ./scripts/agent/spec-to-pr.mjs review [--round N] [--fresh] [--force]
+//        [--rebuttals <f>] [--out <dir>] [--dry-run]
 //
 // `review` keeps its rounds in a per-branch temp directory and carries each
 // round's unfixed blocking findings into the next. It does NOT narrow the diff
@@ -40,7 +41,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,7 +148,7 @@ function fail(msg) {
 // written outside the temp base, so an abandoned branch cleans itself up on
 // reboot, and `--fresh` resets a branch deliberately.
 
-/** The bound the workflow documents. Advisory here — see `roundBoundNotice`. */
+/** The bound the workflow documents. ENFORCED — `--force` is the override. */
 export const MAX_SELF_REVIEW_ROUNDS = 3;
 
 export const ROUND_DIR_RE = /^round-(\d+)$/;
@@ -226,7 +227,8 @@ export function roundBoundNotice(round, max = MAX_SELF_REVIEW_ROUNDS) {
   return (
     `round ${round} is past the self-review bound of ${max}. A loop that has not ` +
     `converged in ${max} rounds is not going to converge in one more — open the PR ` +
-    `and get a human (or \`@claude review\`) onto it instead.`
+    `and get a human (or \`@claude review\`) onto it instead. Pass --force to run ` +
+    `it anyway (a substantially reworked branch is the case that earns it).`
   );
 }
 
@@ -514,17 +516,38 @@ function cmdHandoff(args) {
  * Fails closed: an unreadable or un-stattable base is refused too. Pure so the
  * decision is testable without staging a hostile /tmp.
  */
-export function unsafeBaseReason(stat, uid) {
+export function unsafeBaseReason(stat, uid, { leaf = true } = {}) {
   if (!stat) return "it could not be inspected";
   if (typeof stat.isSymbolicLink === "function" && stat.isSymbolicLink()) return "it is a symlink";
   if (typeof stat.isDirectory === "function" && !stat.isDirectory()) return "it is not a directory";
+  // OWNERSHIP IS A LEAF RULE. Our own directory must be ours. An ancestor need
+  // not be — `/private/tmp` belongs to root, and root-owned is safer than ours,
+  // not less safe. Requiring it here refused every run on macOS.
+  //
   // `uid` is undefined on platforms with no getuid (Windows); skip rather than
   // refuse every run there.
-  if (typeof uid === "number" && typeof stat.uid === "number" && stat.uid !== uid) {
+  if (leaf && typeof uid === "number" && typeof stat.uid === "number" && stat.uid !== uid) {
     return `it is owned by uid ${stat.uid}, not ${uid}`;
   }
-  if (typeof stat.mode === "number" && (stat.mode & 0o077) !== 0) {
-    return `it is group/other accessible (mode ${(stat.mode & 0o777).toString(8)})`;
+  if (typeof stat.mode !== "number") return "";
+  // TWO RULES, because the two positions answer different questions.
+  //
+  // The LEAF holds the branch diff and the JSON fed to the next round's verifier,
+  // so anyone who can READ it learns the change under review, and 0700 is the bar.
+  //
+  // An ANCESTOR is only dangerous if somebody else can WRITE it: that is what
+  // lets another user replace or relocate our directory between the check and the
+  // writes (CWE-367). Requiring 0700 there instead would refuse every ordinary
+  // location — `/Users`, `/home` and most home directories are 0755 — which is
+  // why an earlier version checked no ancestor at all under `--out` and left the
+  // race open. A sticky bit (`/tmp`) makes a world-writable directory safe again,
+  // since only an entry's owner may replace it.
+  const STICKY = 0o1000;
+  const forbidden = leaf ? 0o077 : 0o022;
+  if ((stat.mode & forbidden) !== 0 && !(!leaf && (stat.mode & STICKY) !== 0)) {
+    return leaf
+      ? `it is group/other accessible (mode ${(stat.mode & 0o777).toString(8)})`
+      : `it is writable by another user and not sticky (mode ${(stat.mode & 0o7777).toString(8)})`;
   }
   return "";
 }
@@ -612,6 +635,25 @@ export function normalizeRebuttals(raw) {
  * treats an unreadable one as "no rebuttals", so ignoring it would let a dispute
  * go silently unheard, which is strictly worse than refusing to start.
  */
+/**
+ * Read and normalize a `--rebuttals` file, or throw saying why not.
+ *
+ * Split from the writing so BOTH modes can validate: a dry run has nothing to
+ * write but must still refuse a file the real run would, or it answers the one
+ * question it exists to answer — "what will happen" — wrongly.
+ */
+export function readRebuttalRecords(file) {
+  if (!existsSync(file)) throw new Error(`--rebuttals file not found: ${file}`);
+  let records;
+  try {
+    records = normalizeRebuttals(JSON.parse(readFileSync(file, "utf8")));
+  } catch (e) {
+    throw new Error(`--rebuttals file is not a readable JSON array: ${file} (${e.message})`);
+  }
+  if (records.length === 0) throw new Error(`--rebuttals file holds no usable records: ${file}`);
+  return records;
+}
+
 export function prepareRoundInputs({ dir, prior, rebuttalsPath }) {
   const carried = Array.isArray(prior) ? prior : [];
   let priorFile = null;
@@ -620,14 +662,7 @@ export function prepareRoundInputs({ dir, prior, rebuttalsPath }) {
     writeFileSync(priorFile, JSON.stringify(carried, null, 2) + "\n");
   }
   if (!rebuttalsPath) return { priorFile, rebuttals: null, rebuttalCount: 0 };
-  if (!existsSync(rebuttalsPath)) throw new Error(`--rebuttals file not found: ${rebuttalsPath}`);
-  let records;
-  try {
-    records = normalizeRebuttals(JSON.parse(readFileSync(rebuttalsPath, "utf8")));
-  } catch (e) {
-    throw new Error(`--rebuttals file is not a readable JSON array: ${rebuttalsPath} (${e.message})`);
-  }
-  if (records.length === 0) throw new Error(`--rebuttals file holds no usable records: ${rebuttalsPath}`);
+  const records = readRebuttalRecords(rebuttalsPath);
   // The NORMALIZED copy is what the panel reads, written beside the round it
   // belongs to so the argument is auditable after the fact.
   const rebuttals = path.join(dir, "rebuttals.json");
@@ -777,38 +812,53 @@ function cmdReview(args) {
   const argError = reviewArgsError(args);
   if (argError) return fail(argError);
   const base = args.out ? path.resolve(args.out) : reviewBase(branch);
-  // 0700 on creation, and refuse a pre-existing directory that is not ours — see
-  // `unsafeBaseReason`. Both matter because the path is predictable and its
+  // 0700 on creation, and refuse a directory that is not ours — see
+  // `unsafeBaseReason`. This matters because the path is predictable and its
   // contents are read back into a later round's prompt.
   //
-  // EVERY LEVEL WE CREATE, not just the leaf. `recursive: true` also makes the
-  // intermediate `wafflebase-self-review`, and a leaf-only check is defeated by
-  // an attacker who owns that parent: they cannot read our 0700 directory, but
-  // they can replace or relocate it between this check and our writes. Checking
-  // the chain closes the window at the level where it opens. `os.tmpdir()`
-  // itself is the system's to secure (it is sticky), so the walk stops below it.
-  // "Only the levels we created" was WRONG, and backwards: it skipped a
-  // pre-existing ancestor, which is exactly the one an attacker supplies. A
-  // pre-created or symlinked `<tmp>/wafflebase-self-review` was therefore never
-  // inspected, our 0700 leaf was created inside it, the leaf check passed, and
-  // every write followed the link.
+  // EVERY ANCESTOR, not just the leaf, and whoever made it. Two earlier versions
+  // got the scope wrong in opposite directions: checking only the leaf left an
+  // attacker-owned `<tmp>/wafflebase-self-review` free to redirect every write,
+  // and checking "only the levels we created" was worse, since a pre-existing
+  // ancestor — exactly the one an attacker supplies — was skipped by definition.
   //
-  // The rule that actually holds: on the path WE choose, check every level below
-  // the system temp directory, whoever made it. With `--out` the developer named
-  // the directory, so only the leaf is checked — we cannot police a filesystem
-  // they picked, and walking up would refuse ordinary paths (`/Users` is 0755 on
-  // every Mac). That is a real difference in coverage, stated rather than
-  // papered over: `--out` trades the ancestor guarantee for the caller's choice.
+  // `--out` is no longer an exception. It was, on the reasoning that walking up a
+  // developer's own path would refuse ordinary locations, and that was true of
+  // the rule being applied: 0700 would reject `/Users`. But an ancestor does not
+  // need to be private, only un-replaceable by somebody else, so it is checked
+  // for foreign WRITE access instead (see `unsafeBaseReason`). `/Users` and a
+  // 0755 home pass that; a world-writable non-sticky directory does not, and that
+  // is the one that makes the TOCTOU real.
+  //
+  // The walk stops below the filesystem root, and `os.tmpdir()` is included
+  // rather than assumed: it is sticky on every system that matters, which the
+  // ancestor rule accepts explicitly.
   mkdirSync(base, { recursive: true, mode: 0o700 });
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
-  const chain = args.out ? [base] : ownedPathChain(base, os.tmpdir());
-  for (const dir of chain.length > 0 ? chain : [base]) {
+  // The LEAF is inspected unresolved: it has to be our own directory, not a
+  // symlink somebody planted where ours was going to be.
+  let leafStat = null;
+  try {
+    leafStat = lstatSync(base);
+  } catch { /* unreadable → refused below */ }
+  const leafUnsafe = unsafeBaseReason(leafStat, uid, { leaf: true });
+  if (leafUnsafe) return fail(`refusing to use the review directory ${base}: ${leafUnsafe}`);
+  // ANCESTORS are walked RESOLVED. `/var` is a symlink to `/private/var` on every
+  // Mac, and `os.tmpdir()` sits under it — rejecting a symlinked ancestor refused
+  // every run on the platform. Resolving first asks the question that actually
+  // matters about an ancestor (can a third party replace it?) of the directory
+  // the writes will really land in.
+  let resolved = base;
+  try {
+    resolved = realpathSync(base);
+  } catch { /* fall back to the literal path */ }
+  for (const dir of ownedPathChain(path.dirname(resolved), path.parse(resolved).root)) {
     let st = null;
     try {
       st = lstatSync(dir);
     } catch { /* unreadable → refused below */ }
-    const unsafe = unsafeBaseReason(st, uid);
-    if (unsafe) return fail(`refusing to use the review directory ${dir}: ${unsafe}`);
+    const unsafe = unsafeBaseReason(st, uid, { leaf: false });
+    if (unsafe) return fail(`refusing to use the review directory ${base}: its ancestor ${dir} — ${unsafe}`);
   }
   // Bounded by construction: only this base's own round directories. Skipped
   // under `--dry-run` — a dry run that deleted the rounds it claims only to
@@ -827,8 +877,15 @@ function cmdReview(args) {
   // the round the real run would use, not the one the un-cleared directory has.
   const onDisk = args.fresh ? [] : roundsOnDisk(base);
   const round = args.round === undefined ? nextRound(onDisk) : Number(args.round);
+  // REFUSED, not warned. A warning that still runs the round is not a bound: the
+  // documented maximum said one thing and the tool did another, and a loop that
+  // is not converging would keep spending on itself. `--force` is the override,
+  // because the legitimate case exists (a branch reworked enough to deserve a
+  // fresh read) and `--fresh` is not it — that discards the carry-forward, which
+  // is the opposite of what a fourth round needs.
   const notice = roundBoundNotice(round);
-  if (notice) console.warn(`spec-to-pr: ${notice}`);
+  if (notice && !args.force) return fail(notice);
+  if (notice) console.warn(`spec-to-pr: --force: ${notice}`);
 
   const dir = path.join(base, `round-${round}`);
   // A DRY RUN MUST NOT CONSUME A ROUND. Creating the directory here is what makes
@@ -839,9 +896,21 @@ function cmdReview(args) {
   // from the same values the real run would use and writes none of them.
   if (dryRun) {
     const dryPrior = round > 1 ? priorFindingsFor(base, round) : [];
+    // The rebuttals file is VALIDATED here too, not just named. A dry run that
+    // announced it would adjudicate a file the real run rejects is the one answer
+    // this mode must never give — it exists to tell you what will happen.
+    // Validation only: nothing is written, so the round stays unconsumed.
+    let dryRebuttals = 0;
+    if (args.rebuttals) {
+      try {
+        dryRebuttals = readRebuttalRecords(path.resolve(String(args.rebuttals))).length;
+      } catch (e) {
+        return fail(e.message);
+      }
+    }
     console.log(`[dry-run] round ${round} would review origin/main...HEAD via review-panel.mjs → ${dir}`);
     if (dryPrior.length > 0) console.log(`[dry-run] carrying ${dryPrior.length} prior finding(s) from earlier rounds`);
-    if (args.rebuttals) console.log(`[dry-run] adjudicating rebuttals from ${path.resolve(args.rebuttals)}`);
+    if (dryRebuttals > 0) console.log(`[dry-run] adjudicating ${dryRebuttals} rebuttal(s) from ${path.resolve(String(args.rebuttals))}`);
     return;
   }
   mkdirSync(dir, { recursive: true });
@@ -936,7 +1005,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   else {
     console.error(
       "usage: spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title t] [--dry-run]\n" +
-        "       spec-to-pr.mjs review [--round N] [--fresh] [--rebuttals <file>] [--out <dir>] [--dry-run]",
+        "       spec-to-pr.mjs review [--round N] [--fresh] [--force] [--rebuttals <file>] [--out <dir>] [--dry-run]",
     );
     process.exit(2);
   }
