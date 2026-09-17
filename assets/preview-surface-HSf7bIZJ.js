@@ -1,7 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/history-panel-Bvx-R4DW.js","assets/vendor-react-AqmSpl2a.js","assets/index-CsSYN7Oi.js","assets/slides-editor-engine-CfBQESss.js","assets/sheet-core-Db6gjVL-.js","assets/sheet-formula-eval-DQE8MEAq.js","assets/sheet-formula-parser-Dok7id11.js","assets/vendor-app-Y6xHZoRk.js","assets/vendor-ui-D7L93Q6k.js","assets/vendor-yorkie-BBKGuFIi.js","assets/index-CyKNLMHV.css","assets/input-D7xiaggu.js","assets/vendor-ui-history-CIy7mX3p.js","assets/use-revision-history-DVRNReE1.js"])))=>i.map(i=>d[i]);
-import{c as o}from"./createReactComponent-DQOYXJpk.js";import{_ as s}from"./slides-editor-engine-CfBQESss.js";import{j as t,r as a}from"./vendor-react-AqmSpl2a.js";import{A as i}from"./index-CsSYN7Oi.js";/**
- * @license @tabler/icons-react v3.31.0 - MIT
- *
- * This source code is licensed under the MIT license.
- * See the LICENSE file in the root directory of this source tree.
- */var p=o("outline","history","IconHistory",[["path",{d:"M12 8l0 4l2 2",key:"svg-0"}],["path",{d:"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5",key:"svg-1"}]]);const l=a.lazy(()=>s(()=>import("./history-panel-Bvx-R4DW.js"),__vite__mapDeps([0,1,2,3,4,5,6,7,8,9,10,11,12,13])).then(r=>({default:r.HistoryPanel})));function x(r){return t.jsx(a.Suspense,{fallback:null,children:t.jsx(l,{...r})})}function y({className:r,preview:e,children:n}){return t.jsxs("div",{className:i("relative flex flex-1 min-w-0",r),children:[n,e]})}function d({previewing:r,children:e}){return r?null:t.jsx(t.Fragment,{children:e})}export{d as E,p as I,x as L,y as P};
