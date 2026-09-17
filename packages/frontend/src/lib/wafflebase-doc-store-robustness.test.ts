@@ -200,14 +200,24 @@ describe("overlapping calls", () => {
 
     const stored = await store.load("doc-a");
     expect(Array.from(stored!.snapshot)).toEqual([9]);
-    // Whichever order the two landed in, clientSeq 1 was compacted away and
-    // must not be back.
-    expect(stored!.changes.map((c) => c.clientSeq)).not.toContain(1);
+
+    // The real hazard is clientSeq 2, not 1. Nothing ever rewrites 1, so
+    // asserting its absence holds under every interleaving and tests nothing.
+    // 2 is the one that can land on either side of the compaction, and the
+    // entry has to stay consistent either way: if the append won the race, its
+    // change is a delta the new snapshot does not contain and must be
+    // replayable; if compaction won, the log is empty.
+    const seqs = stored!.changes.map((c) => c.clientSeq);
+    expect(seqs.length === 0 || seqs.join() === "2").toBe(true);
+    // And never a delta the snapshot already folded in.
+    expect(seqs).not.toContain(1);
   });
 
   it("survives concurrent loads during a write", async () => {
     const store = freshStore();
     await store.saveSnapshot("doc-a", new Uint8Array([1, 2, 3]));
+
+    await store.saveMeta("doc-a", new Uint8Array([7]));
 
     const [, first, second] = await Promise.all([
       store.appendChange("doc-a", {
@@ -218,8 +228,24 @@ describe("overlapping calls", () => {
       store.load("doc-a"),
     ]);
 
-    // Neither read may see a torn entry: the snapshot is whole in both.
-    expect(Array.from(first!.snapshot)).toEqual([1, 2, 3]);
-    expect(Array.from(second!.snapshot)).toEqual([1, 2, 3]);
+    // The snapshot alone proves nothing: `appendChange`'s transaction does not
+    // span the snapshot store, so asserting only that would pass for an
+    // implementation that discarded the change entirely. The rows that can
+    // actually tear are the header and the log, so read those.
+    for (const stored of [first, second]) {
+      expect(Array.from(stored!.snapshot)).toEqual([1, 2, 3]);
+      expect(Array.from(stored!.meta!)).toEqual([7]);
+      // Either the append had landed or it had not; a half-visible log — an
+      // entry whose bytes are absent, or a clientSeq that was never written —
+      // is what must not appear.
+      const seqs = stored!.changes.map((c) => c.clientSeq);
+      expect(seqs.length === 0 || seqs.join() === "1").toBe(true);
+      for (const change of stored!.changes) {
+        expect(Array.from(change.bytes)).toEqual([4]);
+      }
+    }
+
+    // And the append did land, whatever the readers saw mid-flight.
+    expect(await store.changeCount("doc-a")).toBe(1);
   });
 });

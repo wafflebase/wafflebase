@@ -59,6 +59,27 @@ function reopen(
   return new WafflebaseDocStore({ dbName: store.databaseName, userId, now });
 }
 
+/**
+ * Makes the next `n` `put` calls fail the way a full origin does. Browsers
+ * report this both ways — a synchronous throw and an aborted transaction — so
+ * the store has to survive whichever it gets; this covers the throw.
+ * `-robustness.test.ts` covers the abort.
+ */
+function failPuts(n: number): void {
+  const real = IDBObjectStore.prototype.put;
+  let left = n;
+  vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Array<unknown>
+  ) {
+    if (left > 0) {
+      left -= 1;
+      throw new DOMException("quota", "QuotaExceededError");
+    }
+    return (real as (...a: Array<unknown>) => IDBRequest).apply(this, args);
+  } as typeof IDBObjectStore.prototype.put);
+}
+
 describe("dropping a user's entries", () => {
   it("drops every entry that user wrote, and nothing else", async () => {
     // Logout on a shared machine. What makes this correct is the second half:
@@ -153,26 +174,6 @@ describe("quota pressure", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
-
-  /**
-   * Makes the next `n` `put` calls fail the way a full origin does. Browsers
-   * report this both ways — a synchronous throw and an aborted transaction — so
-   * the store has to survive whichever it gets; this covers the throw.
-   */
-  function failPuts(n: number): void {
-    const real = IDBObjectStore.prototype.put;
-    let left = n;
-    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
-      this: IDBObjectStore,
-      ...args: Array<unknown>
-    ) {
-      if (left > 0) {
-        left -= 1;
-        throw new DOMException("quota", "QuotaExceededError");
-      }
-      return (real as (...a: Array<unknown>) => IDBRequest).apply(this, args);
-    } as typeof IDBObjectStore.prototype.put);
-  }
 
   it("evicts the oldest entry and keeps the write that hit the wall", async () => {
     // The point of eviction is that the *new* write lands. A store that frees
@@ -338,5 +339,78 @@ describe("collection and live documents", () => {
     time.set("2026-03-01T00:00:00Z");
     expect(await store.collectStale(30 * 24 * 60 * 60 * 1000)).toBe(0);
     expect(await store.load("open-now")).toBeDefined();
+  });
+});
+
+describe("documents open in another tab", () => {
+  /** What the app supplies: "is this document open anywhere right now?" */
+  function openSet(keys: Set<string>) {
+    return (docKey: string) => keys.has(docKey);
+  }
+
+  it("does not evict a document another instance has open", async () => {
+    // Two tabs on *different* documents are both durable over one database,
+    // and each store instance knows only what it has touched itself. Without a
+    // shared answer, tab B's eviction deletes tab A's open document, and A's
+    // appends then look like the contract's silent "no base" success — every
+    // edit after that goes nowhere while the chip reports it saved.
+    const time = clock("2026-01-01T00:00:00Z");
+    const seeder = freshStore("user-1", time.now);
+    await seed(seeder, "open-in-tab-a");
+
+    const openElsewhere = new Set(["open-in-tab-a"]);
+    time.set("2026-02-01T00:00:00Z");
+    const tabB = new WafflebaseDocStore({
+      dbName: seeder.databaseName,
+      userId: "user-1",
+      now: time.now,
+      isOpenElsewhere: openSet(openElsewhere),
+    });
+
+    failPuts(1);
+    await expect(
+      tabB.saveSnapshot("tab-b-doc", new Uint8Array([1])),
+    ).rejects.toThrow(/quota/i);
+    vi.restoreAllMocks();
+
+    // Nothing was free to take, so the write failed honestly instead of
+    // buying space with another tab's document.
+    expect(await tabB.load("open-in-tab-a")).toBeDefined();
+  });
+
+  it("does not collect a document another instance has open", async () => {
+    // This one needs no quota failure at all: the periodic sweep, run from any
+    // instance that is not the one holding the document.
+    const time = clock("2026-01-01T00:00:00Z");
+    const seeder = freshStore("user-1", time.now);
+    await seed(seeder, "open-in-tab-a");
+
+    time.set("2026-06-01T00:00:00Z");
+    const sweeper = new WafflebaseDocStore({
+      dbName: seeder.databaseName,
+      userId: "user-1",
+      now: time.now,
+      isOpenElsewhere: openSet(new Set(["open-in-tab-a"])),
+    });
+
+    expect(await sweeper.collectStale(30 * 24 * 60 * 60 * 1000)).toBe(0);
+    expect(await sweeper.load("open-in-tab-a")).toBeDefined();
+  });
+
+  it("collects it once no tab has it open", async () => {
+    const time = clock("2026-01-01T00:00:00Z");
+    const seeder = freshStore("user-1", time.now);
+    await seed(seeder, "was-open");
+
+    time.set("2026-06-01T00:00:00Z");
+    const sweeper = new WafflebaseDocStore({
+      dbName: seeder.databaseName,
+      userId: "user-1",
+      now: time.now,
+      isOpenElsewhere: () => false,
+    });
+
+    expect(await sweeper.collectStale(30 * 24 * 60 * 60 * 1000)).toBe(1);
+    expect(await sweeper.load("was-open")).toBeUndefined();
   });
 });

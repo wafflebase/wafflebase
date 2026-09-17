@@ -116,6 +116,25 @@ export interface WafflebaseDocStoreOptions {
    * own callbacks on, hanging every store call instead of advancing time.
    */
   now?: () => number;
+  /**
+   * Whether a document is open **anywhere right now** — another tab, or
+   * another store instance in this one.
+   *
+   * Without it, this store knows only what it has touched itself, and that is
+   * per-instance memory while eviction reads a shared database. Two tabs on
+   * different documents are both durable over one database, so tab B's
+   * eviction happily deletes tab A's open document; A's appends then find no
+   * header, are treated as the contract's silent "no base" success, and every
+   * edit after that goes nowhere while the chip reports the document saved.
+   * The same hole lets the periodic sweep collect a document another tab has
+   * open, with no quota failure needed at all.
+   *
+   * The app answers this from the election it already holds — the
+   * `wb-durable:` Web Lock, which `navigator.locks.query()` reports across
+   * tabs. Left unset, the store falls back to its own in-memory set, which is
+   * correct for a single instance and is what the tests use.
+   */
+  isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
 }
 
 /** How long an untouched entry survives before collection claims it. */
@@ -239,10 +258,26 @@ export class WafflebaseDocStore implements DocStore {
    */
   private readonly evicted = new Set<string>();
 
+  private readonly isOpenElsewhere?: (
+    docKey: string,
+  ) => Promise<boolean> | boolean;
+
   constructor(options: WafflebaseDocStoreOptions) {
     this.dbName = options.dbName ?? DEFAULT_DB_NAME;
     this.userId = options.userId;
     this.now = options.now ?? (() => Date.now());
+    this.isOpenElsewhere = options.isOpenElsewhere;
+  }
+
+  /**
+   * Whether deleting `docKey` right now could pull it out from under a live
+   * client — this instance's, or one in another tab.
+   */
+  private async isLive(docKey: string): Promise<boolean> {
+    if (this.touched.has(docKey)) {
+      return true;
+    }
+    return (await this.isOpenElsewhere?.(docKey)) ?? false;
   }
 
   /** The database this store reads and writes; a second store can share it. */
@@ -374,6 +409,11 @@ export class WafflebaseDocStore implements DocStore {
     // which makes it the *first* eviction candidate: the one case where
     // freeing space silently kills a live document.
     this.touched.add(docKey);
+    // Recorded in the database too, not only here. `touched` is this
+    // instance's memory, and the ordering eviction reads is shared — so an
+    // attach that never writes would stay the oldest row in every *other*
+    // tab's view. Best effort: failing to note the read must not fail the read.
+    void this.touch(docKey);
 
     // Decompression happens after the transaction is done with, never inside
     // it. Sorting is belt-and-braces over the key order the range already
@@ -388,6 +428,29 @@ export class WafflebaseDocStore implements DocStore {
   }
 
   /**
+   * Moves an entry's `updatedAt` to now without touching anything else, so that
+   * having it open is visible to instances that cannot see {@link touched}.
+   */
+  private async touch(docKey: string): Promise<void> {
+    try {
+      const db = await this.open();
+      const tx = db.transaction(HEADERS, "readwrite");
+      await WafflebaseDocStore.atomically(tx, async () => {
+        const headers = tx.objectStore(HEADERS);
+        const header = await requested<HeaderRecord | undefined>(
+          headers.get(docKey),
+        );
+        if (header) {
+          header.updatedAt = this.now();
+          headers.put(header);
+        }
+      });
+    } catch {
+      // Advisory. A document that could not be marked as read is still read.
+    }
+  }
+
+  /**
    * `saveSnapshot` replaces the snapshot and **drops the log and the meta with
    * it**. This is compaction: the new snapshot already contains those changes
    * and embeds a newer header than meta holds, so keeping either would replay
@@ -398,16 +461,17 @@ export class WafflebaseDocStore implements DocStore {
     return this.withQuotaRetry(docKey, async () => {
       const db = await this.open();
       const tx = db.transaction([SNAPSHOTS, HEADERS, CHANGES], "readwrite");
-      const snapshotRecord: SnapshotRecord = { docKey, snapshot };
-      const headerRecord: HeaderRecord = {
-        docKey,
-        updatedAt: this.now(),
-        userId: this.userId,
-      };
-      tx.objectStore(SNAPSHOTS).put(snapshotRecord);
-      tx.objectStore(HEADERS).put(headerRecord);
-      tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
-      await WafflebaseDocStore.completed(tx);
+      await WafflebaseDocStore.atomically(tx, () => {
+        const snapshotRecord: SnapshotRecord = { docKey, snapshot };
+        const headerRecord: HeaderRecord = {
+          docKey,
+          updatedAt: this.now(),
+          userId: this.userId,
+        };
+        tx.objectStore(SNAPSHOTS).put(snapshotRecord);
+        tx.objectStore(HEADERS).put(headerRecord);
+        tx.objectStore(CHANGES).delete(WafflebaseDocStore.rangeFor(docKey));
+      });
       // A fresh base is exactly the repair an evicted key needed.
       this.evicted.delete(docKey);
       this.touched.add(docKey);
@@ -438,35 +502,35 @@ export class WafflebaseDocStore implements DocStore {
     return this.withQuotaRetry(docKey, async () => {
       const db = await this.open();
       const tx = db.transaction([HEADERS, CHANGES], "readwrite");
-      const headers = tx.objectStore(HEADERS);
-      const header = await requested<HeaderRecord | undefined>(
-        headers.get(docKey),
-      );
-      if (!header) {
-        await WafflebaseDocStore.completed(tx);
-        if (this.evicted.has(docKey)) {
-          throw new DOMException(
-            `offline entry for "${docKey}" was evicted under storage ` +
-              `pressure; the base must be written again`,
-            "InvalidStateError",
-          );
+      const present = await WafflebaseDocStore.atomically(tx, async () => {
+        const headers = tx.objectStore(HEADERS);
+        const header = await requested<HeaderRecord | undefined>(
+          headers.get(docKey),
+        );
+        if (!header) {
+          return false;
         }
+
+        const record: ChangeRecord = {
+          docKey,
+          clientSeq: change.clientSeq,
+          bytes,
+        };
+        tx.objectStore(CHANGES).put(record);
+        // An append touches the entry. Without this, a document edited daily
+        // for a month is collected on its anniversary with its unsent work
+        // still in the log, because only `saveSnapshot` ever moved the clock.
+        // It costs a few dozen bytes, because the snapshot is not in this
+        // record.
+        header.updatedAt = this.now();
+        headers.put(header);
+        return true;
+      });
+
+      if (!present) {
+        this.refuseIfEvicted(docKey);
         return;
       }
-
-      const record: ChangeRecord = {
-        docKey,
-        clientSeq: change.clientSeq,
-        bytes,
-      };
-      tx.objectStore(CHANGES).put(record);
-      // An append touches the entry. Without this, a document edited daily for
-      // a month is collected on its anniversary with its unsent work still in
-      // the log, because only `saveSnapshot` ever moved the clock. It costs a
-      // few dozen bytes, because the snapshot is not in this record.
-      header.updatedAt = this.now();
-      headers.put(header);
-      await WafflebaseDocStore.completed(tx);
       this.touched.add(docKey);
     });
   }
@@ -484,22 +548,51 @@ export class WafflebaseDocStore implements DocStore {
     return this.withQuotaRetry(docKey, async () => {
       const db = await this.open();
       const tx = db.transaction(HEADERS, "readwrite");
-      const headers = tx.objectStore(HEADERS);
-      const header = await requested<HeaderRecord | undefined>(
-        headers.get(docKey),
-      );
-      // A header with no snapshot under it describes nothing, so this is a
-      // no-op rather than a row that `load` would have to learn to ignore.
-      if (header) {
+      const present = await WafflebaseDocStore.atomically(tx, async () => {
+        const headers = tx.objectStore(HEADERS);
+        const header = await requested<HeaderRecord | undefined>(
+          headers.get(docKey),
+        );
+        // A header with no snapshot under it describes nothing, so this is a
+        // no-op rather than a row that `load` would have to learn to ignore.
+        if (!header) {
+          return false;
+        }
         header.meta = meta;
         header.updatedAt = this.now();
         headers.put(header);
+        return true;
+      });
+
+      if (!present) {
+        // The same condition `appendChange` refuses on, and for the same
+        // reason: reporting success for a header we deleted would tell the SDK
+        // its position is recorded when nothing holds it.
+        this.refuseIfEvicted(docKey);
+        return;
       }
-      await WafflebaseDocStore.completed(tx);
-      if (header) {
-        this.touched.add(docKey);
-      }
+      this.touched.add(docKey);
     });
+  }
+
+  /**
+   * Throws when `docKey` is one eviction took.
+   *
+   * An absent entry is contractually a silent success: the SDK repairs a base
+   * it knows it failed to write. It knows nothing about one deleted behind its
+   * back, so silence there would let it keep handing us edits that go nowhere
+   * while the chip reports the document durable. A rejection is what makes it
+   * poison the log and write a fresh snapshot.
+   */
+  private refuseIfEvicted(docKey: string): void {
+    if (!this.evicted.has(docKey)) {
+      return;
+    }
+    throw new DOMException(
+      `offline entry for "${docKey}" was evicted under storage pressure; ` +
+        `the base must be written again`,
+      "InvalidStateError",
+    );
   }
 
   /**
@@ -543,10 +636,15 @@ export class WafflebaseDocStore implements DocStore {
         userId: header?.userId ?? this.userId,
       };
       tx.objectStore(ARCHIVES).put(archive);
-      snapshots.delete(docKey);
-      headers.delete(docKey);
-      changes.delete(WafflebaseDocStore.rangeFor(docKey));
     }
+
+    // Unconditionally, not gated on the snapshot: a header without one is a
+    // shape a torn write can produce, and gating would leave it behind for a
+    // `load` that answers on the snapshot alone and a cleanup that walks
+    // headers — invisible and uncollectable at once.
+    snapshots.delete(docKey);
+    headers.delete(docKey);
+    changes.delete(WafflebaseDocStore.rangeFor(docKey));
 
     await WafflebaseDocStore.completed(tx);
     this.touched.delete(docKey);
@@ -639,12 +737,16 @@ export class WafflebaseDocStore implements DocStore {
     const cutoff = this.now() - maxAgeMs;
     const range = IDBKeyRange.upperBound(cutoff, true);
 
-    // A document this session has open is not stale, whatever its timestamp
-    // says: purging it out from under a live SDK client is the same silent
-    // loss eviction has to avoid.
-    const keys = (await this.headerKeysWhere(BY_UPDATED_AT, range)).filter(
-      (docKey) => !this.touched.has(docKey),
-    );
+    // A document open right now is not stale, whatever its timestamp says:
+    // purging it out from under a live SDK client is the same silent loss
+    // eviction has to avoid, and it needs no quota failure to happen.
+    const aged = await this.headerKeysWhere(BY_UPDATED_AT, range);
+    const keys: Array<string> = [];
+    for (const docKey of aged) {
+      if (!(await this.isLive(docKey))) {
+        keys.push(docKey);
+      }
+    }
     for (const docKey of keys) {
       await this.purge(docKey);
     }
@@ -652,7 +754,17 @@ export class WafflebaseDocStore implements DocStore {
     // On the same schedule: an archive store nothing ever collects is a quota
     // leak that looks like a feature.
     const archived = await this.dropArchivesWhere(BY_ARCHIVED_AT, range);
-    return keys.length + archived;
+
+    // And anything with a snapshot but no header. Every other path here walks
+    // the header indexes, so such a row is unreachable by all of them while
+    // `load` still reports the document as present — a permanent quota leak
+    // holding document content that logout cannot erase.
+    const orphans = await this.orphanSnapshotKeys();
+    for (const docKey of orphans) {
+      await this.purge(docKey);
+    }
+
+    return keys.length + archived + orphans.length;
   }
 
   /**
@@ -681,6 +793,31 @@ export class WafflebaseDocStore implements DocStore {
       tx.objectStore(SNAPSHOTS).get(docKey),
     );
     return record?.snapshot.byteLength;
+  }
+
+  /**
+   * Snapshot rows with no header beside them, which no index can reach.
+   *
+   * Reads keys on both sides, so reconciliation never materializes a snapshot.
+   *
+   * Unlike collection, this does **not** spare what this session has open. An
+   * orphan is already dead for writes — `appendChange` keys on the header and
+   * discards everything — so clearing it is the repair, not a loss: `load` then
+   * answers `undefined` and the SDK writes a fresh base. And it cannot fire on
+   * a healthy entry, because both rows are written in one transaction and no
+   * other transaction can observe one without the other.
+   */
+  private async orphanSnapshotKeys(): Promise<Array<string>> {
+    const db = await this.open();
+    const tx = db.transaction([SNAPSHOTS, HEADERS], "readonly");
+    const [snapshotKeys, headerKeys] = await Promise.all([
+      requested<Array<IDBValidKey>>(tx.objectStore(SNAPSHOTS).getAllKeys()),
+      requested<Array<IDBValidKey>>(tx.objectStore(HEADERS).getAllKeys()),
+    ]);
+    const known = new Set(headerKeys as Array<string>);
+    return (snapshotKeys as Array<string>).filter(
+      (docKey) => !known.has(docKey),
+    );
   }
 
   /**
@@ -762,9 +899,13 @@ export class WafflebaseDocStore implements DocStore {
       BY_UPDATED_AT,
       IDBKeyRange.lowerBound(-Infinity),
     );
-    const victim = candidates.find(
-      (docKey) => docKey !== exceptDocKey && !this.touched.has(docKey),
-    );
+    let victim: string | undefined;
+    for (const docKey of candidates) {
+      if (docKey === exceptDocKey) continue;
+      if (await this.isLive(docKey)) continue;
+      victim = docKey;
+      break;
+    }
     if (victim === undefined) {
       return false;
     }
@@ -773,6 +914,36 @@ export class WafflebaseDocStore implements DocStore {
     // the SDK believes that base is still there.
     this.evicted.add(victim);
     return true;
+  }
+
+  /**
+   * Runs `body` against `tx` and resolves when the transaction commits.
+   *
+   * The `catch` is the point. Each method issues several requests into one
+   * transaction; if one after the first throws, an `async` function unwinds
+   * without touching the transaction, and IndexedDB **commits whatever was
+   * already issued**. That produced a snapshot advanced over a log it was
+   * supposed to drop (replay then applies those operations twice) and a
+   * snapshot row with no header — which `load` reports as present, every append
+   * silently discards, and no cleanup path could reach. Aborting turns both
+   * into "the write did not happen", which every caller already handles.
+   */
+  private static async atomically<T>(
+    tx: IDBTransaction,
+    body: () => Promise<T> | T,
+  ): Promise<T> {
+    try {
+      const result = await body();
+      await WafflebaseDocStore.completed(tx);
+      return result;
+    } catch (err) {
+      try {
+        tx.abort();
+      } catch {
+        // Already finished — committed, or aborted by the failure itself.
+      }
+      throw err;
+    }
   }
 
   /** Resolves when the transaction commits, rejecting if it aborts or errors. */
