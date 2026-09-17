@@ -251,6 +251,30 @@ export function ambientAuthNotice(env = process.env) {
 }
 
 /**
+ * One piece of model-written text, made safe to print.
+ *
+ * A finding's `summary` and `file` are MODEL OUTPUT, and they go straight to a
+ * terminal that interprets escape sequences. An injected CSI sequence or a run of
+ * carriage returns can erase or overwrite what is already on screen — and this
+ * screen is the one a developer reads to decide whether the branch is clean, so
+ * the text could hide the findings printed above it or forge a "no blocking
+ * findings" line. Same reasoning as `neutral()` in rebuttal.mjs: text written by
+ * the party under review is data, never markup.
+ *
+ * Every C0/C1 control becomes a space — ESC included, which is what defuses the
+ * sequences — and the result is length-capped so one finding cannot scroll the
+ * others off the screen.
+ */
+export function printable(text, max = 500) {
+  const flattened = String(text ?? "")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return flattened.length > max ? `${flattened.slice(0, max)}…` : flattened;
+}
+
+/**
  * The blocking findings, rendered for a terminal.
  *
  * Until now this command printed the ID of every failing lens and nothing else,
@@ -261,6 +285,7 @@ export function ambientAuthNotice(env = process.env) {
  *
  * `entries` is `[{ lens, findings }]`.
  */
+
 export function renderBlockingFindings(entries) {
   const lines = [];
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -271,17 +296,21 @@ export function renderBlockingFindings(entries) {
     // (it is not a code finding). Saying so is the point — a silent gap reads as
     // "the lens failed but found nothing", i.e. as noise to be overridden, when
     // it actually means the lens never reviewed.
+    const lensName = printable(lens, 40);
     if (!Array.isArray(findings) || findings.length === 0) {
-      lines.push(`  [blocking] ${lens} — no finding recorded (the lens may not have run)`);
-      lines.push(`      read ${lens}/summary.md in the round directory`);
+      lines.push(`  [blocking] ${lensName} — no finding recorded (the lens may not have run)`);
+      lines.push(`      read ${lensName}/summary.md in the round directory`);
       continue;
     }
     for (const f of findings) {
       if (!f || typeof f !== "object") continue;
-      const where = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : "(no file cited)";
-      lines.push(`  [${f.severity ?? "major"}] ${lens} — ${where}`);
-      lines.push(`      ${String(f.summary ?? "").trim()}`);
-      lines.push(`      key: ${findingKey(f)}`);
+      // Every interpolated value here is model output — see `printable`.
+      const where = f.file ? `${printable(f.file, 200)}${f.line ? `:${printable(f.line, 12)}` : ""}` : "(no file cited)";
+      lines.push(`  [${printable(f.severity ?? "major", 12)}] ${lensName} — ${where}`);
+      lines.push(`      ${printable(f.summary)}`);
+      // The key is a copy-paste target for a `--rebuttals` record, so it keeps its
+      // full shape — but it is built FROM the summary, so it is stripped too.
+      lines.push(`      key: ${printable(findingKey(f), 300)}`);
     }
   }
   return lines.join("\n");
@@ -518,6 +547,34 @@ export function reviewArgsError(args) {
 }
 
 /**
+ * The argv handed to `review-panel.mjs`.
+ *
+ * Extracted so the round inputs are ASSERTED rather than eyeballed. The whole
+ * point of this change is that `--prior-findings` and `--rebuttals` reach the
+ * panel — the previous local entry point built a nearly identical argv that
+ * omitted both, and nothing failed when it did. A flag that silently stops being
+ * passed produces a panel run that looks completely normal and quietly reviews
+ * without its carry-forward, which is the failure this file's own history is
+ * made of.
+ *
+ * Each optional input is omitted when absent rather than passed empty: the panel
+ * treats a missing `--prior-findings` as "first round" and an empty one as "the
+ * previous round found nothing", and those are different claims.
+ */
+export function panelArgs({ panel, diffFile, changedFile, baseSha, priorFile, rebuttals, lensesDir, outDir }) {
+  return [
+    panel,
+    "--diff-file", diffFile,
+    "--changed-files", changedFile,
+    ...(baseSha ? ["--base-sha", baseSha] : []),
+    ...(priorFile ? ["--prior-findings", priorFile] : []),
+    ...(rebuttals ? ["--rebuttals", rebuttals] : []),
+    "--lenses-dir", lensesDir,
+    "--out", outDir,
+  ];
+}
+
+/**
  * The entries `--fresh` may delete: this base's own round directories, nothing
  * else.
  *
@@ -641,9 +698,16 @@ function cmdReview(args) {
   // they can replace or relocate it between this check and our writes. Checking
   // the chain closes the window at the level where it opens. `os.tmpdir()`
   // itself is the system's to secure (it is sticky), so the walk stops below it.
+  // Which ancestors did WE create? Recorded BEFORE the mkdir, because that is the
+  // only moment the answer exists. This is what makes the rule the comment above
+  // states — "every level we create" — hold for `--out` too: the previous version
+  // special-cased it to a leaf-only check, which is precisely the bypass the
+  // chain exists to close. A directory the caller already had is theirs, and
+  // walking into it would refuse ordinary paths (`/Users` is 0755 on every Mac).
+  const created = ownedPathChain(base, path.parse(base).root).filter((d) => !existsSync(d));
   mkdirSync(base, { recursive: true, mode: 0o700 });
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
-  for (const dir of ownedPathChain(base, args.out ? path.dirname(base) : os.tmpdir())) {
+  for (const dir of created.length > 0 ? created : [base]) {
     let st = null;
     try {
       st = lstatSync(dir);
@@ -651,15 +715,22 @@ function cmdReview(args) {
     const unsafe = unsafeBaseReason(st, uid);
     if (unsafe) return fail(`refusing to use the review directory ${dir}: ${unsafe}`);
   }
-  // Bounded by construction: only this base's own round directories.
-  if (args.fresh) {
+  // Bounded by construction: only this base's own round directories. Skipped
+  // under `--dry-run` — a dry run that deleted the rounds it claims only to
+  // report on is the same defect as one that consumes a round number, and this
+  // one destroys the verdicts a later round would have carried forward.
+  if (args.fresh && !dryRun) {
     for (const name of roundDirsToClear(readdirSync(base))) {
       rmSync(path.join(base, name), { recursive: true, force: true });
     }
   }
 
-  // Validated by `reviewArgsError` above.
-  const round = args.round === undefined ? nextRound(readdirSync(base)) : Number(args.round);
+  // Validated by `reviewArgsError` above. Under `--dry-run --fresh` nothing was
+  // deleted, so the rounds are discounted here instead — a dry run has to report
+  // the round the real run would use, not the one the un-cleared directory has.
+  const entries = readdirSync(base);
+  const remaining = args.fresh ? entries.filter((e) => !ROUND_DIR_RE.test(String(e))) : entries;
+  const round = args.round === undefined ? nextRound(remaining) : Number(args.round);
   const notice = roundBoundNotice(round);
   if (notice) console.warn(`spec-to-pr: ${notice}`);
 
@@ -722,16 +793,16 @@ function cmdReview(args) {
   try {
     execFileSync(
       "node",
-      [
-        path.join(HERE, "review-panel.mjs"),
-        "--diff-file", diffFile,
-        "--changed-files", changedFile,
-        ...(baseSha ? ["--base-sha", baseSha] : []),
-        ...(prior.length > 0 ? ["--prior-findings", priorFile] : []),
-        ...(rebuttals ? ["--rebuttals", rebuttals] : []),
-        "--lenses-dir", path.join(HERE, "lenses"),
-        "--out", outDir,
-      ],
+      panelArgs({
+        panel: path.join(HERE, "review-panel.mjs"),
+        diffFile,
+        changedFile,
+        baseSha,
+        priorFile: prior.length > 0 ? priorFile : null,
+        rebuttals,
+        lensesDir: path.join(HERE, "lenses"),
+        outDir,
+      }),
       { stdio: "inherit" },
     );
   } catch (e) {

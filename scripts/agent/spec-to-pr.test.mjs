@@ -23,9 +23,18 @@ import {
   verdictProduced,
   ownedPathChain,
   reviewArgsError,
+  printable,
+  panelArgs,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
+
+// Written as escapes on purpose: a literal control character in a source file
+// is invisible to a reader, which is the same property these tests defend the
+// terminal against.
+const ESC_CH = "\u001b";
+const CR_CH = "\r";
+const NUL_CH = "\u0000";
 
 test("isValidSlug: lowercase kebab only", () => {
   assert.ok(isValidSlug("add-csv-import"));
@@ -340,6 +349,87 @@ test("review --dry-run repeats the same round and writes nothing", () => {
     assert.match(run(), /round 1 would review/);
     assert.match(run(), /round 1 would review/);
     assert.deepEqual(readdirSync(base), []);
+  } finally {
+    rmSync(path.dirname(base), { recursive: true, force: true });
+  }
+});
+
+// --- model text is data, never terminal markup -------------------------------
+
+test("printable: control characters cannot move the cursor", () => {
+  // A CSI sequence in a finding summary could erase the findings printed above it
+  // and forge a clean line on the surface a developer reads to decide.
+  assert.equal(printable("before" + ESC_CH + "[2Jafter"), "before [2Jafter");
+  assert.equal(printable("a" + CR_CH + "b"), "a b");
+  assert.equal(printable("a" + NUL_CH + "b"), "a b");
+  assert.equal(printable("  spaced   out  "), "spaced out");
+  assert.equal(printable(undefined), "");
+  assert.equal(printable(null), "");
+  // Capped so one finding cannot scroll the others off the screen.
+  const long = printable("x".repeat(600));
+  assert.equal(long.length, 501);
+  assert.ok(long.endsWith("\u2026"));
+  // Ordinary text is untouched.
+  assert.equal(printable("scripts/agent/spec-to-pr.mjs"), "scripts/agent/spec-to-pr.mjs");
+});
+
+test("renderBlockingFindings strips control characters from model text", () => {
+  const out = renderBlockingFindings([
+    {
+      lens: "sec" + ESC_CH + "[31m",
+      findings: [{ severity: "critical", file: "a.ts", line: 3, summary: "hide" + ESC_CH + "[2Jthis" }],
+    },
+  ]);
+  assert.ok(!out.includes(ESC_CH), "no ESC may reach the terminal");
+  assert.ok(!out.includes(CR_CH), "no carriage return may reach the terminal");
+  // The text still SHOWS, defanged — dropping it would hide a real finding.
+  assert.match(out, /hide \[2Jthis/);
+});
+
+// --- the panel's argv, asserted rather than eyeballed ------------------------
+
+test("panelArgs: round inputs are passed, and omitted when absent", () => {
+  const common = { panel: "p.mjs", diffFile: "d", changedFile: "c", lensesDir: "L", outDir: "o" };
+  const first = panelArgs({ ...common, baseSha: null, priorFile: null, rebuttals: null });
+  assert.deepEqual(first, ["p.mjs", "--diff-file", "d", "--changed-files", "c", "--lenses-dir", "L", "--out", "o"]);
+  // Absent is not the same claim as empty: no --prior-findings means "first
+  // round", an empty one means "the previous round found nothing".
+  assert.ok(!first.includes("--prior-findings"));
+  assert.ok(!first.includes("--rebuttals"));
+
+  const later = panelArgs({ ...common, baseSha: "abc123", priorFile: "pf.json", rebuttals: "r.json" });
+  assert.deepEqual(later.slice(later.indexOf("--base-sha")), [
+    "--base-sha", "abc123",
+    "--prior-findings", "pf.json",
+    "--rebuttals", "r.json",
+    "--lenses-dir", "L",
+    "--out", "o",
+  ]);
+});
+
+// --- --dry-run is inert, including --fresh -----------------------------------
+
+test("review --dry-run --fresh reports the reset round without deleting one", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const base = path.join(mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-fresh-")), "base");
+  try {
+    // 0700, because that is what the command creates and what its base guard
+    // requires — a fixture at the default umask is refused, as it should be.
+    mkdirSync(path.join(base, "round-1", "docs"), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      path.join(base, "round-1", "docs", "verdict.json"),
+      JSON.stringify({
+        valid: true,
+        conclusion: "failure",
+        findings: [{ severity: "major", file: "a.ts", summary: "x" }],
+      }),
+    );
+    const out = execFileSync("node", [script, "review", "--dry-run", "--fresh", "--out", base], { encoding: "utf8" });
+    // It reports the round the REAL run would use (1, after the reset) while
+    // leaving intact the verdicts a later round would have carried forward.
+    assert.match(out, /round 1 would review/);
+    assert.deepEqual(readdirSync(base), ["round-1"]);
+    assert.ok(readdirSync(path.join(base, "round-1")).includes("docs"));
   } finally {
     rmSync(path.dirname(base), { recursive: true, force: true });
   }
