@@ -74,6 +74,21 @@ describe('shape stroke dash', () => {
     });
   }
 
+  it('border callouts dash the leader as well as the body', () => {
+    // `borderCallout1` is in both PATH_BUILDERS and LEADER_BUILDERS, so
+    // `drawShape` strokes it twice. The row above is satisfied by the
+    // body alone — an implementation that left the leader solid would
+    // pass it — so count the pattern instead of merely finding it.
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), SIZE, shapeData('borderCallout1', 'dotted'), THEME);
+
+    const dotted = dashCalls(ctx).filter(
+      (d) => Array.isArray(d) && d.length === 2 && d[0] === 2 && d[1] === 2,
+    );
+    expect(dotted).toHaveLength(2);
+    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+  });
+
   it('dashed sets [6,4]', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), SIZE, shapeData('rect', 'dashed'), THEME);

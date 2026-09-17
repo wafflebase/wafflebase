@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Stroke } from '@wafflebase/slides';
+import { dashArray, type Stroke } from '@wafflebase/slides';
 import { BorderPicker } from './border-picker';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -34,10 +34,17 @@ describe('BorderPicker dash menu', () => {
     const dashed = screen.getByRole('menuitemcheckbox', { name: 'Dashed' });
     const dotted = screen.getByRole('menuitemcheckbox', { name: 'Dotted' });
 
-    // `dashArray()` values, not lookalikes invented for the picker.
+    // Compared against `dashArray()` itself, not against today's two
+    // literals: a preview that hardcoded `'6 4'` / `'2 2'` is exactly
+    // the drift this design exists to prevent, and would pass a
+    // hardcoded expectation unchanged.
     expect(lineIn(solid)?.getAttribute('stroke-dasharray')).toBeNull();
-    expect(lineIn(dashed)?.getAttribute('stroke-dasharray')).toBe('6 4');
-    expect(lineIn(dotted)?.getAttribute('stroke-dasharray')).toBe('2 2');
+    expect(lineIn(dashed)?.getAttribute('stroke-dasharray')).toBe(
+      dashArray('dashed').join(' '),
+    );
+    expect(lineIn(dotted)?.getAttribute('stroke-dasharray')).toBe(
+      dashArray('dotted').join(' '),
+    );
   });
 
   it('keeps the dash preview legible when the border is thick', async () => {
@@ -64,6 +71,21 @@ describe('BorderPicker dash menu', () => {
     expect(
       screen.getByRole('menuitemcheckbox', { name: 'Solid' }),
     ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('checks nothing when the element has no border at all', async () => {
+    // The default for every `filled` insert kind, and what the weight
+    // menu's "No border" writes. Distinct from a solid border: checking
+    // Solid here would assert an edge the shape does not have.
+    renderPicker(undefined);
+    await openDash();
+
+    for (const name of ['Solid', 'Dashed', 'Dotted']) {
+      expect(screen.getByRole('menuitemcheckbox', { name })).toHaveAttribute(
+        'aria-checked',
+        'false',
+      );
+    }
   });
 
   it('marks the active style and emits the picked one', async () => {
@@ -115,10 +137,27 @@ describe('BorderPicker weight menu', () => {
     renderPicker({ color: '#000', width: 2, dash: 'solid' });
     await openWeight();
 
-    const svg = screen
-      .getByRole('menuitemcheckbox', { name: '2px' })
-      .querySelector('svg');
-    expect(svg?.getAttribute('class')).toMatch(/size-/);
+    // Reach the preview through its `<line>`, not `querySelector('svg')`:
+    // a checked row also contains the indicator's check icon, which comes
+    // first in DOM order and carries `size-4` — the very class this opts
+    // out of. Matching `/size-/` against it passed while testing nothing.
+    const svg = lineIn(screen.getByRole('menuitemcheckbox', { name: '2px' }))
+      ?.ownerSVGElement;
+    expect(svg?.getAttribute('class')).toBe('size-auto');
+  });
+
+  it('checks "No border" when the element has none', async () => {
+    // The two menus describe one border and must agree about this
+    // state: absent is a weight this menu writes, so it reports it.
+    renderPicker(undefined);
+    await openWeight();
+
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'No border' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: '1px' }),
+    ).toHaveAttribute('aria-checked', 'false');
   });
 
   it('keeps "No border" as words — it has no line to draw', async () => {

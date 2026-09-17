@@ -5,6 +5,13 @@ import { dashArray } from '@wafflebase/slides';
 const PREVIEW_W = 64;
 
 /**
+ * Constant, so the menu keeps an even rhythm: sizing each row to its own
+ * line would leave every weight below 16px at the same height and make
+ * the last row alone jump. Tall enough to clear the thickest weight.
+ */
+const PREVIEW_H = 24;
+
+/**
  * A dash pattern is only legible on a reasonably thin line — `[2,2]`
  * stroked at 16px reads as a solid bar. The dash menu therefore clamps
  * the weight it previews; the weight menu, which *is* about thickness,
@@ -30,9 +37,7 @@ export interface StrokePreviewProps {
  * which is exactly what canvas previews have to work around.
  */
 export function StrokePreview({ dash, width }: StrokePreviewProps) {
-  // Leave a px of air above and below the thickest line so a 16px
-  // preview is not clipped by its own viewBox.
-  const height = Math.max(16, width + 8);
+  const height = PREVIEW_H;
   const pattern = dashArray(dash);
   return (
     <svg

@@ -156,8 +156,63 @@ deliberately kept: it strokes a rect, not a `Path2D`, so it cannot use
 the helper without widening its signature, and as written it mirrors
 `paintTextBoxDecorations`.
 
+### Round 2
+
+Found one Important and four Minor. The Important one was a **regression
+round 1 introduced**: reading an absent `dash` as `'solid'` was right for
+a stroke that carries no dash, but `value` is also `undefined` when there
+is no stroke at all — the default for every `filled` insert kind
+(`interactions/insert.ts`) and for text boxes. So a freshly inserted
+rectangle showed *Solid* checked on a shape with no border, while the
+weight menu beside it checked nothing. The two menus describe one border
+and now agree: absent reads as no border in the dash menu, and as
+`No border` in the weight menu.
+
+- The `borderCallout1` row could not fail on a solid leader — `drawShape`
+  strokes that kind twice and finding `[2,2]` once satisfied it. Now
+  counts both.
+- `toMatch(/size-/)` on `querySelector('svg')` was reaching the **check
+  icon**, whose class is `size-4` — the very class the assertion exists
+  to rule out. It passed while testing nothing. Now reaches the preview
+  through its `<line>` and asserts `size-auto` exactly.
+- The dash-pattern assertions compared against the literals `'6 4'` /
+  `'2 2'`, which a hardcoded preview would also satisfy. Now compared
+  against `dashArray()` itself.
+- Preview height was `max(16, width + 8)`, so only the 16px row grew and
+  the menu's rhythm broke. Constant now.
+
+Round 2 also verified what round 1 asserted: the three collapsed sites
+were byte-identical at `origin/main`; no editor overlay is affected
+(every overlay in `view/editor/` is DOM, not canvas — there is no
+`setLineDash` in that tree); reflections render into a fresh offscreen
+context; and `KINDS` covers all six of `drawShape`'s exits. It also
+confirmed the leak this guards against is real in the other direction:
+`docs/src/view/paint-layout.ts` only calls `setLineDash` for a
+non-solid underline, so a solid one inherits whatever is ambient.
+
+## Known gap: dash patterns are fixed px in user space
+
+`dashArray()` returns px patterns, but OOXML `prstDash` is defined in
+*multiples of the line width* (`sysDot` 1:1, `dash` 3:1 — the vocabulary
+`export/pptx/shape.ts` already maps into). Two consequences, both
+pre-existing for text/table borders and merely extended to more surfaces
+here:
+
+- A thick dotted border reads as a solid bar, on the canvas as well as
+  in the picker. `DASH_PREVIEW_MAX_WEIGHT` is a workaround for the
+  symptom; a `dashArray(dash, width)` that scales with the weight is the
+  fix, and would also match PowerPoint.
+- The pattern shrinks with the transform. `slide-renderer` sets the ctm
+  to `hostWidth / 1920`; in a ~160px slide-strip thumbnail that is
+  ≈0.17, so `[2,2]` becomes sub-pixel runs that antialias toward a
+  continuous line. Board at low zoom is the same. Expect "dotted looks
+  solid in the thumbnail" as the first report against this.
+
 ## Follow-ups (not in this branch)
 
 - PPTX import: read `<a:prstDash>` in `parseShapeStroke` so a dashed
   border survives a round trip in both directions.
+- Width-relative dash patterns (`dashArray(dash, width)`), which fixes
+  the thick-border and low-zoom degradation above and deletes
+  `DASH_PREVIEW_MAX_WEIGHT`.
 - The `/d/:id` and `/shared/:token` loading hang noted under Known gap.

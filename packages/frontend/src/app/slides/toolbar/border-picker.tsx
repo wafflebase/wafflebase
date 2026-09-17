@@ -156,7 +156,10 @@ export function BorderPicker({
           {BORDER_WEIGHTS.map((w) => (
             <DropdownMenuCheckboxItem
               key={w}
-              checked={value?.width === w}
+              // No stroke *is* a weight — the one this menu writes as 0.
+              // Leaving every row unchecked made the two menus disagree
+              // about the same state.
+              checked={value ? value.width === w : w === 0}
               onClick={() => onWeightChange(w)}
               // The preview is `aria-hidden`, so each item carries its
               // own accessible name.
@@ -186,12 +189,13 @@ export function BorderPicker({
           {DASH_STYLES.map((d) => (
             <DropdownMenuCheckboxItem
               key={d}
-              // `dash` is optional — PPTX-imported and older stored
-              // strokes carry none, and `dashArray()` draws those solid.
-              // Reading absent as `'solid'` keeps a row checked; with the
-              // text labels gone, an all-unchecked menu says nothing at
-              // all about what the border currently is.
-              checked={(value?.dash ?? 'solid') === d}
+              // Two different absences. A stroke that exists but carries
+              // no `dash` (PPTX imports, strokes stored before the field)
+              // renders solid, so it checks Solid. No stroke at all —
+              // the default for every `filled` insert kind — has no dash
+              // to report, and checking Solid would assert a border the
+              // shape does not have.
+              checked={value !== undefined && (value.dash ?? 'solid') === d}
               onClick={() => onDashChange(d)}
               aria-label={d.charAt(0).toUpperCase() + d.slice(1)}
             >
