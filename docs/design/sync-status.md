@@ -113,22 +113,33 @@ nothing edited.
 The sequence comparison asks the question the chip actually means, and presence
 can never enter into it.
 
-### The four states
+### The states
 
 The chip is a function of two booleans — connected, and pending — plus
-a transient "a sync is in flight" bit:
+a transient "a sync is in flight" bit, and, since
+[offline-local-persistence.md](offline-local-persistence.md), whether the
+pending work is on this device's disk:
 
-| Connection | Outstanding work | Chip | Tone |
-| --- | --- | --- | --- |
-| Connected | none | `Saved` | muted |
-| Connected | pending | `Saving…` | muted |
-| Disconnected | none | `Reconnecting…` | muted |
-| Disconnected | pending | **`Not saved`** | destructive |
+| Connection | Outstanding work | Durable | Chip | Tone |
+| --- | --- | --- | --- | --- |
+| Connected | none | – | `Saved` | muted |
+| Connected | pending | – | `Saving…` | muted |
+| Disconnected | none | – | `Reconnecting…` | muted |
+| Disconnected | pending | yes | `Saved to this device` | muted |
+| Disconnected | pending | no | **`Not saved`** | destructive |
 
-Only the fourth state is loud. That is the whole point of keying on outstanding
+`durable` is false unless a document has opted in, which is the default, so
+the fifth row is what happens today and the fourth is the exception. It also
+covers a push the server keeps rejecting while connected — that work is
+exactly as unsent, and exactly as safe on disk — so `saved-locally` is not
+strictly a disconnected state.
+
+Only the last state is loud. That is the whole point of keying on outstanding
 work rather than on connectivity: a user reading a document on a flaky train
 connection should not be alarmed, and a user who has typed a paragraph into a
-dead socket should be. The unload guard covers the second and fourth rows —
+dead socket should be — unless it is on their disk, which is the row offline
+persistence adds. The unload guard covers the rows where work is not on the
+server *and* not on the disk —
 both mean the work is not on the server yet; see [The unload
 guard](#the-unload-guard).
 
@@ -423,7 +434,14 @@ warranted at all.
 One hook, one component, both in `packages/frontend/src/components/`:
 
 ```ts
-export type SyncState = 'saved' | 'saving' | 'reconnecting' | 'not-saved';
+export type SyncState =
+  | 'saved'
+  | 'saving'
+  | 'reconnecting'
+  // Added by offline-local-persistence.md: pending work that is on this
+  // device's disk. Replaces `not-saved` exactly when `durable` is true.
+  | 'saved-locally'
+  | 'not-saved';
 
 /** Reads the ambient DocumentProvider. Must be called inside one. */
 export function useSyncStatus(): {

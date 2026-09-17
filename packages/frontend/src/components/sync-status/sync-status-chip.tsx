@@ -69,9 +69,14 @@ function tooltipFor(state: SyncState, pendingSince: Date | null): string {
       // The counterpart of `not-saved`'s wording, and the reason this state
       // exists: those edits are on the disk, so closing the tab no longer ends
       // them. It still says they are not on the server, because they are not.
+      //
+      // "when syncing resumes", not "when the connection returns": this state
+      // is also reached while connected, with the server rejecting the push.
+      // Naming a connection outage would describe the wrong problem to the one
+      // user in that case who looks.
       return (
-        `${since} are saved on this device and will be sent when the ` +
-        `connection returns. They are not on the server yet.`
+        `${since} are saved on this device and will be sent when syncing ` +
+        `resumes. They are not on the server yet.`
       );
     }
     case 'not-saved': {

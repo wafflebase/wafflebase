@@ -297,6 +297,54 @@ describe("on a build that cannot carry a client key", () => {
   });
 });
 
+describe("answering without waiting", () => {
+  it("is settled on the very first render when the feature is off", async () => {
+    // The caller renders nothing until this says settled, so an answer that
+    // needs an effect puts a blank frame in front of every editor — for a
+    // feature that is switched off, which is every document today. There is
+    // nothing to wait for here: no election is attempted.
+    //
+    // Recorded per render because `render()` is wrapped in `act()`, which
+    // flushes effects before returning: by the time a query runs, the frame
+    // has already been replaced.
+    setDurableLockForTest(fakeLocks());
+
+    const seen: Array<boolean> = [];
+    function Probe() {
+      const { settled } = useDurableDocument({
+        docKey: "note-7",
+        userId: "u1",
+      });
+      seen.push(settled);
+      return null;
+    }
+
+    render(<Probe />);
+    expect(seen[0]).toBe(true);
+  });
+
+  it("is unsettled on the first render when an election is attempted", async () => {
+    // The other half: when there *is* something to wait for, saying settled
+    // early would have the caller mount the ambient client and swap.
+    setDurableLockForTest(fakeLocks());
+    setOfflinePersistenceEnabled(true);
+
+    const seen: Array<boolean> = [];
+    function Probe() {
+      const { settled } = useDurableDocument({
+        docKey: "note-7",
+        userId: "u1",
+      });
+      seen.push(settled);
+      return null;
+    }
+
+    render(<Probe />);
+    expect(seen[0]).toBe(false);
+    await waitFor(() => expect(seen.at(-1)).toBe(true));
+  });
+});
+
 describe("giving up the election", () => {
   it("frees the name so another tab can be durable", async () => {
     // The race the app lock cannot settle alone: this tab is elected, and the

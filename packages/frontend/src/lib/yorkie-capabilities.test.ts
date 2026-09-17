@@ -50,3 +50,19 @@ describe("client key support", () => {
     expect(await withVersion("next")).toBe(false);
   });
 });
+
+describe("versions that are not a plain release", () => {
+  it("refuses a prerelease of the required version", async () => {
+    // A reachable pin — Vite injects the specifier verbatim — and a loose parse
+    // reads `0.7.23-beta.1` as newer than `0.7.23`. It may not carry the prop
+    // at all, which would leave the store under a random key: the gate has to
+    // be wrong in the other direction.
+    expect(await withVersion("0.7.23-beta.1")).toBe(false);
+    expect(await withVersion("0.8.0-rc.1")).toBe(false);
+  });
+
+  it("refuses a range that does not pin a release", async () => {
+    expect(await withVersion(">=0.7.23 <0.8")).toBe(false);
+    expect(await withVersion("workspace:*")).toBe(false);
+  });
+});

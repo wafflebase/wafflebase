@@ -1,10 +1,10 @@
-import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { DocumentProvider, useDocument } from "@yorkie-js/react";
-import type { Indexable } from "@yorkie-js/sdk";
-import { fetchMe, fetchYorkieToken } from "@/api/auth";
-import { useDurableDocument } from "@/lib/use-durable-document";
-import { DurableYorkieProvider } from "@/components/durable-yorkie-provider";
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { DocumentProvider, useDocument } from '@yorkie-js/react';
+import type { Indexable } from '@yorkie-js/sdk';
+import { fetchMe, fetchYorkieToken } from '@/api/auth';
+import { useDurableDocument } from '@/lib/use-durable-document';
+import { DurableYorkieProvider } from '@/components/durable-yorkie-provider';
 
 /**
  * `DocumentProvider` with `initialPresence` made reliable.
@@ -71,9 +71,9 @@ function PresenceIdentityRepair<P extends Indexable>({
     // unmounts the tree: a missing avatar is a blemish, a blank editor is an
     // outage. Hence the capability check and the swallow.
     if (
-      typeof doc.getStatus !== "function" ||
-      typeof doc.getMyPresence !== "function" ||
-      typeof doc.update !== "function"
+      typeof doc.getStatus !== 'function' ||
+      typeof doc.getMyPresence !== 'function' ||
+      typeof doc.update !== 'function'
     ) {
       return;
     }
@@ -82,7 +82,7 @@ function PresenceIdentityRepair<P extends Indexable>({
       // A document that is not attached has no presence of its own to repair,
       // and `getMyPresence()` answers `{}` for it regardless — writing then
       // would fabricate an entry rather than restore one.
-      if (doc.getStatus() !== "attached") return;
+      if (doc.getStatus() !== 'attached') return;
 
       const current = doc.getMyPresence() ?? {};
       const missing = Object.keys(initialPresence).filter(
@@ -103,7 +103,7 @@ function PresenceIdentityRepair<P extends Indexable>({
       }
       doc.update((_root, presence) => presence.set(patch as Partial<P>));
     } catch (err) {
-      console.warn("[presence] could not restore initialPresence:", err);
+      console.warn('[presence] could not restore initialPresence:', err);
     }
     // `initialPresence` is a fresh object literal at every call site, so it is
     // deliberately not a dependency — it would re-run this on every render of
@@ -150,7 +150,7 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   ...rest
 }: Parameters<typeof DocumentProvider<R, P>>[0]) {
   const { data: me } = useQuery({
-    queryKey: ["me"],
+    queryKey: ['me'],
     queryFn: fetchMe,
     retry: false,
   });
@@ -167,11 +167,22 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
     </DocumentProvider>
   );
 
-  // Until the election has answered, render on the ambient client. Mounting
-  // the durable one first and swapping would cost an attach and a detach on
-  // every open, and mounting the *non*-durable one and swapping would do the
-  // same in reverse — `settled` exists so neither happens.
-  if (!settled || !durable || !clientKey || !me) {
+  // Nothing is attached until the election has answered.
+  //
+  // Rendering the ambient client first and swapping would attach the document
+  // twice on every durable open — and worse, an edit made in that window would
+  // live in a client React is about to unmount, which offline is exactly where
+  // it would be lost. The window is short, but "short" is not a property this
+  // feature is allowed to rely on.
+  //
+  // It costs no blank frame in the common case: a document that is not
+  // eligible answers synchronously, so `settled` is already true on the first
+  // render whenever the feature is off — which is every document today.
+  if (!settled) {
+    return null;
+  }
+
+  if (!durable || !clientKey || !me) {
     return inner;
   }
 
@@ -182,7 +193,7 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
       metadata={{
-        userID: encodeURIComponent(me.username || "anonymous-user"),
+        userID: encodeURIComponent(me.username || 'anonymous-user'),
       }}
       authTokenInjector={fetchYorkieToken}
       // The app elects a tab before the SDK's own lock is reached, so this

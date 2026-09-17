@@ -67,16 +67,15 @@ describe("a compaction that fails part way", () => {
     ).rejects.toThrow();
     vi.restoreAllMocks();
 
+    // The write was refused, so none of it happened: the entry is exactly what
+    // it was, log and header included. Accepting "either outcome" here would
+    // let a committed replacement pass as a rollback, which is the failure
+    // this case exists to catch.
     const stored = await store.load("doc-a");
-    // Either the whole compaction happened or none of it did. What must not
-    // exist is the new snapshot with the old log still beside it.
-    if (Array.from(stored!.snapshot).join() === "9") {
-      expect(stored!.changes).toEqual([]);
-      expect(stored!.meta).toBeUndefined();
-    } else {
-      expect(Array.from(stored!.snapshot)).toEqual([1]);
-      expect(stored!.changes.map((c) => c.clientSeq)).toEqual([1]);
-    }
+    expect(Array.from(stored!.snapshot)).toEqual([1]);
+    expect(stored!.changes.map((c) => c.clientSeq)).toEqual([1]);
+    expect(Array.from(stored!.changes[0].bytes)).toEqual([2]);
+    expect(Array.from(stored!.meta!)).toEqual([5]);
   });
 
   it("writes no half-entry that load reports as present", async () => {

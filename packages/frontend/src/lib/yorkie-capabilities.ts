@@ -23,18 +23,26 @@
  */
 export const MinClientKeyVersion = "0.7.23";
 
-/** `a >= b` for plain `x.y.z` version strings. */
+/**
+ * `a >= b` for plain `x.y.z` releases, refusing anything else.
+ *
+ * A prerelease is refused rather than compared. `0.7.23-beta.1` is a reachable
+ * pin — Vite injects the specifier verbatim — and a loose parse reads it as
+ * `[0, 7, 23, 1]`, which is *newer* than the required release. That would open
+ * the gate on a build that may not carry the prop at all, leaving the store
+ * under a key the SDK minted at random and unable to resume. The whole point of
+ * the gate is to be wrong in the other direction.
+ */
 function atLeast(a: string, b: string): boolean {
-  const parse = (v: string) =>
-    v
-      .replace(/^[^\d]*/, "")
-      .split(".")
-      .map((part) => Number.parseInt(part, 10) || 0);
-  const left = parse(a);
-  const right = parse(b);
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const l = left[i] ?? 0;
-    const r = right[i] ?? 0;
+  const release = /^[\^~>=<\s]*(\d+)\.(\d+)\.(\d+)\s*$/;
+  const left = release.exec(a);
+  const right = release.exec(b);
+  if (!left || !right) {
+    return false;
+  }
+  for (let i = 1; i <= 3; i++) {
+    const l = Number.parseInt(left[i], 10);
+    const r = Number.parseInt(right[i], 10);
     if (l !== r) return l > r;
   }
   return true;

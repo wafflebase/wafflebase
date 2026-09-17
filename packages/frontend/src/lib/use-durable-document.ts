@@ -128,9 +128,15 @@ export function useDurableDocument({
     };
   }, [eligible, userId, docKey, subject]);
 
-  // Both of these are false until the decision is about *this* subject, which
-  // is what keeps `settled` honest across a navigation as well.
-  const answered = decision?.subject === subject;
+  // Answered without waiting when there was nothing to wait for. A document
+  // that is not eligible — the preference is off, the build cannot carry a
+  // key, it is a PDF, nobody is signed in — has its answer on the first
+  // render, and making the caller wait for an effect would put a blank frame
+  // in front of every editor for a feature that is switched off.
+  //
+  // Otherwise the decision has to be about *this* subject, which is what keeps
+  // `settled` honest across a navigation as well.
+  const answered = !eligible || decision?.subject === subject;
   const durable = answered && !!decision?.session;
 
   const standDown = useCallback(() => {
