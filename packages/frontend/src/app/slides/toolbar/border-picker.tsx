@@ -21,6 +21,7 @@ import {
 } from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { IconBorderStyle2, IconChevronDown, IconLineHeight, IconPencil } from '@tabler/icons-react';
+import { DashPreview, StrokePreview } from './stroke-preview';
 
 export interface BorderPickerProps {
   value?: Stroke;
@@ -157,8 +158,12 @@ export function BorderPicker({
               key={w}
               checked={value?.width === w}
               onClick={() => onWeightChange(w)}
+              // The preview is `aria-hidden`, so each item carries its
+              // own accessible name.
+              aria-label={w === 0 ? 'No border' : `${w}px`}
             >
-              {w === 0 ? 'No border' : `${w}px`}
+              {/* "No border" has no line to draw — say it in words. */}
+              {w === 0 ? 'No border' : <StrokePreview dash={value?.dash} width={w} />}
             </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>
@@ -183,8 +188,9 @@ export function BorderPicker({
               key={d}
               checked={value?.dash === d}
               onClick={() => onDashChange(d)}
+              aria-label={d.charAt(0).toUpperCase() + d.slice(1)}
             >
-              {d.charAt(0).toUpperCase() + d.slice(1)}
+              <DashPreview dash={d} width={value?.width ?? DEFAULT_STROKE.width} />
             </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>
