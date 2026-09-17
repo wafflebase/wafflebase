@@ -1,3 +1,8 @@
+import type { UndoSelection } from "@wafflebase/sheets";
+import {
+  isJumpableSheetTab,
+  type UndoJumpTarget,
+} from "@/app/spreadsheet/undo-jump";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -83,6 +88,7 @@ type PeerJumpTarget = {
   targetTabId?: UserPresenceType["activeTabId"];
   requestId: number;
 };
+
 
 /**
  * How often a mounted share view re-resolves its token (see
@@ -199,7 +205,11 @@ function SharedDocumentLayout({
   const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [peerJumpTarget, setPeerJumpTarget] = useState<PeerJumpTarget | null>(null);
+  const [undoJumpTarget, setUndoJumpTarget] = useState<UndoJumpTarget | null>(
+    null,
+  );
   const jumpRequestSeq = useRef(0);
+  const undoJumpSeq = useRef(0);
   const root = doc?.getRoot();
   const tabs: TabMeta[] = useMemo(
     () =>
@@ -209,6 +219,24 @@ function SharedDocumentLayout({
             .filter(Boolean)
         : [],
     [root]
+  );
+
+  /**
+   * A share link is only read-only for the `viewer` role, so an editor
+   * following one can undo — and this host has a tab bar, so their undo can
+   * replay a step in a tab they are not looking at. Without this the undo
+   * lands in the CRDT and appears to do nothing, the failure the sheet
+   * engine's `onUndoTabJump` exists to report. Mirrors `DocumentLayout`.
+   */
+  const handleUndoJump = useCallback(
+    (selection: UndoSelection) => {
+      const tab = tabs.find((candidate) => candidate.id === selection.tabId);
+      if (!isJumpableSheetTab(tab)) return;
+      undoJumpSeq.current += 1;
+      setActiveTabId(selection.tabId);
+      setUndoJumpTarget({ selection, requestId: undoJumpSeq.current });
+    },
+    [tabs],
   );
 
   const handleSelectPeer = useCallback(
@@ -297,7 +325,13 @@ function SharedDocumentLayout({
             ) : activeTab?.type === "lakehouse" ? (
               <SharedLakehouseUnavailable />
             ) : (
-              <SheetView tabId={activeTabId} readOnly={readOnly} peerJumpTarget={peerJumpTarget} />
+              <SheetView
+                tabId={activeTabId}
+                readOnly={readOnly}
+                peerJumpTarget={peerJumpTarget}
+                undoJumpTarget={undoJumpTarget}
+                onUndoJump={handleUndoJump}
+              />
             )}
           </Suspense>
         </div>

@@ -592,6 +592,16 @@ export class Worksheet {
   }
 
   /**
+   * `revealActiveCell` scrolls the current selection into view without
+   * touching it. Used after an undo or redo, which has already moved the
+   * selection onto what it changed.
+   */
+  public revealActiveCell(): void {
+    if (!this.sheet) return;
+    this.scrollIntoView();
+  }
+
+  /**
    * `autoResizeActiveRow` auto-resizes the active cell's row to fit content.
    * Used by external editors (e.g. mobile edit panel) after committing a value.
    */

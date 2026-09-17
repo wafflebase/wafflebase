@@ -13,7 +13,7 @@ import {
   SelectionType,
 } from '../model/core/types';
 import { Sheet } from '../model/worksheet/sheet';
-import { Store } from '../store/store';
+import { Store, UndoSelection } from '../store/store';
 import { MemStore } from '../store/memory';
 import { defaultAlign } from '../model/worksheet/input';
 import { LinkHoverInfo, Worksheet } from './worksheet';
@@ -670,6 +670,9 @@ export class Spreadsheet {
     if (!this.sheet || this._readOnly) return;
     if (await this.sheet.undo()) {
       this.worksheet.render();
+      // The selection has moved onto what was undone, which is no use if it
+      // is off screen. The keyboard path does the same.
+      this.worksheet.revealActiveCell();
       this.notifySelectionChange();
     }
   }
@@ -681,8 +684,38 @@ export class Spreadsheet {
     if (!this.sheet || this._readOnly) return;
     if (await this.sheet.redo()) {
       this.worksheet.render();
+      this.worksheet.revealActiveCell();
       this.notifySelectionChange();
     }
+  }
+
+  /**
+   * `onUndoTabJump` registers a callback fired when an undo or redo replayed
+   * a step belonging to a different tab. Switching tabs is the host app's
+   * business — this engine is mounted on one tab — so it is reported rather
+   * than done here.
+   */
+  public onUndoTabJump(
+    callback: ((selection: UndoSelection) => void) | undefined,
+  ): void {
+    this.sheet?.setOnUndoTabJump(callback);
+  }
+
+  /**
+   * `focusUndoSelection` restores a selection reported by an undo or redo in
+   * another tab, once the host app has switched to that tab and mounted this
+   * engine on it.
+   *
+   * Not `_readOnly`-gated, for the same reason `selectStart` / `selectEnd`
+   * are not: it moves a selection, which a viewer may do. Nothing here
+   * writes, and the undo that produced the selection is gated already.
+   */
+  public focusUndoSelection(selection: UndoSelection): void {
+    if (!this.sheet) return;
+    this.sheet.applySelection(selection);
+    this.worksheet.render();
+    this.worksheet.revealActiveCell();
+    this.notifySelectionChange();
   }
 
   /**
