@@ -176,6 +176,21 @@ the bound introduced for it had changed behaviour:
   Mutation-checked: removing the `paintRegion` intersection fails 4 of its 10
   cases.
 
+### CI round
+
+`verify-self` failed on the linearity assertion itself: `expected 244.82 to be
+less than 150`. Not a regression — the failing step is `Collect coverage
+(sheets)`, so CI measures the scanner under v8 instrumentation on a slower
+runner. Growth ratios at 4× input measured 1.0–3.9 locally (linear is ~4,
+quadratic ~16), so the algorithm was fine and the assertion was wrong.
+
+The wall-clock budget is replaced by a **growth-rate** assertion — measure at
+*n* and *4n*, require the ratio to stay under 8 — which is what the test was
+trying to say in the first place and survives instrumentation, because both
+halves pay the same overhead. Mutation-checked: removing `MaxUrlLength` fails
+it (388.8 ms against a 216.3 ms bound), and the whole suite passes under
+`--coverage` locally.
+
 ### Known limitations
 
 - **Ctrl/Cmd+click no longer multi-selects a cell containing a URL.** The

@@ -138,26 +138,49 @@ describe('detectLinks', () => {
   });
 
   describe('stays linear on adversarial text', () => {
-    // Detection runs per line, per visible cell, per frame. An alternation
-    // like `[A-Za-z0-9._%+-]+@` backtracks quadratically on a long unbroken
-    // run of those characters, and a 32k cell took ~2s per pass — enough to
-    // freeze the grid for every viewer of a shared document, read-only
-    // included. These are the shapes that did it.
+    // Detection runs per line, per visible cell, per frame, so linearity is a
+    // property of the render loop rather than a nicety. Two implementations
+    // have violated it: a regex alternation whose address branch backtracked
+    // (a 32k cell took ~2.1s), and the index scanner that replaced it, whose
+    // forward walk re-read the same run from every scheme start in it.
+    //
+    // These assert the *growth rate*, not a wall-clock budget. A budget is not
+    // a statement about the algorithm — it fails on a slow runner and passes
+    // on a fast one either way, and CI runs this suite under v8 coverage
+    // instrumentation, which inflates every measurement. A ratio survives all
+    // of that, because both measurements pay the same overhead.
+
+    /** Best of several runs, so a scheduler hiccup is not read as a regression. */
+    function fastest(text: string): number {
+      let best = Infinity;
+      for (let run = 0; run < 5; run += 1) {
+        const started = performance.now();
+        detectLinks(text);
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    }
 
     it.each([
-      ['a run with no address after it', 'a'.repeat(32767) + '@'],
-      ['a run that only looks like a scheme', 'a'.repeat(32767) + '://x'],
-      ['repeated local-part characters', 'AB.cd_ef-12'.repeat(2000) + ' a@x.com'],
-      ['many adjacent at-signs', 'a@'.repeat(8000)],
+      ['a run with no address after it', (n: number) => 'a'.repeat(8000 * n) + '@'],
+      ['a run that only looks like a scheme', (n: number) => 'a'.repeat(8000 * n) + '://x'],
+      [
+        'repeated local-part characters',
+        (n: number) => 'AB.cd_ef-12'.repeat(500 * n) + ' a@x.com',
+      ],
+      ['many adjacent at-signs', (n: number) => 'a@'.repeat(2000 * n)],
       // The scanner's own re-entry path, which the shapes above do not reach:
-      // every `https://` here starts a run of URL characters that reaches the
-      // end of the string, and none of them parses, so a naive scanner
-      // rescans the whole tail from each one.
-      ['repeated unparseable schemes', 'https://['.repeat(4000)],
-    ])('scans %s in well under a frame', (_label, text) => {
-      const started = performance.now();
-      detectLinks(text);
-      expect(performance.now() - started).toBeLessThan(150);
+      // every `https://` here starts a run of URL characters reaching the end
+      // of the string, and none of them parses.
+      ['repeated unparseable schemes', (n: number) => 'https://['.repeat(1000 * n)],
+    ])('scales linearly on %s', (_label, build) => {
+      const small = fastest(build(1));
+      const large = fastest(build(4));
+
+      // Quadruple the input: linear work grows ~4x, quadratic ~16x. The bound
+      // sits between them. The floor keeps a sub-millisecond baseline from
+      // making the comparison a measurement of noise.
+      expect(large).toBeLessThan(Math.max(small, 2) * 8);
     });
   });
 

@@ -14,12 +14,41 @@ exactly the ones that satisfy it. A guard that filters the common case tells
 you nothing about the worst case.
 
 **Rule:** when a pure function is called from a paint loop, one of its tests
-must be an adversarial input with a wall-clock bound. Not a benchmark — an
-assertion, so the next person who reaches for a tidy pattern fails the suite
-instead of shipping a frozen grid. Prefer an index scan over a pattern whenever
-the input is attacker-controlled and the call site is hot; bound every
-outward expansion by something principled (RFC 5321's 64-character local part)
-rather than leaving it open.
+must be an adversarial input — an assertion, not a benchmark, so the next
+person who reaches for a tidy pattern fails the suite instead of shipping a
+frozen grid. Prefer an index scan over a pattern whenever the input is
+attacker-controlled and the call site is hot, and bound every outward walk by
+something principled rather than leaving it open.
+
+### Assert the growth rate, not a wall clock
+
+The first version of that assertion was `expect(elapsed).toBeLessThan(150)`.
+It passed locally and failed in CI at 244 ms — because CI runs the suite under
+v8 coverage instrumentation on a slower runner. Nothing about the algorithm
+had changed.
+
+A wall-clock budget is not a statement about an algorithm. It fails on a slow
+machine and passes on a fast one either way, so it is simultaneously flaky and
+weak. What the test actually wanted to say was "this is linear," and that is
+expressible directly: measure at *n* and at *4n* and assert the ratio stays
+near 4 rather than near 16. Both measurements pay the same instrumentation
+overhead, so the ratio survives environments a budget cannot.
+
+**Rule:** never assert absolute wall-clock time in a test that CI may run
+under coverage or on shared hardware. Assert the scaling ratio, take the best
+of several runs, and floor the baseline so a sub-millisecond measurement does
+not turn the comparison into a measurement of noise.
+
+### Bounds that truncate are not conservative
+
+Both walks were bounded for linearity, and both initially *used what the walk
+got* when it hit the bound. That is the dangerous option, not the safe one: a
+64-character suffix of a local part still parses as an address, and a
+2048-character prefix of a URL still parses as a URL. So the cell underlined
+from the middle of a word and opened a destination nobody typed.
+
+**Rule:** when a scan bound exists for cost reasons, hitting it means "I could
+not read this," not "here is what I read." Reject.
 
 ## "Derive the hit target from the paint" is only true if you know the whole clip
 

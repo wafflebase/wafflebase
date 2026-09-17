@@ -253,8 +253,13 @@ Scanning left to right also removes a defect the alternation had: in
 inventing a `mailto:` to a domain nobody typed *and* eating the scheme of the
 real link behind it. The scanner refuses an address followed by `://`.
 
-`test/…/cell-links.test.ts` holds the adversarial inputs with a wall-clock
-bound, so a future pattern-based rewrite fails the suite rather than the user.
+`cell-links.test.ts` holds the adversarial inputs and asserts the **growth
+rate** — measured at *n* and *4n*, the ratio must stay near 4 rather than near
+16 — so a future pattern-based rewrite fails the suite rather than the user. It
+deliberately does not assert a wall-clock budget: CI runs this suite under v8
+coverage instrumentation, and a budget fails on a slow runner and passes on a
+fast one regardless of the algorithm, while both halves of a ratio pay the same
+overhead.
 
 ### 7. Hit targets are bounded by what was painted, not by the cell
 
