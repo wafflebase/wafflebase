@@ -229,10 +229,14 @@ several" — a feature, not a review fix.
   including the `- PR: https://…` columns this feature targets. Resolving it
   means moving the editor gesture (Google uses `Alt+Enter`), which is a
   separate decision.
-- **Userinfo still reads as the host.** `https://good.com@evil.com` paints as
-  written and opens `evil.com`. The hover card shows the real host, so the card
-  is honest; the underline and the modifier-click are not. Pre-existing in
-  kind, wider in reach.
+- **~~Userinfo still reads as the host.~~** Fixed: a span whose authority
+  carries userinfo (`https://good.example@evil.example/`) is no longer a link
+  at all. The authority prefilter refuses a host terminated by `@`, `toUrl`
+  refuses any URL the parser reports a username or password for, and the
+  address scanner refuses an address written straight after a `/` so the tail
+  is not handed back as `mailto:`. The plain-click path skips the hover card,
+  which was the only surface showing the real host, so nothing else was going
+  to be honest about it.
 - **The card is mouse-only.** There is no keyboard route to a link, and
   `role="dialog"` is not the right role for a non-modal hover card.
 - **Nothing is persisted**, so a span stops being a link the moment the

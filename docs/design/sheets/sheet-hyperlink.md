@@ -129,6 +129,36 @@ survives while a parenthesised link gives its paren back to the sentence. A
 Korean particle (`https://example.com를`) needs no rule at all, being outside
 the charset. `isSafeUrl` (`@wafflebase/core/url`) remains the final gate.
 
+The ASCII charset has one exception, and it is deliberately asymmetric: once
+the URL has reached its **path**, a letter, digit or combining mark outside
+ASCII continues the span. Without it, `https://wiki.example.com/x/기획문서`
+stopped at the first Hangul syllable and linked `https://wiki.example.com/x/` —
+a different destination that parses and passes `isSafeUrl`, which is the
+truncated link this section refuses everywhere else. The authority is still
+ASCII-only, which is what keeps an IDN homograph host (`https://аpple.com`,
+Cyrillic а) out of a span, and the class is letters/digits/marks only, so the
+guarantee that a span is the same string to `new URL()` as it is on screen
+(`hasUrlAlteringChars`) still holds.
+
+**Userinfo is refused outright.** `https://accounts.example.com@evil.example/`
+paints as a host the reader recognises and navigates to one they do not, and
+the plain-click path deliberately skips the hover card that shows the real
+host, so nothing else is in a position to be honest about it. Three places say
+no: the authority prefilter refuses a host terminated by `@`, `toUrl` refuses
+any URL whose parsed form carries a username or password, and the address
+scanner refuses an address written straight after a `/` so the refused tail is
+not handed back as a `mailto:`.
+
+**The scan's cost is bounded by a prefilter, not only by `MaxUrlLength`.**
+The authority is checked from indices — bounded by the longest legal hostname —
+*before* a candidate is sliced, trimmed and parsed, and the forward walk is
+memoized per contiguous URL-character run. Order matters here: a length cap
+alone fixes the asymptotics and leaves a ~400x constant factor, because
+`'/www.'.repeat(n)` restarts a 2048-character walk-slice-trim-parse every five
+characters — enough to stall the render loop for every viewer without changing
+the curve's shape. Every shape that now reaches the expensive path goes on to
+emit a span, so the scan skips past it instead of re-reading it.
+
 Two shape rules keep the accepted forms honest. A `www.` prefix is the one
 accepted form carrying no scheme, so its host is checked for shape — `www.x` is
 not a destination. And an **address** additionally refuses a TLD that is a

@@ -212,6 +212,27 @@ describe('detectLinks', () => {
       // making the comparison a measurement of noise.
       expect(large).toBeLessThan(Math.max(small, 2) * 8);
     });
+
+    // A growth ratio cannot see a *constant* factor, and MaxUrlLength left a
+    // large one: a candidate that failed only after being sliced, trimmed and
+    // parsed cost up to 2048 characters of work, and `'/www.'` restarts one
+    // every five characters — ~400x, enough to stall the render loop for every
+    // viewer without changing the curve's shape. These compare the adversarial
+    // shapes against plain text of the same length, which is the baseline a
+    // constant factor is measured against.
+    it.each([
+      ['a repeated www. prefix', '/www.'],
+      ['a repeated unparseable scheme', 'https://['],
+      ['a repeated mailto:', 'mailto:'],
+    ])('costs no more than plain text of the same size on %s', (_l, unit) => {
+      const adversarial = unit.repeat(Math.ceil(60000 / unit.length));
+      // Same length, and it defeats the cheap reject too, so both
+      // measurements walk every character.
+      const plain = 'x'.repeat(adversarial.length) + ' a@';
+
+      expect(detectLinks(adversarial)).toEqual([]);
+      expect(fastest(adversarial)).toBeLessThan(Math.max(fastest(plain), 2) * 20);
+    });
   });
 
   describe('scheme and address do not eat each other', () => {
@@ -264,6 +285,60 @@ describe('detectLinks', () => {
     });
   });
 
+  describe('hosts with no TLD to check', () => {
+    // The authority prefilter reads the host before anything is parsed, so
+    // these are the forms it has to let through on their own terms.
+
+    it.each([
+      ['a dev server', 'http://localhost:5173/sheet/1'],
+      ['an internal service', 'http://10.0.0.5:8080/status'],
+    ])('links %s', (_label, text) => {
+      expect(spanTexts(text)).toEqual([text]);
+    });
+
+    it('keeps a host whose trailing dot ends the sentence', () => {
+      expect(urls('see www.example.com. Next')).toEqual([
+        'https://www.example.com',
+      ]);
+    });
+  });
+
+  describe('non-ASCII paths', () => {
+    // The span charset is ASCII, which is what stops an adjacent Korean
+    // particle from being swallowed. Applied to a *path* the same rule
+    // silently cut the URL in half and linked the prefix — a different
+    // destination that parses and passes isSafeUrl, i.e. exactly the
+    // truncated link the scheme branch refuses elsewhere on principle.
+
+    it('links a Korean path whole rather than truncating it', () => {
+      const text = 'https://wiki.example.com/x/기획문서';
+      expect(spanTexts(text)).toEqual([text]);
+      expect(urls(text)).toEqual([text]);
+    });
+
+    it('links a CJK query whole', () => {
+      const text = 'https://example.com/search?q=見積もり';
+      expect(spanTexts(text)).toEqual([text]);
+    });
+
+    it('carries a path character outside the BMP', () => {
+      const text = 'https://example.com/a/𠜎b';
+      expect(spanTexts(text)).toEqual([text]);
+    });
+
+    it('still stops before a particle glued to a bare host', () => {
+      // No path has started, so the host stays ASCII — which is also what
+      // keeps an IDN homograph out of a span.
+      expect(spanTexts('자세한 건 https://example.com를 보세요')).toEqual([
+        'https://example.com',
+      ]);
+    });
+
+    it('does not read a non-ASCII host', () => {
+      expect(detectLinks('https://аpple.com')).toEqual([]);
+    });
+  });
+
   describe('safety', () => {
     it.each([
       ['javascript', 'javascript:alert(1)'],
@@ -275,6 +350,23 @@ describe('detectLinks', () => {
 
     it('refuses a scheme with nothing after it', () => {
       expect(detectLinks('https://')).toEqual([]);
+    });
+
+    // Userinfo is the one shape where the painted span and the destination
+    // disagree while both look legitimate, and the plain-click path a viewer
+    // gets deliberately skips the hover card that would show the real host.
+    it.each([
+      ['a trusted-looking host', 'https://accounts.example.com@evil.example/x'],
+      ['a www. prefix', 'www.paypal.example@evil.example/x'],
+      ['credentials', 'https://user:pw@evil.example/x'],
+    ])('refuses userinfo in %s', (_label, text) => {
+      expect(urls(text).filter((url) => /^https?:/.test(url))).toEqual([]);
+    });
+
+    it('does not fall back to mailing the userinfo host', () => {
+      expect(detectLinks('https://accounts.example.com@evil.example/x')).toEqual(
+        [],
+      );
     });
 
     // These reach `toUrl`/`isSafeUrl` rather than being dropped by the cheap

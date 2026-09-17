@@ -36,7 +36,30 @@ function charSet(chars: string): Set<string> {
 const URL_CHAR = charSet(ALPHA + DIGIT + "-._~:/?#[]@!$&'()*+,;=%");
 /** RFC 5321 local-part characters we are willing to recognize. */
 const EMAIL_LOCAL_CHAR = charSet(ALPHA + DIGIT + '._%+-');
+/**
+ * The characters a host is read out of. A mail domain and a URL authority are
+ * the same shape, so one set reads both.
+ */
 const EMAIL_DOMAIN_CHAR = charSet(ALPHA + DIGIT + '.-');
+
+/**
+ * Characters allowed to *continue* a span past the ASCII set, once the URL has
+ * reached its path.
+ *
+ * Letters, numbers and combining marks only — never whitespace, punctuation or
+ * a control character, so the guarantee {@link URL_CHAR} documents still holds:
+ * a detected span is the same string to `new URL()` as it is on screen.
+ * Unpaired surrogates are accepted because the scan walks code units, and a
+ * path character outside the BMP would otherwise cut the span in half.
+ */
+const PATH_LETTER = /[\p{L}\p{N}\p{M}]/u;
+const SURROGATE = /[\uD800-\uDFFF]/;
+
+function isPathChar(ch: string): boolean {
+  return (
+    ch.charCodeAt(0) > 0x7f && (PATH_LETTER.test(ch) || SURROGATE.test(ch))
+  );
+}
 
 /**
  * Prefixes that begin a link, longest first so `https://` is not read as
@@ -68,6 +91,12 @@ const MaxEmailLocal = 64;
  * 2000 bytes, so nothing real is lost.
  */
 const MaxUrlLength = 2048;
+
+/**
+ * RFC 1035's ceiling on a fully qualified hostname, used the same way
+ * {@link MaxEmailLocal} is: as a scan bound, not as validation.
+ */
+const MaxHostLength = 253;
 
 /**
  * Extensions that are also country-code TLDs.
@@ -173,7 +202,130 @@ function toUrl(text: string): string | null {
   } else if (!/^[A-Za-z]+:/.test(text)) {
     url = `mailto:${text}`;
   }
-  return isSafeUrl(url) ? url : null;
+  if (!isSafeUrl(url)) return null;
+
+  // Refuse a userinfo component. `https://accounts.example.com@evil.example/`
+  // paints as a link to a host the reader recognises and navigates to one they
+  // do not, and the span is painted by a sheet any collaborator — or any
+  // share-link viewer of an imported file — can write. The hover card shows
+  // the real host, but the plain-click path deliberately skips the card, so
+  // the only honest answer is not to make it a link at all.
+  //
+  // `mailto:` is unaffected: its `@` is in the path, not in an authority, so
+  // the parser reports no username for it.
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) return null;
+  } catch {
+    return null;
+  }
+  return url;
+}
+
+/**
+ * Reads the host starting at `at`, or `null` when the run overruns the longest
+ * legal hostname.
+ */
+function readHost(text: string, at: number): string | null {
+  const limit = Math.min(text.length, at + MaxHostLength + 1);
+  let end = at;
+  while (end < limit && EMAIL_DOMAIN_CHAR.has(text[end])) end++;
+  if (end - at > MaxHostLength) return null;
+  return text.slice(at, end);
+}
+
+/**
+ * The host at `at`, with the trailing punctuation {@link trimTrailing} would
+ * take off the whole span removed — `see www.example.com. Next` ends a sentence
+ * rather than naming a host called `example.com.`.
+ */
+function hostShapeAt(text: string, at: number): string | null {
+  const host = readHost(text, at);
+  return host === null ? null : host.replace(/[.-]+$/, '');
+}
+
+/** A dotted quad, which has no TLD for {@link isHostname} to check. */
+function isIPv4(host: string): boolean {
+  const parts = host.split('.');
+  return (
+    parts.length === 4 &&
+    parts.every(
+      (part) =>
+        part.length > 0 &&
+        part.length <= 3 &&
+        !/[^0-9]/.test(part) &&
+        Number(part) <= 255,
+    )
+  );
+}
+
+/**
+ * Does a link starting at `start` have an authority worth reading the rest of?
+ *
+ * This is the scanner's prefilter, and the order matters: it answers from
+ * indices alone, bounded by {@link MaxHostLength} / {@link MaxEmailLocal},
+ * *before* the candidate is sliced, trimmed and handed to `new URL()`. Doing it
+ * the other way round — the obvious order, and the one this file shipped with —
+ * left {@link MaxUrlLength}'s worth of work at every position inside a run that
+ * is not a link: `'/www.'.repeat(n)` restarted a 2048-character walk plus a
+ * 2048-character slice, trim and parse every five characters, roughly 400x
+ * amplification on author-controlled text inside the paint loop. Every shape
+ * that reaches the expensive path now goes on to *emit* a span, so the scan
+ * skips past it instead of re-reading it.
+ *
+ * A host terminated by `@` is refused here as well as in {@link toUrl}: it is
+ * userinfo, not a host.
+ */
+function hasAuthorityAt(text: string, start: number, scheme: string): boolean {
+  if (scheme === 'mailto:') {
+    const at = start + scheme.length;
+    let end = at;
+    const limit = Math.min(text.length, at + MaxEmailLocal);
+    while (end < limit && EMAIL_LOCAL_CHAR.has(text[end])) end++;
+    if (end === at || text[end] !== '@') return false;
+    const domain = hostShapeAt(text, end + 1);
+    return domain !== null && isHostname(domain);
+  }
+
+  // `www.` carries no scheme, so its own prefix is part of the host.
+  const at = scheme === 'www.' ? start : start + scheme.length;
+  const raw = readHost(text, at);
+  const host = hostShapeAt(text, at);
+  if (raw === null || host === null) return false;
+  if (text[at + raw.length] === '@') return false;
+  // A dotted quad and `localhost` are hosts a sheet really does carry — an
+  // internal service, a dev server — and neither has a TLD. An IPv6 literal
+  // (`https://[::1]/`) is not accepted: `[` is not a host character, and
+  // nobody writes one in a cell.
+  return isHostname(host) || isIPv4(host) || host.toLowerCase() === 'localhost';
+}
+
+/**
+ * Extends a span past the ASCII run when the URL had already reached its path
+ * and the next character is a letter outside ASCII.
+ *
+ * Without this, a pasted `https://wiki.example.com/x/기획문서` stops at the
+ * first Hangul syllable and links `https://wiki.example.com/x/` — a *different*
+ * destination that parses and passes `isSafeUrl`, which is exactly the
+ * truncated link the scheme branch refuses elsewhere on principle.
+ *
+ * Gated on the path having started, so the authority stays ASCII-only: that is
+ * what keeps an IDN homograph host (`https://аpple.com`, Cyrillic а) out of a
+ * span, and it is the reason this is not simply a wider character class.
+ */
+function extendPath(
+  text: string,
+  authorityStart: number,
+  from: number,
+  limit: number,
+): number {
+  if (from >= text.length || !isPathChar(text[from])) return from;
+  if (text.slice(authorityStart, from).search(/[/?#]/) === -1) return from;
+  let end = from;
+  while (end < limit && (URL_CHAR.has(text[end]) || isPathChar(text[end]))) {
+    end++;
+  }
+  return end;
 }
 
 /**
@@ -217,12 +369,6 @@ function isHostname(domain: string, refuseFileExtensions = false): boolean {
   return !domain.startsWith('.') && !domain.includes('..');
 }
 
-/** The host part of a `www.`-prefixed span, before any path or query. */
-function hostOf(span: string): string {
-  const cut = span.search(/[/?#]/);
-  return cut === -1 ? span : span.slice(0, cut);
-}
-
 /**
  * Reads the bare email address surrounding the `@` at `at`, or `null`.
  *
@@ -246,6 +392,12 @@ function emailAt(text: string, at: number): { start: number; end: number } | nul
   // from the middle of a word and navigate to an address nobody typed; a local
   // part this long is invalid under RFC 5321 anyway.
   if (start > 0 && EMAIL_LOCAL_CHAR.has(text[start - 1])) return null;
+  // An address written straight after a slash is part of a URL that was
+  // refused, not prose — `https://accounts.example.com@evil.example/reset` is
+  // turned down for its userinfo, and reading the tail of it as mail to
+  // `evil.example` would hand back a link over the very characters that were
+  // just judged deceptive.
+  if (start > 0 && text[start - 1] === '/') return null;
 
   let end = at + 1;
   while (end < text.length && EMAIL_DOMAIN_CHAR.has(text[end])) end++;
@@ -281,28 +433,44 @@ export function detectLinks(text: string): Array<LinkSpan> {
   }
 
   const spans: Array<LinkSpan> = [];
+
+  // The contiguous run of URL characters covering the position last asked
+  // about. A run is contiguous, so every position inside one shares its end
+  // and the forward walk is paid once per run rather than once per scheme
+  // start inside it — the other half of the amplification `hasAuthorityAt`
+  // describes.
+  let runFrom = -1;
+  let runTo = -1;
+  const urlRunEnd = (from: number): number => {
+    if (from >= runFrom && from < runTo) return runTo;
+    let end = from;
+    while (end < text.length && URL_CHAR.has(text[end])) end++;
+    runFrom = from;
+    runTo = end;
+    return end;
+  };
+
   let i = 0;
   while (i < text.length) {
     const gluedLeft = i > 0 && GLUED_LEFT.test(text[i - 1]);
 
     const scheme = schemeAt(text, i);
-    if (scheme && !gluedLeft) {
-      const limit = Math.min(text.length, i + MaxUrlLength);
-      let end = i + scheme.length;
-      while (end < limit && URL_CHAR.has(text[end])) end++;
+    if (scheme && !gluedLeft && hasAuthorityAt(text, i, scheme)) {
+      // One past the bound, so a run that reaches it is recognisable as having
+      // overrun rather than as having ended there.
+      const limit = Math.min(text.length, i + MaxUrlLength + 1);
+      const end = extendPath(
+        text,
+        i + scheme.length,
+        Math.min(urlRunEnd(i), limit),
+        limit,
+      );
       // A run that hit the bound is not a link we are prepared to read: the
       // prefix we have may well parse, and linking a truncated destination is
       // worse than linking nothing.
-      const overlong =
-        end === limit && end < text.length && URL_CHAR.has(text[end]);
+      const overlong = end - i > MaxUrlLength;
       const span = overlong ? '' : trimTrailing(text.slice(i, end));
-      // A `www.` prefix is the one accepted form carrying no scheme, so its
-      // host is checked for shape the way an address's is — `www.x` is not a
-      // destination.
-      const shaped =
-        span.length > scheme.length &&
-        (scheme !== 'www.' || isHostname(hostOf(span)));
-      const url = shaped ? toUrl(span) : null;
+      const url = span.length > scheme.length ? toUrl(span) : null;
       if (url) {
         spans.push({ start: i, end: i + span.length, url });
         i += span.length;
