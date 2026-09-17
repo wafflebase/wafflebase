@@ -132,16 +132,17 @@ the charset. `isSafeUrl` (`@wafflebase/core/url`) remains the final gate.
 Two shape rules keep the accepted forms honest. A `www.` prefix is the one
 accepted form carrying no scheme, so its host is checked for shape — `www.x` is
 not a destination. And an **address** additionally refuses a TLD that is a
-common file extension, because `isHostname` cannot tell `example.sh` from
-`build@2.sh`: the argument below about hostnames applies verbatim to the `@`
-form, where `image@2x.png` reading as mail to `2x.png` is the common case.
+common file extension, because `isHostname` cannot tell a host ending in
+".sh" from a filename ending in the same two letters: the argument below
+about hostnames applies verbatim to the `@` form, where a retina asset name
+reading as mail to its own extension is the common case.
 
 **Schemeless hostnames are refused**, and this is a deliberate divergence from
 Docs, which prepends `https://` to them
 (`packages/docs/src/view/url-detect.ts:13-16`). `.sh`, `.io`, `.co`, `.me` and
 `.ai` are real TLDs and also ordinary file extensions, so a hostname rule
-turns `build.sh` into a link. The asymmetry is the point: in prose a stray
-link is noise the reader routes around, but a cell is data, and a stray
+turns a shell script's filename into a link. The asymmetry is the point: in
+prose a stray link is noise the reader routes around, but a cell is data, and a stray
 underline changes how the value reads — next to `v0.2.3-rc.5` and
 `creators/26.09.1700`, a false positive is a correctness bug, not a cosmetic
 one.
