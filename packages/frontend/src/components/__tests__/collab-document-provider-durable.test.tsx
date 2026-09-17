@@ -293,7 +293,11 @@ describe('telling the store which removals are losses', () => {
     // user ever closed.
     setOfflinePersistenceEnabled(true);
     mount('note-7');
-    await waitFor(() => expect(mounted.length).toBe(1));
+    // The subscription, not the mount. `mounted` is pushed to during render,
+    // and the watch subscribes from an effect one level below — so waiting on
+    // the mount alone fires the event into an empty handler list often enough
+    // to fail roughly one run in five.
+    await waitFor(() => expect(subscribers.length).toBe(1));
 
     const store = mounted[0].store as { expectLoss(key: string): void };
     const spy = vi.spyOn(store, 'expectLoss');
@@ -334,9 +338,16 @@ describe('the cross-tab guard', () => {
 
     // An entry this instance never touched, aged past any cutoff, written
     // through a second store over the same database — i.e. another tab's.
+    //
+    // Stamped a minute back rather than now. `collectStale(0)` compares
+    // against `now - 0`, so an entry written inside the same millisecond is
+    // not yet stale, the sweep finds no candidate, and the liveness check this
+    // case is about is never reached — a failure that showed up in roughly one
+    // run in eight and said nothing about the guard.
     const other = new WafflebaseDocStore({
       userId: '7',
       dbName: store.databaseName,
+      now: () => Date.now() - 60_000,
     });
     await other.saveSnapshot('sheet-9', new Uint8Array([1, 2, 3]));
     other.close();
