@@ -39,6 +39,13 @@ export function StrokePreview({ dash, width }: StrokePreviewProps) {
       width={PREVIEW_W}
       height={height}
       viewBox={`0 0 ${PREVIEW_W} ${height}`}
+      // The menu item squashes every descendant `<svg>` to `size-4` so
+      // bare icons line up — `[&_svg:not([class*='size-'])]:size-4` in
+      // `dropdown-menu.tsx`. This is a preview, not an icon; a 16×16 box
+      // would crush the line and strand it at the item's left edge. The
+      // rule's own opt-out is carrying a `size-` class, and `size-auto`
+      // says exactly what we mean: take the intrinsic width/height above.
+      className="size-auto"
       aria-hidden="true"
       focusable="false"
     >

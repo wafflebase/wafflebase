@@ -92,6 +92,21 @@ describe('BorderPicker weight menu', () => {
     expect(lineIn(four)?.getAttribute('stroke-dasharray')).toBe('2 2');
   });
 
+  it('opts the preview out of the menu item svg clamp', async () => {
+    // `DropdownMenuCheckboxItem` forces every descendant `<svg>` without
+    // a `size-` class to `size-4`, which crushes a 64px-wide preview into
+    // a 16px stub pinned to the item's left edge. jsdom applies no
+    // Tailwind, so assert the opt-out the rule defines rather than the
+    // rendered geometry.
+    renderPicker({ color: '#000', width: 2, dash: 'solid' });
+    await openWeight();
+
+    const svg = screen
+      .getByRole('menuitemcheckbox', { name: '2px' })
+      .querySelector('svg');
+    expect(svg?.getAttribute('class')).toMatch(/size-/);
+  });
+
   it('keeps "No border" as words — it has no line to draw', async () => {
     renderPicker({ color: '#000', width: 1, dash: 'solid' });
     await openWeight();
