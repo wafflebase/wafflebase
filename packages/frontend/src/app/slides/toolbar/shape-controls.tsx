@@ -10,7 +10,7 @@ import type {
   Theme,
   ThemeColor,
 } from '@wafflebase/slides';
-import { resolveColor } from '@wafflebase/slides';
+import { DEFAULT_CONNECTOR_STROKE, resolveColor } from '@wafflebase/slides';
 import {
   Popover,
   PopoverContent,
@@ -189,11 +189,16 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
     [store, slideId, slide, ids],
   );
 
+  // Absent means two different things by element type, and the picker
+  // cannot tell them apart from a bare `Stroke | undefined`. A shape
+  // without a stroke has no border; a connector without one is still
+  // painted, with `DEFAULT_CONNECTOR_STROKE`. Resolve that here, where
+  // the type is known, so the toolbar reports what is on screen.
   const firstStroke =
     firstElement?.type === 'shape'
       ? (firstElement as ShapeElement).data.stroke
       : firstElement?.type === 'connector'
-        ? (firstElement as ConnectorElement).stroke
+        ? ((firstElement as ConnectorElement).stroke ?? DEFAULT_CONNECTOR_STROKE)
         : undefined;
 
   const currentFill =

@@ -98,7 +98,13 @@ export function BorderPicker({
   };
 
   const onDashChange = (dash: 'solid' | 'dashed' | 'dotted') => {
-    onChange({ ...(value ?? DEFAULT_STROKE), dash });
+    const next: Stroke = { ...(value ?? DEFAULT_STROKE), dash };
+    // Same reasoning as the color control: choosing how the border looks
+    // implies wanting one. Without this a `width: 0` stroke — reachable
+    // from PPTX `<a:ln w="0">` with a solid fill — would take a dash it
+    // can never render.
+    if (next.width === 0) next.width = 1;
+    onChange(next);
   };
 
   const pickerColor = resolvePickerColor(value?.color);

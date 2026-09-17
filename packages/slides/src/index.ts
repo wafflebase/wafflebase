@@ -216,6 +216,7 @@ export { GHOST_ALPHA, SlideRenderer, type SlideRendererOptions } from './view/ca
 export { dashArray, getActiveTheme, type RenderContext } from './view/canvas/render-context';
 export { drawElement } from './view/canvas/element-renderer';
 export { drawShape } from './view/canvas/shape-renderer';
+export { DEFAULT_CONNECTOR_STROKE } from './view/canvas/connector-renderer';
 export { drawText } from './view/canvas/text-renderer';
 export { drawImage } from './view/canvas/image-renderer';
 export { renderThumbnail, ThumbnailScheduler } from './view/canvas/thumbnail';

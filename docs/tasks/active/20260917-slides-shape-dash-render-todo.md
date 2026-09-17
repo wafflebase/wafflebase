@@ -190,6 +190,40 @@ confirmed the leak this guards against is real in the other direction:
 `docs/src/view/paint-layout.ts` only calls `setLineDash` for a
 non-solid underline, so a solid one inherits whatever is ambient.
 
+### Round 3
+
+Found one Important and two Minor, and again the Important one was a
+**regression the previous round's fix introduced**. Round 2 taught the
+weight menu that an absent stroke means "no border". True for shapes and
+text boxes; false for connectors, which `connector-renderer` paints with
+a 2px text-colored default when `stroke` is absent — and absent is the
+*normal* case for an imported connector, since `parseShapeStroke` returns
+`undefined` whenever `<a:ln>` carries no `<a:solidFill>` (this repo's own
+connector fixture is exactly that). So a plainly visible connector
+reported `No border ✓`.
+
+That is one `undefined` with three meanings, and `BorderPicker`'s type
+(`Stroke | undefined`) cannot separate them. Fixed where the element type
+is known: `shape-controls` resolves a connector's absent stroke to the
+newly exported `DEFAULT_CONNECTOR_STROKE`, which also removes the
+renderer's inline copy of that literal. New `shape-controls.test.tsx`
+covers both directions — the whole class of bug is invisible to
+`border-picker.test.tsx`, which never sees an element type.
+
+- `onDashChange` was the only stroke writer without the `width === 0`
+  re-enable the color control documents, so a `w="0"` imported stroke
+  could take a dash it can never render.
+- `docs/design/slides/slides-toolbar-redesign.md` still described both
+  dropdowns as text menus; folded the drawn previews in as a subsection,
+  per the design-doc rule in CLAUDE.md.
+
+Round 3 also confirmed no dead code from the collapse, that the
+`dashArray` export reaches the frontend through the `vite.config` source
+alias without widening the DOM-free `node.ts` surface knip watches, and
+that the codebase is now *more* uniform, not less: the three sites still
+setting dash inline all stroke a rect rather than a `Path2D`, so they
+structurally cannot use `strokeShapePath`.
+
 ## Known gap: dash patterns are fixed px in user space
 
 `dashArray()` returns px patterns, but OOXML `prstDash` is defined in
@@ -215,4 +249,8 @@ here:
 - Width-relative dash patterns (`dashArray(dash, width)`), which fixes
   the thick-border and low-zoom degradation above and deletes
   `DASH_PREVIEW_MAX_WEIGHT`.
+- Connectors should probably not offer the weight menu's `0` row at all:
+  writing `undefined` there does not remove the line, it resets it to
+  `DEFAULT_CONNECTOR_STROKE`. Pre-existing; the row simply no longer
+  *claims* to be the current state.
 - The `/d/:id` and `/shared/:token` loading hang noted under Known gap.
