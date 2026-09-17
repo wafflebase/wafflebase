@@ -173,3 +173,47 @@ describe("watching the preference", () => {
     stop();
   });
 });
+
+describe("when no editor is open", () => {
+  it("still erases, because that is when the toggle is switched off", async () => {
+    // Settings is its own route, so the one moment the user turns this off is
+    // the one moment no editor is mounted. Declining there skips the erase
+    // exactly when it is asked for — and spends the edge doing it, since the
+    // preference is now off and no later change fires again.
+    const seeded = new WafflebaseDocStore({ userId: "user-1" });
+    setOfflinePersistenceEnabled(true);
+    await seed(seeded, "doc-a");
+
+    // The app has no store to hand over.
+    const stop = watchForOfflineDisable(
+      () => undefined,
+      () => "user-1",
+    );
+    setOfflinePersistenceEnabled(false);
+
+    // The fallback opens the default database, so point the check there.
+    const app = new WafflebaseDocStore({ userId: "user-1" });
+    await vi.waitFor(async () =>
+      expect(await app.load("doc-a")).toBeUndefined(),
+    );
+    stop();
+  });
+
+  it("does nothing when nobody is signed in", async () => {
+    // No identity means no scope to erase under, and erasing everything on the
+    // device would reach another account's documents.
+    const store = freshStore();
+    setOfflinePersistenceEnabled(true);
+    await seed(store, "doc-a");
+
+    const stop = watchForOfflineDisable(
+      () => store,
+      () => undefined,
+    );
+    setOfflinePersistenceEnabled(false);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(await store.load("doc-a")).toBeDefined();
+    stop();
+  });
+});

@@ -21,28 +21,6 @@ export type SyncState =
   /** Unpushed edits exist and are not currently reaching the server. */
   | 'not-saved';
 
-/**
- * Why local durability does not apply right now.
- *
- * Every value collapses to the same chip state and differs only in what the
- * tooltip says, so the user always learns *that* the guarantee has lapsed even
- * when the cause is one we did not anticipate — a failure the store cannot
- * classify still flips `durable`, because the default is to under-promise.
- */
-export type DurabilityLapse =
-  /** Not turned on for this device. The one row that is a call to action. */
-  | 'not-enabled'
-  /** Another tab holds this document's election and is the one saving. */
-  | 'other-tab'
-  /** No usable local storage at all (private browsing, disabled storage). */
-  | 'unavailable'
-  /** The SDK latched persistence off for this document: too large or too slow. */
-  | 'too-large'
-  /** Out of room even after eviction. */
-  | 'out-of-space'
-  /** Writes are failing for a reason we could not classify. */
-  | 'failing';
-
 export interface SyncSignals {
   /** Yorkie's watch stream is open (`StreamConnectionStatus.Connected`). */
   connected: boolean;

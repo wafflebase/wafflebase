@@ -60,48 +60,65 @@ export function useDurableDocument({
   userId?: string;
 }): DurableDocument {
   const enabled = useOfflinePersistenceEnabled();
-  const [session, setSession] = useState<DurableSession | undefined>();
-  const [settled, setSettled] = useState(false);
-
   const eligible = enabled && !!userId && !isExcluded(docKey);
+
+  /**
+   * What the decision below was made *for*.
+   *
+   * The state is always a render behind the props, so reporting `durable` from
+   * the state alone answers the new document's question with the old
+   * document's election — a fully-settled `clientKey` for a document nobody
+   * elected this tab to hold. A consumer mounts a client on exactly that
+   * signal, so the transient wrong answer is enough: two tabs, one stable key,
+   * one shared actor, and each tab's changes filtered out of the other.
+   *
+   * Pairing the answer with its subject makes a mismatch unreportable rather
+   * than merely unlikely.
+   */
+  const subject = `${eligible}\u0000${userId ?? ""}\u0000${docKey}`;
+  const [decision, setDecision] = useState<{
+    subject: string;
+    session?: DurableSession;
+  }>();
 
   useEffect(() => {
     if (!eligible || !userId) {
       // Nothing to hold. Not taking the lock is load-bearing rather than an
       // optimization: holding the name without using it would deny durability
       // to a second tab that could have had it.
-      setSession(undefined);
-      setSettled(true);
+      setDecision({ subject });
       return;
     }
 
     let cancelled = false;
-    let acquired: DurableSession | undefined;
+    // The grant, not the handle: a cleanup that runs before the handle exists
+    // — which React's double-invoked effects do — must still be able to
+    // release what was granted a moment later.
+    const pending = acquireDurableSession(userId, docKey);
 
-    setSettled(false);
-    acquireDurableSession(userId, docKey).then((handle) => {
-      acquired = handle;
+    void pending.then((handle) => {
       if (cancelled) {
         // The view moved on while the election was in flight. Release, or the
-        // name is held by a tab that is no longer showing the document.
+        // name is held for a document this tab is no longer showing.
         handle?.release();
         return;
       }
-      setSession(handle);
-      setSettled(true);
+      setDecision({ subject, session: handle });
     });
 
     return () => {
       cancelled = true;
-      acquired?.release();
-      setSession(undefined);
+      void pending.then((handle) => handle?.release());
     };
-  }, [eligible, userId, docKey]);
+  }, [eligible, userId, docKey, subject]);
 
-  const durable = eligible && !!session;
+  // Both of these are false until the decision is about *this* subject, which
+  // is what keeps `settled` honest across a navigation as well.
+  const answered = decision?.subject === subject;
+  const durable = answered && !!decision?.session;
   return {
     durable,
     clientKey: durable && userId ? durableClientKey(userId, docKey) : undefined,
-    settled,
+    settled: answered,
   };
 }

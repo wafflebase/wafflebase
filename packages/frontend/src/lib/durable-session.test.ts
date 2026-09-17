@@ -5,6 +5,7 @@ import {
   acquireDurableSession,
   supportsDurableSession,
   setDurableLockForTest,
+  resetElectionsForTest,
   isOpenInAnyTab,
   type DurableLock,
 } from "./durable-session";
@@ -48,8 +49,21 @@ function fakeLocks(): DurableLock & { held: Set<string> } {
 
 afterEach(() => {
   setDurableLockForTest(undefined);
+  resetElectionsForTest();
   vi.restoreAllMocks();
 });
+
+/**
+ * Simulates a different tab.
+ *
+ * Elections are shared and reference-counted *within* a tab, so a second call
+ * in the same process is the same tab asking twice — which is a case we want to
+ * succeed. A different tab is one that shares the lock manager but remembers
+ * none of this one's elections, which is exactly what clearing the map gives.
+ */
+function asAnotherTab(): void {
+  resetElectionsForTest();
+}
 
 describe("names", () => {
   it("scopes the lock to the user and the document", () => {
@@ -76,15 +90,48 @@ describe("names", () => {
 });
 
 describe("electing a tab", () => {
-  it("gives the lock to the first caller and refuses the second", async () => {
+  it("gives the lock to the first tab and refuses the second", async () => {
     const locks = fakeLocks();
     setDurableLockForTest(locks);
 
     const first = await acquireDurableSession("u1", "note-7");
     expect(first).toBeDefined();
 
+    asAnotherTab();
     const second = await acquireDurableSession("u1", "note-7");
     expect(second).toBeUndefined();
+  });
+
+  it("shares one election between two callers in the same tab", async () => {
+    // React StrictMode mounts every effect twice, and both requests are
+    // enqueued before either is processed: without sharing, the second is
+    // refused by the *first one's own* lock, nothing retries because the
+    // dependencies did not change, and the tab reports itself non-durable for
+    // good — with the name free. The feature never works in development.
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+
+    const [first, second] = await Promise.all([
+      acquireDurableSession("u1", "note-7"),
+      acquireDurableSession("u1", "note-7"),
+    ]);
+
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+  });
+
+  it("keeps the name until the last holder in the tab lets go", async () => {
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+
+    const first = await acquireDurableSession("u1", "note-7");
+    const second = await acquireDurableSession("u1", "note-7");
+
+    first!.release();
+    expect(locks.held.has(durableLockName("u1", "note-7"))).toBe(true);
+
+    second!.release();
+    expect(locks.held.has(durableLockName("u1", "note-7"))).toBe(false);
   });
 
   it("frees the name when the first tab releases", async () => {
@@ -94,6 +141,7 @@ describe("electing a tab", () => {
     const first = await acquireDurableSession("u1", "note-7");
     first!.release();
 
+    asAnotherTab();
     expect(await acquireDurableSession("u1", "note-7")).toBeDefined();
   });
 
@@ -116,6 +164,7 @@ describe("electing a tab", () => {
 
     const handle = await acquireDurableSession("u1", "note-7");
     handle!.release();
+    asAnotherTab();
     const next = await acquireDurableSession("u1", "note-7");
     handle!.release();
 
@@ -202,6 +251,32 @@ describe("seeing what other tabs hold", () => {
     // Refusing to evict costs a failed write the caller already handles.
     // Evicting a document somebody is editing costs their edits.
     vi.spyOn(navigator.locks!, "query").mockRejectedValue(new Error("nope"));
+    expect(await isOpenInAnyTab("note-7")).toBe(true);
+  });
+});
+
+describe("answering the store, which speaks a different key", () => {
+  it("matches a lock against the SDK's scoped store key", async () => {
+    // The store is keyed the way the SDK keys it — `apiKey/clientKey/docKey` —
+    // and hands that key straight to this function, while a lock name ends in
+    // the bare document key. Compared verbatim they can never match, which
+    // turns the guard off exactly where it matters: every sweep and every
+    // eviction would see every other tab's open document as idle.
+    vi.spyOn(navigator.locks!, "query").mockResolvedValue({
+      held: [{ name: "wb-durable:u1:note-7" }],
+      pending: [],
+    } as unknown as LockManagerSnapshot);
+
+    expect(await isOpenInAnyTab("apikey-abc/wb:u1:note-7/note-7")).toBe(true);
+    expect(await isOpenInAnyTab("apikey-abc/wb:u1:note-8/note-8")).toBe(false);
+  });
+
+  it("still matches a bare document key", async () => {
+    vi.spyOn(navigator.locks!, "query").mockResolvedValue({
+      held: [{ name: "wb-durable:u1:note-7" }],
+      pending: [],
+    } as unknown as LockManagerSnapshot);
+
     expect(await isOpenInAnyTab("note-7")).toBe(true);
   });
 });

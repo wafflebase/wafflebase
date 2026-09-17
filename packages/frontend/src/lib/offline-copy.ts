@@ -67,12 +67,29 @@ export async function listRecoverableWork(
   }));
 }
 
+/** The shape the SDK's `restoreAppendedChanges` accepts. */
+type ChangeStruct = Parameters<
+  Document<unknown>["restoreAppendedChanges"]
+>[0][number];
+
 /** An archived document, rebuilt. */
 export interface RehydratedArchive<R> {
   docKey: string;
   documentId: string;
   /** The content, including the edits made after the snapshot was taken. */
   root: R;
+  /**
+   * Whether the whole log made it in.
+   *
+   * False when replay stopped at a gap or an unreadable entry. The content is
+   * then a true prefix of the user's work rather than all of it, and the
+   * caller owes them that fact — a copy silently missing an edit is worse than
+   * one labelled incomplete.
+   */
+  complete: boolean;
+  /** How many log entries were replayed, of how many were stored. */
+  replayed: number;
+  of: number;
 }
 
 /**
@@ -101,26 +118,69 @@ export async function rehydrateArchive<R>(
     return undefined;
   }
 
+  let doc: Document<R>;
   try {
-    const doc = Document.fromBytes<R>(summary.docKey, stored.snapshot);
-    if (stored.changes.length) {
-      const decoder = new TextDecoder();
-      doc.restoreAppendedChanges(
-        stored.changes.map(
-          (change) =>
-            JSON.parse(decoder.decode(change.bytes)) as Parameters<
-              typeof doc.restoreAppendedChanges
-            >[0][number],
-        ),
-      );
-    }
+    doc = Document.fromBytes<R>(summary.docKey, stored.snapshot);
+  } catch {
+    // Without a readable snapshot there is nothing to build on. One corrupt
+    // archive is one lost document; throwing would take the listing of every
+    // other recoverable document with it.
+    return undefined;
+  }
 
+  // Replay stops at the first gap or unreadable entry rather than skipping it.
+  // The SDK is explicit that the log must be contiguous and ascending, and the
+  // reason is what makes truncation the only honest option here: a document
+  // rebuilt from 2 and 4 is not the document the user had with 2, 3 and 4 —
+  // it is a plausible-looking one missing an edit, handed back with no sign
+  // that anything is absent. A prefix is at least true as far as it goes.
+  const decoder = new TextDecoder();
+  const replayable: Array<ChangeStruct> = [];
+  let expected: number | undefined;
+  let truncatedAt: number | undefined;
+
+  for (const change of stored.changes) {
+    if (expected !== undefined && change.clientSeq !== expected) {
+      truncatedAt = change.clientSeq;
+      break;
+    }
+    let struct: ChangeStruct;
+    try {
+      struct = JSON.parse(decoder.decode(change.bytes)) as ChangeStruct;
+    } catch {
+      truncatedAt = change.clientSeq;
+      break;
+    }
+    replayable.push(struct);
+    expected = change.clientSeq + 1;
+  }
+
+  try {
+    if (replayable.length) {
+      doc.restoreAppendedChanges(replayable);
+    }
+  } catch {
+    // A run that decoded but would not apply. The snapshot alone still is the
+    // document as the server last knew it, which is worth more than nothing.
     return {
       docKey: summary.docKey,
       documentId: documentIdOf(summary.docKey),
-      root: doc.getRoot() as R,
+      root: Document.fromBytes<R>(
+        summary.docKey,
+        stored.snapshot,
+      ).getRoot() as R,
+      complete: false,
+      replayed: 0,
+      of: stored.changes.length,
     };
-  } catch {
-    return undefined;
   }
+
+  return {
+    docKey: summary.docKey,
+    documentId: documentIdOf(summary.docKey),
+    root: doc.getRoot() as R,
+    complete: truncatedAt === undefined,
+    replayed: replayable.length,
+    of: stored.changes.length,
+  };
 }

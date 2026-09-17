@@ -152,3 +152,84 @@ describe("listing what can be recovered", () => {
     expect(work.documentId).toBe("note-7");
   });
 });
+
+describe("a log that is not whole", () => {
+  /** Stores a snapshot plus exactly the clientSeqs given, in order. */
+  async function archiveWithSeqs(
+    store: WafflebaseDocStore,
+    docKey: string,
+    seqs: Array<number>,
+    corrupt: Array<number> = [],
+  ): Promise<void> {
+    const doc = new Document<Root>(docKey);
+    doc.setActor("000000000000000000000001");
+    doc.update((root) => {
+      root.title = "Quarterly plan";
+    });
+    await store.saveSnapshot(docKey, doc.toBytes());
+
+    // One real change per requested clientSeq, written under that number.
+    for (const seq of seqs) {
+      const before = doc.getPendingChangesAfter(0).length;
+      doc.update((root) => {
+        root.body = `edit ${seq}`;
+      });
+      const minted = doc.getPendingChangesAfter(0).slice(before)[0];
+      await store.appendChange(docKey, {
+        clientSeq: seq,
+        bytes: corrupt.includes(seq)
+          ? new Uint8Array([0xff, 0xfe, 0xfd])
+          : new TextEncoder().encode(JSON.stringify(minted.struct)),
+      });
+    }
+
+    await store.remove(docKey);
+  }
+
+  it("stops at a gap instead of replaying across it", async () => {
+    // The SDK states the precondition outright: the log must be contiguous and
+    // ascending, and a caller that cannot satisfy it should restore from the
+    // snapshot alone and report the loss. Replaying 2 and 4 with 3 missing
+    // produces a document the user never had — plausible, missing an edit, and
+    // handed back with nothing to say so. Gaps are reachable: this is the
+    // recovery path for documents the SDK already failed to reconcile.
+    const store = freshStore();
+    await archiveWithSeqs(store, "note-7", [2, 4]);
+
+    const [entry] = await store.listArchives();
+    const recovered = await rehydrateArchive<Root>(store, entry.id);
+
+    expect(recovered).toBeDefined();
+    expect(recovered!.complete).toBe(false);
+    expect(recovered!.replayed).toBe(1);
+    expect(recovered!.of).toBe(2);
+    // The prefix is true as far as it goes.
+    expect(recovered!.root.body).toBe("edit 2");
+  });
+
+  it("keeps the readable prefix when a later entry is corrupt", async () => {
+    // One bad entry is not a reason to throw away the snapshot and the entries
+    // that were fine — that turns a partial loss into a total one.
+    const store = freshStore();
+    await archiveWithSeqs(store, "note-8", [1, 2], [2]);
+
+    const [entry] = await store.listArchives();
+    const recovered = await rehydrateArchive<Root>(store, entry.id);
+
+    expect(recovered).toBeDefined();
+    expect(recovered!.complete).toBe(false);
+    expect(recovered!.replayed).toBe(1);
+    expect(recovered!.root.body).toBe("edit 1");
+  });
+
+  it("reports a whole log as complete", async () => {
+    const store = freshStore();
+    await archiveWithSeqs(store, "note-9", [1, 2]);
+
+    const [entry] = await store.listArchives();
+    const recovered = await rehydrateArchive<Root>(store, entry.id);
+
+    expect(recovered!.complete).toBe(true);
+    expect(recovered!.replayed).toBe(2);
+  });
+});

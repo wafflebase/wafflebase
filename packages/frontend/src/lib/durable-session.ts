@@ -106,6 +106,28 @@ function webLocks(): DurableLock {
 }
 
 /**
+ * Elections this tab holds or is in the middle of taking, by lock name.
+ *
+ * A Web Lock is per *origin*, not per caller, so a second request for a name
+ * this tab already holds is refused exactly like another tab's would be — and
+ * that is not hypothetical. React StrictMode mounts every effect twice, and
+ * both requests are enqueued before either is processed: the first is granted,
+ * the second sees the name held and resolves `undefined`, and the first one's
+ * release is several microtasks behind. Nothing retries, because the effect's
+ * dependencies did not change. The tab ends up reporting itself non-durable
+ * forever, with the lock free — the feature simply never works in development.
+ *
+ * So the election is shared within the tab and reference-counted. Two callers
+ * for one document get one lock and one actor, which is what we want anyway:
+ * same tab, same session, no divergence. The name is released when the last of
+ * them lets go.
+ */
+const elections = new Map<
+  string,
+  { holders: number; handle: Promise<(() => void) | undefined> }
+>();
+
+/**
  * Tries to become the durable tab for one document.
  *
  * Resolves with a {@link DurableSession} when this tab won, and `undefined`
@@ -120,33 +142,52 @@ export async function acquireDurableSession(
     return undefined;
   }
 
-  const lock = injected ?? webLocks();
-  let release: (() => void) | undefined;
-  try {
-    release = await lock.request(durableLockName(userId, docKey));
-  } catch {
-    // Fail closed, for the same reason an unsupported runtime does: a lock
-    // manager that errored has told us nothing about who holds what.
+  const name = durableLockName(userId, docKey);
+  const existing = elections.get(name);
+  const entry = existing ?? {
+    holders: 0,
+    handle: (injected ?? webLocks())
+      .request(name)
+      // Fail closed, for the same reason an unsupported runtime does: a lock
+      // manager that errored has told us nothing about who holds what.
+      .catch(() => undefined),
+  };
+  entry.holders += 1;
+  elections.set(name, entry);
+
+  const releaseLock = await entry.handle;
+  if (!releaseLock) {
+    // Nobody here holds it, so this caller was never a holder.
+    entry.holders -= 1;
+    if (entry.holders <= 0) {
+      elections.delete(name);
+    }
     return undefined;
   }
 
-  if (!release) {
-    return undefined;
-  }
-
-  // Released at most once. The caller releases from an effect cleanup, which
-  // React can run more than once in StrictMode, and a second release would free
-  // a name a *later* tab has since taken — handing two tabs the same stable
-  // actor, which is the failure this module exists to prevent.
+  // Released at most once *per caller*. The caller releases from an effect
+  // cleanup, which React can run more than once, and a second release would
+  // drop the count below what is actually held — freeing a name a later tab
+  // may have taken, and handing two tabs the same stable actor.
   let released = false;
-  const held = release;
   return {
     release() {
       if (released) return;
       released = true;
-      held();
+      const current = elections.get(name);
+      if (!current) return;
+      current.holders -= 1;
+      if (current.holders <= 0) {
+        elections.delete(name);
+        releaseLock();
+      }
     },
   };
+}
+
+/** Forgets every election this tab is tracking. Test-only. */
+export function resetElectionsForTest(): void {
+  elections.clear();
 }
 
 /**
@@ -164,13 +205,18 @@ export async function acquireDurableSession(
  * the caller already handles; evicting a document somebody is editing costs
  * their edits.
  */
-export async function isOpenInAnyTab(docKey: string): Promise<boolean> {
+export async function isOpenInAnyTab(key: string): Promise<boolean> {
   if (!supportsDurableSession() || typeof navigator === "undefined") {
     return true;
   }
   try {
     const state = await navigator.locks!.query();
-    const suffix = `:${docKey}`;
+    // The store keys its entries the way the SDK does —
+    // `apiKey/clientKey/docKey` — while a lock name ends in the bare document
+    // key. Comparing the two verbatim can never match, which silently turned
+    // this guard off everywhere it mattered: every sweep and every eviction saw
+    // every other tab's open document as idle.
+    const suffix = `:${documentKeyOf(key)}`;
     return (state.held ?? []).some(
       (lock) =>
         typeof lock.name === "string" &&
@@ -180,4 +226,15 @@ export async function isOpenInAnyTab(docKey: string): Promise<boolean> {
   } catch {
     return true;
   }
+}
+
+/**
+ * The document key inside an SDK store key.
+ *
+ * Store keys are `apiKey/clientKey/docKey`; a bare document key has no `/` and
+ * comes back unchanged, so this is safe to apply to either.
+ */
+export function documentKeyOf(key: string): string {
+  const parts = key.split("/");
+  return parts[parts.length - 1] || key;
 }
