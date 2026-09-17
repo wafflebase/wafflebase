@@ -142,6 +142,14 @@ export function tagPriorFindings(runsByLens) {
  * Junk in → `[]`. Like everything else on this path, carrying fewer findings is
  * the safe failure.
  */
+/** Absent fields stay absent, so a projected finding is byte-comparable to a
+ *  hand-written one and the JSON carries no empty keys. */
+function dropUndefined(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
+  return out;
+}
+
 export function carryForwardFindings(verdict, lensId) {
   const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
   return findings
@@ -149,9 +157,31 @@ export function carryForwardFindings(verdict, lensId) {
     .filter((f) => !isInfraRecord(f))
     .filter((f) => BLOCKING.has(normalizeSeverity(f.severity)))
     .filter((f) => f.lane !== "backlog")
-    // `lens` last, mirroring `tagPriorFindings`: the panel filters prior findings
-    // by `p.lens === lens.id`, so an untagged one is carried by nobody.
-    .map((f) => ({ ...f, lens: typeof lensId === "string" && lensId !== "" ? lensId : f.lens }));
+    // PROJECT, never spread. `verdict.json`'s findings are MODEL OUTPUT with the
+    // orchestrator's annotations added, and a spread carries every key a lens
+    // chose to write — including `infra`, which `isInfraRecord` treats as
+    // authoritative. A finding that wrote `infra: true` on itself would drop
+    // itself from its own carry-forward: it gates the round that raised it and
+    // then is never re-checked. The cloud cannot be told that, because the
+    // workflow's projection rebuilds each finding from an explicit field list;
+    // this is that list, so the two channels are equally unforgeable.
+    //
+    // `line` is here and not in the cloud's list on purpose: the local reporter
+    // prints `file:line`, and a line number changes no downstream decision.
+    .map((f) => dropUndefined({
+      severity: f.severity,
+      file: f.file,
+      line: f.line,
+      summary: f.summary,
+      evidence: f.evidence,
+      claimType: f.claimType === "absence" ? "absence" : undefined,
+      searchedFor: Array.isArray(f.searchedFor) ? f.searchedFor : undefined,
+      mergedFrom: Array.isArray(f.mergedFrom) ? f.mergedFrom : undefined,
+      adjudication: Number.isInteger(f.adjudication?.upheld) ? { upheld: f.adjudication.upheld } : undefined,
+      // `lens` last, mirroring `tagPriorFindings`: the panel filters prior
+      // findings by `p.lens === lens.id`, so an untagged one is carried by nobody.
+      lens: typeof lensId === "string" && lensId !== "" ? lensId : f.lens,
+    }));
 }
 
 /** Lens check-run names from a lenses.json manifest. Junk → []. */

@@ -563,6 +563,27 @@ export function reviewArgsError(args) {
 }
 
 /**
+ * Hand-written rebuttal records, normalized the way the cloud's are.
+ *
+ * `review-panel.mjs` partitions rebuttals with `r.lens === lensId` against the
+ * BARE lens id, and the cloud's records satisfy that because they arrive through
+ * `parseRebuttalComment`, which strips an `agent-review-` prefix on the way in.
+ * The local `--rebuttals` file is written by hand and goes straight to the panel,
+ * skipping that parser — so a developer who copied the check-run name (the most
+ * natural thing to copy: it is what GitHub shows) would file a rebuttal that
+ * matches no lens and adjudicates nothing, silently. Losing an argument you were
+ * never told was not heard is the worst failure this path has.
+ *
+ * Only the prefix is touched. Everything else is the author's claim, which the
+ * adjudicator is supposed to read as written.
+ */
+export function normalizeRebuttals(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter((r) => r && typeof r === "object" && !Array.isArray(r))
+    .map((r) => (typeof r.lens === "string" ? { ...r, lens: r.lens.trim().replace(/^agent-review-/, "") } : r));
+}
+
+/**
  * The argv handed to `review-panel.mjs`.
  *
  * Extracted so the round inputs are ASSERTED rather than eyeballed. The whole
@@ -714,16 +735,22 @@ function cmdReview(args) {
   // they can replace or relocate it between this check and our writes. Checking
   // the chain closes the window at the level where it opens. `os.tmpdir()`
   // itself is the system's to secure (it is sticky), so the walk stops below it.
-  // Which ancestors did WE create? Recorded BEFORE the mkdir, because that is the
-  // only moment the answer exists. This is what makes the rule the comment above
-  // states — "every level we create" — hold for `--out` too: the previous version
-  // special-cased it to a leaf-only check, which is precisely the bypass the
-  // chain exists to close. A directory the caller already had is theirs, and
-  // walking into it would refuse ordinary paths (`/Users` is 0755 on every Mac).
-  const created = ownedPathChain(base, path.parse(base).root).filter((d) => !existsSync(d));
+  // "Only the levels we created" was WRONG, and backwards: it skipped a
+  // pre-existing ancestor, which is exactly the one an attacker supplies. A
+  // pre-created or symlinked `<tmp>/wafflebase-self-review` was therefore never
+  // inspected, our 0700 leaf was created inside it, the leaf check passed, and
+  // every write followed the link.
+  //
+  // The rule that actually holds: on the path WE choose, check every level below
+  // the system temp directory, whoever made it. With `--out` the developer named
+  // the directory, so only the leaf is checked — we cannot police a filesystem
+  // they picked, and walking up would refuse ordinary paths (`/Users` is 0755 on
+  // every Mac). That is a real difference in coverage, stated rather than
+  // papered over: `--out` trades the ancestor guarantee for the caller's choice.
   mkdirSync(base, { recursive: true, mode: 0o700 });
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
-  for (const dir of created.length > 0 ? created : [base]) {
+  const chain = args.out ? [base] : ownedPathChain(base, os.tmpdir());
+  for (const dir of chain.length > 0 ? chain : [base]) {
     let st = null;
     try {
       st = lstatSync(dir);
@@ -802,8 +829,25 @@ function cmdReview(args) {
   // comments (`rebuttal.mjs read <pr>`), which before a PR exists is nothing at
   // all — so locally the file is supplied by hand. Without it, a finding you
   // deliberately declined is re-raised identically for the rest of the loop.
-  const rebuttals = args.rebuttals ? path.resolve(String(args.rebuttals)) : null;
-  if (rebuttals && !existsSync(rebuttals)) return fail(`--rebuttals file not found: ${rebuttals}`);
+  let rebuttals = null;
+  if (args.rebuttals) {
+    const supplied = path.resolve(String(args.rebuttals));
+    if (!existsSync(supplied)) return fail(`--rebuttals file not found: ${supplied}`);
+    let records;
+    try {
+      records = normalizeRebuttals(JSON.parse(readFileSync(supplied, "utf8")));
+    } catch (e) {
+      // Refused, not ignored: the panel would treat an unreadable file as "no
+      // rebuttals", and a dispute silently not heard is the failure to avoid.
+      return fail(`--rebuttals file is not a readable JSON array: ${supplied} (${e.message})`);
+    }
+    if (records.length === 0) return fail(`--rebuttals file holds no usable records: ${supplied}`);
+    // The normalized copy is what the panel reads, written beside the round it
+    // belongs to so the argument is auditable afterwards.
+    rebuttals = path.join(dir, "rebuttals.json");
+    writeFileSync(rebuttals, JSON.stringify(records, null, 2) + "\n");
+    console.log(`adjudicating ${records.length} rebuttal(s) from ${supplied}`);
+  }
 
   console.log(`spec-to-pr: self-review round ${round} on ${branch} → ${outDir}`);
   if (prior.length > 0) console.log(`carrying ${prior.length} prior finding(s) forward`);

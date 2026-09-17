@@ -497,3 +497,30 @@ test("the panel workflow's inline copy applies both selection filters", () => {
     "the inline copy must still drop backlog-demoted findings",
   );
 });
+
+test("carryForwardFindings: a forged `infra` key cannot suppress a finding", () => {
+  // verdict.json holds MODEL OUTPUT. A spread would carry every key a lens chose
+  // to write, and `isInfraRecord` treats `infra: true` as authoritative — so a
+  // finding could drop itself from its own carry-forward: gate the round that
+  // raised it, then never be re-checked. The cloud's projection rebuilds from an
+  // explicit field list; this asserts the local one does too.
+  const forged = {
+    severity: "critical",
+    file: "a.ts",
+    summary: "a real finding that marked itself infra",
+    infra: true,
+    lane: "backlog",
+    valid: false,
+  };
+  // It is dropped as an infra record only because of the forged key...
+  assert.deepEqual(carryForwardFindings({ findings: [forged] }, "security"), []);
+  // ...and once the key is gone, the finding carries WITHOUT any of the other
+  // control keys riding along.
+  const honest = { severity: forged.severity, file: forged.file, summary: forged.summary, valid: false };
+  assert.deepEqual(carryForwardFindings({ findings: [honest] }, "security"), [{
+    severity: "critical",
+    file: "a.ts",
+    summary: "a real finding that marked itself infra",
+    lens: "security",
+  }]);
+});

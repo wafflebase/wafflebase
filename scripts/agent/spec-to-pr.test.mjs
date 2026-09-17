@@ -25,6 +25,7 @@ import {
   reviewArgsError,
   printable,
   panelArgs,
+  normalizeRebuttals,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
@@ -468,5 +469,82 @@ test("a 429-shaped round leaves the counter where it was", () => {
     assert.deepEqual(priorFindingsFor(base, 2).map((f) => [f.lens, f.file]), [["docs", "a.ts"]]);
   } finally {
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+// --- a hand-written rebuttal has to reach the lens it names ------------------
+
+test("normalizeRebuttals: strips the check-run prefix the panel does not", () => {
+  // review-panel.mjs partitions with `r.lens === lensId` against the BARE id, and
+  // the cloud's records get there through parseRebuttalComment. A hand-written
+  // file skips that parser, so copying the check-run name — the thing GitHub
+  // actually shows you — would adjudicate nothing, silently.
+  assert.deepEqual(
+    normalizeRebuttals([{ lens: "agent-review-security", claim: "no" }]),
+    [{ lens: "security", claim: "no" }],
+  );
+  assert.deepEqual(normalizeRebuttals([{ lens: "  agent-review-docs  " }]), [{ lens: "docs" }]);
+  // A bare id is already correct and must be left alone.
+  assert.deepEqual(normalizeRebuttals([{ lens: "correctness" }]), [{ lens: "correctness" }]);
+  // Only the prefix is touched — the rest is the author's claim, read as written.
+  const rec = { lens: "agent-review-docs", file: "a.ts", claim: "the flag IS documented", evidence: ["README:3"] };
+  assert.deepEqual(normalizeRebuttals([rec])[0], { ...rec, lens: "docs" });
+  // Junk cannot become a record.
+  assert.deepEqual(normalizeRebuttals([null, 42, ["x"]]), []);
+  assert.deepEqual(normalizeRebuttals(undefined), []);
+  // A record with no lens passes through: the panel adjudicates it against every
+  // lens, which is the pre-existing behaviour and not this function's call.
+  assert.deepEqual(normalizeRebuttals([{ claim: "x" }]), [{ claim: "x" }]);
+});
+
+// --- the directory guard, end to end ----------------------------------------
+
+test("review refuses a review directory that is not ours", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-guard-"));
+  const base = path.join(root, "base");
+  try {
+    // Group/other accessible: the branch diff and the JSON fed to the next
+    // round's verifier both live here.
+    mkdirSync(base, { recursive: true, mode: 0o755 });
+    let failed = false;
+    try {
+      execFileSync("node", [script, "review", "--dry-run", "--out", base], { encoding: "utf8", stdio: "pipe" });
+    } catch (e) {
+      failed = true;
+      assert.match(String(e.stderr), /refusing to use the review directory/);
+      assert.match(String(e.stderr), /group\/other accessible/);
+    }
+    assert.ok(failed, "a world-readable review directory must be refused, not used");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review rejects a --rebuttals file that is missing or unusable", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-reb-"));
+  const base = path.join(root, "base");
+  const run = (file) => {
+    try {
+      execFileSync("node", [script, "review", "--out", base, "--rebuttals", file], { encoding: "utf8", stdio: "pipe" });
+      return "";
+    } catch (e) {
+      return String(e.stderr);
+    }
+  };
+  try {
+    mkdirSync(base, { recursive: true, mode: 0o700 });
+    assert.match(run(path.join(root, "nope.json")), /--rebuttals file not found/);
+    const bad = path.join(root, "bad.json");
+    writeFileSync(bad, "{ not json");
+    assert.match(run(bad), /not a readable JSON array/);
+    const empty = path.join(root, "empty.json");
+    writeFileSync(empty, "[]");
+    // Silently adjudicating nothing is the failure mode; an empty argument is a
+    // usage error, not a quiet no-op.
+    assert.match(run(empty), /holds no usable records/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
