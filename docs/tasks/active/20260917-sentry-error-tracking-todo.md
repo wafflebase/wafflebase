@@ -25,8 +25,9 @@ in `vars.*` below rather than `secrets.*` — the same reasoning
 - frontend: `https://07aabbc14c1ec8c017f7d576f99be30c@o4511444691714048.ingest.us.sentry.io/4511444694335488`
 - backend: `https://30f47e5a338db1a1a193b5020951b3ca@o4511444691714048.ingest.us.sentry.io/4512101894979584`
 
-The **auth token** for source-map upload is a real secret and is NOT created
-here — see "Operator steps" at the bottom.
+The **auth token** for source-map upload is a real secret; it was created in
+the browser but its value was never read into the session — see "Operator
+steps" at the bottom.
 
 ## Goals / Non-Goals
 
@@ -175,17 +176,41 @@ tokens out of URLs has to come with it.
       event actually arrive, then revert the local env
 - [x] `pnpm verify:self` before push
 
-## Operator steps (not automatable here)
+## Operator steps
 
-1. Create an **organization auth token** at
-   `https://wafflebase.sentry.io/settings/auth-tokens/` with the
-   `project:releases` and `org:read` scopes. This is a secret — it is
-   deliberately not created or read in this session.
-2. Add it as the repository secret `SENTRY_AUTH_TOKEN`.
-3. Add repository variables `VITE_SENTRY_DSN` (frontend DSN above) and, if the
-   default is not wanted, `VITE_SENTRY_TRACES_SAMPLE_RATE`.
-4. Set `SENTRY_DSN` (backend DSN above) in the backend deployment's
-   environment.
+Done on 2026-09-17/18 — recorded because each one is a place a future
+deployment has to repeat, not because any remains outstanding.
+
+1. **Organization auth token** at
+   `https://wafflebase.sentry.io/settings/auth-tokens/`, named
+   `github-actions-sourcemaps`. Organization tokens take a **fixed `org:ci`
+   scope** — Source Map Upload, Release Creation, Code Mappings — and offer no
+   scope picker. (An earlier draft of this file said to select
+   `project:releases` + `org:read`; that is the older *personal* token model,
+   which org tokens supersede. The effective grant is the same.)
+
+   The value was never read into the session: creation was driven in the
+   browser and confirmed by probing only for *whether* an input held a
+   `sntrys_`-prefixed string, never its contents. Sentry shows it once.
+2. Repository **secret** `SENTRY_AUTH_TOKEN` ← that value.
+3. Repository **variable** `VITE_SENTRY_DSN` ← the frontend DSN above.
+   `VITE_SENTRY_ENVIRONMENT` and `VITE_SENTRY_TRACES_SAMPLE_RATE` are read from
+   variables too, and left unset (defaults: build mode, and `0.1`).
+   `SENTRY_ORG`/`SENTRY_PROJECT` are deliberately not set — `vite.config.ts`
+   defaults both to `wafflebase` and treats the empty string Actions passes for
+   an unset variable as absent.
+4. **Backend env** lives in `yorkie-team/devops`, not in this repo:
+   `k8s/wafflebase/deployment.yaml`, synced to the cluster by ArgoCD
+   (`path: k8s/wafflebase`, `targetRevision: HEAD`). Landed as devops PR
+   [#360](https://github.com/yorkie-team/devops/pull/360) — `SENTRY_DSN`,
+   `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE`, with **no image bump**:
+   the values are inert on the running v0.6.11 image, which carries no Sentry
+   code, so landing them early leaves the v0.6.12 bump a plain tag change.
+
+   `SENTRY_RELEASE` is intentionally absent there rather than set to a
+   placeholder: a value that does not match the running image would not fail,
+   it would quietly attribute backend errors to the wrong release. It must be
+   added in the same commit that moves the image tag.
 
 Until step 3/4 happen, everything in this task is inert by design.
 
