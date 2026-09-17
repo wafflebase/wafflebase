@@ -82,3 +82,28 @@ file; I wrote the fixture anyway.
 
 **Rule:** build fixtures from the producer's actual output shape — ideally from
 the producer — not from the fields the consumer happens to read.
+
+## A prose claim about another module is the gap the lenses do not cover
+
+For three rounds this command printed `finding-key.mjs`'s key while its own
+docblock — and `/self-review.md` — called it "the identifier a rebuttal is
+addressed to". A rebuttal record's key is `rebuttal.mjs`'s, a different string
+for the same finding. Six lenses over four rounds did not catch it: each one
+reads the diff, and the diff is self-consistent. The contradiction only exists
+against a file the diff does not touch.
+
+**Rule:** when a comment asserts how *another* module behaves, open that module
+and check. The assertion is load-bearing documentation, and nothing in the
+review path verifies it.
+
+## Fixing the same area four times is the signal, not the finding count
+
+Rounds went 7 → 5 → 5 → 7 findings, which reads as "not converging". The more
+useful reading is narrower: the *directory guard* was wrong in four consecutive
+shapes, each fix introducing the next hole, while docs / correctness / design-fit
+went quiet and stayed quiet. Aggregate counts hid that one subsystem was churning
+and the rest had settled.
+
+**Rule:** track which area each round's findings land in, not just how many there
+are. Repeated findings in one area mean that area needs a different approach (or
+a different reviewer), not another round.

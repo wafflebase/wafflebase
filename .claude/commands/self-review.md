@@ -66,7 +66,11 @@ misreadings. That is what the panel's independent lenses are for.
      re-raised every round, and the panel is biased to uphold, so a dispute needs
      grounded evidence (file + line + what is actually there). The record shape is
      `scripts/agent/rebuttal.mjs`'s: `{ findingKey, lens, file, summary, claim,
-     evidence: [] }`. The command prints each finding's `findingKey`.
+     evidence: [] }`, and the command prints the `lens`, `file`, `summary` and
+     `findingKey` of every blocking finding — copy all four. The match is made on
+     the first three by similarity, not on the key (the panel rewords a defect
+     between rounds), so `summary` has to be the finding's own wording. An
+     `agent-review-` prefix on `lens` is stripped for you.
    - **Defer it** — only for something genuinely out of this branch's scope. It
      goes in the PR body as a known limitation, not nowhere.
 

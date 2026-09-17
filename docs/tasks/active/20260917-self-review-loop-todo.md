@@ -121,6 +121,7 @@ The branch was reviewed by the thing it adds. Three rounds, then the bound.
 | 2 | the panel | 5 of 6 | 5 | 7 |
 | — | the panel | 6 of 6 **infra** | 0 — HTTP 429, usage limit | 5 |
 | 3 | the panel | 3 of 6 | 5 | 5 |
+| 4 | the panel | 3 of 6 | 7 (1 critical) | 5 |
 
 Round 0 found three surface defects. It did not find the two criticals — a
 `--fresh` that deleted any `--out` path, and a prompt-injection channel into the
@@ -136,22 +137,47 @@ leaf-only check it replaced). Each round's fix was itself reviewed.
 Two findings were about this repository rather than this branch: `/spec-to-pr`'s
 and CLAUDE.md's descriptions of the tool had gone stale within the same branch.
 
-**Nothing was rebutted.** Every finding across three rounds was accepted and
-fixed, so the `--rebuttals` path is still unexercised end to end.
+Round 4 ran past the documented bound, at the developer's request, and earned
+its place: it found a **critical that round 3's own fix had introduced**. Round
+3 had replaced a leaf-only directory check with "every level we created", which
+skips an ancestor precisely when it already exists — the case an attacker
+supplies. The guard has now been wrong in four consecutive shapes:
 
-**Cost.** Four panel invocations, one of which reviewed nothing (429). The
-usage limit is the practical bound on running this locally, well before the
-three-round one.
+| Round | The guard | What was wrong with it |
+| --- | --- | --- |
+| — | `mkdtempSync` (0700, random) | nothing; the stable path traded it away |
+| 1 | predictable path, default umask | prompt-injection channel into the next round's verifier |
+| 2 | leaf checked 0700 | the intermediate directory was never inspected |
+| 3 | "every level we created" | a pre-created or symlinked ancestor is skipped |
+| 4 | every level below `os.tmpdir()`, whoever made it | — |
+
+**Nothing was rebutted.** Every finding across four rounds was accepted and
+fixed, so a real adjudication has still never run. The `--rebuttals` path is
+covered by unit and CLI tests only.
+
+**Cost.** Five panel invocations, one of which reviewed nothing (429). The usage
+limit is the practical bound on running this locally, well before the
+three-round one — and until `28e49883b`, a 429 also consumed a round number, so
+an outage could push a branch into the bound on its own.
 
 ### Known limitations
 
-- **The loop stopped at the bound with 5 findings open**, all major, all fixed
-  in `d593412a0` — but the fixes themselves have not been reviewed. Round 4 is
-  what would do that, and the rule this branch adds says to get a human (or
-  `@claude review`, which spends the repository's pooled credential rather than
-  a developer's) instead of looping again.
-- `--rebuttals` is passed through and argv-asserted, never exercised against a
-  real adjudication.
+- **Round 4's fixes have not been reviewed.** That is the standing state of any
+  loop that stops: the last round's repairs are the unreviewed ones. It matters
+  more than usual here because they include the fourth rewrite of the directory
+  guard, in the one area that has not converged. Round 5 is what would check it;
+  the rule this branch adds says to get a human or `@claude review` — which
+  spends the repository's pooled credential rather than a developer's, and does
+  not inherit the local rounds' context — instead of looping a fifth time.
+- **Nothing found after round 4 was reviewed either**, including the corrected
+  finding key and `prepareRoundInputs`.
+- `--rebuttals` is normalized, refused when unusable, and argv-asserted, but has
+  never been exercised against a real adjudication — no finding in four rounds
+  was worth disputing.
+- The printed finding key was the wrong module's for three rounds
+  (`finding-key.mjs`'s instead of `rebuttal.mjs`'s) while the docs asserted it
+  was the right one. No lens caught it; it surfaced from a direct reading of
+  both modules. **Cross-module claims in prose are not covered by this loop.**
 - `--review-mode incremental` is not wired. Deliberate: the decision belongs to
   `review-scope.mjs` reading a PR's history, which does not exist pre-PR.
 - A base directory a developer created by hand at the default umask is refused
