@@ -18,12 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| sentry error tracking (2026-09-17) | [20260917-sentry-error-tracking-todo.md](./active/20260917-sentry-error-tracking-todo.md) | [20260917-sentry-error-tracking-lessons.md](./active/20260917-sentry-error-tracking-lessons.md) |
-| nav guard unsent edits (2026-09-16) | [20260916-nav-guard-unsent-edits-todo.md](./active/20260916-nav-guard-unsent-edits-todo.md) | [20260916-nav-guard-unsent-edits-lessons.md](./active/20260916-nav-guard-unsent-edits-lessons.md) |
-| google oauth login (2026-09-15) | [20260915-google-oauth-login-todo.md](./active/20260915-google-oauth-login-todo.md) | [20260915-google-oauth-login-lessons.md](./active/20260915-google-oauth-login-lessons.md) |
+| slides shape dash render (2026-09-17) | [20260917-slides-shape-dash-render-todo.md](./active/20260917-slides-shape-dash-render-todo.md) | [20260917-slides-shape-dash-render-lessons.md](./active/20260917-slides-shape-dash-render-lessons.md) |
 | cli templates command (2026-09-14) | [20260914-cli-templates-command-todo.md](./active/20260914-cli-templates-command-todo.md) | [20260914-cli-templates-command-lessons.md](./active/20260914-cli-templates-command-lessons.md) |
-| table drag merge selection (2026-09-14) | [20260914-table-drag-merge-selection-todo.md](./active/20260914-table-drag-merge-selection-todo.md) | [20260914-table-drag-merge-selection-lessons.md](./active/20260914-table-drag-merge-selection-lessons.md) |
-| slides frameless element (2026-09-10) | [20260910-slides-frameless-element-todo.md](./active/20260910-slides-frameless-element-todo.md) | - |
 | slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./active/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./active/20260905-slides-board-touch-input-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
 | class b backend endpoints (2026-09-04) | [20260904-class-b-backend-endpoints-todo.md](./active/20260904-class-b-backend-endpoints-todo.md) | [20260904-class-b-backend-endpoints-lessons.md](./active/20260904-class-b-backend-endpoints-lessons.md) |
@@ -55,7 +51,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 604
+- Archived task count: 610
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: sentry error tracking (2026-09-17)
+Latest active task: slides shape dash render (2026-09-17)
