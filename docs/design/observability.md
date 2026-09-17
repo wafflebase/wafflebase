@@ -141,11 +141,26 @@ No import-sorting rule is configured in that package today, so nothing
 enforces or reverses the ordering. If one is added, it needs an exception
 there.
 
-`SentryGlobalFilter` is registered as an `APP_FILTER`. The backend had no
-global exception filter, so nothing is displaced; the filter reports and then
-delegates to Nest's default handling, and does not report `HttpException`s —
-the 404s and 403s this codebase throws for ordinary refusals are decisions,
-not failures, and would bury the real crashes.
+A global exception filter is registered as an `APP_FILTER`. The backend had
+none, so nothing is displaced; it reports and then delegates to Nest's default
+handling.
+
+It is **not** the stock `SentryGlobalFilter`, and the reason is a trap worth
+recording. That filter decides whether to capture by asking
+`isExpectedError()`, and that helper never looks at the status code — it
+returns true for anything carrying `getStatus`/`getResponse`/`initMessage`,
+which is every `HttpException`. So `ServiceUnavailableException` and
+`InternalServerErrorException` are classified exactly like a 404 and never
+reach Sentry.
+
+That is the wrong half to drop. This backend throws 5xx `HttpException`s for
+real external failures at seven sites — an unreachable or rate-limiting Miro
+API, DuckDB unavailable, Yorkie unreachable, the database down — and those are
+precisely the crashes error tracking exists to surface. `SentryServerErrorFilter`
+(`src/sentry-exception.filter.ts`) subclasses it to capture `>= 500` before
+delegating; the parent does not double-report, because its own
+`isExpectedError()` skips the same exception. 4xx stays unreported, which is
+the part the stock behavior gets right.
 
 ## Risks and Mitigation
 
@@ -165,3 +180,11 @@ had.
 **Quota.** A spreadsheet editor emits a lot of navigation. The 0.1 sample rate
 is a guess, not a measurement — revisit it once there is a week of real
 volume.
+
+**A reporting tool that breaks the app.** `initSentry()` runs at module top
+level in `main.tsx`, before `createRoot().render()` — which puts it outside the
+error boundary and earlier than the moment that boundary exists. A throw from
+`Sentry.init` would therefore stop the app mounting at all, leaving exactly the
+blank page this change set out to eliminate. It is wrapped in a `try/catch` that
+logs and continues: an app running without reporting beats a reporting tool that
+bricks the app. Asserted in `tests/sentry-init.test.ts`.

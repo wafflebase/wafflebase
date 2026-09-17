@@ -65,6 +65,24 @@ describe("initSentry", () => {
     ).toEqual(["https://api.example.com"]);
   });
 
+  it("never throws, so a broken SDK cannot stop the app from mounting", async () => {
+    // `initSentry()` runs at module top level in `main.tsx`, before
+    // `createRoot().render()` — outside the error boundary, and before it
+    // exists. A throw escaping here means a blank page, which is worse than
+    // the state before error tracking was added.
+    const { Sentry, initSentry } = await loadWithDsn("https://k@example/1");
+    vi.mocked(Sentry.init).mockImplementation(() => {
+      throw new Error("integration blew up");
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    expect(() => initSentry()).not.toThrow();
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("falls back to the default sample rate rather than to 1.0 on a bad value", async () => {
     const { Sentry, initSentry } = await loadWithDsn("https://k@example/1");
     vi.stubEnv("VITE_SENTRY_TRACES_SAMPLE_RATE", "100");

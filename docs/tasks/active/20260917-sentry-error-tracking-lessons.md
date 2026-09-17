@@ -76,3 +76,43 @@ the baseline is not clean (pre-existing `no-unsafe-*` in `app.module.ts` and
 Also: an `eslint-disable-next-line` naming a rule that is not configured is
 itself an **error** ("Definition for rule 'import/order' was not found").
 Check the rule exists before disabling it.
+
+## Read the vendor's code before writing a comment about its behavior
+
+`app.module.ts` originally carried a confident comment saying
+`SentryGlobalFilter` "deliberately does not report `HttpException`s — the 404s
+and 403s this codebase throws for ordinary refusals are decisions, not
+failures." Half true, and the wrong half was load-bearing.
+
+`isExpectedError()` in `@sentry/nestjs/build/cjs/helpers.js` never reads the
+status code. It returns true for anything with
+`getStatus`/`getResponse`/`initMessage` — every `HttpException`, 500s
+included. This backend throws 5xx `HttpException`s at seven sites (Miro
+unreachable, DuckDB unavailable, Yorkie unreachable, database down), so the
+stock filter would have hidden precisely the failures the feature was added to
+surface, while still faithfully reporting an unhandled `TypeError`. Nothing
+would have looked broken; Sentry would just have been quiet.
+
+The comment was written from what the behavior *ought* to be. The fix
+(`SentryServerErrorFilter`) came from reading the installed package. When a
+comment asserts what a dependency does, open the dependency.
+
+## A review finding deserves verification, not deference
+
+Both real findings this round came from review agents, and both were checked
+against the actual source before acting — the SDK helper for the filter claim,
+`git grep` for the "seven 5xx sites" number. Two other agents' findings were
+correct as stated; a third produced only non-findings. Treat a finding as a
+lead.
+
+## Initialization that runs before the error boundary must not throw
+
+`initSentry()` is called at module top level in `main.tsx`, before
+`createRoot().render()`. That is the right place for *capturing* early errors
+and the worst place to *raise* one: the error boundary added in the same commit
+does not exist yet, so a throw there produces the blank page the boundary was
+added to prevent — strictly worse than before the feature.
+
+Generalization: any bootstrap code that runs above the UI's own safety net
+should swallow its own failures. The tool being unavailable has to cost less
+than the tool being present.

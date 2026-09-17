@@ -122,7 +122,7 @@ jobs:
         # core dist/ (incl. tokens.css imported by the frontend) is gitignored
         # — then builds the frontend + docs and copies docs into the frontend dist.
         #
-        # THE FIVE VITE_* VALUES ARE THIS DEPLOYMENT'S CONFIGURATION, and they
+        # THE VITE_* VALUES BELOW ARE THIS DEPLOYMENT'S CONFIGURATION, and they
         # are baked into the bundle at build time. They used to live in a
         # committed `packages/frontend/.env.production`, which Vite ranks above
         # the localhost `.env` beside it in mode `production` — so every fork
@@ -132,10 +132,15 @@ jobs:
         # with nothing failing visibly. That file is gone; these values now live
         # with the deployment that uses them.
         #
-        # `vars.*`, not `secrets.*`: none of the five is a secret. All five ship
-        # inside a public JS bundle, and the Yorkie key is a *public* key. Using
-        # `vars` keeps them readable in the run log, which is where you want
-        # deployment configuration when a deploy comes out wrong.
+        # `vars.*`, not `secrets.*`: no VITE_* value here is a secret. Every one
+        # of them ships inside a public JS bundle, and both the Yorkie key and
+        # the Sentry DSN are *public* keys. Using `vars` keeps them readable in
+        # the run log, which is where you want deployment configuration when a
+        # deploy comes out wrong.
+        #
+        # SENTRY_AUTH_TOKEN below is the one exception in this block, and it is
+        # deliberately NOT `VITE_`-prefixed: it is a real credential, it must
+        # never reach the bundle, and it therefore comes from `secrets.*`.
         #
         # `vars.*`, not hardcoded here either: a fork inherits none of the
         # repository's variables, so hardcoding would restore exactly the bug

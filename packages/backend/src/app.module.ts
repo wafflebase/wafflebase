@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
-import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
+import { SentryModule } from '@sentry/nestjs/setup';
+import { SentryServerErrorFilter } from './sentry-exception.filter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
@@ -136,12 +137,14 @@ import { TemplateModule } from './template/template.module';
     },
     {
       // This backend had no global exception filter, so nothing is displaced.
-      // `SentryGlobalFilter` reports and then delegates to Nest's default
-      // handling, and deliberately does not report `HttpException`s — the 404s
-      // and 403s this codebase throws for ordinary refusals are decisions, not
-      // failures, and would otherwise bury the real crashes.
+      // Reports and then delegates to Nest's default handling.
+      //
+      // NOT the stock `SentryGlobalFilter`: its "is this expected?" check
+      // ignores the status code and so drops every `HttpException`, 5xx
+      // included — which would have hidden exactly the failures this is for.
+      // See `sentry-exception.filter.ts`.
       provide: APP_FILTER,
-      useClass: SentryGlobalFilter,
+      useClass: SentryServerErrorFilter,
     },
   ],
 })

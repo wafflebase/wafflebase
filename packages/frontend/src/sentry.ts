@@ -50,6 +50,23 @@ export function initSentry(): void {
   // and localhost — which is exactly right for that deployment.
   const origin = backendOrigin();
 
+  // Nothing Sentry does is worth a blank page. `initSentry()` runs at module
+  // top level in `main.tsx`, BEFORE `createRoot().render()` — so it is outside
+  // the error boundary added in the same file, and earlier than the moment
+  // that boundary begins to exist. A throw here (a malformed DSN, an
+  // integration touching a browser API that is absent, a version skew after a
+  // dependency bump) would therefore stop the app from mounting at all, which
+  // is strictly worse than the state before error tracking was added. Swallow
+  // it: an app running without reporting beats a reporting tool that bricks
+  // the app.
+  try {
+    initClient(origin, dsn);
+  } catch (err) {
+    console.error("[sentry] initialization failed; continuing without it", err);
+  }
+}
+
+function initClient(origin: string, dsn: string): void {
   Sentry.init({
     dsn,
     // Same string the backend reports, so one deploy's frontend and backend
