@@ -1,5 +1,5 @@
-import { useMemo, type PropsWithChildren } from "react";
-import { YorkieProvider } from "@yorkie-js/react";
+import { useEffect, useMemo, type PropsWithChildren } from "react";
+import { YorkieProvider, useYorkie } from "@yorkie-js/react";
 import { isOpenInAnyTab } from "@/lib/durable-session";
 import { WafflebaseDocStore } from "@/lib/wafflebase-doc-store";
 
@@ -47,6 +47,12 @@ export interface DurableYorkieProviderProps {
   authTokenInjector?: React.ComponentProps<
     typeof YorkieProvider
   >["authTokenInjector"];
+  /**
+   * Called when the SDK refuses the attach because *its* single-active-session
+   * lock is held elsewhere — the race the app election is meant to win first.
+   * The caller gives up the election so another tab can take it.
+   */
+  onLockRefused?: () => void;
 }
 
 /**
@@ -64,6 +70,7 @@ export function DurableYorkieProvider({
   apiKey,
   metadata,
   authTokenInjector,
+  onLockRefused,
   children,
 }: PropsWithChildren<DurableYorkieProviderProps>) {
   const store = useMemo(
@@ -88,7 +95,42 @@ export function DurableYorkieProvider({
       clientKey={clientKey}
       store={store}
     >
-      {children}
+      <LockRefusalWatch onLockRefused={onLockRefused}>
+        {children}
+      </LockRefusalWatch>
     </KeyedYorkieProvider>
   );
+}
+
+/**
+ * The SDK's code for "another session already holds this document".
+ *
+ * Compared as a string because the published types export neither the `Code`
+ * enum nor `isErrorCode`, though the runtime carries both — so this is the one
+ * way to read it without reaching into internals. `YorkieError` puts the code
+ * on the error itself, which is what makes matching on it better than matching
+ * on message text.
+ */
+const ERR_DOCUMENT_OPEN_ELSEWHERE = "ErrDocumentOpenElsewhere";
+
+/**
+ * Notices an attach the SDK refused for its own lock.
+ *
+ * Anything else is left alone: a failed attach for another reason is not a
+ * reason to give up an election that is doing its job.
+ */
+function LockRefusalWatch({
+  onLockRefused,
+  children,
+}: PropsWithChildren<{ onLockRefused?: () => void }>) {
+  const { error } = useYorkie();
+
+  useEffect(() => {
+    if (!error || !onLockRefused) return;
+    const code = (error as { code?: string }).code;
+    if (code !== ERR_DOCUMENT_OPEN_ELSEWHERE) return;
+    onLockRefused();
+  }, [error, onLockRefused]);
+
+  return <>{children}</>;
 }

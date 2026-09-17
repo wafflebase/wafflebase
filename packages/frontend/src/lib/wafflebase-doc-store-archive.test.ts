@@ -131,3 +131,42 @@ describe("archiving on remove", () => {
     expect(await store.listArchives()).toEqual([]);
   });
 });
+
+describe("archives belong to whoever wrote them", () => {
+  it("lists only this user's, on a device two accounts share", async () => {
+    // The archive holds a whole document. Listing another account's would hand
+    // their content to whoever is signed in — the recovery path turns an
+    // archive into a document *for the current user*, so an unscoped list is a
+    // cross-account content leak, not merely untidy.
+    const mine = freshStore();
+    await mine.saveSnapshot("doc-a", new Uint8Array([1]));
+    await mine.remove("doc-a");
+
+    const theirs = new WafflebaseDocStore({
+      dbName: mine.databaseName,
+      userId: "user-2",
+    });
+    await theirs.saveSnapshot("doc-b", new Uint8Array([2]));
+    await theirs.remove("doc-b");
+
+    expect((await mine.listArchives()).map((a) => a.docKey)).toEqual(["doc-a"]);
+    expect((await theirs.listArchives()).map((a) => a.docKey)).toEqual([
+      "doc-b",
+    ]);
+  });
+
+  it("refuses to load an archive belonging to someone else", async () => {
+    // Belt and braces: an id can be held from before a sign-out, and the
+    // listing is not the only way into `loadArchive`.
+    const mine = freshStore();
+    const theirs = new WafflebaseDocStore({
+      dbName: mine.databaseName,
+      userId: "user-2",
+    });
+    await theirs.saveSnapshot("doc-b", new Uint8Array([2]));
+    await theirs.remove("doc-b");
+
+    const [entry] = await theirs.listArchives();
+    expect(await mine.loadArchive(entry.id)).toBeUndefined();
+  });
+});

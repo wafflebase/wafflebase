@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   acquireDurableSession,
   durableClientKey,
@@ -35,6 +35,16 @@ function isExcluded(docKey: string): boolean {
 export interface DurableDocument {
   /** Whether this tab persists this document locally. */
   durable: boolean;
+  /**
+   * Gives up the election and stays non-durable for this document.
+   *
+   * For the race the app lock cannot settle on its own: the app elects a tab
+   * and *then* the SDK's own lock refuses the attach anyway
+   * (`ErrDocumentOpenElsewhere`). Without a way out, that tab sits in an
+   * attach failure while holding the name — so it is not durable and nobody
+   * else can be either, which is strictly worse than losing the election.
+   */
+  standDown(): void;
   /**
    * The Yorkie client key to mount with, or `undefined` to keep today's
    * behavior — a key minted randomly per session, which resumes nothing and is
@@ -122,9 +132,23 @@ export function useDurableDocument({
   // is what keeps `settled` honest across a navigation as well.
   const answered = decision?.subject === subject;
   const durable = answered && !!decision?.session;
+
+  const standDown = useCallback(() => {
+    setDecision((current) => {
+      if (!current?.session) {
+        return current;
+      }
+      current.session.release();
+      // Settled, and settled as *not* durable: the caller asked to stop, so
+      // leaving it unsettled would have them mount nothing at all.
+      return { subject: current.subject };
+    });
+  }, []);
+
   return {
     durable,
     clientKey: durable && userId ? durableClientKey(userId, docKey) : undefined,
     settled: answered,
+    standDown,
   };
 }

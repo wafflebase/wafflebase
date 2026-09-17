@@ -296,3 +296,39 @@ describe("on a build that cannot carry a client key", () => {
     expect(locks.held.size).toBe(0);
   });
 });
+
+describe("giving up the election", () => {
+  it("frees the name so another tab can be durable", async () => {
+    // The race the app lock cannot settle alone: this tab is elected, and the
+    // SDK's own lock refuses the attach anyway. Holding on then is strictly
+    // worse than losing — this tab is not durable and nobody else can be.
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+    setOfflinePersistenceEnabled(true);
+
+    const { result } = renderHook(() =>
+      useDurableDocument({ docKey: "note-7", userId: "u1" }),
+    );
+    await waitFor(() => expect(result.current.durable).toBe(true));
+
+    act(() => result.current.standDown());
+
+    await waitFor(() => expect(result.current.durable).toBe(false));
+    // Still settled: the caller asked to stop, so leaving it undecided would
+    // have them mount nothing at all.
+    expect(result.current.settled).toBe(true);
+    expect(locks.held.size).toBe(0);
+  });
+
+  it("is harmless when there was no election to give up", async () => {
+    setDurableLockForTest(fakeLocks());
+
+    const { result } = renderHook(() =>
+      useDurableDocument({ docKey: "note-7", userId: "u1" }),
+    );
+    await waitFor(() => expect(result.current.settled).toBe(true));
+
+    expect(() => act(() => result.current.standDown())).not.toThrow();
+    expect(result.current.durable).toBe(false);
+  });
+});

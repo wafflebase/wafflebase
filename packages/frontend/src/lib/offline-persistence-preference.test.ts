@@ -109,4 +109,59 @@ describe("offline persistence preference", () => {
     });
     expect(() => setOfflinePersistenceEnabled(true)).not.toThrow();
   });
+
+  it("yields to another tab after a write of ours failed", async () => {
+    // The mirror exists so a refused write still applies for this session. But
+    // it must not outlive its reason: once another tab changes the key, that
+    // is a real value and ours is a guess about storage that would not take
+    // it. Without clearing, the reader keeps answering the stale guess while
+    // the `storage` event tells every subscriber something changed — so the
+    // editor and Settings disagree, and only a reload settles it.
+    //
+    // The round-trip case cannot reach this: it writes successfully first,
+    // which clears the mirror before the event ever arrives.
+    const { getOfflinePersistenceEnabled, setOfflinePersistenceEnabled } =
+      await load();
+
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    setOfflinePersistenceEnabled(true);
+    expect(getOfflinePersistenceEnabled()).toBe(true);
+    vi.restoreAllMocks();
+
+    // Another tab turns it off, which arrives as a `storage` event.
+    localStorage.setItem(STORAGE_KEY, "false");
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: STORAGE_KEY,
+        newValue: "false",
+        storageArea: localStorage,
+      }),
+    );
+
+    expect(getOfflinePersistenceEnabled()).toBe(false);
+  });
+
+  it("keeps the mirror when another key changes", async () => {
+    // A `storage` event for somebody else's key says nothing about ours.
+    const { getOfflinePersistenceEnabled, setOfflinePersistenceEnabled } =
+      await load();
+
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    setOfflinePersistenceEnabled(true);
+    vi.restoreAllMocks();
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "wafflebase-date-format",
+        newValue: "exact",
+        storageArea: localStorage,
+      }),
+    );
+
+    expect(getOfflinePersistenceEnabled()).toBe(true);
+  });
 });

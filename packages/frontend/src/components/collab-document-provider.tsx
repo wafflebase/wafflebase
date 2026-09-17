@@ -1,10 +1,10 @@
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { DocumentProvider, useDocument } from '@yorkie-js/react';
-import type { Indexable } from '@yorkie-js/sdk';
-import { fetchMe, fetchYorkieToken } from '@/api/auth';
-import { useDurableDocument } from '@/lib/use-durable-document';
-import { DurableYorkieProvider } from '@/components/durable-yorkie-provider';
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { DocumentProvider, useDocument } from "@yorkie-js/react";
+import type { Indexable } from "@yorkie-js/sdk";
+import { fetchMe, fetchYorkieToken } from "@/api/auth";
+import { useDurableDocument } from "@/lib/use-durable-document";
+import { DurableYorkieProvider } from "@/components/durable-yorkie-provider";
 
 /**
  * `DocumentProvider` with `initialPresence` made reliable.
@@ -71,9 +71,9 @@ function PresenceIdentityRepair<P extends Indexable>({
     // unmounts the tree: a missing avatar is a blemish, a blank editor is an
     // outage. Hence the capability check and the swallow.
     if (
-      typeof doc.getStatus !== 'function' ||
-      typeof doc.getMyPresence !== 'function' ||
-      typeof doc.update !== 'function'
+      typeof doc.getStatus !== "function" ||
+      typeof doc.getMyPresence !== "function" ||
+      typeof doc.update !== "function"
     ) {
       return;
     }
@@ -82,7 +82,7 @@ function PresenceIdentityRepair<P extends Indexable>({
       // A document that is not attached has no presence of its own to repair,
       // and `getMyPresence()` answers `{}` for it regardless — writing then
       // would fabricate an entry rather than restore one.
-      if (doc.getStatus() !== 'attached') return;
+      if (doc.getStatus() !== "attached") return;
 
       const current = doc.getMyPresence() ?? {};
       const missing = Object.keys(initialPresence).filter(
@@ -103,7 +103,7 @@ function PresenceIdentityRepair<P extends Indexable>({
       }
       doc.update((_root, presence) => presence.set(patch as Partial<P>));
     } catch (err) {
-      console.warn('[presence] could not restore initialPresence:', err);
+      console.warn("[presence] could not restore initialPresence:", err);
     }
     // `initialPresence` is a fresh object literal at every call site, so it is
     // deliberately not a dependency — it would re-run this on every render of
@@ -150,12 +150,12 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   ...rest
 }: Parameters<typeof DocumentProvider<R, P>>[0]) {
   const { data: me } = useQuery({
-    queryKey: ['me'],
+    queryKey: ["me"],
     queryFn: fetchMe,
     retry: false,
   });
   const docKey = (rest as { docKey: string }).docKey;
-  const { durable, clientKey, settled } = useDurableDocument({
+  const { durable, clientKey, settled, standDown } = useDurableDocument({
     docKey,
     userId: me?.id === undefined ? undefined : String(me.id),
   });
@@ -182,9 +182,15 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
       metadata={{
-        userID: encodeURIComponent(me.username || 'anonymous-user'),
+        userID: encodeURIComponent(me.username || "anonymous-user"),
       }}
       authTokenInjector={fetchYorkieToken}
+      // The app elects a tab before the SDK's own lock is reached, so this
+      // should not fire. It is the backstop for the race where the two
+      // disagree: holding the election while the attach is refused leaves this
+      // tab non-durable *and* every other tab refused, which is strictly worse
+      // than having lost the election in the first place.
+      onLockRefused={standDown}
     >
       {inner}
     </DurableYorkieProvider>

@@ -27,6 +27,10 @@ vi.mock("@yorkie-js/react", () => ({
     return <>{props.children as React.ReactNode}</>;
   },
   useDocument: () => ({ doc: undefined }),
+  // The durable provider watches for an attach the SDK refused for its own
+  // lock. No error here means it never fires, which is the case these cases
+  // are about.
+  useYorkie: () => ({ client: undefined, loading: false, error: undefined }),
 }));
 
 const me = { data: { id: 7, username: "ada" } };

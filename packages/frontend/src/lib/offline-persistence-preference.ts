@@ -77,6 +77,28 @@ export function setOfflinePersistenceEnabled(enabled: boolean): void {
  * because the consumer is not only React: the document client decides whether
  * to open a store outside the render tree.
  */
+/**
+ * Another tab changing our key retires the mirror.
+ *
+ * The mirror holds a value *we* could not write. Once another tab has written
+ * one, that is a real answer and ours is a guess about storage that would not
+ * take it — so keeping the guess makes every reader contradict the event it is
+ * reacting to, and only a reload settles it.
+ *
+ * Registered once at module scope rather than inside `subscribe`, because the
+ * mirror going stale has nothing to do with whether anybody happens to be
+ * listening: a reader that never subscribed would otherwise keep answering the
+ * guess forever. A `null` key is the whole area being cleared, which includes
+ * ours; another key says nothing about ours.
+ */
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === null || event.key === STORAGE_KEY) {
+      memoryEnabled = null;
+    }
+  });
+}
+
 export function subscribeOfflinePersistence(onChange: () => void): () => void {
   window.addEventListener(CHANGE_EVENT, onChange);
   window.addEventListener("storage", onChange);

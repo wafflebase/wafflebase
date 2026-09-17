@@ -677,14 +677,19 @@ export class WafflebaseDocStore implements DocStore {
   }
 
   /**
-   * `listArchives` describes what `remove` kept, newest last. Bytes are left
-   * out: the caller picks one and asks for it.
+   * `listArchives` describes what `remove` kept **for this user**, newest last.
+   * Bytes are left out: the caller picks one and asks for it.
+   *
+   * The scoping is not tidiness. An archive holds a whole document, and the
+   * recovery path turns one into a document *for whoever is signed in* — so on
+   * a device two accounts share, an unscoped list hands one person's content to
+   * the other. The database is per origin; only the records carry identity.
    */
   public async listArchives(): Promise<Array<ArchiveSummary>> {
     const db = await this.open();
     const tx = db.transaction(ARCHIVES, "readonly");
     const rows = await requested<Array<ArchiveRecord>>(
-      tx.objectStore(ARCHIVES).getAll(),
+      tx.objectStore(ARCHIVES).index(BY_USER).getAll(this.userId),
     );
     return rows.map((row) => ({
       id: row.id!,
@@ -693,14 +698,22 @@ export class WafflebaseDocStore implements DocStore {
     }));
   }
 
-  /** `loadArchive` returns an archived entry's bytes, decompressed. */
+  /**
+   * `loadArchive` returns an archived entry's bytes, decompressed — and only
+   * this user's.
+   *
+   * Checked here as well as in {@link listArchives}, because an id can be held
+   * across a sign-out and the listing is not the only way in. The answer for
+   * somebody else's archive is the same as for one that does not exist: a
+   * caller must not be able to tell the difference.
+   */
   public async loadArchive(id: number): Promise<StoredDoc | undefined> {
     const db = await this.open();
     const tx = db.transaction(ARCHIVES, "readonly");
     const row = await requested<ArchiveRecord | undefined>(
       tx.objectStore(ARCHIVES).get(id),
     );
-    if (!row) {
+    if (!row || row.userId !== this.userId) {
       return undefined;
     }
 
