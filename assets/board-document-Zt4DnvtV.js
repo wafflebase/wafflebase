@@ -1,0 +1,2 @@
+(function(){try{var e=typeof window<"u"?window:typeof global<"u"?global:typeof globalThis<"u"?globalThis:typeof self<"u"?self:{};e.SENTRY_RELEASE={id:"0.6.11"};var t=new e.Error().stack;t&&(e._sentryDebugIds=e._sentryDebugIds||{},e._sentryDebugIds[t]="e92550a0-39fc-4d15-a146-c8e5f3306f5a",e._sentryDebugIdIdentifier="sentry-dbid-e92550a0-39fc-4d15-a146-c8e5f3306f5a")}catch{}})();function n(){return{meta:{title:"Untitled board"},elements:[]}}function i(e){return e==="viewer"?{}:n()}export{i as b,n as i};
+//# sourceMappingURL=board-document-Zt4DnvtV.js.map
