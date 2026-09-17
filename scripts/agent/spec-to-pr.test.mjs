@@ -1,5 +1,7 @@
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -316,4 +318,29 @@ test("ownedPathChain: every level we created, leaf first, excluding the boundary
   assert.deepEqual(ownedPathChain("/tmp", "/tmp"), []);
   // A base outside the boundary must terminate, not walk to the root forever.
   assert.deepEqual(ownedPathChain("/var/other", "/tmp"), []);
+});
+
+// --- a dry run must not consume a round -------------------------------------
+//
+// Driven through the CLI on purpose: the bug was in `cmdReview`'s ORDERING (the
+// round directory was created before the dry-run return), which no test of a
+// pure helper can see. Two probes of this command pushed a real round from 3 to
+// 5 and tripped the round bound.
+
+test("review --dry-run repeats the same round and writes nothing", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const base = path.join(mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-dry-")), "base");
+  try {
+    const run = () =>
+      execFileSync("node", [script, "review", "--dry-run", "--out", base], { encoding: "utf8" });
+    const first = run();
+    assert.match(first, /round 1 would review/);
+    // Same answer every time, and no round directory left behind for `nextRound`
+    // to count.
+    assert.match(run(), /round 1 would review/);
+    assert.match(run(), /round 1 would review/);
+    assert.deepEqual(readdirSync(base), []);
+  } finally {
+    rmSync(path.dirname(base), { recursive: true, force: true });
+  }
 });

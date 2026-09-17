@@ -664,6 +664,19 @@ function cmdReview(args) {
   if (notice) console.warn(`spec-to-pr: ${notice}`);
 
   const dir = path.join(base, `round-${round}`);
+  // A DRY RUN MUST NOT CONSUME A ROUND. Creating the directory here is what makes
+  // `nextRound` count it, so every `--dry-run` used to burn a round number and
+  // leave a directory holding a diff no lens ever read. Two probes of this
+  // command pushed a real round from 3 to 5, which then tripped the round bound.
+  // Everything below this point is read-only or reported, so the dry run reports
+  // from the same values the real run would use and writes none of them.
+  if (dryRun) {
+    const dryPrior = round > 1 ? priorFindingsFor(base, round) : [];
+    console.log(`[dry-run] round ${round} would review origin/main...HEAD via review-panel.mjs → ${dir}`);
+    if (dryPrior.length > 0) console.log(`[dry-run] carrying ${dryPrior.length} prior finding(s) from earlier rounds`);
+    if (args.rebuttals) console.log(`[dry-run] adjudicating rebuttals from ${path.resolve(args.rebuttals)}`);
+    return;
+  }
   mkdirSync(dir, { recursive: true });
   const diffFile = path.join(dir, "pr.diff");
   const changedFile = path.join(dir, "changed.txt");
@@ -704,12 +717,6 @@ function cmdReview(args) {
   const rebuttals = args.rebuttals ? path.resolve(String(args.rebuttals)) : null;
   if (rebuttals && !existsSync(rebuttals)) return fail(`--rebuttals file not found: ${rebuttals}`);
 
-  if (dryRun) {
-    console.log(`[dry-run] round ${round} would review ${diffFile} via review-panel.mjs → ${outDir}`);
-    if (prior.length > 0) console.log(`[dry-run] carrying ${prior.length} prior finding(s) from earlier rounds`);
-    if (rebuttals) console.log(`[dry-run] adjudicating rebuttals from ${rebuttals}`);
-    return;
-  }
   console.log(`spec-to-pr: self-review round ${round} on ${branch} → ${outDir}`);
   if (prior.length > 0) console.log(`carrying ${prior.length} prior finding(s) forward`);
   try {
