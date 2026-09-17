@@ -175,6 +175,25 @@ jobs:
           # `build:all` — a `VITE_` variable in the environment outranks every
           # `.env*` file, including `packages/documentation/.env.production`.
           VITE_GA_ID: ${{ vars.VITE_GA_ID }}
+          # Optional, and deliberately so for exactly the reason above: unset
+          # means `Sentry.init` is never called (`src/sentry.ts`), so a fork
+          # that enables this workflow reports nobody's errors into
+          # wafflebase's Sentry organization. `vars`, not `secrets` — a DSN
+          # ships inside the public bundle and authorizes only writing events
+          # into its own project, so keeping it readable in the run log is
+          # worth more than pretending it is a secret.
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
+          VITE_SENTRY_TRACES_SAMPLE_RATE: ${{ vars.VITE_SENTRY_TRACES_SAMPLE_RATE }}
+          # `secrets`, unlike every value above it, and no `VITE_` prefix: this
+          # one IS a credential and must never reach the bundle. Its presence
+          # is the whole switch for source maps — with it, `vite.config.ts`
+          # emits them, uploads them so stack traces de-minify, and deletes
+          # them from `dist` before this job publishes the directory. Without
+          # it (every fork), the build is unchanged and nothing fails.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
         run: |
           missing=""
           [ -n "$VITE_BACKEND_API_URL" ] || missing="$missing VITE_BACKEND_API_URL"

@@ -171,6 +171,30 @@ WAFFLEBASE_KAFKA_ADDRESSES=             # Optional, comma-separated Kafka
 WAFFLEBASE_KAFKA_TOPIC=                 # Optional, Kafka topic for view
                                         # events. Unset disables analytics
                                         # ingestion.
+SENTRY_DSN=                             # Optional. Unset — the default —
+                                        # means `Sentry.init` is never called
+                                        # (`src/instrument.ts`): no handlers
+                                        # installed, no network egress, no
+                                        # behavior change. Set it to your own
+                                        # project's DSN to report unhandled
+                                        # exceptions and request traces.
+                                        # Nothing here is specific to
+                                        # wafflebase's own Sentry org, and no
+                                        # DSN is baked in as a default — a
+                                        # self-host must not report its users'
+                                        # errors to somebody else.
+SENTRY_ENVIRONMENT=                     # Optional, the `environment` tag on
+                                        # every event. Defaults to NODE_ENV.
+SENTRY_RELEASE=                         # Optional, the `release` tag. Set it
+                                        # to the same string the frontend
+                                        # build used (its root package.json
+                                        # version) and one deploy's frontend
+                                        # and backend events line up.
+SENTRY_TRACES_SAMPLE_RATE=0.1           # Optional, 0..1. Anything outside that
+                                        # range, or unparseable, falls back to
+                                        # 0.1 rather than to 1.0 — a typo must
+                                        # not become "sample everything".
+                                        # Only read when SENTRY_DSN is set.
 WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # (`user:pass@tcp(host:port)/db`) for
                                         # the analytics warehouse query path.

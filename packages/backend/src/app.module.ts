@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
@@ -121,12 +122,26 @@ import { TemplateModule } from './template/template.module';
     NotificationModule,
     LakehouseModule,
     TemplateModule,
+    // Wires the SDK that `instrument.ts` already initialized into Nest's
+    // lifecycle, so spans carry the handler that produced them. A no-op when
+    // no `SENTRY_DSN` was configured — `Sentry.init` was never called, and the
+    // module has nothing to attach to.
+    SentryModule.forRoot(),
   ],
   controllers: [],
   providers: [
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      // This backend had no global exception filter, so nothing is displaced.
+      // `SentryGlobalFilter` reports and then delegates to Nest's default
+      // handling, and deliberately does not report `HttpException`s — the 404s
+      // and 403s this codebase throws for ordinary refusals are decisions, not
+      // failures, and would otherwise bury the real crashes.
+      provide: APP_FILTER,
+      useClass: SentryGlobalFilter,
     },
   ],
 })

@@ -16,6 +16,7 @@ import path from "path";
 // `frontend:test` or `frontend:build` at all. A relative specifier is bundled
 // by esbuild instead, so any Node 22 works.
 import { debugReportPlugin } from "../debug-report/src/plugin/index.ts";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { loadEnv, type Plugin, type Connect } from "vite";
@@ -31,6 +32,30 @@ const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
 const rootPkg = JSON.parse(
   readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"),
 ) as { version: string };
+
+/**
+ * Whether this build should generate source maps and push them to Sentry.
+ *
+ * Keyed on `SENTRY_AUTH_TOKEN` alone — NOT on the DSN. The token is the only
+ * one of the three values that is a real secret, it exists only where a
+ * release is actually being published (CI), and a contributor who has none
+ * must get today's build exactly: no `.map` files emitted, no upload
+ * attempted, no failure. `SENTRY_ORG`/`SENTRY_PROJECT` default to this repo's
+ * own, so CI needs to set only the token.
+ *
+ * Plain `process.env` reads rather than `loadEnv`: these configure the
+ * uploader at build time, they are not `VITE_`-prefixed values destined for
+ * the bundle.
+ */
+const sentryUpload = {
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  enabled: Boolean(process.env.SENTRY_AUTH_TOKEN),
+  // `||`, not `??`. GitHub Actions passes an unset `vars.*` through as the
+  // EMPTY STRING rather than leaving the variable absent, and `??` would let
+  // that empty string past and hand the uploader `org: ""`.
+  org: process.env.SENTRY_ORG || "wafflebase",
+  project: process.env.SENTRY_PROJECT || "wafflebase",
+};
 
 /**
  * Replaces the `<!--GA_SNIPPET-->` marker in index.html with the GA4
@@ -304,6 +329,35 @@ export default defineConfig({
         }) as Connect.NextHandleFunction);
       },
     },
+    // Last, as @sentry/vite-plugin requires. Present only when the build
+    // environment carries a token — see `sentryUpload` above.
+    //
+    // An upload failure is NOT fatal to the build (verified: a bad token logs
+    // a 401 and the build still succeeds). That is the right trade for a
+    // deploy pipeline — Sentry being unreachable must not stop a release —
+    // but it does mean an expired token degrades silently to minified stack
+    // traces. If traces come back unreadable, read the deploy log rather than
+    // assuming the config here is wrong.
+    ...(sentryUpload.enabled
+      ? [
+          sentryVitePlugin({
+            org: sentryUpload.org,
+            project: sentryUpload.project,
+            authToken: sentryUpload.authToken,
+            release: { name: rootPkg.version },
+            // We already send this org our errors; we did not agree to also
+            // send it timings for our builds.
+            telemetry: false,
+            sourcemaps: {
+              // Upload the maps, then remove them from `dist`. Without this
+              // the GitHub Pages deploy would publish this app's un-minified
+              // source next to the bundle it belongs to. Verified to run even
+              // when the upload itself fails, so a bad token leaks no source.
+              filesToDeleteAfterUpload: ["./dist/**/*.map"],
+            },
+          }),
+        ]
+      : []),
   ],
   server: {
     proxy: {
@@ -364,6 +418,10 @@ export default defineConfig({
     },
   },
   build: {
+    // Generated only for the upload, and deleted from `dist` right after it.
+    // Off otherwise, so an ordinary `pnpm frontend build` produces exactly
+    // what it always has.
+    sourcemap: sentryUpload.enabled,
     rollupOptions: {
       output: {
         manualChunks,

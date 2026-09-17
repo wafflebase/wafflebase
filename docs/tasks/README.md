@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sentry error tracking (2026-09-17) | [20260917-sentry-error-tracking-todo.md](./active/20260917-sentry-error-tracking-todo.md) | [20260917-sentry-error-tracking-lessons.md](./active/20260917-sentry-error-tracking-lessons.md) |
 | nav guard unsent edits (2026-09-16) | [20260916-nav-guard-unsent-edits-todo.md](./active/20260916-nav-guard-unsent-edits-todo.md) | [20260916-nav-guard-unsent-edits-lessons.md](./active/20260916-nav-guard-unsent-edits-lessons.md) |
 | google oauth login (2026-09-15) | [20260915-google-oauth-login-todo.md](./active/20260915-google-oauth-login-todo.md) | [20260915-google-oauth-login-lessons.md](./active/20260915-google-oauth-login-lessons.md) |
 | cli templates command (2026-09-14) | [20260914-cli-templates-command-todo.md](./active/20260914-cli-templates-command-todo.md) | [20260914-cli-templates-command-lessons.md](./active/20260914-cli-templates-command-lessons.md) |
@@ -57,4 +58,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 604
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: nav guard unsent edits (2026-09-16)
+Latest active task: sentry error tracking (2026-09-17)
