@@ -1,8 +1,8 @@
-import type { FreeformPath, ShapeElement, ShapeKind, TextInset } from '../../model/element';
+import type { FreeformPath, ShapeElement, ShapeKind, Stroke, TextInset } from '../../model/element';
 import { applyShade, representativeColor, resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
 import { drawArrowhead } from './arrowhead-renderer';
-import { resolveFillStyle, resolveStrokeColor } from './render-context';
+import { dashArray, resolveFillStyle, resolveStrokeColor } from './render-context';
 import {
   FACE_BUILDERS,
   LEADER_BUILDERS,
@@ -219,10 +219,7 @@ export function drawShape(
   if (faceBuilder) {
     paintFaces(ctx, faceBuilder(size, data.adjustments), data, theme);
     if (data.stroke) {
-      ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
-      ctx.lineWidth = data.stroke.width;
-      ctx.lineJoin = 'round';
-      ctx.stroke(builder(size, data.adjustments));
+      strokeShapePath(ctx, data.stroke, builder(size, data.adjustments), theme);
     }
     return;
   }
@@ -237,11 +234,32 @@ export function drawShape(
   // top of the filled body, matching the OOXML two-path geometry.
   const leaderBuilder = LEADER_BUILDERS.get(data.kind);
   if (leaderBuilder && data.stroke) {
-    ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
-    ctx.lineWidth = data.stroke.width;
-    ctx.lineJoin = 'round';
-    ctx.stroke(leaderBuilder(size, data.adjustments));
+    strokeShapePath(ctx, data.stroke, leaderBuilder(size, data.adjustments), theme);
   }
+}
+
+/**
+ * Stroke `path` with a shape's {@link Stroke}: color, width, round joins
+ * (they keep concave corners — plus / mathPlus inner notches — from
+ * sprouting miter spikes) and the dash pattern.
+ *
+ * The dash is reset to continuous afterward. That reset is load-bearing,
+ * not hygiene: `element-renderer` paints a shape's inline text inside the
+ * same `save()` scope as its geometry, so a leaked pattern would dash the
+ * text's underline and strikethrough.
+ */
+function strokeShapePath(
+  ctx: CanvasRenderingContext2D,
+  stroke: Stroke,
+  path: Path2D,
+  theme: Theme,
+): void {
+  ctx.strokeStyle = resolveStrokeColor(stroke.color, theme);
+  ctx.lineWidth = stroke.width;
+  ctx.lineJoin = 'round';
+  ctx.setLineDash(dashArray(stroke.dash));
+  ctx.stroke(path);
+  ctx.setLineDash([]);
 }
 
 type Pt = { x: number; y: number };
@@ -375,9 +393,7 @@ function paintFaces(
  * maps `data.fill`/`data.stroke` onto the canvas for every Path2D-based
  * kind (parametric and freeform). `skipFill` suppresses the auto-closing
  * fill for open-path kinds (brackets/braces); `fillRule` selects even-odd
- * winding for kinds with real holes (donut/noSmoking). Round joins keep
- * concave corners (e.g. plus / mathPlus inner notches) from sprouting
- * miter spikes.
+ * winding for kinds with real holes (donut/noSmoking).
  */
 function paintFillStroke(
   ctx: CanvasRenderingContext2D,
@@ -401,10 +417,7 @@ function paintFillStroke(
     ctx.fill(path, opts?.fillRule ?? 'nonzero');
   }
   if (data.stroke) {
-    ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
-    ctx.lineWidth = data.stroke.width;
-    ctx.lineJoin = 'round';
-    ctx.stroke(opts?.strokePath ?? path);
+    strokeShapePath(ctx, data.stroke, opts?.strokePath ?? path, theme);
   }
 }
 
@@ -421,7 +434,9 @@ function drawPlaceholderRect(
   if (data.stroke) {
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
+    ctx.setLineDash(dashArray(data.stroke.dash));
     ctx.strokeRect(0, 0, w, h);
+    ctx.setLineDash([]);
   }
 }
 

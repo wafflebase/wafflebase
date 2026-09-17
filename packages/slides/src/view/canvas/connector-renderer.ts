@@ -1,7 +1,7 @@
 import type { ConnectorElement } from '../../model/connector';
 import type { Element } from '../../model/element';
 import { type Theme } from '../../model/theme';
-import { resolveStrokeColor } from './render-context';
+import { dashArray, resolveStrokeColor } from './render-context';
 import { drawArrowhead } from './arrowhead-renderer';
 import { buildConnectorPath } from './connector-frame';
 import { type BezierPath, type Point, isBezierPath } from './routing';
@@ -32,6 +32,7 @@ export function drawConnector(
 
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = stroke.width;
+  ctx.setLineDash(dashArray(stroke.dash));
   ctx.beginPath();
   if (isBezierPath(path)) {
     ctx.moveTo(path.p0.x, path.p0.y);
@@ -43,6 +44,11 @@ export function drawConnector(
     }
   }
   ctx.stroke();
+  // Reset before the arrowheads: they are solid triangles regardless of
+  // the line's dash, and `element-renderer` calls us with no surrounding
+  // save()/restore(), so a leaked pattern would reach every element
+  // painted after this connector.
+  ctx.setLineDash([]);
 
   // Arrowheads use the path-local tangent at each endpoint, pointing AWAY
   // from the connector body so the triangle's tip lands on the endpoint
