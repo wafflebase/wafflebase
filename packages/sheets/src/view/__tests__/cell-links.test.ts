@@ -13,9 +13,14 @@ function urls(text: string): Array<string> {
 
 describe('detectLinks', () => {
   describe('the cells this feature exists for', () => {
-    // Taken from the sprint-planning sheet measured in
+    // The shapes measured on the sprint-planning sheet in
     // docs/tasks/active/20260917-sheets-cell-link-spans-todo.md, where one
     // screen held 9 URLs and the old whole-cell rule linked 2 of them.
+    //
+    // Hosts are RFC 2606 reserved names, not the ones observed: a fixture
+    // needs the *shape* — a label before the URL, a version suffix inside the
+    // path, several URLs in one value — and a public repository should not
+    // carry another organisation's internal hostnames or document ids.
 
     it('links a URL that follows a label', () => {
       const text = '- PR: https://git.example.com/acme/web/pull/2466';

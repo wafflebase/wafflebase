@@ -50,6 +50,24 @@ from the middle of a word and opened a destination nobody typed.
 **Rule:** when a scan bound exists for cost reasons, hitting it means "I could
 not read this," not "here is what I read." Reject.
 
+## A fixture taken from a real document carries more than its shape
+
+The detector's fixtures were pasted from the live sheet that motivated the
+work, because using real strings is how you stop a test from quietly drifting
+away from what people actually type. But a fixture is source code in a public
+repository, and those strings carried another organisation's internal
+hostnames and two real document ids — neither of which any assertion needed.
+What the tests are about is the *shape*: a label before the URL, a version
+suffix inside the path, several URLs in one value.
+
+**Rule:** when a fixture comes from a real document, keep the shape and
+replace the identifiers before committing — RFC 2606 reserved names
+(`example.com`) and synthetic ids. Check the same strings did not reach the
+commit message, the design doc, or the PR body, since scrubbing the file
+leaves those untouched. And if it has already been pushed, the tip is not
+enough: the history has to be rewritten, which the merge queue's squash will
+not do for you.
+
 ## "Derive the hit target from the paint" is only true if you know the whole clip
 
 The design's good idea was recording hit boxes while painting, so geometry
