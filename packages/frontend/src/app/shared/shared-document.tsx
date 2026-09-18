@@ -3,7 +3,8 @@ import {
   isJumpableSheetTab,
   type UndoJumpTarget,
 } from "@/app/spreadsheet/undo-jump";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, useDocument } from "@yorkie-js/react";
@@ -101,7 +102,7 @@ type PeerJumpTarget = {
  */
 const SHARE_LINK_REVALIDATE_MS = 60_000;
 
-const DataSourceView = lazy(() =>
+const DataSourceView = lazyWithRetry(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
     default: module.DataSourceView,
   })),
@@ -149,19 +150,19 @@ function SharedLakehouseUnavailable() {
 // Slides editor + @wafflebase/slides bundle is heavy (see
 // `slides-detail-*` chunk override in harness.config.json). Lazy-load
 // it so non-slides share links don't pay the cost.
-const SlidesView = lazy(() =>
+const SlidesView = lazyWithRetry(() =>
   import("@/app/slides/slides-view").then((module) => ({
     default: module.SlidesView,
   })),
 );
 
-const SlidesToolbar = lazy(() =>
+const SlidesToolbar = lazyWithRetry(() =>
   import("@/app/slides/toolbar").then((module) => ({
     default: module.SlidesToolbar,
   })),
 );
 
-const MobileSlidesView = lazy(() =>
+const MobileSlidesView = lazyWithRetry(() =>
   import("@/app/slides/mobile-slides-view").then((module) => ({
     default: module.MobileSlidesView,
   })),
@@ -170,7 +171,7 @@ const MobileSlidesView = lazy(() =>
 // Board reuses the same heavy @wafflebase/slides editor bundle as an
 // infinite canvas (see board-view.tsx). Lazy-load it for the same reason
 // as SlidesView — non-board share links shouldn't pay the cost.
-const BoardView = lazy(() =>
+const BoardView = lazyWithRetry(() =>
   import("@/app/board/board-view").then((module) => ({
     default: module.BoardView,
   })),
@@ -178,19 +179,19 @@ const BoardView = lazy(() =>
 
 // Right-side editing panels. Lazy-loaded so non-slides share links (and
 // read-only slides viewers) don't pull the slides editing chunk.
-const ThemePanel = lazy(() =>
+const ThemePanel = lazyWithRetry(() =>
   import("@/app/slides/theme-panel").then((module) => ({
     default: module.ThemePanel,
   })),
 );
 
-const FormatPanel = lazy(() =>
+const FormatPanel = lazyWithRetry(() =>
   import("@/app/slides/format-panel").then((module) => ({
     default: module.FormatPanel,
   })),
 );
 
-const MotionPanel = lazy(() =>
+const MotionPanel = lazyWithRetry(() =>
   import("@/app/slides/motion-panel").then((module) => ({
     default: module.MotionPanel,
   })),
@@ -902,7 +903,7 @@ const IMAGE_RESOLVER_INSTALLERS = new Map<
  * created in a passive effect gated on `didMount` (see docs-view) inside a
  * *child* of this component, and a child's passive effect still runs after
  * every layout effect, this one included; and the sheets image layer is behind
- * `lazy()`, so its chunk cannot resolve before this commit
+ * `lazyWithRetry()`, so its chunk cannot resolve before this commit
  * ends. So the token is in place before the first image load and no un-tokened
  * 403 is fired. Cleanup clears the singleton on unmount and pairs correctly
  * with StrictMode's dev mount→cleanup→remount.

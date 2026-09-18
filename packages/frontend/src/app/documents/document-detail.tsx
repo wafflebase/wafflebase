@@ -7,9 +7,9 @@ import {
   useEffect,
   useRef,
   useMemo,
-  lazy,
   Suspense,
 } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
@@ -73,33 +73,33 @@ import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { PreviewSurface } from "@/components/history/preview-surface";
 
-const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
+const SheetView = lazyWithRetry(() => import("@/app/spreadsheet/sheet-view"));
 // Lazy: `revision-preview.tsx` statically imports all three of
 // @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
 // whichever engine a preview needs), so an eager import here would pull the
 // other two engines' editors into this sheet route's own chunk for a
 // feature almost never opened. See the other three `*-detail.tsx` files.
-const RevisionPreviewOverlay = lazy(() =>
+const RevisionPreviewOverlay = lazyWithRetry(() =>
   import("@/components/history/revision-preview").then((module) => ({
     default: module.RevisionPreviewOverlay,
   })),
 );
-const DataSourceView = lazy(() =>
+const DataSourceView = lazyWithRetry(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
     default: module.DataSourceView,
   })),
 );
-const LakehouseView = lazy(() =>
+const LakehouseView = lazyWithRetry(() =>
   import("./lakehouse-feature").then((module) => ({
     default: module.LakehouseView,
   })),
 );
-const DataSourceSelector = lazy(() =>
+const DataSourceSelector = lazyWithRetry(() =>
   import("@/components/datasource-selector").then((module) => ({
     default: module.DataSourceSelector,
   })),
 );
-const LakehouseSelector = lazy(() =>
+const LakehouseSelector = lazyWithRetry(() =>
   import("./lakehouse-feature").then((module) => ({
     default: module.LakehouseSelector,
   })),

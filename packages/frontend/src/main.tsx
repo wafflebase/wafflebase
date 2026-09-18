@@ -29,7 +29,7 @@ createRoot(document.getElementById("root")!).render(
         boundary anywhere — and there was none — a render throw unmounts the
         whole tree and leaves the user on a blank page. Reporting needs a DSN;
         the fallback renders either way. */}
-    <ErrorBoundary fallback={<AppCrashFallback />}>
+    <ErrorBoundary fallback={({ error }) => <AppCrashFallback error={error} />}>
       <App />
     </ErrorBoundary>
   </StrictMode>

@@ -1,7 +1,8 @@
 import { useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -38,7 +39,7 @@ import { CollabDocumentProvider } from "@/components/collab-document-provider";
 // statically imports every engine it might have to mount (sheets, slides,
 // notes and docs), so an eager import here would pull the other three into
 // this route's chunk for a feature almost never opened.
-const RevisionPreviewOverlay = lazy(() =>
+const RevisionPreviewOverlay = lazyWithRetry(() =>
   import("@/components/history/revision-preview").then((module) => ({
     default: module.RevisionPreviewOverlay,
   })),

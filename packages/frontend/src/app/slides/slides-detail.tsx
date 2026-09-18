@@ -1,7 +1,8 @@
 import { createDocumentSelector } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -62,7 +63,7 @@ import { CollabDocumentProvider } from "@/components/collab-document-provider";
 // whichever engine a preview needs), so an eager import here would pull the
 // other two engines into this slides route's own chunk for a feature almost
 // never opened.
-const RevisionPreviewOverlay = lazy(() =>
+const RevisionPreviewOverlay = lazyWithRetry(() =>
   import("@/components/history/revision-preview").then((module) => ({
     default: module.RevisionPreviewOverlay,
   })),

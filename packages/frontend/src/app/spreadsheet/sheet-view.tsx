@@ -20,7 +20,6 @@ import {
 import {
   type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -29,6 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
@@ -100,32 +100,32 @@ function isDefaultLikeStyle(style: CellStyle | undefined): boolean {
   );
 }
 
-const ChartObjectLayer = lazy(() =>
+const ChartObjectLayer = lazyWithRetry(() =>
   import("./chart-object-layer").then((module) => ({
     default: module.ChartObjectLayer,
   })),
 );
-const ChartEditorPanel = lazy(() =>
+const ChartEditorPanel = lazyWithRetry(() =>
   import("./chart-editor-panel").then((module) => ({
     default: module.ChartEditorPanel,
   })),
 );
-const ConditionalFormatPanel = lazy(() =>
+const ConditionalFormatPanel = lazyWithRetry(() =>
   import("./conditional-format-panel").then((module) => ({
     default: module.ConditionalFormatPanel,
   })),
 );
-const DataValidationPanel = lazy(() =>
+const DataValidationPanel = lazyWithRetry(() =>
   import("./data-validation-panel").then((module) => ({
     default: module.DataValidationPanel,
   })),
 );
-const PivotEditorPanel = lazy(() =>
+const PivotEditorPanel = lazyWithRetry(() =>
   import("./pivot/pivot-editor-panel").then((module) => ({
     default: module.PivotEditorPanel,
   })),
 );
-const ImageObjectLayer = lazy(() =>
+const ImageObjectLayer = lazyWithRetry(() =>
   import("./image-object-layer").then((module) => ({
     default: module.ImageObjectLayer,
   })),
