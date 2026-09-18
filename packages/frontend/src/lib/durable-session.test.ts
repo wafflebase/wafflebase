@@ -6,6 +6,7 @@ import {
   supportsDurableSession,
   setDurableLockForTest,
   resetElectionsForTest,
+  resetDeviceSecretForTest,
   isOpenInAnyTab,
   type DurableLock,
 } from "./durable-session";
@@ -82,10 +83,34 @@ describe("names", () => {
   it("scopes the client key to the document, not just the user", () => {
     // Per-document keeps each document on its own server-side client row, so
     // one tab's detach cannot disturb another tab holding a different document.
-    expect(durableClientKey("u1", "note-7")).toBe("wb:u1:note-7");
+    expect(durableClientKey("u1", "note-7")).toContain(":u1:note-7");
     expect(durableClientKey("u1", "note-8")).not.toBe(
       durableClientKey("u1", "note-7"),
     );
+  });
+
+  it("is not derivable from the user and the document alone", () => {
+    // Yorkie authorizes `ActivateClient`/`DeactivateClient` on token validity
+    // alone — the auth webhook gates documents, not client rows. Both public
+    // ingredients are known to any workspace peer (`userId` is the sequential
+    // member id, `docKey` carries the id in the URL), so a derivable key lets
+    // one member take over or repeatedly tear down another's per-document
+    // client.
+    expect(durableClientKey("u1", "note-7")).not.toBe("wb:u1:note-7");
+
+    // A different device answers differently for the very same inputs, which
+    // is what "not derivable" means here.
+    const here = durableClientKey("u1", "note-7");
+    resetDeviceSecretForTest();
+    expect(durableClientKey("u1", "note-7")).not.toBe(here);
+  });
+
+  it("keeps the same key across reloads of this device", () => {
+    // The whole point of a stable key: the SDK's store is scoped
+    // `apiKey/clientKey/docKey`, so a key minted per session resumes nothing.
+    resetDeviceSecretForTest();
+    const first = durableClientKey("u1", "note-7");
+    expect(durableClientKey("u1", "note-7")).toBe(first);
   });
 });
 

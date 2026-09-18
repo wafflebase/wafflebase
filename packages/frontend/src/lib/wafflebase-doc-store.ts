@@ -900,7 +900,17 @@ export class WafflebaseDocStore implements DocStore {
       purged += 1;
     }
     if (options.archives === "drop") {
-      await this.dropArchivesForDocument(documentId);
+      // Under the *same* guards as the live entries above, not beside them. An
+      // archive is the only copy of work the server never took, so the caller
+      // that deletes on an absence — the once-per-session reconcile — must not
+      // be able to drop one for a document its own guards just spared: a
+      // document another tab archived after the listing was taken is missing
+      // from that listing for no reason at all, and dropping it there destroys
+      // unsent work on no evidence whatsoever.
+      await this.dropArchivesForDocument(documentId, {
+        skipOpen: options.skipOpen,
+        updatedSince: options.updatedSince,
+      });
     }
     return purged;
   }
@@ -955,23 +965,51 @@ export class WafflebaseDocStore implements DocStore {
     return [...ids];
   }
 
-  /** Drops this user's archives for one document. */
-  private async dropArchivesForDocument(documentId: string): Promise<number> {
+  /**
+   * Drops this user's archives for one document.
+   *
+   * `skipOpen` and `updatedSince` are {@link purgeDocument}'s guards, applied
+   * here as well: an archive written after the caller's listing was taken, or
+   * one whose document some tab has open right now, is not evidence of lost
+   * access — and it is the only copy of work the server never took.
+   */
+  private async dropArchivesForDocument(
+    documentId: string,
+    options: { skipOpen?: boolean; updatedSince?: number } = {},
+  ): Promise<number> {
     const db = await this.open();
-    const tx = db.transaction(ARCHIVES, "readwrite");
-    const store = tx.objectStore(ARCHIVES);
+    const tx = db.transaction(ARCHIVES, "readonly");
     const rows = await requested<Array<ArchiveRecord>>(
-      store.index(BY_USER).getAll(this.userId),
+      tx.objectStore(ARCHIVES).index(BY_USER).getAll(this.userId),
     );
-    let dropped = 0;
+
+    // Decided before the write transaction, because the liveness question is
+    // asynchronous and an IndexedDB transaction that awaits anything but its
+    // own requests auto-commits out from under the rest of the loop.
+    const doomed: Array<number> = [];
     for (const row of rows) {
       if (row.id === undefined) continue;
       if (!this.isDocument(row.docKey, documentId)) continue;
-      store.delete(row.id);
-      dropped += 1;
+      if (
+        options.updatedSince !== undefined &&
+        row.archivedAt >= options.updatedSince
+      ) {
+        continue;
+      }
+      if (options.skipOpen && (await this.isLive(row.docKey))) continue;
+      doomed.push(row.id);
     }
-    await WafflebaseDocStore.completed(tx);
-    return dropped;
+    if (doomed.length === 0) {
+      return 0;
+    }
+
+    const write = db.transaction(ARCHIVES, "readwrite");
+    const store = write.objectStore(ARCHIVES);
+    for (const id of doomed) {
+      store.delete(id);
+    }
+    await WafflebaseDocStore.completed(write);
+    return doomed.length;
   }
 
   /**
@@ -1135,6 +1173,15 @@ export class WafflebaseDocStore implements DocStore {
     }
     for (const docKey of keys) {
       await this.purge(docKey);
+      // Marked for the reason `purgeDocument` and `dropAllForUser` mark, and it
+      // is not optional here either. `isLive` above is a best answer, not a
+      // proof: a client can attach between the question and the delete, and
+      // this instance is routinely not the one the SDK writes through. Without
+      // the mark, an append for a base collected out from under a live client
+      // finds no header and takes the contract's silent "no base" success — so
+      // every later edit goes nowhere while the chip still reports the document
+      // saved to this device.
+      this.evicted.add(docKey);
     }
 
     // On the same schedule, and across every account on this device: an
@@ -1213,15 +1260,18 @@ export class WafflebaseDocStore implements DocStore {
    * An orphan row is exactly the case with no header, so there is no recorded
    * `userId` to scope it by — and the key is the only attribution left. The
    * SDK's store key is `apiKey/clientKey/docKey` and the durable client key is
-   * `wb:{userId}:{docKey}`, so a mismatch here is a positive signal that the
-   * row is another account's.
+   * `wb:{deviceSecret}:{userId}:{docKey}`, so a mismatch in the *second*
+   * segment is a positive signal that the row is another account's. The secret
+   * is skipped over rather than read: it names a browser profile, not a person.
    *
    * Used only to **skip**, never to claim: a key that names nobody is left to
    * the ordinary rules, so the parse can only ever make this sweep do less.
    * That is the safe direction — the other account's own session collects it.
+   * A key written before the secret was introduced has one segment fewer and
+   * therefore matches nothing, which lands on exactly that safe default.
    */
   private belongsToAnotherUser(docKey: string): boolean {
-    const owner = /(?:^|\/)wb:([^:/]+):/.exec(docKey);
+    const owner = /(?:^|\/)wb:[^:/]+:([^:/]+):/.exec(docKey);
     return !!owner && owner[1] !== this.userId;
   }
 

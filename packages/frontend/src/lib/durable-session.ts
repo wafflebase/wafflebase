@@ -76,9 +76,91 @@ export function durableLockName(userId: string, docKey: string): string {
  * Scoped to the document rather than to the user, so each document gets its own
  * server-side client row and one tab's detach cannot disturb another tab
  * holding a different document.
+ *
+ * **Salted with a per-device secret, and that is not decoration.** Yorkie
+ * authorizes `ActivateClient` and `DeactivateClient` on token validity alone —
+ * the auth webhook gates documents, not client rows — so a key anybody can
+ * *derive* is one that anybody holding any valid token can activate or tear
+ * down. Both of the obvious ingredients are public to a workspace peer:
+ * `userId` is the sequential id every member list carries, and `docKey` is
+ * `sheet-<documentId>` with the id sitting in the URL. A bare
+ * `wb:{userId}:{docKey}` was therefore guessable by exactly the people best
+ * placed to use it, who could take over or repeatedly deactivate another
+ * member's per-document client and strand the durable session this feature
+ * depends on.
+ *
+ * The user and the document stay in the key — they keep the per-document
+ * scoping above and make a server-side client list readable — and the secret is
+ * what makes the whole thing unguessable.
  */
 export function durableClientKey(userId: string, docKey: string): string {
-  return `wb:${userId}:${docKey}`;
+  return `wb:${deviceSecret()}:${userId}:${docKey}`;
+}
+
+/**
+ * Where this device's client-key secret lives.
+ *
+ * `localStorage` rather than memory, because the key's whole purpose is to be
+ * the *same* one after a reload: the SDK's store is scoped
+ * `apiKey/clientKey/docKey`, so a key that changes per session resumes nothing.
+ * Clearing site data mints a new one and orphans whatever was written under the
+ * old, which the thirty-day sweep collects — the same outcome as clearing the
+ * database itself, and the direction that costs storage rather than safety.
+ */
+const DEVICE_SECRET_KEY = "wafflebase-durable-device";
+
+/** This session's secret, for a browser that will not hold one. */
+let volatileSecret: string | undefined;
+
+function randomSecret(): string {
+  const bytes = new Uint8Array(8);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    // Not reachable in a browser that can hold a durable session at all —
+    // `navigator.locks` and `crypto` are both secure-context APIs — but a weak
+    // secret is still strictly better than a derivable one.
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * A stable random id for this browser profile, minted once.
+ *
+ * Opaque and content-free: it names no user and no document, it is never sent
+ * anywhere on its own, and it exists purely so the client key above cannot be
+ * *derived* by somebody who knows who you are and what you are editing.
+ */
+function deviceSecret(): string {
+  try {
+    const stored = localStorage.getItem(DEVICE_SECRET_KEY);
+    if (stored) {
+      return stored;
+    }
+    const minted = randomSecret();
+    localStorage.setItem(DEVICE_SECRET_KEY, minted);
+    return minted;
+  } catch {
+    // Storage refused (private mode, blocked third-party storage). A key that
+    // does not survive a reload costs this device its resume; a guessable one
+    // would cost every device its client row — so an unguessable
+    // session-scoped secret is the right way to fail here.
+    volatileSecret ??= randomSecret();
+    return volatileSecret;
+  }
+}
+
+/** Forgets the minted device secret. Test-only. */
+export function resetDeviceSecretForTest(): void {
+  volatileSecret = undefined;
+  try {
+    localStorage.removeItem(DEVICE_SECRET_KEY);
+  } catch {
+    // Nothing stored to forget.
+  }
 }
 
 /** The Web Locks API, shaped as a {@link DurableLock}. */

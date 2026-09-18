@@ -140,7 +140,7 @@ function PresenceIdentityRepair<P extends Indexable>({
  * seam every editor passes through — all five detail routes and
  * `files/pdf-collab.tsx` render it. When the opt-in applies and this tab won
  * the election, it nests its own `YorkieProvider`: a client keyed
- * `wb:{userId}:{docKey}`, with the IndexedDB store attached.
+ * `wb:{deviceSecret}:{userId}:{docKey}`, with the IndexedDB store attached.
  *
  * Otherwise it renders exactly what it always did, on the ambient
  * session-wide client. That is what keeps the opt-in free for everyone who
@@ -190,6 +190,29 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
     // Absent on a public route, where this simply falls back to asking.
     initialData: () => queryClient.getQueryData<User>(['me']),
   });
+  /**
+   * The last identity this query actually resolved to somebody.
+   *
+   * `fetchMeOptional` answers `null` for a session the server no longer
+   * accepts, and React Query refetches on window focus — so a cookie that
+   * expires while an editor sits open turns `me` from a user into `null` under
+   * a mounted durable client. Read live, that is a teardown: the subject moves
+   * to `anon:`, the decision below is discarded, and the `DurableYorkieProvider`
+   * is swapped for the ambient branch at the same position — which unmounts the
+   * `DocumentProvider` and the whole editor under it, discarding the in-memory
+   * Yorkie change queue. An expired session is *precisely* when that queue holds
+   * work the server has not taken, so the feature would cause the loss it exists
+   * to prevent, on an event the user neither chose nor can see.
+   *
+   * So a resolved identity is remembered and a `null` changes nothing. Somebody
+   * *else* signing in is a different fact and still re-decides: that arrives as
+   * a new user object, not as an absence.
+   */
+  const lastKnown = useRef<User | undefined>(undefined);
+  if (me) {
+    lastKnown.current = me;
+  }
+  const person = me ?? lastKnown.current;
   const docKey = (rest as { docKey: string }).docKey;
   const offlineEnabled = useOfflinePersistenceEnabled();
   const permitted = useDurabilityPermitted();
@@ -202,7 +225,7 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
 
   const { durable, clientKey, settled, standDown } = useDurableDocument({
     docKey,
-    userId: me?.id === undefined ? undefined : String(me.id),
+    userId: person?.id === undefined ? undefined : String(person.id),
   });
 
   /**
@@ -230,7 +253,7 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
    * other part of this feature is scoped to avoid. So the identity is part of
    * the subject, and changing it re-decides.
    */
-  const subject = `${me?.id ?? 'anon'}:${docKey}`;
+  const subject = `${person?.id ?? 'anon'}:${docKey}`;
   const held = useRef<{
     subject: string;
     durable: boolean;
@@ -245,6 +268,17 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   const ready = settled && identified;
   if (ready && held.current?.subject !== subject) {
     held.current = { subject, durable, clientKey };
+    // A stand-down belongs to the subject it was made for, and is discarded
+    // with it. Latched forever, it outlives its own reason: the hook re-runs
+    // its election for the new subject and can win it, so this component would
+    // *hold the lock* — denying durability to every other tab — while refusing
+    // to mount the client the lock was taken for. That is the exact state
+    // standing down exists to escape, made permanent. React allows this
+    // render-phase update because it is this component's own state, and the
+    // condition is false on the immediate re-render it schedules.
+    if (stoodDown !== null) {
+      setStoodDown(null);
+    }
   }
   const decided =
     held.current?.subject === subject && stoodDown !== subject
@@ -302,18 +336,21 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
     return null;
   }
 
-  if (!decided?.durable || !decided.clientKey || !me) {
+  // `person`, never the live `me` — see `lastKnown` above. A refetch that
+  // answers `null` must not be able to swap this branch for the other one under
+  // a mounted client.
+  if (!decided?.durable || !decided.clientKey || !person) {
     return inner;
   }
 
   return (
     <DurableYorkieProvider
       clientKey={decided.clientKey}
-      userId={String(me.id)}
+      userId={String(person.id)}
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
       metadata={{
-        userID: encodeURIComponent(me.username || 'anonymous-user'),
+        userID: encodeURIComponent(person.username || 'anonymous-user'),
       }}
       authTokenInjector={fetchYorkieToken}
       // The app elects a tab before the SDK's own lock is reached, so this

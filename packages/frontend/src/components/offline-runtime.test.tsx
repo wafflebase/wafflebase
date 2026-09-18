@@ -174,12 +174,37 @@ describe('on mount', () => {
     expect(purgeRevokedOfflineDocuments).not.toHaveBeenCalled();
   });
 
-  it('keeps sweeping when the reconcile fails', async () => {
+  it('offers nothing back when the reconcile could not run', async () => {
+    // Recovery does not hand work back to an editor: it materializes an
+    // archive — a full snapshot of a document — as a new server-side document
+    // owned by whoever is signed in. The reconcile is the only thing on this
+    // device that knows an archive belongs to a workspace the user has since
+    // been removed from; every other purge runs on the device of whoever made
+    // the request. Offering anyway when it failed is how content the user may
+    // no longer read gets copied back into their own workspace with their name
+    // on it — and offline, where this feature is meant to be used, is exactly
+    // when the listing fails.
     fetchDocuments.mockRejectedValue(new Error('offline'));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
     render(<OfflineRuntime userId="42" />);
+
+    await waitFor(() => expect(collectStale).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(listRecoverableWork).not.toHaveBeenCalled();
+    expect(toastWarning).not.toHaveBeenCalled();
+    // The sweep before it still ran — declining to offer is not declining to
+    // clean up.
+    expect(collectStale).toHaveBeenCalled();
+  });
+
+  it('offers it back once access has been reconciled', async () => {
+    // The declined offer is made again next session, so the cost of waiting
+    // for a reconcile is a delay and nothing else.
+    listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
+    render(<OfflineRuntime userId="42" />);
     await waitFor(() => expect(toastWarning).toHaveBeenCalled());
+    expect(purgeRevokedOfflineDocuments).toHaveBeenCalled();
   });
 
   it('offers work that could not be saved, without creating anything', async () => {

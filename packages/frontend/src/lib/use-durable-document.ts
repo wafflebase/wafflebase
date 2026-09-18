@@ -50,7 +50,7 @@ function isExcluded(docKey: string): boolean {
  * "structural" on the belief that share routes mount their own provider
  * *instead of* `CollabDocumentProvider` — they do not, they mount one *above*
  * it, so a signed-in visitor on somebody's share link would otherwise get the
- * durable branch: their own `wb:{userId}:{docKey}` client, re-authenticated
+ * durable branch: their own `wb:…:{userId}:{docKey}` client, re-authenticated
  * with their personal Yorkie token rather than the share token whose role and
  * expiry the auth webhook validates, writing the shared document's content to
  * their disk where it outlives the link's revocation.

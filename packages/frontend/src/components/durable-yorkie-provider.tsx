@@ -51,7 +51,7 @@ const KeyedYorkieProvider = YorkieProvider as React.FC<
 >;
 
 export interface DurableYorkieProviderProps {
-  /** The stable per-document client key, `wb:{userId}:{docKey}`. */
+  /** The stable per-document client key, `wb:{deviceSecret}:{userId}:{docKey}`. */
   clientKey: string;
   /** Whose entries these are, for logout's sake. */
   userId: string;

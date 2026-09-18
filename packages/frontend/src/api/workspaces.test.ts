@@ -48,16 +48,34 @@ beforeEach(() => {
 
 describe("deleteWorkspace", () => {
   it("purges the documents it listed before the workspace was deleted", async () => {
-    // Listed first, because afterwards the server has nothing to list.
-    mockFetch.mockImplementation(async (input: RequestInfo) =>
-      String(input).endsWith("/workspaces/team")
+    // The ordering *is* the assertion, so the server is modelled as one that
+    // actually forgets: once the DELETE has landed there is nothing left to
+    // list, exactly as in production. A listing moved after the request would
+    // then come back empty and the purge would be the silent no-op this whole
+    // guard is about — which a mock answering identically whenever it is asked
+    // could not tell apart from the correct order.
+    let deleted = false;
+    mockFetch.mockImplementation(async (input: RequestInfo, init) => {
+      if (init?.method === "DELETE") {
+        deleted = true;
+        return okJson({});
+      }
+      if (deleted) {
+        // Gone, along with everything the caller could have asked about it.
+        return { ok: false, status: 404, json: async () => ({}) } as Response;
+      }
+      return String(input).endsWith("/workspaces/team")
         ? okJson(WORKSPACE)
-        : okJson({}),
+        : okJson({});
+    });
+    mockDocuments.mockImplementation(async () =>
+      deleted
+        ? []
+        : ([
+            { id: "d1", workspaceId: "ws-uuid" },
+            { id: "d2", workspaceId: "other" },
+          ] as never),
     );
-    mockDocuments.mockResolvedValue([
-      { id: "d1", workspaceId: "ws-uuid" },
-      { id: "d2", workspaceId: "other" },
-    ] as never);
 
     await deleteWorkspace("team");
 
@@ -65,6 +83,9 @@ describe("deleteWorkspace", () => {
     // id — comparing them directly matched nothing and made this a silent
     // no-op that read as a purge.
     expect(mockPurge).toHaveBeenCalledWith(["d1"], { dropArchives: true });
+    // And the listing genuinely happened while there was still something to
+    // list, rather than the purge having been handed an empty set.
+    expect(mockDocuments).toHaveBeenCalled();
   });
 
   it("accepts an id as readily as a slug", async () => {
@@ -141,5 +162,31 @@ describe("removeMember", () => {
 
     expect(mockDocuments).not.toHaveBeenCalled();
     expect(mockPurge).toHaveBeenCalledWith([], { dropArchives: true });
+  });
+
+  it("purges nothing when the server refuses the removal", async () => {
+    // The listing is taken *before* the request — it has to be, since
+    // afterwards the server no longer lists what the member could read — so the
+    // purge is only correct if it waits on the server's answer. A purge moved
+    // above `assertOk`, or an `assertOk` that stopped throwing, would delete
+    // this user's local copies of documents they were never actually removed
+    // from.
+    mockIsOfflineUser.mockReturnValue(true);
+    mockFetch.mockImplementation(async (_input: RequestInfo, init) =>
+      init?.method === "DELETE"
+        ? ({
+            ok: false,
+            status: 403,
+            headers: new Headers({ "content-type": "application/json" }),
+            json: async () => ({ message: "nope" }),
+          } as Response)
+        : okJson(WORKSPACE),
+    );
+    mockDocuments.mockResolvedValue([
+      { id: "d1", workspaceId: "ws-uuid" },
+    ] as never);
+
+    await expect(removeMember("team", 7)).rejects.toThrow();
+    expect(mockPurge).not.toHaveBeenCalled();
   });
 });

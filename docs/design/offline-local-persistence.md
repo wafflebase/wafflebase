@@ -335,7 +335,7 @@ its own provider — it does, but **above** `CollabDocumentProvider` rather than
 instead of it, so the nesting excludes nothing. For an *anonymous* visitor the
 missing identity happened to refuse the durable branch anyway; for a
 **signed-in** visitor on somebody else's share link it did not, and they would
-have been given their own `wb:{userId}:{docKey}` client authenticating with
+have been given their own `wb:…:{userId}:{docKey}` client authenticating with
 their personal Yorkie token instead of the share token whose role and expiry
 the auth webhook validates — while writing the shared document to a disk the
 link's revocation cannot reach.
@@ -355,9 +355,26 @@ Keeping the non-persisting path on the ambient client is what makes the opt-in
 free for everyone who declines it: no second `ActivateClient`, no new identity,
 no behavior change to regress.
 
-The client key is `wb:{userId}:{docKey}`. Scoping it to the document (rather
-than to the user) keeps each document on its own server-side client row, so one
-tab's detach cannot disturb another tab holding a different document.
+The client key is `wb:{deviceSecret}:{userId}:{docKey}`. Scoping it to the
+document (rather than to the user) keeps each document on its own server-side
+client row, so one tab's detach cannot disturb another tab holding a different
+document.
+
+`deviceSecret` is 64 random bits minted once per browser profile and kept in
+`localStorage` — opaque, content-free, and never sent anywhere on its own. It
+is there because Yorkie authorizes `ActivateClient` and `DeactivateClient` on
+**token validity alone**: the auth webhook gates documents, not client rows. A
+key that can be *derived* is therefore one that anybody holding any valid
+Yorkie token can activate or tear down, and both of the natural ingredients are
+public to a workspace peer — `userId` is the sequential id every member list
+carries, and `docKey` is `sheet-<documentId>` with the id sitting in the URL.
+A bare `wb:{userId}:{docKey}` was guessable by exactly the people best placed
+to use it, who could take over or repeatedly deactivate another member's
+per-document client and strand the durable session this whole feature depends
+on. The secret has to persist rather than be per-session because the SDK's
+store is scoped `apiKey/clientKey/docKey`: a key that changes on every load
+resumes nothing. Clearing site data mints a new one and orphans whatever was
+written under the old, which the thirty-day sweep collects.
 
 > **Trap.** `YorkieProvider` memoizes its client on `[apiKey, rpcAddr]` only.
 > Navigating from document A to B changes `key` and `store` without recreating
@@ -395,7 +412,8 @@ So the app queues up first, before the SDK ever tries:
 - On mount, the provider attempts an app-owned Web Lock,
   `wb-durable:{userId}:{docKey}` — a distinct name, so it cannot collide with
   the SDK's own lock.
-- **Acquired** → durable client: `key = wb:{userId}:{docKey}` plus the store.
+- **Acquired** → durable client: `key = wb:{deviceSecret}:{userId}:{docKey}`
+  plus the store.
   The SDK's lock is then guaranteed to succeed, because the app lock already
   elected this tab.
 - **Not acquired** → `key` omitted (random, as today) and no store. Identical to

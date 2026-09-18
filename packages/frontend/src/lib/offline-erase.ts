@@ -240,6 +240,20 @@ export async function eraseOfflineDataOnLogout(): Promise<void> {
     return;
   }
   const store = new WafflebaseDocStore({ userId: who });
+  // Refused *before* a single row is deleted, which is a separate fact from
+  // the preference and an ordering rather than a detail. The page usually
+  // navigates away immediately, but it need not — and a durable client is
+  // still mounted over these entries for the whole of the erase. Denying only
+  // afterwards leaves the entire window open: the SDK repairs an append that
+  // failed against a deleted base by writing a fresh snapshot, which puts the
+  // open document straight back onto the disk the sign-out is in the middle of
+  // clearing, and nothing runs again to remove it. Recorded first, the client's
+  // writes are refused for the duration and there is nothing racing the delete.
+  //
+  // It stands even if the erase below fails: this account is signed out, so
+  // there is no case for writing more of their content to this device, and
+  // signing back in clears it (`rememberOfflineUser`).
+  denyOfflineWrites(who);
   try {
     await eraseOfflineData(store, who);
     // Forgotten only now. Clearing it first — which is what this did — made a
@@ -248,12 +262,6 @@ export async function eraseOfflineDataOnLogout(): Promise<void> {
     // on the disk.
     rememberOfflineUser(undefined);
     forgetPendingErase(who);
-    // And refused from here on, which is a separate fact from the preference.
-    // The page usually navigates away immediately, but it need not — and a
-    // durable client can still be mounted over the entries just deleted, whose
-    // next append fails, which makes the SDK write a fresh snapshot and put the
-    // document straight back on the disk this was asked to clear.
-    denyOfflineWrites(who);
   } catch (err) {
     console.warn("[offline] could not erase local documents on logout:", err);
     // Left recorded on purpose: the retry needs a name, and this is the only

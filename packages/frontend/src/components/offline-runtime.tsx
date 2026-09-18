@@ -30,6 +30,9 @@ import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
  * | Every session | drop copies of documents the server no longer lists |
  * | Work the SDK could not reconcile | offer it back as a document |
  *
+ * The last row depends on the one above it: an archive is only ever offered
+ * back once this session has established what the user may still read.
+ *
  * Mounted once by `PrivateRoute`, which is the only place that has both an
  * identity and a lifetime longer than a single document. It renders nothing.
  *
@@ -111,6 +114,11 @@ export function OfflineRuntime({ userId }: { userId: string }) {
 
       if (cancelled) return;
 
+      // Whether this session established what the user may still read. The
+      // recovery offer below depends on the answer, so it is tracked rather
+      // than assumed — see the comment above `offerRecoverableWork`'s call.
+      let reconciled = false;
+
       try {
         // Access somebody *else* ended reaches this device no other way. Every
         // other purge runs on the device of whoever made the request, so a
@@ -137,11 +145,32 @@ export function OfflineRuntime({ userId }: { userId: string }) {
           accessible.map((doc) => doc.id),
           { listedAt, isOpenElsewhere: openElsewhere },
         );
+        reconciled = true;
       } catch (err) {
         console.warn('[offline] could not reconcile local copies:', err);
       }
 
       if (cancelled) return;
+
+      // **Only once access has been reconciled.** Recovery does not hand work
+      // back to an editor; it materializes an archive — a full snapshot of a
+      // document — as a *new server-side document owned by whoever is signed
+      // in*. The reconcile above is the only thing on this device that knows an
+      // archive belongs to a workspace the user has since been removed from:
+      // every other purge runs on the device of whoever made the request, and
+      // the removed member's own machine is reached by none of them. Offering
+      // anyway when it failed is how content the user may no longer read gets
+      // copied back into their own workspace with their name on it.
+      //
+      // Declining costs nothing but a delay: the archive is left in place and
+      // the offer is made again next session, which is already the contract for
+      // a declined offer.
+      if (!reconciled) {
+        console.warn(
+          '[offline] skipping recovery: access could not be reconciled',
+        );
+        return;
+      }
 
       try {
         // A getter, not the value: this loop awaits the network between

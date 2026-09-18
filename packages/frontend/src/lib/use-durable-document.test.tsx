@@ -53,7 +53,7 @@ describe("when it elects the tab", () => {
     );
 
     await waitFor(() => expect(result.current.durable).toBe(true));
-    expect(result.current.clientKey).toBe("wb:u1:note-7");
+    expect(result.current.clientKey).toContain(":u1:note-7");
   });
 
   it("releases the election when the view unmounts", async () => {
@@ -255,10 +255,10 @@ describe("moving between documents", () => {
         useDurableDocument({ docKey: props.docKey, userId: "u1" }),
       { initialProps: { docKey: "note-7" } },
     );
-    await waitFor(() => expect(result.current.clientKey).toBe("wb:u1:note-7"));
+    await waitFor(() => expect(result.current.clientKey).toContain(":u1:note-7"));
 
     rerender({ docKey: "note-8" });
-    await waitFor(() => expect(result.current.clientKey).toBe("wb:u1:note-8"));
+    await waitFor(() => expect(result.current.clientKey).toContain(":u1:note-8"));
 
     // Exactly one name held, and it is the new one: a leaked election on the
     // old document would refuse durability to whoever opens it next.
@@ -292,10 +292,10 @@ describe("what it says on the way between answers", () => {
     }
 
     const { rerender } = render(<Probe docKey="note-7" />);
-    await waitFor(() => expect(seen.at(-1)!.clientKey).toBe("wb:u1:note-7"));
+    await waitFor(() => expect(seen.at(-1)!.clientKey).toContain(":u1:note-7"));
 
     rerender(<Probe docKey="note-8" />);
-    await waitFor(() => expect(seen.at(-1)!.clientKey).toBe("wb:u1:note-8"));
+    await waitFor(() => expect(seen.at(-1)!.clientKey).toContain(":u1:note-8"));
 
     // A key may only be claimed while the matching name is actually held.
     for (const render of seen) {
@@ -326,7 +326,7 @@ describe("what it says on the way between answers", () => {
     expect(result.current.durable).toBe(false);
     expect(result.current.clientKey).toBeUndefined();
 
-    await waitFor(() => expect(result.current.clientKey).toBe("wb:u2:note-7"));
+    await waitFor(() => expect(result.current.clientKey).toContain(":u2:note-7"));
   });
 });
 

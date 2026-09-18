@@ -6,7 +6,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
  * Where a document becomes durable.
  *
  * The nesting itself is the whole product of W3–W5: a client keyed
- * `wb:{userId}:{docKey}` with the store attached, mounted only when the opt-in
+ * `wb:{deviceSecret}:{userId}:{docKey}` with the store attached, mounted only
+ * when the opt-in
  * applies and this tab won the election — and the ambient session-wide client,
  * unchanged, every other time.
  *
@@ -156,7 +157,12 @@ describe('when the document is durable', () => {
     const { getByTestId } = mount('note-7');
 
     await waitFor(() => expect(mounted.length).toBe(1));
-    expect(mounted[0].clientKey).toBe('wb:7:note-7');
+    // Salted with a per-device secret, so the key names the user and the
+    // document without being *derivable* from them — Yorkie authorizes
+    // `ActivateClient`/`DeactivateClient` on token validity alone, so a
+    // guessable key is one any workspace peer can tear down.
+    expect(mounted[0].clientKey).toContain(':7:note-7');
+    expect(mounted[0].clientKey).not.toBe('wb:7:note-7');
     // Without a store the key would be pointless: it exists so the store's
     // `apiKey/clientKey/docKey` scope is the same one the next reload looks in.
     expect(mounted[0].store).toBeDefined();
@@ -175,7 +181,8 @@ describe('when the document is durable', () => {
     setOfflinePersistenceEnabled(true);
     const { rerender } = mount('note-7');
     await waitFor(() => expect(mounted.length).toBe(1));
-    expect(mounted[0].clientKey).toBe('wb:7:note-7');
+    expect(mounted[0].clientKey).toContain(':7:note-7');
+    const first = mounted[0].clientKey;
 
     me.data = { id: 9, username: 'grace' };
     rerender(
@@ -185,10 +192,10 @@ describe('when the document is durable', () => {
     );
 
     await waitFor(() => expect(mounted.length).toBe(2));
-    expect(mounted[1].clientKey).toBe('wb:9:note-7');
+    expect(mounted[1].clientKey).toContain(':9:note-7');
     // And nothing is left mounted under the previous person's key.
     expect(
-      mounted.filter((props) => props.clientKey === 'wb:7:note-7'),
+      mounted.filter((props) => props.clientKey === first),
     ).toHaveLength(1);
   });
 });
@@ -373,7 +380,7 @@ describe('once a document is open', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(getByTestId('child')).toBe(child);
-    expect(mounted[mounted.length - 1].clientKey).toBe('wb:7:note-7');
+    expect(mounted[mounted.length - 1].clientKey).toContain(':7:note-7');
   });
 });
 
@@ -485,6 +492,40 @@ describe('when the SDK refuses the attach for its own lock', () => {
     await waitFor(() => expect(mounted.length).toBe(1));
     // The name is given back, so the next tab to ask wins it.
     await waitFor(() => expect(locks.held.size).toBe(0));
+  });
+
+  it('does not stay stood down for a subject it later re-decides', async () => {
+    // Standing down is about one attach the SDK refused, not about the
+    // document forever. Latched permanently it outlives its own reason: the
+    // hook re-runs its election for the next subject and can win it, so this
+    // component would hold `wb-durable:{user}:{docKey}` — denying durability to
+    // every other tab — while refusing to mount the client the lock was taken
+    // for. That is the state standing down exists to escape, made permanent.
+    yorkieError = { code: 'ErrDocumentOpenElsewhere' };
+    setOfflinePersistenceEnabled(true);
+    const { rerender } = mount('note-7');
+    await waitFor(() => expect(locks.held.size).toBe(0));
+    const afterStandDown = mounted.length;
+
+    // The other tab closed, and another tab signs somebody else in and back.
+    yorkieError = undefined;
+    me.data = { id: 9, username: 'grace' };
+    rerender(
+      <CollabDocumentProvider docKey="note-7" initialRoot={{}}>
+        <div data-testid="child" />
+      </CollabDocumentProvider>,
+    );
+    await waitFor(() => expect(mounted.length).toBe(afterStandDown + 1));
+
+    me.data = { id: 7, username: 'ada' };
+    rerender(
+      <CollabDocumentProvider docKey="note-7" initialRoot={{}}>
+        <div data-testid="child" />
+      </CollabDocumentProvider>,
+    );
+
+    await waitFor(() => expect(mounted.length).toBe(afterStandDown + 2));
+    expect(mounted[mounted.length - 1].clientKey).toContain(':7:note-7');
   });
 
   it('keeps the election for any other attach failure', async () => {

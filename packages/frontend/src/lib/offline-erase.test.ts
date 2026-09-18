@@ -299,6 +299,48 @@ describe("signing out", () => {
     expect(isOfflineWritePermitted("logout-6")).toBe(true);
   });
 
+  it("refuses writes before it deletes anything, not after", async () => {
+    // The whole erase is a window in which a still-mounted durable client keeps
+    // writing: the SDK repairs an append that failed against a deleted base by
+    // writing a fresh snapshot, which puts the open document straight back onto
+    // the disk the sign-out is in the middle of clearing. Denying afterwards
+    // leaves that window open for the entire duration of the erase.
+    const permitted: Array<boolean> = [];
+    const mine = defaultStore("logout-order");
+    await seed(mine, "logout-order-doc");
+
+    rememberOfflineUser("logout-order");
+    const spy = vi
+      .spyOn(WafflebaseDocStore.prototype, "dropAllForUser")
+      .mockImplementation(async function (
+        this: WafflebaseDocStore,
+        userId: string,
+      ) {
+        // Asked from inside the erase, which is where the race lives.
+        permitted.push(isOfflineWritePermitted(userId));
+        return 0;
+      });
+
+    await eraseOfflineDataOnLogout();
+    spy.mockRestore();
+
+    expect(permitted).toEqual([false]);
+  });
+
+  it("keeps the refusal standing when the erase fails", async () => {
+    // The account is signed out either way, so there is no case for writing
+    // more of their content onto this device while the retry is owed.
+    const spy = vi
+      .spyOn(WafflebaseDocStore.prototype, "dropAllForUser")
+      .mockRejectedValue(new Error("nope"));
+
+    rememberOfflineUser("logout-order-2");
+    await eraseOfflineDataOnLogout();
+    spy.mockRestore();
+
+    expect(isOfflineWritePermitted("logout-order-2")).toBe(false);
+  });
+
   it("does not forget who it is for when the erase fails", async () => {
     // Clearing the identity first made a transient IndexedDB failure
     // permanent: nothing could name the account whose documents were still on

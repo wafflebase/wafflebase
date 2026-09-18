@@ -855,3 +855,96 @@ describe("after offline saving is switched off", () => {
     expect(await store.load("sheet-a")).toBeDefined();
   });
 });
+
+describe("collecting under a live client", () => {
+  it("marks what it collected, so a later append cannot vanish", async () => {
+    // `isLive` is a best answer, not a proof: a client can attach between the
+    // question and the delete, and the sweeping instance is routinely not the
+    // one the SDK writes through. Every other delete-under-a-live-client path
+    // marks the key for exactly that reason — without it the SDK's next append
+    // finds no header and takes the contract's silent "no base" success, so
+    // every later edit goes nowhere while the chip still reports the document
+    // saved to this device.
+    const time = clock("2026-01-01T00:00:00Z");
+    // Two instances over one database, which is the real arrangement: the
+    // sweep runs from the housekeeping runtime's store while the SDK writes
+    // through the durable client's.
+    const client = freshStore("user-1", time.now);
+    const housekeeping = new WafflebaseDocStore({
+      dbName: client.databaseName,
+      userId: "user-1",
+      now: () => Date.parse("2026-03-01T00:00:00Z"),
+    });
+    await seed(client, "sheet-a");
+
+    expect(await housekeeping.collectStale()).toBeGreaterThan(0);
+
+    await expect(
+      client.appendChange("sheet-a", {
+        clientSeq: 2,
+        bytes: new Uint8Array([9]),
+      }),
+    ).rejects.toThrow(/evicted/i);
+  });
+});
+
+describe("purging a document's archives", () => {
+  it("spares an archive written after the caller's listing was taken", async () => {
+    // `skipOpen`/`updatedSince` exist for the one caller that deletes on an
+    // absence rather than on an answer — the once-per-session reconcile. An
+    // archive another tab wrote after the listing is missing from that listing
+    // for no reason at all, and it is by this feature's own design the only
+    // copy of work the server never took.
+    const time = clock("2026-01-01T00:00:00Z");
+    const store = freshStore("user-1", time.now);
+    await seed(store, "sheet-a");
+    store.expectLoss("sheet-a");
+    await store.remove("sheet-a");
+    expect(await store.listArchives()).toHaveLength(1);
+
+    // The listing was asked for before the archive existed.
+    await store.purgeDocument("a", {
+      archives: "drop",
+      skipOpen: true,
+      updatedSince: Date.parse("2025-12-31T00:00:00Z"),
+    });
+    expect(await store.listArchives()).toHaveLength(1);
+
+    // And an archive that predates the listing still goes.
+    await store.purgeDocument("a", {
+      archives: "drop",
+      skipOpen: true,
+      updatedSince: Date.parse("2026-02-01T00:00:00Z"),
+    });
+    expect(await store.listArchives()).toHaveLength(0);
+  });
+
+  it("spares an archive whose document a tab has open", async () => {
+    const time = clock("2026-01-01T00:00:00Z");
+    counter += 1;
+    const store = new WafflebaseDocStore({
+      dbName: `wafflebase-cleanup-${counter}`,
+      userId: "user-1",
+      now: time.now,
+      isOpenElsewhere: () => true,
+    });
+    await seed(store, "sheet-a");
+    store.expectLoss("sheet-a");
+    await store.remove("sheet-a");
+
+    await store.purgeDocument("a", { archives: "drop", skipOpen: true });
+    expect(await store.listArchives()).toHaveLength(1);
+  });
+
+  it("still drops unconditionally for a caller that knows the document is gone", async () => {
+    // A delete the server accepted passes neither guard and keeps today's
+    // behavior.
+    const store = freshStore("user-1");
+    await seed(store, "sheet-a");
+    store.expectLoss("sheet-a");
+    await store.remove("sheet-a");
+
+    await store.purgeDocument("a", { archives: "drop" });
+    expect(await store.listArchives()).toHaveLength(0);
+  });
+});
