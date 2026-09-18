@@ -421,7 +421,14 @@ export default defineConfig({
     // Generated only for the upload, and deleted from `dist` right after it.
     // Off otherwise, so an ordinary `pnpm frontend build` produces exactly
     // what it always has.
-    sourcemap: sentryUpload.enabled,
+    //
+    // `"hidden"`, not `true`: both emit the maps, but `true` also appends a
+    // `//# sourceMappingURL=` comment to every chunk — and the maps are gone
+    // by the time the bundle ships, so that comment points at a 404. It is
+    // cosmetic (Sentry resolves frames by the injected `debugId`, not by the
+    // comment), but it is a lie in the artifact, and `"hidden"` is the setting
+    // that exists for exactly this upload-then-delete shape.
+    sourcemap: sentryUpload.enabled ? "hidden" : false,
     rollupOptions: {
       output: {
         manualChunks,

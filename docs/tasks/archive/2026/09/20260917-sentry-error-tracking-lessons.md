@@ -116,3 +116,48 @@ added to prevent — strictly worse than before the feature.
 Generalization: any bootstrap code that runs above the UI's own safety net
 should swallow its own failures. The tool being unavailable has to cost less
 than the tool being present.
+
+---
+
+## Postscript: this task took wafflebase.io down
+
+Appended after the fact. The CORS trap below was found *and then argued away*,
+and the argument was wrong in a way worth keeping.
+
+`docs/design/observability.md` and the PR body both said the new-frontend /
+old-backend combination was defused because "the frontend attaches nothing
+until an operator sets `VITE_SENTRY_DSN`, by which point the backend change has
+shipped." True of every clause but the last, which was **assumed, never
+checked**.
+
+The two halves do not ship together. The frontend publishes on every merge to
+`main`; the backend is pinned to a release tag in a manifest in another
+repository, rolled out by a human. Worse, the operator instruction I wrote told
+them to set `VITE_SENTRY_DSN` first. So the ordering ran exactly backwards: the
+frontend attached `sentry-trace`/`baggage` to a backend that allow-listed
+neither, the preflight failed every credentialed call including `/auth/me`, and
+nobody could sign in. Nothing reached the backend log — the browser blocks the
+request before sending it.
+
+**The lesson is not "check CORS."** That part was done. It is:
+
+> A feature flag defuses a deploy-ordering hazard only when the ordering is
+> actually enforced. Here nothing enforced it — the claim was a prediction
+> about which human would do what, first, dressed up as a design property.
+
+When a change alters a request *contract* across the two halves — headers,
+CORS, a protocol version — the question to answer is not "is it off by
+default?" but "what makes backend-first true?" If the answer is a sentence in a
+document, it is not true.
+
+Two smaller things from the same incident:
+
+- **Verify against the artifact, not the source.** Reading the Dockerfile to
+  conclude the release fallback works was the same move that produced the
+  original error. Running `yorkieteam/wafflebase:v0.6.12` with `SENTRY_RELEASE`
+  unset and watching it print `0.6.12` is what made it a fact. Same for the
+  source maps: the CI log said "Successfully uploaded", and fetching a deployed
+  chunk's `.map` and getting a 404 is what proved the other half.
+- **An operator instruction is part of the change.** "Set `VITE_SENTRY_DSN`"
+  read as a setup step; it was actually the trigger that armed the hazard. Steps
+  handed to a human need the same ordering scrutiny as code.
