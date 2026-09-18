@@ -22,14 +22,16 @@ type LogoutOptions = {
   showSuccessToast?: boolean;
   suppressFailure?: boolean;
   /**
-   * Whether this sign-out also erases what offline persistence wrote to this
-   * device. Defaults to true, because a person choosing "Log out" on a shared
-   * machine is exactly who that erase is for.
+   * How much of what offline persistence wrote to this device this sign-out
+   * erases.
    *
-   * The 401 arm of {@link fetchWithAuth} passes `false`, and that is the whole
-   * reason the option exists — see the comment there.
+   * `"all"` (the default) is a person choosing "Log out" on a shared machine,
+   * which is exactly who that erase is for: live entries and archives both go.
+   *
+   * `"keep-archives"` is the 401 arm of {@link fetchWithAuth}, and it is the
+   * whole reason the option exists — see the comment there.
    */
-  eraseLocalData?: boolean;
+  eraseLocalData?: "all" | "keep-archives";
 };
 
 let isRedirecting = false;
@@ -92,7 +94,7 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
     redirect = true,
     showSuccessToast = true,
     suppressFailure = false,
-    eraseLocalData = true,
+    eraseLocalData = "all",
   } = options;
   let res: Response | null = null;
 
@@ -113,14 +115,16 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
   // before the redirect so the erase is not raced by the page unloading, and
   // never able to fail the sign-out itself.
   //
-  // Only when the person asked to sign out. An involuntary expiry runs the
-  // same function with `eraseLocalData: false`, because this erase is
-  // destructive in a way nothing else here is: it deletes the archives, which
-  // are by this feature's own design the *only* remaining copy of work the SDK
-  // could not reconcile.
-  if (eraseLocalData) {
-    await eraseOfflineDataOnLogout();
-  }
+  // An involuntary expiry runs the same erase with the archives spared. Ending
+  // a session is not a reason to destroy the *only* copy of work the SDK could
+  // not reconcile, on an event the user neither chose nor can undo — but it is
+  // no reason to leave a shared machine holding their documents either, and a
+  // cookie that quietly expired is the commonest way a session ends. So the
+  // live entries go on both paths (the server still holds that content) and
+  // only a deliberate sign-out takes the archives with it.
+  await eraseOfflineDataOnLogout({
+    keepArchives: eraseLocalData === "keep-archives",
+  });
 
   if (res && !res.ok && !suppressFailure) {
     throw new Error("Failed to log out");
@@ -250,12 +254,16 @@ export async function fetchWithAuth(
       suppressFailure: true,
       // Nobody asked for this. A 401 whose refresh failed is a session that
       // expired, a cookie a browser dropped, or a backend that restarted — and
-      // the user is about to log straight back in on the same device. Erasing
-      // here would destroy this device's locally persisted unsent work,
-      // including the archives that hold changes the server never took, on an
-      // event the user neither chose nor can undo. Signing out deliberately
-      // still erases; this path only ends the session.
-      eraseLocalData: false,
+      // the user is about to log straight back in on the same device. So the
+      // archives, which hold changes the server never took and are their only
+      // copy, are kept: destroying them on an event the user neither chose nor
+      // can undo would be this feature causing the loss it exists to prevent.
+      //
+      // The live entries still go. They are copies of content the server holds,
+      // so nothing is lost by dropping them — and a session that ends by
+      // expiring is the commonest way one ends on a shared machine, which is
+      // the case the whole per-device opt-in is careful about.
+      eraseLocalData: "keep-archives",
     });
     redirectTo("/login");
     throw new AuthExpiredError();

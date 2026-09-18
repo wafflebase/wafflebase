@@ -5,7 +5,9 @@ import {
   eraseOfflineData,
   eraseOfflineDataOnLogout,
   purgeOfflineDocuments,
+  purgeRevokedOfflineDocuments,
   rememberOfflineUser,
+  retryPendingOfflineErase,
   watchForOfflineDisable,
 } from "./offline-erase";
 import {
@@ -271,6 +273,97 @@ describe("signing out", () => {
   it("does nothing, and throws nothing, when nobody was recorded", async () => {
     rememberOfflineUser(undefined);
     await expect(eraseOfflineDataOnLogout()).resolves.toBeUndefined();
+  });
+
+  it("keeps the archives when the session was ended for the user", async () => {
+    // A cookie that expired is nobody's decision, and the archives are the only
+    // copy of work the server never took. The live entries still go: the server
+    // holds that content, and a shared machine should not.
+    const mine = defaultStore("logout-4");
+    await seed(mine, "logout-expired");
+    mine.expectLoss("logout-expired");
+    await mine.remove("logout-expired");
+    await seed(mine, "logout-live");
+
+    rememberOfflineUser("logout-4");
+    await eraseOfflineDataOnLogout({ keepArchives: true });
+
+    expect(await mine.load("logout-live")).toBeUndefined();
+    expect(await mine.listArchives()).toHaveLength(1);
+  });
+
+  it("does not forget who it is for when the erase fails", async () => {
+    // Clearing the identity first made a transient IndexedDB failure
+    // permanent: nothing could name the account whose documents were still on
+    // the disk, and the user was told "Logged out successfully".
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const failing = vi
+      .spyOn(WafflebaseDocStore.prototype, "dropAllForUser")
+      .mockRejectedValue(new Error("nope"));
+
+    rememberOfflineUser("logout-5");
+    await expect(eraseOfflineDataOnLogout()).resolves.toBeUndefined();
+    failing.mockRestore();
+
+    const mine = defaultStore("logout-5");
+    await seed(mine, "logout-retry");
+
+    // The retry is what the next session runs, whoever signs in on it.
+    await retryPendingOfflineErase();
+    expect(await mine.load("logout-retry")).toBeUndefined();
+  });
+
+  it("owes no retry once the erase has actually happened", async () => {
+    const mine = defaultStore("logout-6");
+    await seed(mine, "logout-done");
+    rememberOfflineUser("logout-6");
+    await eraseOfflineDataOnLogout();
+
+    // Nothing is owed, so a later seed for the same account survives.
+    await seed(mine, "logout-after");
+    await retryPendingOfflineErase();
+    expect(await mine.load("logout-after")).toBeDefined();
+  });
+});
+
+describe("access somebody else ended", () => {
+  it("drops what the server no longer lists, archives included", async () => {
+    // Recovery turns an archive into a whole new document, so one that
+    // survives a revoked membership is a permanent copy of content the user
+    // may no longer read.
+    const store = new WafflebaseDocStore({ userId: "revoked-1" });
+    await seed(store, "pk/wb:1:sheet-gone/sheet-gone");
+    await seed(store, "pk/wb:1:sheet-kept/sheet-kept");
+    store.expectLoss("pk/wb:1:sheet-gone/sheet-gone");
+    await store.remove("pk/wb:1:sheet-gone/sheet-gone");
+    await seed(store, "pk/wb:1:sheet-gone/sheet-gone");
+    rememberOfflineUser("revoked-1");
+
+    expect(await purgeRevokedOfflineDocuments(["kept"])).toBe(1);
+
+    expect(await store.load("pk/wb:1:sheet-gone/sheet-gone")).toBeUndefined();
+    expect(await store.load("pk/wb:1:sheet-kept/sheet-kept")).toBeDefined();
+    expect(await store.listArchives()).toEqual([]);
+  });
+
+  it("refuses an empty list rather than erasing the device", async () => {
+    // The purge keeps only what is in the list, so a half-answered listing is
+    // the one input that must not reach it.
+    const store = new WafflebaseDocStore({ userId: "revoked-2" });
+    await seed(store, "sheet-safe");
+    rememberOfflineUser("revoked-2");
+
+    expect(await purgeRevokedOfflineDocuments([])).toBe(0);
+    expect(await store.load("sheet-safe")).toBeDefined();
+  });
+
+  it("does nothing while signed out", async () => {
+    const store = new WafflebaseDocStore({ userId: "revoked-3" });
+    await seed(store, "sheet-anon-2");
+    rememberOfflineUser(undefined);
+
+    expect(await purgeRevokedOfflineDocuments(["something"])).toBe(0);
+    expect(await store.load("sheet-anon-2")).toBeDefined();
   });
 });
 

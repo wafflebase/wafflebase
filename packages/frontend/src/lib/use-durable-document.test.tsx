@@ -169,9 +169,16 @@ describe("when the preference changes mid-session", () => {
     await waitFor(() => expect(result.current.durable).toBe(true));
   });
 
-  it("gives the election back when it is switched off", async () => {
-    // Otherwise the tab keeps a name it no longer uses, and a second tab that
-    // could now be durable stays refused.
+  it("keeps the election it already holds when it is switched off", async () => {
+    // The consumer latches its decision for the life of the open document —
+    // unmounting the provider under unsent edits is the loss this feature
+    // exists to prevent — so a client mounted on this election is still
+    // writing. Releasing the name underneath it would let a second tab take
+    // the same name and mint the same client key: one actor, two tabs, each
+    // one's changes filtered out of the other.
+    //
+    // The preference still governs the next document opened, and the erase
+    // that accompanies switching it off is what removes what was stored.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
     setOfflinePersistenceEnabled(true);
@@ -182,9 +189,28 @@ describe("when the preference changes mid-session", () => {
     await waitFor(() => expect(result.current.durable).toBe(true));
 
     act(() => setOfflinePersistenceEnabled(false));
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
-    await waitFor(() => expect(result.current.durable).toBe(false));
-    expect(locks.held.size).toBe(0);
+    expect(result.current.durable).toBe(true);
+    expect(locks.held.size).toBe(1);
+  });
+
+  it("releases it once the document is closed", async () => {
+    // The hold is for the open document, not forever: the next tab to open it
+    // must be able to be the durable one.
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+    setOfflinePersistenceEnabled(true);
+
+    const { result, unmount } = renderHook(() =>
+      useDurableDocument({ docKey: "note-7", userId: "u1" }),
+    );
+    await waitFor(() => expect(result.current.durable).toBe(true));
+
+    act(() => setOfflinePersistenceEnabled(false));
+    unmount();
+
+    await waitFor(() => expect(locks.held.size).toBe(0));
   });
 });
 
@@ -416,29 +442,31 @@ describe("when eligibility is lost", () => {
     }
   });
 
-  it("never reports durable after the preference is switched off", async () => {
+  it("never reports durable after the preference is switched off for a new document", async () => {
+    // The document already open keeps its election (see above). A document
+    // opened after the switch must not inherit it — the answer and the name
+    // have to agree, in both directions.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
     setOfflinePersistenceEnabled(true);
 
-    const seen: Array<boolean> = [];
-    function Probe() {
-      const { durable } = useDurableDocument({
-        docKey: "note-7",
-        userId: "u1",
-      });
-      seen.push(durable);
+    const seen: Array<{ docKey: string; durable: boolean }> = [];
+    function Probe({ docKey }: { docKey: string }) {
+      const { durable } = useDurableDocument({ docKey, userId: "u1" });
+      seen.push({ docKey, durable });
       return null;
     }
 
-    render(<Probe />);
-    await waitFor(() => expect(seen.at(-1)).toBe(true));
+    const { rerender } = render(<Probe docKey="note-7" />);
+    await waitFor(() => expect(seen.at(-1)!.durable).toBe(true));
 
-    const mark = seen.length;
     act(() => setOfflinePersistenceEnabled(false));
+    rerender(<Probe docKey="note-8" />);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Not one render after the switch may claim durability.
-    expect(seen.slice(mark).some((d) => d)).toBe(false);
+    // Not one render of the newly opened document may claim durability.
+    expect(
+      seen.filter((s) => s.docKey === "note-8").some((s) => s.durable),
+    ).toBe(false);
   });
 });

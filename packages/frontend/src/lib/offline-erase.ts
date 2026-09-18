@@ -26,8 +26,9 @@ import {
 export async function eraseOfflineData(
   store: WafflebaseDocStore,
   userId: string,
+  options: { keepArchives?: boolean } = {},
 ): Promise<void> {
-  await store.dropAllForUser(userId);
+  await store.dropAllForUser(userId, options);
 }
 
 /**
@@ -103,6 +104,30 @@ export function isOfflineUser(userId: string): boolean {
 }
 
 /**
+ * An erase that was attempted and did not finish, so somebody can try again.
+ *
+ * Failing the erase is not rare enough to shrug at — a database that will not
+ * open under storage pressure is exactly the state a full disk produces — and
+ * the failure is invisible: the user is told "Logged out successfully" while
+ * their documents are still on the disk. Recording the identity of the erase
+ * that owes work is what gives the next session something to retry from.
+ */
+const PENDING_ERASE_KEY = "wafflebase-offline-erase-pending";
+
+function rememberPendingErase(userId: string | undefined): void {
+  try {
+    if (userId === undefined) {
+      localStorage.removeItem(PENDING_ERASE_KEY);
+    } else {
+      localStorage.setItem(PENDING_ERASE_KEY, userId);
+    }
+  } catch {
+    // Same reasoning as the identity mirror: a browser that refuses storage
+    // holds no durable store to erase either.
+  }
+}
+
+/**
  * Erases the signed-in user's local documents, for logout to call.
  *
  * Runs whatever the preference says. The preference decides whether new
@@ -110,21 +135,78 @@ export function isOfflineUser(userId: string): boolean {
  * and leaving a signed-out account's documents on a shared machine because the
  * toggle has since been flipped would be the worst reading of it.
  *
+ * `keepArchives` is for the involuntary case — a session the server expired.
+ * The live entries go either way, because they are copies of content the server
+ * still holds and a shared disk should not keep them; the archives are the only
+ * copy of work the server never took, so an event the user neither chose nor
+ * can undo must not delete them.
+ *
  * Never throws, and never blocks the sign-out: a logout that failed because a
  * database would not open is a worse outcome than one that left a cleanup for
- * the thirty-day sweep.
+ * the next session. But it does not *forget* either — the identity is spent
+ * only once the erase has actually happened, and a failure is recorded so
+ * {@link retryPendingOfflineErase} can finish it.
  */
-export async function eraseOfflineDataOnLogout(): Promise<void> {
+export async function eraseOfflineDataOnLogout(
+  options: { keepArchives?: boolean } = {},
+): Promise<void> {
   const who = offlineUserId();
-  rememberOfflineUser(undefined);
   if (!who) {
+    rememberOfflineUser(undefined);
     return;
   }
   const store = new WafflebaseDocStore({ userId: who });
   try {
-    await eraseOfflineData(store, who);
+    await eraseOfflineData(store, who, options);
+    // Forgotten only now. Clearing it first — which is what this did — made a
+    // transient IndexedDB failure permanent: the identity was gone, so no later
+    // logout, purge or retry could name the account whose documents were still
+    // on the disk.
+    if (options.keepArchives) {
+      // The archives were spared on purpose, and they are this user's. Keeping
+      // the identity is what lets a later deliberate sign-out erase them, and
+      // what lets the recovery UI still find them when they sign back in.
+      rememberPendingErase(undefined);
+    } else {
+      rememberOfflineUser(undefined);
+      rememberPendingErase(undefined);
+    }
   } catch (err) {
     console.warn("[offline] could not erase local documents on logout:", err);
+    // Left recorded on purpose: the retry needs a name, and this is the only
+    // place that still has one.
+    rememberPendingErase(who);
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * Finishes an erase a previous sign-out could not, if one is owed.
+ *
+ * Called from the authenticated shell on mount — including by a *different*
+ * account signing in on the same device, which is the case the retry is for.
+ * Silent: nobody asked for this now, and there is nothing actionable to say.
+ */
+export async function retryPendingOfflineErase(): Promise<void> {
+  let owed: string | null = null;
+  try {
+    owed = localStorage.getItem(PENDING_ERASE_KEY);
+  } catch {
+    return;
+  }
+  if (!owed) {
+    return;
+  }
+  const store = new WafflebaseDocStore({ userId: owed });
+  try {
+    await eraseOfflineData(store, owed);
+    // Only the marker. The recorded identity is whoever is signed in *now* —
+    // by the time this runs the shell has already set it — and clearing it
+    // would leave this session's own logout and purges with nobody to name.
+    rememberPendingErase(undefined);
+  } catch (err) {
+    console.warn("[offline] could not finish an owed erase:", err);
   } finally {
     store.close();
   }
@@ -143,6 +225,7 @@ export async function eraseOfflineDataOnLogout(): Promise<void> {
  */
 export async function purgeOfflineDocuments(
   documentIds: Array<string>,
+  options: { dropArchives?: boolean } = {},
 ): Promise<void> {
   const who = offlineUserId();
   if (!who || documentIds.length === 0) {
@@ -151,10 +234,60 @@ export async function purgeOfflineDocuments(
   const store = new WafflebaseDocStore({ userId: who });
   try {
     for (const id of documentIds) {
-      await store.purgeDocument(id);
+      await store.purgeDocument(id, {
+        archives: options.dropArchives ? "drop" : "keep",
+      });
     }
   } catch (err) {
     console.warn("[offline] could not drop local copies of a document:", err);
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * Drops what this device holds for documents the server no longer lists.
+ *
+ * The cleanup for access somebody *else* ended. Every other purge here runs on
+ * the device of whoever made the request — an owner removing a member, a user
+ * deleting a document — and the removed member's own device is reached by none
+ * of them: no API call happens there, and nothing tells it anything until it
+ * next asks. So it asks, once per session, and keeps only what the server still
+ * lists for it.
+ *
+ * `accessible` is the whole set the caller can read. A partial or failed
+ * listing must never reach here: this deletes everything outside the set, so an
+ * empty list would erase the device. The caller's `catch` is what enforces
+ * that, and the guard below makes the dangerous shape unrunnable anyway.
+ *
+ * Archives go with it, unlike a deletion's purge. Recovery turns an archive
+ * into a whole new document, so keeping one for a workspace the user was
+ * removed from would hand them a permanent copy of content they may no longer
+ * read.
+ */
+export async function purgeRevokedOfflineDocuments(
+  accessible: Array<string>,
+): Promise<number> {
+  const who = offlineUserId();
+  if (!who || accessible.length === 0) {
+    // Nothing to compare against. A user who genuinely has no documents has
+    // nothing stored either, so declining here costs nothing and refuses the
+    // one input shape that would erase the device on a half-answered list.
+    return 0;
+  }
+  const store = new WafflebaseDocStore({ userId: who });
+  try {
+    const keep = new Set(accessible);
+    const revoked = (await store.storedDocumentIds()).filter(
+      (id) => !keep.has(id),
+    );
+    for (const id of revoked) {
+      await store.purgeDocument(id, { archives: "drop" });
+    }
+    return revoked.length;
+  } catch (err) {
+    console.warn("[offline] could not reconcile local copies:", err);
+    return 0;
   } finally {
     store.close();
   }

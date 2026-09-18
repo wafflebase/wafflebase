@@ -135,6 +135,46 @@ export interface WafflebaseDocStoreOptions {
    * correct for a single instance and is what the tests use.
    */
   isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
+  /**
+   * Called when a write did not land — the database would not open (private
+   * browsing), the origin is full and eviction freed nothing, or the entry was
+   * taken out from under this client.
+   *
+   * The chip's `saved-locally` is a promise that unsent work is on disk, and
+   * the design states it as the conjunction of three facts, one of which is
+   * "the store is not failing its writes". Nothing else can observe that: the
+   * SDK swallows store failures, so without this hook a store that accepts
+   * nothing still reads as durable. Called on every failure, latched by the
+   * caller.
+   */
+  onWriteFailure?: (err: unknown) => void;
+}
+
+/**
+ * Keys eviction (or an erase) took, per database, shared by every store
+ * instance in this tab.
+ *
+ * Per-instance memory was the bug: the instance that erases is never the
+ * instance the SDK writes through — `dropAllForUser` runs from the housekeeping
+ * runtime's store while the durable client holds its own — so the marker was
+ * recorded where no append would ever read it, and appends after an erase were
+ * silently ignored while the chip still reported the document saved. Keyed by
+ * database name because that is exactly the scope the records are shared in.
+ *
+ * Still tab-local: a *different tab's* erase leaves this tab's client
+ * unmarked. That residual is bounded by the same erase purging the entry, so
+ * the other tab's next append finds no header and the SDK repairs the base;
+ * what it loses is the loud refusal, not the data.
+ */
+const evictedKeys = new Map<string, Set<string>>();
+
+function evictedFor(dbName: string): Set<string> {
+  let keys = evictedKeys.get(dbName);
+  if (!keys) {
+    keys = new Set<string>();
+    evictedKeys.set(dbName, keys);
+  }
+  return keys;
 }
 
 /** How long an untouched entry survives before collection claims it. */
@@ -276,8 +316,13 @@ export class WafflebaseDocStore implements DocStore {
   /**
    * Keys eviction took. An append for one of these must fail rather than be
    * ignored — see {@link appendChange}.
+   *
+   * Shared across every instance on this database, because the instance that
+   * evicts or erases is routinely not the one the SDK writes through.
    */
-  private readonly evicted = new Set<string>();
+  private get evicted(): Set<string> {
+    return evictedFor(this.dbName);
+  }
 
   /**
    * Documents whose next removal is a *loss*, by bare document key.
@@ -292,11 +337,14 @@ export class WafflebaseDocStore implements DocStore {
     docKey: string,
   ) => Promise<boolean> | boolean;
 
+  private readonly onWriteFailure?: (err: unknown) => void;
+
   constructor(options: WafflebaseDocStoreOptions) {
     this.dbName = options.dbName ?? DEFAULT_DB_NAME;
     this.userId = options.userId;
     this.now = options.now ?? (() => Date.now());
     this.isOpenElsewhere = options.isOpenElsewhere;
+    this.onWriteFailure = options.onWriteFailure;
   }
 
   /**
@@ -750,25 +798,79 @@ export class WafflebaseDocStore implements DocStore {
    * `apiKey/clientKey/docKey` with a type-prefixed `docKey` (`sheet-<id>`).
    * Both spellings are accepted so a caller may pass either.
    *
-   * Archives are deliberately left alone. "The document was deleted upstream"
-   * is one of the three paths the SDK reports as `LocalChangesDropped`, so an
-   * archive for it is precisely the unsent work this feature promises to hand
-   * back — deleting it here would erase the user's own edits in the name of
-   * cleaning up somebody else's deletion.
+   * Archives are left alone **by default**, and that default is about
+   * deletion: "the document was deleted upstream" is one of the three paths the
+   * SDK reports as `LocalChangesDropped`, so an archive for it is precisely the
+   * unsent work this feature promises to hand back — dropping it would erase
+   * the user's own edits in the name of cleaning up somebody else's deletion.
+   *
+   * Losing *access* is the other case, and there the opposite holds. Recovery
+   * re-materializes a whole document from an archive, so an archive that
+   * survives a revoked membership is a permanent copy of content the user may
+   * no longer read — the rule this cleanup exists for, inverted. Those callers
+   * pass `archives: "drop"`.
    */
-  public async purgeDocument(documentId: string): Promise<number> {
+  public async purgeDocument(
+    documentId: string,
+    options: { archives?: "keep" | "drop" } = {},
+  ): Promise<number> {
     const keys = await this.headerKeysWhere(
       BY_USER,
       IDBKeyRange.only(this.userId),
     );
-    const matching = keys.filter((key) => {
-      const docKey = documentKeyOf(key);
-      return docKey === documentId || docKey.endsWith(`-${documentId}`);
-    });
+    const matching = keys.filter((key) => this.isDocument(key, documentId));
     for (const key of matching) {
       await this.purge(key);
     }
+    if (options.archives === "drop") {
+      await this.dropArchivesForDocument(documentId);
+    }
     return matching.length;
+  }
+
+  /** Whether a store key names `documentId`, in either spelling. */
+  private isDocument(key: string, documentId: string): boolean {
+    const docKey = documentKeyOf(key);
+    return docKey === documentId || docKey.endsWith(`-${documentId}`);
+  }
+
+  /**
+   * The document ids this user has entries for, deduped.
+   *
+   * For the caller that has to ask the server which of them it may still read:
+   * access revoked by *somebody else* reaches this device no other way.
+   */
+  public async storedDocumentIds(): Promise<Array<string>> {
+    const keys = await this.headerKeysWhere(
+      BY_USER,
+      IDBKeyRange.only(this.userId),
+    );
+    const ids = new Set<string>();
+    for (const key of keys) {
+      const docKey = documentKeyOf(key);
+      const dash = docKey.indexOf("-");
+      ids.add(dash === -1 ? docKey : docKey.slice(dash + 1));
+    }
+    return [...ids];
+  }
+
+  /** Drops this user's archives for one document. */
+  private async dropArchivesForDocument(documentId: string): Promise<number> {
+    const db = await this.open();
+    const tx = db.transaction(ARCHIVES, "readwrite");
+    const store = tx.objectStore(ARCHIVES);
+    const rows = await requested<Array<ArchiveRecord>>(
+      store.index(BY_USER).getAll(this.userId),
+    );
+    let dropped = 0;
+    for (const row of rows) {
+      if (row.id === undefined) continue;
+      if (!this.isDocument(row.docKey, documentId)) continue;
+      store.delete(row.id);
+      dropped += 1;
+    }
+    await WafflebaseDocStore.completed(tx);
+    return dropped;
   }
 
   /**
@@ -839,7 +941,10 @@ export class WafflebaseDocStore implements DocStore {
    * the half that makes it correct: signing out of one account must not destroy
    * another's unsent work.
    */
-  public async dropAllForUser(userId: string): Promise<number> {
+  public async dropAllForUser(
+    userId: string,
+    options: { keepArchives?: boolean } = {},
+  ): Promise<number> {
     const keys = await this.headerKeysWhere(BY_USER, IDBKeyRange.only(userId));
     for (const docKey of keys) {
       // Unlike collection and eviction, this does **not** spare a document
@@ -855,17 +960,30 @@ export class WafflebaseDocStore implements DocStore {
       // instead of being ignored, the SDK reports the loss, and the chip drops
       // out of `saved-locally` rather than promising a durability that was
       // deleted on request.
-      const live = await this.isLive(docKey);
       await this.purge(docKey);
-      if (live) {
-        this.evicted.add(docKey);
-      }
+      // Marked whether or not anything looks live, because this instance is
+      // routinely not the one that would know: the erase runs from the
+      // housekeeping runtime's store while the SDK writes through the durable
+      // client's. Marking an idle key costs nothing — an append only arrives
+      // for a base the SDK believes it wrote, and a fresh `saveSnapshot`
+      // clears the mark.
+      this.evicted.add(docKey);
     }
 
     // Archives hold document content too, so the erase logout promises has to
     // reach them — otherwise signing out leaves the content on a shared machine
     // in the one place the user cannot see.
-    await this.dropArchivesWhere(BY_USER, IDBKeyRange.only(userId));
+    //
+    // `keepArchives` is for the one caller that did not ask for any of this: a
+    // session the server expired. Its live entries are copies of content the
+    // server still holds, so dropping them costs nothing and takes the content
+    // off a possibly shared disk; its archives are by this feature's own design
+    // the *only* copy of work the server never took, and deleting those on an
+    // event the user neither chose nor can undo would be this feature causing
+    // the loss it exists to prevent.
+    if (!options.keepArchives) {
+      await this.dropArchivesWhere(BY_USER, IDBKeyRange.only(userId));
+    }
     return keys.length;
   }
 
@@ -884,23 +1002,27 @@ export class WafflebaseDocStore implements DocStore {
     const cutoff = this.now() - maxAgeMs;
     const range = IDBKeyRange.upperBound(cutoff, true);
 
-    // Only this user's entries. The database is per origin and the
-    // `updatedAt` index spans every account that has used this device, so an
-    // unscoped sweep has one person's session deleting another's documents —
-    // and their archives, which are the only copy of work the SDK could not
-    // reconcile. The same scoping `evictOldest`, `listArchives` and
-    // `dropAllForUser` apply, for the same reason.
-    const mine = new Set(
-      await this.headerKeysWhere(BY_USER, IDBKeyRange.only(this.userId)),
-    );
-
+    // Live entries are collected **whoever wrote them**, and that is the point
+    // of the sweep rather than a lapse in scoping. A shared device's other
+    // account is precisely the one that never comes back to run its own
+    // housekeeping, so a user-scoped sweep leaves a departed user's document
+    // content on the disk forever — the backstop every other cleanup path names
+    // is then no backstop at all. The policy applied is identical to the one
+    // this user's own entries get, at the same age, so nothing is deleted here
+    // that their own next session would have kept.
+    //
+    // Archives are the exception, below: they are the only copy of work the SDK
+    // could not reconcile, so another account's stays theirs to collect (its
+    // own `archivedAt` sweep reaches it whenever they next sign in) and
+    // `evictOldest` still refuses to spend somebody else's entry for this
+    // user's write.
+    //
     // A document open right now is not stale, whatever its timestamp says:
     // purging it out from under a live SDK client is the same silent loss
     // eviction has to avoid, and it needs no quota failure to happen.
     const aged = await this.headerKeysWhere(BY_UPDATED_AT, range);
     const keys: Array<string> = [];
     for (const docKey of aged) {
-      if (!mine.has(docKey)) continue;
       if (!(await this.isLive(docKey))) {
         keys.push(docKey);
       }
@@ -1076,13 +1198,36 @@ export class WafflebaseDocStore implements DocStore {
       return await op();
     } catch (err) {
       if (!isQuotaExceeded(err)) {
+        // Every non-quota failure ends here: a database that will not open
+        // (private browsing), a refused transaction, an entry evicted out from
+        // under this client. The chip must stop promising durability for work
+        // this store did not take.
+        this.reportWriteFailure(err);
         throw err;
       }
       if (!(await this.evictOldest(docKey))) {
         // Nothing idle left to free, so retrying would fail the same way.
+        this.reportWriteFailure(err);
         throw err;
       }
-      return op();
+      try {
+        return await op();
+      } catch (retryErr) {
+        this.reportWriteFailure(retryErr);
+        throw retryErr;
+      }
+    }
+  }
+
+  /**
+   * Tells the caller a write did not land, without letting the telling fail the
+   * write's own error path.
+   */
+  private reportWriteFailure(err: unknown): void {
+    try {
+      this.onWriteFailure?.(err);
+    } catch {
+      // A reporter that throws must not replace the store error with its own.
     }
   }
 

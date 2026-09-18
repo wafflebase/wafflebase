@@ -170,16 +170,25 @@ Two consequences elsewhere in this design:
   refusing the attach for its own lock — nothing is attached there, so
   re-mounting on the ambient client is the repair rather than a loss.
 
-**Signing out erases; being signed out does not.** The erase runs from
-`logout()`, which is also what `fetchWithAuth` calls on a 401 whose refresh
-failed. That path is an expired cookie or a restarted backend, not a decision:
-the user is about to sign straight back in on the same device, and the archives
-are by this design the only remaining copy of work the server never took. So
-the involuntary path ends the session and erases nothing, and only a deliberate
-sign-out spends the identity. The identity itself is mirrored in
-`localStorage` (an id, never content) because sign-out is reachable from routes
-the authenticated shell does not cover, where in-memory state is simply absent
-and the erase would otherwise be a silent no-op.
+**Signing out erases; being signed out erases all but the archives.** The erase
+runs from `logout()`, which is also what `fetchWithAuth` calls on a 401 whose
+refresh failed. That path is an expired cookie or a restarted backend, not a
+decision, and the archives are by this design the only remaining copy of work
+the server never took — so an event the user neither chose nor can undo must
+not delete them. The *live* entries go on both paths: they are copies of
+content the server still holds, so dropping them costs nothing, and a session
+that ends by expiring is the commonest way one ends on a shared machine, which
+is the case this whole per-device opt-in exists for. Only a deliberate sign-out
+takes the archives too.
+
+The identity is mirrored in `localStorage` (an id, never content) because
+sign-out is reachable from routes the authenticated shell does not cover, where
+in-memory state is simply absent and the erase would otherwise be a silent
+no-op. It is spent **only once the erase has actually happened**: forgetting it
+first made a transient IndexedDB failure permanent, since nothing could then
+name the account whose documents were still on the disk while the user was told
+they had been signed out. A failed erase records the identity it owes work to,
+and the next session's `OfflineRuntime` finishes it — whoever signs in on it.
 
 **Both opt-in entry points are gated on `supportsClientKey()`**, not only the
 code that persists. On a build pinned below `MinClientKeyVersion` nothing can
@@ -238,10 +247,37 @@ detached:
 
 | Trigger | Action |
 |---------|--------|
-| Logout | Drop every entry for that user |
-| Document deleted, or workspace access lost | Drop that entry |
-| Periodic | Drop entries untouched for 30 days (store `updatedAt` beside the envelope) |
+| Logout | Drop every entry for that user, archives included |
+| Session expired (401) | Drop that user's live entries; keep the archives |
+| Document deleted | Drop that entry, keeping its archive |
+| Workspace deleted, or membership removed | Drop those entries **and their archives** |
+| Every session | Drop entries for documents the server no longer lists |
+| Periodic | Drop entries untouched for 30 days, whoever wrote them (store `updatedAt` beside the envelope) |
 | `QuotaExceededError` | Evict the oldest entry whose log is empty, retry once, then report undurable |
+
+Two of those rows are about the same distinction. Losing a *document* leaves
+the user their own unsent work, which is what an archive is, so the archive
+stays and recovery can hand it back. Losing *access* ends the authority to read
+the content at all, and recovery re-materializes a whole document from an
+archive — so a membership revoked while an archive survives would hand the user
+a permanent copy of content they may no longer read. Those callers drop the
+archive with the entry.
+
+Access revoked by **somebody else** reaches the affected device through none of
+those rows: every one of them runs on the device of whoever made the request.
+So `OfflineRuntime` asks, once per session, for the documents this account may
+still read and drops what is not in the answer. A failed or partial listing
+never reaches the purge — it keeps only what the list names, so an empty list
+would erase the device.
+
+The thirty-day sweep is deliberately **not** scoped to the signed-in user for
+live entries, and this reverses an earlier reading of the same shared-device
+concern. A user who stops coming back to a shared machine is exactly the one
+whose content nothing else would ever collect, so a user-scoped sweep left it
+there forever while every other row in this table named the sweep as its
+backstop. The policy applied is identical to the one the signed-in user's own
+entries get, at the same age. Archives stay scoped: another account's is the
+only copy of work their SDK could not reconcile, and it is theirs to collect.
 
 Eviction deletes outright — no archive, nothing offered back — so it may only
 take an entry that has been compacted. A non-empty log is work that may never
@@ -340,7 +376,14 @@ So the app queues up first, before the SDK ever tries:
   elected this tab.
 - **Not acquired** → `key` omitted (random, as today) and no store. Identical to
   current behavior.
-- The lock is held until the view unmounts.
+- The lock is held until the view unmounts — and **only** until then, never
+  released earlier because the preference flipped. The client mounted on this
+  election stays mounted for the life of the open document (see the toggle rule
+  above), so releasing the name under it would leave a tab writing through a
+  stable client key with no election behind it: a second tab could take the same
+  name, mint the same key, and share one actor, which is the silent edit loss
+  the election exists to prevent. Eligibility may therefore rise mid-session
+  (nothing holds the name yet, so taking it denies nobody) and never falls.
 
 This is first-tab-wins rather than Google's model, which coordinates tabs
 through a shared worker so that both can be durable. The shared-worker leader

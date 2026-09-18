@@ -184,12 +184,15 @@ describe("collecting stale entries", () => {
     expect(await later.load("recent")).toBeDefined();
   });
 
-  it("leaves another account's stale entries and archives alone", async () => {
-    // The database is per origin and the `updatedAt` index spans every account
-    // that has used this device, so an unscoped sweep has one person's session
-    // deleting another's documents — and their archives, which are the only
-    // copy of work the SDK could not reconcile. Every other deletion path here
-    // is user-scoped for exactly that reason.
+  it("collects another account's stale entries but never their archives", async () => {
+    // A shared device's other account is the one that never comes back to run
+    // its own housekeeping, so a user-scoped sweep leaves a departed user's
+    // document content on the disk forever. The same policy at the same age is
+    // therefore applied to every live entry, whoever wrote it.
+    //
+    // Archives are the exception, and the reason the split exists: they are the
+    // only copy of work the SDK could not reconcile, so another account's stays
+    // theirs to collect.
     const time = clock("2026-01-01T00:00:00Z");
     const mine = freshStore("user-1", time.now);
     await seed(mine, "mine-old");
@@ -208,9 +211,9 @@ describe("collecting stale entries", () => {
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
     const later = reopen(mine, "user-1", time.now);
 
-    expect(await later.collectStale(thirtyDays)).toBe(1);
+    expect(await later.collectStale(thirtyDays)).toBe(2);
     expect(await later.load("mine-old")).toBeUndefined();
-    expect(await theirs.load("theirs-old")).toBeDefined();
+    expect(await theirs.load("theirs-old")).toBeUndefined();
     expect(await theirs.listArchives()).toHaveLength(1);
   });
 
@@ -563,5 +566,139 @@ describe("documents open in another tab", () => {
 
     expect(await sweeper.collectStale(30 * 24 * 60 * 60 * 1000)).toBe(1);
     expect(await sweeper.load("was-open")).toBeUndefined();
+  });
+});
+
+describe("telling the app the writes are not landing", () => {
+  it("reports a write that failed for any reason", async () => {
+    // The chip's `saved-locally` is a promise that the work is on disk, and
+    // the SDK swallows store failures — so without this a store that accepts
+    // nothing still reads as durable.
+    const failures: Array<unknown> = [];
+    counter += 1;
+    const store = new WafflebaseDocStore({
+      dbName: `wafflebase-cleanup-${counter}`,
+      userId: "user-1",
+      onWriteFailure: (err) => failures.push(err),
+    });
+
+    const real = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
+      this: IDBObjectStore,
+    ) {
+      throw new DOMException("refused", "InvalidStateError");
+    } as typeof IDBObjectStore.prototype.put);
+
+    await expect(
+      store.saveSnapshot("doc-a", new Uint8Array([1])),
+    ).rejects.toThrow();
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(real);
+
+    expect(failures).toHaveLength(1);
+  });
+
+  it("reports a full origin that eviction could not relieve", async () => {
+    const failures: Array<unknown> = [];
+    counter += 1;
+    const store = new WafflebaseDocStore({
+      dbName: `wafflebase-cleanup-${counter}`,
+      userId: "user-1",
+      onWriteFailure: (err) => failures.push(err),
+    });
+
+    // Nothing idle to free, so the retry never happens.
+    failPuts(1);
+    await expect(
+      store.saveSnapshot("doc-a", new Uint8Array([1])),
+    ).rejects.toThrow();
+    vi.restoreAllMocks();
+
+    expect(failures).toHaveLength(1);
+  });
+
+  it("says nothing while the writes are landing", async () => {
+    const failures: Array<unknown> = [];
+    counter += 1;
+    const store = new WafflebaseDocStore({
+      dbName: `wafflebase-cleanup-${counter}`,
+      userId: "user-1",
+      onWriteFailure: (err) => failures.push(err),
+    });
+
+    await seed(store, "doc-a");
+
+    expect(failures).toEqual([]);
+  });
+});
+
+describe("an erase under a live client", () => {
+  it("refuses the append on the instance the SDK is writing through", async () => {
+    // The instance that erases is never the instance the client holds: the
+    // housekeeping runtime has its own store. Marking the key per instance put
+    // the refusal where no append would ever read it, so appends after an
+    // erase were silently ignored while the chip still said "saved".
+    const client = freshStore("user-1");
+    await seed(client, "doc-live");
+
+    const housekeeping = reopen(client, "user-1");
+    await housekeeping.dropAllForUser("user-1");
+
+    await expect(
+      client.appendChange("doc-live", {
+        clientSeq: 2,
+        bytes: new Uint8Array([9]),
+      }),
+    ).rejects.toThrow(/evicted/i);
+  });
+});
+
+describe("losing access rather than losing the document", () => {
+  it("takes the archives too when access is what was lost", async () => {
+    // Recovery re-materializes a whole document from an archive, so one that
+    // survives a revoked membership is a permanent copy of content the user
+    // may no longer read.
+    const store = freshStore("user-1");
+    await seed(store, "pk/wb:1:sheet-abc/sheet-abc");
+    store.expectLoss("pk/wb:1:sheet-abc/sheet-abc");
+    await store.remove("pk/wb:1:sheet-abc/sheet-abc");
+    expect(await store.listArchives()).toHaveLength(1);
+
+    await store.purgeDocument("abc", { archives: "drop" });
+
+    expect(await store.listArchives()).toEqual([]);
+  });
+
+  it("keeps them when the document was merely deleted", async () => {
+    const store = freshStore("user-1");
+    await seed(store, "sheet-abc");
+    store.expectLoss("sheet-abc");
+    await store.remove("sheet-abc");
+
+    await store.purgeDocument("abc");
+
+    expect(await store.listArchives()).toHaveLength(1);
+  });
+
+  it("never drops another account's archive for the same document", async () => {
+    const mine = freshStore("user-1");
+    const theirs = new WafflebaseDocStore({
+      dbName: mine.databaseName,
+      userId: "user-2",
+    });
+    await seed(theirs, "sheet-abc");
+    theirs.expectLoss("sheet-abc");
+    await theirs.remove("sheet-abc");
+
+    await mine.purgeDocument("abc", { archives: "drop" });
+
+    expect(await theirs.listArchives()).toHaveLength(1);
+  });
+
+  it("lists the document ids it holds, so the app can ask what is still readable", async () => {
+    const store = freshStore("user-1");
+    await seed(store, "pk/wb:1:sheet-abc/sheet-abc");
+    await seed(store, "pk/wb:1:doc-xyz/doc-xyz");
+
+    expect((await store.storedDocumentIds()).sort()).toEqual(["abc", "xyz"]);
   });
 });

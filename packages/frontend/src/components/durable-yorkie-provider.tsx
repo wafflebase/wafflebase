@@ -83,6 +83,33 @@ export function DurableYorkieProvider({
   onLockRefused,
   children,
 }: PropsWithChildren<DurableYorkieProviderProps>) {
+  // Latched, not toggled back. Once the SDK has reported that it dropped local
+  // work, the entry the chip would be promising has been removed — and it is
+  // the chip's promise, not the client's existence, that this boolean stands
+  // for. Over-reporting durability is the one direction this feature must not
+  // fail in.
+  const [lost, setLost] = useState(false);
+  const reportLoss = useCallback(() => setLost(true), []);
+
+  /**
+   * The store's own half of the same promise.
+   *
+   * `durable` is the conjunction of three facts, and the SDK's loss event is
+   * only one of them: a store whose writes are *failing* — IndexedDB refused
+   * in private browsing, an origin still full after eviction freed what it
+   * could — reports nothing at all, because the SDK swallows store errors. The
+   * chip would then read `saved-locally` for work that is on no disk anywhere,
+   * which is the one lie this feature cannot tell.
+   *
+   * Latched for the same reason the loss is: a write that failed is work not on
+   * disk, and a later write succeeding does not put it there.
+   *
+   * (The third fact — that this tab won the app lock — is structural: this
+   * component is mounted only by a decision the election answered, and
+   * `useDurableDocument` holds that election for the life of the open document
+   * rather than releasing it under a still-mounted client.)
+   */
+  const [writesFailing, setWritesFailing] = useState(false);
   const store = useMemo(
     () =>
       new WafflebaseDocStore({
@@ -92,20 +119,14 @@ export function DurableYorkieProvider({
         // tab's eviction deletes another tab's open document and every append
         // after that silently goes nowhere.
         isOpenElsewhere: isOpenInAnyTab,
+        onWriteFailure: () => setWritesFailing(true),
       }),
     [userId],
   );
 
-  // Latched, not toggled back. Once the SDK has reported that it dropped local
-  // work, the entry the chip would be promising has been removed — and it is
-  // the chip's promise, not the client's existence, that this boolean stands
-  // for. Over-reporting durability is the one direction this feature must not
-  // fail in.
-  const [lost, setLost] = useState(false);
-  const reportLoss = useCallback(() => setLost(true), []);
   const value = useMemo(
-    () => ({ store, durable: !lost, reportLoss }),
-    [store, lost, reportLoss],
+    () => ({ store, durable: !lost && !writesFailing, reportLoss }),
+    [store, lost, writesFailing, reportLoss],
   );
 
   return (

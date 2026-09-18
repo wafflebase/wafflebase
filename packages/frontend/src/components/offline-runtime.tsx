@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { fetchDocument } from '@/api/documents';
+import { fetchDocument, fetchDocuments } from '@/api/documents';
 import { getDocumentPath } from '@/app/documents/document-list-utils';
 import { isOpenInAnyTab } from '@/lib/durable-session';
 import { listRecoverableWork } from '@/lib/offline-copy';
@@ -10,7 +10,9 @@ import {
   recoverOfflineCopy,
 } from '@/lib/offline-copy-recovery';
 import {
+  purgeRevokedOfflineDocuments,
   rememberOfflineUser,
+  retryPendingOfflineErase,
   watchForOfflineDisable,
 } from '@/lib/offline-erase';
 import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
@@ -27,7 +29,9 @@ import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
  * | Trigger | What runs |
  * |---|---|
  * | The toggle switched off | erase this user's entries and archives |
+ * | A sign-out whose erase failed | finish it, whoever is signed in now |
  * | Every session | collect entries untouched for thirty days |
+ * | Every session | drop copies of documents the server no longer lists |
  * | Work the SDK could not reconcile | offer it back as a document |
  *
  * Mounted once by `PrivateRoute`, which is the only place that has both an
@@ -73,6 +77,18 @@ export function OfflineRuntime({ userId }: { userId: string }) {
 
     void (async () => {
       try {
+        // Before anything else, and before this session writes anything of its
+        // own: an erase a previous sign-out could not finish is somebody else's
+        // documents still on this disk, and that account may never come back to
+        // this device to try again.
+        await retryPendingOfflineErase();
+      } catch (err) {
+        console.warn('[offline] could not finish an owed erase:', err);
+      }
+
+      if (cancelled) return;
+
+      try {
         // The thirty-day sweep. Once per session rather than on a timer: the
         // entries it collects are by definition weeks old, so nothing is
         // gained by asking again an hour later, and a timer would keep a
@@ -80,6 +96,26 @@ export function OfflineRuntime({ userId }: { userId: string }) {
         await store.collectStale();
       } catch (err) {
         console.warn('[offline] could not collect stale documents:', err);
+      }
+
+      if (cancelled) return;
+
+      try {
+        // Access somebody *else* ended reaches this device no other way. Every
+        // other purge runs on the device of whoever made the request, so a
+        // member removed from a workspace keeps full local copies of its
+        // documents until their own app asks what it may still read. This is
+        // that question.
+        //
+        // The listing is awaited here rather than inside the purge, so a failed
+        // or partial answer throws before anything is deleted — a purge that
+        // keeps "everything the server listed" must never run on a list the
+        // server did not give.
+        const accessible = await fetchDocuments();
+        if (cancelled) return;
+        await purgeRevokedOfflineDocuments(accessible.map((doc) => doc.id));
+      } catch (err) {
+        console.warn('[offline] could not reconcile local copies:', err);
       }
 
       if (cancelled) return;
