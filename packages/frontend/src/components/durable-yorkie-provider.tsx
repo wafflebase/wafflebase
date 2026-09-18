@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { YorkieProvider, useDocument, useYorkie } from '@yorkie-js/react';
 import { isOpenInAnyTab } from '@/lib/durable-session';
+import { getOfflinePersistenceEnabled } from '@/lib/offline-persistence-preference';
 import {
   DurableDocumentScope,
   useDurableDocumentContext,
@@ -92,10 +93,27 @@ export function DurableYorkieProvider({
   const reportLoss = useCallback(() => setLost(true), []);
 
   /**
+   * The second of the design's three conjuncts.
+   *
+   * The SDK stops persisting a document whose snapshot is too large or too slow
+   * to write and says so with a `PersistDisabled` event; editing carries on
+   * regardless. Nothing else observes that — the store simply stops being
+   * called — so without this the chip would keep reading `Saved to this device`
+   * for a document the SDK has quietly stopped saving, which is the one lie
+   * this feature must not tell. Latched, like the other two: what was not
+   * written is not on disk, and a later success does not put it there.
+   */
+  const [persistDisabled, setPersistDisabled] = useState(false);
+  const reportPersistDisabled = useCallback(
+    () => setPersistDisabled(true),
+    [],
+  );
+
+  /**
    * The store's own half of the same promise.
    *
-   * `durable` is the conjunction of three facts, and the SDK's loss event is
-   * only one of them: a store whose writes are *failing* — IndexedDB refused
+   * `durable` is the conjunction of three facts, and the SDK's events are only
+   * two of them: a store whose writes are *failing* — IndexedDB refused
    * in private browsing, an origin still full after eviction freed what it
    * could — reports nothing at all, because the SDK swallows store errors. The
    * chip would then read `saved-locally` for work that is on no disk anywhere,
@@ -120,13 +138,31 @@ export function DurableYorkieProvider({
         // after that silently goes nowhere.
         isOpenElsewhere: isOpenInAnyTab,
         onWriteFailure: () => setWritesFailing(true),
+        // Switching the preference off erases the disk but deliberately leaves
+        // this client mounted — re-deciding durability would unmount the
+        // editor and take the queue at risk with it. Without this the next
+        // write puts the open document straight back on the disk the user just
+        // asked to clear, and nothing runs again to remove it.
+        isPersistenceEnabled: getOfflinePersistenceEnabled,
       }),
     [userId],
   );
 
   const value = useMemo(
-    () => ({ store, durable: !lost && !writesFailing, reportLoss }),
-    [store, lost, writesFailing, reportLoss],
+    () => ({
+      store,
+      durable: !lost && !writesFailing && !persistDisabled,
+      reportLoss,
+      reportPersistDisabled,
+    }),
+    [
+      store,
+      lost,
+      writesFailing,
+      persistDisabled,
+      reportLoss,
+      reportPersistDisabled,
+    ],
   );
 
   return (
@@ -178,10 +214,23 @@ export function DurableLossWatch() {
     // collaborative document, so it must not be able to break one.
     if (typeof doc.subscribe !== 'function' || typeof doc.getKey !== 'function')
       return;
-    return doc.subscribe('local-changes-dropped', () => {
+    const unsubscribeLoss = doc.subscribe('local-changes-dropped', () => {
       durable.store.expectLoss(doc.getKey());
       durable.reportLoss();
     });
+    // The other event this component exists to catch, and the one the design
+    // names as `durable`'s second conjunct: the SDK gives up on a document
+    // whose snapshot is too large or too slow to write, and carries on letting
+    // the user edit it. Nothing is archived — nothing was lost, it simply
+    // stopped being saved — so this latches durability off without telling the
+    // store to expect a loss.
+    const unsubscribePersist = doc.subscribe('persist-disabled', () => {
+      durable.reportPersistDisabled();
+    });
+    return () => {
+      unsubscribeLoss?.();
+      unsubscribePersist?.();
+    };
   }, [doc, durable]);
 
   return null;

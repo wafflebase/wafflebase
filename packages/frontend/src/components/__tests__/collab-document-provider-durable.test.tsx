@@ -21,6 +21,16 @@ const mounted: Array<Record<string, unknown>> = [];
 /** `local-changes-dropped` handlers the provider registered. */
 const subscribers: Array<(event: unknown) => void> = [];
 
+/**
+ * Every document event the provider subscribed to, in order.
+ *
+ * Kept apart from `subscribers` because `durable` is a conjunction of more than
+ * one fact and the watch listens for more than one event: counting handlers
+ * without naming them turns "also watches for persist-disabled" into a broken
+ * assertion about where the watch is mounted.
+ */
+const subscribedEvents: Array<string> = [];
+
 /** What `useYorkie()` reports, so a refused attach can be driven. */
 let yorkieError: unknown;
 
@@ -41,10 +51,15 @@ vi.mock('@yorkie-js/react', async () => {
   );
   const doc = {
     getKey: () => 'note-7',
-    subscribe: (_event: string, fn: (e: unknown) => void) => {
-      subscribers.push(fn);
+    subscribe: (event: string, fn: (e: unknown) => void) => {
+      subscribedEvents.push(event);
+      if (event === 'local-changes-dropped') {
+        subscribers.push(fn);
+      }
       return () => {
-        subscribers.splice(subscribers.indexOf(fn), 1);
+        subscribedEvents.splice(subscribedEvents.indexOf(event), 1);
+        const at = subscribers.indexOf(fn);
+        if (at !== -1) subscribers.splice(at, 1);
       };
     },
   };
@@ -113,6 +128,7 @@ beforeEach(() => {
   me.isPending = false;
   mounted.length = 0;
   subscribers.length = 0;
+  subscribedEvents.length = 0;
   yorkieError = undefined;
   vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(true);
   locks = fakeLocks();
@@ -346,6 +362,19 @@ describe('telling the store which removals are losses', () => {
 
     await waitFor(() => expect(mounted.length).toBe(1));
     expect(subscribers.length).toBe(1);
+  });
+
+  it("also watches the SDK's persist-disabled event", async () => {
+    // The design's second conjunct. A document the SDK stopped persisting —
+    // too large, too slow — is not on this disk, and nothing else observes
+    // that: the store simply stops being called while the chip keeps saying
+    // "Saved to this device".
+    setOfflinePersistenceEnabled(true);
+    mount('note-7');
+
+    await waitFor(() =>
+      expect(subscribedEvents).toContain('persist-disabled'),
+    );
   });
 });
 

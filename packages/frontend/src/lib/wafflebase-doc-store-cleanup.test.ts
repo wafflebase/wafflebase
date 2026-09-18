@@ -184,15 +184,19 @@ describe("collecting stale entries", () => {
     expect(await later.load("recent")).toBeDefined();
   });
 
-  it("collects another account's stale entries but never their archives", async () => {
+  it("collects another account's stale entries and their stale archives", async () => {
     // A shared device's other account is the one that never comes back to run
     // its own housekeeping, so a user-scoped sweep leaves a departed user's
     // document content on the disk forever. The same policy at the same age is
     // therefore applied to every live entry, whoever wrote it.
     //
-    // Archives are the exception, and the reason the split exists: they are the
-    // only copy of work the SDK could not reconcile, so another account's stays
-    // theirs to collect.
+    // Archives are held to it too, and that is the half this used to get
+    // wrong: an archive is a *whole document*, and exempting another account's
+    // left it with no collection path at all — the session that ends by
+    // expiring is the commonest way one ends on a shared machine, and that
+    // account never signs back in to sweep. Deleting old content is not the
+    // same authority as reading it: `listArchives` and `loadArchive` still
+    // refuse to hand one account another's.
     const time = clock("2026-01-01T00:00:00Z");
     const mine = freshStore("user-1", time.now);
     await seed(mine, "mine-old");
@@ -211,9 +215,33 @@ describe("collecting stale entries", () => {
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
     const later = reopen(mine, "user-1", time.now);
 
-    expect(await later.collectStale(thirtyDays)).toBe(2);
+    // Two live entries and one archive, none of them this user's alone.
+    expect(await later.collectStale(thirtyDays)).toBe(3);
     expect(await later.load("mine-old")).toBeUndefined();
     expect(await theirs.load("theirs-old")).toBeUndefined();
+    expect(await theirs.listArchives()).toEqual([]);
+  });
+
+  it("spares another account's archive until it is old enough", async () => {
+    // Age is the whole policy, and it is applied identically to everyone: a
+    // recent archive is work its owner has not been offered back yet, whoever
+    // they are.
+    const time = clock("2026-01-01T00:00:00Z");
+    const mine = freshStore("user-1", time.now);
+    const theirs = new WafflebaseDocStore({
+      dbName: mine.databaseName,
+      userId: "user-2",
+      now: time.now,
+    });
+    await seed(theirs, "theirs-lost");
+    theirs.expectLoss("theirs-lost");
+    await theirs.remove("theirs-lost");
+
+    time.set("2026-01-10T00:00:00Z");
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    const later = reopen(mine, "user-1", time.now);
+
+    expect(await later.collectStale(thirtyDays)).toBe(0);
     expect(await theirs.listArchives()).toHaveLength(1);
   });
 
@@ -694,11 +722,136 @@ describe("losing access rather than losing the document", () => {
     expect(await theirs.listArchives()).toHaveLength(1);
   });
 
+  it("spares a document a client has open right now when asked to", async () => {
+    // The revocation reconcile deletes on an *absence* from a listing taken a
+    // moment ago, over a database shared with this user's other tabs — so a
+    // document open in one of them is not evidence of anything. Purging it is
+    // the same silent-append loss eviction is careful to avoid, with no quota
+    // failure needed to cause it.
+    const open = new Set(["pk/wb:1:sheet-abc/sheet-abc"]);
+    const store = new WafflebaseDocStore({
+      dbName: `wafflebase-reconcile-open`,
+      userId: "user-1",
+      isOpenElsewhere: (docKey) => open.has(docKey),
+    });
+    await seed(store, "pk/wb:1:sheet-abc/sheet-abc");
+
+    expect(
+      await store.purgeDocument("abc", { archives: "drop", skipOpen: true }),
+    ).toBe(0);
+    expect(await store.load("pk/wb:1:sheet-abc/sheet-abc")).toBeDefined();
+  });
+
+  it("spares an entry written after the listing it is being judged against", async () => {
+    // A document another tab created while `GET /documents` was in flight is
+    // missing from the answer for no reason at all.
+    const time = clock("2026-01-01T00:00:00Z");
+    const store = new WafflebaseDocStore({
+      dbName: `wafflebase-reconcile-fresh`,
+      userId: "user-1",
+      now: time.now,
+    });
+    const listedAt = time.now();
+    time.set("2026-01-01T00:00:01Z");
+    await seed(store, "sheet-new");
+
+    expect(
+      await store.purgeDocument("new", { updatedSince: listedAt }),
+    ).toBe(0);
+    expect(await store.load("sheet-new")).toBeDefined();
+
+    // And the same entry goes once the listing is the newer fact.
+    expect(
+      await store.purgeDocument("new", { updatedSince: time.now() + 1 }),
+    ).toBe(1);
+  });
+
+  it("makes a reconcile's deletion loud rather than silent", async () => {
+    // `purge` alone neither checks liveness nor marks the key, so an append
+    // for it was taken for the contract's "no base" success — every later edit
+    // going nowhere while the chip still said the document was saved.
+    const client = freshStore("user-1");
+    await seed(client, "sheet-gone");
+
+    const housekeeping = reopen(client, "user-1");
+    await housekeeping.purgeDocument("gone", { archives: "drop" });
+
+    await expect(
+      client.appendChange("sheet-gone", {
+        clientSeq: 2,
+        bytes: new Uint8Array([9]),
+      }),
+    ).rejects.toThrow(/evicted/i);
+  });
+
   it("lists the document ids it holds, so the app can ask what is still readable", async () => {
     const store = freshStore("user-1");
     await seed(store, "pk/wb:1:sheet-abc/sheet-abc");
     await seed(store, "pk/wb:1:doc-xyz/doc-xyz");
 
     expect((await store.storedDocumentIds()).sort()).toEqual(["abc", "xyz"]);
+  });
+});
+
+describe("after offline saving is switched off", () => {
+  it("refuses to write the open document back to the disk it just cleared", async () => {
+    // The durable client is deliberately not torn down when the preference
+    // flips — re-deciding durability would unmount the editor and take the
+    // queue at risk with it — so it outlives the erase. Without a refusal its
+    // next write puts the open document straight back, and nothing runs again
+    // to remove it.
+    let enabled = true;
+    const client = new WafflebaseDocStore({
+      dbName: "wafflebase-disabled-1",
+      userId: "user-1",
+      isPersistenceEnabled: () => enabled,
+    });
+    await seed(client, "sheet-open");
+
+    const housekeeping = reopen(client, "user-1");
+    enabled = false;
+    await housekeeping.dropAllForUser("user-1");
+
+    await expect(
+      client.saveSnapshot("sheet-open", new Uint8Array([7])),
+    ).rejects.toThrow(/switched off/i);
+    await expect(
+      client.appendChange("sheet-open", {
+        clientSeq: 9,
+        bytes: new Uint8Array([7]),
+      }),
+    ).rejects.toThrow(/switched off/i);
+    await expect(
+      client.saveMeta("sheet-open", new Uint8Array([7])),
+    ).rejects.toThrow(/switched off/i);
+
+    expect(await housekeeping.load("sheet-open")).toBeUndefined();
+  });
+
+  it("tells the chip, so it stops promising the document is on disk", async () => {
+    // A refusal the chip cannot see would read as `Saved to this device` for a
+    // document nothing is saving.
+    const failures: Array<unknown> = [];
+    const store = new WafflebaseDocStore({
+      dbName: "wafflebase-disabled-2",
+      userId: "user-1",
+      isPersistenceEnabled: () => false,
+      onWriteFailure: (err) => failures.push(err),
+    });
+
+    await expect(
+      store.saveSnapshot("sheet-a", new Uint8Array([1])),
+    ).rejects.toThrow();
+    expect(failures).toHaveLength(1);
+  });
+
+  it("writes as usual while it is still on", async () => {
+    const store = new WafflebaseDocStore({
+      dbName: "wafflebase-disabled-3",
+      userId: "user-1",
+      isPersistenceEnabled: () => true,
+    });
+    await seed(store, "sheet-a");
+    expect(await store.load("sheet-a")).toBeDefined();
   });
 });

@@ -313,6 +313,56 @@ describe("signing out", () => {
     expect(await mine.load("logout-retry")).toBeUndefined();
   });
 
+  it("keeps one account's owed erase when another signs out successfully", async () => {
+    // The marker used to be a single slot, cleared unconditionally by whoever
+    // signed out next — and that is by definition not the account still owed
+    // an erase. A's documents then stayed on a shared device with nothing left
+    // naming them.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const a = defaultStore("logout-a");
+    await seed(a, "a-doc");
+
+    const failing = vi
+      .spyOn(WafflebaseDocStore.prototype, "dropAllForUser")
+      .mockRejectedValue(new Error("nope"));
+    rememberOfflineUser("logout-a");
+    await eraseOfflineDataOnLogout();
+    failing.mockRestore();
+
+    // B signs in and out cleanly on the same device.
+    const b = defaultStore("logout-b");
+    await seed(b, "b-doc");
+    rememberOfflineUser("logout-b");
+    await eraseOfflineDataOnLogout();
+
+    // A is still owed, and the next session finishes it.
+    await retryPendingOfflineErase();
+    expect(await a.load("a-doc")).toBeUndefined();
+    expect(await b.load("b-doc")).toBeUndefined();
+  });
+
+  it("finishes every owed erase, not only the most recent", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const a = defaultStore("owed-a");
+    const b = defaultStore("owed-b");
+    await seed(a, "owed-a-doc");
+    await seed(b, "owed-b-doc");
+
+    const failing = vi
+      .spyOn(WafflebaseDocStore.prototype, "dropAllForUser")
+      .mockRejectedValue(new Error("nope"));
+    rememberOfflineUser("owed-a");
+    await eraseOfflineDataOnLogout();
+    rememberOfflineUser("owed-b");
+    await eraseOfflineDataOnLogout();
+    failing.mockRestore();
+
+    await retryPendingOfflineErase();
+
+    expect(await a.load("owed-a-doc")).toBeUndefined();
+    expect(await b.load("owed-b-doc")).toBeUndefined();
+  });
+
   it("owes no retry once the erase has actually happened", async () => {
     const mine = defaultStore("logout-6");
     await seed(mine, "logout-done");
@@ -364,6 +414,44 @@ describe("access somebody else ended", () => {
 
     expect(await purgeRevokedOfflineDocuments(["something"])).toBe(0);
     expect(await store.load("sheet-anon-2")).toBeDefined();
+  });
+
+  it("keeps a document another tab has open", async () => {
+    // The database is shared with this user's other tabs, and the listing is a
+    // snapshot of one moment. Deleting an entry a live client is writing
+    // through makes every later append for it vanish while that tab's chip
+    // still reports it saved — the exact failure eviction avoids.
+    const store = new WafflebaseDocStore({ userId: "revoked-4" });
+    await seed(store, "pk/wb:1:sheet-open/sheet-open");
+    rememberOfflineUser("revoked-4");
+
+    expect(
+      await purgeRevokedOfflineDocuments(["kept"], {
+        isOpenElsewhere: (docKey) => docKey.endsWith("sheet-open"),
+      }),
+    ).toBe(0);
+    expect(await store.load("pk/wb:1:sheet-open/sheet-open")).toBeDefined();
+  });
+
+  it("keeps a document written after the listing was requested", async () => {
+    // Another tab created it while `GET /documents` was in flight, so its
+    // absence from the answer says nothing at all.
+    const store = new WafflebaseDocStore({ userId: "revoked-5" });
+    const listedAt = Date.now();
+    await seed(store, "sheet-fresh");
+    rememberOfflineUser("revoked-5");
+
+    expect(
+      await purgeRevokedOfflineDocuments(["kept"], { listedAt: listedAt - 1 }),
+    ).toBe(0);
+    expect(await store.load("sheet-fresh")).toBeDefined();
+
+    // And it still drops a copy that predates the listing.
+    expect(
+      await purgeRevokedOfflineDocuments(["kept"], {
+        listedAt: Date.now() + 1000,
+      }),
+    ).toBe(1);
   });
 });
 

@@ -1,4 +1,4 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let mockCtx: { doc: FakeDoc | undefined; connection: string };
@@ -24,6 +24,10 @@ import {
   hasUnsavedWork,
   resetUnsavedWorkProbes,
 } from '@/lib/unsaved-work';
+import {
+  getOfflinePersistenceEnabled,
+  setOfflinePersistenceEnabled,
+} from '@/lib/offline-persistence-preference';
 import { DurableDocumentScope } from '@/lib/durable-document-context';
 import type { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -102,6 +106,7 @@ function renderDurableChip() {
           store: {} as WafflebaseDocStore,
           durable: true,
           reportLoss: () => {},
+          reportPersistDisabled: () => {},
         }}
       >
         <SyncStatusChip />
@@ -476,6 +481,100 @@ describe('SyncStatusChip unsaved-work probe', () => {
 });
 
 describe('the offer to turn offline saving on', () => {
+  /** A stranded chip on a build that can honour the offer. */
+  function renderStranded() {
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
+    setOfflinePersistenceEnabled(false);
+    success.mockClear();
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const view = renderChip();
+    act(() => {
+      doc.type();
+    });
+    return view;
+  }
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('turns the preference on when the chip itself is clicked', () => {
+    // The chip is the second of the design's two entry points, and the one
+    // somebody is actually looking at when they discover they wanted the
+    // setting. Nothing exercised the click, so the whole branch — button,
+    // handler, confirmation — could have been inert.
+    renderStranded();
+
+    const chip = screen.getByRole('status');
+    expect(chip.tagName).toBe('BUTTON');
+    act(() => {
+      fireEvent.click(chip);
+    });
+
+    expect(getOfflinePersistenceEnabled()).toBe(true);
+    // Confirmed, and honestly: the decision to persist is made when a document
+    // opens, so this one is not rescued retroactively.
+    expect(success).toHaveBeenCalledTimes(1);
+    const [, options] = success.mock.calls.at(-1) as [
+      string,
+      { description: string },
+    ];
+    expect(options.description).toMatch(/from now on/i);
+  });
+
+  it('stops offering once the device has opted in', () => {
+    // A call to action that survives being accepted re-warns the user about a
+    // setting they have already turned on.
+    renderStranded();
+    act(() => {
+      fireEvent.click(screen.getByRole('status'));
+    });
+
+    expect(screen.getByRole('status').tagName).toBe('SPAN');
+  });
+
+  it('turns it on from the toast, which is where the interruption lands', () => {
+    renderStranded();
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    const options = warning.mock.calls.at(-1)?.[1] as {
+      action?: { onClick: () => void };
+    };
+    act(() => {
+      options.action!.onClick();
+    });
+
+    expect(getOfflinePersistenceEnabled()).toBe(true);
+    expect(success).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers nothing on a build that could not honour it', () => {
+    // Every surface goes behind the capability check, not only the code that
+    // persists: a build below `MinClientKeyVersion` can store nothing, so the
+    // offer would promise storage — and an erasure of it — that cannot happen.
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.22');
+    setOfflinePersistenceEnabled(false);
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    renderChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(screen.getByRole('status').tagName).toBe('SPAN');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    const options = warning.mock.calls.at(-1)?.[1] as {
+      action?: unknown;
+    };
+    expect(options.action).toBeUndefined();
+  });
+
   it('never promises to save the changes it is shown beside', async () => {
     // The preference is read when a document opens and held until it closes,
     // so accepting this offer reaches the documents opened after it and never

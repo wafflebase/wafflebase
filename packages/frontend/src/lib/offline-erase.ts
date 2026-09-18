@@ -104,27 +104,77 @@ export function isOfflineUser(userId: string): boolean {
 }
 
 /**
- * An erase that was attempted and did not finish, so somebody can try again.
+ * The erases that were attempted and did not finish, so somebody can try again.
  *
  * Failing the erase is not rare enough to shrug at — a database that will not
  * open under storage pressure is exactly the state a full disk produces — and
  * the failure is invisible: the user is told "Logged out successfully" while
  * their documents are still on the disk. Recording the identity of the erase
  * that owes work is what gives the next session something to retry from.
+ *
+ * A **set** of identities, not one slot. A single slot is cleared or
+ * overwritten by whichever account signs out next, and that account is by
+ * definition not the one still owed an erase — so A's failed erase was
+ * forgotten the moment B signed out successfully, and A's documents stayed on
+ * a shared device with nothing left naming them. Each id is added when its own
+ * erase fails and removed only when its own erase succeeds.
  */
 const PENDING_ERASE_KEY = "wafflebase-offline-erase-pending";
 
-function rememberPendingErase(userId: string | undefined): void {
+/**
+ * The ids currently owed an erase.
+ *
+ * A bare string is read as a single id: that is the shape this slot held
+ * before it became a set, and a device carrying one must not have its owed
+ * erase dropped by the upgrade.
+ */
+function pendingErases(): Array<string> {
+  let raw: string | null = null;
   try {
-    if (userId === undefined) {
+    raw = localStorage.getItem(PENDING_ERASE_KEY);
+  } catch {
+    return [];
+  }
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((id): id is string => typeof id === "string");
+    }
+  } catch {
+    // Not JSON, so it is the one-id spelling below.
+  }
+  return [raw];
+}
+
+function writePendingErases(ids: Array<string>): void {
+  try {
+    if (ids.length === 0) {
       localStorage.removeItem(PENDING_ERASE_KEY);
     } else {
-      localStorage.setItem(PENDING_ERASE_KEY, userId);
+      localStorage.setItem(PENDING_ERASE_KEY, JSON.stringify([...new Set(ids)]));
     }
   } catch {
     // Same reasoning as the identity mirror: a browser that refuses storage
     // holds no durable store to erase either.
   }
+}
+
+/** Records that `userId` is still owed an erase, leaving anybody else's alone. */
+function rememberPendingErase(userId: string): void {
+  writePendingErases([...pendingErases(), userId]);
+}
+
+/**
+ * Forgets what `userId` was owed — and only what `userId` was owed.
+ *
+ * Scoped on purpose: this is the half that made one slot lossy. A successful
+ * sign-out says nothing about an erase another account is still owed.
+ */
+function forgetPendingErase(userId: string): void {
+  writePendingErases(pendingErases().filter((id) => id !== userId));
 }
 
 /**
@@ -166,10 +216,10 @@ export async function eraseOfflineDataOnLogout(
       // The archives were spared on purpose, and they are this user's. Keeping
       // the identity is what lets a later deliberate sign-out erase them, and
       // what lets the recovery UI still find them when they sign back in.
-      rememberPendingErase(undefined);
+      forgetPendingErase(who);
     } else {
       rememberOfflineUser(undefined);
-      rememberPendingErase(undefined);
+      forgetPendingErase(who);
     }
   } catch (err) {
     console.warn("[offline] could not erase local documents on logout:", err);
@@ -187,28 +237,30 @@ export async function eraseOfflineDataOnLogout(
  * Called from the authenticated shell on mount — including by a *different*
  * account signing in on the same device, which is the case the retry is for.
  * Silent: nobody asked for this now, and there is nothing actionable to say.
+ *
+ * Every owed erase is attempted, and one that fails again keeps its place in
+ * the queue: a device two accounts share can owe two, and finishing one is no
+ * reason to forget the other.
  */
 export async function retryPendingOfflineErase(): Promise<void> {
-  let owed: string | null = null;
-  try {
-    owed = localStorage.getItem(PENDING_ERASE_KEY);
-  } catch {
+  const owed = pendingErases();
+  if (owed.length === 0) {
     return;
   }
-  if (!owed) {
-    return;
-  }
-  const store = new WafflebaseDocStore({ userId: owed });
-  try {
-    await eraseOfflineData(store, owed);
-    // Only the marker. The recorded identity is whoever is signed in *now* —
-    // by the time this runs the shell has already set it — and clearing it
-    // would leave this session's own logout and purges with nobody to name.
-    rememberPendingErase(undefined);
-  } catch (err) {
-    console.warn("[offline] could not finish an owed erase:", err);
-  } finally {
-    store.close();
+  for (const who of owed) {
+    const store = new WafflebaseDocStore({ userId: who });
+    try {
+      await eraseOfflineData(store, who);
+      // Only this id's marker. The recorded *identity* is whoever is signed in
+      // now — by the time this runs the shell has already set it — and
+      // clearing that would leave this session's own logout and purges with
+      // nobody to name.
+      forgetPendingErase(who);
+    } catch (err) {
+      console.warn("[offline] could not finish an owed erase:", err);
+    } finally {
+      store.close();
+    }
   }
 }
 
@@ -264,9 +316,24 @@ export async function purgeOfflineDocuments(
  * into a whole new document, so keeping one for a workspace the user was
  * removed from would hand them a permanent copy of content they may no longer
  * read.
+ *
+ * Unlike every other purge here, this one deletes on an *absence* — and an
+ * absence has innocent causes. The database is shared with this user's other
+ * tabs, so a document created or opened in one of them after the listing was
+ * taken is missing from that listing for no reason at all. `listedAt` and
+ * `isOpenElsewhere` are what keep those: an entry a client has open right now,
+ * or one touched since the question was asked, is not evidence of lost access.
+ * Both are optional so a caller with no clock or no lock registry still gets
+ * the reconcile, just without the guards.
  */
 export async function purgeRevokedOfflineDocuments(
   accessible: Array<string>,
+  options: {
+    /** When the listing was requested; entries touched since are spared. */
+    listedAt?: number;
+    /** Whether a document key is open in some tab right now. */
+    isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
+  } = {},
 ): Promise<number> {
   const who = offlineUserId();
   if (!who || accessible.length === 0) {
@@ -275,16 +342,24 @@ export async function purgeRevokedOfflineDocuments(
     // one input shape that would erase the device on a half-answered list.
     return 0;
   }
-  const store = new WafflebaseDocStore({ userId: who });
+  const store = new WafflebaseDocStore({
+    userId: who,
+    isOpenElsewhere: options.isOpenElsewhere,
+  });
   try {
     const keep = new Set(accessible);
     const revoked = (await store.storedDocumentIds()).filter(
       (id) => !keep.has(id),
     );
+    let purged = 0;
     for (const id of revoked) {
-      await store.purgeDocument(id, { archives: "drop" });
+      purged += await store.purgeDocument(id, {
+        archives: "drop",
+        skipOpen: true,
+        updatedSince: options.listedAt,
+      });
     }
-    return revoked.length;
+    return purged;
   } catch (err) {
     console.warn("[offline] could not reconcile local copies:", err);
     return 0;

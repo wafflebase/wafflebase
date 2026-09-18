@@ -148,6 +148,26 @@ export interface WafflebaseDocStoreOptions {
    * caller.
    */
   onWriteFailure?: (err: unknown) => void;
+  /**
+   * Whether this store may still write, asked at the moment of each write.
+   *
+   * The durable client is deliberately **not** torn down when the preference
+   * is switched off: re-deciding durability under a mounted editor would
+   * unmount the `DocumentProvider` and take the very queue at risk with it. So
+   * the client outlives the erase — and without this, its next write puts the
+   * open document straight back onto the disk the user has just said they did
+   * not want it on, with no later trigger to remove it.
+   *
+   * Asked rather than captured, because the answer changes while this store is
+   * alive. Refusing here rather than silently dropping the write is what makes
+   * the chip stop promising durability: a rejection reaches
+   * {@link WafflebaseDocStoreOptions.onWriteFailure}, where every other
+   * unwritable state already lands.
+   *
+   * Left unset the store always writes, which is what the cleanup instances
+   * and the tests want — they read and delete, they never persist.
+   */
+  isPersistenceEnabled?: () => boolean;
 }
 
 /**
@@ -339,12 +359,35 @@ export class WafflebaseDocStore implements DocStore {
 
   private readonly onWriteFailure?: (err: unknown) => void;
 
+  private readonly isPersistenceEnabled?: () => boolean;
+
   constructor(options: WafflebaseDocStoreOptions) {
     this.dbName = options.dbName ?? DEFAULT_DB_NAME;
     this.userId = options.userId;
     this.now = options.now ?? (() => Date.now());
     this.isOpenElsewhere = options.isOpenElsewhere;
     this.onWriteFailure = options.onWriteFailure;
+    this.isPersistenceEnabled = options.isPersistenceEnabled;
+  }
+
+  /**
+   * Refuses a write once offline saving has been switched off.
+   *
+   * Reported through the ordinary write-failure path rather than returned as a
+   * quiet success, for the reason {@link refuseIfEvicted} gives: the SDK
+   * repairs only what it is told failed, and silence here would let it keep
+   * handing edits to a store that is deliberately dropping them while the chip
+   * still read `Saved to this device`.
+   */
+  private refuseIfDisabled(docKey: string): void {
+    if (this.isPersistenceEnabled?.() === false) {
+      const err = new DOMException(
+        `offline saving is switched off; "${docKey}" is not being stored`,
+        "InvalidStateError",
+      );
+      this.reportWriteFailure(err);
+      throw err;
+    }
   }
 
   /**
@@ -535,6 +578,7 @@ export class WafflebaseDocStore implements DocStore {
    * operations twice or regress the client's clocks.
    */
   public async saveSnapshot(docKey: string, bytes: Uint8Array): Promise<void> {
+    this.refuseIfDisabled(docKey);
     const snapshot = toBuffer(await deflate(bytes));
     return this.withQuotaRetry(docKey, async () => {
       const db = await this.open();
@@ -576,6 +620,7 @@ export class WafflebaseDocStore implements DocStore {
     docKey: string,
     change: StoredChange,
   ): Promise<void> {
+    this.refuseIfDisabled(docKey);
     const bytes = toBuffer(await deflate(change.bytes));
     return this.withQuotaRetry(docKey, async () => {
       const db = await this.open();
@@ -622,6 +667,7 @@ export class WafflebaseDocStore implements DocStore {
    * first job and destroys the second. Only compaction trims.
    */
   public async saveMeta(docKey: string, bytes: Uint8Array): Promise<void> {
+    this.refuseIfDisabled(docKey);
     const meta = toBuffer(await deflate(bytes));
     return this.withQuotaRetry(docKey, async () => {
       const db = await this.open();
@@ -809,23 +855,64 @@ export class WafflebaseDocStore implements DocStore {
    * survives a revoked membership is a permanent copy of content the user may
    * no longer read — the rule this cleanup exists for, inverted. Those callers
    * pass `archives: "drop"`.
+   *
+   * `skipOpen` and `updatedSince` are for the one caller that deletes on a
+   * *guess* rather than on an answer about this document: the once-per-session
+   * reconcile against what the server still lists. That list is a snapshot of
+   * one moment, the database is shared with every other tab of this user, and a
+   * document created — or opened — in another tab after the listing was taken
+   * is absent from it for no reason at all. Deleting it there is exactly the
+   * silent-append loss eviction and collection are careful to avoid. A caller
+   * that knows the document is gone (a delete the server accepted) passes
+   * neither and keeps today's unconditional behavior.
    */
   public async purgeDocument(
     documentId: string,
-    options: { archives?: "keep" | "drop" } = {},
+    options: {
+      archives?: "keep" | "drop";
+      /** Spare an entry a client has open right now, here or in another tab. */
+      skipOpen?: boolean;
+      /** Spare an entry touched at or after this moment. */
+      updatedSince?: number;
+    } = {},
   ): Promise<number> {
     const keys = await this.headerKeysWhere(
       BY_USER,
       IDBKeyRange.only(this.userId),
     );
     const matching = keys.filter((key) => this.isDocument(key, documentId));
+    let purged = 0;
     for (const key of matching) {
+      if (options.skipOpen && (await this.isLive(key))) continue;
+      if (
+        options.updatedSince !== undefined &&
+        (await this.updatedAt(key)) >= options.updatedSince
+      ) {
+        continue;
+      }
       await this.purge(key);
+      // Marked for the same reason `dropAllForUser` marks: this instance is
+      // routinely not the one the SDK writes through, so an append for a base
+      // deleted from under it must fail loudly rather than be taken for the
+      // contract's silent "no base" success — which would leave the chip
+      // reporting a document saved while every later edit went nowhere.
+      this.evicted.add(key);
+      purged += 1;
     }
     if (options.archives === "drop") {
       await this.dropArchivesForDocument(documentId);
     }
-    return matching.length;
+    return purged;
+  }
+
+  /** When an entry was last written or read; `0` when there is none. */
+  private async updatedAt(docKey: string): Promise<number> {
+    const db = await this.open();
+    const tx = db.transaction(HEADERS, "readonly");
+    const header = await requested<HeaderRecord | undefined>(
+      tx.objectStore(HEADERS).get(docKey),
+    );
+    return header?.updatedAt ?? 0;
   }
 
   /** Whether a store key names `documentId`, in either spelling. */
@@ -1011,11 +1098,16 @@ export class WafflebaseDocStore implements DocStore {
     // this user's own entries get, at the same age, so nothing is deleted here
     // that their own next session would have kept.
     //
-    // Archives are the exception, below: they are the only copy of work the SDK
-    // could not reconcile, so another account's stays theirs to collect (its
-    // own `archivedAt` sweep reaches it whenever they next sign in) and
-    // `evictOldest` still refuses to spend somebody else's entry for this
-    // user's write.
+    // Archives are swept on exactly the same terms, and for the same reason
+    // rather than in spite of it: an archive holds a *whole document*, and
+    // scoping the sweep to this user left another account's content with no
+    // collection path at all — the account whose session expired on a shared
+    // device is precisely the one that never signs back in to run its own.
+    // Age is the whole policy, applied identically to everyone, so nothing goes
+    // here that its owner's own session would have kept. `evictOldest` and
+    // `listArchives` still refuse to *spend* or *read* somebody else's, which
+    // is where identity scoping belongs: deleting old content is not the same
+    // authority as handing it to whoever is signed in.
     //
     // A document open right now is not stale, whatever its timestamp says:
     // purging it out from under a live SDK client is the same silent loss
@@ -1031,14 +1123,10 @@ export class WafflebaseDocStore implements DocStore {
       await this.purge(docKey);
     }
 
-    // On the same schedule: an archive store nothing ever collects is a quota
-    // leak that looks like a feature. Scoped to this user as well — another
-    // account's archive is not ours to collect, however old it is.
-    const archived = await this.dropArchivesWhere(
-      BY_ARCHIVED_AT,
-      range,
-      this.userId,
-    );
+    // On the same schedule, and across every account on this device: an
+    // archive store nothing ever collects is a quota leak holding full document
+    // content that no sign-out, purge or sweep can reach.
+    const archived = await this.dropArchivesWhere(BY_ARCHIVED_AT, range);
 
     // And anything with a snapshot but no header. Every other path here walks
     // the header indexes, so such a row is unreachable by all of them while

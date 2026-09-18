@@ -30,6 +30,13 @@ export interface DurableDocumentValue {
   durable: boolean;
   /** Called when the SDK reports that it gave up on local work. */
   reportLoss(): void;
+  /**
+   * Called when the SDK reports that it has stopped persisting this document —
+   * its snapshot is too large or too slow to write. Distinct from a loss:
+   * nothing was dropped, so nothing is archived; the document simply is not on
+   * disk any more and the chip must stop saying it is.
+   */
+  reportPersistDisabled(): void;
 }
 
 const DurableDocumentContext = createContext<DurableDocumentValue | undefined>(

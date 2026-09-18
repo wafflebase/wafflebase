@@ -21,14 +21,45 @@ vi.mock('@/lib/wafflebase-doc-store', () => ({
   },
 }));
 
+/** The document `useDocument()` answers with, settable per case. */
+let mockDoc: FakeDoc | undefined;
+
 vi.mock('@yorkie-js/react', () => ({
   YorkieProvider: ({ children }: PropsWithChildren) => <>{children}</>,
-  useDocument: () => ({ doc: undefined }),
+  useDocument: () => ({ doc: mockDoc }),
   useYorkie: () => ({ error: undefined }),
 }));
 
-import { DurableYorkieProvider } from './durable-yorkie-provider';
+import {
+  DurableYorkieProvider,
+  DurableLossWatch,
+} from './durable-yorkie-provider';
 import { useDocumentDurability } from '@/lib/durable-document-context';
+
+interface FakeDoc {
+  getKey: () => string;
+  subscribe: (type: string, cb: () => void) => () => void;
+  /** Test control: fire one of the SDK's document events. */
+  emit: (type: string) => void;
+}
+
+function fakeDoc(): FakeDoc {
+  const handlers = new Map<string, Array<() => void>>();
+  return {
+    getKey: () => 'sheet-7',
+    subscribe: (type, cb) => {
+      handlers.set(type, [...(handlers.get(type) ?? []), cb]);
+      return () =>
+        handlers.set(
+          type,
+          (handlers.get(type) ?? []).filter((h) => h !== cb),
+        );
+    },
+    emit: (type) => {
+      for (const h of handlers.get(type) ?? []) h();
+    },
+  };
+}
 
 function Probe() {
   return <span>{useDocumentDurability() ? 'durable' : 'not-durable'}</span>;
@@ -42,6 +73,9 @@ function renderProvider() {
       rpcAddr="http://localhost:8080"
       apiKey="key"
     >
+      {/* Where `CollabDocumentProvider` mounts it: inside the document
+          provider, so its `useDocument()` has something to answer with. */}
+      <DurableLossWatch />
       <Probe />
     </DurableYorkieProvider>,
   );
@@ -49,6 +83,7 @@ function renderProvider() {
 
 beforeEach(() => {
   captured.length = 0;
+  mockDoc = undefined;
 });
 
 describe('durability', () => {
@@ -66,6 +101,49 @@ describe('durability', () => {
     await waitFor(() =>
       expect(screen.getByText('not-durable')).toBeInTheDocument(),
     );
+  });
+
+  it('stops being reported once the SDK stops persisting the document', async () => {
+    // The design's second conjunct. A document whose snapshot is too large or
+    // too slow to write is dropped from persistence while editing carries on,
+    // and the SDK says so only with this event — so without it the chip would
+    // keep reading "Saved to this device" for a document nothing is saving.
+    mockDoc = fakeDoc();
+    renderProvider();
+    await waitFor(() => expect(screen.getByText('durable')).toBeInTheDocument());
+
+    act(() => mockDoc!.emit('persist-disabled'));
+
+    await waitFor(() =>
+      expect(screen.getByText('not-durable')).toBeInTheDocument(),
+    );
+  });
+
+  it('keeps that answer across a re-render', async () => {
+    // Latched like the other two: what was not written is not on disk, and a
+    // parent re-rendering — new metadata, a presence change — must not restore
+    // a promise the SDK has withdrawn.
+    mockDoc = fakeDoc();
+    const view = renderProvider();
+    act(() => mockDoc!.emit('persist-disabled'));
+    await waitFor(() =>
+      expect(screen.getByText('not-durable')).toBeInTheDocument(),
+    );
+
+    view.rerender(
+      <DurableYorkieProvider
+        clientKey="wb:1:sheet-7"
+        userId="1"
+        rpcAddr="http://localhost:8080"
+        apiKey="key"
+        metadata={{ userID: 'someone' }}
+      >
+        <DurableLossWatch />
+        <Probe />
+      </DurableYorkieProvider>,
+    );
+
+    expect(screen.getByText('not-durable')).toBeInTheDocument();
   });
 
   it('stays lowered after a later write succeeds', async () => {

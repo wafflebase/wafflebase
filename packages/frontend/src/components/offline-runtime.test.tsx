@@ -12,7 +12,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const rememberOfflineUser = vi.fn();
 const retryPendingOfflineErase = vi.fn(async () => {});
-const purgeRevokedOfflineDocuments = vi.fn(async () => 0);
+const purgeRevokedOfflineDocuments =
+  vi.fn<(...args: Array<unknown>) => Promise<number>>(async () => 0);
 const stopWatching = vi.fn();
 const watchForOfflineDisable = vi.fn(() => stopWatching);
 
@@ -20,8 +21,8 @@ vi.mock('@/lib/offline-erase', () => ({
   rememberOfflineUser: (...args: Array<unknown>) =>
     rememberOfflineUser(...args),
   retryPendingOfflineErase: () => retryPendingOfflineErase(),
-  purgeRevokedOfflineDocuments: (ids: Array<string>) =>
-    purgeRevokedOfflineDocuments(ids),
+  purgeRevokedOfflineDocuments: (...args: Array<unknown>) =>
+    purgeRevokedOfflineDocuments(...(args as [Array<string>])),
   watchForOfflineDisable: (...args: Array<unknown>) =>
     watchForOfflineDisable(...(args as [])),
 }));
@@ -129,8 +130,28 @@ describe('on mount', () => {
     // Access revoked by somebody else reaches this device no other way.
     render(<OfflineRuntime userId="42" />);
     await waitFor(() =>
-      expect(purgeRevokedOfflineDocuments).toHaveBeenCalledWith(['a', 'b']),
+      expect(purgeRevokedOfflineDocuments).toHaveBeenCalledWith(
+        ['a', 'b'],
+        expect.anything(),
+      ),
     );
+  });
+
+  it('tells the reconcile what it may not judge on an absence', async () => {
+    // The listing answers for the moment it was asked, over a database shared
+    // with this user's other tabs: a document created or opened in one of them
+    // is missing from it for no reason at all. Without these the reconcile
+    // deletes it, and every later append in that tab silently goes nowhere.
+    const before = Date.now();
+    render(<OfflineRuntime userId="42" />);
+    await waitFor(() => expect(purgeRevokedOfflineDocuments).toHaveBeenCalled());
+    const [ids, options] = purgeRevokedOfflineDocuments.mock.calls[0] as [
+      Array<string>,
+      { listedAt?: number; isOpenElsewhere?: unknown },
+    ];
+    expect(ids).toEqual(['a', 'b']);
+    expect(options.listedAt).toBeGreaterThanOrEqual(before);
+    expect(typeof options.isOpenElsewhere).toBe('function');
   });
 
   it('never reconciles against a listing the server did not give', async () => {

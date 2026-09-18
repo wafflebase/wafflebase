@@ -6,10 +6,6 @@ import { getDocumentPath } from '@/app/documents/document-list-utils';
 import { isOpenInAnyTab } from '@/lib/durable-session';
 import { listRecoverableWork } from '@/lib/offline-copy';
 import {
-  describeArchivedDocument,
-  recoverOfflineCopy,
-} from '@/lib/offline-copy-recovery';
-import {
   purgeRevokedOfflineDocuments,
   rememberOfflineUser,
   retryPendingOfflineErase,
@@ -36,6 +32,15 @@ import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
  *
  * Mounted once by `PrivateRoute`, which is the only place that has both an
  * identity and a lifetime longer than a single document. It renders nothing.
+ *
+ * `PrivateRoute` is imported eagerly by `App.tsx` while every route under it is
+ * `lazy()`, so this module is in the authenticated shell's first chunk and
+ * whatever it imports statically comes with it. The recovery half —
+ * `offline-copy-recovery`, and through it the docs, slides, board and sheets
+ * engines it writes documents with — is therefore reached by `import()` at the
+ * moment an archive actually exists, which is rare and never during a first
+ * paint. Importing it at the top defeats the route splitting the app is built
+ * around, for code that runs on almost no session.
  */
 export function OfflineRuntime({ userId }: { userId: string }) {
   const navigate = useNavigate();
@@ -111,9 +116,21 @@ export function OfflineRuntime({ userId }: { userId: string }) {
         // or partial answer throws before anything is deleted — a purge that
         // keeps "everything the server listed" must never run on a list the
         // server did not give.
+        //
+        // Stamped *before* the request, because the listing answers for the
+        // moment it was asked: a document another tab of this user creates or
+        // opens while it is in flight is missing from it for no reason at all,
+        // and this database is shared with those tabs. Entries touched since
+        // then, and any document a client has open right now, are left alone —
+        // deleting one is the same silent-append loss eviction is careful to
+        // avoid, with no quota failure needed to cause it.
+        const listedAt = Date.now();
         const accessible = await fetchDocuments();
         if (cancelled) return;
-        await purgeRevokedOfflineDocuments(accessible.map((doc) => doc.id));
+        await purgeRevokedOfflineDocuments(
+          accessible.map((doc) => doc.id),
+          { listedAt, isOpenElsewhere: isOpenInAnyTab },
+        );
       } catch (err) {
         console.warn('[offline] could not reconcile local copies:', err);
       }
@@ -162,6 +179,16 @@ async function offerRecoverableWork(
   navigate: (to: string) => void,
 ): Promise<void> {
   const work = await listRecoverableWork(store);
+  if (work.length === 0) return;
+
+  // Loaded here and nowhere earlier. Rebuilding an archived document needs the
+  // engine that wrote it, so this module pulls in docs, slides, board and
+  // sheets — a cost that must not be paid by every signed-in page load for a
+  // path almost no session takes. See the note on the component above.
+  const { describeArchivedDocument, recoverOfflineCopy } = await import(
+    '@/lib/offline-copy-recovery'
+  );
+
   for (const item of work) {
     if (cancelled()) return;
     const described = describeArchivedDocument(item.docKey);

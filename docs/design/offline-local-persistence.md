@@ -494,6 +494,18 @@ toggle may not. It also means `sync-status.md`'s wording stays true for the
 default case, which shrinks PR 5 to describing the opt-in rather than reversing
 the document's premise.
 
+**PR 4 lands inert, and stays inert until one upstream release.**
+`supportsClientKey()` gates both opt-in entry points on
+`@yorkie-js/react >= 0.7.23`, and at the time of writing npm's newest is
+`0.7.22`, whose `YorkieProvider` spreads its props straight into
+`ClientOptions` with no `clientKey` alias — so the client key cannot be passed
+at all (React reserves `key` and strips it before props are formed;
+yorkie-js-sdk#1357 adds the alias). Nobody on the shipped pin can turn the
+feature on, which is the safe direction and not the intended one: the Goals at
+the top of this document are unmet until the dependency is bumped. Bumping it
+is the whole remaining action — no code here changes with it — and until then
+what is being reviewed and tested is the wiring, not the behavior.
+
 Compaction is governed by a threshold relative to each document's own snapshot
 size, so it needs no per-document-type tuning here; the two constants behind it
 are set in the SDK. What PR 2 measures against real documents of each type is
