@@ -214,13 +214,16 @@ export function pickLatestVerdicts(available, round) {
 }
 
 /**
- * The advisory the command prints when a round exceeds the documented bound.
+ * Why a round past the documented bound is refused, or "" within it.
  *
- * Deliberately NOT a refusal. The bound is a statement about convergence — three
- * rounds that still find blockers means the loop is not the right tool — and a
- * hard stop would also block the legitimate case where a developer reworked the
- * branch substantially and wants a fresh read. So it says the thing a refusal
- * would be trying to say, and lets the human decide.
+ * The bound is a statement about convergence — three rounds that still find
+ * blockers means the loop is not the right tool — and `cmdReview` REFUSES on it
+ * rather than warning, because a warning that still runs the round is not a
+ * bound. The legitimate case (a branch reworked substantially enough to deserve
+ * a fresh read) is served by `--force`, which the message names, so the human
+ * still decides — they just have to say so. `--fresh` is NOT that door: it
+ * discards the carry-forward, which is the opposite of what a fourth round
+ * needs, and the call site measures the bound on the rounds it deleted.
  */
 export function roundBoundNotice(round, max = MAX_SELF_REVIEW_ROUNDS) {
   if (!Number.isInteger(round) || round <= max) return "";
@@ -529,6 +532,19 @@ export function unsafeBaseReason(stat, uid, { leaf = true } = {}) {
   if (leaf && typeof uid === "number" && typeof stat.uid === "number" && stat.uid !== uid) {
     return `it is owned by uid ${stat.uid}, not ${uid}`;
   }
+  // AN ANCESTOR STILL HAS AN OWNER, and "root-owned is safer than ours" is only
+  // half the rule: the other half is that a THIRD user's directory is not safe at
+  // all, whatever its mode says. Mode bits on a directory somebody else owns are
+  // THEIRS to change — they can widen a 0755 to 0777 the instant after we read it
+  // — and the sticky exemption below is worse in exactly the same place, since a
+  // sticky bit restrains everyone EXCEPT the directory's own owner. So a
+  // foreign-owned ancestor, sticky or not, leaves the predictable review base
+  // replaceable by that user, which is the write-redirect / prompt-injection
+  // vector this docblock opens with. Root and ourselves are the only two owners
+  // who cannot be that attacker.
+  if (!leaf && typeof uid === "number" && typeof stat.uid === "number" && stat.uid !== uid && stat.uid !== 0) {
+    return `it is owned by uid ${stat.uid}, neither root nor ${uid}`;
+  }
   if (typeof stat.mode !== "number") return "";
   // TWO RULES, because the two positions answer different questions.
   //
@@ -541,7 +557,9 @@ export function unsafeBaseReason(stat, uid, { leaf = true } = {}) {
   // location — `/Users`, `/home` and most home directories are 0755 — which is
   // why an earlier version checked no ancestor at all under `--out` and left the
   // race open. A sticky bit (`/tmp`) makes a world-writable directory safe again,
-  // since only an entry's owner may replace it.
+  // since only an entry's owner may replace it — and that exemption is sound only
+  // because the ownership rule above has already established the owner is root or
+  // us, the two parties a sticky bit would not have restrained.
   const STICKY = 0o1000;
   const forbidden = leaf ? 0o077 : 0o022;
   if ((stat.mode & forbidden) !== 0 && !(!leaf && (stat.mode & STICKY) !== 0)) {
@@ -716,6 +734,36 @@ export function roundDirsToClear(entries) {
 }
 
 /**
+ * The identity the round store is keyed on, given what git says HEAD is.
+ *
+ * `git rev-parse --abbrev-ref HEAD` answers the literal string `HEAD` whenever
+ * the checkout is DETACHED — mid-rebase, under `git bisect`, and notably the
+ * default `actions/checkout` state, which is one of the two environments this
+ * command documents itself as supporting. Feeding that straight into
+ * `reviewBase` puts every detached checkout on the machine into ONE directory:
+ * they share a round counter (so an unrelated branch's third round refuses this
+ * branch's first) and, far worse, one carry-forward store — `priorFindingsFor`
+ * would read another change's verdicts and put their text into this round's
+ * verifier prompt.
+ *
+ * So a detached HEAD falls back, in order, to the ref CI knows it checked out
+ * (`GITHUB_HEAD_REF` on a pull_request, then `GITHUB_REF_NAME`) and finally to
+ * the commit itself. The commit is a weaker key — a new commit starts a new
+ * store, losing the carry-forward — but it is the honest one: two different
+ * commits are not the same review, and separate-and-forget beats shared-and-mixed.
+ */
+export function branchKey(abbrev, { sha = "", env = {} } = {}) {
+  const name = String(abbrev ?? "").trim();
+  if (name !== "" && name !== "HEAD") return name;
+  const fromEnv = [env.GITHUB_HEAD_REF, env.GITHUB_REF_NAME]
+    .map((v) => String(v ?? "").trim())
+    .find((v) => v !== "" && v !== "HEAD");
+  if (fromEnv) return fromEnv;
+  const head = String(sha ?? "").trim();
+  return head === "" ? "detached-unknown" : `detached-${head.slice(0, 12)}`;
+}
+
+/**
  * Where this branch's rounds live. Keyed by branch so two branches never
  * interleave rounds, and hashed so two branch names that sanitize to the same
  * string cannot share a slot.
@@ -750,11 +798,24 @@ export function verdictProduced(verdict) {
   return verdict.conclusion !== "skipped";
 }
 
-/** `[{ round, lenses }]` for every round whose lens produced a usable verdict. */
+/**
+ * `[{ round, lenses }]` for every round whose lens produced a usable verdict.
+ *
+ * Per-round `readdirSync` is guarded because `roundsIn` matches a NAME: a plain
+ * file called `round-1` sitting in the base makes it throw `ENOTDIR`, which
+ * would break `priorFindingsFor`'s "never throws" contract from underneath and
+ * turn a piece of junk in a shared temp directory into a failed review. An
+ * unreadable round contributes no lenses, matching every other fail direction on
+ * this path: carrying fewer findings is the safe failure.
+ */
 export function roundsOnDisk(base) {
   return roundsIn(readdirSync(base)).map((round) => {
     const dir = path.join(base, `round-${round}`);
-    const lenses = readdirSync(dir, { withFileTypes: true })
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch { /* not a directory, or unreadable → this round settled no lens */ }
+    const lenses = entries
       .filter((e) => e.isDirectory())
       .filter((e) => {
         try {
@@ -805,13 +866,19 @@ function cmdReview(args) {
   if (authNotice) console.warn(`spec-to-pr: ${authNotice}`);
   let branch;
   try {
-    branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
+    // A detached HEAD reads as the literal "HEAD" — see `branchKey` for why that
+    // must not become the round store's key.
+    let sha = "";
+    try {
+      sha = git(["rev-parse", "HEAD"]);
+    } catch { /* an unborn branch has no HEAD commit; the env/name path still works */ }
+    branch = branchKey(git(["rev-parse", "--abbrev-ref", "HEAD"]), { sha, env: process.env });
   } catch (e) {
     return fail(`could not read the current branch: ${e.message}`);
   }
   const argError = reviewArgsError(args);
   if (argError) return fail(argError);
-  const base = args.out ? path.resolve(args.out) : reviewBase(branch);
+  const requested = args.out ? path.resolve(args.out) : reviewBase(branch);
   // 0700 on creation, and refuse a directory that is not ours — see
   // `unsafeBaseReason`. This matters because the path is predictable and its
   // contents are read back into a later round's prompt.
@@ -833,33 +900,53 @@ function cmdReview(args) {
   // The walk stops below the filesystem root, and `os.tmpdir()` is included
   // rather than assumed: it is sticky on every system that matters, which the
   // ancestor rule accepts explicitly.
-  mkdirSync(base, { recursive: true, mode: 0o700 });
+  try {
+    mkdirSync(requested, { recursive: true, mode: 0o700 });
+  } catch (e) {
+    // Fail with the same sentence every other refusal on this path uses, rather
+    // than as an uncaught EACCES stack: a squatted base is exactly the case the
+    // guard below exists for, and it must not read as a crash.
+    return fail(`refusing to use the review directory ${requested}: it could not be created (${e.message})`);
+  }
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
   // The LEAF is inspected unresolved: it has to be our own directory, not a
   // symlink somebody planted where ours was going to be.
   let leafStat = null;
   try {
-    leafStat = lstatSync(base);
+    leafStat = lstatSync(requested);
   } catch { /* unreadable → refused below */ }
   const leafUnsafe = unsafeBaseReason(leafStat, uid, { leaf: true });
-  if (leafUnsafe) return fail(`refusing to use the review directory ${base}: ${leafUnsafe}`);
+  if (leafUnsafe) return fail(`refusing to use the review directory ${requested}: ${leafUnsafe}`);
   // ANCESTORS are walked RESOLVED. `/var` is a symlink to `/private/var` on every
   // Mac, and `os.tmpdir()` sits under it — rejecting a symlinked ancestor refused
   // every run on the platform. Resolving first asks the question that actually
   // matters about an ancestor (can a third party replace it?) of the directory
   // the writes will really land in.
-  let resolved = base;
+  //
+  // AND EVERY LATER READ AND WRITE USES THE RESOLVED PATH — that is the other
+  // half of the same fix, not a tidy-up. Validating the resolved chain and then
+  // doing the I/O through the UNRESOLVED one checks a different directory than it
+  // writes: an attacker who owns a symlinked ancestor can re-point it after the
+  // one-shot check and every subsequent `readdirSync`/`writeFileSync`/`rmSync`
+  // follows the new target (CWE-367). Resolving once and using only the result
+  // leaves no symlink for a later lookup to re-traverse; the leaf is already
+  // known not to be one, so this renames nothing the caller asked for.
+  let base = requested;
   try {
-    resolved = realpathSync(base);
+    base = realpathSync(requested);
   } catch { /* fall back to the literal path */ }
-  for (const dir of ownedPathChain(path.dirname(resolved), path.parse(resolved).root)) {
+  for (const dir of ownedPathChain(path.dirname(base), path.parse(base).root)) {
     let st = null;
     try {
       st = lstatSync(dir);
     } catch { /* unreadable → refused below */ }
     const unsafe = unsafeBaseReason(st, uid, { leaf: false });
-    if (unsafe) return fail(`refusing to use the review directory ${base}: its ancestor ${dir} — ${unsafe}`);
+    if (unsafe) return fail(`refusing to use the review directory ${requested}: its ancestor ${dir} — ${unsafe}`);
   }
+  // Read BEFORE `--fresh` deletes them: the bound is a statement about how many
+  // rounds this branch has already spent, and that fact does not stop being true
+  // because the directories holding it were removed.
+  const onDiskBefore = roundsOnDisk(base);
   // Bounded by construction: only this base's own round directories. Skipped
   // under `--dry-run` — a dry run that deleted the rounds it claims only to
   // report on is the same defect as one that consumes a round number, and this
@@ -875,16 +962,25 @@ function cmdReview(args) {
   // empty ones) does not consume a number. Under `--dry-run --fresh` nothing was
   // deleted, so the rounds are discounted here instead — a dry run has to report
   // the round the real run would use, not the one the un-cleared directory has.
-  const onDisk = args.fresh ? [] : roundsOnDisk(base);
+  const onDisk = args.fresh ? [] : onDiskBefore;
   const round = args.round === undefined ? nextRound(onDisk) : Number(args.round);
-  // REFUSED, not warned. A warning that still runs the round is not a bound: the
-  // documented maximum said one thing and the tool did another, and a loop that
-  // is not converging would keep spending on itself. `--force` is the override,
-  // because the legitimate case exists (a branch reworked enough to deserve a
-  // fresh read) and `--fresh` is not it — that discards the carry-forward, which
-  // is the opposite of what a fourth round needs.
-  const notice = roundBoundNotice(round);
-  if (notice && !args.force) return fail(notice);
+  // `--fresh` DISCARDS THE ROUNDS; IT DOES NOT LIFT THE BOUND. Renumbering to 1
+  // is the whole point of the flag, and it is also exactly how a fourth round
+  // presents itself as a clean first one: `roundBoundNotice(1)` is "", the
+  // refusal never fires, and the run silently loses its carry-forward on the way
+  // past a gate that exists to say "this is not converging". So the bound is
+  // measured on what was on disk BEFORE the delete, and `--force` — the
+  // advertised, noticed override — stays the only door through.
+  const spentRound = args.fresh ? Math.max(round, nextRound(onDiskBefore)) : round;
+  const notice = roundBoundNotice(spentRound);
+  if (notice && !args.force) {
+    return fail(
+      spentRound === round
+        ? notice
+        : `${notice} (--fresh renumbers this run to round ${round}, but ${spentRound - 1} rounds have already ` +
+          "run on this branch — discarding their verdicts is not converging, it is forgetting.)",
+    );
+  }
   if (notice) console.warn(`spec-to-pr: --force: ${notice}`);
 
   const dir = path.join(base, `round-${round}`);

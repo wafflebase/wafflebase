@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, chmodSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -28,6 +28,7 @@ import {
   normalizeRebuttals,
   prepareRoundInputs,
   readRebuttalRecords,
+  branchKey,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
@@ -656,7 +657,91 @@ test("unsafeBaseReason: an ancestor must be un-replaceable, not private", () => 
   assert.match(unsafeBaseReason({ ...anc(0o40755), isSymbolicLink: () => true }, 501, { leaf: false }), /symlink/);
 });
 
+test("unsafeBaseReason: a THIRD user's ancestor is refused, sticky or not", () => {
+  const anc = (mode, uid) => ({ isSymbolicLink: () => false, isDirectory: () => true, uid, mode });
+  // Mode bits on somebody else's directory are theirs to change the instant
+  // after we read them, so a tight mode proves nothing about a foreign owner.
+  assert.match(unsafeBaseReason(anc(0o40755, 999), 501, { leaf: false }), /neither root nor 501/);
+  assert.match(unsafeBaseReason(anc(0o40700, 999), 501, { leaf: false }), /neither root nor 501/);
+  // And sticky is NOT an exemption here: the bit restrains everyone except the
+  // directory's own owner, who is exactly the attacker in this case.
+  assert.match(unsafeBaseReason(anc(0o41777, 999), 501, { leaf: false }), /neither root nor 501/);
+  // Root and ourselves remain the two owners that cannot be that attacker.
+  assert.equal(unsafeBaseReason(anc(0o41777, 0), 501, { leaf: false }), "");
+  assert.equal(unsafeBaseReason(anc(0o40755, 501), 501, { leaf: false }), "");
+  // No getuid (Windows) → skip rather than refuse every run.
+  assert.equal(unsafeBaseReason(anc(0o40755, 999), undefined, { leaf: false }), "");
+});
+
+// --- a detached HEAD is not a branch name ------------------------------------
+
+test("branchKey: a detached HEAD never keys the round store as `HEAD`", () => {
+  assert.equal(branchKey("feat/x", { sha: "abc", env: {} }), "feat/x");
+  // Every detached checkout on the machine reports the literal "HEAD": sharing
+  // one key would share one round counter AND one carry-forward store, feeding
+  // another change's verdicts into this round's verifier prompt.
+  assert.equal(
+    branchKey("HEAD", { sha: "0123456789abcdef0123", env: {} }),
+    "detached-0123456789ab",
+  );
+  // CI is a documented mode and knows the ref it checked out, so prefer it.
+  assert.equal(branchKey("HEAD", { sha: "abc", env: { GITHUB_HEAD_REF: "feat/y" } }), "feat/y");
+  assert.equal(branchKey("HEAD", { sha: "abc", env: { GITHUB_REF_NAME: "feat/z" } }), "feat/z");
+  assert.equal(
+    branchKey("HEAD", { sha: "abc", env: { GITHUB_HEAD_REF: "", GITHUB_REF_NAME: "HEAD" } }),
+    "detached-abc",
+  );
+  // Two detached commits are two reviews, so they must not collide.
+  assert.notEqual(branchKey("HEAD", { sha: "aaaa" }), branchKey("HEAD", { sha: "bbbb" }));
+  assert.equal(branchKey("HEAD", {}), "detached-unknown");
+  assert.equal(branchKey("", { sha: "abc" }), "detached-abc");
+});
+
 // --- the bound is enforced, with one explicit override -----------------------
+
+test("review --fresh cannot walk past the bound by renumbering to round 1", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-freshbound-"));
+  const base = path.join(root, "base");
+  try {
+    // 0700, because the leaf guard refuses anything looser — see `unsafeBaseReason`.
+    mkdirSync(base, { recursive: true, mode: 0o700 });
+    chmodSync(base, 0o700);
+    // Exactly the state the bound exists for: MAX rounds that really reviewed.
+    for (let r = 1; r <= MAX_SELF_REVIEW_ROUNDS; r++) {
+      const lens = path.join(base, `round-${r}`, "security");
+      mkdirSync(lens, { recursive: true });
+      writeFileSync(path.join(lens, "verdict.json"), JSON.stringify({ valid: true, conclusion: "failure", findings: [] }));
+    }
+    const run = (extra) => {
+      try {
+        return { out: execFileSync("node", [script, "review", "--dry-run", "--out", base, ...extra],
+          { encoding: "utf8", stdio: "pipe" }), stderr: "", ok: true };
+      } catch (e) {
+        return { out: String(e.stdout ?? ""), stderr: String(e.stderr ?? ""), ok: false };
+      }
+    };
+    // Without --fresh the refusal is the documented one.
+    const plain = run([]);
+    assert.equal(plain.ok, false);
+    assert.match(plain.stderr, /past the self-review bound/);
+    // WITH --fresh the run renumbers itself to round 1 — and must still be
+    // refused, naming the rounds it would have discarded. A fourth round that
+    // reports as a clean first one is the failure this asserts against.
+    const fresh = run(["--fresh"]);
+    assert.equal(fresh.ok, false);
+    assert.match(fresh.stderr, /past the self-review bound/);
+    assert.match(fresh.stderr, new RegExp(`${MAX_SELF_REVIEW_ROUNDS} rounds have already run`));
+    // `--force` is the one advertised door, and it stays open.
+    const forced = run(["--fresh", "--force"]);
+    assert.equal(forced.ok, true, forced.stderr);
+    assert.match(forced.out, /\[dry-run\] round 1 /);
+    // The dry run wrote nothing: the staged rounds are still there.
+    assert.deepEqual(roundsIn(readdirSync(base)), [1, 2, 3]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("roundBoundNotice: names --force as the way past it", () => {
   const notice = roundBoundNotice(MAX_SELF_REVIEW_ROUNDS + 1);

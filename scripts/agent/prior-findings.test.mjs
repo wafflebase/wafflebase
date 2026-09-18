@@ -498,31 +498,52 @@ test("the panel workflow's inline copy applies both selection filters", () => {
   );
 });
 
-test("carryForwardFindings: a forged `infra` key cannot suppress a finding", () => {
+test("carryForwardFindings: the projection carries an explicit field list, nothing else", () => {
   // verdict.json holds MODEL OUTPUT. A spread would carry every key a lens chose
-  // to write, and `isInfraRecord` treats `infra: true` as authoritative — so a
-  // finding could drop itself from its own carry-forward: gate the round that
-  // raised it, then never be re-checked. The cloud's projection rebuilds from an
-  // explicit field list; this asserts the local one does too.
-  const forged = {
+  // to write — `infra`, `lane`, `valid` — into the next round's verifier prompt
+  // and into `isInfraRecord`'s reach. The cloud's projection rebuilds from an
+  // explicit field list; this asserts the local one does too, on the EVIDENCE
+  // fields as well as the identifying ones, since those are what the verifier
+  // re-checks against.
+  //
+  // It deliberately does NOT use a `lane: "backlog"` fixture: the lane filter
+  // runs before the projection, so such a record is dropped by the lane rule and
+  // an assertion on it would hold whether or not the projection exists. The
+  // forged-`infra` ordering contract is asserted on its own, below.
+  const noisy = {
     severity: "critical",
     file: "a.ts",
-    summary: "a real finding that marked itself infra",
-    infra: true,
-    lane: "backlog",
+    line: 12,
+    summary: "a real finding",
+    evidence: "a.ts:12 does the thing",
+    claimType: "absence",
+    searchedFor: ["theThing("],
+    mergedFrom: ["security"],
+    adjudication: { upheld: 2, notes: "dropped" },
     valid: false,
+    lane: "primary",
+    extra: "model chatter",
   };
-  // It is dropped as an infra record only because of the forged key...
-  assert.deepEqual(carryForwardFindings({ findings: [forged] }, "security"), []);
-  // ...and once the key is gone, the finding carries WITHOUT any of the other
-  // control keys riding along.
-  const honest = { severity: forged.severity, file: forged.file, summary: forged.summary, valid: false };
-  assert.deepEqual(carryForwardFindings({ findings: [honest] }, "security"), [{
+  assert.deepEqual(carryForwardFindings({ findings: [noisy] }, "security"), [{
     severity: "critical",
     file: "a.ts",
-    summary: "a real finding that marked itself infra",
+    line: 12,
+    summary: "a real finding",
+    evidence: "a.ts:12 does the thing",
+    claimType: "absence",
+    searchedFor: ["theThing("],
+    mergedFrom: ["security"],
+    adjudication: { upheld: 2 },
     lens: "security",
   }]);
+});
+
+test("carryForwardFindings: the lane rule drops a backlog-demoted finding", () => {
+  // Separate from the projection test above so neither passes for the other's
+  // reason: a demoted finding is nobody's to fix and can never shrink round over
+  // round, so carrying it would make the loop unable to converge.
+  const demoted = { severity: "critical", file: "a.ts", summary: "a real finding", lane: "backlog" };
+  assert.deepEqual(carryForwardFindings({ findings: [demoted] }, "security"), []);
 });
 
 test("carryForwardFindings: a forged `infra` key cannot suppress a real finding", () => {
