@@ -775,6 +775,27 @@ function reviewBase(branch) {
 }
 
 /**
+ * The panel script this round spawns.
+ *
+ * A SEAM, and the only one `cmdReview` has. Everything between the rounds on
+ * disk and the panel's argv — `priorFindingsFor` → `prepareRoundInputs` →
+ * `panelArgs` → the spawn — is wiring, and wiring is exactly where this file's
+ * defects have lived: both ends were tested while the join between them silently
+ * passed no `--prior-findings` at all. A test can stage rounds, run the real
+ * command, and read back the argv the panel was actually given only if it can
+ * put a recorder where the panel goes; without that, the one assertion worth
+ * making stops at the dry-run return.
+ *
+ * It grants nothing: this is a local dev script, and anyone who can set a
+ * variable in its environment can already run whatever they like as the user
+ * running it. Unset — every real invocation — it is the sibling `review-panel.mjs`.
+ */
+export function panelScript(env = process.env) {
+  const override = typeof env?.WAFFLEBASE_REVIEW_PANEL === "string" ? env.WAFFLEBASE_REVIEW_PANEL.trim() : "";
+  return override === "" ? path.join(HERE, "review-panel.mjs") : path.resolve(override);
+}
+
+/**
  * Did this lens actually REVIEW in this round?
  *
  * "A verdict.json exists" is not the same question, and reading it as one broke
@@ -1063,7 +1084,7 @@ function cmdReview(args) {
     execFileSync(
       "node",
       panelArgs({
-        panel: path.join(HERE, "review-panel.mjs"),
+        panel: panelScript(process.env),
         diffFile,
         changedFile,
         baseSha,

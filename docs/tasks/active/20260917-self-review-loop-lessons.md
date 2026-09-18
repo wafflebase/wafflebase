@@ -107,3 +107,24 @@ and the rest had settled.
 **Rule:** track which area each round's findings land in, not just how many there
 are. Repeated findings in one area mean that area needs a different approach (or
 a different reviewer), not another round.
+
+## A test that composes the pieces is not a test of the code that composes them
+
+Round 6 raised the last gap the earlier rounds kept circling: `prepareRoundInputs`
+and `panelArgs` were both tested, and a test even joined them — but the join was
+the *test's*, not `cmdReview`'s. Nothing drove the command past its dry-run
+return, because the panel is spawned with `execFileSync` and there was nothing to
+put in its place. So the one wiring the whole change exists to protect
+(`priorFindingsFor` → `prepareRoundInputs` → `panelArgs` → the spawn) could have
+broken with the suite green.
+
+The fix was a seam, not a refactor: one env override for the panel script path,
+plus a fixture repository with a real `origin/main` and a recorder standing in for
+the panel, asserting on the argv the panel was actually handed. Verified by
+mutation — pointing `priorFile` at `null` in `cmdReview` fails the new test.
+
+**Rule:** if a defect lives in how a function calls its collaborators, the test
+has to *call that function*. Re-composing its collaborators in the test proves the
+pieces fit and says nothing about the caller. When there is no seam to observe
+through, add the smallest one that grants no new authority — a path override on a
+local dev script is free; an injected mock of everything is not.

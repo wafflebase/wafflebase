@@ -1,6 +1,7 @@
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, chmodSync, writeFileSync, rmSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, chmodSync, writeFileSync, rmSync, readdirSync, existsSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fixtureGitEnv } from "./git-env.mjs";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
@@ -804,6 +805,164 @@ test("readRebuttalRecords: shared by both modes, so a dry run cannot lie", () =>
     assert.throws(() => readRebuttalRecords(empty), /no usable records/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- `cmdReview`'s own wiring, executed rather than re-composed --------------
+//
+// The two tests above compose `prepareRoundInputs` with `panelArgs` BY HAND, so
+// they prove the pieces fit — not that `cmdReview` fits them that way. Nothing
+// drove the command past its dry-run return, which is where the join actually
+// lives: `priorFindingsFor` → `prepareRoundInputs` → `panelArgs` → the spawned
+// panel. A break anywhere along it produces a completely normal-looking round
+// that reviews without its carry-forward, which is the failure this whole change
+// exists to prevent, and the previous local entry point shipped exactly it.
+//
+// So: a throwaway repository with a real `origin/main`, a staged round 1 on
+// disk, and a recorder standing in for the panel (`WAFFLEBASE_REVIEW_PANEL`).
+// The assertion is on the argv the panel was HANDED, read back off disk.
+
+/** git with a fixed identity, pinned to `dir`'s own repository — see git-env.mjs. */
+function fixtureGit(dir, ...args) {
+  return execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args],
+    { cwd: dir, env: fixtureGitEnv(dir), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+}
+
+/** A work tree one commit ahead of a real `origin/main`, so `origin/main...HEAD` resolves. */
+function stageBranchAheadOfOrigin(root) {
+  const originRepo = path.join(root, "origin");
+  const work = path.join(root, "work");
+  mkdirSync(originRepo, { recursive: true });
+  mkdirSync(work, { recursive: true });
+  fixtureGit(originRepo, "init", "-q", "-b", "main");
+  writeFileSync(path.join(originRepo, "base.txt"), "base\n");
+  fixtureGit(originRepo, "add", "-A");
+  fixtureGit(originRepo, "commit", "-q", "-m", "base");
+  fixtureGit(work, "init", "-q", "-b", "main");
+  fixtureGit(work, "remote", "add", "origin", originRepo);
+  fixtureGit(work, "fetch", "-q", "origin", "main");
+  fixtureGit(work, "checkout", "-q", "-b", "feat/wiring", "origin/main");
+  writeFileSync(path.join(work, "added.ts"), "export const added = 1;\n");
+  fixtureGit(work, "add", "-A");
+  fixtureGit(work, "commit", "-q", "-m", "add a file");
+  return work;
+}
+
+/** A stand-in panel that records its argv and writes the panel.json the command reads back. */
+function writeRecorderPanel(root, argvFile) {
+  const stub = path.join(root, "recorder-panel.mjs");
+  writeFileSync(
+    stub,
+    [
+      'import { writeFileSync } from "node:fs";',
+      'import path from "node:path";',
+      "const argv = process.argv.slice(2);",
+      `writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(argv));`,
+      'const out = argv[argv.indexOf("--out") + 1];',
+      'writeFileSync(path.join(out, "panel.json"), JSON.stringify([{ id: "docs", conclusion: "success" }]));',
+      "",
+    ].join("\n"),
+  );
+  return stub;
+}
+
+test("review: the round's carry-forward and rebuttals reach the spawned panel", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-wiring-"));
+  try {
+    const work = stageBranchAheadOfOrigin(root);
+    const base = path.join(root, "base");
+    // Round 1 really reviewed and really blocked, so round 2 must carry it.
+    mkdirSync(path.join(base, "round-1", "docs"), { recursive: true, mode: 0o700 });
+    chmodSync(base, 0o700);
+    writeFileSync(
+      path.join(base, "round-1", "docs", "verdict.json"),
+      JSON.stringify({
+        valid: true,
+        conclusion: "failure",
+        findings: [{ severity: "major", file: "a.ts", line: 4, summary: "carried from round one" }],
+      }),
+    );
+    // A hand-written rebuttal, in the shape a developer actually copies (the
+    // check-run name), so the normalization is exercised through the command too.
+    const rebuttals = path.join(root, "mine.json");
+    writeFileSync(rebuttals, JSON.stringify([{ lens: "agent-review-security", claim: "the flag IS documented" }]));
+
+    const argvFile = path.join(root, "panel-argv.json");
+    const stdout = execFileSync("node", [script, "review", "--out", base, "--rebuttals", rebuttals], {
+      cwd: work,
+      env: { ...fixtureGitEnv(work), WAFFLEBASE_REVIEW_PANEL: writeRecorderPanel(root, argvFile) },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+
+    // The round is the one the verdicts on disk imply, not a fresh 1.
+    assert.match(stdout, /self-review round 2 /);
+    assert.match(stdout, /carrying 1 prior finding\(s\) forward/);
+    assert.match(stdout, /adjudicating 1 rebuttal\(s\)/);
+
+    const argv = JSON.parse(readFileSync(argvFile, "utf8"));
+    // `--out` is resolved (tmpdir is a symlink on macOS), so compare resolved.
+    const round2 = path.join(realpathSync(base), "round-2");
+    assert.equal(argv[argv.indexOf("--out") + 1], round2);
+
+    // THE ASSERTION THIS TEST EXISTS FOR: the panel was handed the path of the
+    // file the command just wrote, and that file holds round 1's finding.
+    const priorArg = argv[argv.indexOf("--prior-findings") + 1];
+    assert.equal(priorArg, path.join(round2, "prior-findings.json"));
+    assert.deepEqual(
+      JSON.parse(readFileSync(priorArg, "utf8")).map((f) => [f.lens, f.file, f.summary]),
+      [["docs", "a.ts", "carried from round one"]],
+    );
+
+    // Same for the rebuttals: the NORMALIZED copy beside the round, not the
+    // hand-written original the panel would have matched to no lens.
+    const rebuttalArg = argv[argv.indexOf("--rebuttals") + 1];
+    assert.equal(rebuttalArg, path.join(round2, "rebuttals.json"));
+    assert.notEqual(rebuttalArg, rebuttals);
+    assert.deepEqual(JSON.parse(readFileSync(rebuttalArg, "utf8")), [
+      { lens: "security", claim: "the flag IS documented" },
+    ]);
+
+    // And the diff it reviews is this branch's, dated against the real merge base.
+    const diff = readFileSync(argv[argv.indexOf("--diff-file") + 1], "utf8");
+    assert.match(diff, /added\.ts/);
+    assert.equal(
+      argv[argv.indexOf("--base-sha") + 1],
+      fixtureGit(work, "merge-base", "origin/main", "HEAD").trim(),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review: round 1 hands the panel no --prior-findings at all", () => {
+  // Absent and empty are different claims to the panel — "first round" versus
+  // "the previous round found nothing" — and only the command can be wrong about
+  // which one it makes.
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-wiring1-"));
+  try {
+    const work = stageBranchAheadOfOrigin(root);
+    const base = path.join(root, "base");
+    const argvFile = path.join(root, "panel-argv.json");
+    execFileSync("node", [script, "review", "--out", base], {
+      cwd: work,
+      env: { ...fixtureGitEnv(work), WAFFLEBASE_REVIEW_PANEL: writeRecorderPanel(root, argvFile) },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    const argv = JSON.parse(readFileSync(argvFile, "utf8"));
+    assert.ok(!argv.includes("--prior-findings"), "round 1 has nothing to carry");
+    assert.ok(!argv.includes("--rebuttals"), "no --rebuttals flag was passed");
+    assert.equal(argv[argv.indexOf("--out") + 1], path.join(realpathSync(base), "round-1"));
+    // The round it just ran is on disk, so the next one is 2.
+    assert.deepEqual(roundsIn(readdirSync(realpathSync(base))), [1]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
