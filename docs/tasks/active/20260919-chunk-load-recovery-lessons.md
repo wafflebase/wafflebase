@@ -94,4 +94,45 @@ anything under `packages/frontend/src/app/*-detail.tsx`.
   missing from design-sandbox's `optimizeDeps.include`; and the reload
   discarding unsent edits (new `lib/unsaved-work.ts` probe).
   `pnpm verify:fast` green.
-- **Round 2** (design fit, blast radius): _pending._
+- **Round 2** (design fit, blast radius): 6 blocking panel findings, plus an
+  independent `superpowers:requesting-code-review` pass that converged on the
+  same Critical. Both said the unsaved-work guard was inert because the only
+  `ErrorBoundary` is the root one, so the rethrow unmounts `DocumentProvider`
+  anyway.
+
+  **Disputed, with evidence** (`rebuttals-chunk-load.json`, kept out of the
+  repo): the premise is wrong. A clean unmount runs `@yorkie-js/react`'s
+  cleanup → `client.detach()` → `Client.detachDocument`, which awaits
+  `waitForSyncComplete()` and then sends `doc.createChangePack()`. The pending
+  changes are **pushed**. `location.reload()` sends nothing. That asymmetry is
+  what the guard buys.
+
+  **But the reviewers were right that the shape was wrong**, so the fix landed
+  too: `components/chunk-boundary.tsx` replaces `Suspense` at all 21 lazy
+  mounts inside a document, so a failed *panel* chunk no longer unmounts the
+  editor at all — which is the route-level boundary the original diagnosis
+  named and the first draft quietly dropped.
+
+  Also fixed: the crash fallback's durability claim (removed for the chunk
+  case — `canReload` declining on unsaved work lands exactly there); a silent
+  retry-success path that erased the signal the plan said to keep
+  (`noteRecovered`, tagged `chunk_recovery: retry`); `@sentry/react` added to
+  design-sandbox's `APP_LIBS` as well as `optimizeDeps.include`, without which
+  the round-1 line could not resolve and was a no-op with a confident comment
+  on it; an in-flight upload queue destroyed by the reload (its own probe); the
+  `SyncStatusChip` probe having no test; a future-dated stamp latching recovery
+  off for the tab's life; and `docs/design/frontend.md`'s now-false "loaded
+  with `React.lazy`" claim.
+
+  **Fixed rather than disputed:** the security lens called the new Sentry
+  capture a share-token leak. The leak is real but pre-dates this branch — the
+  browser SDK attaches `location.href` to every event and `sendDefaultPii:
+  false` does not cover it, as `sentry.ts`'s own comment half-admitted. Closed
+  properly with a `beforeSend` scrubber (`lib/redact-url.ts`) rather than
+  argued about.
+
+  `pnpm verify:fast` green; `pnpm verify:self` green — including
+  `verify:frontend:chunks`, which the module graph predicted would not move
+  (`lazy-with-retry.ts` is statically imported by `App.tsx`, so it lands in the
+  entry chunk).
+- **Round 3** (security, docs): _pending._

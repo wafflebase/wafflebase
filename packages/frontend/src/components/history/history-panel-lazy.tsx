@@ -1,5 +1,6 @@
-import { Suspense, type ComponentProps } from "react";
+import { type ComponentProps } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { ChunkBoundary } from "@/components/chunk-boundary";
 
 const HistoryPanelImpl = lazyWithRetry(() =>
   import("./history-panel").then((module) => ({
@@ -24,9 +25,9 @@ export function LazyHistoryPanel(
   props: ComponentProps<typeof HistoryPanelImpl>,
 ) {
   return (
-    <Suspense fallback={null}>
+    <ChunkBoundary fallback={null}>
       <HistoryPanelImpl {...props} />
-    </Suspense>
+    </ChunkBoundary>
   );
 }
 

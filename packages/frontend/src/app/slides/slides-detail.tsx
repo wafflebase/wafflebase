@@ -1,8 +1,9 @@
 import { createDocumentSelector } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -500,7 +501,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             <PreviewSurface
               preview={
                 previewing && previewRevisionId && currentUser ? (
-                  <Suspense fallback={null}>
+                  <ChunkBoundary fallback={null}>
                     <RevisionPreviewOverlay
                       revisionId={previewRevisionId}
                       type="slides"
@@ -508,7 +509,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                       onClose={() => setPreviewRevisionId(null)}
                       onRestored={handleHistoryRestored}
                     />
-                  </Suspense>
+                  </ChunkBoundary>
                 ) : null
               }
             >

@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+import { isChunkLoadError } from "@/lib/chunk-load-error";
 import { hasUnsavedWork } from "@/lib/unsaved-work";
 
 /**
@@ -10,9 +11,9 @@ import { hasUnsavedWork } from "@/lib/unsaved-work";
  * crash page. That is what Sentry `WAFFLEBASE-2` was: one mobile session on
  * `/w/jiyu`, two failures four seconds apart (`Layout` and
  * `WorkspaceDocuments` sit under the same `Suspense`), while every chunk the
- * page named was still being served — see
- * `docs/tasks/active/20260919-chunk-load-recovery-todo.md` for the evidence
- * that ruled out a stale deploy.
+ * page named was still being served — `docs/design/frontend.md` § Code
+ * splitting and chunk-load recovery holds the evidence that ruled out a stale
+ * deploy.
  *
  * The ladder here is retry, then reload, then give up:
  *
@@ -57,43 +58,6 @@ const RELOAD_GRACE_MS = 10_000;
 const RELOAD_STAMP_KEY = "wafflebase:chunk-reload-at";
 
 /**
- * Messages the JavaScript engines use when a dynamic import never loads.
- *
- * Matching on message text is unlovely, but there is nothing else: a failed
- * `import()` rejects with a plain `TypeError` carrying no code, no status and
- * no `cause`. The list is deliberately SHORT. Everything it does not match
- * propagates on the first throw, which is what keeps a genuine crash inside a
- * route module — a throw while the module body evaluates — from being retried
- * and then reloaded into an infinite diagnosis-free loop.
- */
-const CHUNK_LOAD_MESSAGES = [
-  // WebKit (Safari, and every iOS browser). The one in WAFFLEBASE-2.
-  "importing a module script failed",
-  // Chromium.
-  "failed to fetch dynamically imported module",
-  // Firefox.
-  "error loading dynamically imported module",
-  // Vite's own preload helper, when the chunk's stylesheet is the casualty.
-  "unable to preload css",
-];
-
-/**
- * Whether this rejection is a chunk that would not load, as opposed to a
- * module that loaded and then threw.
- */
-export function isChunkLoadError(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
-  if (!message) return false;
-  const normalized = message.toLowerCase();
-  return CHUNK_LOAD_MESSAGES.some((known) => normalized.includes(known));
-}
-
-/**
  * The environment `loadWithRetry` touches, injected so the tests can drive it
  * without a real clock, a real `sessionStorage` or a real navigation.
  */
@@ -108,6 +72,11 @@ export interface ChunkRecoveryEnv {
   hasUnsavedWork(): boolean;
   /** Reports the failure and flushes it; resolves either way. */
   report(error: unknown): Promise<void>;
+  /**
+   * Records a failure the retry absorbed. Not flushed — the page is staying,
+   * and this must not delay the render it is about to unblock.
+   */
+  noteRecovered(error: unknown): void;
   delay(ms: number): Promise<void>;
 }
 
@@ -148,6 +117,18 @@ export function browserEnv(): ChunkRecoveryEnv {
       } catch {
         // A flush that fails must not cost the user their reload.
       }
+    },
+    // A retry that WORKS is the outcome this whole module exists to produce,
+    // and it is also the one that erases its own evidence: the user sees a
+    // normal page and Sentry sees nothing. Without this, a transient mobile
+    // failure — WAFFLEBASE-2's exact shape — becomes unmeasurable the moment
+    // the recovery ships, and nobody can tell whether rung 1 ever fires.
+    // Reported at `warning`, since nothing is broken by the time it is sent.
+    noteRecovered: (error) => {
+      Sentry.captureException(error, {
+        level: "warning",
+        tags: { chunk_load_failed: "true", chunk_recovery: "retry" },
+      });
     },
     delay: (ms) =>
       new Promise((resolve) => {
@@ -190,9 +171,15 @@ function canReload(env: ChunkRecoveryEnv): boolean {
   if (!Number.isFinite(last)) return false;
 
   const elapsed = env.now() - last;
-  // A stamp from the future means the clock moved backwards. Treat it as
-  // recent rather than as expired.
-  if (elapsed < 0) return false;
+  // A stamp from the future means the clock moved backwards, or a restored tab
+  // carried one in. Refuse this pass, but CLAMP it to now rather than latching:
+  // nothing else ever rewrites it, so leaving it would disable recovery for the
+  // rest of the tab's life. Writing `now` cannot open a loop — the window check
+  // below blocks the next pass just the same.
+  if (elapsed < 0) {
+    env.setItem(RELOAD_STAMP_KEY, String(env.now()));
+    return false;
+  }
   if (elapsed < RELOAD_WINDOW_MS) return false;
 
   env.setItem(RELOAD_STAMP_KEY, String(env.now()));
@@ -217,7 +204,9 @@ export async function loadWithRetry<T>(
 
     await env.delay(RETRY_DELAY_MS);
     try {
-      return await importer();
+      const recovered = await importer();
+      env.noteRecovered(error);
+      return recovered;
     } catch (retryError) {
       if (!isChunkLoadError(retryError)) throw retryError;
     }

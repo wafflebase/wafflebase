@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   browserEnv,
   CHUNK_RECOVERY_INTERNALS,
-  isChunkLoadError,
   loadWithRetry,
   type ChunkRecoveryEnv,
 } from "./lazy-with-retry";
+import { isChunkLoadError } from "./chunk-load-error";
 import {
   registerUnsavedWorkProbe,
   resetUnsavedWorkProbes,
@@ -29,6 +29,8 @@ interface TestEnv extends ChunkRecoveryEnv {
   store: Map<string, string>;
   reloads: number;
   reported: unknown[];
+  /** Failures the in-place retry absorbed. */
+  recovered: unknown[];
   /** Every `delay(ms)` the code under test asked for, in order. */
   waits: number[];
   clock: { value: number };
@@ -42,6 +44,7 @@ function testEnv(overrides: Partial<ChunkRecoveryEnv> = {}): TestEnv {
     clock,
     reloads: 0,
     reported: [],
+    recovered: [],
     waits: [],
     now: () => clock.value,
     getItem: (key) => store.get(key) ?? null,
@@ -55,6 +58,9 @@ function testEnv(overrides: Partial<ChunkRecoveryEnv> = {}): TestEnv {
     hasUnsavedWork: () => false,
     report: async (error) => {
       env.reported.push(error);
+    },
+    noteRecovered: (error) => {
+      env.recovered.push(error);
     },
     // Tests never wait on real time. Recording the request is what lets them
     // assert WHICH wait happened.
@@ -96,34 +102,6 @@ afterEach(() => {
   resetUnsavedWorkProbes();
 });
 
-describe("isChunkLoadError", () => {
-  it.each([
-    ["WebKit", WEBKIT],
-    ["Chromium", "Failed to fetch dynamically imported module: /assets/x.js"],
-    ["Firefox", "error loading dynamically imported module"],
-    ["Vite CSS preload", "Unable to preload CSS for /assets/x.css"],
-  ])("recognizes the %s message", (_name, message) => {
-    expect(isChunkLoadError(chunkError(message))).toBe(true);
-  });
-
-  it("is case insensitive", () => {
-    expect(
-      isChunkLoadError(chunkError("IMPORTING A MODULE SCRIPT FAILED.")),
-    ).toBe(true);
-  });
-
-  it("rejects an ordinary error thrown by a module that did load", () => {
-    expect(isChunkLoadError(new TypeError("x is not a function"))).toBe(false);
-  });
-
-  it.each([[null], [undefined], [{}], [42], [""]])(
-    "rejects the non-error value %p",
-    (value) => {
-      expect(isChunkLoadError(value)).toBe(false);
-    },
-  );
-});
-
 describe("loadWithRetry", () => {
   it("returns the module and imports once when nothing fails", async () => {
     const importer = vi.fn().mockResolvedValue({ default: "route" });
@@ -149,6 +127,20 @@ describe("loadWithRetry", () => {
     expect(importer).toHaveBeenCalledTimes(2);
     expect(env.reloads).toBe(0);
     expect(env.reported).toHaveLength(0);
+    // Recovering must not erase the evidence. A retry that works is the
+    // expected common case for a transient mobile failure, and with no record
+    // of it the whole class of incident becomes invisible the day this ships.
+    expect(env.recovered).toHaveLength(1);
+    expect(isChunkLoadError(env.recovered[0])).toBe(true);
+  });
+
+  it("notes nothing when the first attempt succeeds", async () => {
+    const importer = vi.fn().mockResolvedValue({ default: "route" });
+    const env = testEnv();
+
+    await loadWithRetry(importer, env);
+
+    expect(env.recovered).toHaveLength(0);
   });
 
   it("does not retry a module that loaded and then threw", async () => {
@@ -304,13 +296,26 @@ describe("loadWithRetry", () => {
     expect(env.store.get(RELOAD_STAMP_KEY)).toBe("not-a-number");
   });
 
-  it("does not reload when the stamp is in the future", async () => {
+  it("refuses a future-dated stamp but clamps it instead of latching", async () => {
+    // A clock that moved backwards, or a restored tab. Refusing this pass is
+    // right; leaving the stamp alone would disable recovery for the rest of
+    // the tab's life, since nothing else ever rewrites it.
     const importer = vi.fn().mockRejectedValue(chunkError());
     const env = testEnv();
     env.store.set(RELOAD_STAMP_KEY, String(env.clock.value + 60_000));
 
     await expect(loadWithRetry(importer, env)).rejects.toThrow(WEBKIT);
     expect(env.reloads).toBe(0);
+    expect(env.store.get(RELOAD_STAMP_KEY)).toBe(String(env.clock.value));
+
+    // And the clamp opens no loop: the ordinary window still applies.
+    env.clock.value += RELOAD_WINDOW_MS - 1;
+    await expect(loadWithRetry(importer, env)).rejects.toThrow(WEBKIT);
+    expect(env.reloads).toBe(0);
+
+    env.clock.value += 1;
+    await loadWithRetry(importer, env).catch(() => {});
+    expect(env.reloads).toBe(1);
   });
 
   it("rejects with the original error, not the retry's", async () => {

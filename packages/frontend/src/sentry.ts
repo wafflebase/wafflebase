@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { backendOrigin } from "@/api/images";
+import { redactCapabilityTokens } from "@/lib/redact-url";
 
 /**
  * Default share of transactions sampled for tracing. Deliberately not 1.0 —
@@ -84,8 +85,44 @@ function initClient(origin: string, dsn: string): void {
     // nobody else's server has been asked to accept them.
     ...(origin ? { tracePropagationTargets: [origin] } : {}),
     // Left at the default. Request bodies on this backend carry document
-    // content and URLs carry share tokens, so turning PII on needs a scrubbing
-    // policy first.
+    // content, so turning PII on needs a policy for those first.
     sendDefaultPii: false,
+    beforeSend: scrubCapabilityTokens,
   });
+}
+
+/**
+ * Strips share/invite/template tokens out of every event before it is sent.
+ *
+ * `sendDefaultPii: false` does NOT cover this — it governs IPs, cookies and
+ * headers, while the browser SDK attaches `location.href` unconditionally. On
+ * a deployment with a DSN set, every error raised while a user is on
+ * `/shared/<token>` therefore hands that token, which is the whole credential,
+ * to a third party that retains and indexes it.
+ *
+ * Applied at `beforeSend` rather than at each capture site so it covers what
+ * the SDK sends on its own — global handlers, breadcrumbs, navigation spans —
+ * not just the places this codebase calls `captureException`.
+ */
+function scrubCapabilityTokens(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
+  if (event.request?.url) {
+    event.request.url = redactCapabilityTokens(event.request.url);
+  }
+
+  // The route, which for `/shared/:token` is the raw path.
+  if (event.transaction) {
+    event.transaction = redactCapabilityTokens(event.transaction);
+  }
+
+  for (const crumb of event.breadcrumbs ?? []) {
+    // `navigation` crumbs carry `from`/`to`, `fetch`/`xhr` carry `url`.
+    for (const key of ["url", "from", "to"]) {
+      const value = crumb.data?.[key];
+      if (typeof value === "string") {
+        crumb.data![key] = redactCapabilityTokens(value);
+      }
+    }
+  }
+
+  return event;
 }

@@ -59,8 +59,47 @@ flowchart TD
   folders; there are also top-level `/shared/:token`, `/invite/:token`,
   `/datasources`, workspace analytics/settings/datasources, and `/harness/*`
   routes.
-- Route components are loaded with `React.lazy` + `Suspense` so the login,
-  list, settings, and document-detail pages are split into separate chunks.
+- Route components are code-split, so the login, list, settings, and
+  document-detail pages are separate chunks. They are loaded through
+  `lazyWithRetry`, not bare `React.lazy` — see below.
+
+#### Code splitting and chunk-load recovery
+
+Every route, and every heavy panel inside an editor, is a dynamic `import()`.
+That makes a failed chunk fetch a first-class failure mode rather than an
+exotic one, and the app had no answer for it: Sentry `WAFFLEBASE-2` was a
+mobile session on `/w/jiyu` whose `TypeError: Importing a module script failed.`
+reached the root error boundary and replaced the page with a crash screen.
+
+It was **not** a stale deploy, and that was checked rather than assumed: the
+two `gh-pages` manifests bracketing the failure differ in 4 of 363 entries, all
+of them VitePress docs-site assets, so all 285 application chunks were
+byte-identical across the deploy and everything the user's `index.html` named
+was still being served. `publish-ghpage.yml` also retains `KEEP_COUNT=3`
+deployments' assets. What was left is a transient fetch failure on a mobile
+connection.
+
+Two pieces answer it, both in `packages/frontend/src`:
+
+- **`lib/lazy-with-retry.ts`** — `lazyWithRetry()` is a drop-in for
+  `React.lazy` used at every call site. It retries the import once, then
+  reloads the document, then rethrows. Only the four known loader messages
+  (`lib/chunk-load-error.ts`) trigger any of it; a module that loaded and then
+  threw is a real bug and reaches a boundary on its first throw. Every guard in
+  `canReload` fails toward *not* reloading: offline, a `sessionStorage` stamp
+  that cannot be written, a stamp inside the 10-minute rate-limit window, and
+  unsaved work all decline it.
+- **`components/chunk-boundary.tsx`** — `ChunkBoundary` replaces `Suspense` at
+  the lazy mounts *inside* a document. There is one `ErrorBoundary` in this app
+  and it is at the root, so without this a side panel that would not download
+  unmounted the whole editor. A contained failure renders nothing and raises a
+  toast; anything that is not a chunk-load error is rethrown to the root
+  boundary unchanged.
+
+The reload defers to unsaved work because it is a reload *this app* initiates:
+`beforeunload` does not reliably fire for it, and iOS ignores it regardless.
+`lib/unsaved-work.ts` is the registry both the sync chip and the upload queue
+report into; see [sync-status.md](sync-status.md).
 
 #### Provider Hierarchy
 

@@ -20,7 +20,6 @@ import {
 import {
   type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
-  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -29,6 +28,7 @@ import {
   useState,
 } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { ChunkBoundary } from "@/components/chunk-boundary";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
@@ -1779,7 +1779,7 @@ export function SheetView({
               onDrop={handleDrop}
             />
             {root && hasImages && (
-              <Suspense fallback={null}>
+              <ChunkBoundary fallback={null}>
                 <ImageObjectLayer
                   spreadsheet={sheetRef.current}
                   root={root}
@@ -1791,7 +1791,7 @@ export function SheetView({
                   onDeleteImage={handleDeleteImage}
                   renderVersion={sheetRenderVersion}
                 />
-              </Suspense>
+              </ChunkBoundary>
             )}
           </div>
         </SheetContextMenu>
@@ -1807,7 +1807,7 @@ export function SheetView({
         />
         {paintFormatSourceIndicator}
         {root && hasCharts && (
-          <Suspense fallback={null}>
+          <ChunkBoundary fallback={null}>
             <ChartObjectLayer
               spreadsheet={sheetRef.current}
               root={root}
@@ -1820,10 +1820,10 @@ export function SheetView({
               onUpdateChart={handleUpdateChart}
               renderVersion={sheetRenderVersion}
             />
-          </Suspense>
+          </ChunkBoundary>
         )}
         {root && !readOnly && chartEditorOpen && (
-          <Suspense fallback={null}>
+          <ChunkBoundary fallback={null}>
             <ChartEditorPanel
               root={root}
               chart={selectedChart}
@@ -1832,27 +1832,27 @@ export function SheetView({
               onUpdateChart={handleUpdateChart}
               getSelectionRange={getSelectionRange}
             />
-          </Suspense>
+          </ChunkBoundary>
         )}
         {!readOnly && conditionalFormatOpen && (
-          <Suspense fallback={null}>
+          <ChunkBoundary fallback={null}>
             <ConditionalFormatPanel
               spreadsheet={sheetRef.current}
               open={conditionalFormatOpen}
               onClose={() => setConditionalFormatOpen(false)}
               getSelectionRange={getSelectionRange}
             />
-          </Suspense>
+          </ChunkBoundary>
         )}
         {!readOnly && dataValidationOpen && (
-          <Suspense fallback={null}>
+          <ChunkBoundary fallback={null}>
             <DataValidationPanel
               spreadsheet={sheetRef.current}
               open={dataValidationOpen}
               onClose={() => setDataValidationOpen(false)}
               getSelectionRange={getSelectionRange}
             />
-          </Suspense>
+          </ChunkBoundary>
         )}
         {!readOnly && isPivotTab && !pivotEditorOpen && (
           <button
@@ -1864,7 +1864,7 @@ export function SheetView({
           </button>
         )}
         {!readOnly && doc && isPivotTab && pivotEditorOpen && (
-          <Suspense fallback={null}>
+          <ChunkBoundary fallback={null}>
             <PivotEditorPanel
               doc={doc}
               tabId={tabId}
@@ -1880,7 +1880,7 @@ export function SheetView({
                 }
               }}
             />
-          </Suspense>
+          </ChunkBoundary>
         )}
         {isMobile && mobileEditState && (
           <MobileEditPanel

@@ -11,6 +11,7 @@ import { uploadFile } from "@/api/files";
 import { createDocument, deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
+import { registerUnsavedWorkProbe } from "@/lib/unsaved-work";
 import type { Document, DocumentType } from "@/types/documents";
 
 export type UploadStatus =
@@ -180,6 +181,27 @@ export function activeCount(): number {
     (it) => it.status === "parsing" || it.status === "uploading",
   ).length;
 }
+
+/**
+ * An upload that has not finished exists only in this tab: the bytes come from
+ * a `File` handle the browser hands us once, and nothing outside this module
+ * remembers the queue. Replacing the document loses it with no way to ask for
+ * it back — the user would have to find the files and drop them again.
+ *
+ * Registered unconditionally at module load rather than from a component,
+ * because the queue outlives every view of it (that is the point of the fixed
+ * upload panel) and a probe scoped to the panel's lifetime would answer "no"
+ * for a queue still running behind a route change. Reads module state only;
+ * the chunk-load recovery in `lib/lazy-with-retry.ts` is the caller.
+ */
+registerUnsavedWorkProbe(() =>
+  items.some(
+    (it) =>
+      it.status === "pending" ||
+      it.status === "parsing" ||
+      it.status === "uploading",
+  ),
+);
 
 /** Test-only reset of module state. */
 export function __resetForTest(): void {

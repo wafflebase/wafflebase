@@ -1,4 +1,7 @@
-import { isChunkLoadError } from "@/lib/lazy-with-retry";
+// The leaf module, not `lazy-with-retry`: this component's whole premise (see
+// below) is that it imports nothing that can fail with the tree it replaces,
+// and the recovery module drags `@sentry/react` in behind it.
+import { isChunkLoadError } from "@/lib/chunk-load-error";
 
 /**
  * What the user sees when a render throw reaches the root error boundary.
@@ -24,9 +27,14 @@ export function AppCrashFallback({ error }: { error?: unknown }) {
       <h1 className="text-lg font-semibold">
         {chunk ? "Couldn't finish loading" : "Something went wrong"}
       </h1>
+      {/* The chunk wording makes no durability claim, and that is deliberate.
+          One of the ways a user reaches this screen is `canReload` declining
+          the recovery reload *because* a document had edits that had not
+          reached the server — telling that person their work is safely stored
+          would be false exactly when it matters most. */}
       <p className="max-w-sm text-sm text-muted-foreground">
         {chunk
-          ? "Part of the app could not be downloaded. Check your connection and try again. Any document you had open is stored on the server, not in this tab."
+          ? "Part of the app could not be downloaded. Check your connection, then try again."
           : "This page hit an unexpected error. Reloading usually clears it. Any document you had open is stored on the server, not in this tab."}
       </p>
       <button

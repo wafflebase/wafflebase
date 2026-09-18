@@ -7,9 +7,9 @@ import {
   useEffect,
   useRef,
   useMemo,
-  Suspense,
 } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
@@ -729,7 +729,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             className="flex-col"
             preview={
               previewRevisionId && currentUser ? (
-                <Suspense fallback={null}>
+                <ChunkBoundary fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}
                     type="sheet"
@@ -737,13 +737,13 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                     onClose={() => setPreviewRevisionId(null)}
                     onRestored={handleHistoryRestored}
                   />
-                </Suspense>
+                </ChunkBoundary>
               ) : null
             }
           >
             <div className="@container/main flex flex-1 flex-col gap-2">
               <div className="relative flex flex-col h-full">
-                <Suspense fallback={<Loader />}>
+                <ChunkBoundary fallback={<Loader />}>
                   {!ready || !activeTabId ? (
                     <Loader />
                   ) : activeTab?.type === "datasource" ? (
@@ -770,7 +770,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                       onToggleCommentsPanel={() => setCommentsPanelOpen((v) => !v)}
                     />
                   )}
-                </Suspense>
+                </ChunkBoundary>
               </div>
             </div>
             {ready && activeTabId && (
@@ -850,24 +850,24 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       </Dialog>
 
       {showDsSelector && documentData?.workspaceId && (
-        <Suspense fallback={null}>
+        <ChunkBoundary fallback={null}>
           <DataSourceSelector
             workspaceId={documentData.workspaceId}
             open={showDsSelector}
             onOpenChange={setShowDsSelector}
             onSelect={addDataSourceTab}
           />
-        </Suspense>
+        </ChunkBoundary>
       )}
       {showLakehouseSelector && documentData?.workspaceId && (
-        <Suspense fallback={null}>
+        <ChunkBoundary fallback={null}>
           <LakehouseSelector
             workspaceId={documentData.workspaceId}
             open={showLakehouseSelector}
             onOpenChange={setShowLakehouseSelector}
             onSelect={addLakehouseTab}
           />
-        </Suspense>
+        </ChunkBoundary>
       )}
     </SidebarProvider>
   );

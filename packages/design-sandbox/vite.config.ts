@@ -88,6 +88,13 @@ const APP_LIBS = [
   // Canvas engines reach the SDK directly, and the shim constructs its `Document` from it.
   // One copy — the app's — for the same class-identity reason as the rest of this list.
   '@yorkie-js/sdk',
+  // Reached by every editor scene since chunk-load recovery landed: the route
+  // modules import `@/lib/lazy-with-retry`, which reports a failed chunk. Listed
+  // here for RESOLUTION rather than identity — `root` is this package, and the
+  // package is installed only under `packages/frontend/node_modules`, so without
+  // the alias the `optimizeDeps.include` entry below cannot resolve and is
+  // silently skipped.
+  '@sentry/react',
 ];
 
 /**

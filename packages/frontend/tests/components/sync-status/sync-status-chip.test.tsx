@@ -20,6 +20,10 @@ vi.mock('sonner', () => ({
 }));
 
 import { SyncStatusChip } from '@/components/sync-status/sync-status-chip';
+import {
+  hasUnsavedWork,
+  resetUnsavedWorkProbes,
+} from '@/lib/unsaved-work';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 type DocEvent = { type: string; value: unknown };
@@ -119,6 +123,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  resetUnsavedWorkProbes();
 });
 
 describe('SyncStatusChip', () => {
@@ -386,5 +391,60 @@ describe('SyncStatusChip', () => {
     act(() => { doc.type(); });
 
     expect(container.textContent).not.toMatch(/this device|saved locally|offline/i);
+  });
+});
+
+/**
+ * The chip is also the app's answer to "would replacing this document lose
+ * something?", asked by the chunk-load recovery in `lib/lazy-with-retry.ts`
+ * rather than by the browser. `beforeunload` does not cover a reload this app
+ * initiates itself, and iOS ignores it besides.
+ */
+describe('SyncStatusChip unsaved-work probe', () => {
+  it('reports nothing at risk while the document is synced', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+
+    renderChip();
+
+    expect(hasUnsavedWork()).toBe(false);
+  });
+
+  it('reports work at risk once an edit is stranded', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderChip();
+    act(() => { doc.type(); });
+
+    expect(hasUnsavedWork()).toBe(true);
+  });
+
+  it('answers at call time, not at registration time', () => {
+    // The same split the unload guard uses: registration is the smoothed
+    // state, the answer is the live read. A probe that latched would refuse
+    // recovery for two seconds after every keystroke.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderChip();
+    act(() => { doc.type(); });
+    expect(hasUnsavedWork()).toBe(true);
+
+    act(() => { doc.ack(); });
+    expect(hasUnsavedWork()).toBe(false);
+  });
+
+  it('stops answering once the chip unmounts', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { unmount } = renderChip();
+    act(() => { doc.type(); });
+    expect(hasUnsavedWork()).toBe(true);
+
+    unmount();
+
+    expect(hasUnsavedWork()).toBe(false);
   });
 });
