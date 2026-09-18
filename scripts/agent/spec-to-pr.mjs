@@ -947,21 +947,13 @@ function cmdReview(args) {
   // rounds this branch has already spent, and that fact does not stop being true
   // because the directories holding it were removed.
   const onDiskBefore = roundsOnDisk(base);
-  // Bounded by construction: only this base's own round directories. Skipped
-  // under `--dry-run` — a dry run that deleted the rounds it claims only to
-  // report on is the same defect as one that consumes a round number, and this
-  // one destroys the verdicts a later round would have carried forward.
-  if (args.fresh && !dryRun) {
-    for (const name of roundDirsToClear(readdirSync(base))) {
-      rmSync(path.join(base, name), { recursive: true, force: true });
-    }
-  }
 
   // Validated by `reviewArgsError` above. Read from the VERDICTS, not the
   // directory names, so a round that reviewed nothing (a 429 leaves a full set of
-  // empty ones) does not consume a number. Under `--dry-run --fresh` nothing was
-  // deleted, so the rounds are discounted here instead — a dry run has to report
-  // the round the real run would use, not the one the un-cleared directory has.
+  // empty ones) does not consume a number. `--fresh` discounts them here rather
+  // than by deleting first — the delete happens only once the bound below has
+  // let the run through, so a refused run reports the round the real run would
+  // have used and still leaves every verdict where it was.
   const onDisk = args.fresh ? [] : onDiskBefore;
   const round = args.round === undefined ? nextRound(onDisk) : Number(args.round);
   // `--fresh` DISCARDS THE ROUNDS; IT DOES NOT LIFT THE BOUND. Renumbering to 1
@@ -982,6 +974,22 @@ function cmdReview(args) {
     );
   }
   if (notice) console.warn(`spec-to-pr: --force: ${notice}`);
+
+  // DELETED ONLY AFTER THE BOUND HAS LET THE RUN THROUGH. Bounded by
+  // construction: only this base's own round directories. Skipped under
+  // `--dry-run` — a dry run that deleted the rounds it claims only to report on
+  // is the same defect as one that consumes a round number, and this one
+  // destroys the verdicts a later round would have carried forward. Running it
+  // BEFORE the refusal above was that same defect wearing the refusal's clothes:
+  // `review --fresh` past the bound removed every `round-N` directory and *then*
+  // exited 1 complaining about the verdicts it had just erased — so the refusal
+  // was destructive, and the next invocation found an empty base and sailed
+  // through the gate it had just been stopped at.
+  if (args.fresh && !dryRun) {
+    for (const name of roundDirsToClear(readdirSync(base))) {
+      rmSync(path.join(base, name), { recursive: true, force: true });
+    }
+  }
 
   const dir = path.join(base, `round-${round}`);
   // A DRY RUN MUST NOT CONSUME A ROUND. Creating the directory here is what makes

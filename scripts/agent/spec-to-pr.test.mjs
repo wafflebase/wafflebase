@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, chmodSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, chmodSync, writeFileSync, rmSync, readdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -738,6 +738,43 @@ test("review --fresh cannot walk past the bound by renumbering to round 1", () =
     assert.match(forced.out, /\[dry-run\] round 1 /);
     // The dry run wrote nothing: the staged rounds are still there.
     assert.deepEqual(roundsIn(readdirSync(base)), [1, 2, 3]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review --fresh refused at the bound deletes nothing (real run)", () => {
+  // The dry-run case above cannot see this: `--fresh` skips its delete under
+  // `--dry-run`. On a REAL run the delete used to happen first, so the refusal
+  // erased the very verdicts it was complaining about — and the next invocation
+  // found an empty base and walked straight past the bound it had just been
+  // stopped at. The refusal has to be inert.
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-freshwipe-"));
+  const base = path.join(root, "base");
+  try {
+    mkdirSync(base, { recursive: true, mode: 0o700 });
+    chmodSync(base, 0o700);
+    for (let r = 1; r <= MAX_SELF_REVIEW_ROUNDS; r++) {
+      const lens = path.join(base, `round-${r}`, "security");
+      mkdirSync(lens, { recursive: true });
+      writeFileSync(path.join(lens, "verdict.json"), JSON.stringify({ valid: true, conclusion: "failure", findings: [] }));
+    }
+    let ok = true;
+    let stderr = "";
+    try {
+      execFileSync("node", [script, "review", "--fresh", "--out", base], { encoding: "utf8", stdio: "pipe" });
+    } catch (e) {
+      ok = false;
+      stderr = String(e.stderr ?? "");
+    }
+    assert.equal(ok, false);
+    assert.match(stderr, /past the self-review bound/);
+    // Every round — and its verdict — survives the refusal.
+    assert.deepEqual(roundsIn(readdirSync(base)), [1, 2, 3]);
+    for (let r = 1; r <= MAX_SELF_REVIEW_ROUNDS; r++) {
+      assert.ok(existsSync(path.join(base, `round-${r}`, "security", "verdict.json")));
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
