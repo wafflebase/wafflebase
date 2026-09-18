@@ -68,4 +68,3 @@ Expecting `+X.join(", ")+", got '"+(this.terminals_[I]||I)+"'":Q="Parse error on
   dominant-baseline: hanging;
 }
 `,"getStyles"),Ot=Dt,Gt={parser:xt,get db(){return new vt},renderer:Bt,styles:Ot};export{Gt as diagram};
-//# sourceMappingURL=ishikawaDiagram-5VMMS53U-DN9wUGXK.js.map

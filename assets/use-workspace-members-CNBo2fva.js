@@ -9,4 +9,3 @@ import{c as o}from"./createReactComponent-D0NrgvUE.js";import{r as n}from"./vend
  * This source code is licensed under the MIT license.
  * See the LICENSE file in the root directory of this source tree.
  */var f=o("outline","hash","IconHash",[["path",{d:"M5 9l14 0",key:"svg-0"}],["path",{d:"M5 15l14 0",key:"svg-1"}],["path",{d:"M11 4l-4 16",key:"svg-2"}],["path",{d:"M17 4l-4 16",key:"svg-3"}]]);function l(e){const{data:r}=t({queryKey:["workspaces",e],queryFn:()=>a(e),enabled:!!e,staleTime:3e5});return n.useMemo(()=>((r==null?void 0:r.members)??[]).map(s=>({userId:String(s.user.id),username:s.user.username,photo:s.user.photo||void 0})),[r])}export{p as I,f as a,l as u};
-//# sourceMappingURL=use-workspace-members-CNBo2fva.js.map

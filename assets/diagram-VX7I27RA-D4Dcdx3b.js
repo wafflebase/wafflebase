@@ -22,4 +22,3 @@ import{p as me}from"./chunk-JWPE2WC7-CFiUijyI.js";import{_ as w,H as ye,A as ae,
     font-size: ${r.titleFontSize};
   }
   `},"getStyles"),ut=pt,Ft={parser:de,get db(){return new oe},renderer:dt,styles:ut};export{Ft as diagram};
-//# sourceMappingURL=diagram-VX7I27RA-D4Dcdx3b.js.map

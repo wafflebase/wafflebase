@@ -22,4 +22,3 @@ import{p as B}from"./chunk-JWPE2WC7-CFiUijyI.js";import{_ as k,D as m,G as C,d a
 		fill: ${t.blockFillColor};
 	}
 	`},"styles"),at={parser:v,get db(){return new y},renderer:O,styles:q};export{at as diagram};
-//# sourceMappingURL=diagram-Z3DM3KII-DEWs6zij.js.map

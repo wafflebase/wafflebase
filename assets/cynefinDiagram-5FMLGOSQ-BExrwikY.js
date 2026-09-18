@@ -60,4 +60,3 @@ import{p as ht}from"./chunk-JWPE2WC7-CFiUijyI.js";import{s as xt,g as bt,q as $t
 		fill: ${t.labelColor};
 	}
 	`},"styles"),Gt=Vt,te={parser:Nt,db:Y,renderer:Ft,styles:Gt};export{te as diagram};
-//# sourceMappingURL=cynefinDiagram-5FMLGOSQ-BExrwikY.js.map

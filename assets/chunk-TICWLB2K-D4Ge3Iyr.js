@@ -204,4 +204,3 @@ g.classGroup line {
 }
   ${st()}
 `,"getStyles"),Lt=bt,Ct=g((t,i="TB")=>{if(!t.doc)return i;let a=i;for(const r of t.doc)r.stmt==="dir"&&(a=r.value);return a},"getDir"),kt=g(function(t,i){return i.db.getClasses()},"getClasses"),Et=g(async function(t,i,a,r){we.info("REF0:"),we.info("Drawing class diagram (v3)",i);const{securityLevel:n,state:u,layout:h}=F();r.db.setDiagramId(i);const f=r.db.getData(),c=it(i,n);f.type=r.type,f.layoutAlgorithm=rt(h),f.nodeSpacing=(u==null?void 0:u.nodeSpacing)||50,f.rankSpacing=(u==null?void 0:u.rankSpacing)||50,f.markers=["aggregation","extension","composition","dependency","lollipop"],f.diagramId=i,await nt(f,c);const m=8;Ve.insertTitle(c,"classDiagramTitleText",(u==null?void 0:u.titleTopMargin)??25,r.db.getDiagramTitle()),at(c,m,"classDiagram",(u==null?void 0:u.useMaxWidth)??!0)},"draw"),xt={getClasses:kt,draw:Et,getDir:Ct};export{Nt as C,St as a,xt as c,Lt as s};
-//# sourceMappingURL=chunk-TICWLB2K-D4Ge3Iyr.js.map

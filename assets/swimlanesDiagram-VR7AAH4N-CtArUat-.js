@@ -6,4 +6,3 @@ import{c as r,s as a}from"./flowDiagram-HODETNUW-B_OuzfWd.js";import{_ as o}from
     filter: none;
   }
 `,"getStyles"),s=i,E=r({defaultLayout:"swimlane",styles:s});export{E as diagram};
-//# sourceMappingURL=swimlanesDiagram-VR7AAH4N-CtArUat-.js.map

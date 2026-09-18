@@ -36,4 +36,3 @@ ${z0()}
     stroke-width: 2px;
   }
 `,"getStyles"),X0=W0,e1={parser:ze,db:te,renderer:_e,styles:X0,init:d(({c4:t,wrap:e})=>{_e.setConf(t),te.setWrap(e)},"init")};export{e1 as diagram};
-//# sourceMappingURL=c4Diagram-7LVT6UL2-Be9Wm448.js.map

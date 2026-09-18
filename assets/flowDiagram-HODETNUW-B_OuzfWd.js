@@ -166,4 +166,3 @@ Expecting `+Xe.join(", ")+", got '"+(this.terminals_[q]||q)+"'":tt="Parse error 
   }
   ${Xt()}
 `,"getStyles"),E1=y1,Wt=k(({defaultLayout:s,styles:i=E1}={})=>({parser:D1,get db(){return new k1},renderer:T1,styles:i,init:k(r=>{r.flowchart||(r.flowchart={});const a=Zt().layout??s??r.layout;a&&Mt({layout:a}),r.flowchart.arrowMarkerAbsolute=r.arrowMarkerAbsolute,Mt({flowchart:{arrowMarkerAbsolute:r.arrowMarkerAbsolute}})},"init")}),"createFlowDiagram"),x1=Wt();const w1=Object.freeze(Object.defineProperty({__proto__:null,createFlowDiagram:Wt,diagram:x1},Symbol.toStringTag,{value:"Module"}));export{Wt as c,w1 as f,E1 as s};
-//# sourceMappingURL=flowDiagram-HODETNUW-B_OuzfWd.js.map

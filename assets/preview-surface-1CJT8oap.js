@@ -5,4 +5,3 @@ import{c as s}from"./createReactComponent-D0NrgvUE.js";import{_ as o}from"./slid
  * This source code is licensed under the MIT license.
  * See the LICENSE file in the root directory of this source tree.
  */var y=s("outline","history","IconHistory",[["path",{d:"M12 8l0 4l2 2",key:"svg-0"}],["path",{d:"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5",key:"svg-1"}]]);const c=a.lazy(()=>o(()=>import("./history-panel-CzFXFCAb.js"),__vite__mapDeps([0,1,2,3,4,5,6,7,8,9,10,11,12,13])).then(e=>({default:e.HistoryPanel})));function m(e){return t.jsx(a.Suspense,{fallback:null,children:t.jsx(c,{...e})})}function p({className:e,preview:r,children:n}){return t.jsxs("div",{className:i("relative flex flex-1 min-w-0",e),children:[n,r]})}function _({previewing:e,children:r}){return e?null:t.jsx(t.Fragment,{children:r})}export{_ as E,y as I,m as L,p as P};
-//# sourceMappingURL=preview-surface-1CJT8oap.js.map

@@ -38,4 +38,3 @@ ${b}${Math.round(r*100)/100}${T}`:e,"getText"),S=d(e=>N==="outlined"?(e.layer??0
     mix-blend-mode: multiply;
   }
 `,"getStyles"),ye=fe,de=K.parse.bind(K);K.parse=t=>de(he(t));var Le={styles:ye,parser:K,db:oe,renderer:ue};export{Le as diagram};
-//# sourceMappingURL=sankeyDiagram-P5KCCOFB--kGhu2Hp.js.map

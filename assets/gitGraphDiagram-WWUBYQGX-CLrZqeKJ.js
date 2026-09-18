@@ -104,4 +104,3 @@ import{I as he}from"./chunk-2Q5K7J3B-CN4qT4p-.js";import{p as $e}from"./chunk-JW
     fill: ${e.textColor};
   }
 `},"getStyles"),Cr=Br,Dr={parser:Xe,db:oe,renderer:xr,styles:Cr};export{Dr as diagram};
-//# sourceMappingURL=gitGraphDiagram-WWUBYQGX-CLrZqeKJ.js.map

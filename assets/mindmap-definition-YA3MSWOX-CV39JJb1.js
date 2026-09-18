@@ -94,4 +94,3 @@ Expecting `+j.join(", ")+", got '"+(this.terminals_[S]||S)+"'":J="Parse error on
   }
   ${t.useGradient&&a&&t.mainBkg?ve(t.THEME_COLOR_LIMIT,a,t.mainBkg):""}
 `},"getStyles"),Ie=Te,Ve={get db(){return new xe},renderer:De,parser:ke,styles:Ie};export{Ve as diagram};
-//# sourceMappingURL=mindmap-definition-YA3MSWOX-CV39JJb1.js.map

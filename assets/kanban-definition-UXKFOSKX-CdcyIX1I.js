@@ -87,4 +87,3 @@ Expecting `+Y.join(", ")+", got '"+(this.terminals_[k]||k)+"'":Z="Parse error on
   }
     ${Ne()}
 `,"getStyles"),Ue=Me,Qe={db:Ve,renderer:Ge,parser:xe,styles:Ue};export{Qe as diagram};
-//# sourceMappingURL=kanban-definition-UXKFOSKX-CdcyIX1I.js.map

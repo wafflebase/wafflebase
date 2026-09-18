@@ -9,4 +9,3 @@ import{c as o}from"./createReactComponent-D0NrgvUE.js";(function(){try{var a=typ
  * This source code is licensed under the MIT license.
  * See the LICENSE file in the root directory of this source tree.
  */var r=o("outline","loader-2","IconLoader2",[["path",{d:"M12 3a9 9 0 1 0 9 9",key:"svg-0"}]]);export{r as I,t as a};
-//# sourceMappingURL=IconLoader2-BkveImMg.js.map

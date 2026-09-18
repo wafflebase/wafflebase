@@ -76,4 +76,3 @@ import{p as Tt}from"./chunk-JWPE2WC7-CFiUijyI.js";import{s as Lt,g as zt,q as At
     fill: ${r.axisTextColor};
   }
   `},"styles"),le={parser:at,db:Ht,renderer:Ut,styles:Jt};export{le as diagram};
-//# sourceMappingURL=wardleyDiagram-VM6X3IG4-MVGJVxig.js.map

@@ -82,4 +82,3 @@ Expecting `+_e.join(", ")+", got '"+(this.terminals_[I]||I)+"'":ke="Parse error 
   }
 
 `},"getStyles"),ft=dt,Qe={};nt(Qe,{draw:()=>mt});var mt=m(async function(e,r,h,u){qe.info("REF0:"),qe.info("Drawing requirement diagram (unified)",r);const{securityLevel:o,state:c,layout:E,look:p}=Ne(),y=u.db.getData(),d=Ge(r,o);y.type=u.type,y.layoutAlgorithm=at(E),y.nodeSpacing=(c==null?void 0:c.nodeSpacing)??50,y.rankSpacing=(c==null?void 0:c.rankSpacing)??50,y.markers=p==="neo"?["requirement_contains_neo","requirement_arrow_neo"]:["requirement_contains","requirement_arrow"],y.diagramId=r,await lt(y,d);const f=8;ct.insertTitle(d,"requirementDiagramTitleText",(c==null?void 0:c.titleTopMargin)??25,u.db.getDiagramTitle()),Xe(d,f,"requirementDiagram",(c==null?void 0:c.useMaxWidth)??!0)},"draw"),kt={parser:ot,get db(){return new ht},renderer:Qe,styles:ft};export{kt as diagram};
-//# sourceMappingURL=requirementDiagram-BXWQKSXE-C94-6uny.js.map

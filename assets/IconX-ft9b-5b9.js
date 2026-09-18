@@ -29,4 +29,3 @@ import{c as a}from"./createReactComponent-D0NrgvUE.js";(function(){try{var e=typ
  * This source code is licensed under the MIT license.
  * See the LICENSE file in the root directory of this source tree.
  */var l=a("outline","x","IconX",[["path",{d:"M18 6l-12 12",key:"svg-0"}],["path",{d:"M6 6l12 12",key:"svg-1"}]]);export{l as I,s as a,h as b,v as c,d,r as e};
-//# sourceMappingURL=IconX-ft9b-5b9.js.map

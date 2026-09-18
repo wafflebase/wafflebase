@@ -97,4 +97,3 @@ Expecting `+ut.join(", ")+", got '"+(this.terminals_[E]||E)+"'":Tt="Parse error 
     fill: ${s.titleColor??s.textColor};
   }
 `},"getStyles"),de=ue,Oe={parser:oe,get db(){return new le},renderer:Bt,styles:de};export{Oe as diagram};
-//# sourceMappingURL=erDiagram-RLTQ6QDP-C59veN2Q.js.map

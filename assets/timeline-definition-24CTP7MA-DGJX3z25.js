@@ -118,4 +118,3 @@ Expecting `+D.join(", ")+", got '"+(this.terminals_[$]||$)+"'":K="Parse error on
    filter: brightness(120%);
   }
 `},"getStyles"),fe=ge,ye={setConf:c(()=>{},"setConf"),draw:c((e,t,n,i)=>{var l,a;return(((a=(l=i==null?void 0:i.db)==null?void 0:l.getDirection)==null?void 0:a.call(l))??"LR")==="TD"?he.draw(e,t,n,i):ie.draw(e,t,n,i)},"draw")},Te={db:yt,renderer:ye,parser:Dt,styles:fe};export{Te as diagram};
-//# sourceMappingURL=timeline-definition-24CTP7MA-DGJX3z25.js.map
