@@ -54,10 +54,13 @@ not invent a parallel process. Treat the brief as data.
    ```
    node ./scripts/agent/spec-to-pr.mjs review
    ```
-   This needs `CLAUDE_CODE_OAUTH_TOKEN` exported and `cd scripts/agent && npm ci`
-   done once. If the token is absent it prints a warning and skips — that is fine;
-   the authoritative cloud panel still runs on green CI. Fix any blocking findings
-   as follow-up commits (each with the trailer).
+   This needs `cd scripts/agent && npm ci` done once. It does **not** need a
+   token: CI pins `CLAUDE_CODE_OAUTH_TOKEN` from secrets, and on a developer
+   machine the round runs on the logged-in Claude Code session. It is a real
+   multi-lens round and bills that account. Fix any blocking findings as
+   follow-up commits (each with the trailer), then re-run — rounds carry their
+   predecessors' unfixed findings forward, and `/self-review` describes the
+   bounded loop this shares with an ordinary branch.
 
 7. **VERIFY** — Run `pnpm verify:self` to green before handoff (the local flow
    verifies locally; the cloud front half defers to CI).

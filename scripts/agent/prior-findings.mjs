@@ -24,6 +24,7 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { BLOCKING, normalizeSeverity } from "./severity.mjs";
 import { latestLensRuns } from "./review-state.mjs";
 import { gh, prCommitsWithCheckRuns, allCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
 
@@ -107,6 +108,88 @@ export function tagPriorFindings(runsByLens) {
     }
   }
   return out;
+}
+
+/**
+ * What ONE lens carries into the next round, read from its own `verdict.json`.
+ *
+ * The cloud never needs this: a round there reads the PREVIOUS round's findings
+ * back out of a check run's `output.text`, which is exactly the projection
+ * `agent-review-panel.yml` applies inline when it writes that field. A LOCAL
+ * round has no check runs — `spec-to-pr.mjs review` writes its verdicts to a
+ * directory — so it needs the same projection applied to the same source
+ * (`verdict.json` is what the workflow's inline copy reads too).
+ *
+ * SELECTION ONLY, and that word is the contract. The workflow also trims every
+ * field to fit a check run's 60k `output.text` budget; that is TRANSPORT, it has
+ * no local equivalent, and copying it here would only lose evidence the local
+ * verifier can use. What must not drift is WHICH findings carry, so only that
+ * half is mirrored — and `prior-findings.test.mjs` asserts the workflow's inline
+ * copy still applies both filters:
+ *
+ *   - blocking severity only (`normalizeSeverity` is the workflow's `norm`), and
+ *   - not demoted to the `backlog` lane.
+ *
+ * A demoted finding is wrong input for a carry-forward for the reason the
+ * workflow states at length: it is nobody's to fix, its recorded line has since
+ * been rewritten, and it can never shrink round over round — so carrying it
+ * would make the loop unable to converge.
+ *
+ * `isInfraRecord` is applied for the same reason `tagPriorFindings` applies it:
+ * a lens that hit a quota outage never reviewed, and "the review could not run"
+ * is not a finding the next round's verifier can refute.
+ *
+ * Junk in → `[]`. Like everything else on this path, carrying fewer findings is
+ * the safe failure.
+ */
+/** Absent fields stay absent, so a projected finding is byte-comparable to a
+ *  hand-written one and the JSON carries no empty keys. */
+function dropUndefined(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
+  return out;
+}
+
+export function carryForwardFindings(verdict, lensId) {
+  const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
+  return findings
+    .filter((f) => f && typeof f === "object" && !Array.isArray(f))
+    // `lane` and `severity` are read BEFORE the projection drops them.
+    .filter((f) => BLOCKING.has(normalizeSeverity(f.severity)))
+    .filter((f) => f.lane !== "backlog")
+    // PROJECT, never spread. `verdict.json`'s findings are MODEL OUTPUT with the
+    // orchestrator's annotations added, and a spread carries every key a lens
+    // chose to write — `infra` included.
+    //
+    // `line` is here and not in the cloud's list on purpose: the local reporter
+    // prints `file:line`, and a line number changes no downstream decision.
+    .map((f) => dropUndefined({
+      severity: f.severity,
+      file: f.file,
+      line: f.line,
+      summary: f.summary,
+      evidence: f.evidence,
+      claimType: f.claimType === "absence" ? "absence" : undefined,
+      searchedFor: Array.isArray(f.searchedFor) ? f.searchedFor : undefined,
+      mergedFrom: Array.isArray(f.mergedFrom) ? f.mergedFrom : undefined,
+      adjudication: Number.isInteger(f.adjudication?.upheld) ? { upheld: f.adjudication.upheld } : undefined,
+      // `lens` last, mirroring `tagPriorFindings`: the panel filters prior
+      // findings by `p.lens === lens.id`, so an untagged one is carried by nobody.
+      lens: typeof lensId === "string" && lensId !== "" ? lensId : f.lens,
+    }))
+    // AFTER the projection, and that ordering is the whole point. `isInfraRecord`
+    // treats `infra: true` as authoritative because the PRODUCER sets it — which
+    // is true of a check run's text, projected by the workflow, and NOT true of a
+    // raw `verdict.json`, where the key sits on model output this function reads
+    // directly. Filtering first let a finding write `infra: true` on itself and
+    // vanish: dropped from its own lens's report AND from every later round,
+    // after gating the one that raised it.
+    //
+    // The projection has already removed the key, so the flag branch cannot fire
+    // on a forged one. The genuine synthesised record still goes, caught by the
+    // shape rule underneath it — no file, and the stable sentinel prefix — which
+    // is the branch that existed for records written before the flag did.
+    .filter((f) => !isInfraRecord(f));
 }
 
 /** Lens check-run names from a lenses.json manifest. Junk → []. */

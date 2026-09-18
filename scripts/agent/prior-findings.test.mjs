@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tagPriorFindings, lensCheckNames, collectPrior } from "./prior-findings.mjs";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  tagPriorFindings,
+  lensCheckNames,
+  collectPrior,
+  carryForwardFindings,
+  INFRA_SENTINEL,
+} from "./prior-findings.mjs";
 import { parseArgs, commitCheckRuns, prCommitsWithCheckRuns } from "./gh-checks.mjs";
 import { allSamplesFailedError, lensFailureSummary } from "./review-panel.mjs";
 import { poolExhaustedError } from "./ask.mjs";
@@ -427,4 +436,128 @@ test("the legacy summary-prefix branch is unchanged by the fix", () => {
     { severity: "major", summary: "Reviewer did not produce a valid verdict: something went wrong", lens: "security" },
     { severity: "critical", file: "src/log.ts", summary: "Review could not run — Claude API/quota error is logged verbatim with the token", lens: "design-fit" },
   ]);
+});
+
+// --- the local carry-forward projection --------------------------------------
+
+test("carryForwardFindings: blocking, not demoted, lens-tagged", () => {
+  const verdict = { findings: [
+    { severity: "critical", file: "a.ts", summary: "one" },
+    { severity: "major", file: "b.ts", summary: "two" },
+    { severity: "minor", file: "c.ts", summary: "not blocking" },
+    { severity: "nit", file: "d.ts", summary: "not blocking" },
+    { severity: "critical", file: "e.ts", summary: "demoted", lane: "backlog" },
+  ] };
+  assert.deepEqual(carryForwardFindings(verdict, "correctness"), [
+    { severity: "critical", file: "a.ts", summary: "one", lens: "correctness" },
+    { severity: "major", file: "b.ts", summary: "two", lens: "correctness" },
+  ]);
+});
+
+test("carryForwardFindings: unknown severity is blocking (fail-safe), junk is []", () => {
+  // `normalizeSeverity` maps anything unrecognised to `major`, so a lens that
+  // invents a severity cannot drop its own finding out of the carry-forward.
+  assert.deepEqual(
+    carryForwardFindings({ findings: [{ severity: "spicy", file: "a.ts", summary: "x" }] }, "docs"),
+    [{ severity: "spicy", file: "a.ts", summary: "x", lens: "docs" }],
+  );
+  assert.deepEqual(carryForwardFindings(undefined, "docs"), []);
+  assert.deepEqual(carryForwardFindings({ findings: "nope" }, "docs"), []);
+  assert.deepEqual(carryForwardFindings({ findings: [null, 42, ["x"]] }, "docs"), []);
+});
+
+test("carryForwardFindings: drops the synthesised infra record", () => {
+  const verdict = { findings: [
+    { severity: "major", summary: `${INFRA_SENTINEL} (429): session limit`, infra: true },
+    { severity: "major", file: "a.ts", summary: "real" },
+  ] };
+  assert.deepEqual(carryForwardFindings(verdict, "security"), [
+    { severity: "major", file: "a.ts", summary: "real", lens: "security" },
+  ]);
+});
+
+// THE DRIFT GUARD. `agent-review-panel.yml` applies this same selection inline,
+// as github-script, when it writes a lens check run's `output.text` — the cloud's
+// carry-forward channel. That copy cannot import (the step does no checkout of
+// this file's directory into the step's module graph), so the two must agree by
+// inspection. A drifted copy does not error: the cloud and the local loop would
+// simply gate on different findings, which is the silent failure the extraction
+// exists to prevent. Mirrors the PAGED_LATCH guard in rounds.test.mjs.
+test("the panel workflow's inline copy applies both selection filters", () => {
+  const workflow = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".github", "workflows", "agent-review-panel.yml"),
+    "utf8",
+  );
+  assert.ok(
+    workflow.includes("norm(f.severity) === 'critical' || norm(f.severity) === 'major'"),
+    "the inline copy must still carry blocking severities only",
+  );
+  assert.ok(
+    workflow.includes("f.lane !== 'backlog'"),
+    "the inline copy must still drop backlog-demoted findings",
+  );
+});
+
+test("carryForwardFindings: the projection carries an explicit field list, nothing else", () => {
+  // verdict.json holds MODEL OUTPUT. A spread would carry every key a lens chose
+  // to write — `infra`, `lane`, `valid` — into the next round's verifier prompt
+  // and into `isInfraRecord`'s reach. The cloud's projection rebuilds from an
+  // explicit field list; this asserts the local one does too, on the EVIDENCE
+  // fields as well as the identifying ones, since those are what the verifier
+  // re-checks against.
+  //
+  // It deliberately does NOT use a `lane: "backlog"` fixture: the lane filter
+  // runs before the projection, so such a record is dropped by the lane rule and
+  // an assertion on it would hold whether or not the projection exists. The
+  // forged-`infra` ordering contract is asserted on its own, below.
+  const noisy = {
+    severity: "critical",
+    file: "a.ts",
+    line: 12,
+    summary: "a real finding",
+    evidence: "a.ts:12 does the thing",
+    claimType: "absence",
+    searchedFor: ["theThing("],
+    mergedFrom: ["security"],
+    adjudication: { upheld: 2, notes: "dropped" },
+    valid: false,
+    lane: "primary",
+    extra: "model chatter",
+  };
+  assert.deepEqual(carryForwardFindings({ findings: [noisy] }, "security"), [{
+    severity: "critical",
+    file: "a.ts",
+    line: 12,
+    summary: "a real finding",
+    evidence: "a.ts:12 does the thing",
+    claimType: "absence",
+    searchedFor: ["theThing("],
+    mergedFrom: ["security"],
+    adjudication: { upheld: 2 },
+    lens: "security",
+  }]);
+});
+
+test("carryForwardFindings: the lane rule drops a backlog-demoted finding", () => {
+  // Separate from the projection test above so neither passes for the other's
+  // reason: a demoted finding is nobody's to fix and can never shrink round over
+  // round, so carrying it would make the loop unable to converge.
+  const demoted = { severity: "critical", file: "a.ts", summary: "a real finding", lane: "backlog" };
+  assert.deepEqual(carryForwardFindings({ findings: [demoted] }, "security"), []);
+});
+
+test("carryForwardFindings: a forged `infra` key cannot suppress a real finding", () => {
+  // THE ORDER IS THE FIX. `isInfraRecord` treats `infra: true` as authoritative
+  // because the PRODUCER sets it — true of a check run's projected text, false of
+  // a raw verdict.json, where the key sits on model output. Filtering before the
+  // projection let a finding drop itself from its own lens's report AND from
+  // every later round, after gating the one that raised it.
+  const forged = { severity: "critical", file: "a.ts", summary: "a real finding", infra: true };
+  assert.deepEqual(carryForwardFindings({ findings: [forged] }, "security"), [
+    { severity: "critical", file: "a.ts", summary: "a real finding", lens: "security" },
+  ]);
+  // The genuine synthesised record still goes, on its shape rather than its flag:
+  // no file, and the stable sentinel prefix.
+  const synthetic = { severity: "major", summary: `${INFRA_SENTINEL} (429): session limit`, infra: true };
+  assert.deepEqual(carryForwardFindings({ findings: [synthetic] }, "security"), []);
 });
