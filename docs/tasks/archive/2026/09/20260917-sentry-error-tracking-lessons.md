@@ -161,3 +161,20 @@ Two smaller things from the same incident:
 - **An operator instruction is part of the change.** "Set `VITE_SENTRY_DSN`"
   read as a setup step; it was actually the trigger that armed the hazard. Steps
   handed to a human need the same ordering scrutiny as code.
+
+### Self-review rounds (follow-up branch `fix/sentry-sourcemap-hidden-and-deploy-ordering-doc`)
+
+- **Round 1 — clean, loop stopped.** All six lenses passed with no blocking
+  findings.
+- Two false starts worth recording, because neither is a review result and both
+  look like one in the log:
+  - The first invocation reviewed an **empty diff** and failed closed. The work
+    was still uncommitted; `spec-to-pr.mjs review` diffs committed work against
+    `origin/main`. Commit before reviewing.
+  - The second returned `[major]` on **all six** lenses with the same body:
+    `Cannot find package '@anthropic-ai/claude-agent-sdk'`. That is the SDK
+    missing from `scripts/agent/node_modules`, not a finding — and checking
+    `[ -d node_modules ]` said "deps present" because the directory existed
+    while the package did not. Run `npm ci` in `scripts/agent` and check for
+    the package itself. Six identical majors citing no file is the shape of a
+    broken runner, never of a real review.
