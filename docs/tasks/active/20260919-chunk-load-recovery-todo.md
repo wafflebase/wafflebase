@@ -63,12 +63,12 @@ stale-deploy failure would be indistinguishable from it.
 
 ## Review
 
-Landed as `lazyWithRetry`, a drop-in for `React.lazy` used at all 39 call
-sites in `packages/frontend/src`. The recovery ladder is: retry once in
-place, then reload once per 10 minutes per tab, then give up and show a
-fallback that names the cause.
+Landed as `lazyWithRetry`, a drop-in for `React.lazy` used at all 56 call
+sites across the 12 files in `packages/frontend/src` that code-split. The
+recovery ladder is: retry once in place, then reload once per 10 minutes per
+tab, then give up and show a fallback that names the cause.
 
-Two decisions worth keeping in mind:
+Three decisions worth keeping in mind:
 
 - **Narrow trigger.** `isChunkLoadError()` matches only the four known
   loader messages (WebKit, Chrome, Firefox, Vite's CSS preload). Anything
@@ -81,9 +81,18 @@ Two decisions worth keeping in mind:
   device that is simply offline. Storage access is wrapped — Safari private
   mode throws on `sessionStorage` — and a throw means "do not reload",
   which fails toward the fallback rather than toward a loop.
+- **The reload defers to unsaved work.** A reload the app initiates itself
+  can discard edits still in the Yorkie change queue, and `beforeunload` is
+  not a backstop on iOS — the platform the report came from. `lib/unsaved-work.ts`
+  is the seam: `SyncStatusChip` registers the same `hasUnsentEdits` probe it
+  already uses for `beforeunload` and in-app navigation, and `canReload`
+  declines while it answers yes. The user keeps the page, the work, and a
+  button that reloads on their own say-so.
 
 ### Test plan
 
-- `pnpm --filter @wafflebase/frontend test` — 15 new cases in
-  `src/lib/lazy-with-retry.test.ts`
+- `pnpm --filter @wafflebase/frontend test` — `src/lib/lazy-with-retry.test.ts`
+  (recovery ladder, every `canReload` guard, and `browserEnv` itself),
+  `src/lib/unsaved-work.test.ts`, and a third case in
+  `tests/app-crash-fallback.test.tsx`
 - `pnpm verify:fast`

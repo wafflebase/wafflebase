@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+import { hasUnsavedWork } from "@/lib/unsaved-work";
 
 /**
  * Recovery for a code-split chunk that fails to load.
@@ -40,6 +41,18 @@ const RETRY_DELAY_MS = 500;
  * recovery at all — so this is a rate limit rather than a latch.
  */
 const RELOAD_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * How long to keep waiting after asking for a reload.
+ *
+ * `reload()` does not suspend the caller — the document simply stops existing
+ * a moment later — so something has to hold the tree on its Suspense fallback
+ * across that moment instead of flashing the crash screen over a page that is
+ * already being replaced. If the wait ever *finishes*, the reload did not
+ * happen (a browser that refused it), and falling through to the boundary is
+ * strictly better than leaving the user on a spinner with no way out.
+ */
+const RELOAD_GRACE_MS = 10_000;
 
 const RELOAD_STAMP_KEY = "wafflebase:chunk-reload-at";
 
@@ -91,12 +104,15 @@ export interface ChunkRecoveryEnv {
   setItem(key: string, value: string): void;
   reload(): void;
   isOnline(): boolean;
+  /** Whether a reload right now would discard edits not yet on the server. */
+  hasUnsavedWork(): boolean;
   /** Reports the failure and flushes it; resolves either way. */
   report(error: unknown): Promise<void>;
   delay(ms: number): Promise<void>;
 }
 
-function browserEnv(): ChunkRecoveryEnv {
+/** The environment used in production. Exported so the tests can drive it. */
+export function browserEnv(): ChunkRecoveryEnv {
   return {
     now: () => Date.now(),
     getItem: (key) => {
@@ -119,6 +135,7 @@ function browserEnv(): ChunkRecoveryEnv {
     // positive direction on every platform, so it is read as a veto and never
     // as permission.
     isOnline: () => navigator.onLine !== false,
+    hasUnsavedWork,
     report: async (error) => {
       Sentry.captureException(error, {
         tags: { chunk_load_failed: "true", chunk_recovery: "reload" },
@@ -150,6 +167,14 @@ function canReload(env: ChunkRecoveryEnv): boolean {
   // strictly worse than our fallback: no explanation, and no button that will
   // work when the connection returns.
   if (!env.isOnline()) return false;
+
+  // The reload is ours, not the user's, and a document with edits still in the
+  // change queue would lose them. `beforeunload` is not a backstop here: iOS —
+  // the platform WAFFLEBASE-2 came from — routinely ignores it. Showing the
+  // fallback keeps both the page and the work, and its button puts the same
+  // reload one deliberate click away, behind whatever prompt the browser does
+  // honor. Checked before the stamp below, so declining costs no budget.
+  if (env.hasUnsavedWork()) return false;
 
   const stamp = env.getItem(RELOAD_STAMP_KEY);
   if (stamp === null) {
@@ -198,12 +223,21 @@ export async function loadWithRetry<T>(
     }
 
     if (canReload(env)) {
-      await env.report(error);
-      env.reload();
-      // The document is going away. Resolving or rejecting now would flash
-      // either a half-mounted route or the crash screen over a page that is
-      // already being replaced, so this promise is deliberately left pending.
-      return new Promise<T>(() => {});
+      try {
+        await env.report(error);
+      } catch {
+        // Best-effort. Reporting must never cost the user the reload, and the
+        // budget for that reload has already been spent.
+      }
+      try {
+        env.reload();
+        // Holds the tree on its Suspense fallback while the document is
+        // replaced. If this ever returns, the reload did not take — see
+        // `RELOAD_GRACE_MS` — and the throw below renders the boundary.
+        await env.delay(RELOAD_GRACE_MS);
+      } catch {
+        // A reload that threw is a reload that did not happen.
+      }
     }
 
     throw error;
@@ -230,5 +264,6 @@ export function lazyWithRetry<
 export const CHUNK_RECOVERY_INTERNALS = {
   RETRY_DELAY_MS,
   RELOAD_WINDOW_MS,
+  RELOAD_GRACE_MS,
   RELOAD_STAMP_KEY,
 };

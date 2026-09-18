@@ -301,6 +301,15 @@ export default defineConfig({
       'react-router-dom',
       'sonner',
       'lucide-react',
+      /*
+       * Reached by every editor scene since the chunk-load recovery landed:
+       * each route module imports `@/lib/lazy-with-retry`, which reports a
+       * failed chunk to Sentry. Before that it was only in `main.tsx`, which
+       * no scene mounts — so without this line the first scene load is the
+       * mid-session "new dependencies optimized, reloading" this list exists
+       * to prevent, and it throws away the selection.
+       */
+      '@sentry/react',
     ],
   },
   plugins: [
