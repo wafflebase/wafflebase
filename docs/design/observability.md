@@ -134,7 +134,7 @@ Two traps, both of which bit during implementation:
   **The two halves do not ship together.** The frontend publishes on *every
   merge to `main`* (`publish-ghpage.yml`, gated on CI, not on a tag). The
   backend is pinned to a *release tag* in a manifest in another repository
-  (`yorkie-team/devops`, `k8s/wafflebase/deployment.yaml`), rolled out by a
+  (the `wafflebase` deployment manifest in `yorkie-team/devops`), rolled out by a
   human merging a bump and syncing ArgoCD. So a merge to `main` can — and did
   — put a frontend in production against a backend several releases behind it.
 
