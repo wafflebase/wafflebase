@@ -20,6 +20,7 @@ vi.mock('sonner', () => ({
 }));
 
 import { SyncStatusChip } from '@/components/sync-status/sync-status-chip';
+import { tooltipFor } from '@/components/sync-status/sync-status-tooltip';
 import {
   hasUnsavedWork,
   resetUnsavedWorkProbes,
@@ -672,5 +673,77 @@ describe('SyncStatusChip on a durable document', () => {
     });
 
     expect(container.textContent).toContain('Saving');
+  });
+});
+
+describe('the tooltip on a state that is now designed rather than inevitable', () => {
+  /**
+   * `docs/design/offline-local-persistence.md` § What the user sees:
+   *
+   * > Because `Not saved` is now a *designed* state rather than the only state
+   * > — the second tab, an oversized document, a broken store — the chip
+   * > carries the weight that used to be carried by it simply always being
+   * > true. Its tooltip must name which case applies.
+   *
+   * Every cause collapses to the same chip, so the sentence is the only thing
+   * that tells an oversized document apart from a second tab — three
+   * situations with three different things to do about them.
+   */
+  const stranded = (lapse?: Parameters<typeof tooltipFor>[4]) =>
+    tooltipFor('not-saved', null, false, false, lapse);
+
+  it('says which tab is the one saving', () => {
+    expect(stranded('another-tab')).toContain('open in another tab');
+  });
+
+  it('says when the document is too large for this device', () => {
+    expect(stranded('too-large')).toContain('too large');
+  });
+
+  it('says when the device is out of room', () => {
+    expect(stranded('out-of-space')).toContain('out of local storage space');
+  });
+
+  it('says when the store would not take the write', () => {
+    expect(stranded('write-failed')).toContain('could not be written to');
+  });
+
+  it('says when this browser cannot store anything at all', () => {
+    expect(stranded('unsupported')).toContain('cannot save documents locally');
+  });
+
+  it('says when earlier work could not be reconciled', () => {
+    expect(stranded('dropped')).toContain('no longer being saved');
+  });
+
+  it('keeps naming the tab as the only copy in every case', () => {
+    // The reason is added to that sentence, never instead of it: what the user
+    // must act on is that closing the tab ends these edits.
+    for (const lapse of [
+      undefined,
+      'another-tab',
+      'too-large',
+      'out-of-space',
+      'write-failed',
+      'unsupported',
+      'dropped',
+    ] as const) {
+      expect(stranded(lapse)).toContain('exist only in this tab');
+    }
+  });
+
+  it('diagnoses nothing where a diagnosis would be wrong', () => {
+    // `not-enabled` is a call to action, and the offer says it better. A share
+    // link (`not-permitted`) was never going to be saved to the visitor's
+    // device, so describing the feature to them would be noise.
+    expect(stranded('not-enabled')).toBe(stranded(undefined));
+    expect(stranded('not-permitted')).toBe(stranded(undefined));
+  });
+
+  it('leaves the healthy states alone', () => {
+    // A lapse is not a fault when nothing of the user's is outstanding.
+    expect(tooltipFor('saved', null, true, false, 'another-tab')).toBe(
+      'All changes are on the server.',
+    );
   });
 });

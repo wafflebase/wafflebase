@@ -170,16 +170,32 @@ Two consequences elsewhere in this design:
   refusing the attach for its own lock — nothing is attached there, so
   re-mounting on the ambient client is the repair rather than a loss.
 
-**Signing out erases; being signed out erases all but the archives.** The erase
-runs from `logout()`, which is also what `fetchWithAuth` calls on a 401 whose
-refresh failed. That path is an expired cookie or a restarted backend, not a
-decision, and the archives are by this design the only remaining copy of work
-the server never took — so an event the user neither chose nor can undo must
-not delete them. The *live* entries go on both paths: they are copies of
-content the server still holds, so dropping them costs nothing, and a session
-that ends by expiring is the commonest way one ends on a shared machine, which
-is the case this whole per-device opt-in exists for. Only a deliberate sign-out
-takes the archives too.
+**Signing out erases; being signed out erases nothing.** The erase runs from
+`logout()`, which is also what `fetchWithAuth` calls on a 401 whose refresh
+failed — and on that path it is skipped entirely.
+
+The argument for erasing the *live* entries there was that they are copies of
+content the server still holds. That is false of the only thing that matters:
+a live entry is a snapshot **and its un-pushed change log**, which is precisely
+the work the server does not have. Dropping it destroys the only durable copy
+of unsent edits, which is this feature causing the loss it exists to prevent.
+And 401 is not a page the user is looking at — `fetchWithAuth` is what every
+request in the app goes through, so a single background poll answered 401 would
+erase every live entry on the device, the open document's included, from a call
+site unrelated to anything the user did.
+
+The deliberate sign-out is the one that erases, archives included, and it waits
+for the server to confirm: a logout request that failed leaves the user signed
+in, and erasing there deletes unsent work for a sign-out that did not happen.
+A shared device is covered by that sign-out, by the 30-day sweep, and by the
+reconcile the next session runs — not by the 401 arm.
+
+Once it has erased, further local writes for that account are **refused** until
+somebody signs in again. `dropAllForUser` marks the keys it deleted so a
+still-mounted client's next append fails loudly rather than silently; the SDK
+repairs a failed append by writing a fresh snapshot, which would otherwise put
+the whole document straight back on the disk the sign-out just cleared. The
+preference cannot be that guard — it is still on.
 
 The identity is mirrored in `localStorage` (an id, never content) because
 sign-out is reachable from routes the authenticated shell does not cover, where
@@ -247,11 +263,11 @@ detached:
 
 | Trigger | Action |
 |---------|--------|
-| Logout | Drop every entry for that user, archives included |
-| Session expired (401) | Drop that user's live entries; keep the archives |
+| Logout, once the server confirms it | Drop every entry for that user, archives included, and refuse later writes for them |
+| Session expired (401) | Nothing. A live entry carries the un-pushed change log, and nobody asked |
 | Document deleted | Drop that entry, keeping its archive |
 | Workspace deleted, or membership removed | Drop those entries **and their archives** |
-| Every session | Drop entries for documents the server no longer lists |
+| Every session | Drop entries **and archives** for documents the server no longer lists |
 | Periodic | Drop entries untouched for 30 days, whoever wrote them (store `updatedAt` beside the envelope) |
 | `QuotaExceededError` | Evict the oldest entry whose log is empty, retry once, then report undurable |
 
@@ -266,9 +282,17 @@ archive with the entry.
 Access revoked by **somebody else** reaches the affected device through none of
 those rows: every one of them runs on the device of whoever made the request.
 So `OfflineRuntime` asks, once per session, for the documents this account may
-still read and drops what is not in the answer. A failed or partial listing
-never reaches the purge — it keeps only what the list names, so an empty list
-would erase the device.
+still read and drops what is not in the answer — **archives included**, and
+archives are enumerated separately because archiving deletes the header, so a
+document that hit `LocalChangesDropped` is named by no header index at all and
+would otherwise be structurally unreachable here.
+
+A failed or partial listing must never reach the purge, since it keeps only
+what the list names. That is enforced by awaiting the listing and letting a
+failure throw before the purge is called, and **not** by refusing an empty
+array: an empty array is the correct answer for a user removed from their only
+workspace, which is the very case this row exists for. Refusing it declined the
+reconcile precisely when it was owed.
 
 The thirty-day sweep is deliberately **not** scoped to the signed-in user for
 live entries, and this reverses an earlier reading of the same shared-device

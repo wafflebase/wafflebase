@@ -154,7 +154,15 @@ describe("when it refuses", () => {
 });
 
 describe("when the preference changes mid-session", () => {
-  it("becomes durable without a reload", async () => {
+  it("takes no election it will never use when it is switched on", async () => {
+    // The consumer latches its decision when the document mounts, so a rise
+    // here buys nothing and costs two things: the per-document lock is held for
+    // a client that is never mounted — denying durability to every other tab —
+    // and the subject moves, which un-settles the hook and makes a consumer
+    // that waits for `settled` unmount the editor and its change queue with it.
+    //
+    // The preference governs the next document opened, which is what the chip's
+    // own offer and the Settings copy both say.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
 
@@ -165,6 +173,28 @@ describe("when the preference changes mid-session", () => {
     expect(result.current.durable).toBe(false);
 
     act(() => setOfflinePersistenceEnabled(true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(result.current.durable).toBe(false);
+    expect(result.current.settled).toBe(true);
+    expect(locks.held.size).toBe(0);
+  });
+
+  it("is durable for the next document opened after it", async () => {
+    // The other half of the same rule: the preference is not ignored, it
+    // applies where changing it is free.
+    const locks = fakeLocks();
+    setDurableLockForTest(locks);
+
+    const { result, rerender } = renderHook(
+      (props: { docKey: string }) =>
+        useDurableDocument({ docKey: props.docKey, userId: "u1" }),
+      { initialProps: { docKey: "note-7" } },
+    );
+    await waitFor(() => expect(result.current.settled).toBe(true));
+
+    act(() => setOfflinePersistenceEnabled(true));
+    rerender({ docKey: "note-8" });
 
     await waitFor(() => expect(result.current.durable).toBe(true));
   });

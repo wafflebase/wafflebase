@@ -66,6 +66,12 @@ let signedInUserId: string | undefined;
  */
 export function rememberOfflineUser(userId: string | undefined): void {
   signedInUserId = userId;
+  if (userId !== undefined) {
+    // Signing back in re-permits writing. The denial below stands for "this
+    // account's documents were just erased from this device", and a fresh
+    // session is the user asking for them again.
+    erased.delete(userId);
+  }
   try {
     if (userId === undefined) {
       localStorage.removeItem(LAST_USER_KEY);
@@ -101,6 +107,35 @@ function offlineUserId(): string | undefined {
  */
 export function isOfflineUser(userId: string): boolean {
   return offlineUserId() === userId;
+}
+
+/**
+ * Accounts whose local documents were erased on this page's lifetime, and which
+ * must therefore not be written again by a client that is still mounted.
+ *
+ * In memory only, and deliberately: it is a fact about *this page*, not about
+ * the device. A reload has no still-mounted client to restrain, and persisting
+ * the denial would be a second, invisible copy of the preference.
+ */
+const erased = new Set<string>();
+
+/** Refuses further local writes for `userId` until they sign in again. */
+function denyOfflineWrites(userId: string): void {
+  erased.add(userId);
+}
+
+/**
+ * Whether this device may still write `userId`'s documents to disk.
+ *
+ * The companion of the erase, for the durable client to compose with the
+ * preference. `dropAllForUser` deletes the entries and marks their keys, so the
+ * mounted client's next append throws — and the SDK repairs a failed append by
+ * writing a fresh snapshot, which puts the whole document back on the disk the
+ * sign-out just cleared. The preference cannot stop that: it is still on. This
+ * can.
+ */
+export function isOfflineWritePermitted(userId: string): boolean {
+  return !erased.has(userId);
 }
 
 /**
@@ -185,11 +220,12 @@ function forgetPendingErase(userId: string): void {
  * and leaving a signed-out account's documents on a shared machine because the
  * toggle has since been flipped would be the worst reading of it.
  *
- * `keepArchives` is for the involuntary case — a session the server expired.
- * The live entries go either way, because they are copies of content the server
- * still holds and a shared disk should not keep them; the archives are the only
- * copy of work the server never took, so an event the user neither chose nor
- * can undo must not delete them.
+ * Called only for a sign-out somebody *chose*, and only once the server has
+ * confirmed it — see `api/auth.ts`. A session that merely expired erases
+ * nothing at all: a live entry is not the disposable copy that argument once
+ * assumed, it carries the un-pushed change log, so dropping it on an event the
+ * user neither chose nor can undo destroys the only durable copy of work the
+ * server never took.
  *
  * Never throws, and never blocks the sign-out: a logout that failed because a
  * database would not open is a worse outcome than one that left a cleanup for
@@ -197,9 +233,7 @@ function forgetPendingErase(userId: string): void {
  * only once the erase has actually happened, and a failure is recorded so
  * {@link retryPendingOfflineErase} can finish it.
  */
-export async function eraseOfflineDataOnLogout(
-  options: { keepArchives?: boolean } = {},
-): Promise<void> {
+export async function eraseOfflineDataOnLogout(): Promise<void> {
   const who = offlineUserId();
   if (!who) {
     rememberOfflineUser(undefined);
@@ -207,20 +241,19 @@ export async function eraseOfflineDataOnLogout(
   }
   const store = new WafflebaseDocStore({ userId: who });
   try {
-    await eraseOfflineData(store, who, options);
+    await eraseOfflineData(store, who);
     // Forgotten only now. Clearing it first — which is what this did — made a
     // transient IndexedDB failure permanent: the identity was gone, so no later
     // logout, purge or retry could name the account whose documents were still
     // on the disk.
-    if (options.keepArchives) {
-      // The archives were spared on purpose, and they are this user's. Keeping
-      // the identity is what lets a later deliberate sign-out erase them, and
-      // what lets the recovery UI still find them when they sign back in.
-      forgetPendingErase(who);
-    } else {
-      rememberOfflineUser(undefined);
-      forgetPendingErase(who);
-    }
+    rememberOfflineUser(undefined);
+    forgetPendingErase(who);
+    // And refused from here on, which is a separate fact from the preference.
+    // The page usually navigates away immediately, but it need not — and a
+    // durable client can still be mounted over the entries just deleted, whose
+    // next append fails, which makes the SDK write a fresh snapshot and put the
+    // document straight back on the disk this was asked to clear.
+    denyOfflineWrites(who);
   } catch (err) {
     console.warn("[offline] could not erase local documents on logout:", err);
     // Left recorded on purpose: the retry needs a name, and this is the only
@@ -307,10 +340,17 @@ export async function purgeOfflineDocuments(
  * next asks. So it asks, once per session, and keeps only what the server still
  * lists for it.
  *
- * `accessible` is the whole set the caller can read. A partial or failed
- * listing must never reach here: this deletes everything outside the set, so an
- * empty list would erase the device. The caller's `catch` is what enforces
- * that, and the guard below makes the dangerous shape unrunnable anyway.
+ * `accessible` is the whole set the caller can read, and **an empty array is a
+ * valid answer**: a user removed from their only workspace is told exactly
+ * that, and it is the very case this function exists for. Refusing it — which
+ * this did — declined the reconcile precisely when it was owed, on the reasoning
+ * that a user with no documents has nothing stored, which is inverted here: what
+ * they have stored is what they *used* to be able to read.
+ *
+ * So a partial or failed listing must never reach here. This deletes everything
+ * outside the set, and there is now no shape of the argument that is refused.
+ * The caller awaits the listing and lets a failure throw before calling at all;
+ * that `catch` is the whole guard.
  *
  * Archives go with it, unlike a deletion's purge. Recovery turns an archive
  * into a whole new document, so keeping one for a workspace the user was
@@ -336,10 +376,8 @@ export async function purgeRevokedOfflineDocuments(
   } = {},
 ): Promise<number> {
   const who = offlineUserId();
-  if (!who || accessible.length === 0) {
-    // Nothing to compare against. A user who genuinely has no documents has
-    // nothing stored either, so declining here costs nothing and refuses the
-    // one input shape that would erase the device on a half-answered list.
+  if (!who) {
+    // Nobody to reconcile for.
     return 0;
   }
   const store = new WafflebaseDocStore({
@@ -348,7 +386,14 @@ export async function purgeRevokedOfflineDocuments(
   });
   try {
     const keep = new Set(accessible);
-    const revoked = (await store.storedDocumentIds()).filter(
+    // Archives as well as live entries, and that is not a detail: `remove()`
+    // deletes the header and writes the content into a separate store, so a
+    // document that hit `LocalChangesDropped` is invisible to the header index
+    // this used to enumerate alone. It was therefore structurally unreachable
+    // here — a full snapshot of a workspace's document, kept past the
+    // revocation, and then *offered back* as a new document the removed user
+    // owns.
+    const revoked = (await store.storedDocumentIds({ archives: true })).filter(
       (id) => !keep.has(id),
     );
     let purged = 0;

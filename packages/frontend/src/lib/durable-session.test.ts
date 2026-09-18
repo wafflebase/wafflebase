@@ -393,6 +393,29 @@ describe("seeing what other tabs hold", () => {
     vi.spyOn(navigator.locks!, "query").mockRejectedValue(new Error("nope"));
     expect(await isOpenInAnyTab("note-7")).toBe(true);
   });
+
+  it("says not open when it cannot tell and the caller is erasing", async () => {
+    // Inverted for the erasure callers: refusing there means keeping content
+    // the rule says must go — a workspace the user was removed from, an entry
+    // nothing has touched in a month — and refusing on no evidence, since a
+    // runtime that cannot answer cannot hold a durable session either.
+    vi.spyOn(navigator.locks!, "query").mockRejectedValue(new Error("nope"));
+    expect(await isOpenInAnyTab("note-7", { whenUnknown: false })).toBe(false);
+  });
+
+  it("can be scoped to one account", async () => {
+    // A Web Lock is per origin. Unscoped, another account's open document on a
+    // shared device defers this account's erase indefinitely.
+    vi.spyOn(navigator.locks!, "query").mockResolvedValue({
+      held: [{ name: "wb-durable:someone-else:note-7" }],
+      pending: [],
+    } as unknown as LockManagerSnapshot);
+
+    expect(await isOpenInAnyTab("note-7", { userId: "u1" })).toBe(false);
+    expect(await isOpenInAnyTab("note-7", { userId: "someone-else" })).toBe(
+      true,
+    );
+  });
 });
 
 describe("answering the store, which speaks a different key", () => {

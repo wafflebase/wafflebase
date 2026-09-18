@@ -4,6 +4,8 @@ import { WafflebaseDocStore } from "./wafflebase-doc-store";
 import {
   eraseOfflineData,
   eraseOfflineDataOnLogout,
+  isOfflineUser,
+  isOfflineWritePermitted,
   purgeOfflineDocuments,
   purgeRevokedOfflineDocuments,
   rememberOfflineUser,
@@ -275,21 +277,26 @@ describe("signing out", () => {
     await expect(eraseOfflineDataOnLogout()).resolves.toBeUndefined();
   });
 
-  it("keeps the archives when the session was ended for the user", async () => {
-    // A cookie that expired is nobody's decision, and the archives are the only
-    // copy of work the server never took. The live entries still go: the server
-    // holds that content, and a shared machine should not.
-    const mine = defaultStore("logout-4");
-    await seed(mine, "logout-expired");
-    mine.expectLoss("logout-expired");
-    await mine.remove("logout-expired");
-    await seed(mine, "logout-live");
+  it("refuses further local writes for the account it just erased", async () => {
+    // `dropAllForUser` marks the keys it deleted, so a still-mounted durable
+    // client's next append throws — and the SDK repairs a failed append by
+    // writing a fresh snapshot, which puts the document straight back on the
+    // disk the sign-out cleared. The preference cannot stop that; it is still
+    // on.
+    const mine = defaultStore("logout-6");
+    await seed(mine, "logout-rewrite");
 
-    rememberOfflineUser("logout-4");
-    await eraseOfflineDataOnLogout({ keepArchives: true });
+    rememberOfflineUser("logout-6");
+    expect(isOfflineWritePermitted("logout-6")).toBe(true);
+    await eraseOfflineDataOnLogout();
 
-    expect(await mine.load("logout-live")).toBeUndefined();
-    expect(await mine.listArchives()).toHaveLength(1);
+    expect(isOfflineWritePermitted("logout-6")).toBe(false);
+    // Nobody else is restrained by it.
+    expect(isOfflineWritePermitted("someone-else")).toBe(true);
+
+    // And signing back in is the user asking for their documents again.
+    rememberOfflineUser("logout-6");
+    expect(isOfflineWritePermitted("logout-6")).toBe(true);
   });
 
   it("does not forget who it is for when the erase fails", async () => {
@@ -396,15 +403,33 @@ describe("access somebody else ended", () => {
     expect(await store.listArchives()).toEqual([]);
   });
 
-  it("refuses an empty list rather than erasing the device", async () => {
-    // The purge keeps only what is in the list, so a half-answered listing is
-    // the one input that must not reach it.
+  it("treats an empty list as the answer it is, not as a missing one", async () => {
+    // A user removed from their only workspace is told exactly this, and it is
+    // the case the whole function exists for. Refusing it declined the
+    // reconcile precisely when it was owed.
     const store = new WafflebaseDocStore({ userId: "revoked-2" });
     await seed(store, "sheet-safe");
     rememberOfflineUser("revoked-2");
 
-    expect(await purgeRevokedOfflineDocuments([])).toBe(0);
-    expect(await store.load("sheet-safe")).toBeDefined();
+    expect(await purgeRevokedOfflineDocuments([])).toBe(1);
+    expect(await store.load("sheet-safe")).toBeUndefined();
+  });
+
+  it("reaches a document that exists only as an archive", async () => {
+    // `remove()` deletes the header and writes the content into the archive
+    // store, so enumerating headers alone can never name it — a full snapshot
+    // of a workspace's document, kept past the revocation and then offered
+    // back as a new document the removed user owns.
+    const store = new WafflebaseDocStore({ userId: "revoked-6" });
+    await seed(store, "pk/wb:1:sheet-onlyarchive/sheet-onlyarchive");
+    store.expectLoss("pk/wb:1:sheet-onlyarchive/sheet-onlyarchive");
+    await store.remove("pk/wb:1:sheet-onlyarchive/sheet-onlyarchive");
+    expect(await store.listArchives()).toHaveLength(1);
+    rememberOfflineUser("revoked-6");
+
+    await purgeRevokedOfflineDocuments(["kept"]);
+
+    expect(await store.listArchives()).toEqual([]);
   });
 
   it("does nothing while signed out", async () => {
@@ -491,5 +516,38 @@ describe("a document that was deleted", () => {
     await purgeOfflineDocuments(["anon"]);
 
     expect(await store.load("sheet-anon")).toBeDefined();
+  });
+});
+
+describe("whose documents this device holds", () => {
+  /**
+   * `isOfflineUser` is what keeps a cleanup somebody *else* triggered from
+   * reaching this device's content. `removeMember` runs on the owner's
+   * machine, and the id it names is usually not the person sitting at it.
+   */
+  it("answers for the account that is signed in", () => {
+    rememberOfflineUser("who-1");
+
+    expect(isOfflineUser("who-1")).toBe(true);
+    expect(isOfflineUser("who-2")).toBe(false);
+  });
+
+  it("says no once nobody is signed in", () => {
+    rememberOfflineUser("who-1");
+    rememberOfflineUser(undefined);
+
+    expect(isOfflineUser("who-1")).toBe(false);
+  });
+
+  it("mirrors the identity so a route without the shell can still answer", () => {
+    // Sign-out is reachable from routes the authenticated shell does not
+    // cover — a share link, a public page, a reload that lands outside it —
+    // and there the in-memory identity is simply absent. The mirror is an id,
+    // never content, and it is cleared the moment it is spent.
+    rememberOfflineUser("who-3");
+    expect(localStorage.getItem("wafflebase-offline-user")).toBe("who-3");
+
+    rememberOfflineUser(undefined);
+    expect(localStorage.getItem("wafflebase-offline-user")).toBeNull();
   });
 });

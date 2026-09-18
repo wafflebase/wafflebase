@@ -193,6 +193,53 @@ describe('when the document is durable', () => {
   });
 });
 
+describe('when the preference is switched on with a document already open', () => {
+  it('keeps the editor mounted, queue and all', async () => {
+    // The loss this whole feature exists to prevent, caused by switching the
+    // feature on. `ready` is re-evaluated on every render, and enabling the
+    // preference mid-open moves `useDurableDocument`'s subject — so an
+    // unconditional `if (!ready) return null` unmounts the `DocumentProvider`
+    // and the entire editor under it, discarding the in-memory Yorkie change
+    // queue the chip was warning about.
+    //
+    // The offer is reachable from three places while an editor is open:
+    // Settings in another tab, the `storage` event from another tab, and the
+    // chip's own "Turn on for later documents" — which is shown *because*
+    // there are unsent edits.
+    const { getByTestId, rerender } = mount('note-7');
+    await waitFor(() => expect(getByTestId('child')).toBeTruthy());
+    const before = getByTestId('child');
+
+    setOfflinePersistenceEnabled(true);
+    rerender(
+      <CollabDocumentProvider docKey="note-7" initialRoot={{}}>
+        <div data-testid="child" />
+      </CollabDocumentProvider>,
+    );
+
+    // Never a null render in between: the same DOM node, so React never
+    // unmounted the subtree.
+    expect(getByTestId('child')).toBe(before);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getByTestId('child')).toBe(before);
+    // And it stayed on the ambient client, because the decision is held for
+    // the life of the open document.
+    expect(mounted).toHaveLength(0);
+  });
+
+  it('takes no election it is not going to use', async () => {
+    // Holding `wb-durable:{user}:{docKey}` without mounting a client denies
+    // durability to every other tab for nothing.
+    mount('note-7');
+    await waitFor(() => expect(screen.getByTestId('child')).toBeTruthy());
+
+    setOfflinePersistenceEnabled(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(locks.held.size).toBe(0);
+  });
+});
+
 describe('when it is not', () => {
   it('renders on the ambient client while the preference is off', async () => {
     const { getByTestId } = mount('note-7');
@@ -411,7 +458,9 @@ describe('the cross-tab guard', () => {
 
     await store.collectStale(0);
 
-    expect(openElsewhere).toHaveBeenCalledWith('sheet-9');
+    // Scoped to this account: a Web Lock is per origin, so an unscoped
+    // question lets another account's open document answer for this one.
+    expect(openElsewhere).toHaveBeenCalledWith('sheet-9', { userId: '7' });
     // And it was believed: the other tab's document is still there.
     const reader = new WafflebaseDocStore({
       userId: '7',

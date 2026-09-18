@@ -926,15 +926,29 @@ export class WafflebaseDocStore implements DocStore {
    *
    * For the caller that has to ask the server which of them it may still read:
    * access revoked by *somebody else* reaches this device no other way.
+   *
+   * `archives: true` adds the ids this user has *archived* entries for. Live
+   * entries are only half of what is stored: {@link remove} deletes the header
+   * and writes the whole document into the archive store, so an archived
+   * document is named by no header index at all. A caller reconciling against
+   * lost access has to see them — an archive is a full snapshot, and recovery
+   * turns one into a permanent document owned by whoever is signed in.
    */
-  public async storedDocumentIds(): Promise<Array<string>> {
+  public async storedDocumentIds(
+    options: { archives?: boolean } = {},
+  ): Promise<Array<string>> {
     const keys = await this.headerKeysWhere(
       BY_USER,
       IDBKeyRange.only(this.userId),
     );
+    const docKeys = keys.map((key) => documentKeyOf(key));
+    if (options.archives) {
+      for (const archive of await this.listArchives()) {
+        docKeys.push(documentKeyOf(archive.docKey));
+      }
+    }
     const ids = new Set<string>();
-    for (const key of keys) {
-      const docKey = documentKeyOf(key);
+    for (const docKey of docKeys) {
       const dash = docKey.indexOf("-");
       ids.add(dash === -1 ? docKey : docKey.slice(dash + 1));
     }

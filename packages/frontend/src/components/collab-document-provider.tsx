@@ -14,6 +14,10 @@ import {
   DurableLossWatch,
   DurableYorkieProvider,
 } from '@/components/durable-yorkie-provider';
+import {
+  DurabilityLapseScope,
+  type DurabilityLapse,
+} from '@/lib/durable-document-context';
 
 /**
  * `DocumentProvider` with `initialPresence` made reliable.
@@ -247,19 +251,35 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
       ? held.current
       : undefined;
 
+  // Why this document is *not* on disk, for the chip's tooltip to name. The
+  // durable client publishes its own reasons over the top of this one; these
+  // are the ones only the call site knows.
+  const lapse: DurabilityLapse | undefined = decided?.durable
+    ? undefined
+    : !supportsClientKey()
+      ? "unsupported"
+      : !permitted
+        ? "not-permitted"
+        : !offlineEnabled
+          ? "not-enabled"
+          : "another-tab";
+
   const inner = (
-    <DocumentProvider<R, P> initialPresence={initialPresence} {...rest}>
-      <PresenceIdentityRepair<P> initialPresence={initialPresence} />
-      {/* Inside the `DocumentProvider`, because it reads `useDocument()`. It
-          is a no-op unless a durable client is mounted above, which is what
-          lets it be rendered unconditionally from here — the one place that is
-          inside both providers. */}
-      <DurableLossWatch />
-      {children}
-    </DocumentProvider>
+    <DurabilityLapseScope lapse={lapse}>
+      <DocumentProvider<R, P> initialPresence={initialPresence} {...rest}>
+        <PresenceIdentityRepair<P> initialPresence={initialPresence} />
+        {/* Inside the `DocumentProvider`, because it reads `useDocument()`. It
+            is a no-op unless a durable client is mounted above, which is what
+            lets it be rendered unconditionally from here — the one place that
+            is inside both providers. */}
+        <DurableLossWatch />
+        {children}
+      </DocumentProvider>
+    </DurabilityLapseScope>
   );
 
-  // Nothing is attached until the election *and* the identity have answered.
+  // Nothing is attached until the election *and* the identity have answered —
+  // for a subject that has not been decided yet.
   //
   // Rendering the ambient client first and swapping would attach the document
   // twice on every durable open — and worse, an edit made in that window would
@@ -267,10 +287,18 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   // it would be lost. The window is short, but "short" is not a property this
   // feature is allowed to rely on.
   //
+  // The second half of the condition is what keeps this a *pre*-decision gate
+  // rather than a standing one. Every term of `ready` can un-settle under an
+  // already-decided document — enabling the preference mid-open moves the
+  // hook's subject, and `identityPending` re-enters on a refetch — and
+  // returning `null` then unmounts the `DocumentProvider` and the whole editor
+  // under it, discarding the in-memory change queue. That is the loss this
+  // feature exists to prevent, caused by switching the feature on.
+  //
   // It costs no blank frame in the common case: a document that cannot persist
-  // waits for neither, so this is already true on the first render whenever the
-  // feature is off — which is every document today.
-  if (!ready) {
+  // waits for neither, so this is already false on the first render whenever
+  // the feature is off — which is every document today.
+  if (!ready && held.current?.subject !== subject) {
     return null;
   }
 

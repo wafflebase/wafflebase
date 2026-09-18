@@ -203,29 +203,58 @@ export function resetElectionsForTest(): void {
  * across every tab of the origin — so the answer exists, it just has to be
  * asked for.
  *
- * Answers `true` when it cannot tell. Refusing to evict costs a failed write
- * the caller already handles; evicting a document somebody is editing costs
- * their edits.
+ * Answers `whenUnknown` when it cannot tell, and that answer is the caller's to
+ * choose because the two kinds of caller pay opposite costs.
+ *
+ * **Eviction and the frame it protects** default to `true`: refusing to delete
+ * costs a failed write the caller already handles, while deleting a document
+ * somebody is editing costs their edits.
+ *
+ * **Erasure** — the revocation reconcile, the thirty-day sweep — passes
+ * `false`. There, refusing to delete means keeping document content the rule
+ * says must go: a workspace the user was removed from, or an entry nothing has
+ * touched in a month. And it is refusing on no evidence, since `true` here is
+ * not "somebody has it open", it is "this browser has `LockManager.request`
+ * but not `query`, or `query` threw". A runtime that cannot answer also cannot
+ * hold a durable session — {@link supportsDurableSession} gates the whole
+ * feature on the same API — so there is no live client to pull the entry out
+ * from under.
+ *
+ * `userId` scopes the match to one account. A Web Lock is per origin, so
+ * without it another account's open document on a shared device defers this
+ * account's erase indefinitely.
  */
-export async function isOpenInAnyTab(key: string): Promise<boolean> {
-  if (!supportsDurableSession() || typeof navigator === "undefined") {
-    return true;
+export async function isOpenInAnyTab(
+  key: string,
+  options: { userId?: string; whenUnknown?: boolean } = {},
+): Promise<boolean> {
+  const unknown = options.whenUnknown ?? true;
+  if (
+    !supportsDurableSession() ||
+    typeof navigator === "undefined" ||
+    typeof navigator.locks?.query !== "function"
+  ) {
+    return unknown;
   }
   try {
-    const state = await navigator.locks!.query();
+    const state = await navigator.locks.query();
     // The store keys its entries the way the SDK does —
     // `apiKey/clientKey/docKey` — while a lock name ends in the bare document
     // key. Comparing the two verbatim can never match, which silently turned
     // this guard off everywhere it mattered: every sweep and every eviction saw
     // every other tab's open document as idle.
     const suffix = `:${documentKeyOf(key)}`;
+    const prefix =
+      options.userId === undefined
+        ? "wb-durable:"
+        : `wb-durable:${options.userId}:`;
     return (state.held ?? []).some(
       (lock) =>
         typeof lock.name === "string" &&
-        lock.name.startsWith("wb-durable:") &&
+        lock.name.startsWith(prefix) &&
         lock.name.endsWith(suffix),
     );
   } catch {
-    return true;
+    return unknown;
   }
 }

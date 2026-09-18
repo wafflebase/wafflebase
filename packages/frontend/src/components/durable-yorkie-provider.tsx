@@ -8,9 +8,12 @@ import {
 import { YorkieProvider, useDocument, useYorkie } from '@yorkie-js/react';
 import { isOpenInAnyTab } from '@/lib/durable-session';
 import { getOfflinePersistenceEnabled } from '@/lib/offline-persistence-preference';
+import { isOfflineWritePermitted } from '@/lib/offline-erase';
 import {
+  DurabilityLapseScope,
   DurableDocumentScope,
   useDurableDocumentContext,
+  type DurabilityLapse,
 } from '@/lib/durable-document-context';
 import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 
@@ -128,6 +131,7 @@ export function DurableYorkieProvider({
    * rather than releasing it under a still-mounted client.)
    */
   const [writesFailing, setWritesFailing] = useState(false);
+  const [outOfSpace, setOutOfSpace] = useState(false);
   const store = useMemo(
     () =>
       new WafflebaseDocStore({
@@ -136,14 +140,37 @@ export function DurableYorkieProvider({
         // while the ordering eviction reads is a shared database — so one
         // tab's eviction deletes another tab's open document and every append
         // after that silently goes nowhere.
-        isOpenElsewhere: isOpenInAnyTab,
-        onWriteFailure: () => setWritesFailing(true),
-        // Switching the preference off erases the disk but deliberately leaves
-        // this client mounted — re-deciding durability would unmount the
-        // editor and take the queue at risk with it. Without this the next
+        //
+        // Scoped to this account, and left at its "assume open when it cannot
+        // tell" default: this is the eviction caller, where refusing to delete
+        // costs a failed write the store already handles.
+        isOpenElsewhere: (docKey) => isOpenInAnyTab(docKey, { userId }),
+        onWriteFailure: (err) => {
+          // Quota is the one failure the design gives its own wording, because
+          // it is the one the user can act on.
+          if (
+            err instanceof DOMException &&
+            err.name === 'QuotaExceededError'
+          ) {
+            setOutOfSpace(true);
+          }
+          setWritesFailing(true);
+        },
+        // Two separate facts, and neither one implies the other.
+        //
+        // The *preference*: switching it off erases the disk but deliberately
+        // leaves this client mounted — re-deciding durability would unmount
+        // the editor and take the queue at risk with it. Without this the next
         // write puts the open document straight back on the disk the user just
         // asked to clear, and nothing runs again to remove it.
-        isPersistenceEnabled: getOfflinePersistenceEnabled,
+        //
+        // The *sign-out*: the erase logout performs marks the keys it deleted,
+        // so this client's next append throws — and the SDK repairs a failed
+        // append by writing a fresh snapshot, which restores the whole document
+        // to the disk the sign-out was supposed to clear. The preference is
+        // still on at that moment, so it cannot be the guard.
+        isPersistenceEnabled: () =>
+          getOfflinePersistenceEnabled() && isOfflineWritePermitted(userId),
       }),
     [userId],
   );
@@ -165,6 +192,20 @@ export function DurableYorkieProvider({
     ],
   );
 
+  // What the chip's tooltip says when the promise lapsed under a client that
+  // *was* mounted. Nested inside the call site's own scope, so this wins where
+  // it has an answer and falls back to `undefined` — no lapse — where it does
+  // not.
+  const lapse: DurabilityLapse | undefined = lost
+    ? 'dropped'
+    : persistDisabled
+      ? 'too-large'
+      : outOfSpace
+        ? 'out-of-space'
+        : writesFailing
+          ? 'write-failed'
+          : undefined;
+
   return (
     <KeyedYorkieProvider
       rpcAddr={rpcAddr}
@@ -175,7 +216,9 @@ export function DurableYorkieProvider({
       store={store}
     >
       <LockRefusalWatch onLockRefused={onLockRefused}>
-        <DurableDocumentScope value={value}>{children}</DurableDocumentScope>
+        <DurableDocumentScope value={value}>
+          <DurabilityLapseScope lapse={lapse}>{children}</DurabilityLapseScope>
+        </DurableDocumentScope>
       </LockRefusalWatch>
     </KeyedYorkieProvider>
   );

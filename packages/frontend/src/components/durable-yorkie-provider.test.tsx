@@ -11,14 +11,38 @@ import type { PropsWithChildren } from 'react';
  * would otherwise still read as durable.
  */
 
-const captured: Array<{ onWriteFailure?: (err: unknown) => void }> = [];
+interface CapturedOptions {
+  onWriteFailure?: (err: unknown) => void;
+  isPersistenceEnabled?: () => boolean;
+  isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
+}
+
+const captured: Array<CapturedOptions> = [];
 
 vi.mock('@/lib/wafflebase-doc-store', () => ({
   WafflebaseDocStore: class {
-    constructor(options: { onWriteFailure?: (err: unknown) => void }) {
+    constructor(options: CapturedOptions) {
       captured.push(options);
     }
   },
+}));
+
+const offlineEnabled = vi.fn(() => true);
+vi.mock('@/lib/offline-persistence-preference', () => ({
+  getOfflinePersistenceEnabled: () => offlineEnabled(),
+}));
+
+const writePermitted = vi.fn<(userId: string) => boolean>(() => true);
+vi.mock('@/lib/offline-erase', () => ({
+  isOfflineWritePermitted: (userId: string) => writePermitted(userId),
+}));
+
+const openElsewhere = vi.fn<
+  (key: string, options?: unknown) => Promise<boolean>
+>(async () => false);
+vi.mock('@/lib/durable-session', () => ({
+  isOpenInAnyTab: (key: string, options?: unknown) =>
+    openElsewhere(key, options),
 }));
 
 /** The document `useDocument()` answers with, settable per case. */
@@ -84,6 +108,60 @@ function renderProvider() {
 beforeEach(() => {
   captured.length = 0;
   mockDoc = undefined;
+  offlineEnabled.mockReturnValue(true);
+  writePermitted.mockReturnValue(true);
+  openElsewhere.mockClear();
+});
+
+describe('what the store is allowed to write', () => {
+  /**
+   * The store is handed a predicate rather than a boolean, and it is asked on
+   * every write. Both terms matter and neither implies the other, so the
+   * wiring is asserted rather than assumed — a regression here silently
+   * re-writes documents to a disk the user just cleared, and no other test in
+   * this suite would notice.
+   */
+  it('refuses writes once the preference is switched off', async () => {
+    renderProvider();
+    await waitFor(() => expect(captured).toHaveLength(1));
+    expect(captured[0].isPersistenceEnabled?.()).toBe(true);
+
+    // Deliberately *without* re-rendering: switching the preference off leaves
+    // this client mounted on purpose — re-deciding durability would unmount
+    // the editor and take the change queue with it — so the predicate is the
+    // only thing standing between the open document and the disk.
+    offlineEnabled.mockReturnValue(false);
+
+    expect(captured[0].isPersistenceEnabled?.()).toBe(false);
+  });
+
+  it('refuses writes once this account has been signed out and erased', async () => {
+    // `dropAllForUser` marks the keys it deleted, so the next append throws —
+    // and the SDK repairs a failed append with a fresh snapshot, restoring the
+    // whole document to the disk the sign-out cleared. The preference is still
+    // on at that moment, so it cannot be the guard.
+    renderProvider();
+    await waitFor(() => expect(captured).toHaveLength(1));
+
+    writePermitted.mockReturnValue(false);
+
+    expect(offlineEnabled()).toBe(true);
+    expect(captured[0].isPersistenceEnabled?.()).toBe(false);
+    expect(writePermitted).toHaveBeenCalledWith('1');
+  });
+
+  it('asks about other tabs under this account', async () => {
+    // A Web Lock is per origin, so an unscoped question lets another account's
+    // open document answer for this one.
+    renderProvider();
+    await waitFor(() => expect(captured).toHaveLength(1));
+
+    await captured[0].isOpenElsewhere?.('pk/wb:1:sheet-7/sheet-7');
+
+    expect(openElsewhere).toHaveBeenCalledWith('pk/wb:1:sheet-7/sheet-7', {
+      userId: '1',
+    });
+  });
 });
 
 describe('durability', () => {

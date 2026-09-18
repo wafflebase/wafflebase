@@ -71,16 +71,19 @@ vi.mock('@/lib/offline-copy-recovery', () => ({
 }));
 
 const toastWarning = vi.fn();
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
 vi.mock('sonner', () => ({
   toast: {
     warning: (...args: Array<unknown>) => toastWarning(...args),
-    success: vi.fn(),
-    error: vi.fn(),
+    success: (...args: Array<unknown>) => toastSuccess(...args),
+    error: (...args: Array<unknown>) => toastError(...args),
   },
 }));
 
+const navigate = vi.fn();
 vi.mock('react-router-dom', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigate,
 }));
 
 import { OfflineRuntime } from './offline-runtime';
@@ -90,6 +93,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetchDocuments.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
   listRecoverableWork.mockResolvedValue([]);
+  // `clearAllMocks` forgets calls, not implementations, so a resolved value
+  // set by one case would otherwise be the next one's starting point.
+  recoverOfflineCopy.mockResolvedValue({
+    documentId: 'new-1',
+    title: 'Budget (offline copy)',
+    complete: true,
+  });
 });
 
 afterEach(() => {
@@ -192,6 +202,116 @@ describe('on mount', () => {
     await waitFor(() => expect(collectStale).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(toastWarning).not.toHaveBeenCalled();
+  });
+});
+
+describe('accepting the offer', () => {
+  /**
+   * The payoff path. Everything else in this feature exists so that a person
+   * whose work could not be reconciled can press one button and get it back as
+   * a document — and that button's handler is the only place the store, the
+   * archive, the document type and the navigation are brought together.
+   */
+  async function clickSaveACopy(): Promise<void> {
+    listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
+    render(<OfflineRuntime userId="42" />);
+    await waitFor(() => expect(toastWarning).toHaveBeenCalled());
+    const [, options] = toastWarning.mock.calls[0] as [
+      string,
+      { action: { label: string; onClick: () => void } },
+    ];
+    expect(options.action.label).toBe('Save a copy');
+    options.action.onClick();
+  }
+
+  it('hands the archive, its title and its type to the recovery', async () => {
+    // The type is read from the stored key rather than guessed: writing the
+    // content into the wrong engine's shape does not throw, it produces a
+    // plausible document that is not what the user wrote.
+    await clickSaveACopy();
+
+    await waitFor(() => expect(recoverOfflineCopy).toHaveBeenCalled());
+    const [store, item, meta] = recoverOfflineCopy.mock.calls[0] as unknown as [
+      unknown,
+      { id: number; docKey: string },
+      { title: string; type: string },
+    ];
+    expect(store).toBeDefined();
+    expect(item).toEqual({ id: 1, docKey: 'sheet-7' });
+    expect(meta).toEqual({ title: 'Budget', type: 'sheet' });
+  });
+
+  it('offers to open what it recovered, at that type’s route', async () => {
+    await clickSaveACopy();
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [message, options] = toastSuccess.mock.calls[0] as [
+      string,
+      { description?: string; action: { onClick: () => void } },
+    ];
+    expect(message).toContain('Budget (offline copy)');
+    // Complete, so nothing is hedged.
+    expect(options.description).toBeUndefined();
+
+    options.action.onClick();
+    expect(navigate).toHaveBeenCalledWith('/s/new-1');
+  });
+
+  it('says so when only part of the stored work could be replayed', async () => {
+    recoverOfflineCopy.mockResolvedValue({
+      documentId: 'new-2',
+      title: 'Budget (offline copy)',
+      complete: false,
+    });
+
+    await clickSaveACopy();
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [, options] = toastSuccess.mock.calls[0] as [
+      string,
+      { description?: string },
+    ];
+    expect(options.description).toContain('incomplete');
+  });
+
+  it.each([
+    ['empty', 'nothing left to recover'],
+    ['unsupported-type', 'cannot be recovered'],
+    [undefined, 'could not be read'],
+  ])('reports a refusal (%s) rather than a document', async (refused, said) => {
+    // A refusal must never read as success: the archive is still the only copy
+    // of that work, and a success toast would invite the user to stop looking.
+    recoverOfflineCopy.mockResolvedValue({
+      documentId: undefined,
+      refused,
+      title: '',
+      complete: false,
+    } as unknown as {
+      documentId: string;
+      title: string;
+      complete: boolean;
+    });
+
+    await clickSaveACopy();
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const [, options] = toastError.mock.calls[0] as [
+      string,
+      { description: string },
+    ];
+    expect(options.description).toContain(said);
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('survives a recovery that throws', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    recoverOfflineCopy.mockRejectedValue(new Error('nope'));
+
+    await clickSaveACopy();
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 });
 

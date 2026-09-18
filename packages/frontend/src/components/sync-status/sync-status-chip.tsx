@@ -20,7 +20,9 @@ import {
   useOfflinePersistenceEnabled,
 } from '@/lib/offline-persistence-preference';
 import { supportsClientKey } from '@/lib/yorkie-capabilities';
+import { useDurabilityLapse } from '@/lib/durable-document-context';
 import { useSyncStatus } from './use-sync-status';
+import { tooltipFor } from './sync-status-tooltip';
 import type { SyncState } from './sync-state';
 
 /**
@@ -59,70 +61,6 @@ const ICONS: Record<SyncState, typeof IconCheck> = {
   'not-saved': IconAlertTriangle,
 };
 
-function tooltipFor(
-  state: SyncState,
-  pendingSince: Date | null,
-  connected: boolean,
-  offerOffline: boolean,
-): string {
-  switch (state) {
-    case 'saved':
-      return 'All changes are on the server.';
-    case 'saving':
-      return 'Sending your recent changes to the server.';
-    case 'reconnecting':
-      return 'The connection dropped. Nothing of yours is waiting to be sent.';
-    case 'saved-locally': {
-      const since = pendingSince
-        ? `Changes since ${pendingSince.toLocaleTimeString()}`
-        : 'Recent changes';
-      // The counterpart of `not-saved`'s wording, and the reason this state
-      // exists: those edits are on the disk, so closing the tab no longer ends
-      // them. It still says they are not on the server, because they are not.
-      //
-      // "when syncing resumes", not "when the connection returns": this state
-      // is also reached while connected, with the server rejecting the push.
-      // Naming a connection outage would describe the wrong problem to the one
-      // user in that case who looks.
-      return (
-        `${since} are saved on this device and will be sent when syncing ` +
-        `resumes. They are not on the server yet.`
-      );
-    }
-    case 'not-saved': {
-      const since = pendingSince
-        ? `Changes since ${pendingSince.toLocaleTimeString()}`
-        : 'Recent changes';
-      // `Not saved` is reached two ways and they call for different advice —
-      // the same split the toast already makes. Telling somebody whose
-      // connection is fine that it dropped sends them to debug the wrong
-      // thing, and the reverse hides the only thing they can act on.
-      const why = connected
-        ? `${since} were rejected by the server, so they haven't been saved.`
-        : `${since} haven't reached the server because the connection dropped.`;
-      // Deliberately names the tab as the only copy. Yorkie keeps the change
-      // queue in memory, so anything that ends this tab ends these edits —
-      // wording that implied local storage would be a false promise.
-      const risk =
-        'They exist only in this tab, so closing or reloading it will lose them.';
-      // The one row of the design's table that is a call to action rather than
-      // a fault: this is where somebody is standing when they find out they
-      // wanted the setting, so the offer belongs here and not only in Settings.
-      //
-      // What it must not say is that clicking saves *these* edits. The
-      // durability decision is made when a document opens and held until it
-      // closes — deliberately, since re-deciding would remount the editor and
-      // discard the very queue at risk — so the preference reaches documents
-      // opened after it and never this one. Somebody who read the older
-      // wording could reasonably click, then reload, and lose exactly the work
-      // the sentence promised to keep.
-      const offer = offerOffline
-        ? ' Click to save documents you open later on this device. These changes stay in this tab.'
-        : '';
-      return `${why} ${risk}${offer}`;
-    }
-  }
-}
 
 /**
  * Reports whether this document's local edits have reached the server, and
@@ -138,6 +76,7 @@ function tooltipFor(
 export function SyncStatusChip({ className }: { className?: string }) {
   const { state, connected, hasUnsentEdits, pendingSince } = useSyncStatus();
   const stranded = state === 'not-saved';
+  const lapse = useDurabilityLapse();
   const offlineEnabled = useOfflinePersistenceEnabled();
   // Offered only where it is both possible and useful: a build that can carry
   // a client key (see `yorkie-capabilities.ts` — without one nothing is
@@ -333,7 +272,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
         )}
       </TooltipTrigger>
       <TooltipContent>
-        {tooltipFor(state, pendingSince, connected, offerOffline)}
+        {tooltipFor(state, pendingSince, connected, offerOffline, lapse)}
       </TooltipContent>
     </Tooltip>
   );

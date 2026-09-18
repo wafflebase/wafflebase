@@ -74,3 +74,59 @@ export function useDurableDocumentContext(): DurableDocumentValue | undefined {
 export function useDocumentDurability(): boolean {
   return useContext(DurableDocumentContext)?.durable ?? false;
 }
+
+/**
+ * Why this document's unsent work is not on disk.
+ *
+ * `docs/design/offline-local-persistence.md` § What the user sees gives a row
+ * per cause and then requires: "Its tooltip must name which case applies."
+ * Every row collapses to the same chip state, so the reason is the only thing
+ * that differs — and the user always learns *that* the guarantee lapsed even
+ * when the cause is one we did not anticipate.
+ *
+ * Published from two places, because no single one knows them all.
+ * `CollabDocumentProvider` knows why it never mounted a durable client at all;
+ * `DurableYorkieProvider` knows what went wrong under one it did mount, and
+ * being nested, its value wins.
+ */
+export type DurabilityLapse =
+  /** The pinned `@yorkie-js/react` cannot carry a client key. */
+  | "unsupported"
+  /** A share link, or another subtree that must never persist. */
+  | "not-permitted"
+  /** Offline saving is switched off on this device. */
+  | "not-enabled"
+  /** Another tab won the election and is the one saving. */
+  | "another-tab"
+  /** The SDK gave up on reconciling work that was already stored. */
+  | "dropped"
+  /** The document is too large or too slow to snapshot. */
+  | "too-large"
+  /** The origin is out of storage, even after eviction. */
+  | "out-of-space"
+  /** The store is refusing writes for some other reason. */
+  | "write-failed";
+
+const DurabilityLapseContext = createContext<DurabilityLapse | undefined>(
+  undefined,
+);
+
+/** Publishes why durability lapsed (or `undefined` while it has not). */
+export function DurabilityLapseScope({
+  lapse,
+  children,
+}: {
+  lapse?: DurabilityLapse;
+  children: ReactNode;
+}) {
+  return createElement(DurabilityLapseContext.Provider, { value: lapse }, children);
+}
+
+/**
+ * Why durability lapsed here, or `undefined` when it has not — which is also
+ * the answer anywhere the scope was never mounted, so the chip degrades to its
+ * pre-offline wording rather than inventing a cause.
+ */
+export function useDurabilityLapse(): DurabilityLapse | undefined {
+  return useContext(DurabilityLapseContext);
+}

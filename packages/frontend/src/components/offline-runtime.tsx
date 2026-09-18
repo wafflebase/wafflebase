@@ -61,13 +61,19 @@ export function OfflineRuntime({ userId }: { userId: string }) {
     // here while there still is one.
     rememberOfflineUser(userId);
 
+    // The guard the durable client uses, asked the way an *erasing* caller has
+    // to ask it. Collection is not eviction: it deletes for the same reasons
+    // and would do the same damage to an open document, so a held lock still
+    // spares the entry — but a browser that cannot answer the question must
+    // not thereby switch the sweep off, and another account's open document on
+    // a shared device must not defer this account's cleanup. Scoped to this
+    // user, and "unknown" reads as not-open.
+    const openElsewhere = (docKey: string) =>
+      isOpenInAnyTab(docKey, { userId, whenUnknown: false });
+
     const store = new WafflebaseDocStore({
       userId,
-      // The same guard the durable client uses. Collection is not eviction,
-      // but it deletes for the same reasons and would do the same damage:
-      // purging a document another tab has open makes every later append for
-      // it vanish while that tab's chip still reports it saved.
-      isOpenElsewhere: isOpenInAnyTab,
+      isOpenElsewhere: openElsewhere,
     });
 
     // Reads store and user at fire time, never captures them — the watcher
@@ -129,7 +135,7 @@ export function OfflineRuntime({ userId }: { userId: string }) {
         if (cancelled) return;
         await purgeRevokedOfflineDocuments(
           accessible.map((doc) => doc.id),
-          { listedAt, isOpenElsewhere: isOpenInAnyTab },
+          { listedAt, isOpenElsewhere: openElsewhere },
         );
       } catch (err) {
         console.warn('[offline] could not reconcile local copies:', err);
