@@ -615,6 +615,28 @@ export function reviewArgsError(args) {
 }
 
 /**
+ * Why nothing could ever adjudicate this record, or `""` if something can.
+ *
+ * The SAME admission rule `parseRebuttalComment` applies to the cloud channel
+ * (rebuttal.mjs — `lens === "" || file === ""` yields `null`), asked of a
+ * hand-written record. Both halves are load-bearing and neither is a formality:
+ * `adjudicateRebuttals` partitions with `r.lens === lensId`, so a record with no
+ * lens reaches no lens at all, and `findingSimilarity` gates on same-file before
+ * it scores a summary, so a record with no file matches no finding inside the
+ * lens that does read it. Either way the developer's argument is never heard.
+ */
+export function unusableRebuttalReason(r) {
+  if (!r || typeof r !== "object" || Array.isArray(r)) return "not an object";
+  if (String(r.lens ?? "").trim().replace(/^agent-review-/, "") === "") {
+    return "no `lens` — a rebuttal is partitioned to one lens by name, so this one reaches none";
+  }
+  if (String(r.file ?? "").trim() === "") {
+    return "no `file` — a rebuttal is matched to a finding on same-lens + same-file, so this one matches none";
+  }
+  return "";
+}
+
+/**
  * Hand-written rebuttal records, normalized the way the cloud's are.
  *
  * `review-panel.mjs` partitions rebuttals with `r.lens === lensId` against the
@@ -626,13 +648,21 @@ export function reviewArgsError(args) {
  * matches no lens and adjudicates nothing, silently. Losing an argument you were
  * never told was not heard is the worst failure this path has.
  *
- * Only the prefix is touched. Everything else is the author's claim, which the
- * adjudicator is supposed to read as written.
+ * WHICH IS WHY THE PREFIX IS NOT THE ONLY NORMALIZATION COPIED. `parseRebuttalComment`
+ * also REFUSES a record whose `lens` or `file` is empty, and reproducing one half
+ * of a two-part rule left the other half of the same silent loss in place: a
+ * hand-written record missing either field was accepted here, written to the
+ * round, counted in "adjudicating N rebuttal(s)", and then adjudicated nothing.
+ * `unusableRebuttalReason` is that rule; `readRebuttalRecords` is where a local
+ * author is TOLD, rather than dropped quietly the way a stray PR comment is.
+ *
+ * Only the prefix and surrounding whitespace are touched. Everything else is the
+ * author's claim, which the adjudicator is supposed to read as written.
  */
 export function normalizeRebuttals(raw) {
   return (Array.isArray(raw) ? raw : [])
-    .filter((r) => r && typeof r === "object" && !Array.isArray(r))
-    .map((r) => (typeof r.lens === "string" ? { ...r, lens: r.lens.trim().replace(/^agent-review-/, "") } : r));
+    .filter((r) => unusableRebuttalReason(r) === "")
+    .map((r) => ({ ...r, lens: String(r.lens).trim().replace(/^agent-review-/, ""), file: String(r.file).trim() }));
 }
 
 /**
@@ -659,15 +689,34 @@ export function normalizeRebuttals(raw) {
  * Split from the writing so BOTH modes can validate: a dry run has nothing to
  * write but must still refuse a file the real run would, or it answers the one
  * question it exists to answer — "what will happen" — wrongly.
+ *
+ * A record `normalizeRebuttals` cannot use is a HARD ERROR here, not a silent
+ * drop. The cloud drops one quietly because it is reading every comment on a
+ * public PR, most of which are not rebuttals at all; this file holds nothing but
+ * rebuttals, every record in it was typed on purpose, and the only thing a
+ * rebuttal does is ask for a finding to be reconsidered. Dropping one the author
+ * meant is the same failure as adjudicating it against no lens — the argument
+ * goes unheard — with the same absence of any signal. So the run refuses to start
+ * and names the record.
  */
 export function readRebuttalRecords(file) {
   if (!existsSync(file)) throw new Error(`--rebuttals file not found: ${file}`);
-  let records;
+  let raw;
   try {
-    records = normalizeRebuttals(JSON.parse(readFileSync(file, "utf8")));
+    raw = JSON.parse(readFileSync(file, "utf8"));
   } catch (e) {
     throw new Error(`--rebuttals file is not a readable JSON array: ${file} (${e.message})`);
   }
+  const unusable = (Array.isArray(raw) ? raw : [])
+    .map((r, i) => ({ i, why: unusableRebuttalReason(r) }))
+    .filter(({ why }) => why !== "");
+  if (unusable.length > 0) {
+    throw new Error(
+      `--rebuttals file holds ${unusable.length} record(s) no lens can adjudicate: ${file}\n` +
+        unusable.map(({ i, why }) => `  record #${i}: ${why}`).join("\n"),
+    );
+  }
+  const records = normalizeRebuttals(raw);
   if (records.length === 0) throw new Error(`--rebuttals file holds no usable records: ${file}`);
   return records;
 }
@@ -764,13 +813,32 @@ export function branchKey(abbrev, { sha = "", env = {} } = {}) {
 }
 
 /**
- * Where this branch's rounds live. Keyed by branch so two branches never
- * interleave rounds, and hashed so two branch names that sanitize to the same
- * string cannot share a slot.
+ * Where this checkout's rounds for this branch live.
+ *
+ * Keyed by branch so two branches never interleave rounds, and hashed so two
+ * branch names that sanitize to the same string cannot share a slot.
+ *
+ * AND KEYED BY THE CHECKOUT, not the branch alone. A branch name is not unique
+ * on a machine: `main`, `develop` and every `feat/fix-tests` exist in each clone,
+ * worktree and CI workspace on it, and keying on the name alone put all of them
+ * in ONE directory under a world-readable `/tmp`. That is the same cross-context
+ * channel `branchKey` was written to close for detached HEAD, arriving through
+ * the other door — the rounds interleave (an unrelated repository's third round
+ * refuses this one's first) and, far worse, `priorFindingsFor` reads another
+ * repository's verdicts and puts their model-written text into this round's
+ * verifier prompt. On a shared machine the other repository need not even be the
+ * developer's.
+ *
+ * `repo` is the resolved working-tree root, which is exactly "this checkout":
+ * stable across runs (so the round counter still counts), distinct per clone and
+ * per `git worktree`, and unrelated to what the branch is called. It is hashed
+ * rather than spelled out because a path is not a directory name; the readable
+ * half of the name stays the branch, which is what a developer looking in the
+ * temp directory is trying to find.
  */
-function reviewBase(branch) {
+export function reviewBase(branch, repo = "") {
   const safe = String(branch).replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 60);
-  const hash = createHash("sha1").update(String(branch)).digest("hex").slice(0, 8);
+  const hash = createHash("sha1").update(`${String(repo)}\n${String(branch)}`).digest("hex").slice(0, 8);
   return path.join(os.tmpdir(), "wafflebase-self-review", `${safe}-${hash}`);
 }
 
@@ -869,8 +937,20 @@ export function priorFindingsFor(base, round) {
   return out;
 }
 
-/** Gating findings per failing lens, for the terminal report. */
-function blockingFindingsIn(outDir, lensIds) {
+/**
+ * Gating findings per failing lens, for the terminal report.
+ *
+ * Exported for the same reason every other step on this path is: the report is
+ * the command's headline OUTPUT, and it is assembled from files the panel wrote
+ * after the spawn — the one stretch a dry run can never reach. A lens whose
+ * `verdict.json` is missing or unparseable contributes no entry at all: the
+ * "N blocking lens verdict(s): …" line printed above the report already names it,
+ * so the report would be repeating the only fact available. A lens that DID write
+ * a verdict but carries nothing (a synthesised "review did not run" record) keeps
+ * its entry, which is what `renderBlockingFindings`' "no finding recorded" branch
+ * is for.
+ */
+export function blockingFindingsIn(outDir, lensIds) {
   const entries = [];
   for (const lens of lensIds) {
     try {
@@ -897,9 +977,20 @@ function cmdReview(args) {
   } catch (e) {
     return fail(`could not read the current branch: ${e.message}`);
   }
+  // The OTHER half of the store's key — see `reviewBase`. Resolved, because two
+  // paths to one checkout are one checkout; falling back to the cwd keeps the key
+  // context-specific even where git cannot answer (which is also a repository the
+  // diff below will fail on anyway).
+  let repoRoot = process.cwd();
+  try {
+    repoRoot = git(["rev-parse", "--show-toplevel"]);
+  } catch { /* not a work tree; the cwd is the honest answer */ }
+  try {
+    repoRoot = realpathSync(repoRoot);
+  } catch { /* unresolvable → the literal path still keys this checkout */ }
   const argError = reviewArgsError(args);
   if (argError) return fail(argError);
-  const requested = args.out ? path.resolve(args.out) : reviewBase(branch);
+  const requested = args.out ? path.resolve(args.out) : reviewBase(branch, repoRoot);
   // 0700 on creation, and refuse a directory that is not ours — see
   // `unsafeBaseReason`. This matters because the path is predictable and its
   // contents are read back into a later round's prompt.

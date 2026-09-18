@@ -27,8 +27,11 @@ import {
   printable,
   panelArgs,
   normalizeRebuttals,
+  unusableRebuttalReason,
   prepareRoundInputs,
   readRebuttalRecords,
+  blockingFindingsIn,
+  reviewBase,
   branchKey,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
@@ -486,21 +489,88 @@ test("normalizeRebuttals: strips the check-run prefix the panel does not", () =>
   // file skips that parser, so copying the check-run name — the thing GitHub
   // actually shows you — would adjudicate nothing, silently.
   assert.deepEqual(
-    normalizeRebuttals([{ lens: "agent-review-security", claim: "no" }]),
-    [{ lens: "security", claim: "no" }],
+    normalizeRebuttals([{ lens: "agent-review-security", file: "a.ts", claim: "no" }]),
+    [{ lens: "security", file: "a.ts", claim: "no" }],
   );
-  assert.deepEqual(normalizeRebuttals([{ lens: "  agent-review-docs  " }]), [{ lens: "docs" }]);
+  assert.deepEqual(
+    normalizeRebuttals([{ lens: "  agent-review-docs  ", file: "  a.ts  " }]),
+    [{ lens: "docs", file: "a.ts" }],
+  );
   // A bare id is already correct and must be left alone.
-  assert.deepEqual(normalizeRebuttals([{ lens: "correctness" }]), [{ lens: "correctness" }]);
+  assert.deepEqual(normalizeRebuttals([{ lens: "correctness", file: "a.ts" }]), [{ lens: "correctness", file: "a.ts" }]);
   // Only the prefix is touched — the rest is the author's claim, read as written.
   const rec = { lens: "agent-review-docs", file: "a.ts", claim: "the flag IS documented", evidence: ["README:3"] };
   assert.deepEqual(normalizeRebuttals([rec])[0], { ...rec, lens: "docs" });
   // Junk cannot become a record.
   assert.deepEqual(normalizeRebuttals([null, 42, ["x"]]), []);
   assert.deepEqual(normalizeRebuttals(undefined), []);
-  // A record with no lens passes through: the panel adjudicates it against every
-  // lens, which is the pre-existing behaviour and not this function's call.
-  assert.deepEqual(normalizeRebuttals([{ claim: "x" }]), [{ claim: "x" }]);
+});
+
+test("normalizeRebuttals: the SECOND half of the cloud's admission rule, not just the prefix", () => {
+  // parseRebuttalComment (rebuttal.mjs) refuses a record whose lens or file is
+  // empty, and copying only its prefix strip left the rest of the same silent
+  // loss here: `adjudicateRebuttals` partitions on `r.lens === lensId`, so a
+  // lens-less record reaches no lens, and `findingSimilarity` gates on same-file,
+  // so a file-less one matches no finding inside the lens that would read it.
+  assert.deepEqual(normalizeRebuttals([{ file: "a.ts", claim: "x" }]), []);
+  assert.deepEqual(normalizeRebuttals([{ lens: "security", claim: "x" }]), []);
+  assert.deepEqual(normalizeRebuttals([{ lens: "  ", file: "a.ts" }]), []);
+  assert.deepEqual(normalizeRebuttals([{ lens: "security", file: "   " }]), []);
+  // A bare `agent-review-` is a lens name of nothing once the prefix is off.
+  assert.deepEqual(normalizeRebuttals([{ lens: "agent-review-", file: "a.ts" }]), []);
+  // And the reason is legible, because this is what the developer is told.
+  assert.equal(unusableRebuttalReason({ lens: "security", file: "a.ts" }), "");
+  assert.match(unusableRebuttalReason({ file: "a.ts" }), /no `lens`/);
+  assert.match(unusableRebuttalReason({ lens: "security" }), /no `file`/);
+  assert.match(unusableRebuttalReason(42), /not an object/);
+});
+
+test("readRebuttalRecords: refuses the file rather than dropping the record quietly", () => {
+  // The cloud drops an unusable record silently because it is reading every
+  // comment on a public PR. This file holds nothing but rebuttals, so a dropped
+  // one is an argument the author meant to make and will never learn went
+  // unheard — the exact failure the prefix strip exists to prevent.
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-reb-"));
+  try {
+    const file = path.join(root, "mine.json");
+    writeFileSync(file, JSON.stringify([
+      { lens: "agent-review-security", file: "a.ts", claim: "ok" },
+      { lens: "docs", claim: "no file" },
+    ]));
+    assert.throws(() => readRebuttalRecords(file), (e) => {
+      assert.match(e.message, /1 record\(s\) no lens can adjudicate/);
+      assert.match(e.message, /record #1: no `file`/);
+      return true;
+    });
+    // The all-usable file still reads, normalized.
+    writeFileSync(file, JSON.stringify([{ lens: "agent-review-security", file: "a.ts", claim: "ok" }]));
+    assert.deepEqual(readRebuttalRecords(file), [{ lens: "security", file: "a.ts", claim: "ok" }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// --- the round store is keyed on the CHECKOUT, not the branch name alone -----
+
+test("reviewBase: two checkouts sharing a branch name do not share a store", () => {
+  // A branch name is not unique on a machine — every clone, worktree and CI
+  // workspace has a `main`. Keying on the name alone put them all in one
+  // directory under a world-readable /tmp: the round counters collide and, far
+  // worse, `priorFindingsFor` reads another repository's verdicts into this
+  // round's verifier prompt. Same cross-context channel `branchKey` closes for
+  // detached HEAD, through the other door.
+  const a = reviewBase("main", "/home/dev/project-a");
+  const b = reviewBase("main", "/home/dev/project-b");
+  assert.notEqual(a, b);
+  // Stable for the same pair, or the round counter would restart every run.
+  assert.equal(a, reviewBase("main", "/home/dev/project-a"));
+  // Still keyed by branch within one checkout.
+  assert.notEqual(a, reviewBase("feat/x", "/home/dev/project-a"));
+  // The readable half stays the branch — it is what a developer looks for.
+  assert.match(path.basename(a), /^main-[0-9a-f]{8}$/);
+  assert.match(path.basename(reviewBase("feat/x", "/r")), /^feat-x-[0-9a-f]{8}$/);
+  // Both live under the tool's own directory, which the guard walks.
+  assert.equal(path.dirname(a), path.join(os.tmpdir(), "wafflebase-self-review"));
 });
 
 // --- the directory guard, end to end ----------------------------------------
@@ -592,12 +662,15 @@ test("prepareRoundInputs: normalizes rebuttals into the round, or throws", () =>
   const dir = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-inputs2-"));
   try {
     const supplied = path.join(dir, "mine.json");
-    writeFileSync(supplied, JSON.stringify([{ lens: "agent-review-security", claim: "no" }]));
+    writeFileSync(supplied, JSON.stringify([{ lens: "agent-review-security", file: "a.ts", claim: "no" }]));
     const out = prepareRoundInputs({ dir, prior: [], rebuttalsPath: supplied });
     // The panel reads the NORMALIZED copy, not the hand-written original.
     assert.equal(out.rebuttals, path.join(dir, "rebuttals.json"));
     assert.notEqual(out.rebuttals, supplied);
-    assert.deepEqual(JSON.parse(readFileSync(out.rebuttals, "utf8")), [{ lens: "security", claim: "no" }]);
+    assert.deepEqual(
+      JSON.parse(readFileSync(out.rebuttals, "utf8")),
+      [{ lens: "security", file: "a.ts", claim: "no" }],
+    );
     assert.equal(out.rebuttalCount, 1);
 
     // Unusable input throws instead of quietly adjudicating nothing.
@@ -608,6 +681,15 @@ test("prepareRoundInputs: normalizes rebuttals into the round, or throws", () =>
     const empty = path.join(dir, "empty.json");
     writeFileSync(empty, "[]");
     assert.throws(() => prepareRoundInputs({ dir, prior: [], rebuttalsPath: empty }), /no usable records/);
+    // And a record the cloud's parser would refuse — no `file`, so it matches no
+    // finding — stops the run rather than being written into the round as one
+    // the panel will count and never adjudicate.
+    const lopsided = path.join(dir, "lopsided.json");
+    writeFileSync(lopsided, JSON.stringify([{ lens: "security", claim: "no" }]));
+    assert.throws(
+      () => prepareRoundInputs({ dir, prior: [], rebuttalsPath: lopsided }),
+      /no lens can adjudicate/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -794,8 +876,8 @@ test("readRebuttalRecords: shared by both modes, so a dry run cannot lie", () =>
   const dir = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-reb2-"));
   try {
     const good = path.join(dir, "good.json");
-    writeFileSync(good, JSON.stringify([{ lens: "agent-review-docs", claim: "no" }]));
-    assert.deepEqual(readRebuttalRecords(good), [{ lens: "docs", claim: "no" }]);
+    writeFileSync(good, JSON.stringify([{ lens: "agent-review-docs", file: "a.ts", claim: "no" }]));
+    assert.deepEqual(readRebuttalRecords(good), [{ lens: "docs", file: "a.ts", claim: "no" }]);
     assert.throws(() => readRebuttalRecords(path.join(dir, "nope.json")), /not found/);
     const bad = path.join(dir, "bad.json");
     writeFileSync(bad, "{ not json");
@@ -889,7 +971,10 @@ test("review: the round's carry-forward and rebuttals reach the spawned panel", 
     // A hand-written rebuttal, in the shape a developer actually copies (the
     // check-run name), so the normalization is exercised through the command too.
     const rebuttals = path.join(root, "mine.json");
-    writeFileSync(rebuttals, JSON.stringify([{ lens: "agent-review-security", claim: "the flag IS documented" }]));
+    writeFileSync(
+      rebuttals,
+      JSON.stringify([{ lens: "agent-review-security", file: "added.ts", claim: "the flag IS documented" }]),
+    );
 
     const argvFile = path.join(root, "panel-argv.json");
     const stdout = execFileSync("node", [script, "review", "--out", base, "--rebuttals", rebuttals], {
@@ -924,7 +1009,7 @@ test("review: the round's carry-forward and rebuttals reach the spawned panel", 
     assert.equal(rebuttalArg, path.join(round2, "rebuttals.json"));
     assert.notEqual(rebuttalArg, rebuttals);
     assert.deepEqual(JSON.parse(readFileSync(rebuttalArg, "utf8")), [
-      { lens: "security", claim: "the flag IS documented" },
+      { lens: "security", file: "added.ts", claim: "the flag IS documented" },
     ]);
 
     // And the diff it reviews is this branch's, dated against the real merge base.
@@ -961,6 +1046,120 @@ test("review: round 1 hands the panel no --prior-findings at all", () => {
     assert.equal(argv[argv.indexOf("--out") + 1], path.join(realpathSync(base), "round-1"));
     // The round it just ran is on disk, so the next one is 2.
     assert.deepEqual(roundsIn(readdirSync(realpathSync(base))), [1]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// --- the FAILURE half of the same command -----------------------------------
+//
+// Every CLI test above stops at a panel that reported success, so the command's
+// headline output — the blocking report and the non-zero exit — was assembled
+// from files nothing ever wrote. `blockingFindingsIn` reads each failing lens's
+// verdict out of the round directory and `renderBlockingFindings` prints it;
+// both are reachable only here, after the spawn, which is the one stretch a dry
+// run can never cover.
+
+test("blockingFindingsIn: reads each failing lens's verdict out of the round", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-blocking-"));
+  try {
+    mkdirSync(path.join(dir, "docs"), { recursive: true });
+    writeFileSync(
+      path.join(dir, "docs", "verdict.json"),
+      JSON.stringify({
+        valid: true,
+        conclusion: "failure",
+        findings: [
+          { severity: "major", file: "a.ts", line: 7, summary: "the flag is undocumented" },
+          { severity: "minor", file: "b.ts", summary: "not blocking, not carried" },
+        ],
+      }),
+    );
+    // A lens that wrote nothing readable contributes no entry — the "N blocking
+    // lens verdict(s)" line above the report already names it.
+    mkdirSync(path.join(dir, "security"), { recursive: true });
+    writeFileSync(path.join(dir, "security", "verdict.json"), "{ not json");
+    const entries = blockingFindingsIn(dir, ["docs", "security", "absent"]);
+    assert.deepEqual(entries.map((e) => e.lens), ["docs"]);
+    assert.deepEqual(entries[0].findings.map((f) => [f.lens, f.file, f.summary]), [
+      ["docs", "a.ts", "the flag is undocumented"],
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("review: a blocking verdict is reported with its findings and exits 1", () => {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-block-"));
+  try {
+    const work = stageBranchAheadOfOrigin(root);
+    const base = path.join(root, "base");
+    // A panel that BLOCKS: one lens with a real finding, one that failed without
+    // recording one, one that succeeded, and one that does not apply.
+    const stub = path.join(root, "blocking-panel.mjs");
+    writeFileSync(
+      stub,
+      [
+        'import { mkdirSync, writeFileSync } from "node:fs";',
+        'import path from "node:path";',
+        "const argv = process.argv.slice(2);",
+        'const out = argv[argv.indexOf("--out") + 1];',
+        'mkdirSync(path.join(out, "docs"), { recursive: true });',
+        'writeFileSync(path.join(out, "docs", "verdict.json"), JSON.stringify({',
+        '  valid: true, conclusion: "failure",',
+        '  findings: [{ severity: "major", file: "added.ts", line: 3, summary: "the added export is undocumented" }],',
+        "}));",
+        // The shape a lens that CRASHED leaves behind: a valid-false verdict whose
+        // only record is the synthesised "review could not run" one, which
+        // `carryForwardFindings` drops because it is not a code finding.
+        'mkdirSync(path.join(out, "security"), { recursive: true });',
+        'writeFileSync(path.join(out, "security", "verdict.json"), JSON.stringify({',
+        '  valid: false, conclusion: "failure",',
+        '  findings: [{ severity: "major", summary: "Review could not run — Claude API/quota error: 429" }],',
+        "}));",
+        'writeFileSync(path.join(out, "panel.json"), JSON.stringify([',
+        '  { id: "docs", conclusion: "failure" },',
+        '  { id: "security", conclusion: "failure" },',
+        '  { id: "correctness", conclusion: "success" },',
+        '  { id: "perf", conclusion: "failure", applicable: false },',
+        "]));",
+        "",
+      ].join("\n"),
+    );
+
+    let status = 0;
+    let stderr = "";
+    let stdout = "";
+    try {
+      stdout = execFileSync("node", [script, "review", "--out", base], {
+        cwd: work,
+        env: { ...fixtureGitEnv(work), WAFFLEBASE_REVIEW_PANEL: stub },
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (e) {
+      status = e.status;
+      stderr = String(e.stderr);
+      stdout = String(e.stdout);
+    }
+
+    // THE ASSERTION THIS TEST EXISTS FOR: blocking is a FAILED run, not a
+    // cheerful one. A zero exit here is the loop silently declaring convergence.
+    assert.equal(status, 1);
+    // The applicable-false lens is not blocking; the successful one is not either.
+    assert.match(stderr, /2 blocking lens verdict\(s\): docs, security/);
+    // The finding itself, not just the lens id — the whole point of the report.
+    assert.match(stderr, /\[major\] docs — added\.ts:3/);
+    assert.match(stderr, /the added export is undocumented/);
+    assert.match(stderr, /key: /);
+    // The lens that blocked without recording a finding says so rather than
+    // reading as "failed but found nothing".
+    assert.match(stderr, /\[blocking\] security — no finding recorded/);
+    // And the next step is named, with the round the developer should ask for.
+    assert.match(stderr, /re-run for round 2/);
+    assert.match(stdout, /Round 1 output: /);
+    assert.doesNotMatch(stdout, /no blocking findings/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
