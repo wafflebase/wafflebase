@@ -69,7 +69,9 @@ restore exactly that bug with users' error reports and URLs as the payload.
 `packages/frontend/tests/sentry-init.test.ts` asserts the no-call, because
 this is the kind of default that erodes quietly.
 
-The same shape protects the deploy ordering in §4.
+This default is about *fork safety*, and that is all it is about. It was also
+claimed to protect the deploy ordering in §4; it does not, and §4 records what
+that cost.
 
 ### 3. Source maps
 
@@ -78,15 +80,33 @@ value here that is a real secret, it exists only where a release is actually
 published, and a contributor who has none must get today's build exactly: no
 `.map` files emitted, no upload attempted, no failure.
 
-When it is present, `vite.config.ts` turns on `build.sourcemap`, adds
+When it is present, `vite.config.ts` sets `build.sourcemap: "hidden"`, adds
 `sentryVitePlugin` last in the plugin list, and the plugin deletes the maps
 from `dist` after uploading them — so the GitHub Pages deploy never publishes
 this app's un-minified source. Measured: the deletion runs even when the
 upload itself fails, so a bad token leaks nothing.
 
+`"hidden"` rather than `true` because the maps do not survive the build. Both
+emit them; `true` also appends a `//# sourceMappingURL=` comment to every
+chunk, which by ship time points at a file that was deleted. Frames resolve
+off the `debugId` the plugin injects, not off that comment, so it costs
+nothing functionally — it is simply untrue, and `"hidden"` is the setting that
+exists for this upload-then-delete shape. (Shipped as `true` first; the
+dangling reference was found by fetching a deployed chunk and its `.map`.)
+
+Verified in production: `publish-ghpage` logs `Successfully uploaded source
+maps to Sentry`, the project's Source Maps page lists an upload per release,
+and `https://wafflebase.io/assets/<chunk>.js.map` answers **404**.
+
 An upload failure is deliberately **not fatal** to the build. Sentry being
 unreachable must not stop a release. The cost is that an expired token
 degrades silently to minified traces, visible only in the deploy log.
+
+One wrinkle worth knowing before debugging a failed upload: GitHub Actions
+passes an unset `vars.*` as the **empty string**, and `SENTRY_ORG` /
+`SENTRY_PROJECT` are unset on this deployment. `vite.config.ts` therefore
+defaults them with `||`, not `??` — `??` would let the empty string through
+and hand the uploader `org: ""`.
 
 ### 4. Tracing across the boundary
 
@@ -103,10 +123,34 @@ Two traps, both of which bit during implementation:
 
 - **The backend's `enableCors` uses an explicit `allowedHeaders` allow-list.**
   A preflight that does not list those two headers does not merely lose the
-  trace — it fails the request. They are now listed. This makes a new frontend
-  against an old backend a breaking combination, which §2 defuses: the
-  frontend attaches nothing until an operator sets `VITE_SENTRY_DSN`, by which
-  point the backend change has shipped.
+  trace — it fails the request. They are now listed.
+
+  **This took wafflebase.io down, and the reasoning that let it through is
+  worth keeping.** This document used to say the hazard was defused, because
+  "the frontend attaches nothing until an operator sets `VITE_SENTRY_DSN`, by
+  which point the backend change has shipped." Every clause of that is true
+  except the last, which was assumed rather than checked.
+
+  **The two halves do not ship together.** The frontend publishes on *every
+  merge to `main`* (`publish-ghpage.yml`, gated on CI, not on a tag). The
+  backend is pinned to a *release tag* in a manifest in another repository
+  (the `wafflebase` deployment manifest in `yorkie-team/devops`), rolled out by a
+  human merging a bump and syncing ArgoCD. So a merge to `main` can — and did
+  — put a frontend in production against a backend several releases behind it.
+
+  With the DSN configured ahead of the backend rollout, the frontend attached
+  `sentry-trace`/`baggage` to a backend whose allow-list had neither. The
+  preflight then failed *every credentialed call*, `/auth/me` included, so the
+  OAuth callback set the session cookies and the app had no way to read them
+  back and rendered signed-out. Nobody could log in. Nothing appeared in the
+  backend log, because the browser blocks the request before sending it.
+
+  The general rule this cost us: **a feature flag defuses a deploy-ordering
+  hazard only when the ordering is enforced somewhere.** Here it was not — it
+  was a guess about which humans would do what, first. A cross-half change to
+  a request *contract* (headers, CORS, protocol version) has to ship
+  backend-first and be verified in production before the frontend half is
+  enabled, or the two halves need a shared deploy trigger.
 
 `tracesSampleRate` defaults to `0.1` on both halves. A value outside `[0, 1]`
 or unparseable falls back to the default rather than to `1.0` — a typo must
@@ -119,10 +163,15 @@ in `__APP_VERSION__` from the root `package.json`; the backend reads its own
 package version, which is kept in lockstep with it. `SENTRY_RELEASE` still
 overrides.
 
-That default is what makes the guarantee hold. The alternative was a value
-hand-synced with the container image tag on every bump, and a missed bump does
-not fail — it silently attributes backend errors to the wrong release, which is
-the failure mode that survives review precisely because nothing looks broken.
+That default is what makes the guarantee hold, and the production manifest
+relies on it: `yorkie-team/devops` sets no `SENTRY_RELEASE` at all, and the
+running v0.6.12 image reports `0.6.12` — verified by running that image with
+the variable unset. The alternative was a value hand-synced with the container
+image tag on every bump, and a missed bump does not fail — it silently
+attributes backend errors to the wrong release, which is the failure mode that
+survives review precisely because nothing looks broken. Set the variable only
+to say something the package version cannot: a commit SHA, or a hotfix image
+built off-tag.
 
 Empty strings are normalized to unset on the backend for the same class of
 reason: `value: ""` in a k8s manifest, or a bare `SENTRY_ENVIRONMENT=` line, is
