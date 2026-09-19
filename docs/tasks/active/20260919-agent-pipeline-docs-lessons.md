@@ -87,4 +87,6 @@ A blanket "do not touch relative links" is never right after a move; the rule is
 per-link, and the question is whether the target moved with it. Audited all 12
 relative `src`/`href` targets in the three pages afterwards; the rest resolve.
 
-**Round 2 — design fit / simplification / blast radius.** _(pending)_
+**Round 2 — design fit / simplification / blast radius.** All six lenses
+`success`, round 1's finding carried forward and not re-raised. No blocking
+findings, so the loop stopped at 2 of its 3 rounds.
