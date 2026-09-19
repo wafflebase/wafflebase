@@ -13,7 +13,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   body { margin: 0; }
@@ -26,7 +26,7 @@
     --de: #A85B14; --dr: #1F6A69;
     --de-wash: rgba(168,91,20,.10); --dr-wash: rgba(31,106,105,.10);
     --term-bg: #1E1C18; --term-ink: #E6E1D7; --term-dim: #98907F;
-    --f-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
@@ -186,7 +186,8 @@
       <li><strong>Node 22 or newer</strong> and <strong>git</strong>, plus <code>git config user.name</code> / <code>user.email</code> (they will be making commits)</li>
       <li><strong>Clone</strong> the repository — not a copy of it. Without an <code>origin</code>, the PR step goes nowhere.</li>
       <li><strong>Run <code>pnpm design</code> once before the session.</strong><br/>The first install takes about 2 minutes, and on WSL2 the first scene load takes close to a minute.<br/>Getting it out of the way means nobody waits during the session.</li>
-      <li><strong>Nothing to install yourself</strong> — no pnpm, Docker, database or GitHub CLI. <code>pnpm design</code> prepares pnpm on a machine that does not have it, and the editor's scenes answer their own data requests from fixtures.</li>
+      <li><strong>Nothing to install for the editor</strong> — no pnpm, Docker or database. <code>pnpm design</code> prepares pnpm on a machine that does not have it, and the editor's scenes answer their own data requests from fixtures.</li>
+      <li><strong>The GitHub CLI is only optional if you can push to <code>origin</code>.</strong> With push access, <code>pnpm design-pr</code> pushes the branch and opens GitHub's compare page in a browser. Without it, the branch has to live on a fork of your own and only <code>gh</code> can make one — so install it and run <code>gh auth login</code> <em>before</em> the session.</li>
     </ul>
   </div>
 
