@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WafflebaseDocStore } from "./wafflebase-doc-store";
+import { durableClientKey } from "./durable-session";
 import {
   eraseOfflineData,
   eraseOfflineDataOnLogout,
@@ -90,6 +91,41 @@ describe("erasing", () => {
     await eraseOfflineData(mine, "user-1");
 
     expect(await theirs.load("doc-c")).toBeDefined();
+  });
+
+  it("takes the client-key salts with it", async () => {
+    // The salt is the one ingredient of `wb:{salt}:{userId}:{docKey}` that a
+    // later signed-in user of a shared device cannot otherwise obtain —
+    // `userId` and `docKey` are both public to a workspace peer — and Yorkie
+    // authorizes `ActivateClient`/`DeactivateClient` on token validity alone.
+    // Leaving it behind for documents that are no longer even here is the
+    // erase missing the very thing it is here to spend.
+    const store = freshStore();
+    await seed(store, "doc-a");
+    const before = durableClientKey("user-1", "sheet-a");
+    expect(
+      localStorage.getItem("wafflebase-durable-device:user-1:sheet-a"),
+    ).not.toBeNull();
+
+    await eraseOfflineData(store, "user-1");
+
+    expect(
+      localStorage.getItem("wafflebase-durable-device:user-1:sheet-a"),
+    ).toBeNull();
+    expect(durableClientKey("user-1", "sheet-a")).not.toBe(before);
+  });
+
+  it("leaves another account's salt on the same device alone", async () => {
+    // Same rule as the entries: erasing *my* data says nothing about theirs,
+    // and dropping their salt would strand a durable session they are holding
+    // right now under a key the SDK's store no longer answers to.
+    const store = freshStore();
+    durableClientKey("user-1", "sheet-a");
+    const theirs = durableClientKey("user-2", "sheet-b");
+
+    await eraseOfflineData(store, "user-1");
+
+    expect(durableClientKey("user-2", "sheet-b")).toBe(theirs);
   });
 
   it("does not throw when there is nothing to erase", async () => {
@@ -275,6 +311,32 @@ describe("signing out", () => {
   it("does nothing, and throws nothing, when nobody was recorded", async () => {
     rememberOfflineUser(undefined);
     await expect(eraseOfflineDataOnLogout()).resolves.toBeUndefined();
+  });
+
+  it("drops the signed-out account's client-key salts, and nobody else's", async () => {
+    // The sign-out is the moment this account's documents leave the device,
+    // and the salt that named their client keys has to leave with them:
+    // whoever signs in next can read `localStorage`, and the salt is the one
+    // ingredient of `wb:{salt}:{userId}:{docKey}` they cannot otherwise
+    // obtain. Asserted here and not only in `durable-session.test.ts`, which
+    // tests `forgetDeviceSecret` directly — deleting the call site would
+    // otherwise leave every suite green.
+    const mine = defaultStore("logout-salt");
+    await seed(mine, "logout-salt-doc");
+    durableClientKey("logout-salt", "sheet-one");
+    durableClientKey("logout-salt", "sheet-two");
+    const theirs = durableClientKey("logout-other", "sheet-three");
+
+    rememberOfflineUser("logout-salt");
+    await eraseOfflineDataOnLogout();
+
+    expect(
+      localStorage.getItem("wafflebase-durable-device:logout-salt:sheet-one"),
+    ).toBeNull();
+    expect(
+      localStorage.getItem("wafflebase-durable-device:logout-salt:sheet-two"),
+    ).toBeNull();
+    expect(durableClientKey("logout-other", "sheet-three")).toBe(theirs);
   });
 
   it("refuses further local writes for the account it just erased", async () => {

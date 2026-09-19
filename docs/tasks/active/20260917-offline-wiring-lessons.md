@@ -85,3 +85,34 @@ fired on the share-link route the design excludes, promising a visitor a
 guarantee that could never apply to the document in front of them. The
 `not-permitted` lapse already carried the fact; the offer just was not reading
 it.
+
+## Review panel, round 5 (security / correctness / test adequacy)
+
+**"Per account" is not a boundary `localStorage` can hold.** Round 4's fix
+moved the client-key salt from one profile-wide entry to one per account — and
+the rationale attached to it (that it stops the next person signing in on a
+shared device from deriving another account's keys) was never true:
+`localStorage` is origin-scoped, so whoever can run script on the origin reads
+every entry whatever it is keyed by. The salt's real defence is against the
+*remote* workspace peer, who holds `userId` and `docKey` and nothing else. What
+bounds the local reader is lifetime, not key shape — so the entries now carry a
+timestamp and are swept at thirty days (the store's own age), which is the
+bound the doc comment had been asserting with no code behind it.
+
+**A claim in a comment that no code keeps is a defect, not prose.** The
+"bounded by the thirty-day sweep" sentence read as a design property; nothing
+in `collectStale` ever touched `localStorage`. The reviewer found it by looking
+for the code that would have to exist.
+
+**An identifier is not a place to keep a shared secret.** The salt travelled
+inside the Yorkie client key — sent on every `ActivateClient`, stored on the
+client row, read by an operator in a log. One salt shared by every document
+meant any single leaked key handed the reader every other key that account
+would ever use. Minting the salt **per document** makes a leaked key a
+capability for that one client row and nothing more, which is exactly the
+exposure the SDK's own random per-session key already has.
+
+**A call site with no test of its own is a call site that can be deleted.**
+`eraseOfflineData` ends with `forgetDeviceSecret(userId)`, and
+`durable-session.test.ts` tested that function directly — so removing the call
+left every suite green. The assertion belongs where the wiring is.

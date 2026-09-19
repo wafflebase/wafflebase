@@ -7,6 +7,7 @@ import {
   setDurableLockForTest,
   resetElectionsForTest,
   resetDeviceSecretForTest,
+  forgetDeviceSecret,
   isOpenInAnyTab,
   type DurableLock,
 } from "./durable-session";
@@ -120,17 +121,87 @@ describe("names", () => {
     expect(secretOf(mine)).not.toBe(secretOf(theirs));
   });
 
-  it("forgets an account's secret when its data is erased", async () => {
+  it("forgets an account's secret when its data is erased", () => {
     // The salt goes with the content it named: leaving it behind would let the
     // next person to sign in on this machine reconstruct the keys of documents
     // that are not even here any more.
-    const { forgetDeviceSecret } = await import("./durable-session");
     resetDeviceSecretForTest();
     const before = durableClientKey("u1", "note-7");
 
     forgetDeviceSecret("u1");
 
     expect(durableClientKey("u1", "note-7")).not.toBe(before);
+  });
+
+  it("salts each document separately, so one leaked key derives no other", () => {
+    // A client key is not a secret the way a token is: Yorkie receives it on
+    // `ActivateClient`, keeps it on the client row, and an operator reads it
+    // in a log. One salt shared by every document would make any single
+    // leaked key hand the reader every *other* key that account will use.
+    resetDeviceSecretForTest();
+    const saltOf = (key: string) => key.split(":")[1];
+
+    expect(saltOf(durableClientKey("u1", "note-7"))).not.toBe(
+      saltOf(durableClientKey("u1", "note-8")),
+    );
+  });
+
+  it("expires a salt this device has not used in thirty days", () => {
+    // The erase covers a sign-out somebody chose. A session that merely
+    // expired, or a browser simply closed, leaves entries no erase will ever
+    // reach — so they age out on the store's own schedule, which is the bound
+    // the design claims.
+    resetDeviceSecretForTest();
+    const stale = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    localStorage.setItem(
+      "wafflebase-durable-device:u1:note-7",
+      JSON.stringify({ s: "0123456789abcdef", t: stale }),
+    );
+
+    expect(durableClientKey("u1", "note-7")).not.toContain("0123456789abcdef");
+  });
+
+  it("sweeps an aged-out salt whoever it belongs to", () => {
+    // Across accounts on purpose, like the store's own sweep: the account
+    // that never signs back in on a shared device is precisely the one whose
+    // entries no erase reaches.
+    resetDeviceSecretForTest();
+    const stale = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    localStorage.setItem(
+      "wafflebase-durable-device:u2:note-9",
+      JSON.stringify({ s: "fedcba9876543210", t: stale }),
+    );
+
+    // Any mint pays for the scan.
+    durableClientKey("u1", "note-7");
+
+    expect(
+      localStorage.getItem("wafflebase-durable-device:u2:note-9"),
+    ).toBeNull();
+  });
+
+  it("forgets every document's salt for the account being erased", () => {
+    resetDeviceSecretForTest();
+    const mine = durableClientKey("u1", "note-7");
+    const alsoMine = durableClientKey("u1", "note-8");
+    const theirs = durableClientKey("u2", "note-7");
+
+    forgetDeviceSecret("u1");
+
+    expect(durableClientKey("u1", "note-7")).not.toBe(mine);
+    expect(durableClientKey("u1", "note-8")).not.toBe(alsoMine);
+    expect(durableClientKey("u2", "note-7")).toBe(theirs);
+  });
+
+  it("drops the account-wide salt earlier builds wrote", () => {
+    // It is this account's, and it is a shape the salt no longer takes — so
+    // an upgrade must not leave it on the disk with nothing able to remove it.
+    resetDeviceSecretForTest();
+    localStorage.setItem("wafflebase-durable-device:u1", "0123456789abcdef");
+
+    forgetDeviceSecret("u1");
+
+    expect(localStorage.getItem("wafflebase-durable-device:u1")).toBeNull();
   });
 
   it("keeps the same key across reloads of this device", () => {

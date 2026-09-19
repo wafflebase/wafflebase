@@ -385,15 +385,35 @@ document (rather than to the user) keeps each document on its own server-side
 client row, so one tab's detach cannot disturb another tab holding a different
 document.
 
-`deviceSecret` is 64 random bits minted once **per account** on this browser
-profile (`wafflebase-durable-device:{userId}`) and kept in `localStorage` —
-opaque, content-free, and never sent anywhere on its own. Per account rather
-than per profile, because the shared device is the whole case: `localStorage`
-is read by whoever is signed in now, so one profile-wide value would hand them
-the only ingredient of another account's key they cannot otherwise derive. It
-is dropped by the erase (`eraseOfflineData`), so a sign-out leaves the next
-user of the machine nothing to read. It
-is there because Yorkie authorizes `ActivateClient` and `DeactivateClient` on
+`deviceSecret` is 64 random bits minted once **per account per document** on
+this browser profile (`wafflebase-durable-device:{userId}:{docKey}`, holding
+`{s, t}`) and kept in `localStorage` — opaque, content-free, and never sent
+anywhere except inside the key it salts.
+
+Per document rather than per account, because a client key is not a secret the
+way a token is: Yorkie receives it on `ActivateClient`, stores it on the client
+row, and an operator reads it in a log or an admin listing. One salt shared by
+every document would make any single leaked key hand the reader every *other*
+key that account will ever use; a per-document salt makes a leaked key a
+capability for that one client row and nothing more — the exposure the SDK's
+own random per-session key already has.
+
+What the salt defends is the **workspace peer**, who holds `userId` and
+`docKey` and nothing else. It does *not* defend against somebody sitting at
+this browser profile: `localStorage` is origin-scoped, so whoever can run
+script on the origin reads every entry here whatever it is keyed by. An earlier
+version of this section claimed per-account keying covered that case — it
+cannot, and no client-side store can. Two rules bound that exposure instead:
+the erase (`eraseOfflineData` → `forgetDeviceSecret`) drops every entry for an
+account, so a **deliberate** sign-out leaves the next user of the machine
+nothing to read; and anything untouched for thirty days is swept on the next
+mint, whoever it belongs to, which is what covers the sign-out that never
+happened — an expired session, a browser simply closed. The age is the store's
+own, so a salt dies on the same schedule as the document it names, and a device
+in daily use rewrites its timestamps (at most once a day) rather than expiring
+under itself.
+
+The salt is there because Yorkie authorizes `ActivateClient` and `DeactivateClient` on
 **token validity alone**: the auth webhook gates documents, not client rows. A
 key that can be *derived* is therefore one that anybody holding any valid
 Yorkie token can activate or tear down, and both of the natural ingredients are

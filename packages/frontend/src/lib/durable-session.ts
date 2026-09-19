@@ -77,7 +77,7 @@ export function durableLockName(userId: string, docKey: string): string {
  * server-side client row and one tab's detach cannot disturb another tab
  * holding a different document.
  *
- * **Salted with a per-device secret, and that is not decoration.** Yorkie
+ * **Salted with a random secret, and that is not decoration.** Yorkie
  * authorizes `ActivateClient` and `DeactivateClient` on token validity alone —
  * the auth webhook gates documents, not client rows — so a key anybody can
  * *derive* is one that anybody holding any valid token can activate or tear
@@ -89,16 +89,26 @@ export function durableLockName(userId: string, docKey: string): string {
  * member's per-document client and strand the durable session this feature
  * depends on.
  *
+ * The salt is minted **per document**, not once per account, and that is the
+ * half that survives the key itself leaking. A client key is not a secret the
+ * way a token is: Yorkie receives it on `ActivateClient`, stores it on the
+ * client row, and an operator reads it in a log or an admin listing. With one
+ * secret shared by every document, any single leaked key handed the reader the
+ * salt — and with it every *other* key that account will ever use, including
+ * documents they have no other visibility into. A per-document salt makes a
+ * leaked key a capability for that one client row and nothing more, which is
+ * the same exposure the SDK's own random per-session key already has.
+ *
  * The user and the document stay in the key — they keep the per-document
- * scoping above and make a server-side client list readable — and the secret is
+ * scoping above and make a server-side client list readable — and the salt is
  * what makes the whole thing unguessable.
  */
 export function durableClientKey(userId: string, docKey: string): string {
-  return `wb:${deviceSecret(userId)}:${userId}:${docKey}`;
+  return `wb:${deviceSecret(userId, docKey)}:${userId}:${docKey}`;
 }
 
 /**
- * Where this device's client-key secrets live, one per account.
+ * Where this device's client-key salts live, one per account *per document*.
  *
  * `localStorage` rather than memory, because the key's whole purpose is to be
  * the *same* one after a reload: the SDK's store is scoped
@@ -107,30 +117,129 @@ export function durableClientKey(userId: string, docKey: string): string {
  * old, which the thirty-day sweep collects — the same outcome as clearing the
  * database itself, and the direction that costs storage rather than safety.
  *
- * **Per account, not per browser profile**, and that is the whole point of the
- * salt. A single profile-wide secret is read by whoever is signed in *now*, and
- * a shared device — the case this feature exists for — is exactly where that
- * somebody is a different person: with one value, a signed-in user could
- * reconstruct every other account's `wb:{secret}:{userId}:{docKey}` from
- * ingredients (`userId`, `docKey`) a workspace peer already holds, and Yorkie
- * authorizes `ActivateClient`/`DeactivateClient` on token validity alone. One
- * secret per account removes the shared ingredient.
+ * **What this does and does not defend.** It defends the workspace peer, who
+ * holds `userId` and `docKey` and nothing else: without the salt they can
+ * derive another member's client key and tear it down. It does **not** defend
+ * against somebody sitting at this browser profile — `localStorage` is
+ * origin-scoped, so whoever can run script on the origin (the next person to
+ * sign in, with devtools) reads every entry here whatever it is keyed by. An
+ * earlier reading of this claimed per-account keying covered that case; it
+ * cannot, and no client-side store can. What bounds *that* exposure is the two
+ * rules below, not the shape of the key.
  *
- * And it is spent with that account's data: {@link forgetDeviceSecret} is
- * called by the erase, so a sign-out leaves the next user of this device
- * nothing to read. The residual — an account whose erase never ran leaves its
- * own entry behind — is bounded by the thirty-day sweep and by that erase's own
- * retry, and is strictly smaller than one value covering everybody.
+ * So the entries are spent, and they expire:
+ *
+ * - {@link forgetDeviceSecret} drops every entry for an account, and the erase
+ *   calls it — a deliberate sign-out leaves the next user of this device
+ *   nothing to read.
+ * - Anything untouched for {@link SECRET_MAX_AGE_MS} is swept on the next mint,
+ *   whoever it belongs to. That is what covers the sign-out that never
+ *   happened: a session the server expired, or a browser simply closed, leaves
+ *   entries nothing else would ever remove. The age is the store's own
+ *   thirty days, so an entry dies on the same schedule as the document it
+ *   names — the bound this comment used to assert without any code behind it.
  */
 const DEVICE_SECRET_PREFIX = "wafflebase-durable-device";
 
-/** The `localStorage` key holding `userId`'s secret. */
-function deviceSecretKey(userId: string): string {
-  return `${DEVICE_SECRET_PREFIX}:${userId}`;
+/** How long an untouched salt is kept, matching the store's own sweep. */
+const SECRET_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * How stale an entry may get before an open rewrites its timestamp.
+ *
+ * A read per document mount would otherwise write on every navigation for no
+ * benefit: the only question the timestamp answers is "has this device used
+ * this document in the last thirty days".
+ */
+const SECRET_TOUCH_MS = 24 * 60 * 60 * 1000;
+
+/** The `localStorage` key holding one account's salt for one document. */
+function deviceSecretKey(userId: string, docKey: string): string {
+  return `${DEVICE_SECRET_PREFIX}:${userId}:${docKey}`;
 }
 
-/** This session's secrets, per account, for a browser that will not hold them. */
+/** What an account's entries all start with, for the erase and the sweep. */
+function deviceSecretPrefixFor(userId: string): string {
+  return `${DEVICE_SECRET_PREFIX}:${userId}:`;
+}
+
+/** The stored shape: the salt, and when it was last used. */
+interface StoredSecret {
+  s: string;
+  t: number;
+}
+
+/**
+ * Reads a stored entry, or `undefined` for anything that is not one.
+ *
+ * "Anything that is not one" deliberately includes the bare string earlier
+ * builds wrote under `…:{userId}`: it is an account-wide salt this version no
+ * longer uses, and treating it as unreadable is what gets it swept.
+ */
+function parseSecret(raw: string | null): StoredSecret | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      const { s, t } = parsed as { s?: unknown; t?: unknown };
+      if (typeof s === "string" && s.length > 0 && typeof t === "number") {
+        return { s, t: Number.isFinite(t) ? t : 0 };
+      }
+    }
+  } catch {
+    // Not our shape. Left to the sweep.
+  }
+  return undefined;
+}
+
+/** Every `localStorage` key this module owns. */
+function storedSecretKeys(): Array<string> {
+  const keys: Array<string> = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(DEVICE_SECRET_PREFIX)) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Drops entries nothing has used for {@link SECRET_MAX_AGE_MS}, and entries in
+ * a shape this version does not write.
+ *
+ * Across every account, like the store's own sweep and for the same reason: the
+ * account that never signs back in on a shared device is precisely the one
+ * whose entries no erase will ever reach. Age is the whole policy, applied
+ * identically to everyone, so nothing goes here that its owner's own next
+ * session would have kept — a device in daily use rewrites its timestamps.
+ */
+function sweepStaleSecrets(now: number): void {
+  try {
+    for (const key of storedSecretKeys()) {
+      const entry = parseSecret(localStorage.getItem(key));
+      if (!entry || now - entry.t >= SECRET_MAX_AGE_MS) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Storage refused. Nothing stored means nothing to sweep.
+  }
+}
+
+/** This session's salts, for a browser that will not hold them. */
 const volatileSecrets = new Map<string, string>();
+
+/**
+ * How the in-memory map is keyed: account first, so the erase can drop one
+ * account's slots by prefix without touching another's. The separator is one a
+ * user id and a document key cannot contain.
+ */
+function volatileSlot(userId: string, docKey: string): string {
+  return `${userId}\u0000${docKey}`;
+}
 
 function randomSecret(): string {
   const bytes = new Uint8Array(8);
@@ -148,49 +257,81 @@ function randomSecret(): string {
 }
 
 /**
- * A stable random id for one account on this browser profile, minted once.
+ * A stable random id for one account's copy of one document, minted once.
  *
- * Opaque and content-free: it names no document, it is never sent anywhere on
- * its own, and it exists purely so the client key above cannot be *derived* by
- * somebody who knows who you are and what you are editing — including the next
- * person to sign in on this machine.
+ * Opaque and content-free: it is never sent anywhere except inside the client
+ * key it salts, and it exists purely so that key cannot be *derived* by a
+ * workspace peer who knows who you are and what you are editing.
+ *
+ * Touched on read, which is what keeps the sweep above honest in both
+ * directions: a document this device actually opens never expires out from
+ * under its own stored entry, and one it stops opening is gone in thirty days.
  */
-function deviceSecret(userId: string): string {
-  const key = deviceSecretKey(userId);
+function deviceSecret(userId: string, docKey: string): string {
+  const key = deviceSecretKey(userId, docKey);
+  const now = Date.now();
   try {
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      return stored;
+    const stored = parseSecret(localStorage.getItem(key));
+    if (stored && now - stored.t < SECRET_MAX_AGE_MS) {
+      if (now - stored.t >= SECRET_TOUCH_MS) {
+        localStorage.setItem(key, JSON.stringify({ s: stored.s, t: now }));
+      }
+      return stored.s;
     }
+    // On the way to minting, and only then: the sweep costs a full scan of the
+    // origin's keys, and the mint is already the rare path.
+    sweepStaleSecrets(now);
     const minted = randomSecret();
-    localStorage.setItem(key, minted);
+    localStorage.setItem(key, JSON.stringify({ s: minted, t: now }));
     return minted;
   } catch {
     // Storage refused (private mode, blocked third-party storage). A key that
     // does not survive a reload costs this device its resume; a guessable one
     // would cost every device its client row — so an unguessable
     // session-scoped secret is the right way to fail here.
-    let secret = volatileSecrets.get(userId);
+    const slot = volatileSlot(userId, docKey);
+    let secret = volatileSecrets.get(slot);
     if (!secret) {
       secret = randomSecret();
-      volatileSecrets.set(userId, secret);
+      volatileSecrets.set(slot, secret);
     }
     return secret;
   }
 }
 
 /**
- * Drops one account's secret, so nothing left on this device can be tied back
- * to it — and so the next sign-in mints a fresh one.
+ * Drops every salt this device holds for one account, so nothing left here can
+ * be tied back to it — and so their next sign-in mints fresh ones.
  *
  * Called by the erase (`offline-erase.ts`), which is the moment this account's
- * stored documents go: keeping the salt that named them would leave the one
+ * stored documents go: keeping the salts that named them would leave the one
  * ingredient a later user of the machine cannot otherwise obtain.
+ *
+ * It is the *deliberate* half of the bound. A sign-out that never happens — an
+ * expired session, a closed browser — is covered by {@link sweepStaleSecrets}
+ * instead, which is why that one reaches across accounts.
  */
 export function forgetDeviceSecret(userId: string): void {
-  volatileSecrets.delete(userId);
+  const slot = volatileSlot(userId, "");
+  for (const key of [...volatileSecrets.keys()]) {
+    if (key.startsWith(slot)) {
+      volatileSecrets.delete(key);
+    }
+  }
   try {
-    localStorage.removeItem(deviceSecretKey(userId));
+    const prefix = deviceSecretPrefixFor(userId);
+    // The account-wide entry earlier builds wrote goes too: it is this
+    // account's, it is the shape the salt no longer takes, and leaving it
+    // behind would be the erase missing the very thing it is here to spend.
+    const legacy = `${DEVICE_SECRET_PREFIX}:${userId}`;
+    for (const key of storedSecretKeys()) {
+      if (key === legacy || key.startsWith(prefix)) {
+        localStorage.removeItem(key);
+      }
+    }
+    // And anybody's that has aged out, since this is a moment we are already
+    // paying for the scan.
+    sweepStaleSecrets(Date.now());
   } catch {
     // Nothing stored to forget.
   }
