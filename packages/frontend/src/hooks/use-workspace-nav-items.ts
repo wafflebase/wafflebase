@@ -25,8 +25,17 @@ export interface NavItems {
  *
  * `workspaceSlug` is undefined until the current workspace resolves (an editor
  * learns it from the document it just fetched). That fallback keeps the
- * workspace-less `/documents` · `/datasources` · `/settings` routes, and omits
- * Templates and Analytics because they exist only under `/w/:workspaceId`.
+ * workspace-less `/documents` · `/datasources` routes, and omits Templates and
+ * Analytics because they exist only under `/w/:workspaceId`.
+ *
+ * The device's own settings are deliberately **not** here, on either branch.
+ * One entry called "Settings" whose target flipped with the slug meant that a
+ * signed-in user — who always has a workspace — could only ever reach the
+ * workspace's settings from the sidebar, leaving the offline switch with no
+ * route into it at all. The sidebar's entry now means the workspace's settings
+ * and only those; the device's are opened from the user menu (`NavUser`),
+ * which every editor shell mounts. Two surfaces, one each — so the name does
+ * not have to carry the distinction.
  */
 export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
   // Hide the Analytics entry when the deployment has no analytics warehouse
@@ -44,7 +53,6 @@ export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
         main: [
           { title: "Documents", url: "/documents", icon: IconFolder },
           { title: "Data Sources", url: "/datasources", icon: IconDatabase },
-          { title: "Settings", url: "/settings", icon: IconSettings },
         ],
         secondary: [],
       };

@@ -264,3 +264,30 @@ conditions, the *sole* tab on a document took 27.3 s to first canvas and the
 second tab 21.8 s — the contended one was faster, so there is no second-tab
 penalty to explain. `document.visibilityState` belongs in any timing this
 harness reports.
+
+## The switch had no way in
+
+Both smoke runs reached the offline toggle by typing `/settings` into the
+address bar, and it took a third pass to notice that is the *only* way to reach
+it. `use-workspace-nav-items` carries one entry called Settings whose target
+flips on whether a workspace slug has resolved: with one it is the workspace's
+settings, without one it is the device's. A signed-in user always has a
+workspace, so the device's settings — the page the whole opt-in lives on — were
+unreachable from the UI, and the user menu offered only Dark mode and Log out.
+
+The tell was in the transcript the whole time and read as a convenience:
+"Settings에 Offline 섹션이 보입니다" came after a `navigate` to a URL nobody
+could have clicked. A feature verified only through a path the product does not
+offer has not been verified.
+
+They are opened from the user menu now, as a dialog. `NavUser` is mounted by
+every editor shell as well as `Layout`, so the settings open *over* a document
+instead of navigating away from one — which matters here more than it looks:
+the other route to the offline switch is the sync chip's offer, shown precisely
+when the document has unsent edits, and leaving that document is what
+`useNavigationGuard` stops with a confirmation. A route would have put that
+dialog between a user and the setting meant to protect their work.
+
+The dialog's open state is held by `NavUser` rather than inside the dialog,
+because a Radix menu closing takes focus with it and would close a dialog the
+menu owns.

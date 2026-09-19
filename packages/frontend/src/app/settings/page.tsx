@@ -26,9 +26,19 @@ import {
 import { supportsClientKey } from "@/lib/yorkie-capabilities";
 
 /**
- * Renders the application settings page.
+ * This device's settings, without a frame around them.
+ *
+ * Separated from the page below so the same sections render inside the dialog
+ * the user menu opens (`components/settings-dialog.tsx`). The dialog is the
+ * entry point people actually use — `NavUser` is mounted by every editor shell
+ * as well as `Layout`, so it opens over a document instead of navigating away
+ * from one, which for a document with unsent edits is the difference between a
+ * settings change and the navigation guard's "leave without saving?".
+ *
+ * Everything here is per device rather than per account, which is why it is
+ * not the workspace's Settings page and must not read as it.
  */
-export default function Settings() {
+export function SettingsContent() {
   const { theme, setTheme } = useContext(ThemeProviderContext);
   const dateFormat = useDateFormat();
   // The signed-in account, off the cache the authenticated shell already
@@ -50,7 +60,7 @@ export default function Settings() {
   const sample = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   return (
-    <div className="p-4 lg:p-6 max-w-2xl space-y-8">
+    <div className="space-y-8">
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Appearance</h2>
         <div className="flex items-center justify-between rounded-md border p-4">
@@ -151,6 +161,22 @@ export default function Settings() {
         </div>
       </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * The same settings as a route, kept for links people already hold.
+ *
+ * No sidebar entry points here any more — `use-workspace-nav-items` used to
+ * carry one, and because its target flipped on whether a workspace slug had
+ * resolved, it meant the *workspace's* settings for everybody who had a
+ * workspace, which is everybody.
+ */
+export default function Settings() {
+  return (
+    <div className="p-4 lg:p-6 max-w-2xl">
+      <SettingsContent />
     </div>
   );
 }
