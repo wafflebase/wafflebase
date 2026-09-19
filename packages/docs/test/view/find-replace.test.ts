@@ -64,6 +64,10 @@ describe('FindReplaceState', () => {
     expect(state.matches).toHaveLength(0);
   });
 
+  // The document can change while the find bar stays open — the user typing
+  // elsewhere, or a remote peer — and the offsets `search()` stored then name
+  // text that has moved. Both replace paths refresh before writing (#1083).
+
   it('should replace the current match after the document changes', () => {
     const doc = Doc.create();
     const blockId = doc.document.blocks[0].id;
@@ -80,9 +84,73 @@ describe('FindReplaceState', () => {
     expect(doc.document.blocks[0].inlines.map((i) => i.text).join('')).toBe(
       'big cat fox',
     );
+    // The refresh re-ran the search, so the state describes the new document.
+    expect(state.matches).toHaveLength(0);
+    expect(state.activeIndex).toBe(-1);
   });
 
-  it('should replace all current matches after the document changes', () => {
+  it('should replace every current match after the document changes', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'dog cat dog');
+
+    const state = new FindReplaceState(doc);
+    state.search('dog');
+    expect(state.matches).toHaveLength(2);
+
+    // Shift both stored offsets, and add a third match the search never saw.
+    doc.insertText({ blockId, offset: 0 }, 'dog ');
+
+    state.replaceAll('fox');
+
+    expect(doc.document.blocks[0].inlines.map((i) => i.text).join('')).toBe(
+      'fox fox cat fox',
+    );
+    expect(state.matches).toHaveLength(0);
+  });
+
+  it('should keep the active match when one is inserted before it', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'dog cat dog');
+
+    const state = new FindReplaceState(doc);
+    state.search('dog');
+    state.next();
+    // The bar has painted the *second* 'dog' as active.
+    expect(state.activeIndex).toBe(1);
+
+    // A new occurrence appears ahead of it, so ordinal 1 now names the one
+    // that was inserted rather than the one the user is looking at.
+    doc.insertText({ blockId, offset: 0 }, 'dog ');
+
+    state.replaceActive('fox');
+
+    expect(doc.document.blocks[0].inlines.map((i) => i.text).join('')).toBe(
+      'dog dog cat fox',
+    );
+  });
+
+  it('should keep the active match when one is removed before it', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'dog cat dog');
+
+    const state = new FindReplaceState(doc);
+    state.search('dog');
+    state.next();
+    expect(state.activeIndex).toBe(1);
+
+    doc.deleteText({ blockId, offset: 0 }, 4);
+
+    state.replaceActive('fox');
+
+    expect(doc.document.blocks[0].inlines.map((i) => i.text).join('')).toBe(
+      'cat fox',
+    );
+  });
+
+  it('should do nothing when the edit removed the only match', () => {
     const doc = Doc.create();
     const blockId = doc.document.blocks[0].id;
     doc.insertText({ blockId, offset: 0 }, 'cat dog');
@@ -90,14 +158,17 @@ describe('FindReplaceState', () => {
     const state = new FindReplaceState(doc);
     state.search('dog');
 
-    // Simulate editing the document while Find & Replace is still open.
-    doc.insertText({ blockId, offset: 0 }, 'big ');
+    // The match itself is gone by the time Replace is clicked.
+    doc.deleteText({ blockId, offset: 4 }, 3);
 
+    state.replaceActive('fox');
     state.replaceAll('fox');
 
     expect(doc.document.blocks[0].inlines.map((i) => i.text).join('')).toBe(
-      'big cat fox',
+      'cat ',
     );
+    expect(state.matches).toHaveLength(0);
+    expect(state.activeIndex).toBe(-1);
   });
 
   it('should handle empty query', () => {
