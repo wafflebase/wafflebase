@@ -24,18 +24,29 @@ describe('parseRels', () => {
 });
 
 describe('resolveRelsTarget', () => {
+  it.each([
+    ['/ppt/charts/chart1.xml', 'ppt/charts/chart1.xml'],
+    ['/ppt/media/image1.png', 'ppt/media/image1.png'],
+    ['/ppt/./charts/../media/image1.png', 'ppt/media/image1.png'],
+  ])('resolves package-root-relative target %s', (target, expected) => {
+    expect(resolveRelsTarget('ppt/slides/slide13.xml', target)).toBe(expected);
+  });
+
   it('resolves relative targets against the part directory', () => {
-    expect(resolveRelsTarget('ppt/slides/slide1.xml', '../media/image1.png')).toBe(
-      'ppt/media/image1.png',
-    );
-    expect(resolveRelsTarget('ppt/slides/slide1.xml', '../slideLayouts/slideLayout3.xml')).toBe(
-      'ppt/slideLayouts/slideLayout3.xml',
-    );
+    expect(
+      resolveRelsTarget('ppt/slides/slide1.xml', '../media/image1.png'),
+    ).toBe('ppt/media/image1.png');
+    expect(
+      resolveRelsTarget(
+        'ppt/slides/slide1.xml',
+        '../slideLayouts/slideLayout3.xml',
+      ),
+    ).toBe('ppt/slideLayouts/slideLayout3.xml');
   });
 
   it('returns external URLs unchanged', () => {
-    expect(resolveRelsTarget('ppt/slides/slide1.xml', 'https://example.com/')).toBe(
-      'https://example.com/',
-    );
+    expect(
+      resolveRelsTarget('ppt/slides/slide1.xml', 'https://example.com/'),
+    ).toBe('https://example.com/');
   });
 });

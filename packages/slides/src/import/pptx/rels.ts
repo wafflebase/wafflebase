@@ -37,13 +37,20 @@ export function parseRels(xml: string): Map<string, PptxRel> {
  *   resolveRelsTarget('ppt/slides/slide1.xml', '../media/image1.png')
  *     → 'ppt/media/image1.png'
  *
+ * Targets starting with `/` resolve against the package root. The returned
+ * archive entry path has no leading slash.
+ *
  * External targets (`https://...`) are returned as-is.
  */
 export function resolveRelsTarget(partPath: string, target: string): string {
   if (/^[a-z]+:\/\//i.test(target)) return target;
-  // Drop the part filename and join with the target.
+  // Root-relative targets ignore the source part's directory.
   const lastSlash = partPath.lastIndexOf('/');
-  const baseDir = lastSlash >= 0 ? partPath.slice(0, lastSlash) : '';
+  const baseDir = target.startsWith('/')
+    ? ''
+    : lastSlash >= 0
+      ? partPath.slice(0, lastSlash)
+      : '';
   const segments = (baseDir + '/' + target).split('/');
   const stack: string[] = [];
   for (const seg of segments) {
