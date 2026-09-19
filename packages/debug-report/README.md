@@ -10,8 +10,8 @@ The overlay, the preview panel and the two dev-server endpoints are here; what a
 host supplies is its route, and — only if it has Canvas surfaces — a function
 turning a point into a semantic address.
 
-Design: [`docs/design/debug-report.md`](../../docs/design/debug-report.md).
-Harness side: [`harness-engineering.md`](../../docs/design/harness-engineering.md)
+Design: [`docs/design/agent-pipeline/debug-report.md`](../../docs/design/agent-pipeline/debug-report.md).
+Harness side: [`harness-engineering.md`](../../docs/design/agent-pipeline/harness-engineering.md)
 Phase 32.
 
 ## What is here

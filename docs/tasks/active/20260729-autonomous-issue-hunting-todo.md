@@ -1,6 +1,6 @@
 # Autonomous Issue Hunting (Phase 26) — Task Tracking
 
-Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Phase 26
+Design doc: [harness-engineering.md](../../design/agent-pipeline/harness-engineering.md) → Phase 26
 
 ## Principles
 
@@ -88,7 +88,7 @@ Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Ph
 
 - **UI hunting — no longer deferred; moved to Phase 28.** It was out of scope
   for this phase, and is now in progress: see
-  `docs/design/harness-engineering.md` (Phase 28). PR 1 (#642) landed the
+  `docs/design/agent-pipeline/harness-engineering.md` (Phase 28). PR 1 (#642) landed the
   browser executor, the `/harness/hunt` route and the free oracles; PR 2 (#665)
   adds the prediction protocol. Left listed here so the boundary between the two
   phases stays readable rather than silently rewritten.

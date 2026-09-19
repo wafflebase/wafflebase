@@ -182,7 +182,7 @@ draft from merged PRs — review and edit before publishing if needed.
 ### Merge queue
 
 Enabled. Rationale, CI-side contract, and residual risks:
-[`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#merge-queue).
+[`docs/design/agent-pipeline/harness-engineering.md`](docs/design/agent-pipeline/harness-engineering.md#merge-queue).
 
 **What it buys.** `main`'s required checks currently prove a PR is green against
 its own branch, not against the `main` it will land on, so a busy day costs a

@@ -10,7 +10,7 @@
  *
  * **This is the consent gate.** Every image that would leave is on screen before
  * anything is sent. That is stronger than a server-side redaction rule, because
- * a person looks at it (`docs/design/debug-report.md`, *Risks*).
+ * a person looks at it (`docs/design/agent-pipeline/debug-report.md`, *Risks*).
  *
  * **PRs are shaped by three operations only** — detach an item, split a PR,
  * merge two. No file-shaped control, because the browser cannot know which files

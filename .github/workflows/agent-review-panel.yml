@@ -816,7 +816,7 @@ jobs:
           # permissionMode 'dontAsk' and settingSources [] (see ask.mjs), so
           # reaching the environment needs an SDK bug, not prompt injection. That
           # is defence in depth, not a replacement for the count — see
-          # docs/design/harness-engineering.md, which tracks reducing this to the
+          # docs/design/agent-pipeline/harness-engineering.md, which tracks reducing this to the
           # two credentials a round can actually use.
           #
           # One token is selected per JOB and held, because prompt caches are per
@@ -2099,7 +2099,7 @@ jobs:
             mid-hook and never lands, producing exactly the "no commit" dead-end
             above. You already ran `pnpm verify:fast` above and this push re-runs the
             full CI lanes, so the hook is redundant here
-            (docs/design/harness-engineering.md documents `--no-verify` as its
+            (docs/design/agent-pipeline/harness-engineering.md documents `--no-verify` as its
             sanctioned bypass). Then CONFIRM the push landed with
             `git ls-remote origin <branch>` rather than trusting the exit code — a
             push whose hook output is very large can report non-zero even though the

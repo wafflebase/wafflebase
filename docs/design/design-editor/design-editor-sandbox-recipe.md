@@ -529,7 +529,7 @@ and have it become a different scene's editable module. A path matching no
 manifest scene toasts instead of switching, rather than silently doing nothing.
 
 **The bug reporter lives on the FRAME side of this boundary.** The scene frame is
-the second host of `@wafflebase/debug-report` (`docs/design/debug-report.md`), and
+the second host of `@wafflebase/debug-report` (`docs/design/agent-pipeline/debug-report.md`), and
 it had to be the frame rather than the shell for the reason this whole section
 exists: the shell's `elementFromPoint` returns the `<iframe>`, so a shell-side
 overlay could name nothing inside the scene, and every report would carry a

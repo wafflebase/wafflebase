@@ -10,7 +10,7 @@
  * gone for good if a remount drops it — the observation that produced it has
  * already scrolled off the screen.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import type { Capture, DebugItem, Disposition, Draft, Target } from './types';

@@ -369,7 +369,7 @@ export function DocsView({
 
     // DEV only: the debug-report overlay asks this for the block and offset
     // under a point, so a report can say which paragraph rather than which
-    // pixels. See `docs/design/debug-report.md`.
+    // pixels. See `docs/design/agent-pipeline/debug-report.md`.
     const unregisterDebugSurface = import.meta.env.DEV
       ? registerDebugSurface({
           kind: "doc",

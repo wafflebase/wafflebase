@@ -483,7 +483,7 @@ test("at one sample per lens, the panel still shares ONE warm-up across five len
   const manifest = loadLenses(path.join(HERE, "lenses")).map((l) => ({ ...l, samples: 1 }));
   const files = [
     "scripts/agent/review-panel.mjs", ".github/workflows/agent-review-panel.yml",
-    "docs/design/harness-engineering.md", "docs/tasks/active/notes.md",
+    "docs/design/agent-pipeline/harness-engineering.md", "docs/tasks/active/notes.md",
   ];
   const blocks = sliceDiffByFile(files.map((f) =>
     `diff --git a/${f} b/${f}\n@@ -1 +1 @@\n-a\n+b-${f}\n`).join(""));
@@ -1763,13 +1763,15 @@ test("the coverage note claims only mechanisms this repo actually runs", () => {
   assert.ok(!/core/.test(suitesLine), `no lane runs core's suite: ${suitesLine}`);
   assert.match(N, /packages\/core's own vitest suite\. It has one; no lane invokes it/);
 
-  // verify-entropy's doc check uses a NON-recursive readdir filtered to isFile(),
-  // so it sees the 22 top-level docs/design/*.md and none of the 81 nested ones.
-  // A `docs/design/**.md` claim — the draft's third over-claim — would have told
-  // every lens that broken refs in subsystem docs are somebody else's problem.
-  assert.match(N, /TOP-LEVEL docs\/design\/\*\.md/);
-  assert.ok(!/docs\/design\/\*\*/.test(N), "the doc check does not recurse — do not imply it does");
-  assert.match(N, /does not recurse/);
+  // verify-entropy's doc check RECURSES — `listDesignDocs` walks the subsystem
+  // directories — so `docs/design/**.md` is the honest claim. It was not always:
+  // the draft's third over-claim was that same glob written while the readdir was
+  // still flat, which would have told every lens that broken refs in subsystem
+  // docs are somebody else's problem. The lane changed, so the note did, and the
+  // assertion now pins the recursion rather than the old flat wording.
+  assert.match(N, /docs\/design\/\*\*\.md must resolve on disk/);
+  assert.ok(!/TOP-LEVEL/.test(N), "the doc check recurses — do not scope it to top-level docs");
+  assert.ok(!/does not recurse/.test(N), "the doc check recurses — do not imply it does not");
 
   // `pnpm audit` fails on CRITICAL only (harness.config.json failOnCritical), and
   // there are high-severity advisories outstanding that CI prints and ignores.

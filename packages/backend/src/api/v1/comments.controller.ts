@@ -70,7 +70,7 @@ type FlatCommentRoot = Record<string, unknown> & { comments?: ThreadMap };
  * Comments are the one document feature that lives *entirely* in the Yorkie
  * CRDT: no Postgres table, no service, and — until this controller — no route,
  * which is why the capability audit in
- * `docs/design/agentic-office-workflow.md` filed them under class B rather
+ * `docs/design/agent-pipeline/agentic-office-workflow.md` filed them under class B rather
  * than "a command is missing". The editor is the only thing that has ever
  * written them.
  *

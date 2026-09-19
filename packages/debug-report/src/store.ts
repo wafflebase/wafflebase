@@ -19,7 +19,7 @@
  *     panel can say what went, because a reporter confirming a bundle whose
  *     pixels have quietly vanished is worse than one told they are gone.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import type { Capture, DebugItem } from './types';

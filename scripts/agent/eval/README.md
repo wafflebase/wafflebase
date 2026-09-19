@@ -52,7 +52,7 @@ worktree, no write scope in this repository, and safe on a schedule.
 itself, the other to stop a free job becoming a gate.
 
 **An operator's guide — prerequisites, the end-to-end path, what a run costs, and how to read
-the report — is [`docs/design/eval-harness-usage.md`](../../../docs/design/eval-harness-usage.md).**
+the report — is [`docs/design/agent-pipeline/eval-harness-usage.md`](../../../docs/design/agent-pipeline/eval-harness-usage.md).**
 This file is the machinery and the reasoning; that one is what to type.
 
 ## One record, two arms

@@ -2,7 +2,7 @@
  * One point in, one target out — the routing between the DOM path and the
  * engine path.
  *
- * The rules encoded here are all measured (`docs/design/debug-report.md`):
+ * The rules encoded here are all measured (`docs/design/agent-pipeline/debug-report.md`):
  *
  *   - On a canvas, ask the engine. Never promote to the container: with nothing
  *     meaningful above it, promotion grabs the wrapper and the capture becomes a

@@ -1,6 +1,6 @@
 # Autonomous Issue Hunting (Phase 26) — Lessons
 
-Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Phase 26
+Design doc: [harness-engineering.md](../../design/agent-pipeline/harness-engineering.md) → Phase 26
 
 Every lesson here was learned from a **live run**, not from a test. The unit suite
 was green at 203 tests while six of these bugs were live. They are all bugs at the

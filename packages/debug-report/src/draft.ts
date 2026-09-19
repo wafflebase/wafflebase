@@ -11,7 +11,7 @@
  * agent afterwards would ask them to approve something they have not seen, so
  * the model call sits at preview time and the credential question is answered by
  * making that call tool-free and output-only (see *Credentials* in
- * `docs/design/debug-report.md`).
+ * `docs/design/agent-pipeline/debug-report.md`).
  *
  * WHAT THE PROPOSAL CANNOT KNOW. Elective coupling — same kind, same risk —
  * needs only the items. Forced coupling needs to know which files each change
@@ -34,7 +34,7 @@ export const MAX_SESSION_PRS = 5;
  * `layout` is absent because a structural change's blast radius differs per
  * file, so it groups only by file — a decision the repository side makes.
  * `logic` is absent because one blocked behaviour fix should never hold up the
- * others (`docs/design/debug-report.md`, the grouping table).
+ * others (`docs/design/agent-pipeline/debug-report.md`, the grouping table).
  */
 export const ELECTIVELY_GROUPED: readonly ChangeKind[] = [
   'spacing',

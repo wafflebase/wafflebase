@@ -169,7 +169,7 @@ package works anywhere but here.
 ### 5. Reporting a defect you see in a scene
 
 The scene frame is the second host of the bug reporter
-(`docs/design/debug-report.md`): press a hotkey, point at what is wrong, say it in one
+(`docs/design/agent-pipeline/debug-report.md`): press a hotkey, point at what is wrong, say it in one
 sentence, collect a few, hand them over once.
 
 **It is off unless you ask for it**, and it takes a restart:

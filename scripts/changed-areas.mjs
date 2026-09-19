@@ -26,7 +26,7 @@
 // `publish-ghpage.yml` / `docker-publish.yml` wait on, so it is the only
 // evidence that what is about to be deployed passed a full suite. A filtered
 // main run would make the deploy gate a formality. See
-// docs/design/harness-engineering.md#deploy-gate.
+// docs/design/agent-pipeline/harness-engineering.md#deploy-gate.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";

@@ -19,7 +19,7 @@
  * unregister handle is identity-checked, so a late cleanup from an unmounting
  * view cannot clear the surface that replaced it.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import type { Ref, Spreadsheet } from "@wafflebase/sheets";

@@ -49,7 +49,7 @@ const NON_TAP_WITH_A_NOISY_WARNING = [
   "[Nest] 2937  - 08/13/2026, 1:45:41 AM    WARN [YorkieService] detach failed for doc-1: Error: detach failed",
   "[Nest] 2937  - 08/13/2026, 1:45:41 AM    WARN [AnalyticsProducer] view-event produce failed: Error: connect failed",
   " Test Files  148 passed | 4 skipped (152)",
-  "verify:entropy: doc staleness FAILED for docs/design/harness-engineering.md",
+  "verify:entropy: doc staleness FAILED for docs/design/agent-pipeline/harness-engineering.md",
   " ELIFECYCLE  Command failed with exit code 1.",
 ].join("\n");
 

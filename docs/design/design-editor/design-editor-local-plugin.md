@@ -177,7 +177,7 @@ chunk budget. Under the split the rule becomes directional rather than absolute:
 > project rather than being caught in review.
 
 ⚠ **One `@wafflebase/*` peer, declared optional.** The scene frame hosts the bug
-reporter (`docs/design/debug-report.md`), so `src/scenes/debug-report-host.tsx`
+reporter (`docs/design/agent-pipeline/debug-report.md`), so `src/scenes/debug-report-host.tsx`
 imports `@wafflebase/debug-report/react`. It is a **peer** rather than a
 dependency because `src/scenes` is served BY PATH and resolved from the
 *consumer's* `node_modules` — the rule `test/plugin/peer-contract.test.ts`

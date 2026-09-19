@@ -216,7 +216,7 @@
           "reason": "Named in the PR1 file plan. The shipped code puts connection sites in `packages/slides/src/view/canvas/connection-sites/` and paints them from `view/editor/overlay.ts`, so this file was never created under this name."
         },
         {
-          "doc": "harness-engineering.md",
+          "doc": "agent-pipeline/harness-engineering.md",
           "ref": "mixed-controls.tsx",
           "reason": "The lane documentation quotes `slides/slides-toolbar-redesign.md` to illustrate why this advisory list exists, so the doc explaining the mechanism needs the mechanism. Self-demonstrating rather than circular: the quoted file is absent for the reason the quote gives."
         },

@@ -20,7 +20,7 @@ on:
   # setting on and the trigger absent, a queued PR waits on checks that never start
   # and is dequeued when the status-check timeout expires. Until the setting is on
   # it is inert — no queue means no `merge_group` event and no extra runs. See
-  # docs/design/harness-engineering.md#merge-queue and MAINTAINING.md#merge-queue.
+  # docs/design/agent-pipeline/harness-engineering.md#merge-queue and MAINTAINING.md#merge-queue.
   #
   # `checks_requested` is the only activity type GitHub defines today; naming it
   # keeps the trigger narrow if more are added later.
@@ -65,7 +65,7 @@ jobs:
   # the name actually required. The required context then never reports and the
   # queue hangs exactly as if the check had been filtered away at the trigger.
   # So the two heavy jobs below always run and gate their STEPS. See the long note
-  # on verify-browser and docs/design/harness-engineering.md#path-aware-ci.
+  # on verify-browser and docs/design/agent-pipeline/harness-engineering.md#path-aware-ci.
   #
   # `fetch-depth: 0` is load-bearing. `actions/checkout` defaults to a depth-1
   # clone in which the base commit does not exist, so `git diff` fails — and the

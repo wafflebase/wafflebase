@@ -32,7 +32,7 @@
 /scripts/agent/                         @wafflebase/maintainers
 /scripts/hooks/                         @wafflebase/maintainers
 /.claude/                               @wafflebase/maintainers
-/docs/design/harness-engineering.md     @wafflebase/maintainers
+/docs/design/agent-pipeline/harness-engineering.md @wafflebase/maintainers
 
 # --- What decides how much CI a change has to pass ---------------------------
 # These paths decide which checks run, so a change to any of them can shrink

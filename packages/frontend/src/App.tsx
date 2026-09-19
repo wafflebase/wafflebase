@@ -53,7 +53,7 @@ const HuntHarnessPage = import.meta.env.DEV
 /**
  * The debug-report overlay. DEV-gated for the same chunk-graph reason as above,
  * and because the deployed transport does not exist yet (SP2 in
- * `docs/design/debug-report.md`).
+ * `docs/design/agent-pipeline/debug-report.md`).
  */
 const DebugReportMount = import.meta.env.DEV
   ? lazy(() => import("./debug/mount"))

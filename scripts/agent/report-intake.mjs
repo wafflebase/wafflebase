@@ -7,7 +7,7 @@
 // the decision separate from the action is what makes `--dry-run` the same code
 // path as a real run.
 //
-// The rules it applies are in `docs/design/debug-report.md`:
+// The rules it applies are in `docs/design/agent-pipeline/debug-report.md`:
 //
 //   | verdict            | condition                              | destination |
 //   | bug, verifiable    | reproduction steps, replayable         | verify → PR |

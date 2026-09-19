@@ -72,7 +72,7 @@ the whole reason the capability reads as unavailable to hand-driven work.
 
 ### 4. Design doc
 
-- [x] `docs/design/agentic-dev-loop.md` § 1 — a `Self review` row, and a line
+- [x] `docs/design/agent-pipeline/agent-pipeline.md` § 1 — a `Self review` row, and a line
       saying a plain PR is reviewed by nobody unless someone opts it in.
 
 ## Verification
@@ -104,7 +104,7 @@ review round turned up.
    `collectPrior`), not "the previous round" wholesale, so a lens that crashed
    in round 2 still carries its round-1 findings. `--rebuttals` passthrough.
    Blocking findings now print with location, summary and `findingKey`.
-3. `/self-review` + the two workflow docs + `agentic-dev-loop.md` § 1.1.
+3. `/self-review` + the two workflow docs + `agent-pipeline.md` § 1.1.
 4. Three defects found reviewing (1)–(3): a crash on a junk report entry, a
    valueless `--round` silently overwriting round 1, and a blocking lens with
    no printable finding rendering as silence — which is exactly the

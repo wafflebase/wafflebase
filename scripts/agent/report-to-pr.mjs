@@ -9,7 +9,7 @@
 // The problem is a SILENT adjustment — a PR shaped differently from what the
 // person approved, with no stated reason, breaks trust before it breaks anything
 // else. So every change is recorded with the reason, and the round trip carries
-// it back (`docs/design/debug-report.md`, *The proposal is not a contract*).
+// it back (`docs/design/agent-pipeline/debug-report.md`, *The proposal is not a contract*).
 //
 // Splitting is always safe; merging across kinds is not, and this never does it.
 //

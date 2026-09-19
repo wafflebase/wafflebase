@@ -13,7 +13,7 @@
 # DRAFT PR early (CI runs the full verify lanes, not the runner's turn budget)
 # -> optional self-review. It never pushes to main and never merges.
 #
-# See docs/design/harness-engineering.md ("Autonomous contribution loop").
+# See docs/design/agent-pipeline/harness-engineering.md ("Autonomous contribution loop").
 name: Agent Implement
 
 on:

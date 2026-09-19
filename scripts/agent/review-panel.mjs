@@ -1445,9 +1445,11 @@ const CONFIDENCE_LEVELS = new Set(FINDING.properties.confidence.enum);
  *   - `packages/core` HAS a vitest suite and nothing runs it. `verify:fast`
  *     invokes `pnpm core build`, never `pnpm core test`, and the root `test`
  *     script omits it too — in a package sheets/docs/slides/frontend all import.
- *   - `verify-entropy`'s doc check uses a non-recursive `readdir` filtered to
- *     `isFile()`, so it covers the 22 top-level `docs/design/*.md` and none of
- *     the 81 nested ones. `docs/design/**.md` would have been a lie.
+ *   - `verify-entropy`'s doc check USED a non-recursive `readdir` filtered to
+ *     `isFile()`, so it covered the top-level `docs/design/*.md` and none of the
+ *     nested ones, and `docs/design/**.md` would have been a lie. `listDesignDocs`
+ *     recurses now, so the glob is true and this one moved to the ENFORCED half:
+ *     124 design docs, 29 top-level and 95 nested.
  *   - `pnpm audit` fails on CRITICAL only (`harness.config.json`
  *     `failOnCritical`). There are high-severity advisories outstanding today
  *     that CI prints and ignores.
@@ -1484,7 +1486,9 @@ export const MECHANICAL_COVERAGE_NOTE = [
   "  browser visual + interaction lane and the Postgres/Yorkie integration lane.",
   "- knip: unused files, unused exports, unused exported types.",
   "- Frontend bundle budgets: per-chunk KB and total chunk count.",
-  "- Every backticked path inside a TOP-LEVEL docs/design/*.md must resolve on disk.",
+  "- Every backticked path inside any docs/design/**.md must resolve on disk — the",
+  "  check recurses, so the nested subsystem docs are covered too, not just the",
+  "  top-level ones.",
   "- `pnpm audit`: fails the lane on a CRITICAL advisory, and on nothing below it.",
   "",
   "NOT ENFORCED BY ANYTHING — a real finding here is worth MORE than one the lanes",
@@ -1494,8 +1498,6 @@ export const MECHANICAL_COVERAGE_NOTE = [
   "- eslint over packages/backend/src. Only its architecture config runs here.",
   "- packages/core's own vitest suite. It has one; no lane invokes it. Only `tsc`",
   "  via its build runs — and sheets, docs, slides and frontend all import it.",
-  "- Broken refs in NESTED design docs. The check does not recurse, so the 81 files",
-  "  under docs/design/<topic>/ are unchecked; only the 22 top-level ones are.",
   "- `pnpm audit` findings below critical; high/moderate/low are printed and ignored.",
   "- Formatting. Prettier is write-only in this repo and no lane checks it.",
   "- Whether a passing test asserts anything. The lanes prove the suite is GREEN,",

@@ -2,7 +2,7 @@
 
 Issue: [#998](https://github.com/wafflebase/wafflebase/issues/998) — the
 "B — not in the backend either (18)" row of the capability audit in
-`docs/design/agentic-office-workflow.md` §3.
+`docs/design/agent-pipeline/agentic-office-workflow.md` §3.
 
 Class A (#999) and class A′ (#1012) are closed. Class B is the group where
 **no command could close the gap**, because the backend itself has no route:
@@ -34,7 +34,7 @@ attaches to.
 - [ ] Plan (this file) + design-doc status note. The plan half is done — this
       file. The status-note half is not, and it is the same artifact step 9
       asks for, so this box cannot be ticked until step 9 is:
-      `docs/design/agentic-office-workflow.md:215` still states in the present
+      `docs/design/agent-pipeline/agentic-office-workflow.md:215` still states in the present
       tense that there is "No comment controller under `/api/v1`", which has
       been false since #1022 merged.
 - [x] `yorkie/comment-ops.ts` (pure) + `api/v1/comments.controller.ts` —
@@ -53,7 +53,7 @@ attaches to.
       `sheets tabs delete|move|duplicate`, `sheets images`,
       `board content|set-content`; one `schema/registry.ts` entry each.
 - [x] Unit tests for every pure op + controller specs; CLI command tests.
-- [ ] Docs: `docs/design/agentic-office-workflow.md` class-B status note,
+- [ ] Docs: `docs/design/agent-pipeline/agentic-office-workflow.md` class-B status note,
       `docs/design/cli.md`, `docs/design/rest-api.md`,
       `packages/backend/README.md`, `packages/cli/README.md` if it lists
       commands.

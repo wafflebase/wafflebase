@@ -10,7 +10,7 @@
  * Docs and sheets come first deliberately, even though the hunt bridge's point
  * readers exist only for slides and board: `hunt-ui` verification supports docs
  * and sheets, so starting here is what lets a report be mechanically checked
- * end to end (`docs/design/debug-report.md`, *Engine locators*).
+ * end to end (`docs/design/agent-pipeline/debug-report.md`, *Engine locators*).
  */
 
 import type { Point, Rect, Target } from "@wafflebase/debug-report";

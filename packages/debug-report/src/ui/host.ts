@@ -7,7 +7,7 @@
  * the browser. In SP2 the backend re-hosts the same two calls, and because they
  * sit behind `HostAdapter` that is a substitution rather than a rewrite.
  *
- * Design: `docs/design/debug-report.md`, *The `HostAdapter` seam*.
+ * Design: `docs/design/agent-pipeline/debug-report.md`, *The `HostAdapter` seam*.
  */
 
 import type {

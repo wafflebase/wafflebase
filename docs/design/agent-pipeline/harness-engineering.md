@@ -797,7 +797,7 @@ along with the trigger.
 
 Enabling the queue is a repository-admin setting, not a workflow change; the
 runbook and recommended parameters live in
-[MAINTAINING.md](../../MAINTAINING.md#merge-queue).
+[MAINTAINING.md](../../../MAINTAINING.md#merge-queue).
 
 ## Dependency Layering
 

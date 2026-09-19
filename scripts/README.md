@@ -4,7 +4,7 @@ Repository automation: the verification harness, the task-doc tooling, the
 agent pipeline, and the git hooks. Nothing here is published — these run from
 root `package.json` scripts, `.github/workflows/ci.yml`, or `.githooks/`.
 
-Design: [harness-engineering.md](../docs/design/harness-engineering.md).
+Design: [harness-engineering.md](../docs/design/agent-pipeline/harness-engineering.md).
 
 ## Verification harness
 

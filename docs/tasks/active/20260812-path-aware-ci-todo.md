@@ -1,6 +1,6 @@
 # Path-Aware CI + Deploy Gate — Task Tracking
 
-Design doc: [harness-engineering.md](../../design/harness-engineering.md)
+Design doc: [harness-engineering.md](../../design/agent-pipeline/harness-engineering.md)
 (Lane Contract / CI Contract / Deploy gate sections)
 
 Problem: every PR pays the full ~15 min suite regardless of what changed, and
@@ -250,14 +250,14 @@ skips both heavy jobs.
   mistakes, not a hostile author, because the code deciding `ciConfig` is the code
   under review. Fixing it means resolving from the base branch in the `changes`
   job — the pattern `ci-report.yml` now uses for the label. Recorded in
-  `docs/design/harness-engineering.md` and Phase 5 below rather than folded in here.
+  `docs/design/agent-pipeline/harness-engineering.md` and Phase 5 below rather than folded in here.
 
 ## Phase 5: Deferred
 
 - [ ] 5.0 Run the `changes` job's resolver from the **base** branch, not the PR's
       tree, so a reduced run is trustworthy against a hostile branch and not only
       an honest one. See the "cannot grade its own homework" scope note in
-      `docs/design/harness-engineering.md`.
+      `docs/design/agent-pipeline/harness-engineering.md`.
 
 - [ ] 5.1 Tighten `verify-browser` / `verify-integration` to per-package reverse
       closure. v1 keeps `packages/**` ⇒ both, on purpose (see lessons).

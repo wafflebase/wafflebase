@@ -26,7 +26,7 @@ a PR or files it as an issue. Every outcome comes back to the same panel.
 
 This is the generalisation of the agent loop originally planned as the design
 editor's Phase 4. The design editor becomes a second `HostAdapter` host
-(see [design-editor-local-plugin.md](design-editor/design-editor-local-plugin.md))
+(see [design-editor-local-plugin.md](../design-editor/design-editor-local-plugin.md))
 rather than the only one, and the harness side of the loop is
 [harness-engineering.md](harness-engineering.md) Phase 32.
 
@@ -567,7 +567,7 @@ person rejects. There is no privileged action for a prompt injection to reach,
 which is what makes it acceptable. In development the Vite plugin reads the
 developer's key **in the dev-server process only** — it never reaches the
 browser, per the rule already stated in
-[design-editor-local-plugin.md](design-editor/design-editor-local-plugin.md).
+[design-editor-local-plugin.md](../design-editor/design-editor-local-plugin.md).
 
 It runs on `@anthropic-ai/claude-agent-sdk` with the pooled
 `CLAUDE_CODE_OAUTH_TOKEN` — **one credential currency for every model call in this

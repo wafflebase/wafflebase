@@ -1,9 +1,7 @@
 ---
-title: agentic-dev-loop
+title: agent-pipeline
 target-version: 0.6.7
 ---
-
-<!-- Make sure to append document link in design README.md after creating the document. -->
 
 # The Agentic Dev Loop
 
@@ -36,9 +34,9 @@ be run, and how. Name the gaps, including the one subsystem with no design doc.
 **Non-Goals.** Restating any component's design — every row in the map names where
 its design lives, and that is the point of the row. Being a changelog: the timeline
 records first, last and count per component, not commits. The human contributor's
-workflow, which is [`CONTRIBUTING.md`](../../CONTRIBUTING.md). And operating
+workflow, which is [`CONTRIBUTING.md`](../../../CONTRIBUTING.md). And operating
 detail: [`hunter-usage.md`](hunter-usage.md) and
-[`design-editor-running.md`](design-editor/design-editor-running.md) are the
+[`design-editor-running.md`](../design-editor/design-editor-running.md) are the
 operator guides.
 
 ## Proposal Details
@@ -51,12 +49,12 @@ operator guides.
 | UI hunter | `/hunt-ui` — `.claude/commands/hunt-ui.md` | `scripts/agent/hunt-ui.mjs`, personas in `scripts/agent/charters-ui/` | [`hunter-usage.md`](hunter-usage.md) + harness Phase 31 |
 | Issue → PR | `@claude fix` on an **issue** | `.github/workflows/agent-implement.yml`, verb parsed by `scripts/agent/command.mjs` | harness Phase 24 |
 | Spec → PR | `/spec-to-pr` — `.claude/commands/spec-to-pr.md` | `scripts/agent/spec-to-pr.mjs` | harness Phase 25 |
-| Design → code | `pnpm design`, then `pnpm design-pr` | `scripts/design.mjs`, `scripts/design-pr.mjs`, `packages/design-editor`, `packages/design-sandbox` | [`design-editor-local-plugin.md`](design-editor/design-editor-local-plugin.md) — start there |
+| Design → code | `pnpm design`, then `pnpm design-pr` | `scripts/design.mjs`, `scripts/design-pr.mjs`, `packages/design-editor`, `packages/design-sandbox` | [`design-editor-local-plugin.md`](../design-editor/design-editor-local-plugin.md) — start there |
 | Debug reporter | `Mod+Shift+Y` in the running app, then `/report-intake` | `packages/debug-report`, `scripts/agent/report-intake.mjs` and its siblings | [`debug-report.md`](debug-report.md) + harness Phase 32 |
 | Review panel | automatic on an `agent/` branch; `@claude review` on demand | `.github/workflows/agent-review-panel.yml`, `scripts/agent/review-panel.mjs` | harness Phases 24, 27, 28, 29 |
 | Self review | `/self-review` — `.claude/commands/self-review.md` | `scripts/agent/spec-to-pr.mjs review` (the same panel, locally) | this doc, §1.1 |
 | Fix agent | `@claude fix` on a **PR**; also automatic within a panel round | `.github/workflows/agent-fix.yml`, `scripts/agent/fix-eligible.mjs` | harness Phase 30 |
-| Eval / benchmark | `eval-replay` and `eval-score`, dispatch only | `scripts/agent/eval/` | **none** — see §4 |
+| Eval / benchmark | `eval-replay` and `eval-score`, dispatch only | `scripts/agent/eval/` | **none** — see §4.1 |
 
 #### 1.1 The panel is opt-in, and most PRs do not opt in
 
@@ -133,11 +131,9 @@ a model, so most of the work is in the apparatus that decides whether to believe
 copy, and then brought back. Commits in that window are mostly about the move rather
 than about behaviour.
 
----
+### 4. The agent pipeline
 
-## The agent pipeline
-
-### The shared back half
+#### The shared back half
 
 Every channel converges on the same machinery:
 
@@ -178,7 +174,7 @@ Four facts about it are load-bearing and easy to get wrong:
 - **A paged PR needs `@claude rerun`.** Pushing a commit is not enough; the latch is
   deliberate.
 
-### The `@claude` verbs
+#### The `@claude` verbs
 
 **`@claude fix` reaches two different workflows and never both.**
 `.github/workflows/agent-implement.yml` gates on `!github.event.issue.pull_request`;
@@ -196,11 +192,11 @@ loop.
 | `@claude loop` | a PR | `agent-loop.yml` — opt into the autonomous machinery, same-repo only |
 | `@claude rerun` | a PR | `agent-rerun.yml` — clear the paged latch and re-engage |
 
-[`CONTRIBUTING.md`](../../CONTRIBUTING.md) documents these for contributors, but its
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) documents these for contributors, but its
 table omits `@claude fix` on a pull request and `@claude rerun` entirely, even though
 `scripts/agent/command.mjs` recognises both.
 
-### The hunters
+#### The hunters
 
 Two slash commands, and the only components here that generate their own candidates.
 A model proposes what might be broken; trusted script code runs the probe, replays it
@@ -211,7 +207,7 @@ output is a local report.
 prerequisites, what a run costs, how often a run finds nothing, and how to read what
 comes back.
 
-### The debug reporter
+#### The debug reporter
 
 The channel for a defect a *person* noticed, so it runs inside the app rather than
 from a terminal. The DEV-only harness routes need no login and no backend:
@@ -226,7 +222,7 @@ leaves the browser until a batch is confirmed in the preview panel. `/report-int
 then takes that confirmed bundle through verification and PR assembly — and opens
 nothing on its own, so reading its plan is a step, not a formality.
 
-### What has no design doc
+#### 4.1 What has no design doc
 
 **The eval / benchmark rig.** `scripts/agent/eval/` replays a frozen corpus of past
 pull requests through the real review panel K times and scores the result — volume
@@ -241,9 +237,7 @@ operator's guide — what to type, what it costs, how to read the report — not
 of intent. The reasoning still lives in `scripts/agent/eval/README.md`, and the spec
 its scorers cite by section number lives in a separate repository, not in this tree.
 
----
-
-## Design → code
+### 5. Design → code
 
 The editor renders this application's **real** routes from real component source, and
 writes edits back into the `.tsx` and design-token files they came from. It is the
@@ -281,13 +275,13 @@ scene when the hotkey is pressed — `design-editor-running.md` §5 explains why
 editor's own chrome is not reportable this way.
 
 Design starts at
-[`design-editor-local-plugin.md`](design-editor/design-editor-local-plugin.md);
-[`design-editor-running.md`](design-editor/design-editor-running.md) is the operator's
+[`design-editor-local-plugin.md`](../design-editor/design-editor-local-plugin.md);
+[`design-editor-running.md`](../design-editor/design-editor-running.md) is the operator's
 guide for when it boots but shows the wrong thing.
 
-## Walkthroughs you can open
+### 6. Walkthroughs you can open
 
-`docs/design/agentic-dev-loop/` holds two standalone HTML pages covering the **design
+`docs/design/agent-pipeline/walkthrough/` holds two standalone HTML pages covering the **design
 editor and the debug reporter** in more depth than the map above — one explaining what
 each does and why it is built that way, one a step-by-step to follow while running
 them. Both are in Korean.
@@ -296,7 +290,7 @@ Serve the repository root, so the screenshot the first page references resolves:
 
 ```bash
 python3 -m http.server 8080
-# → http://localhost:8080/docs/design/agentic-dev-loop/
+# → http://localhost:8080/docs/design/agent-pipeline/walkthrough/
 ```
 
 Opening the files directly with `file://` works too.
@@ -305,11 +299,11 @@ Opening the files directly with `file://` works too.
 
 **The eval rig is undocumented where it matters.** Anyone changing a scorer works
 from `scripts/agent/eval/README.md` and a spec in another repository, with no design
-doc to check an intent against. *Mitigation:* none yet — §"What has no design doc"
+doc to check an intent against. *Mitigation:* none yet — §4.1
 states it so the gap is findable rather than discovered by surprise.
 
 **Two verb tables can disagree.** The table above is complete;
-[`CONTRIBUTING.md`](../../CONTRIBUTING.md)'s is not. Two tables covering the same
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md)'s is not. Two tables covering the same
 surface is the condition for one of them being trusted wrongly. *Mitigation:*
 recorded here rather than silently left; reconciling `CONTRIBUTING.md` is deliberately
 out of scope for this document.

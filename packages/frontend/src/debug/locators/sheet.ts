@@ -12,7 +12,7 @@
  * and freeze panes. Getting any of those wrong here would fail SILENTLY — a
  * report naming the wrong cell reads exactly like a report naming the right one.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import { toSref, type Ref } from "@wafflebase/sheets";
