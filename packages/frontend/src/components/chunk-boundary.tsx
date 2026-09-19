@@ -27,6 +27,20 @@ import { isChunkLoadError } from "@/lib/chunk-load-error";
  * `render`, which propagates it to the root boundary exactly as before — a
  * panel with a real bug in it must still reach the crash page and Sentry,
  * not be swallowed into a toast.
+ *
+ * ## Where NOT to use it
+ *
+ * Wrap a PANEL, never a whole view. Containment here means rendering nothing
+ * in the children's place, which is right for a side panel and wrong for the
+ * editor itself: the six mounts whose fallback is a full-page `<Loader />` —
+ * `SheetView`, and the shared-document views — stay on plain `Suspense`
+ * precisely so a failure there still reaches the root boundary, where the user
+ * gets an explanation and a button instead of a blank page and a toast.
+ *
+ * The error state does not reset, which is deliberate rather than an
+ * omission: `React.lazy` caches a rejected payload, so remounting the same
+ * child would fail identically. There is no in-place retry to offer, and the
+ * toast says so.
  */
 
 interface Props {

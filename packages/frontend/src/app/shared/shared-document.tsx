@@ -3,9 +3,8 @@ import {
   isJumpableSheetTab,
   type UndoJumpTarget,
 } from "@/app/spreadsheet/undo-jump";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
-import { ChunkBoundary } from "@/components/chunk-boundary";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, useDocument } from "@yorkie-js/react";
@@ -321,7 +320,7 @@ function SharedDocumentLayout({
       </header>
       <div className="flex flex-1 flex-col">
         <div className="flex flex-1 flex-col">
-          <ChunkBoundary fallback={<Loader />}>
+          <Suspense fallback={<Loader />}>
             {activeTab?.type === "datasource" ? (
               <DataSourceView tabId={activeTabId} readOnly={readOnly} />
             ) : activeTab?.type === "lakehouse" ? (
@@ -335,7 +334,7 @@ function SharedDocumentLayout({
                 onUndoJump={handleUndoJump}
               />
             )}
-          </ChunkBoundary>
+          </Suspense>
         </div>
         <div className="flex items-center border-t bg-muted/30 px-1 h-9 shrink-0 overflow-x-auto">
           {tabs.map((tab) => (
@@ -446,9 +445,9 @@ function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
         <UserPresence />
       </header>
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <ChunkBoundary fallback={<Loader />}>
+        <Suspense fallback={<Loader />}>
           <BoardView documentId={resolved.documentId} readOnly={readOnly} />
-        </ChunkBoundary>
+        </Suspense>
       </div>
     </div>
   );
@@ -529,7 +528,7 @@ function SharedDesktopSlidesLayout({
         <UserPresence />
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        <ChunkBoundary fallback={<Loader />}>
+        <Suspense fallback={<Loader />}>
           {!readOnly && (
             <SlidesToolbar
               editor={editor}
@@ -582,7 +581,7 @@ function SharedDesktopSlidesLayout({
               />
             )}
           </div>
-        </ChunkBoundary>
+        </Suspense>
       </div>
     </div>
   );
@@ -655,7 +654,7 @@ function SharedMobileSlidesLayout({
         <UserPresence />
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        <ChunkBoundary fallback={<Loader />}>
+        <Suspense fallback={<Loader />}>
           {!readOnly && (
             <SlidesToolbar
               editor={editor}
@@ -681,7 +680,7 @@ function SharedMobileSlidesLayout({
             onEditorReady={setEditor}
             onStoreReady={setStore}
           />
-        </ChunkBoundary>
+        </Suspense>
       </div>
       {!readOnly && (
         <Sheet
@@ -700,7 +699,7 @@ function SharedMobileSlidesLayout({
                 {panelMeta?.description}
               </SheetDescription>
             </SheetHeader>
-            <ChunkBoundary fallback={<Loader />}>
+            <Suspense fallback={<Loader />}>
               {rightPanel === "theme" && store && (
                 <ThemePanel
                   variant="sheet"
@@ -725,7 +724,7 @@ function SharedMobileSlidesLayout({
                   onClose={() => setRightPanel(null)}
                 />
               )}
-            </ChunkBoundary>
+            </Suspense>
           </SheetContent>
         </Sheet>
       )}

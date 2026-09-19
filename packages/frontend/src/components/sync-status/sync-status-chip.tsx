@@ -8,7 +8,7 @@ import {
 } from '@tabler/icons-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigationGuard } from '@/components/navigation-guard/use-navigation-guard';
-import { registerUnsavedWorkProbe } from '@/lib/unsaved-work';
+import { useUnsavedWorkProbe } from './use-unsaved-work-probe';
 import { cn } from '@/lib/utils';
 import { useSyncStatus } from './use-sync-status';
 import type { SyncState } from './sync-state';
@@ -107,12 +107,9 @@ export function SyncStatusChip({ className }: { className?: string }) {
   // chunk-load recovery in `lib/lazy-with-retry.ts` reloads the document to
   // replace a module the browser would not fetch, and iOS — the platform the
   // failure was reported from — routinely ignores `beforeunload` entirely, so
-  // that reload would take the queued edits with it and show no prompt. The
-  // probe lets it ask the same question first and decline instead.
-  useEffect(() => {
-    if (!mayHaveUnsent) return;
-    return registerUnsavedWorkProbe(hasUnsentEdits);
-  }, [mayHaveUnsent, hasUnsentEdits]);
+  // that reload would take the queued edits with it and show no prompt. Shared
+  // with the headless probe `/f/:id` mounts, which has no chip to hang it on.
+  useUnsavedWorkProbe();
 
   // `beforeunload` does not fire for a route change, and a route change is the
   // *more common* way to leave an editor: one click on a sidebar link unmounts

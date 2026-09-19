@@ -254,6 +254,23 @@ describe("loadWithRetry", () => {
     expect(env.reloads).toBe(2);
   });
 
+  it("re-asks about unsaved work immediately before navigating", async () => {
+    // `canReload` runs up to two and a half seconds earlier — the backoff,
+    // then the Sentry flush — and the user is typing throughout. A decision
+    // taken before an edit must not discard it.
+    let unsaved = false;
+    const importer = vi.fn().mockRejectedValue(chunkError());
+    const env = testEnv({
+      hasUnsavedWork: () => unsaved,
+      report: async () => {
+        unsaved = true; // the user typed during the flush window
+      },
+    });
+
+    await expect(loadWithRetry(importer, env)).rejects.toThrow(WEBKIT);
+    expect(env.reloads).toBe(0);
+  });
+
   it("does not reload while a document has unsent edits", async () => {
     const importer = vi.fn().mockRejectedValue(chunkError());
     const env = testEnv({ hasUnsavedWork: () => true });

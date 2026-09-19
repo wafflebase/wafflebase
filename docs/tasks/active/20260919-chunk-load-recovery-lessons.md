@@ -135,4 +135,41 @@ anything under `packages/frontend/src/app/*-detail.tsx`.
   `verify:frontend:chunks`, which the module graph predicted would not move
   (`lazy-with-retry.ts` is statically imported by `App.tsx`, so it lands in the
   entry chunk).
-- **Round 3** (security, docs): _pending._
+- **Round 3** (security, docs): the round-2 dispute held — the adjudicator
+  accepted it and the "declining the reload still loses the work" finding did
+  not come back. 12 new blocking findings, almost all against code round 2
+  added, which is the loop working as intended.
+
+  The one that mattered: **`beforeSend` runs for ERROR events only.**
+  `browserTracingIntegration` emits a pageload and a navigation TRANSACTION
+  per route, carrying the same `/shared/<token>` in `request.url` and in the
+  transaction NAME, and those go out through `beforeSendTransaction`. The
+  round-2 scrubber was bypassed by every sampled transaction at the default
+  `tracesSampleRate: 0.1`. Both hooks are installed now, the `Referer` header
+  (filled from `document.referrer`, so it carries the token into the *next*
+  page's events) is redacted, prefix matching is case- and
+  percent-encoding-insensitive because React Router matches paths
+  case-insensitively, and the same helper now covers the Google Analytics
+  `page_path`/`page_location`, which leaked identically.
+
+  Also fixed: `ChunkBoundary` was applied to six whole-VIEW mounts
+  (`SheetView`, the shared-document views) whose fallback is a full-page
+  loader — containment there means a blank page, so those went back to plain
+  `Suspense` and reach the root boundary as they should; the unsaved-work
+  guard was evaluated up to ~2.5s before the navigation (backoff + Sentry
+  flush) and is now re-asked immediately before `reload()`; `/f/:id` mounts a
+  real Yorkie document for PDF comments but `FileShell` renders `SiteHeader`
+  *above* the provider, so no chip and no probe could exist there — a headless
+  `UnsavedWorkProbe` now sits inside it; and `scrubCapabilityTokens` plus the
+  upload-queue probe both got the tests they were missing.
+
+  `pnpm verify:fast` green.
+
+## Where this stopped
+
+The loop hit its bound: three rounds, the third still blocking. Per the
+command's own rule that is where it stops and a human takes over — not a
+fourth round. Round 3's findings are all fixed rather than deferred, but they
+have had no review pass of their own, and that is the specific thing a
+reviewer should look at first. The PR body names it.
+

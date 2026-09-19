@@ -87,7 +87,14 @@ function initClient(origin: string, dsn: string): void {
     // Left at the default. Request bodies on this backend carry document
     // content, so turning PII on needs a policy for those first.
     sendDefaultPii: false,
+    // BOTH hooks, and that is the whole point. `beforeSend` runs for error
+    // events only; `browserTracingIntegration` two options up emits pageload
+    // and navigation TRANSACTIONS, which carry the same URL and go out through
+    // `beforeSendTransaction`. Installing one without the other leaves the
+    // token on every sampled transaction — and `tracesSampleRate` defaults to
+    // 0.1, so that is a normal deployment, not an edge case.
     beforeSend: scrubCapabilityTokens,
+    beforeSendTransaction: scrubCapabilityTokens,
   });
 }
 
@@ -95,21 +102,39 @@ function initClient(origin: string, dsn: string): void {
  * Strips share/invite/template tokens out of every event before it is sent.
  *
  * `sendDefaultPii: false` does NOT cover this — it governs IPs, cookies and
- * headers, while the browser SDK attaches `location.href` unconditionally. On
- * a deployment with a DSN set, every error raised while a user is on
- * `/shared/<token>` therefore hands that token, which is the whole credential,
- * to a third party that retains and indexes it.
+ * session data, while the browser SDK attaches `location.href` (and a
+ * `Referer` taken from `document.referrer`) unconditionally. On a deployment
+ * with a DSN set, every event raised while a user is on `/shared/<token>`
+ * therefore hands that token, which is the whole credential, to a third party
+ * that retains and indexes it.
  *
- * Applied at `beforeSend` rather than at each capture site so it covers what
- * the SDK sends on its own — global handlers, breadcrumbs, navigation spans —
- * not just the places this codebase calls `captureException`.
+ * Applied at the send hooks rather than at each capture site, so it covers
+ * what the SDK sends on its own — global handlers, breadcrumbs, navigation
+ * transactions — not just the places this codebase calls `captureException`.
+ *
+ * Exported for the tests: the hooks are where this has to be right, and
+ * testing only the pure helper would prove nothing about which fields are
+ * actually reached.
  */
-function scrubCapabilityTokens(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
+export function scrubCapabilityTokens<T extends Sentry.Event>(event: T): T {
   if (event.request?.url) {
     event.request.url = redactCapabilityTokens(event.request.url);
   }
 
-  // The route, which for `/shared/:token` is the raw path.
+  // `Referer` is filled from `document.referrer`, so navigating from a share
+  // link to anywhere else carries the token into the NEXT page's events.
+  // Header names arrive in whatever case the SDK used, so match loosely.
+  const headers = event.request?.headers;
+  if (headers) {
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === "referer" || name.toLowerCase() === "referrer") {
+        headers[name] = redactCapabilityTokens(headers[name]);
+      }
+    }
+  }
+
+  // The route. For `/shared/:token` this is the raw path, and on a transaction
+  // event it is the transaction's NAME — the thing the Sentry UI groups by.
   if (event.transaction) {
     event.transaction = redactCapabilityTokens(event.transaction);
   }

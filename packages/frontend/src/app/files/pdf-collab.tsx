@@ -36,6 +36,7 @@ import type {
 } from '@/types/comments.ts';
 import { fileUrl } from '@/api/files.ts';
 import { CollabDocumentProvider } from '@/components/collab-document-provider';
+import { UnsavedWorkProbe } from '@/components/sync-status/unsaved-work-probe';
 
 export type PdfPresenceUser = {
   username: string;
@@ -213,6 +214,14 @@ export function PdfCollabProvider({
       initialPresence={presence}
       enableDevtools={import.meta.env.DEV}
     >
+      {/* This route attaches a real Yorkie document for comments and
+          annotations, but `FileShell` renders `SiteHeader` — and so
+          `SyncStatusChip` — above this provider, where `useSyncStatus` has
+          nothing to read. Without a probe here, the chunk-load recovery in
+          `lib/lazy-with-retry.ts` would see an empty registry and reload a
+          page holding unsent comment edits. Headless: no chip, just the
+          answer. */}
+      <UnsavedWorkProbe />
       <PdfCollabStateProvider
         documentId={documentId}
         readOnly={readOnly}

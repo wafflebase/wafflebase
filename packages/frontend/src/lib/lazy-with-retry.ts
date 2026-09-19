@@ -218,6 +218,14 @@ export async function loadWithRetry<T>(
         // Best-effort. Reporting must never cost the user the reload, and the
         // budget for that reload has already been spent.
       }
+      // Asked AGAIN, immediately before the navigation. `canReload` ran up to
+      // two and a half seconds ago — the backoff, then the Sentry flush — and
+      // this is a page the user has been typing into all along. Anything they
+      // queued during that window would otherwise be discarded by a decision
+      // taken before they typed it. The rate-limit stamp stays spent, which is
+      // the safe direction: a skipped reload costs one error screen.
+      if (env.hasUnsavedWork()) throw error;
+
       try {
         env.reload();
         // Holds the tree on its Suspense fallback while the document is

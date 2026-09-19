@@ -15,7 +15,13 @@
  * `beforeSend` on every event.
  */
 
-/** Replaces the segment AFTER each of these with a placeholder. */
+/**
+ * Replaces the segment AFTER each of these with a placeholder.
+ *
+ * Compared case-INSENSITIVELY. React Router matches paths case-insensitively
+ * by default, so `/Shared/<token>` renders the share route and works; a
+ * case-sensitive check here would render it and still ship the token.
+ */
 const CAPABILITY_PREFIXES = ["shared", "invite", "t"];
 
 /** Query parameters that carry a capability rather than a preference. */
@@ -35,6 +41,15 @@ const PLACEHOLDER = "__redacted__";
  * those — by parsing against a throwaway base and re-emitting only what came
  * in.
  */
+/** `%73hared` is `shared`. Undecodable input is compared as it arrived. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function redactCapabilityTokens(url: string): string {
   if (!url) return url;
 
@@ -48,15 +63,16 @@ export function redactCapabilityTokens(url: string): string {
 
   const segments = parsed.pathname.split("/");
   for (let i = 0; i < segments.length - 1; i += 1) {
-    if (CAPABILITY_PREFIXES.includes(segments[i]) && segments[i + 1]) {
+    const prefix = decodeSegment(segments[i]).toLowerCase();
+    if (CAPABILITY_PREFIXES.includes(prefix) && segments[i + 1]) {
       segments[i + 1] = PLACEHOLDER;
     }
   }
   parsed.pathname = segments.join("/");
 
-  for (const param of CAPABILITY_PARAMS) {
-    if (parsed.searchParams.has(param)) {
-      parsed.searchParams.set(param, PLACEHOLDER);
+  for (const [name] of [...parsed.searchParams]) {
+    if (CAPABILITY_PARAMS.includes(name.toLowerCase())) {
+      parsed.searchParams.set(name, PLACEHOLDER);
     }
   }
 

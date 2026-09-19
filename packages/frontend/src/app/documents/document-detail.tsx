@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   useMemo,
+  Suspense,
 } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
@@ -743,7 +744,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           >
             <div className="@container/main flex flex-1 flex-col gap-2">
               <div className="relative flex flex-col h-full">
-                <ChunkBoundary fallback={<Loader />}>
+                <Suspense fallback={<Loader />}>
                   {!ready || !activeTabId ? (
                     <Loader />
                   ) : activeTab?.type === "datasource" ? (
@@ -770,7 +771,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                       onToggleCommentsPanel={() => setCommentsPanelOpen((v) => !v)}
                     />
                   )}
-                </ChunkBoundary>
+                </Suspense>
               </div>
             </div>
             {ready && activeTabId && (

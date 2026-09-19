@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as q from "@/app/documents/upload-queue";
+import { hasUnsavedWork } from "@/lib/unsaved-work";
 
 function file(name: string, size = 1): File {
   return new File([new Uint8Array(size)], name);
@@ -120,5 +121,48 @@ describe("upload-queue store", () => {
     expect(remainingIds).toEqual(
       expect.arrayContaining([pending.id, uploading.id, errored.id]),
     );
+  });
+});
+
+/**
+ * The queue is also an answer to "would replacing this page lose something?",
+ * asked by the chunk-load recovery in `lib/lazy-with-retry.ts`. An upload in
+ * flight exists only in this tab: the bytes come from a `File` handle the
+ * browser hands over once, and a reload cannot ask for it back.
+ */
+describe("upload-queue unsaved-work probe", () => {
+  beforeEach(() => q.__resetForTest());
+
+  it("reports nothing at risk with an empty queue", () => {
+    expect(hasUnsavedWork()).toBe(false);
+  });
+
+  it("reports work at risk while a file is still pending", () => {
+    q.enqueue([file("a.xlsx")], "ws1");
+
+    expect(hasUnsavedWork()).toBe(true);
+  });
+
+  it("reports work at risk while a file is uploading", () => {
+    const [item] = q.enqueue([file("a.xlsx")], "ws1");
+    q.patchItem(item.id, { status: "uploading" });
+
+    expect(hasUnsavedWork()).toBe(true);
+  });
+
+  it("stops reporting once every file has finished", () => {
+    const [item] = q.enqueue([file("a.xlsx")], "ws1");
+    q.patchItem(item.id, { status: "done" });
+
+    expect(hasUnsavedWork()).toBe(false);
+  });
+
+  it("does not count a failed upload as work at risk", () => {
+    // An errored row is still on screen with a Retry button, but its bytes
+    // are not mid-flight and a reload costs nothing that is not already lost.
+    const [item] = q.enqueue([file("a.xlsx")], "ws1");
+    q.patchItem(item.id, { status: "error", reason: "network" });
+
+    expect(hasUnsavedWork()).toBe(false);
   });
 });
