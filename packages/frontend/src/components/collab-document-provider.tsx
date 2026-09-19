@@ -288,10 +288,21 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   // Why this document is *not* on disk, for the chip's tooltip to name. The
   // durable client publishes its own reasons over the top of this one; these
   // are the ones only the call site knows.
-  const lapse: DurabilityLapse | undefined = decided?.durable
-    ? undefined
-    : !supportsClientKey()
-      ? "unsupported"
+  //
+  // A build that cannot carry a client key publishes **no** reason at all, and
+  // that is the difference between a dark launch and a regression. Until the
+  // dependency is bumped `supportsClientKey()` is false on every render of
+  // every document (`packages/frontend/package.json` pins `@yorkie-js/react`
+  // below `MinClientKeyVersion`), so a lapse here would reach every user's
+  // `Not saved` tooltip — telling them "this browser cannot save documents
+  // locally", which is both a sentence about a feature they were never offered
+  // and a dependency pin of ours reported as a fault of their browser. No
+  // lapse means the tooltip reads exactly as it did before this feature
+  // existed, which is what "nothing changes for anyone until they opt in"
+  // requires.
+  const lapse: DurabilityLapse | undefined =
+    decided?.durable || !supportsClientKey()
+      ? undefined
       : !permitted
         ? "not-permitted"
         : !offlineEnabled

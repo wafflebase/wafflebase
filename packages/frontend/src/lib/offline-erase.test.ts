@@ -520,7 +520,8 @@ describe("access somebody else ended", () => {
   it("drops what the server no longer lists, archives included", async () => {
     // Recovery turns an archive into a whole new document, so one that
     // survives a revoked membership is a permanent copy of content the user
-    // may no longer read.
+    // may no longer read. `isRevoked` is what says that is the case here
+    // rather than the other one — see the deletion case below.
     const store = new WafflebaseDocStore({ userId: "revoked-1" });
     await seed(store, "pk/wb:1:sheet-gone/sheet-gone");
     await seed(store, "pk/wb:1:sheet-kept/sheet-kept");
@@ -529,11 +530,61 @@ describe("access somebody else ended", () => {
     await seed(store, "pk/wb:1:sheet-gone/sheet-gone");
     rememberOfflineUser("revoked-1");
 
-    expect(await purgeRevokedOfflineDocuments(["kept"])).toBe(1);
+    expect(
+      await purgeRevokedOfflineDocuments(["kept"], { isRevoked: () => true }),
+    ).toBe(1);
 
     expect(await store.load("pk/wb:1:sheet-gone/sheet-gone")).toBeUndefined();
     expect(await store.load("pk/wb:1:sheet-kept/sheet-kept")).toBeDefined();
     expect(await store.listArchives()).toEqual([]);
+  });
+
+  it("keeps the archive of a document that was merely deleted", async () => {
+    // The reconcile ran one step before the recovery offer and destroyed
+    // exactly what the offer exists to hand back. "The document was deleted or
+    // GC'd upstream" is one of the three causes of an archive, so a deleted
+    // document is missing from `GET /documents` *because the archive's own
+    // cause happened* — absence is therefore evidence of nothing, and only a
+    // positive "it is still there and you may not read it" may drop one.
+    const store = new WafflebaseDocStore({ userId: "revoked-9" });
+    await seed(store, "pk/wb:1:sheet-deleted/sheet-deleted");
+    store.expectLoss("pk/wb:1:sheet-deleted/sheet-deleted");
+    await store.remove("pk/wb:1:sheet-deleted/sheet-deleted");
+    rememberOfflineUser("revoked-9");
+
+    // A 404: gone upstream, not revoked.
+    await purgeRevokedOfflineDocuments(["kept"], { isRevoked: () => false });
+
+    expect(await store.listArchives()).toHaveLength(1);
+  });
+
+  it("keeps the archive when nothing can say which case it is", async () => {
+    // With no way to tell the two apart, the direction that deletes is the
+    // unrecoverable one. A kept archive is still bounded by the thirty-day
+    // collection and refused by recovery's own check.
+    const store = new WafflebaseDocStore({ userId: "revoked-10" });
+    await seed(store, "pk/wb:1:sheet-unknown/sheet-unknown");
+    store.expectLoss("pk/wb:1:sheet-unknown/sheet-unknown");
+    await store.remove("pk/wb:1:sheet-unknown/sheet-unknown");
+    rememberOfflineUser("revoked-10");
+
+    await purgeRevokedOfflineDocuments(["kept"]);
+
+    expect(await store.listArchives()).toHaveLength(1);
+  });
+
+  it("asks only about documents that actually hold an archive", async () => {
+    // The question costs a request each. The ordinary reconcile has no archive
+    // at all, so it must cost none.
+    const store = new WafflebaseDocStore({ userId: "revoked-11" });
+    await seed(store, "pk/wb:1:sheet-plain/sheet-plain");
+    rememberOfflineUser("revoked-11");
+
+    const isRevoked = vi.fn(() => true);
+    await purgeRevokedOfflineDocuments(["kept"], { isRevoked });
+
+    expect(isRevoked).not.toHaveBeenCalled();
+    expect(await store.load("pk/wb:1:sheet-plain/sheet-plain")).toBeUndefined();
   });
 
   it("treats an empty list as the answer it is, not as a missing one", async () => {
@@ -560,7 +611,7 @@ describe("access somebody else ended", () => {
     expect(await store.listArchives()).toHaveLength(1);
     rememberOfflineUser("revoked-6");
 
-    await purgeRevokedOfflineDocuments(["kept"]);
+    await purgeRevokedOfflineDocuments(["kept"], { isRevoked: () => true });
 
     expect(await store.listArchives()).toEqual([]);
   });
@@ -690,6 +741,46 @@ describe("a document that was deleted", () => {
     await purgeOfflineDocuments(["keep"]);
 
     expect(await store.listArchives()).toHaveLength(1);
+  });
+
+  it("takes the archives when the caller lost access rather than deleted it", async () => {
+    // `dropArchives: true` is what `deleteWorkspace` and `removeMember` pass:
+    // the documents are still there and this device may no longer hold them,
+    // so an archive — a full snapshot that recovery turns into a permanent
+    // document — must go with the live entries. Every existing assertion about
+    // this option was made against a wholesale module mock, which proves the
+    // argument was passed and nothing about what it does.
+    const store = new WafflebaseDocStore({ userId: "purge-4" });
+    await seed(store, "pk/wb:1:sheet-revoked/sheet-revoked");
+    store.expectLoss("pk/wb:1:sheet-revoked/sheet-revoked");
+    await store.remove("pk/wb:1:sheet-revoked/sheet-revoked");
+    await seed(store, "pk/wb:1:sheet-revoked/sheet-revoked");
+    rememberOfflineUser("purge-4");
+
+    await purgeOfflineDocuments(["revoked"], { dropArchives: true });
+
+    expect(await store.listArchives()).toEqual([]);
+    expect(
+      await store.load("pk/wb:1:sheet-revoked/sheet-revoked"),
+    ).toBeUndefined();
+  });
+
+  it("leaves another document's archive alone when it drops one", async () => {
+    // Scoped to the ids it was given, like every other purge here.
+    const store = new WafflebaseDocStore({ userId: "purge-5" });
+    await seed(store, "pk/wb:1:sheet-doomed/sheet-doomed");
+    store.expectLoss("pk/wb:1:sheet-doomed/sheet-doomed");
+    await store.remove("pk/wb:1:sheet-doomed/sheet-doomed");
+    await seed(store, "pk/wb:1:sheet-other/sheet-other");
+    store.expectLoss("pk/wb:1:sheet-other/sheet-other");
+    await store.remove("pk/wb:1:sheet-other/sheet-other");
+    rememberOfflineUser("purge-5");
+
+    await purgeOfflineDocuments(["doomed"], { dropArchives: true });
+
+    const left = await store.listArchives();
+    expect(left).toHaveLength(1);
+    expect(left[0].docKey).toContain("sheet-other");
   });
 
   it("does nothing while signed out", async () => {

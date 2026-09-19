@@ -5,7 +5,17 @@ import yorkie, { Document, Text } from "@yorkie-js/sdk";
 const created: Array<{ workspaceId: string; title: string; type?: string }> = [];
 
 /** Workspaces the server would list for this user, for the fallback to find. */
-let workspaces: Array<{ id: string }> = [{ id: "ws-fallback" }];
+let workspaces: Array<{ id: string; name?: string }> = [{ id: "ws-fallback" }];
+
+/**
+ * Who else is in each workspace, as `GET /workspaces/:id` would answer.
+ *
+ * The fallback destination is a *disclosure* decision — recovery creates a
+ * real document — so it prefers a workspace whose only member is this user. An
+ * id absent here answers nothing, which reads as "cannot confirm it is
+ * private".
+ */
+let members: Record<string, Array<number>> = {};
 const applied: Array<{ docId: string; content: unknown }> = [];
 
 /** Note documents are seeded through a live client; this stands in for it. */
@@ -47,6 +57,14 @@ vi.mock("@/api/workspaces", () => ({
     return Promise.resolve({ id: `new-${created.length}`, ...payload });
   },
   fetchWorkspaces: () => Promise.resolve(workspaces),
+  fetchWorkspace: (id: string) =>
+    members[id]
+      ? Promise.resolve({
+          id,
+          name: workspaces.find((w) => w.id === id)?.name ?? id,
+          members: members[id].map((userId) => ({ user: { id: userId } })),
+        })
+      : Promise.reject(new Error("no such workspace")),
 }));
 
 vi.mock("@/app/documents/apply-imported-content", () => ({
@@ -58,6 +76,7 @@ vi.mock("@/app/documents/apply-imported-content", () => ({
 
 vi.mock("@/api/auth", () => ({
   fetchYorkieToken: () => Promise.resolve("token"),
+  fetchMe: () => Promise.resolve({ id: 7, username: "me", email: "m@e" }),
 }));
 
 import { YorkieDocStore } from "@/app/docs/yorkie-doc-store";
@@ -67,6 +86,7 @@ import { listRecoverableWork } from "./offline-copy";
 import {
   describeArchivedDocument,
   recoverOfflineCopy,
+  resolveRecoveryDestination,
 } from "./offline-copy-recovery";
 
 /**
@@ -154,6 +174,7 @@ beforeEach(() => {
   applied.length = 0;
   attached.length = 0;
   workspaces = [{ id: "ws-fallback" }];
+  members = {};
 });
 
 afterEach(() => {
@@ -308,6 +329,59 @@ describe("handing the work back", () => {
 
     expect(outcome.documentId).toBe("new-1");
     expect(created[0].workspaceId).toBe("ws-fallback");
+  });
+
+  it("prefers a workspace nobody else is in over a shared one", async () => {
+    // The fallback *publishes* content: it creates a real document. Taking
+    // `fetchWorkspaces()[0]` took every workspace the user merely belongs to,
+    // so a deleted private document's full text could reappear in a team's
+    // list with nothing said. A workspace whose only member is this user is an
+    // audience of one, so it is preferred even when it is not first.
+    workspaces = [
+      { id: "ws-team", name: "Acme" },
+      { id: "ws-mine", name: "My workspace" },
+    ];
+    members = { "ws-team": [7, 8], "ws-mine": [7] };
+
+    const destination = await resolveRecoveryDestination();
+
+    expect(destination).toEqual({
+      id: "ws-mine",
+      name: "My workspace",
+      shared: false,
+    });
+  });
+
+  it("says so when the only place left is shared", async () => {
+    // Refusing would strand the work, so the copy is still offered — but the
+    // caller is told where it is going, and names it, so the click is the
+    // user's agreement rather than something they discover afterwards.
+    workspaces = [{ id: "ws-team", name: "Acme" }];
+    members = { "ws-team": [7, 8] };
+
+    expect(await resolveRecoveryDestination()).toEqual({
+      id: "ws-team",
+      name: "Acme",
+      shared: true,
+    });
+  });
+
+  it("treats an unconfirmable workspace as shared rather than private", async () => {
+    // `fetchWorkspace` failing says nothing about who is in it, and the only
+    // safe reading of "I do not know" here is the one that makes the caller
+    // name the destination.
+    workspaces = [{ id: "ws-unknown", name: "Somewhere" }];
+
+    expect((await resolveRecoveryDestination()).shared).toBe(true);
+  });
+
+  it("exposes the content to nobody new when the source workspace survives", async () => {
+    // Whoever could read the original can read the copy, so this needs no
+    // disclosure warning and costs no extra request.
+    expect(await resolveRecoveryDestination("ws-source")).toEqual({
+      id: "ws-source",
+      shared: false,
+    });
   });
 
   it("keeps the archive when there is nowhere to put the copy", async () => {

@@ -102,9 +102,16 @@ export function useDocumentDurability(): boolean {
  * being nested, its value wins.
  */
 export type DurabilityLapse =
-  /** The pinned `@yorkie-js/react` cannot carry a client key. */
-  | "unsupported"
-  /** A share link, or another subtree that must never persist. */
+  /**
+   * A share link, or another subtree that must never persist.
+   *
+   * There is deliberately no member for "this build cannot carry a client
+   * key". A build below `MinClientKeyVersion` offers the feature nowhere, so
+   * naming its absence would put a sentence about offline saving in front of
+   * every user who was never shown the option — and it would be blaming their
+   * browser for a dependency pin of ours. The chip simply reads as it did
+   * before the feature existed. See `CollabDocumentProvider`.
+   */
   | "not-permitted"
   /** Offline saving is switched off on this device. */
   | "not-enabled"

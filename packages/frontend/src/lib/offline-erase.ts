@@ -380,6 +380,21 @@ export async function retryPendingOfflineErase(): Promise<void> {
 }
 
 /**
+ * The document id inside an SDK store key.
+ *
+ * Keys are `apiKey/clientKey/docKey`, and `docKey` is type-prefixed
+ * (`sheet-<id>`) — the same two steps `WafflebaseDocStore.storedDocumentIds`
+ * applies, repeated here so the archive listing can be matched against the ids
+ * that function returns.
+ */
+function documentIdOf(storeKey: string): string {
+  const parts = storeKey.split("/");
+  const docKey = parts[parts.length - 1] || storeKey;
+  const dash = docKey.indexOf("-");
+  return dash === -1 ? docKey : docKey.slice(dash + 1);
+}
+
+/**
  * Drops whatever this device holds for documents that are gone.
  *
  * The other half of the design's cleanup table: content must not outlive the
@@ -434,10 +449,22 @@ export async function purgeOfflineDocuments(
  * The caller awaits the listing and lets a failure throw before calling at all;
  * that `catch` is the whole guard.
  *
- * Archives go with it, unlike a deletion's purge. Recovery turns an archive
- * into a whole new document, so keeping one for a workspace the user was
- * removed from would hand them a permanent copy of content they may no longer
- * read.
+ * Archives are the exception, and they need a *positive* answer rather than an
+ * absence. An archive exists for one of three reasons, and "the document was
+ * deleted or GC'd upstream" is one of them — so a deleted document is missing
+ * from this listing **because the archive's own cause happened**, and dropping
+ * on absence destroyed precisely the unsent work the recovery offer exists to
+ * hand back, one step before the offer was made. Losing *access* is the case
+ * that does have to take the archive with it: recovery materializes one as a
+ * whole new document, so an archive surviving a revoked membership is a
+ * permanent copy of content the user may no longer read.
+ *
+ * Absence cannot tell those two apart; only the server can, and only per
+ * document. So `isRevoked` is asked — once, for the ids that actually have an
+ * archive — and an archive is dropped on `true` and on nothing else. With no
+ * callback supplied, archives are kept: the unrecoverable direction is the one
+ * that deletes, and a kept archive is still bounded by the thirty-day
+ * collection and refused by recovery's own `403` check.
  *
  * Unlike every other purge here, this one deletes on an *absence* — and an
  * absence has innocent causes. The database is shared with this user's other
@@ -464,6 +491,16 @@ export async function purgeRevokedOfflineDocuments(
     listedAt?: number;
     /** Whether a document key is open in some tab right now. */
     isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
+    /**
+     * Whether the server says this document still exists and this user may no
+     * longer read it — the one fact that justifies destroying its archive.
+     *
+     * Answering `false` (or not being supplied) keeps the archive, which is
+     * the right default for the case that cannot be told apart from the
+     * outside: a document deleted upstream answers a `404`, and its archive is
+     * the work this feature promises to give back.
+     */
+    isRevoked?: (documentId: string) => Promise<boolean> | boolean;
   } = {},
 ): Promise<number> {
   const who = offlineUserId();
@@ -484,13 +521,29 @@ export async function purgeRevokedOfflineDocuments(
     // here — a full snapshot of a workspace's document, kept past the
     // revocation, and then *offered back* as a new document the removed user
     // owns.
-    const revoked = (await store.storedDocumentIds({ archives: true })).filter(
+    const unlisted = (await store.storedDocumentIds({ archives: true })).filter(
       (id) => !keep.has(id),
     );
+    // Which of them actually hold an archive, so the per-document question
+    // below is asked only where it can change the answer. The ordinary case is
+    // none at all.
+    const archived = new Set(
+      (await store.listArchives()).map((archive) =>
+        documentIdOf(archive.docKey),
+      ),
+    );
     let purged = 0;
-    for (const id of revoked) {
+    for (const id of unlisted) {
+      // `true` and nothing else. An unavailable answer, a network failure, a
+      // `404` — all of them leave the archive where it is, because the only
+      // one of those that means "this user must not keep a copy" is the one we
+      // would be guessing at.
+      const dropArchive =
+        archived.has(id) && options.isRevoked
+          ? (await options.isRevoked(id)) === true
+          : false;
       purged += await store.purgeDocument(id, {
-        archives: "drop",
+        archives: dropArchive ? "drop" : "keep",
         skipOpen: true,
         updatedSince: options.listedAt,
       });

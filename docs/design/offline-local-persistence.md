@@ -42,6 +42,32 @@ follow-up fix without which a restore could leave a document permanently unable
 to sync (yorkie-js-sdk#1355) — anything earlier in the 0.7.2x line has the
 incremental store *and* that defect, so do not pin below it.
 
+### Status: the Goals below are NOT met by what has shipped
+
+Stated here rather than only in [Rollout](#rollout), because it is the first
+thing a reader of this document needs to know and the Rollout section is the
+last place they reach.
+
+`supportsClientKey()` requires `@yorkie-js/react >= 0.7.23` — the first release
+whose `YorkieProvider` forwards a `clientKey` (React reserves `key` and strips
+it before props are formed; yorkie-js-sdk#1357 adds the alias). **That release
+does not exist yet**: npm's `latest` for `@yorkie-js/react` is `0.7.22`,
+measured 2026-09-19, and that is what `packages/frontend/package.json` pins.
+
+So on every build shipped so far the gate is closed: no durable client mounts,
+no store is ever attached, the `Saved to this device` chip state is
+unreachable, and both opt-in entry points (Settings, the chip's offer) are
+hidden. What has landed is the *wiring* — reviewed, tested, and inert. The
+feature is off for everyone, which is the safe direction but not the intended
+one, and no Goal below is delivered until the dependency is bumped.
+
+Bumping it is the whole remaining action. No code here changes with it. Until
+then, nothing in this document should be read as describing behavior a user
+can observe, and nothing that offers the feature may be moved out from behind
+`supportsClientKey()` — including the lapse reason the sync chip shows, which
+is why a build below the floor publishes no reason at all rather than one
+blaming the user's browser for our pin.
+
 ### Goals
 
 - Edits made while disconnected survive a reload or a browser crash, for every
@@ -299,10 +325,18 @@ archive with the entry.
 Access revoked by **somebody else** reaches the affected device through none of
 those rows: every one of them runs on the device of whoever made the request.
 So `OfflineRuntime` asks, once per session, for the documents this account may
-still read and drops what is not in the answer — **archives included**, and
-archives are enumerated separately because archiving deletes the header, so a
-document that hit `LocalChangesDropped` is named by no header index at all and
-would otherwise be structurally unreachable here.
+still read and drops what is not in the answer. Archives are enumerated
+alongside the live entries — archiving deletes the header, so a document that
+hit `LocalChangesDropped` is named by no header index at all and would
+otherwise be structurally unreachable here — but they are **not** dropped on
+the same evidence; see the per-document `403`/`404` question in
+[Losing work anyway](#losing-work-anyway-return-it-as-a-document).
+
+`OfflineRuntime` is mounted only where the feature is in play
+(`supportsClientKey()`, or a device whose preference outlived a rolled-back
+pin). Its effect opens the IndexedDB database and issues an unfiltered
+`GET /documents` of its own, and the promise that declining the opt-in costs
+nothing has to be kept by the housekeeping as much as by the client.
 
 A failed or partial listing must never reach the purge, since it keeps only
 what the list names. That is enforced by awaiting the listing and letting a
@@ -534,6 +568,21 @@ open" to "saved to this device" (`toast.info`, finite duration — nothing is at
 risk, so it notifies rather than alarms, and it is retracted and confirmed by
 the same recovery arm the warning uses).
 
+**Only `beforeunload`, though.** `sync-status.md` guards two different exits
+with one condition, and durability separates them. A *reload* is the case this
+state was designed for: the entry survives on disk and the next attach resumes
+from it, so prompting would warn about the loss the feature just prevented. An
+in-app *route change* is not the same event — it unmounts the
+`DocumentProvider`, which detaches, and the SDK's `detachDocument` calls
+`removeFromStore` unconditionally on its success path. The store archives a
+removal only when a `LocalChangesDropped` latched it first, which an ordinary
+detach never does, so leaving the document deletes the durable entry *and* the
+in-memory queue with it. So the navigation guard still fires on
+`saved-locally`, with wording that says what is actually about to happen:
+leaving closes the document and removes that copy. (`saved-locally` is
+reachable while connected, with the server rejecting pushes, so this is not a
+disconnected-only path.)
+
 The last row is the rule stated as machinery. `durable` is only worth anything
 if a lapse can be *reported*, and the SDK's `local-changes-dropped` /
 `persist-disabled` subscriptions are the only channel for that — `subscribe`
@@ -572,10 +621,31 @@ of deleting**, moving the envelope to a separate object store. The archived byte
 document titled `<title> (offline copy)`. This requires no SDK change at all.
 
 The copy is created in the source document's workspace — a document cannot be
-created without one — and where the source is gone (one of the three ways an
-archive comes to exist in the first place), in the first workspace the server
-still lists for the user. Handing the work back somewhere beats refusing
-because its original home was deleted.
+created without one — which exposes the content to nobody new: whoever could
+read the original can read the copy.
+
+Where the source is gone (one of the three ways an archive comes to exist in
+the first place) there is no workspace to inherit, and this is the one place
+the feature *publishes* local content. "The first workspace the server lists"
+is every workspace the user belongs to, a shared team one included, so the
+fallback prefers one the user is the **sole member** of — an audience of one,
+and therefore no disclosure. Only when there is none does it use the first, and
+then the offer names it ("Saving a copy puts them in *Acme*, which you share
+with other people") so the click is the user's agreement rather than something
+they discover afterwards in a list. Handing the work back somewhere beats
+refusing because its original home was deleted; doing it without saying where
+is what would be wrong.
+
+The session-start reconcile has to be careful in the same direction, from the
+other side. It drops what `GET /documents` no longer lists, and for live
+entries an absence is enough. For an **archive** it is not: a document deleted
+upstream is absent from that listing *because the archive's own cause
+happened*, so dropping on absence destroys precisely the unsent work the offer
+above exists to return, one step before the offer is made. Losing *access* is
+the case that must take the archive with it, and only the server can tell the
+two apart — per document, not per listing. So the reconcile asks (a `403` says
+revoked, a `404` says deleted) and drops an archive on that answer alone;
+anything else keeps it, bounded by the thirty-day collection.
 
 The user is then told what happened, in the vocabulary of the three reasons,
 with a link to the copy. Archived envelopes are subject to the same 30-day

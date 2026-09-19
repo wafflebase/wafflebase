@@ -25,9 +25,14 @@ import type { SyncState } from './sync-state';
  * is absent too — a share link was never going to be saved to the visitor's
  * device, and saying so would describe the feature to somebody who does not
  * have it.
+ *
+ * There is likewise no sentence for a build that cannot carry a client key.
+ * That is not a fault of the user's browser, it is our dependency pin, and on
+ * the pin this shipped with it would be the sentence *every* stranded user
+ * read — so no lapse is published there at all and this map has nothing to
+ * say about it. See `lib/durable-document-context.ts`.
  */
 const LAPSE_REASONS: Partial<Record<DurabilityLapse, string>> = {
-  unsupported: 'This browser cannot save documents locally.',
   'another-tab':
     'This document is open in another tab, and that tab is the one saving it to this device.',
   dropped:

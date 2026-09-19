@@ -116,3 +116,50 @@ exposure the SDK's own random per-session key already has.
 `eraseOfflineData` ends with `forgetDeviceSecret(userId)`, and
 `durable-session.test.ts` tested that function directly — so removing the call
 left every suite green. The assertion belongs where the wiring is.
+
+## Review panel, round 6 (design fit / security / correctness / test adequacy)
+
+**A dark launch that publishes a diagnosis is not dark.** The lapse the chip's
+tooltip names was computed as `!supportsClientKey() ? "unsupported" : …`, and
+the pin ships below the floor — so *every* stranded document in the product
+told its user "this browser cannot save documents locally". A dependency pin of
+ours, reported as a fault of their browser, about a feature they were never
+offered. The gate now publishes no reason at all below the floor, and the
+`unsupported` member is gone from the union rather than left for somebody to
+reuse. Generalised: the inert branch of a dark launch has to be *identical* to
+the pre-feature behaviour, not merely harmless-looking.
+
+**Absence is evidence of the cause you are looking for, not of the one you
+assumed.** The session-start reconcile dropped everything `GET /documents` no
+longer listed, archives included. But "the document was deleted or GC'd
+upstream" is one of the three causes of an archive — so a deleted document is
+missing from that listing *because the archive's own cause happened*, and the
+reconcile destroyed exactly the unsent work the recovery offer was about to
+hand back, one step before it was made. Only a per-document `403` (it exists,
+you may not read it) may drop one now; a `404` and every unclear answer keep it.
+
+**"Positional" means above the branching.** `NonDurableScope` was mounted
+inside `SharedDocumentInner`, after the `pdf` early return — so the one
+document type the design excludes *twice over* was the one type the share route
+permitted. An exclusion enforced by position has to sit where no later early
+return can step around it, which here meant moving it up to the caller.
+
+**Durable is not the same answer for a reload and for a route change.** The new
+`saved-locally` state dropped the unload guard, correctly: the entry survives a
+reload and the next attach resumes from it. It dropped the *navigation* guard
+too, which is not the same event — leaving detaches, and `detachDocument` calls
+`removeFromStore` unconditionally while the store archives only a latched loss.
+One click deleted the durable entry and the queue with it.
+
+**The fallback destination was the security hole, not the fallback.** Recovery
+with no source workspace took `fetchWorkspaces()[0]` — every workspace the user
+belongs to, a shared team one included — and republished a deleted private
+document's full content there with the user told only that a copy was saved.
+It now prefers a workspace the user is the sole member of, and where there is
+none, the offer names the destination so the click is agreement to it.
+
+**A value computed in one module and read through context in another is where
+coverage goes missing.** Every chip test injected a `DurabilityLapse` by hand,
+so the two real publishers — and which of them wins when both are mounted —
+were never exercised. Same shape as round 5's deleted call site: the seam is
+tested, the wiring is not.

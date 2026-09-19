@@ -86,6 +86,29 @@ export function OfflineRuntime({ userId }: { userId: string }) {
     const openAnywhere = (docKey: string) =>
       isOpenInAnyTab(docKey, { whenUnknown: false });
 
+    // Whether a document the listing omitted is one this user *lost access to*,
+    // as opposed to one that is simply gone. The reconcile needs the difference
+    // before it may destroy an archive: "the document was deleted or GC'd
+    // upstream" is one of the three ways an archive comes to exist, so a
+    // deleted document is absent from the listing *because the archive's own
+    // cause happened* — and dropping it there erases the unsent work the
+    // recovery offer below is about to make.
+    //
+    // Only a `403` answers yes: the document is still there and this user may
+    // not read it, which is the revoked-membership case an archive must not
+    // survive. A `404` is the opposite fact, a `200` says the listing merely
+    // raced, and anything else (a network failure, a 5xx) establishes neither
+    // — all of them keep the archive, which costs a delay and is re-asked next
+    // session.
+    const isRevoked = async (documentId: string): Promise<boolean> => {
+      try {
+        await fetchDocument(documentId);
+        return false;
+      } catch (err) {
+        return err instanceof HttpError && err.status === 403;
+      }
+    };
+
     const store = new WafflebaseDocStore({
       userId,
       isOpenElsewhere: openElsewhere,
@@ -156,7 +179,7 @@ export function OfflineRuntime({ userId }: { userId: string }) {
         if (cancelled) return;
         await purgeRevokedOfflineDocuments(
           accessible.map((doc) => doc.id),
-          { listedAt, isOpenElsewhere: openElsewhere },
+          { listedAt, isOpenElsewhere: openElsewhere, isRevoked },
         );
         reconciled = true;
       } catch (err) {
@@ -233,9 +256,11 @@ async function offerRecoverableWork(
   // engine that wrote it, so this module pulls in docs, slides, board and
   // sheets — a cost that must not be paid by every signed-in page load for a
   // path almost no session takes. See the note on the component above.
-  const { describeArchivedDocument, recoverOfflineCopy } = await import(
-    '@/lib/offline-copy-recovery'
-  );
+  const {
+    describeArchivedDocument,
+    recoverOfflineCopy,
+    resolveRecoveryDestination,
+  } = await import('@/lib/offline-copy-recovery');
 
   for (const item of work) {
     if (cancelled()) return;
@@ -277,17 +302,38 @@ async function offerRecoverableWork(
       // Deleted upstream. Keep the fallbacks.
     }
 
+    // Resolved *before* the offer, not inside the click, because recovery is
+    // the one path in this feature that publishes local content: it creates a
+    // real document somewhere. Where the source document is gone there is no
+    // workspace to inherit, and the fallback can land in a workspace the user
+    // merely belongs to — so the destination is named in the offer and the
+    // click is the user's agreement to it, rather than something they learn
+    // about afterwards from the documents list.
+    let destination;
+    try {
+      destination = await resolveRecoveryDestination(workspaceId);
+    } catch {
+      // Nowhere to put it. The archive stays and is offered again next
+      // session, which is already the contract for a declined offer.
+      console.warn(
+        '[offline] leaving work archived: no workspace to recover it into',
+      );
+      continue;
+    }
+
     toast.warning('Some changes could not be saved', {
       id: `offline-recovery-${item.id}`,
       duration: Infinity,
-      description: `Edits to "${title}" could not be reconciled with the server. They are still on this device.`,
+      description: destination.shared
+        ? `Edits to "${title}" could not be reconciled with the server, and the document they belonged to is gone. Saving a copy puts them in "${destination.name}", which you share with other people.`
+        : `Edits to "${title}" could not be reconciled with the server. They are still on this device.`,
       action: {
         label: 'Save a copy',
         onClick: () => {
           void recoverOfflineCopy(store, item, {
             title,
             type: described.type,
-            workspaceId,
+            workspaceId: destination.id,
           })
             .then((outcome) => {
               if (!outcome.documentId) {

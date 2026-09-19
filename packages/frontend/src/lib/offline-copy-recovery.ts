@@ -1,7 +1,11 @@
 import { Client, Document, Text } from "@yorkie-js/sdk";
-import { fetchYorkieToken } from "@/api/auth";
+import { fetchMe, fetchYorkieToken } from "@/api/auth";
 import type { DocumentType } from "@/types/documents";
-import { createWorkspaceDocument, fetchWorkspaces } from "@/api/workspaces";
+import {
+  createWorkspaceDocument,
+  fetchWorkspace,
+  fetchWorkspaces,
+} from "@/api/workspaces";
 import type { ImportedContent } from "@/app/documents/apply-imported-content";
 import { applyImportedContent } from "@/app/documents/apply-imported-content";
 import { YorkieDocStore } from "@/app/docs/yorkie-doc-store";
@@ -154,6 +158,21 @@ export function describeArchivedDocument(
   return undefined;
 }
 
+/** Where a recovered copy will be created, and who else will be able to read it. */
+export interface RecoveryDestination {
+  id: string;
+  /** The workspace's name, when the copy is not going back where it came from. */
+  name?: string;
+  /**
+   * Whether anybody other than this user can read what is put there.
+   *
+   * The caller has to say so before it offers the copy: recovery is the one
+   * path that *publishes* local content, and a workspace with other members in
+   * it is an audience the archived document never had.
+   */
+  shared: boolean;
+}
+
 /**
  * Which workspace the copy is created in.
  *
@@ -164,23 +183,63 @@ export function describeArchivedDocument(
  * single time — on the one path the whole feature exists to reach.
  *
  * The source document's own workspace is the right answer and the caller
- * supplies it where it still has one. It may not: "the document was deleted
- * upstream" is one of the three ways an archive comes to exist, and a deleted
- * document answers nothing. So the fallback asks the server which workspaces
- * this user has and takes the first — the archive holds work they wrote, and
- * handing it back somewhere is strictly better than refusing because its
- * original home is gone.
+ * supplies it where it still has one. Sending the copy there exposes the
+ * content to nobody new — whoever could read the original can read the copy.
+ *
+ * It may not have one: "the document was deleted upstream" is one of the three
+ * ways an archive comes to exist, and a deleted document answers nothing. The
+ * fallback used to take `fetchWorkspaces()[0]`, which is *every* workspace the
+ * user belongs to — including a shared team one they merely joined. Recovery
+ * then republished a private document's full content to that team, silently,
+ * with the user told only that a copy had been saved.
+ *
+ * So the fallback prefers a workspace the user is the **sole member** of,
+ * which is an audience of one and therefore no disclosure at all. Only when
+ * there is none does it fall back to the first workspace — and it reports
+ * `shared: true` for it, which is what obliges the caller to name the
+ * destination before the user agrees to the copy. Handing the work back
+ * somewhere still beats refusing because its original home was deleted; doing
+ * it without saying where is what was wrong.
  */
-async function destinationWorkspace(given?: string): Promise<string> {
+export async function resolveRecoveryDestination(
+  given?: string,
+): Promise<RecoveryDestination> {
   if (given) {
-    return given;
+    return { id: given, shared: false };
   }
   const workspaces = await fetchWorkspaces();
-  const fallback = workspaces[0]?.id;
-  if (!fallback) {
+  if (workspaces.length === 0) {
     throw new Error("no workspace is available to recover this work into");
   }
-  return fallback;
+
+  // A failure here is not fatal — it only costs the private-workspace search,
+  // and the `shared: true` answer below is the safe direction: the caller names
+  // the destination rather than assuming it is private.
+  let me: string | undefined;
+  try {
+    me = String((await fetchMe()).id);
+  } catch {
+    me = undefined;
+  }
+
+  if (me !== undefined) {
+    for (const workspace of workspaces) {
+      const detail = await fetchWorkspace(workspace.id).catch(() => undefined);
+      if (!detail) continue;
+      const others = detail.members.filter(
+        (member) => String(member.user.id) !== me,
+      );
+      if (others.length === 0) {
+        return { id: workspace.id, name: workspace.name, shared: false };
+      }
+    }
+  }
+
+  return { id: workspaces[0].id, name: workspaces[0].name, shared: true };
+}
+
+async function destinationWorkspace(given?: string): Promise<string> {
+  return (await resolveRecoveryDestination(given)).id;
 }
 
 export interface RecoveryOutcome {

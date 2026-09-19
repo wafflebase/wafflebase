@@ -76,9 +76,16 @@ const recoverOfflineCopy = vi.fn(async () => ({
   title: 'Budget (offline copy)',
   complete: true,
 }));
+/** Where a recovered copy would be created, and whether that is a disclosure. */
+const resolveRecoveryDestination = vi.fn(async (given?: string) => ({
+  id: given ?? 'ws-fallback',
+  shared: false,
+}));
 vi.mock('@/lib/offline-copy-recovery', () => ({
   recoverOfflineCopy: (...args: Array<unknown>) =>
     recoverOfflineCopy(...(args as [])),
+  resolveRecoveryDestination: (given?: string) =>
+    resolveRecoveryDestination(given),
   describeArchivedDocument: (docKey: string) =>
     docKey.startsWith('sheet-')
       ? { id: docKey.slice('sheet-'.length), type: 'sheet' }
@@ -122,6 +129,10 @@ beforeEach(() => {
     title: 'Budget (offline copy)',
     complete: true,
   });
+  resolveRecoveryDestination.mockImplementation(async (given?: string) => ({
+    id: given ?? 'ws-fallback',
+    shared: false,
+  }));
 });
 
 afterEach(() => {
@@ -236,6 +247,78 @@ describe('on mount', () => {
     await waitFor(() => expect(collectStale).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(purgeRevokedOfflineDocuments).not.toHaveBeenCalled();
+  });
+
+  it('gives the reconcile a way to tell a deletion from a revocation', async () => {
+    // Without it the reconcile drops an archive on an *absence* — and "the
+    // document was deleted or GC'd upstream" is one of the three causes of an
+    // archive, so a deleted document is missing from `GET /documents` because
+    // the archive's own cause happened. Dropping there destroys exactly the
+    // unsent work the offer below exists to hand back, one step before the
+    // offer is made.
+    render(<OfflineRuntime userId="42" />);
+    await waitFor(() => expect(purgeRevokedOfflineDocuments).toHaveBeenCalled());
+
+    const [, options] = purgeRevokedOfflineDocuments.mock.calls[0] as [
+      Array<string>,
+      { isRevoked?: (id: string) => Promise<boolean> },
+    ];
+    expect(options.isRevoked).toBeTypeOf('function');
+
+    // A 403 is the one answer that justifies destroying an archive.
+    fetchDocument.mockRejectedValue(new HttpError('Forbidden', 403));
+    expect(await options.isRevoked!('gone')).toBe(true);
+
+    // A 404 is the opposite fact: deleted upstream, archive is the user's own
+    // work.
+    fetchDocument.mockRejectedValue(new HttpError('Not found', 404));
+    expect(await options.isRevoked!('gone')).toBe(false);
+
+    // And an answer that establishes neither keeps it.
+    fetchDocument.mockRejectedValue(new Error('offline'));
+    expect(await options.isRevoked!('gone')).toBe(false);
+
+    fetchDocument.mockResolvedValue({
+      id: 'gone',
+      title: 'Budget',
+      workspaceId: 'ws-1',
+    });
+    expect(await options.isRevoked!('gone')).toBe(false);
+  });
+
+  it('names a shared destination in the offer rather than after the fact', async () => {
+    // Recovery is the one path here that publishes local content: it creates a
+    // real document. Where the source is gone there is no workspace to
+    // inherit, and the fallback can land somewhere the user merely belongs to
+    // — so the click has to be agreement to that, not a surprise in a list.
+    fetchDocument.mockRejectedValue(new HttpError('Not found', 404));
+    resolveRecoveryDestination.mockResolvedValue({
+      id: 'ws-team',
+      name: 'Acme',
+      shared: true,
+    });
+    listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
+    render(<OfflineRuntime userId="42" />);
+
+    await waitFor(() => expect(toastWarning).toHaveBeenCalled());
+    const [, options] = toastWarning.mock.calls[0] as [
+      string,
+      { description: string },
+    ];
+    expect(options.description).toContain('Acme');
+    expect(options.description).toMatch(/share with other people/i);
+  });
+
+  it('leaves work archived when there is nowhere at all to put it', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchDocument.mockRejectedValue(new HttpError('Not found', 404));
+    resolveRecoveryDestination.mockRejectedValue(new Error('no workspace'));
+    listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
+    render(<OfflineRuntime userId="42" />);
+
+    await waitFor(() => expect(listRecoverableWork).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(toastWarning).not.toHaveBeenCalled();
   });
 
   it('offers nothing back when the reconcile could not run', async () => {

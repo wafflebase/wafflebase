@@ -109,6 +109,7 @@ import { setOfflinePersistenceEnabled } from '@/lib/offline-persistence-preferen
 import * as capabilities from '@/lib/yorkie-capabilities';
 import * as session from '@/lib/durable-session';
 import { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
+import { useDurabilityLapse } from '@/lib/durable-document-context';
 
 function fakeLocks(): DurableLock & { held: Set<string> } {
   const held = new Set<string>();
@@ -539,4 +540,99 @@ describe('when the SDK refuses the attach for its own lock', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(locks.held.size).toBe(1);
   });
+});
+
+/**
+ * The reason the chip's tooltip is required to name.
+ *
+ * Every chip test injects a `DurabilityLapse` by hand, so what was never
+ * asserted anywhere is the half that *computes* one: which reason each of the
+ * two real publishers emits, and which of them wins when both are mounted. A
+ * wrong value here is not cosmetic — `not-permitted` silently removes the
+ * chip's "turn on offline saving" offer, and a value where there should be
+ * none puts a sentence about a feature nobody was offered in front of every
+ * stranded user.
+ */
+describe('the lapse it publishes', () => {
+  function Probe() {
+    const lapse = useDurabilityLapse();
+    return <span data-testid="lapse">{lapse ?? 'none'}</span>;
+  }
+
+  function mountProbe(docKey = 'note-7', wrap = (n: React.ReactNode) => n) {
+    return render(
+      wrap(
+        <CollabDocumentProvider docKey={docKey} initialRoot={{}}>
+          <Probe />
+        </CollabDocumentProvider>,
+      ),
+    );
+  }
+
+  async function lapseText(): Promise<string> {
+    await waitFor(() => expect(screen.getByTestId('lapse')).toBeTruthy());
+    return screen.getByTestId('lapse').textContent ?? '';
+  }
+
+  it('names the switched-off preference', async () => {
+    mountProbe();
+    expect(await lapseText()).toBe('not-enabled');
+  });
+
+  it('names a subtree that may never persist', async () => {
+    setOfflinePersistenceEnabled(true);
+    mountProbe('note-7', (node) => <NonDurableScope>{node}</NonDurableScope>);
+    expect(await lapseText()).toBe('not-permitted');
+  });
+
+  it('names the tab that won the election instead', async () => {
+    setOfflinePersistenceEnabled(true);
+    mountProbe();
+    await waitFor(() => expect(mounted.length).toBe(1));
+
+    resetElectionsForTest(); // a different tab, same device
+    mountProbe();
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId('lapse')[1].textContent).toBe('another-tab'),
+    );
+  });
+
+  it('names nothing while the document is durable', async () => {
+    setOfflinePersistenceEnabled(true);
+    mountProbe();
+    await waitFor(() => expect(mounted.length).toBe(1));
+    expect(await lapseText()).toBe('none');
+  });
+
+  it('names nothing at all on a build that cannot carry a client key', async () => {
+    // The dark-launch property, and the one case that reaches every user
+    // today: the pin ships below `MinClientKeyVersion`, so a lapse here would
+    // be on every stranded document in the product — telling people their
+    // browser cannot save documents locally, which is a dependency of ours
+    // reported as a fault of theirs, about a feature they were never offered.
+    vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(false);
+    setOfflinePersistenceEnabled(true);
+    mountProbe();
+    expect(await lapseText()).toBe('none');
+  });
+
+  it('lets the durable client overrule the call site, from the real providers', async () => {
+    // The nesting is the whole mechanism, and it is a property of two
+    // components rather than of either. With them the other way round — which
+    // is what shipped once — the `undefined` a durable document computes at
+    // the call site erased every reason the client can see.
+    setOfflinePersistenceEnabled(true);
+    mountProbe();
+    await waitFor(() => expect(subscribers.length).toBe(1));
+    expect(await lapseText()).toBe('none');
+
+    subscribers.forEach((fn) => fn({ value: { reason: 'epoch-reanchor' } }));
+
+    await waitFor(() => expect(lapseNow()).toBe('dropped'));
+  });
+
+  function lapseNow(): string {
+    return screen.getByTestId('lapse').textContent ?? '';
+  }
 });

@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 /**
@@ -37,10 +37,13 @@ vi.mock('@yorkie-js/react', () => ({
   useDocument: () => ({ doc: undefined }),
 }));
 
+/** Which document type the link resolves to, per test. */
+let sharedType = 'sheet';
+
 vi.mock('@/api/share-links', () => ({
   resolveShareLink: async () => ({
     documentId: '7',
-    type: 'sheet',
+    type: sharedType,
     role: 'editor',
     title: 'Budget',
   }),
@@ -72,7 +75,26 @@ function renderShared() {
 }
 
 describe('a document reached through a share link', () => {
+  afterEach(() => {
+    sharedType = 'sheet';
+  });
+
   it('is never persisted to the visitor’s device', async () => {
+    renderShared();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('permitted')).toHaveTextContent('false'),
+    );
+  });
+
+  it('covers the pdf branch, which returns before the rest of the route', async () => {
+    // `SharedDocumentInner` early-returns for `pdf` into a layout that mounts
+    // its *own* `YorkieProvider` and, through `PdfCollabProvider`, its own
+    // `CollabDocumentProvider`. With the scope mounted inside that function —
+    // which is where it shipped — this return stepped straight around it and
+    // the one type the design excludes twice over was the one type permitted.
+    sharedType = 'pdf';
+
     renderShared();
 
     await waitFor(() =>

@@ -37,6 +37,10 @@ import {
   type DurabilityLapse,
 } from '@/lib/durable-document-context';
 import type { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
+import {
+  GuardRegistryContext,
+  type NavigationGuard,
+} from '@/components/navigation-guard/use-navigation-guard';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 type DocEvent = { type: string; value: unknown };
@@ -752,6 +756,90 @@ describe('SyncStatusChip on a durable document', () => {
     expect(options.description ?? '').toMatch(/saved on this device/i);
   });
 
+  it('still holds back in-app navigation, which closes the document', () => {
+    // A reload is safe — the entry is on disk and the next attach resumes from
+    // it — but leaving the route is not the same event. It unmounts the
+    // `DocumentProvider`, which detaches, and the SDK's `detachDocument` calls
+    // `removeFromStore` unconditionally on its success path; the store archives
+    // a removal only when a `LocalChangesDropped` latched it first, which an
+    // ordinary detach never does. So the click deletes the durable entry and
+    // the in-memory queue with it, silently, on the one state whose whole claim
+    // is that the work is safe.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const guards: Array<NavigationGuard> = [];
+    render(
+      <TooltipProvider>
+        <GuardRegistryContext.Provider
+          value={{
+            register: (guard) => {
+              guards.push(guard);
+              return () => {
+                const at = guards.indexOf(guard);
+                if (at !== -1) guards.splice(at, 1);
+              };
+            },
+          }}
+        >
+          <DurableDocumentScope
+            value={{
+              store: {} as WafflebaseDocStore,
+              durable: true,
+              reportLoss: () => {},
+              reportPersistDisabled: () => {},
+              reportUnreportable: () => {},
+            }}
+          >
+            <SyncStatusChip />
+          </DurableDocumentScope>
+        </GuardRegistryContext.Provider>
+      </TooltipProvider>,
+    );
+    act(() => {
+      doc.type();
+    });
+
+    expect(screen.getByText('Saved to this device')).toBeTruthy();
+    expect(guards).toHaveLength(1);
+    const prompt = guards[0]();
+    expect(prompt).not.toBeNull();
+    // And it says the true thing, which is not the stranded sentence: the copy
+    // exists, and leaving is what removes it.
+    expect(prompt?.description ?? '').toMatch(/removes that copy/i);
+    // Still no unload guard — the reload case is the one this state fixed.
+    expect(unloadGuards()).toBe(0);
+  });
+
+  it('lets a fully synced durable document go without a word', () => {
+    // The guard is registered on outstanding work, not on durability.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+
+    const guards: Array<NavigationGuard> = [];
+    render(
+      <TooltipProvider>
+        <GuardRegistryContext.Provider
+          value={{ register: (guard) => (guards.push(guard), () => {}) }}
+        >
+          <DurableDocumentScope
+            value={{
+              store: {} as WafflebaseDocStore,
+              durable: true,
+              reportLoss: () => {},
+              reportPersistDisabled: () => {},
+              reportUnreportable: () => {},
+            }}
+          >
+            <SyncStatusChip />
+          </DurableDocumentScope>
+        </GuardRegistryContext.Provider>
+      </TooltipProvider>,
+    );
+
+    expect(guards).toHaveLength(0);
+  });
+
   it('still says Saving while the push is in flight', () => {
     // Durability changes the stranded row and nothing else: connected with
     // work outstanding is still on its way to the server.
@@ -799,10 +887,6 @@ describe('the tooltip on a state that is now designed rather than inevitable', (
     expect(stranded('write-failed')).toContain('could not be written to');
   });
 
-  it('says when this browser cannot store anything at all', () => {
-    expect(stranded('unsupported')).toContain('cannot save documents locally');
-  });
-
   it('says when earlier work could not be reconciled', () => {
     expect(stranded('dropped')).toContain('no longer being saved');
   });
@@ -816,7 +900,6 @@ describe('the tooltip on a state that is now designed rather than inevitable', (
       'too-large',
       'out-of-space',
       'write-failed',
-      'unsupported',
       'dropped',
     ] as const) {
       expect(stranded(lapse)).toContain('exist only in this tab');

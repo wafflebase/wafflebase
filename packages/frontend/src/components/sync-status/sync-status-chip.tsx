@@ -111,7 +111,37 @@ export function SyncStatusChip({ className }: { className?: string }) {
   }, []);
   // `Saving…` is not safe either — the work is not on the server yet, and a
   // reload during it loses the edit just as surely as one while disconnected.
+  //
+  // `saved-locally` is deliberately absent, and only from *this* one. A reload
+  // is the case the state was designed for: the entry is on the disk and the
+  // next attach resumes from it, so prompting would warn about the very loss
+  // the feature just prevented.
   const mayHaveUnsent = stranded || state === 'saving';
+
+  // The same moment, on a document whose work *is* on disk. The design states
+  // it as a consequence that "follows automatically" from `durable`: the
+  // offline-transition toast changes from "keep this tab open" to "saved to
+  // this device". Without it the durable case is the one that interrupts
+  // nobody — which sounds like restraint, and reads to the user as the app
+  // having said nothing about work it has stopped sending to the server.
+  const savedLocally = state === 'saved-locally';
+
+  // Leaving the document is **not** the same event as reloading it, and this is
+  // the one place the two have to be told apart.
+  //
+  // An in-app route change unmounts the `DocumentProvider`, which detaches the
+  // document — and the SDK's `detachDocument` calls `removeFromStore`
+  // unconditionally on its success path (see `wafflebase-doc-store.ts`
+  // § `expectLoss`). The store archives a removal only when a
+  // `LocalChangesDropped` latched it first, which an ordinary detach never
+  // does, so leaving deletes the durable entry *and* the in-memory queue with
+  // it. `saved-locally` is reachable while connected — the server rejecting
+  // pushes — so this is not a disconnected-only path either.
+  //
+  // Hence: no `beforeunload` for `saved-locally` (a reload is safe), but the
+  // same confirmation every other unsent state gets before the tab walks away
+  // from the only copy.
+  const leavingLosesWork = mayHaveUnsent || savedLocally;
 
   // Registered only while something could be at risk; a handler left
   // permanently attached would prompt on every navigation away from a
@@ -153,34 +183,29 @@ export function SyncStatusChip({ className }: { className?: string }) {
   // `SharedHeaderStatus`. A viewer gets the "View only" badge instead of a
   // chip, so no guard is ever registered for one.
   useNavigationGuard(
-    mayHaveUnsent,
+    leavingLosesWork,
     useCallback(
       () =>
         hasUnsentEdits()
           ? {
               title: 'Leave without saving?',
               // The same claim the tooltip makes, in the one place where acting
-              // on it is about to cost the work.
-              description:
-                "Your recent changes haven't reached the server. They exist only in this tab, so leaving this document will lose them.",
+              // on it is about to cost the work — and on a durable document,
+              // the one place where the tooltip's claim stops holding: closing
+              // it removes the entry the tooltip is pointing at.
+              description: savedLocally
+                ? "Your recent changes haven't reached the server. They are saved on this device only while this document stays open — leaving it closes the document and removes that copy, so they would be lost."
+                : "Your recent changes haven't reached the server. They exist only in this tab, so leaving this document will lose them.",
               confirmLabel: 'Leave',
             }
           : null,
-      [hasUnsentEdits],
+      [hasUnsentEdits, savedLocally],
     ),
   );
 
   // Tracks whether the warning is currently on screen, so recovery only
   // confirms when there was something to recover from.
   const warned = useRef(false);
-
-  // The same moment, on a document whose work *is* on disk. The design states
-  // it as a consequence that "follows automatically" from `durable`: the
-  // offline-transition toast changes from "keep this tab open" to "saved to
-  // this device". Without it the durable case is the one that interrupts
-  // nobody — which sounds like restraint, and reads to the user as the app
-  // having said nothing about work it has stopped sending to the server.
-  const savedLocally = state === 'saved-locally';
 
   useEffect(() => {
     if (savedLocally) {
