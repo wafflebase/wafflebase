@@ -9,12 +9,12 @@ three thin commands onto endpoints that already exist. **No backend change.**
 
 ## Scope
 
-- [ ] `wafflebase templates list` — `GET /templates` (browse)
-- [ ] `wafflebase templates publish <doc-id>` — `POST /documents/:id/template`
-- [ ] `wafflebase templates use <template-id>` — `POST /templates/:id/use`
-- [ ] `--dry-run` preview + `--format` for all three (the CLI's standing contract)
-- [ ] `schema` registry entries (`templates.list` / `.publish` / `.use`)
-- [ ] Docs: `docs/design/cli.md` command tree + recipes, `packages/cli/README.md`
+- [x] `wafflebase templates list` — `GET /templates` (browse)
+- [x] `wafflebase templates publish <doc-id>` — `POST /documents/:id/template`
+- [x] `wafflebase templates use <template-id>` — `POST /templates/:id/use`
+- [x] `--dry-run` preview + `--format` for all three (the CLI's standing contract)
+- [x] `schema` registry entries (`templates.list` / `.publish` / `.use`)
+- [x] Docs: `docs/design/cli.md` command tree + recipes, `packages/cli/README.md`
 
 ## Design notes
 
@@ -43,6 +43,24 @@ issue names three verbs; the rest are a separate gap list.
 
 ## Tests
 
-- [ ] `packages/cli/test/templates.test.ts` — per-subcommand wiring, the
+- [x] `packages/cli/test/templates.test.ts` — per-subcommand wiring, the
       dry-run previews, query-string assembly, upstream error forwarding,
       traversal refusal on an id.
+
+## Review
+
+Shipped as [#1066](https://github.com/wafflebase/wafflebase/pull/1066)
+(`f8e2e0521`, 2026-09-14). The boxes above went unticked at merge time and
+were closed retroactively on 2026-09-19 against the tree, not against the PR
+description:
+
+- `packages/cli/src/commands/templates.ts` — the three verbs, each reaching
+  the **browser** routes through `client/url.ts` builders and previewing with
+  `printDryRunUrl`, as the design notes above require.
+- `packages/cli/test/templates.test.ts` — the test file this section asks for.
+- `packages/cli/src/schema/registry.ts:1411,1433,1449` — `templates.list`,
+  `templates.publish`, `templates.use`.
+- Docs: `docs/design/cli.md:882-888` (recipes), `:1048` (command tree),
+  `:1535` (the query-string note), and `packages/cli/README.md:190-192`.
+
+No backend change, as scoped.

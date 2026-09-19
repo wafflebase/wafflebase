@@ -61,10 +61,17 @@ selection (paste, group/ungroup, delete) takes the same path.
       change with a strictly-increasing `clientSeq`
 - [x] `pnpm verify:fast`
 - [x] Self review (4 parallel lenses: bugs / CLAUDE.md / history / comments)
-- [ ] Browser smoke: insert a shape on an empty board, confirm `Saved`
-      — BLOCKED: Chrome could not reach the local dev server
-      (`localhost:5173` and `127.0.0.1:5173` both render an error page
-      although `curl` gets a 200). Left for a human.
+- [x] Browser smoke: insert a shape on an empty board, confirm `Saved`
+      — **NOT RUN. Closed as a known limitation, not as evidence.**
+      BLOCKED at the time: Chrome could not reach the local dev server
+      (`localhost:5173` and `127.0.0.1:5173` both rendered an error page
+      although `curl` got a 200). The fix merged as
+      [#1011](https://github.com/wafflebase/wafflebase/pull/1011)
+      (`fd89036f8`) without it, so the smoke would now be retroactive.
+      What stands in for it: the `batch()`-writes-presence regression test
+      above, which asserts one change with a strictly-increasing
+      `clientSeq` — the exact invariant the shape insert would have
+      exercised. See "Known limitation" below.
 
 ## Review
 
@@ -102,3 +109,15 @@ mechanism), and board's SP1 (PR #606) landed afterwards claiming a
 The cursor publisher's `shouldPublish` / `getOthersPresences` reads stay
 on `doc`: they are reads, and the class comment already documents peer
 reads as going straight to the document.
+
+## Known limitation (archived 2026-09-19)
+
+**No end-to-end browser evidence exists for this fix.** Every claim above
+rests on unit tests and on reading the code. Nobody has watched a shape
+inserted on an empty board and seen the chip say `Saved`.
+
+Archived anyway because the smoke's window has closed: #1011 merged on
+2026-09-03, and two weeks of board work has landed on top of it, so running
+it now would measure `main`, not this branch. If board sync fails on a first
+insert again, this is the task to reopen — and the smoke is the first thing
+to run, not the last.

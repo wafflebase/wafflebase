@@ -70,7 +70,8 @@ the YSON dialect difference in one small normalizer on the frontend side.
       `history-panel.tsx`
 - [x] Update `docs/design/revision-history.md` §4/§6/§7
 - [x] `pnpm verify:fast` green (exit 0, 11 suites, 0 failures)
-- [ ] **Browser smoke — blocked**, see Review
+- [x] **Browser smoke — NOT RUN.** Closed as a known limitation, not as
+      evidence; see Review and "Known limitation" below.
 - [x] Code review over the branch diff (5 reviewers); blocking findings applied:
   - [x] Ghost-image filter missing from the shared reader (would double every
         inline image in a pre-#182 revision preview) — plus a regression test,
@@ -117,6 +118,22 @@ repo mounts a canvas engine (jsdom returns `null` from `getContext`). So
 **a human needs to open a docs document, name a version, and click Preview
 before this merges.** Log in at http://localhost:5173 and it can be driven
 from there.
+
+## Known limitation (archived 2026-09-19)
+
+That human never did, and the branch merged anyway as
+[#1017](https://github.com/wafflebase/wafflebase/pull/1017) (`fde75db08`,
+2026-09-04). So the paragraph above stands as written: **the rendered docs
+revision preview has no end-to-end verification.** Everything below the
+canvas mount is tested against real snapshot data; the mount itself is
+argued by analogy to `DocsView` and the other four previews.
+
+Archived rather than kept open because this is a *first-open* check, not
+ongoing work — one person logging in once settles it, and holding a task
+file open does not make that happen. If a docs preview ever renders blank
+or style-less, start here: the two hazards this task found (`attrs` vs
+`attributes`, and JSON-encoded attribute values) both fail silently and
+plausibly, which is exactly what a broken mount would look like.
 
 **Pre-existing, untouched:** `packages/docs`'s node entry omits
 `BlockMarker`, so a raw `tsc -p packages/backend` reports three errors in
