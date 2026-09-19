@@ -153,13 +153,25 @@ describe("route-param ids are pinned to one path segment", () => {
         ...vi.mocked(globalThis.fetch).mock.calls.map((c) => String(c[0])),
       ];
       expect(urls.length).toBeGreaterThan(0);
-      for (const raw of urls) {
-        // WHATWG resolves `..` — if the id were raw, the normalized path
-        // would end at /auth/logout instead of the route that was named.
-        const { pathname } = new URL(raw, "https://api.example.test");
+      const paths = urls.map(
+        (raw) => new URL(raw, "https://api.example.test").pathname,
+      );
+      // WHATWG resolves `..` — if the id were raw *anywhere*, the normalized
+      // path would end at /auth/logout instead of the route that was named.
+      // Asserted over every request, which is where the property lives.
+      for (const pathname of paths) {
         expect(pathname).not.toContain("/auth/logout");
-        expect(pathname).toContain(encodeURIComponent(TRAVERSAL));
       }
+      // And the id did reach a URL, encoded. Only "some", because a call may
+      // legitimately make a companion request that carries no id at all —
+      // `deleteWorkspace` lists the documents it is about to invalidate
+      // locally. Such a request cannot smuggle the id past the check above,
+      // since it does not contain it.
+      expect(
+        paths.some((pathname) =>
+          pathname.includes(encodeURIComponent(TRAVERSAL)),
+        ),
+      ).toBe(true);
     });
   }
 

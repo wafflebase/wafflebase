@@ -1,6 +1,7 @@
 import { User } from "@/types/users";
 import { toast } from "sonner";
 import { createSingleFlightRunner } from "./single-flight";
+import { eraseOfflineDataOnLogout } from "@/lib/offline-erase";
 
 export class AuthExpiredError extends Error {
   constructor() {
@@ -20,6 +21,17 @@ type LogoutOptions = {
   redirect?: boolean;
   showSuccessToast?: boolean;
   suppressFailure?: boolean;
+  /**
+   * How much of what offline persistence wrote to this device this sign-out
+   * erases.
+   *
+   * `"all"` (the default) is a person choosing "Log out" on a shared machine,
+   * which is exactly who that erase is for: live entries and archives both go.
+   *
+   * `"none"` is the 401 arm of {@link fetchWithAuth}, and it is the whole
+   * reason the option exists — see the comment there.
+   */
+  eraseLocalData?: "all" | "none";
 };
 
 let isRedirecting = false;
@@ -82,6 +94,7 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
     redirect = true,
     showSuccessToast = true,
     suppressFailure = false,
+    eraseLocalData = "all",
   } = options;
   let res: Response | null = null;
 
@@ -98,6 +111,28 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
 
   if (res && !res.ok && !suppressFailure) {
     throw new Error("Failed to log out");
+  }
+
+  // Offline persistence writes document content to this device's disk, and
+  // signing out is where it must stop outliving the session — the whole point
+  // of the setting being per device is that the device may be shared. Awaited
+  // before the redirect so the erase is not raced by the page unloading, and
+  // never able to fail the sign-out itself.
+  //
+  // Two conditions, and both are about not destroying work nobody asked us to.
+  //
+  // `res?.ok` — the server actually ended the session. A logout request that
+  // failed or never left the machine leaves the user signed in, and erasing
+  // their local documents there deletes the only copy of unsent work for a
+  // sign-out that did not happen.
+  //
+  // `eraseLocalData !== "none"` — somebody chose this. An involuntary expiry
+  // (the 401 arm of {@link fetchWithAuth}) erases nothing at all: the live
+  // entries are not merely copies of what the server holds, they carry the
+  // un-pushed change log, so dropping them on an event the user neither chose
+  // nor can undo would be this feature causing the loss it exists to prevent.
+  if (eraseLocalData !== "none" && res?.ok) {
+    await eraseOfflineDataOnLogout();
   }
 
   if (showSuccessToast && res?.ok) {
@@ -222,6 +257,24 @@ export async function fetchWithAuth(
       redirect: false,
       showSuccessToast: false,
       suppressFailure: true,
+      // Nobody asked for this, so nothing local is deleted. A 401 whose
+      // refresh failed is a session that expired, a cookie a browser dropped,
+      // or a backend that restarted — and the user is about to log straight
+      // back in on the same device.
+      //
+      // It reaches here from `fetchWithAuth`, which every request in the app
+      // goes through, so one 401 raised by any background poll would otherwise
+      // erase every live entry this device holds — including the un-pushed
+      // change log of the document currently open, which is the *only* durable
+      // copy of work the server has not taken. Erasing it would be this
+      // feature causing the loss it exists to prevent, from a call site
+      // unrelated to anything the user did. Content on a shared device is left
+      // to the deliberate sign-out, the thirty-day sweep, and the reconcile the
+      // next session runs.
+      //
+      // It also keeps the redirect to `/login` off the back of an IndexedDB
+      // transaction: nothing is awaited here beyond the logout request itself.
+      eraseLocalData: "none",
     });
     redirectTo("/login");
     throw new AuthExpiredError();

@@ -2,7 +2,9 @@ import type { Document, DocumentType } from "@/types/documents";
 import type { TestConnectionResult } from "@/types/datasource";
 import type { MetricSeriesPoint } from "./analytics";
 import { fetchWithAuth } from "./auth";
+import { fetchDocuments } from "./documents";
 import { assertOk } from "./http-error";
+import { isOfflineUser, purgeOfflineDocuments } from "@/lib/offline-erase";
 import { seg } from "./url";
 
 const BASE = `${import.meta.env.VITE_BACKEND_API_URL}/workspaces`;
@@ -83,27 +85,86 @@ export async function updateWorkspace(
 }
 
 /**
+ * The ids of every document this workspace holds, folders included.
+ *
+ * Asked *before* the access-ending request, because afterwards the server has
+ * nothing to list. Best effort: this only feeds local cleanup, so a failure
+ * leaves the thirty-day sweep to it rather than failing the operation.
+ *
+ * `ref` may be an id **or a slug** — every caller here takes it straight from
+ * the `/w/:workspaceId/...` route param, which the app navigates with the
+ * slug. Comparing that against `document.workspaceId`, which is always the id,
+ * matched nothing at all and made the purge a silent no-op: the documents stayed
+ * on the disk and the code read as if they had not. So the reference is resolved
+ * through the workspace itself first, and both spellings are accepted.
+ */
+async function documentIdsIn(ref: string): Promise<Array<string>> {
+  try {
+    const workspace = await fetchWorkspace(ref).catch(() => undefined);
+    const documents = await fetchDocuments();
+    return documents
+      .filter(
+        (document) =>
+          document.workspaceId === ref ||
+          (!!workspace && document.workspaceId === workspace.id),
+      )
+      .map((document) => document.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Deletes workspace.
+ *
+ * Its documents' local copies go with it. The design's cleanup rule is that
+ * content must not outlive the authority to read it, and a deleted workspace
+ * ends that authority exactly as a deleted document does — offline persistence
+ * keeps a full copy, and nothing else would reach it before the thirty-day
+ * sweep.
  */
 export async function deleteWorkspace(id: string): Promise<void> {
+  const doomed = await documentIdsIn(id);
   const res = await fetchWithAuth(`${BASE}/${seg(id)}`, {
     method: "DELETE",
   });
   await assertOk(res, "Failed to delete workspace");
+  // Archives included, unlike a document deletion. A deleted *document* leaves
+  // the user their own unsent work to recover as a copy; a deleted workspace
+  // ends the authority to read any of its content, and recovery would hand back
+  // a whole document from it.
+  await purgeOfflineDocuments(doomed, { dropArchives: true });
 }
 
 /**
  * Removes member from workspace.
+ *
+ * Losing membership is the other half of the same rule — but only for the
+ * account whose documents this device holds. An owner removing *somebody else*
+ * must purge nothing here: the store is scoped to whoever is signed in on this
+ * machine, so purging then would delete this user's copies of documents they
+ * still have every right to read.
+ *
+ * The removed member's own device is reached by nothing that happens here, so
+ * it reconciles on its own: `OfflineRuntime` asks the server what it may still
+ * read on every session and drops what is no longer listed
+ * (`purgeRevokedOfflineDocuments`). Until that session happens the content is
+ * on their disk — this local purge is what makes the common case immediate, not
+ * what makes the rule hold.
  */
 export async function removeMember(
   workspaceId: string,
   userId: number,
 ): Promise<void> {
+  const leaving = isOfflineUser(String(userId));
+  const doomed = leaving ? await documentIdsIn(workspaceId) : [];
   const res = await fetchWithAuth(
     `${BASE}/${seg(workspaceId)}/members/${seg(String(userId))}`,
     { method: "DELETE" },
   );
   await assertOk(res, "Failed to remove member");
+  // Access loss, so the archives go too — see `deleteWorkspace`.
+  await purgeOfflineDocuments(doomed, { dropArchives: true });
 }
 
 /**

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
 import { seg } from "./url";
+import { purgeOfflineDocuments } from "@/lib/offline-erase";
 
 /**
  * Creates document.
@@ -159,6 +160,11 @@ export async function deleteDocument(id: string): Promise<void> {
   );
 
   if (response.ok) {
+    // A deleted document's content must not stay on this device: the offline
+    // store keeps a full copy, and nothing else would ever collect it before
+    // the thirty-day sweep. Best effort, and never able to turn an accepted
+    // deletion into a reported failure.
+    await purgeOfflineDocuments([id]);
     toast.success("Document deleted successfully");
   } else {
     toast.error("Failed to delete document");
@@ -202,5 +208,10 @@ export async function deleteDocuments(
     }
   );
   await assertOk(response, "Failed to delete documents");
-  return response.json();
+  const result = (await response.json()) as { deleted: string[] };
+  // Only what the server reports as deleted, for the same reason the single
+  // delete waits for its `ok`: dropping the local copy of a document that is
+  // still there would delete unsent work the user can still push.
+  await purgeOfflineDocuments(result.deleted ?? []);
+  return result;
 }

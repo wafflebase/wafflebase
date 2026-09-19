@@ -47,8 +47,41 @@ function buildDocKey(type: ImportedContent["type"], docId: string): string {
   }
 }
 
-/** An init carrying the mapper's local handle, as `mapMiroItems` emits them. */
-type MappedInit = ElementInit & { __id?: string };
+/**
+ * An init carrying the handle its connectors point at.
+ *
+ * `__id` is the mapper's own local handle (`mapMiroItems`). `id` is what a
+ * *read-back* element carries — the offline-copy recovery path reads a
+ * rehydrated board through `YorkieBoardStore` and hands the resulting
+ * `Element`s here, and those elements' connectors reference those real ids. A
+ * handle map built from `__id` alone therefore matched nothing for them and
+ * dropped every attached connector from the recovered copy.
+ */
+type MappedInit = ElementInit & { __id?: string; id?: string };
+
+/** The handle this element's connectors would name it by, if any. */
+function handleOf(element: MappedInit): string | undefined {
+  return element.__id ?? element.id;
+}
+
+/**
+ * Records the ids of a group's descendants as naming themselves.
+ *
+ * `addElement` mints a fresh id for the element it is given and leaves nested
+ * children untouched, so a connector attached to a group member still resolves
+ * — but only if the map knows about it. Without this such a connector looks
+ * unresolvable and is dropped.
+ */
+function mapDescendants(element: MappedInit, realIds: Map<string, string>) {
+  const children = (element as { data?: { children?: Array<MappedInit> } }).data
+    ?.children;
+  if (!Array.isArray(children)) return;
+  for (const child of children) {
+    const handle = handleOf(child);
+    if (child.id && handle) realIds.set(handle, child.id);
+    mapDescendants(child, realIds);
+  }
+}
 
 /**
  * Rewrite a connector endpoint from the mapper's local handle onto the id the
@@ -79,8 +112,10 @@ function remapEndpoint(
  * a ~1x1 frame at the world origin: invisible, nowhere near the content, and
  * reported to the user as a clean import.
  *
- * So: pass 1 writes every non-connector element and builds `__id → real id`
- * from `addElement`'s return value; pass 2 writes the connectors with their
+ * So: pass 1 writes every non-connector element and builds `handle → real id`
+ * from `addElement`'s return value — the handle being the mapper's `__id` or,
+ * for elements read back out of a document (the offline-copy recovery path),
+ * their own `id`; pass 2 writes the connectors with their
  * endpoints rewritten through that map. The split is driven off
  * `el.type === "connector"`, never off array order — connectors arrive from a
  * separate Miro feed, so nothing orders them after their targets.
@@ -111,9 +146,12 @@ export function applyBoardElements(
         connectors.push(mapped);
         continue;
       }
+      const handle = handleOf(mapped);
       const { __id, ...init } = mapped;
+      void __id;
       const realId = store.addElement(SYNTHETIC_SLIDE_ID, init as ElementInit);
-      if (__id) realIds.set(__id, realId);
+      if (handle) realIds.set(handle, realId);
+      mapDescendants(mapped, realIds);
     }
 
     // Pass 2 — connectors, with endpoints pointed at the real elements.

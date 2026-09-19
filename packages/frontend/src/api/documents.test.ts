@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("./auth", () => ({ fetchWithAuth: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/offline-erase", () => ({ purgeOfflineDocuments: vi.fn() }));
+
+import { purgeOfflineDocuments } from "@/lib/offline-erase";
 
 import { fetchWithAuth } from "./auth";
 import {
@@ -131,7 +134,10 @@ describe("id encoding in document routes", () => {
 });
 
 describe("deleteDocuments", () => {
-  beforeEach(() => mockFetch.mockReset());
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.mocked(purgeOfflineDocuments).mockReset();
+  });
 
   it("POSTs documents/delete with ids", async () => {
     mockFetch.mockResolvedValue(okJson({ deleted: ["a"] }));
@@ -141,5 +147,52 @@ describe("deleteDocuments", () => {
     expect(String(url)).toMatch(/\/documents\/delete$/);
     expect(init?.method).toBe("POST");
     expect(JSON.parse(init!.body as string)).toEqual({ ids: ["a"] });
+  });
+
+  it("drops the local copy of only what the server says it deleted", async () => {
+    // The route is manager-gated per id, so a partial answer is ordinary.
+    // Dropping the local copy of a document that is still there would delete
+    // unsent work the user can still push.
+    mockFetch.mockResolvedValue(okJson({ deleted: ["a"] }));
+    await deleteDocuments(["a", "b"]);
+    expect(purgeOfflineDocuments).toHaveBeenCalledWith(["a"]);
+  });
+
+  it("drops nothing when the server deleted nothing", async () => {
+    mockFetch.mockResolvedValue(okJson({ deleted: [] }));
+    await deleteDocuments(["a"]);
+    expect(purgeOfflineDocuments).toHaveBeenCalledWith([]);
+  });
+
+  it("survives a response with no deleted list", async () => {
+    mockFetch.mockResolvedValue(okJson({}));
+    await expect(deleteDocuments(["a"])).resolves.toEqual({});
+    expect(purgeOfflineDocuments).toHaveBeenCalledWith([]);
+  });
+});
+
+describe("deleteDocument", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.mocked(purgeOfflineDocuments).mockReset();
+  });
+
+  it("drops the local copy once the server has accepted the deletion", async () => {
+    mockFetch.mockResolvedValue(okJson({}));
+    await deleteDocument("a");
+    expect(purgeOfflineDocuments).toHaveBeenCalledWith(["a"]);
+  });
+
+  it("keeps the local copy when the deletion was refused", async () => {
+    // A refused delete leaves the document — and the user's unsent work in it —
+    // in place. Purging on the failure path would destroy the only copy of it.
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 403,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ message: "nope" }),
+    } as Response);
+    await expect(deleteDocument("a")).rejects.toThrow();
+    expect(purgeOfflineDocuments).not.toHaveBeenCalled();
   });
 });
