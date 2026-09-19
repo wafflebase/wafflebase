@@ -19,6 +19,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | agent pipeline docs (2026-09-19) | [20260919-agent-pipeline-docs-todo.md](./active/20260919-agent-pipeline-docs-todo.md) | [20260919-agent-pipeline-docs-lessons.md](./active/20260919-agent-pipeline-docs-lessons.md) |
+| chunk load recovery (2026-09-19) | [20260919-chunk-load-recovery-todo.md](./active/20260919-chunk-load-recovery-todo.md) | [20260919-chunk-load-recovery-lessons.md](./active/20260919-chunk-load-recovery-lessons.md) |
+| find replace active anchor (2026-09-19) | [20260919-find-replace-active-anchor-todo.md](./active/20260919-find-replace-active-anchor-todo.md) | [20260919-find-replace-active-anchor-lessons.md](./active/20260919-find-replace-active-anchor-lessons.md) |
 | release v0.6.12 (2026-09-18) | [20260918-release-v0.6.12-todo.md](./active/20260918-release-v0.6.12-todo.md) | - |
 | self review loop (2026-09-17) | [20260917-self-review-loop-todo.md](./active/20260917-self-review-loop-todo.md) | [20260917-self-review-loop-lessons.md](./active/20260917-self-review-loop-lessons.md) |
 | slides dash round trip (2026-09-17) | [20260917-slides-dash-round-trip-todo.md](./active/20260917-slides-dash-round-trip-todo.md) | [20260917-slides-dash-round-trip-lessons.md](./active/20260917-slides-dash-round-trip-lessons.md) |

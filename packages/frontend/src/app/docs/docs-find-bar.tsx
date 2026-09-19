@@ -129,9 +129,17 @@ export function DocsFindBar({
   // inline slid into that slot. This bar drives `FindReplaceState` straight
   // against the Doc, bypassing the editor's own mutation entry points, so it
   // has to drop the image selection itself.
+  //
+  // Whether there is anything to replace is left to `FindReplaceState`, which
+  // re-searches the live document first. `state.matches` here is whatever the
+  // last search left behind, and the document may have moved on since — so a
+  // guard on it would refuse a replace that is in fact possible, and leave the
+  // stale counter and highlights on screen to say so. `readOnly` is the one
+  // condition this component still decides, because it is the only thing that
+  // knows it.
   const handleReplace = () => {
     const state = stateRef.current;
-    if (readOnly || !state || state.activeIndex < 0) return;
+    if (readOnly || !state) return;
     editor?.clearImageSelection();
     state.replaceActive(replacement);
     syncHighlights();
@@ -140,7 +148,7 @@ export function DocsFindBar({
 
   const handleReplaceAll = () => {
     const state = stateRef.current;
-    if (readOnly || !state || state.matches.length === 0) return;
+    if (readOnly || !state) return;
     editor?.clearImageSelection();
     state.replaceAll(replacement);
     syncHighlights();
