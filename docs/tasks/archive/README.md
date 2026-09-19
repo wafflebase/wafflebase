@@ -6,17 +6,24 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 610
+Total archived tasks: 621
 
-## 2026/09 (35 tasks)
+## 2026/09 (46 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| agent pipeline docs (2026-09-19) | [20260919-agent-pipeline-docs-todo.md](./2026/09/20260919-agent-pipeline-docs-todo.md) | [20260919-agent-pipeline-docs-lessons.md](./2026/09/20260919-agent-pipeline-docs-lessons.md) |
+| chunk load recovery (2026-09-19) | [20260919-chunk-load-recovery-todo.md](./2026/09/20260919-chunk-load-recovery-todo.md) | [20260919-chunk-load-recovery-lessons.md](./2026/09/20260919-chunk-load-recovery-lessons.md) |
+| find replace active anchor (2026-09-19) | [20260919-find-replace-active-anchor-todo.md](./2026/09/20260919-find-replace-active-anchor-todo.md) | [20260919-find-replace-active-anchor-lessons.md](./2026/09/20260919-find-replace-active-anchor-lessons.md) |
+| self review loop (2026-09-17) | [20260917-self-review-loop-todo.md](./2026/09/20260917-self-review-loop-todo.md) | [20260917-self-review-loop-lessons.md](./2026/09/20260917-self-review-loop-lessons.md) |
 | sentry error tracking (2026-09-17) | [20260917-sentry-error-tracking-todo.md](./2026/09/20260917-sentry-error-tracking-todo.md) | [20260917-sentry-error-tracking-lessons.md](./2026/09/20260917-sentry-error-tracking-lessons.md) |
 | sheets cell link spans (2026-09-17) | [20260917-sheets-cell-link-spans-todo.md](./2026/09/20260917-sheets-cell-link-spans-todo.md) | [20260917-sheets-cell-link-spans-lessons.md](./2026/09/20260917-sheets-cell-link-spans-lessons.md) |
 | sheets undo selection (2026-09-17) | [20260917-sheets-undo-selection-todo.md](./2026/09/20260917-sheets-undo-selection-todo.md) | [20260917-sheets-undo-selection-lessons.md](./2026/09/20260917-sheets-undo-selection-lessons.md) |
+| slides dash round trip (2026-09-17) | [20260917-slides-dash-round-trip-todo.md](./2026/09/20260917-slides-dash-round-trip-todo.md) | [20260917-slides-dash-round-trip-lessons.md](./2026/09/20260917-slides-dash-round-trip-lessons.md) |
+| slides shape dash render (2026-09-17) | [20260917-slides-shape-dash-render-todo.md](./2026/09/20260917-slides-shape-dash-render-todo.md) | [20260917-slides-shape-dash-render-lessons.md](./2026/09/20260917-slides-shape-dash-render-lessons.md) |
 | nav guard unsent edits (2026-09-16) | [20260916-nav-guard-unsent-edits-todo.md](./2026/09/20260916-nav-guard-unsent-edits-todo.md) | [20260916-nav-guard-unsent-edits-lessons.md](./2026/09/20260916-nav-guard-unsent-edits-lessons.md) |
 | google oauth login (2026-09-15) | [20260915-google-oauth-login-todo.md](./2026/09/20260915-google-oauth-login-todo.md) | [20260915-google-oauth-login-lessons.md](./2026/09/20260915-google-oauth-login-lessons.md) |
+| cli templates command (2026-09-14) | [20260914-cli-templates-command-todo.md](./2026/09/20260914-cli-templates-command-todo.md) | [20260914-cli-templates-command-lessons.md](./2026/09/20260914-cli-templates-command-lessons.md) |
 | table drag merge selection (2026-09-14) | [20260914-table-drag-merge-selection-todo.md](./2026/09/20260914-table-drag-merge-selection-todo.md) | [20260914-table-drag-merge-selection-lessons.md](./2026/09/20260914-table-drag-merge-selection-lessons.md) |
 | member api keys (2026-09-13) | [20260913-member-api-keys-todo.md](./2026/09/20260913-member-api-keys-todo.md) | - |
 | release v0.6.10 (2026-09-13) | [20260913-release-v0.6.10-todo.md](./2026/09/20260913-release-v0.6.10-todo.md) | [20260913-release-v0.6.10-lessons.md](./2026/09/20260913-release-v0.6.10-lessons.md) |
@@ -37,13 +44,17 @@ Total archived tasks: 610
 | miro import fidelity (2026-09-06) | [20260906-miro-import-fidelity-todo.md](./2026/09/20260906-miro-import-fidelity-todo.md) | [20260906-miro-import-fidelity-lessons.md](./2026/09/20260906-miro-import-fidelity-lessons.md) |
 | cells ref validation (2026-09-05) | [20260905-cells-ref-validation-todo.md](./2026/09/20260905-cells-ref-validation-todo.md) | - |
 | release v0.6.9 (2026-09-05) | [20260905-release-v0.6.9-todo.md](./2026/09/20260905-release-v0.6.9-todo.md) | [20260905-release-v0.6.9-lessons.md](./2026/09/20260905-release-v0.6.9-lessons.md) |
+| slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./2026/09/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./2026/09/20260905-slides-board-touch-input-lessons.md) |
+| dependabot 28 alerts (2026-09-04) | [20260904-dependabot-28-alerts-todo.md](./2026/09/20260904-dependabot-28-alerts-todo.md) | - |
 | loading indicator unification (2026-09-04) | [20260904-loading-indicator-unification-todo.md](./2026/09/20260904-loading-indicator-unification-todo.md) | [20260904-loading-indicator-unification-lessons.md](./2026/09/20260904-loading-indicator-unification-lessons.md) |
 | template gallery seed (2026-09-04) | [20260904-template-gallery-seed-todo.md](./2026/09/20260904-template-gallery-seed-todo.md) | [20260904-template-gallery-seed-lessons.md](./2026/09/20260904-template-gallery-seed-lessons.md) |
 | templates gallery marketing skin (2026-09-04) | [20260904-templates-gallery-marketing-skin-todo.md](./2026/09/20260904-templates-gallery-marketing-skin-todo.md) | [20260904-templates-gallery-marketing-skin-lessons.md](./2026/09/20260904-templates-gallery-marketing-skin-lessons.md) |
 | api v1 folders copy (2026-09-03) | [20260903-api-v1-folders-copy-todo.md](./2026/09/20260903-api-v1-folders-copy-todo.md) | [20260903-api-v1-folders-copy-lessons.md](./2026/09/20260903-api-v1-folders-copy-lessons.md) |
+| board nested doc update (2026-09-03) | [20260903-board-nested-doc-update-todo.md](./2026/09/20260903-board-nested-doc-update-todo.md) | [20260903-board-nested-doc-update-lessons.md](./2026/09/20260903-board-nested-doc-update-lessons.md) |
 | homepage docs audit (2026-09-03) | [20260903-homepage-docs-audit-todo.md](./2026/09/20260903-homepage-docs-audit-todo.md) | [20260903-homepage-docs-audit-lessons.md](./2026/09/20260903-homepage-docs-audit-lessons.md) |
 | image viewer folder return (2026-09-03) | [20260903-image-viewer-folder-return-todo.md](./2026/09/20260903-image-viewer-folder-return-todo.md) | [20260903-image-viewer-folder-return-lessons.md](./2026/09/20260903-image-viewer-folder-return-lessons.md) |
 | notification links (2026-09-03) | [20260903-notification-links-todo.md](./2026/09/20260903-notification-links-todo.md) | - |
+| yorkie 0719 docs revision preview (2026-09-03) | [20260903-yorkie-0719-docs-revision-preview-todo.md](./2026/09/20260903-yorkie-0719-docs-revision-preview-todo.md) | [20260903-yorkie-0719-docs-revision-preview-lessons.md](./2026/09/20260903-yorkie-0719-docs-revision-preview-lessons.md) |
 | release v0.6.8 (2026-09-02) | [20260902-release-v0.6.8-todo.md](./2026/09/20260902-release-v0.6.8-todo.md) | [20260902-release-v0.6.8-lessons.md](./2026/09/20260902-release-v0.6.8-lessons.md) |
 | sidebar nav drift (2026-09-01) | [20260901-sidebar-nav-drift-todo.md](./2026/09/20260901-sidebar-nav-drift-todo.md) | [20260901-sidebar-nav-drift-lessons.md](./2026/09/20260901-sidebar-nav-drift-lessons.md) |
 | template thumbnails (2026-09-01) | [20260901-template-thumbnails-todo.md](./2026/09/20260901-template-thumbnails-todo.md) | [20260901-template-thumbnails-lessons.md](./2026/09/20260901-template-thumbnails-lessons.md) |

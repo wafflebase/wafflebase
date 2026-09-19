@@ -161,11 +161,12 @@ Second pass, after those fixes landed:
 - [x] `pnpm verify:fast`
 - [x] `pnpm verify:self` via the pre-push gate; CI green on the PR
 - [x] Unit tests per part (84 new cases)
-- [ ] Manual smoke on a coarse-pointer emulation, plus real iOS Safari
-      and Android Chrome. **Not yet done, and it is the only evidence
+- [x] Manual smoke on a coarse-pointer emulation, plus real iOS Safari
+      and Android Chrome. **NOT DONE, and it is the only evidence
       the touch path works end to end** — jsdom has no `matchMedia`, so
       `isCoarsePointer()` is `false` in every test and the
-      `pointer-coarse:` CSS is never exercised.
+      `pointer-coarse:` CSS is never exercised. Closed as a known
+      limitation on 2026-09-19, not as evidence; see below.
 
 ## Non-goals (called out, not silently dropped)
 
@@ -176,3 +177,23 @@ Second pass, after those fixes landed:
 - Lasso multi-select, adjustment diamonds, shape insert, theme/layout
   panels on the mobile slides shell — already listed as Non-Goals in
   `docs/design/slides/slides-mobile.md`.
+
+## Known limitation (archived 2026-09-19)
+
+**Nobody has touched this with a finger.** The 84 unit cases exercise the
+gesture arithmetic; none of them exercise the branch that decides a gesture
+is happening. `isCoarsePointer()` reads `matchMedia`, jsdom has none, so it
+is `false` in every test — the tests prove the touch path is *correct*,
+never that it is *reached*, and the `pointer-coarse:` CSS is unexercised
+outright.
+
+That is the one gap the merge of
+[#1031](https://github.com/wafflebase/wafflebase/pull/1031) (`e9dc0a359`,
+2026-09-06) left open, and it is the gap that matters most here: this whole
+task exists because the desktop mount silently swallowed one-finger drags.
+The same class of failure would not show up in CI.
+
+Archived because it needs a device, not a branch. The check is small and
+worth doing on the next phone in reach: open a slides document `>= 768px`
+wide and a board, and confirm one-finger drag moves an element rather than
+scrolling the page. Reopen on any touch report.

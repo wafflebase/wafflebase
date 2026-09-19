@@ -78,7 +78,7 @@ text/table. Two call sites make this load-bearing rather than cosmetic:
 - [x] Implement the five sites
 - [x] `pnpm verify:fast` green (enforced by the pre-commit hook)
 - [x] Self code review over the branch diff
-- [ ] PR
+- [x] PR
 
 ## Follow-up: the picker said it in words
 

@@ -18,21 +18,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| agent pipeline docs (2026-09-19) | [20260919-agent-pipeline-docs-todo.md](./active/20260919-agent-pipeline-docs-todo.md) | [20260919-agent-pipeline-docs-lessons.md](./active/20260919-agent-pipeline-docs-lessons.md) |
-| chunk load recovery (2026-09-19) | [20260919-chunk-load-recovery-todo.md](./active/20260919-chunk-load-recovery-todo.md) | [20260919-chunk-load-recovery-lessons.md](./active/20260919-chunk-load-recovery-lessons.md) |
-| find replace active anchor (2026-09-19) | [20260919-find-replace-active-anchor-todo.md](./active/20260919-find-replace-active-anchor-todo.md) | [20260919-find-replace-active-anchor-lessons.md](./active/20260919-find-replace-active-anchor-lessons.md) |
 | release v0.6.12 (2026-09-18) | [20260918-release-v0.6.12-todo.md](./active/20260918-release-v0.6.12-todo.md) | - |
-| self review loop (2026-09-17) | [20260917-self-review-loop-todo.md](./active/20260917-self-review-loop-todo.md) | [20260917-self-review-loop-lessons.md](./active/20260917-self-review-loop-lessons.md) |
-| slides dash round trip (2026-09-17) | [20260917-slides-dash-round-trip-todo.md](./active/20260917-slides-dash-round-trip-todo.md) | [20260917-slides-dash-round-trip-lessons.md](./active/20260917-slides-dash-round-trip-lessons.md) |
-| slides shape dash render (2026-09-17) | [20260917-slides-shape-dash-render-todo.md](./active/20260917-slides-shape-dash-render-todo.md) | [20260917-slides-shape-dash-render-lessons.md](./active/20260917-slides-shape-dash-render-lessons.md) |
-| cli templates command (2026-09-14) | [20260914-cli-templates-command-todo.md](./active/20260914-cli-templates-command-todo.md) | [20260914-cli-templates-command-lessons.md](./active/20260914-cli-templates-command-lessons.md) |
-| slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./active/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./active/20260905-slides-board-touch-input-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
 | class b backend endpoints (2026-09-04) | [20260904-class-b-backend-endpoints-todo.md](./active/20260904-class-b-backend-endpoints-todo.md) | [20260904-class-b-backend-endpoints-lessons.md](./active/20260904-class-b-backend-endpoints-lessons.md) |
-| dependabot 28 alerts (2026-09-04) | [20260904-dependabot-28-alerts-todo.md](./active/20260904-dependabot-28-alerts-todo.md) | - |
 | docs typography rhythm (2026-09-04) | [20260904-docs-typography-rhythm-todo.md](./active/20260904-docs-typography-rhythm-todo.md) | - |
-| board nested doc update (2026-09-03) | [20260903-board-nested-doc-update-todo.md](./active/20260903-board-nested-doc-update-todo.md) | [20260903-board-nested-doc-update-lessons.md](./active/20260903-board-nested-doc-update-lessons.md) |
-| yorkie 0719 docs revision preview (2026-09-03) | [20260903-yorkie-0719-docs-revision-preview-todo.md](./active/20260903-yorkie-0719-docs-revision-preview-todo.md) | [20260903-yorkie-0719-docs-revision-preview-lessons.md](./active/20260903-yorkie-0719-docs-revision-preview-lessons.md) |
 | revision history (2026-09-02) | [20260902-revision-history-todo.md](./active/20260902-revision-history-todo.md) | [20260902-revision-history-lessons.md](./active/20260902-revision-history-lessons.md) |
 | template gallery public tier (2026-09-02) | [20260902-template-gallery-public-tier-todo.md](./active/20260902-template-gallery-public-tier-todo.md) | [20260902-template-gallery-public-tier-lessons.md](./active/20260902-template-gallery-public-tier-lessons.md) |
 | pdf text layer ocr (2026-09-01) | [20260901-pdf-text-layer-ocr-todo.md](./active/20260901-pdf-text-layer-ocr-todo.md) | [20260901-pdf-text-layer-ocr-lessons.md](./active/20260901-pdf-text-layer-ocr-lessons.md) |
@@ -57,7 +46,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 610
+- Archived task count: 621
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: agent pipeline docs (2026-09-19)
+Latest active task: release v0.6.12 (2026-09-18)

@@ -112,10 +112,10 @@ last. Rows 169-174 are already a contiguous block, so they lift out whole.
 
 ### Phase 0 — move (serial, one commit)
 
-- [ ] `git mv` the six docs into `docs/design/agent-pipeline/`
-- [ ] `git mv docs/design/agentic-dev-loop.md docs/design/agent-pipeline/agent-pipeline.md`
-- [ ] `git mv docs/design/agentic-dev-loop docs/design/agent-pipeline/walkthrough`
-- [ ] Update `title:` frontmatter of the renamed umbrella to `agent-pipeline`
+- [x] `git mv` the six docs into `docs/design/agent-pipeline/`
+- [x] `git mv docs/design/agentic-dev-loop.md docs/design/agent-pipeline/agent-pipeline.md`
+- [x] `git mv docs/design/agentic-dev-loop docs/design/agent-pipeline/walkthrough`
+- [x] Update `title:` frontmatter of the renamed umbrella to `agent-pipeline`
 
 ### Phase 1 — must-fix references (parallel ×4, disjoint file sets)
 
@@ -128,7 +128,7 @@ last. Rows 169-174 are already a contiguous block, so they lift out whole.
 `20260812-path-aware-ci-todo.md:3`,
 `20260831-agentic-office-workflow-todo.md:3`}
 
-- [ ] A1 done, `docs/design/README.md` **not** touched (A4 owns it)
+- [x] A1 done, `docs/design/README.md` **not** touched (A4 owns it)
 
 **A2 — outbound links inside the moved docs (11 links / 4 files).**
 `../../CONTRIBUTING.md` → `../../../` (agent-pipeline.md:39,199,312);
@@ -137,27 +137,27 @@ last. Rows 169-174 are already a contiguous block, so they lift out whole.
 (eval-harness-usage.md:14); `design-editor/…` → `../design-editor/…`
 (agent-pipeline.md:41,54,284,285 and debug-report.md:29,570)
 
-- [ ] A2 done, headings **not** touched (Phase 2 owns them)
+- [x] A2 done, headings **not** touched (Phase 2 owns them)
 
 **A3 — config and ownership (3 files).**
 
-- [ ] `harness.config.json:219` — `"doc": "harness-engineering.md"` →
+- [x] `harness.config.json:219` — `"doc": "harness-engineering.md"` →
       `"agent-pipeline/harness-engineering.md"`. **Miss this and the next
       `verify:entropy` run turns red**: the advisory stops matching and
       `harness-engineering.md:221`'s deliberate "there is no
       `mixed-controls.tsx`" becomes a blocking finding
-- [ ] `.github/CODEOWNERS:35` — `/docs/design/harness-engineering.md` →
+- [x] `.github/CODEOWNERS:35` — `/docs/design/harness-engineering.md` →
       `/docs/design/agent-pipeline/harness-engineering.md`. **Fails silently
       forever**: no CI error, the maintainer-review requirement just disappears
-- [ ] `scripts/agent/review-panel.mjs:1449-1450,1498` — the comment and prompt
+- [x] `scripts/agent/review-panel.mjs:1449-1450,1498` — the comment and prompt
       assert "the 22 top-level `docs/design/*.md` and none of the 81 nested
       ones". Already false (`listDesignDocs` recurses); the move makes it
       29/95. Pre-existing bug, fixed here because the move is what exposes it
 
 **A4 — `docs/design/README.md` (sole owner).**
 
-- [ ] Delete rows 169-174 from `## Common`
-- [ ] Add `## Agent Pipeline` between line 130 and 144, umbrella first, with
+- [x] Delete rows 169-174 from `## Common`
+- [x] Add `## Agent Pipeline` between line 130 and 144, umbrella first, with
       `**Start here.**` as the Description cell's first token
 
 ### Phase 2 — format normalization (serial, `agent-pipeline.md` only)
@@ -165,17 +165,17 @@ last. Rows 169-174 are already a contiguous block, so they lift out whole.
 Deliberately after Phase 1: A2 edits this file by line number, and
 re-parenting headings concurrently would conflict.
 
-- [ ] Delete the bare rules at 136 and 244
-- [ ] `## The agent pipeline` → `### 4. The agent pipeline`; its four `###`
+- [x] Delete the bare rules at 136 and 244
+- [x] `## The agent pipeline` → `### 4. The agent pipeline`; its four `###`
       children → `####`
-- [ ] `### What has no design doc` → `#### 4.1 What has no design doc`
-- [ ] `## Design → code` → `### 5. Design → code`
-- [ ] `## Walkthroughs you can open` → `### 6. Walkthroughs you can open`
-- [ ] Line 59 `see §4` → `see §4.1`; line 308 `§"What has no design doc"` → `§4.1`
-- [ ] Delete the line-6 boilerplate comment
-- [ ] Repoint §6's prose and serve recipe at
+- [x] `### What has no design doc` → `#### 4.1 What has no design doc`
+- [x] `## Design → code` → `### 5. Design → code`
+- [x] `## Walkthroughs you can open` → `### 6. Walkthroughs you can open`
+- [x] Line 59 `see §4` → `see §4.1`; line 308 `§"What has no design doc"` → `§4.1`
+- [x] Delete the line-6 boilerplate comment
+- [x] Repoint §6's prose and serve recipe at
       `docs/design/agent-pipeline/walkthrough/`
-- [ ] Prose unchanged otherwise — the five tables, the ASCII diagram, the
+- [x] Prose unchanged otherwise — the five tables, the ASCII diagram, the
       `## Goals / Non-Goals` merge and the H2 `## Risks and Mitigation` are all
       house dialect and stay
 
@@ -183,22 +183,22 @@ re-parenting headings concurrently would conflict.
 
 Nothing enforces these; they are path strings in comments and prompts.
 
-- [ ] `packages/**` — 34 refs / 31 files (mostly `docs/design/debug-report.md`)
-- [ ] `scripts/**` — 13 refs / 13 files, comments and test literals
-- [ ] `.github/workflows/**` — 9 refs / 5 files, comments and prompt text
-- [ ] `.claude/commands/{hunt,hunt-ui,report-intake}.md` — 3 refs
-- [ ] `docs/design/design-editor/*.md` (3) and
+- [x] `packages/**` — 34 refs / 31 files (mostly `docs/design/debug-report.md`)
+- [x] `scripts/**` — 13 refs / 13 files, comments and test literals
+- [x] `.github/workflows/**` — 9 refs / 5 files, comments and prompt text
+- [x] `.claude/commands/{hunt,hunt-ui,report-intake}.md` — 3 refs
+- [x] `docs/design/design-editor/*.md` (3) and
       `agent-pipeline/walkthrough/*.html` (3)
-- [ ] `docs/tasks/active/**` non-link mentions — 13 refs / 6 files
-- [ ] `docs/tasks/archive/**` — **69 refs, deliberately untouched** (FROZEN)
+- [x] `docs/tasks/active/**` non-link mentions — 13 refs / 6 files
+- [x] `docs/tasks/archive/**` — **69 refs, deliberately untouched** (FROZEN)
 
 ### Phase 4 — verify
 
-- [ ] `node scripts/verify-doc-index.mjs`
-- [ ] `node scripts/verify-doc-links.mjs`
-- [ ] `pnpm verify:entropy`
-- [ ] `pnpm verify:fast`
-- [ ] `/self-review` bounded rounds, logged in the lessons file
+- [x] `node scripts/verify-doc-index.mjs`
+- [x] `node scripts/verify-doc-links.mjs`
+- [x] `pnpm verify:entropy`
+- [x] `pnpm verify:fast`
+- [x] `/self-review` bounded rounds, logged in the lessons file
 
 ## Why parallel agents, and where the seams are
 

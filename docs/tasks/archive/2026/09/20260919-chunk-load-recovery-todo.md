@@ -59,7 +59,7 @@ stale-deploy failure would be indistinguishable from it.
 - [x] `AppCrashFallback` says something accurate when the cause was a chunk
       load rather than a render throw
 - [x] `pnpm verify:fast`
-- [ ] Self review (`/self-review`), then PR
+- [x] Self review (`/self-review`), then PR
 
 ## Review
 

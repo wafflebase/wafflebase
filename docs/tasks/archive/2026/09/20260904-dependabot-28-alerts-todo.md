@@ -80,8 +80,10 @@ they need their own fix.
 - [x] PDF viewer verified against the real pdfjs 6.3.289 — typecheck, asset
       emission, and a Node runtime smoke of the exact build the viewer imports.
       See the Review section for why the mocked unit test is not evidence here.
-- [ ] Browser click-through in `pnpm dev` (canvas painting + text-layer
-      positioning) — **not done**; the smoke above covers the API surface only
+- [x] Browser click-through in `pnpm dev` (canvas painting + text-layer
+      positioning) — **NOT DONE**; the smoke above covers the API surface
+      only. Closed as a known limitation on 2026-09-19, not as evidence.
+      See "Known limitation" below.
 
 ### F. Recurrence
 
@@ -173,3 +175,21 @@ nothing about the real API. Checked separately:
 - No browser-driven click-through of the PDF viewer in `pnpm dev`; the runtime
   smoke above covers the pdf.js API surface but not canvas painting or text
   layer positioning in a real browser.
+
+## Known limitation (archived 2026-09-19)
+
+Both items under "Not done" survive the archive — neither was ever closed:
+
+1. **Dependabot security updates are still off repo-side.** That is the
+   structural cause named at the top of this file, and every pin here will go
+   stale again without it. The one durable fix in this task is the one that
+   could not be made from a branch.
+2. **The PDF viewer still has no real-browser verification** at pdfjs
+   6.3.289. The major bump landed with
+   [#1020](https://github.com/wafflebase/wafflebase/pull/1020) (`207ae3401`,
+   2026-09-04) on API-surface evidence alone.
+
+Archived because the alerts themselves are cleared and the residue is not
+work this file can drive: (1) is a repository setting, (2) is a one-time
+look. Reopen on a PDF rendering report, or on the next alert wave — whose
+arrival *is* the signal that (1) never happened.
