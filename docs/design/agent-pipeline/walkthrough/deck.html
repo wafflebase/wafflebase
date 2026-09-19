@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,7 +16,7 @@
     document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
   })();
 </script>
-<title>Design-to-Code 도구 개발</title>
+<title>Building the Design-to-Code Tools</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap">
@@ -366,27 +366,27 @@
 <body>
 <div class="sitenav">
   <span class="mark">wafflebase</span>
-  <a href="index.html">개요</a>
-  <a href="deck.html" class="here">발표 자료</a>
-  <a href="tutorial.html">실행 방법</a>
+  <a href="index.html">Overview</a>
+  <a href="deck.html" class="here">Deck</a>
+  <a href="tutorial.html">How to run</a>
   <span class="sp"></span>
-  <button type="button" class="theme" id="themeToggle">☾ 다크</button>
+  <button type="button" class="theme" id="themeToggle">☾ Dark</button>
 </div>
 
 
 <div class="progress"><i id="bar"></i></div>
 <div class="counter" id="counter">01 / 14</div>
-<div class="hint">← → 또는 Space 로 이동</div>
+<div class="hint">← → or Space to navigate</div>
 
 <main class="deck" id="deck">
 
   <!-- 01 -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">표지</span><b>01</b></div>
+    <div class="rail"><span class="tag">Title</span><b>01</b></div>
     <div class="body">
-      <span class="kicker">2026 NAVER 하계 인턴십 · 2026.07.20 → 08.28 · 6주</span>
-      <h1>Design-to-Code 도구 개발</h1>
-      <p class="lede">UI 유지 · 보수 워크플로우에서 코드를 유일한 진실 원천(SSOT)로 설정하고,<br/>사용자가 화면에서 가리킨 것이 실제 소스 코드에 도달하기까지의 거리를 줄이는 파이프라인 설계.</p>
+      <span class="kicker">2026 NAVER Summer Internship · 2026.07.20 → 08.28 · 6 weeks</span>
+      <h1>Building the Design-to-Code Tools</h1>
+      <p class="lede">Make code the Single Source of Truth for UI maintenance,<br/>and shorten the distance between what a user points at on screen and the source that draws it.</p>
       <div class="chips">
         <span class="chip on">Design Editor</span>
         <span class="chip on">Design Sandbox</span>
@@ -398,15 +398,15 @@
   <!-- 02 -->
   <!-- goal -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">목표</span><b>02</b></div>
+    <div class="rail"><span class="tag">Goal</span><b>02</b></div>
     <div class="body">
-      <h2>프로젝트 목표</h2>
+      <h2>Project goal</h2>
       <div class="thesis">
         <p class="en">Building an <em>agent-based pipeline</em><br>that replaces Figma with <em>code as the Single Source of Truth</em><br>and allows humans to <em>visually correct</em> AI-rendered UI in a sandbox</p>
-        <p class="ko">Figma를 대체하여 코드를 유일한 진실 원천(SSOT)으로 삼고,<br>AI가 렌더링한 UI를 사람이 샌드박스에서 시각적으로 교정하는 에이전트 기반 파이프라인 구축</p>
+        <p class="ko">Retire Figma as the source of truth and put code in its place,<br>then let a person correct AI-rendered UI by eye, in a sandbox, through an agent-based pipeline.</p>
       </div>
 
-      <svg class="goal-dia" viewBox="0 0 760 296" role="img" aria-label="CODE와 SPEC, CODE와 DESIGN이 각각 양방향으로 오가는 구조">
+      <svg class="goal-dia" viewBox="0 0 760 296" role="img" aria-label="CODE exchanges in both directions with SPEC, and in both directions with DESIGN">
         <line class="ln dim" x1="531.5" y1="198" x2="466.5" y2="98" />
         <polygon class="hd dim" points="460,88 471.1,95.1 461.9,101.1" />
         <polygon class="hd dim" points="538,208 526.9,200.9 536.1,194.9" />
@@ -416,49 +416,49 @@
 
         <rect class="bx code" x="290" y="18" width="180" height="66" rx="3" />
         <text class="t on" x="380" y="46" text-anchor="middle">CODE</text>
-        <text class="s" x="380" y="68" text-anchor="middle">개발자 / 마크업 · FE</text>
+        <text class="s" x="380" y="68" text-anchor="middle">Developers · markup / FE</text>
 
         <rect class="bx" x="16" y="212" width="210" height="66" rx="3" />
         <text class="t" x="121" y="240" text-anchor="middle">DESIGN</text>
-        <text class="s" x="121" y="262" text-anchor="middle">디자이너 · Live Editor</text>
+        <text class="s" x="121" y="262" text-anchor="middle">Designers · Live Editor</text>
 
         <rect class="bx" x="534" y="212" width="210" height="66" rx="3" />
         <text class="t" x="639" y="240" text-anchor="middle">SPEC</text>
-        <text class="s" x="639" y="262" text-anchor="middle">기획자 · 위키 / 상세설계서</text>
+        <text class="s" x="639" y="262" text-anchor="middle">PMs · wiki / spec docs</text>
       </svg>
 
     </div>
   </section>
 
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">문제</span><b>03</b></div>
+    <div class="rail"><span class="tag">Problem</span><b>03</b></div>
     <div class="body">
-      <h2>같은 병목이 두 곳에 있었다</h2>
+      <h2>The same bottleneck, in two places</h2>
       <div class="cols two">
         <div class="card de">
-          <span class="num">A · 디자인 변경</span>
-          <h3>값 하나를 바꾸는 데 필요한 것</h3>
-          <p>스크린샷, 티켓, 개발자의 일정, PR. <strong>관찰한 사람과 고치는 사람이 다르다.</strong> 디자이너가 호버 상태를 고쳐놓아도 그걸 넘길 방법이 없다.</p>
+          <span class="num">A · A design change</span>
+          <h3>What it takes to change one value</h3>
+          <p>A screenshot, a ticket, a developer's schedule, a PR. <strong>Whoever noticed it is not whoever fixes it.</strong> A designer can get the hover state right and still have no way to hand it over.</p>
         </div>
         <div class="card dr">
-          <span class="num">B · 화면에서 본 것</span>
-          <h3>이슈 트래커는 보고자에게 번역을 요구한다</h3>
-          <p>재현 절차, 파일 위치, 라벨. <strong>번역 비용이 관찰 비용보다 크다.</strong> 그래서 대부분의 관찰은 아예 보고되지 않고, 보고된 것은 맥락이 사라진 뒤에 도착한다.</p>
+          <span class="num">B · Something seen on screen</span>
+          <h3>The issue tracker makes the reporter translate</h3>
+          <p>Repro steps, file locations, labels. <strong>Translating costs more than noticing.</strong> So most observations are never reported at all, and the ones that are arrive after the context is gone.</p>
         </div>
       </div>
-      <p class="note">두 경우 모두, 막혀 있는 것은 도구가 아니라 <strong>관찰과 코드 사이의 번역</strong>이다.</p>
+      <p class="note">In both cases what is blocked is not the tooling — it is the <strong>translation between an observation and the code</strong>.</p>
     </div>
   </section>
 
   <!-- 03 -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">정리</span><b>04</b></div>
+    <div class="rail"><span class="tag">Premise</span><b>04</b></div>
     <div class="body">
-      <p class="big">사람은 <em>좌표와 판단</em>을 제공하고,<br>도구와 에이전트가 <em>번역·검증·조립</em>을 맡는다.</p>
+      <p class="big">People supply <em>the coordinates and the judgement</em>.<br>Tools and agents do <em>the translating, verifying and assembling</em>.</p>
       <div class="cols">
-        <div class="card"><span class="num">좌표</span><p>어디를 말하는가. 클릭 한 번, 드래그 한 번.</p></div>
-        <div class="card"><span class="num">판단</span><p>이게 맞나. 보낼 것인가. 사람이 승인하지 않은 것은 나가지 않는다.</p></div>
-        <div class="card"><span class="num">번역</span><p>파일 경로, AST 노드, 커밋, PR. 사람이 쓰지 않는 부분 전부.</p></div>
+        <div class="card"><span class="num">Coordinates</span><p>Which thing you mean. One click, one drag.</p></div>
+        <div class="card"><span class="num">Judgement</span><p>Is this right? Does it go out? Nothing ships that a person did not approve.</p></div>
+        <div class="card"><span class="num">Translation</span><p>File paths, AST nodes, commits, PRs. Every part nobody wants to write.</p></div>
       </div>
     </div>
   </section>
@@ -467,24 +467,24 @@
   <section class="slide" data-track="de">
     <div class="rail"><span class="tag">Design Editor</span><b>05</b></div>
     <div class="body">
-      <h2>디자인 에디터 — 실제 화면을 열어 실제 소스를 고친다</h2>
+      <h2>Design Editor — open the real screen, edit the real source</h2>
       <div class="cols two" style="align-items:start">
         <div style="display:flex;flex-direction:column;gap:14px">
           <ul class="list">
-            <li>앱의 <strong>실제 라우트</strong>를 실제 컴포넌트 소스로 렌더링한다. 목업이 아니라, 커밋된 코드가 하는 일을 본다.</li>
-            <li>클릭한 노드는 <strong>그 파일의 그 JSX 노드</strong>다. 클래스·간격·토큰을 바꾸면 미리보기가 즉시 따라온다.</li>
-            <li>저장하면 <strong>내 워킹 트리의 <code>.tsx</code>와 토큰 소스</strong>에 쓴다. 리뷰 화면은 <code>git diff</code>다.</li>
+            <li>Renders the app's <strong>real routes</strong> from the real component source. Not a mockup — what the committed code actually does.</li>
+            <li>The node you click <strong>is that JSX node in that file</strong>. Change a class, a spacing, a token, and the preview follows immediately.</li>
+            <li>Save writes into <strong>your working tree's <code>.tsx</code> and token source</strong>. The review screen is <code>git diff</code>.</li>
           </ul>
           <div class="chips">
-            <span class="chip on">dev 전용</span>
-            <span class="chip">Vite 플러그인</span>
+            <span class="chip on">dev only</span>
+            <span class="chip">Vite plugin</span>
             <span class="chip">React 19 · Tailwind v4 · CVA</span>
-            <span class="chip">백엔드·DB 불필요</span>
+            <span class="chip">No backend, no DB</span>
           </div>
         </div>
         <figure>
-          <img src="../../design-editor/images/foreign-install.png" alt="디자인 에디터 3-pane 화면: 왼쪽 씬 목록, 가운데 렌더된 페이지, 오른쪽 Layout/Tokens 패널">
-          <figcaption>wafflebase와 아무 관계 없는 프로젝트에서, tarball로 설치해 띄운 화면. 자기 <code>dashboard.tsx</code>의 노드 트리와 자기 토큰 어휘를 읽고 있다.</figcaption>
+          <img src="../../design-editor/images/foreign-install.png" alt="The Design Editor's 3-pane screen: the scene list on the left, the rendered page in the middle, the Layout/Tokens panels on the right">
+          <figcaption>Running inside a project with no connection to wafflebase, installed from a tarball. It is reading that project's own <code>dashboard.tsx</code> node tree and its own token vocabulary.</figcaption>
         </figure>
       </div>
     </div>
@@ -493,90 +493,90 @@
   <!-- 05 -->
   <!-- prototype -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">프로토타입</span><b>06</b></div>
+    <div class="rail"><span class="tag">Prototype</span><b>06</b></div>
     <div class="body">
-      <h2>그 전에 — 프로토타입이 먼저 답을 냈다</h2>
-      <p class="sub">시작은 <code>feat/design-system</code> 브랜치의 프로토타입이었다. <strong>테스트는 0개</strong>였고, 목적도 하나뿐이었다 — <em>이게 되기는 하나?</em> 아래 두 데모가 그 답이다.</p>
+      <h2>Before that — the prototype answered first</h2>
+      <p class="sub">It started as a prototype on the <code>feat/design-system</code> branch. <strong>Zero tests</strong>, and exactly one purpose — <em>does this even work?</em> The two demos below are the answer.</p>
       <div class="demos">
         <div class="demo">
           <div class="frame">
-            <iframe src="https://www.youtube.com/embed/UGAsmT8ST4I?rel=0" title="컴포넌트 에디터 데모" loading="lazy" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>
+            <iframe src="https://www.youtube.com/embed/UGAsmT8ST4I?rel=0" title="Component editor demo" loading="lazy" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>
           </div>
-          <p class="cap"><b>컴포넌트 에디터</b> — 컴포넌트 하나를 격리해 두고 변형과 상태를 바꿔가며 토큰을 편집한다.<br><a href="https://youtu.be/UGAsmT8ST4I" target="_blank" rel="noreferrer">youtu.be/UGAsmT8ST4I</a></p>
+          <p class="cap"><b>Component editor</b> — one component held in isolation; flip through its variants and states while editing tokens.<br><a href="https://youtu.be/UGAsmT8ST4I" target="_blank" rel="noreferrer">youtu.be/UGAsmT8ST4I</a></p>
         </div>
         <div class="demo">
           <div class="frame">
-            <iframe src="https://www.youtube.com/embed/wp8xlzO-klA?rel=0" title="씬 에디터 데모" loading="lazy" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>
+            <iframe src="https://www.youtube.com/embed/wp8xlzO-klA?rel=0" title="Scene editor demo" loading="lazy" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>
           </div>
-          <p class="cap"><b>씬 에디터</b> — 실제 라우트 한 장을 통째로 띄우고, 클릭한 노드를 소스의 노드로 되짚는다.<br><a href="https://youtu.be/wp8xlzO-klA" target="_blank" rel="noreferrer">youtu.be/wp8xlzO-klA</a></p>
+          <p class="cap"><b>Scene editor</b> — a whole real route on screen, tracing the node you clicked back to the node in the source.<br><a href="https://youtu.be/wp8xlzO-klA" target="_blank" rel="noreferrer">youtu.be/wp8xlzO-klA</a></p>
         </div>
       </div>
     </div>
   </section>
 
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">구조</span><b>07</b></div>
+    <div class="rail"><span class="tag">Architecture</span><b>07</b></div>
     <div class="body">
-      <h2>구조 — 브리지 하나, 뮤테이터 하나, 문서 두 개</h2>
+      <h2>Architecture — one bridge, one mutator, two documents</h2>
       <div class="arch">
         <div class="row">
-          <div class="box accent"><span class="t">셸 (index.html)</span><span class="d">3-pane 에디터 UI. 프리빌드되어 미들웨어가 서빙 — 소비자의 Tailwind가 패널을 다시 칠하지 못하게.</span></div>
-          <div class="box ghost"><span class="t">프레임 (scene.html)</span><span class="d">별도 JS 렐름. 소비자의 실제 컴포넌트를 소비자의 Vite로 변환해 렌더 + <code>?wbFrame=</code> 스탬핑.</span></div>
+          <div class="box accent"><span class="t">Shell (index.html)</span><span class="d">The 3-pane editor UI. Prebuilt and served by the middleware — so the consumer's Tailwind can never repaint our panels.</span></div>
+          <div class="box ghost"><span class="t">Frame (scene.html)</span><span class="d">A separate JS realm. The consumer's real components, transformed by the consumer's own Vite, rendered and stamped via <code>?wbFrame=</code>.</span></div>
         </div>
         <div class="arrow">▼ &nbsp; HTTP · /__design-editor/api/* &nbsp; ▼</div>
         <div class="row">
-          <div class="box"><span class="t">plugin/</span><span class="d">designEditor() · 경로 가드 · 트랜잭션(undo/redo) · 씬 레지스트리</span></div>
-          <div class="box"><span class="t">server/</span><span class="d">jsx-nodes · extract · inject · stamp — 소스를 읽고 쓰는 AST 뮤테이터</span></div>
-          <div class="box alt"><span class="t">TokenAdapter</span><span class="d">프로젝트의 토큰 파이프라인이 꽂히는 자리 (교체 가능)</span></div>
+          <div class="box"><span class="t">plugin/</span><span class="d">designEditor() · path guard · transactions (undo/redo) · scene registry</span></div>
+          <div class="box"><span class="t">server/</span><span class="d">jsx-nodes · extract · inject · stamp — the AST mutator that reads and writes the source</span></div>
+          <div class="box alt"><span class="t">TokenAdapter</span><span class="d">The seam a project's own token pipeline plugs into (swappable)</span></div>
         </div>
-        <div class="arrow">▼ &nbsp; 파일 쓰기 (root 밖은 거부) &nbsp; ▼</div>
-        <div class="row"><div class="box"><span class="t">소비자의 워킹 트리</span><span class="d">백업은 <code>node_modules/.cache/</code>로. 소스 옆에는 아무것도 남기지 않는다.</span></div></div>
+        <div class="arrow">▼ &nbsp; File writes (anything outside root is refused) &nbsp; ▼</div>
+        <div class="row"><div class="box"><span class="t">The consumer's working tree</span><span class="d">Backups go to <code>node_modules/.cache/</code>. Nothing is ever left beside the source.</span></div></div>
       </div>
-      <p class="sub">셸과 프레임을 서로 다른 문서로 나눈 것이 이 구조의 중심입니다.<br/>패널은 우리 CSS로, 심사 대상은 그들의 CSS로 그려져야 하기 때문입니다.</p>
+      <p class="sub">Splitting the shell and the frame into two separate documents is the centre of this architecture.<br/>The panels have to be drawn by our CSS, and the thing under review by theirs.</p>
     </div>
   </section>
 
   <!-- 06 -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">선택 ①</span><b>08</b></div>
+    <div class="rail"><span class="tag">Decision ①</span><b>08</b></div>
     <div class="body">
-      <h2>호스팅을 버렸다</h2>
+      <h2>We dropped hosting</h2>
       <div class="cols two">
         <div class="card">
-          <span class="num">처음 설계</span>
-          <h3>레포 URL을 올리면 우리가 띄운다</h3>
-          <p>우리 인프라가 dev 서버를 돌리고, 에이전트가 고치고, 우리가 PR을 연다.</p>
+          <span class="num">The first design</span>
+          <h3>Hand us a repo URL and we run it</h3>
+          <p>Our infrastructure runs the dev server, an agent makes the fix, we open the PR.</p>
         </div>
         <div class="card de">
-          <span class="num">지금</span>
-          <h3>개발자 자기 머신의 dev 전용 Vite 플러그인</h3>
-          <p>편집은 자기 워킹 트리에 떨어진다. <code>git diff</code>가 리뷰 화면이고, 최후의 undo다.</p>
+          <span class="num">Today</span>
+          <h3>A dev-only Vite plugin on the developer's own machine</h3>
+          <p>Edits land in your own working tree. <code>git diff</code> is the review screen, and the undo of last resort.</p>
         </div>
       </div>
       <ul class="list">
-        <li>엔진의 모든 핵심 장치가 <strong>소스 트리가 dev 서버와 같은 파일시스템에 있다는 것</strong>을 전제한다 — 소스를 읽고 쓰는 미들웨어, 파일 경로 기반 모듈 id, 쓰기 후 HMR 푸시, 두 번째 HTML 진입점.</li>
-        <li>그걸 남의 레포에 대해 돌리려면 <strong>남의 코드를 체크아웃하고 install해서 실행</strong>해야 한다 — 임의 코드 실행, 멀티테넌트, 콜드 스타트, npm 공급망 노출. 그건 별도의 제품이지 기능이 아니다.</li>
+        <li>Every core mechanism in the engine assumes <strong>the source tree sits on the same filesystem as the dev server</strong> — middleware that reads and writes source, file-path-based module ids, an HMR push after each write, a second HTML entry point.</li>
+        <li>Running that against someone else's repo means <strong>checking out their code, installing it and executing it</strong> — arbitrary code execution, multi-tenancy, cold starts, npm supply-chain exposure. That is a separate product, not a feature.</li>
       </ul>
     </div>
   </section>
 
   <!-- 07 -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">선택 ②</span><b>09</b></div>
+    <div class="rail"><span class="tag">Decision ②</span><b>09</b></div>
     <div class="body">
-      <h2>패키지를 둘로 쪼갰다</h2>
+      <h2>We split it into two packages</h2>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>패키지</th><th>배포</th><th>내용</th></tr></thead>
+          <thead><tr><th>Package</th><th>Published</th><th>Contents</th></tr></thead>
           <tbody>
-            <tr><td class="k">@wafflebase/design-editor</td><td>공개</td><td>Vite 플러그인, AST 뮤테이터, 브리지 프로토콜, 에디터 셸</td></tr>
-            <tr><td class="k">packages/design-sandbox</td><td>private</td><td>wafflebase 전용: 씬 매니페스트, providers, fixtures, 캔버스 씬, 우리 토큰 어댑터</td></tr>
+            <tr><td class="k">@wafflebase/design-editor</td><td>public</td><td>Vite plugin, AST mutator, bridge protocol, editor shell</td></tr>
+            <tr><td class="k">packages/design-sandbox</td><td>private</td><td>wafflebase-only: scene manifest, providers, fixtures, canvas scenes, our token adapter</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="note">양쪽이 한 패키지 안에 있는 한, <strong>“남의 레포에서 되나?”는 눈으로 훑어야만 답할 수 있다.</strong> 그리고 실제로 결합 목록을 다시 검증했을 때 2건은 엉뚱한 곳을 가리키고 있었고 5건은 아예 빠져 있었다.</p>
+      <p class="note">While both halves live in one package, <strong>"does this work in somebody else's repo?" can only be answered by reading.</strong> And when we re-checked the coupling list by hand, 2 entries pointed at the wrong place and 5 were missing outright.</p>
       <ul class="list">
-        <li><strong>기계적 테스트:</strong> 배포되는 패키지는 <code>@wafflebase/*</code> 의존성이 0이다. 방향이 뒤집히면 소비자의 <code>pnpm install</code>이 깨진다 — 리뷰어의 판단이 필요 없다.</li>
+        <li><strong>A mechanical test:</strong> the published package has zero <code>@wafflebase/*</code> dependencies. Reverse the direction and the consumer's <code>pnpm install</code> breaks — no reviewer judgement required.</li>
       </ul>
     </div>
   </section>
@@ -585,87 +585,87 @@
   <section class="slide" data-track="dr">
     <div class="rail"><span class="tag">Debug Report</span><b>10</b></div>
     <div class="body">
-      <h2>디버그 리포터 — 한 단축키, 한 번의 조준, 한 문장</h2>
+      <h2>Debug Reporter — one shortcut, one aim, one sentence</h2>
       <div class="arch">
         <div class="row">
-          <div class="box alt"><span class="t">1 · 켠다</span><span class="d">Mod+Shift+Y. 아웃라인이 포인터를 따라다닌다.</span></div>
-          <div class="box alt"><span class="t">2 · 잡는다</span><span class="d"><code>c</code> 캡처 / <code>r</code> 리전 → 한 문장. 여러 개 모은다.</span></div>
-          <div class="box alt"><span class="t">3 · 넘긴다</span><span class="d"><code>v</code> 리뷰 패널 → 한 번에 넘김.</span></div>
+          <div class="box alt"><span class="t">1 · Arm it</span><span class="d">Mod+Shift+Y. An outline follows the pointer.</span></div>
+          <div class="box alt"><span class="t">2 · Capture</span><span class="d"><code>c</code> to capture / <code>r</code> for a region → one sentence. Collect as many as you like.</span></div>
+          <div class="box alt"><span class="t">3 · Hand over</span><span class="d"><code>v</code> for the review panel → hand the whole batch over at once.</span></div>
         </div>
         <div class="arrow">▼</div>
         <div class="row">
-          <div class="box"><span class="t">4 · 에이전트가 초안</span><span class="d">이슈 문안 + 이 배치가 어떻게 PR로 쪼개지는지에 대한 제안</span></div>
-          <div class="box"><span class="t">5 · 사람이 확정</span><span class="d">문장 편집, 항목 제외, 그룹 조정. <strong>확정 전에는 아무것도 나가지 않는다.</strong></span></div>
+          <div class="box"><span class="t">4 · An agent drafts</span><span class="d">The issue text, plus a proposal for how this batch splits into PRs</span></div>
+          <div class="box"><span class="t">5 · A person confirms</span><span class="d">Edit the sentence, drop an item, regroup. <strong>Nothing goes out before it is confirmed.</strong></span></div>
         </div>
         <div class="arrow">▼</div>
         <div class="row">
-          <div class="box"><span class="t">6 · 검증 → 착지</span><span class="d">재현 가능한 것은 리플레이, 외형 리포트는 시각 레인. PR / 이슈 / 기존 이슈에 코멘트.</span></div>
-          <div class="box ghost"><span class="t">7 · 결과가 돌아온다</span><span class="d">파이프라인이 승인된 모양과 달라진 부분까지 같은 패널로.</span></div>
+          <div class="box"><span class="t">6 · Verify → land</span><span class="d">Anything reproducible gets replayed; appearance reports go down the visual lane. A PR, an issue, or a comment on an existing one.</span></div>
+          <div class="box ghost"><span class="t">7 · The result comes back</span><span class="d">Including every way the pipeline's output differs from the shape that was approved — in the same panel.</span></div>
         </div>
       </div>
-      <p class="note">보고자는 파일 경로도, 재현 절차도, 라벨도 쓰지 않는다. <strong>문장이 곧 명세</strong>이고, 그 문장은 나중에 커밋 메시지의 “왜”로 그대로 들어간다.</p>
-      <p class="sub"><strong>버그만 다루지 않는다.</strong> 항목의 종류는 간격·색·토큰·문구·접근성·작은 어포던스·구조·로직 여덟 가지이고, 명백한 버그는 그중 하나다. “뭔가 이상한데”가 전부 같은 입구로 들어오는 것이 이 도구의 요점이다 — <em>이건 버그는 아닌데</em> 하고 손을 내리는 지점이 없어야 하니까.</p>
+      <p class="note">The reporter writes no file paths, no repro steps, no labels. <strong>The sentence is the spec</strong>, and that same sentence later becomes the "why" in the commit message.</p>
+      <p class="sub"><strong>It is not only for bugs.</strong> There are eight kinds of item — spacing, color, token, wording, accessibility, small affordances, structure, logic — and an outright bug is one of them. The point of the tool is that every "something's off here" comes in through the same door — there should be no moment where you think <em>well, it's not really a bug</em> and put your hand down.</p>
     </div>
   </section>
 
   <!-- 11 -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">사용</span><b>11</b></div>
+    <div class="rail"><span class="tag">Try it</span><b>11</b></div>
     <div class="body">
-      <h2>써보는 법 — 두 명령과 한 단축키</h2>
+      <h2>How to try it — two commands and one shortcut</h2>
       <div class="cols two">
         <div class="card de">
-          <span class="num">디자인 에디터</span>
+          <span class="num">Design editor</span>
           <p class="mono" style="font-size:14px;line-height:2;color:var(--ink)">
             pnpm design<br>
             → localhost:5173/__design-editor/<br>
-            → 편집 → <strong>Save to Code</strong><br>
+            → edit → <strong>Save to Code</strong><br>
             pnpm design-pr
           </p>
-          <p>필요한 것: Node 22+, git, 커밋에 쓸 이름과 주소. <strong>pnpm·Docker·DB·백엔드 전부 불필요</strong> — 씬이 fixture로 자기 데이터를 답하기 때문에, wafflebase에서 단독 실행되는 유일한 부분이다.</p>
+          <p>What you need: Node 22+, git, and a name and address to commit with. <strong>No pnpm services, no Docker, no DB, no backend</strong> — scenes answer for their own data with fixtures, which makes this the one part of wafflebase that runs entirely on its own.</p>
         </div>
         <div class="card dr">
-          <span class="num">디버그 리포터</span>
+          <span class="num">Debug reporter</span>
           <p class="mono" style="font-size:14px;line-height:2;color:var(--ink)">
             pnpm --filter @wafflebase/frontend dev<br>
             → /harness/hunt?surface=sheet<br>
-            → <strong>Mod+Shift+Y</strong> → c → 한 문장<br>
+            → <strong>Mod+Shift+Y</strong> → c → one sentence<br>
             → v → Hand over
           </p>
-          <p>드래프팅 키가 없으면 초안 없이 <strong>내 문장 그대로</strong> 넘어간다 — 항목당 PR 1개. 기능이 멈추지 않는다.</p>
+          <p>With no drafting key, it hands over <strong>your sentence as written</strong>, undrafted — one PR per item. The feature does not stop.</p>
         </div>
       </div>
-      <p class="note">이어지는 실습 세션에서 이 두 흐름을 각자 환경에서 끝까지 한 번씩 돌려본다. 별도의 튜토리얼 문서를 따라가면 된다.</p>
+      <p class="note">In the hands-on session that follows, you'll run both flows end to end once on your own machine. Just follow the separate tutorial page.</p>
     </div>
   </section>
 
   <!-- 12 -->
   <section class="slide" data-track="de">
-    <div class="rail"><span class="tag">마무리</span><b>12</b></div>
+    <div class="rail"><span class="tag">Wrap-up</span><b>12</b></div>
     <div class="body">
-      <h2>기대하는 결과, 그리고 남은 것</h2>
+      <h2>What we expect, and what's left</h2>
       <div class="cols two">
         <div class="card de">
-          <h3>기대</h3>
+          <h3>Expected</h3>
           <ul class="list" style="gap:8px">
-            <li>디자인 변경의 왕복이 <strong>티켓 → 일정 → PR</strong>에서 <strong>클릭 → 저장 → PR</strong>로.</li>
-            <li>관찰이 싸지면 보고 수가 늘고, 늘어난 보고가 회귀 레인을 채운다.</li>
-            <li>둘 다 wafflebase 전용이 아니다 — <strong>플러그인 하나, 패키지 하나.</strong> 다른 프로젝트에서 실제로 돌려봤다.</li>
+            <li>A design change's round trip goes from <strong>ticket → schedule → PR</strong> to <strong>click → save → PR</strong>.</li>
+            <li>Cheap observation means more reports, and more reports fill the regression lane.</li>
+            <li>Neither tool is wafflebase-specific — <strong>one plugin, one package.</strong> We actually ran them inside another project.</li>
           </ul>
         </div>
         <div class="card">
-          <h3>정직하게, 남은 것</h3>
+          <h3>Honestly, what's left</h3>
           <ul class="list" style="gap:8px">
-            <li>npm 미배포 — tarball이나 workspace로 설치한다.</li>
-            <li>에이전트 편집 루프는 미구현. 그 자리를 디버그 리포터가 대신하고 있다.</li>
-            <li>포크 PR은 자동 수정 루프에 못 들어간다 — 외부 기여자는 이슈에서 끝난다. 결정이 필요한 실제 구멍이다.</li>
-            <li>배포 환경 리포팅(SP2)은 <strong>의도적으로 미일정</strong>. 스크린샷에 남의 문서가 담기는 순간 리스크 프로필이 달라진다.</li>
-            <li><strong>설정 절벽</strong>: 씬 매니페스트 + providers + fixtures 저작. 낯선 앱에서 1시간이 넘으면 설정 표면을 재설계한다는 것이 기준선이다.</li>
-            <li><strong>이름이 아직 안 맞는다.</strong> <code>debug-report</code>는 대부분의 제품에서 “진단 덤프”로 읽히고, <code>bug-report</code>는 위의 여덟 종류 중 일곱을 이름 밖으로 민다. 의견 받습니다.</li>
+            <li>Not published to npm — install from a tarball or as a workspace package.</li>
+            <li>The agent editing loop is unbuilt. The debug reporter is standing in for it.</li>
+            <li>Fork PRs cannot enter the auto-fix loop — an outside contributor's work ends at the issue. A real hole that needs a decision.</li>
+            <li>Reporting from deployed environments (SP2) is <strong>deliberately unscheduled</strong>. The risk profile changes the moment a screenshot can contain somebody else's document.</li>
+            <li><strong>The setup cliff</strong>: authoring the scene manifest + providers + fixtures. The baseline is that if it takes over an hour on an unfamiliar app, we redesign the configuration surface.</li>
+            <li><strong>The name still doesn't fit.</strong> In most products <code>debug-report</code> reads as "diagnostic dump", and <code>bug-report</code> pushes seven of the eight kinds above out of the name. Suggestions welcome.</li>
           </ul>
         </div>
       </div>
-      <p class="sub">설계 문서: <code>docs/design/design-editor/</code> (시작점은 <code>design-editor-local-plugin.md</code>) · <code>docs/design/agent-pipeline/debug-report.md</code> · 운영자 가이드 <code>design-editor-running.md</code></p>
+      <p class="sub">Design docs: <code>docs/design/design-editor/</code> (start at <code>design-editor-local-plugin.md</code>) · <code>docs/design/agent-pipeline/debug-report.md</code> · operator's guide <code>design-editor-running.md</code></p>
     </div>
   </section>
 
@@ -726,8 +726,8 @@
     if (!btn) return;
     function paint() {
       var dark = document.documentElement.getAttribute("data-theme") === "dark";
-      btn.textContent = dark ? "☀ 라이트" : "☾ 다크";
-      btn.setAttribute("aria-label", dark ? "라이트 테마로 전환" : "다크 테마로 전환");
+      btn.textContent = dark ? "☀ Light" : "☾ Dark";
+      btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
     }
     btn.addEventListener("click", function () {
       var dark = document.documentElement.getAttribute("data-theme") === "dark";

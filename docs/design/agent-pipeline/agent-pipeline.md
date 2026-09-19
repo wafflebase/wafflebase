@@ -284,7 +284,7 @@ guide for when it boots but shows the wrong thing.
 `docs/design/agent-pipeline/walkthrough/` holds two standalone HTML pages covering the **design
 editor and the debug reporter** in more depth than the map above — one explaining what
 each does and why it is built that way, one a step-by-step to follow while running
-them. Both are in Korean.
+them, reached from an `index.html` landing page.
 
 Serve the repository root, so the screenshot the first page references resolves:
 
