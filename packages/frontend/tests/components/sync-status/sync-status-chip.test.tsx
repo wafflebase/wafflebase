@@ -8,7 +8,11 @@ import type { ReactElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-let mockCtx: { doc: FakeDoc | undefined; connection: string };
+let mockCtx: {
+  doc: FakeDoc | undefined;
+  connection: string;
+  error?: Error;
+};
 
 vi.mock('@yorkie-js/react', () => ({
   useDocument: () => mockCtx,
@@ -456,7 +460,16 @@ describe('SyncStatusChip', () => {
       doc.type();
     });
 
-    expect(container.querySelector('[role="status"]')?.getAttribute('tabindex')).toBe('0');
+    // Focusable, not "carries tabindex". A stranded chip on a build that can
+    // persist renders the offer as a `<button>`, which is focusable natively
+    // and so carries no tabindex at all — the same requirement met a different
+    // way. Asserting the attribute made this test pass only while the feature
+    // was dark, and fail on the dependency bump that turns it on.
+    const chip = container.querySelector('[role="status"]');
+    expect(chip).not.toBeNull();
+    expect(
+      chip!.tagName === 'BUTTON' || chip!.getAttribute('tabindex') === '0',
+    ).toBe(true);
   });
 
   it('does not claim the work is stored locally', () => {
@@ -1031,6 +1044,59 @@ describe('the lapse reaching the chip', () => {
     });
     const text = document.body.textContent ?? '';
     expect(text).toContain('exist only in this tab');
-    expect(text).not.toContain('this device');
+    // No *diagnosis* is invented — which is what "nothing extra" means here.
+    // Deliberately not `not.toContain('this device')`: on a build that can
+    // persist, a stranded chip also carries the offer to turn saving on, whose
+    // wording names this device and is the feature working rather than a cause
+    // being invented. That broader assertion held only while the gate was shut.
+    for (const cause of [
+      'cannot save documents locally',
+      'open in another tab',
+      'no longer being saved',
+      'too large to save',
+      'out of local storage space',
+      'could not be written to',
+      'cannot confirm that changes are being saved',
+    ]) {
+      expect(text).not.toContain(cause);
+    }
+  });
+});
+
+describe('SyncStatusChip on a document that failed to open', () => {
+  /**
+   * The case a smoke test of the durable path walked into: reload while the
+   * server is unreachable. The editor renders the attach error full-screen, and
+   * the header sat a `✓ Saved` next to it — a tick over a document that never
+   * opened, with the user's unsent work still on disk and undelivered.
+   */
+  const failed = { doc: undefined, connection: 'disconnected' } as const;
+
+  it('renders no chip rather than a tick it cannot support', () => {
+    mockCtx = { ...failed, error: new Error('[unknown] Failed to fetch') };
+
+    renderChip();
+
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.body.textContent).not.toContain('Saved');
+  });
+
+  it('still shows the chip while the open is merely in progress', () => {
+    // The distinction the fix turns on. Without an error this is an attach
+    // still running, where `saved` is the honest answer and suppressing the
+    // chip would blank the header on every document open.
+    mockCtx = { ...failed };
+
+    renderChip();
+
+    expect(screen.getByRole('status')).toHaveTextContent('Saved');
+  });
+
+  it('registers no unload guard for a document that never opened', () => {
+    mockCtx = { ...failed, error: new Error('[unknown] Failed to fetch') };
+
+    renderChip();
+
+    expect(unloadGuards()).toBe(0);
   });
 });

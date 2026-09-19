@@ -87,6 +87,16 @@ blaming the user's browser for our pin.
 - **Opening a document that has never been opened on this device.** Google
   Drive's "Available offline" toggle pre-fetches files; we only persist what
   the user has actually opened. Offline *discovery* is out of scope.
+- **Opening a document offline at all**, including one this device is already
+  holding. The guarantee is that work *survives* and syncs when the connection
+  returns — not that the editor keeps working while it is gone. The SDK admits
+  no other reading: `Client.activate()` takes the client and actor ids from the
+  server, so with the server unreachable the client never activates, the
+  document never attaches, and the store is never consulted. A reload while
+  disconnected therefore lands on the editor's usual failure screen with the
+  work intact on disk behind it. Closing that gap is an upstream change, and
+  until it happens the sync chip says nothing on that screen rather than
+  claiming a document that did not open is `Saved`.
 - **Anonymous share-link editors.** Covered below under
   [Who gets it](#who-gets-it).
 - **Making two tabs on one document both durable.** Deferred; see

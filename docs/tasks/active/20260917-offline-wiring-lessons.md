@@ -202,3 +202,65 @@ retracting an `Infinity`-duration warning. The handler now prevents the default
 and dismisses on success only, with a re-entrancy latch so a second press
 cannot report "the stored copy could not be read" for work that was in fact
 recovered.
+## Manual smoke, against a locally built 0.7.23
+
+The PR deferred the manual smoke because "nothing renders until the dependency
+is bumped". That was true of the *published* dependency only: `#1357` was
+already merged upstream, so building `yorkie-js-sdk` main, stamping it
+`0.7.23`, `pnpm pack`ing the two packages and pointing `pnpm.overrides` at the
+tarballs opens the gate today. Everything below was found in the hour that took.
+
+**The promise holds.** Edits typed with the server unreachable survived a
+reload and reached the server on reconnect. The store behaved as designed: one
+snapshot row, 49 change rows for 49 keystrokes — the incremental append, not
+the full re-serialization the SDK prerequisite exists to remove.
+
+**A green suite can be green only because the feature is off.** Two existing
+chip tests failed the moment the pin moved to `0.7.23`. Neither was about
+offline persistence: one asserted the chip carries `tabindex="0"` (a stranded
+chip that can offer to turn saving on renders a `<button>`, focusable natively
+and carrying no tabindex), the other that the tooltip never says "this device"
+(the offer says it, legitimately). Both encoded the dark-launch state as
+though it were the requirement. "Bumping the dependency is the only action
+needed" was therefore not true of CI, and no amount of reading would have said
+so — only running with the bump did.
+
+**`!doc` is two situations, and they are opposites.** `useSyncStatus` answered
+`saved` whenever there was no document, on the reasoning that there is "nothing
+queued to lose". That holds while an attach is in flight. It is exactly wrong
+when the attach *failed*: the reload-while-offline case put a `✓ Saved` in the
+header of a document that did not open, over work still sitting undelivered on
+this device. `DocumentProvider` publishes the failure as `error`, and the hook
+was not reading it. It now makes no claim at all — `state: SyncState | null`,
+nullable rather than a sixth state, so every consumer is forced by the type to
+decide what to do with "nothing can be said". The same direction
+`DurableYorkieProvider` already takes with `unreportable`.
+
+**Opening a document offline is not ours to fix.** The only RPC attempted on
+an offline reload is `ActivateClient`, and it 503s: `Client.activate()` takes
+the client and actor ids from the server, so the client never activates, the
+document never attaches, and the store is never consulted. The DocStore only
+serves a client that already activated. Nothing in this repo closes that, and
+the honest scope of this feature is "your work survives and syncs later", not
+"you can keep working offline". Worth stating in the design doc rather than
+leaving the reader to infer it from a full-screen `[unknown] Failed to fetch`.
+
+### Two ways the measurement lied before the code did
+
+**Never restart the local Yorkie to simulate a disconnect.** `docker-compose`
+runs `yorkieteam/yorkie` as `server --pprof-enabled` with no volume and no
+mongo URI — the in-memory backend. `docker stop && docker start` wipes every
+document on it, and the reconnect then fails with `[invalid_argument] change
+clientSeq must increase by one` against a server that has forgotten the client.
+That reads exactly like the durable path corrupting a document, and it is not:
+it is the test rig destroying the server's state. Put a TCP proxy in front of
+Yorkie and kill the proxy instead; the server keeps its data and the client
+sees a real network loss.
+
+**Never time a background tab.** The "second tab takes 10+ seconds" finding was
+an artifact: Chrome suspends `requestAnimationFrame` and throttles timers in
+hidden tabs, and a Canvas editor paints in rAF. Measured under equal
+conditions, the *sole* tab on a document took 27.3 s to first canvas and the
+second tab 21.8 s — the contended one was faster, so there is no second-tab
+penalty to explain. `document.visibilityState` belongs in any timing this
+harness reports.

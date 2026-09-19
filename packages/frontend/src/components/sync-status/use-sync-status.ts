@@ -30,7 +30,16 @@ const CONNECTED = 'connected';
 const SYNC_FAILED = 'sync-failed';
 
 export interface SyncStatus {
-  state: SyncState;
+  /**
+   * What to say about this document's sync state, or `null` for "nothing can
+   * be said" — the document failed to open, so there is no sync state to
+   * describe and no store this hook can see to describe instead.
+   *
+   * Nullable rather than a sixth `SyncState` because the answer is the absence
+   * of a status, not another one: every consumer has to decide what to do when
+   * there is nothing to report, and the type is what makes them.
+   */
+  state: SyncState | null;
   /** Yorkie's watch stream is open. Lets a caller tell the two routes into
    *  `not-saved` apart: a dropped connection, or a rejected push. */
   connected: boolean;
@@ -66,7 +75,7 @@ export interface SyncStatus {
  * Design: docs/design/sync-status.md
  */
 export function useSyncStatus(): SyncStatus {
-  const { doc, connection } = useDocument();
+  const { doc, connection, error } = useDocument();
   const connected = String(connection) === CONNECTED;
   // Whether this document's unsent work is on this device's disk, published by
   // the durable client when one is mounted. `false` on every other document,
@@ -201,6 +210,27 @@ export function useSyncStatus(): SyncStatus {
       setSyncFailed(String(event.value) === SYNC_FAILED && pendingRef.current);
     });
   }, [doc]);
+
+  // A document that failed to open is the other way to have no `doc`, and it
+  // means the opposite. `DocumentProvider` reports the attach failure — or the
+  // client's, which is the case this actually gets reached through: reloading
+  // while the server is unreachable fails `Client.activate()`, whose client and
+  // actor ids are server-assigned, so nothing attaches and the local store is
+  // never consulted. Whatever this device holds for the document is still
+  // outstanding, and answering `saved` below would put a tick over exactly the
+  // work this feature exists to protect.
+  //
+  // There is no truthful positive answer available here either — nothing in
+  // this hook can see the store — so it makes no claim at all, the direction
+  // `DurableYorkieProvider` already takes when it cannot report one.
+  if (error) {
+    return {
+      state: null,
+      connected,
+      hasUnsentEdits: unflushed,
+      pendingSince: null,
+    };
+  }
 
   // Before the provider has a document there is no connection to have lost and
   // nothing queued to lose, so the honest answer is `saved` — "you have no

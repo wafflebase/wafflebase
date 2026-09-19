@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * the seam that lets these tests drive editing, presence and acknowledgement
  * directly, without a real attach (which cannot run in jsdom).
  */
-let mockCtx: { doc: FakeDoc | undefined; connection: string };
+let mockCtx: {
+  doc: FakeDoc | undefined;
+  connection: string;
+  error?: Error;
+};
 
 vi.mock('@yorkie-js/react', () => ({
   useDocument: () => mockCtx,
@@ -397,6 +401,51 @@ describe('useSyncStatus', () => {
     const { result } = renderHook(() => useSyncStatus());
 
     expect(result.current.state).toBe('saved');
+  });
+
+  it('says nothing at all when the document failed to open', () => {
+    // A failed open is not an open in progress. `doc` is undefined in both,
+    // which is why they used to answer the same — but only one of them means
+    // "you have no unsaved work".
+    //
+    // Reached exactly where this feature is supposed to be protecting people:
+    // reloading while the server is unreachable. `Client.activate()` needs the
+    // `ActivateClient` RPC (the client and actor ids are server-assigned), so
+    // the client never activates, the document never attaches, and the store is
+    // never consulted — while whatever this device is holding for the document
+    // has still not reached the server. Answering `saved` there puts a tick
+    // beside a document that did not open, over work that is still outstanding.
+    //
+    // There is no truthful *positive* answer available either: nothing here can
+    // see the store. So the hook makes no claim, the same direction
+    // `DurableYorkieProvider` takes when it cannot report — lowering the claim
+    // beats making one it cannot support.
+    mockCtx = {
+      doc: undefined,
+      connection: 'disconnected',
+      error: new Error('[unknown] Failed to fetch'),
+    };
+
+    const { result } = renderHook(() => useSyncStatus());
+
+    expect(result.current.state).toBeNull();
+  });
+
+  it('keeps the unload guard out of it when the open failed', () => {
+    // Nothing attached, so nothing was edited in this tab: leaving the page
+    // costs nothing that closing it would not have cost anyway. The work at
+    // risk is a previous session's, already on disk, and beyond this tab's
+    // reach either way.
+    mockCtx = {
+      doc: undefined,
+      connection: 'disconnected',
+      error: new Error('[unknown] Failed to fetch'),
+    };
+
+    const { result } = renderHook(() => useSyncStatus());
+
+    expect(result.current.hasUnsentEdits()).toBe(false);
+    expect(result.current.pendingSince).toBeNull();
   });
 });
 

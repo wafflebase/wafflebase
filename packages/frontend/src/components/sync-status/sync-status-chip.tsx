@@ -320,6 +320,18 @@ export function SyncStatusChip({ className }: { className?: string }) {
     [],
   );
 
+  // Nothing to report: the document failed to open, so there is no sync state
+  // to name. Placed below every hook — the effects above all key off `state`
+  // and are inert once it is null (nothing is stranded, nothing is saving), so
+  // this costs no guard and no toast.
+  //
+  // Rendering nothing rather than a neutral placeholder, because the editor
+  // beneath it is already showing the failure full-screen, and a second element
+  // in the header saying it differently only competes with it.
+  if (state === null) {
+    return null;
+  }
+
   const Icon = ICONS[state];
 
   return (
