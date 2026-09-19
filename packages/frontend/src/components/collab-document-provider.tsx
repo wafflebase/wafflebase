@@ -299,17 +299,15 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
           : "another-tab";
 
   const inner = (
-    <DurabilityLapseScope lapse={lapse}>
-      <DocumentProvider<R, P> initialPresence={initialPresence} {...rest}>
-        <PresenceIdentityRepair<P> initialPresence={initialPresence} />
-        {/* Inside the `DocumentProvider`, because it reads `useDocument()`. It
-            is a no-op unless a durable client is mounted above, which is what
-            lets it be rendered unconditionally from here — the one place that
-            is inside both providers. */}
-        <DurableLossWatch />
-        {children}
-      </DocumentProvider>
-    </DurabilityLapseScope>
+    <DocumentProvider<R, P> initialPresence={initialPresence} {...rest}>
+      <PresenceIdentityRepair<P> initialPresence={initialPresence} />
+      {/* Inside the `DocumentProvider`, because it reads `useDocument()`. It
+          is a no-op unless a durable client is mounted above, which is what
+          lets it be rendered unconditionally from here — the one place that
+          is inside both providers. */}
+      <DurableLossWatch />
+      {children}
+    </DocumentProvider>
   );
 
   // Nothing is attached until the election *and* the identity have answered —
@@ -339,28 +337,39 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
   // `person`, never the live `me` — see `lastKnown` above. A refetch that
   // answers `null` must not be able to swap this branch for the other one under
   // a mounted client.
-  if (!decided?.durable || !decided.clientKey || !person) {
-    return inner;
-  }
-
+  //
+  // The lapse scope wraps **both** branches, from out here rather than from
+  // inside `inner`. `DurableYorkieProvider` publishes its own lapse — the
+  // dropped log, the too-large snapshot, the full origin, the refused write —
+  // and the design has it win by being nested deeper. Mounted inside `inner`,
+  // this scope was the deeper one: it sat *below* the durable provider's and
+  // overwrote every one of those reasons with the `undefined` a durable
+  // document computes here, so none of them could ever reach the chip. The
+  // nesting is the whole mechanism, so it is the nesting that has to be right.
   return (
-    <DurableYorkieProvider
-      clientKey={decided.clientKey}
-      userId={String(person.id)}
-      rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
-      apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
-      metadata={{
-        userID: encodeURIComponent(person.username || 'anonymous-user'),
-      }}
-      authTokenInjector={fetchYorkieToken}
-      // The app elects a tab before the SDK's own lock is reached, so this
-      // should not fire. It is the backstop for the race where the two
-      // disagree: holding the election while the attach is refused leaves this
-      // tab non-durable *and* every other tab refused, which is strictly worse
-      // than having lost the election in the first place.
-      onLockRefused={giveUp}
-    >
-      {inner}
-    </DurableYorkieProvider>
+    <DurabilityLapseScope lapse={lapse}>
+      {!decided?.durable || !decided.clientKey || !person ? (
+        inner
+      ) : (
+        <DurableYorkieProvider
+          clientKey={decided.clientKey}
+          userId={String(person.id)}
+          rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
+          apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
+          metadata={{
+            userID: encodeURIComponent(person.username || 'anonymous-user'),
+          }}
+          authTokenInjector={fetchYorkieToken}
+          // The app elects a tab before the SDK's own lock is reached, so this
+          // should not fire. It is the backstop for the race where the two
+          // disagree: holding the election while the attach is refused leaves
+          // this tab non-durable *and* every other tab refused, which is
+          // strictly worse than having lost the election in the first place.
+          onLockRefused={giveUp}
+        >
+          {inner}
+        </DurableYorkieProvider>
+      )}
+    </DurabilityLapseScope>
   );
 }

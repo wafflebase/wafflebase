@@ -111,7 +111,18 @@ const DurabilityLapseContext = createContext<DurabilityLapse | undefined>(
   undefined,
 );
 
-/** Publishes why durability lapsed (or `undefined` while it has not). */
+/**
+ * Publishes why durability lapsed (or `undefined` while it has not).
+ *
+ * A nested scope with **no** answer inherits the enclosing one rather than
+ * blanking it. Two scopes are mounted on a durable document —
+ * `CollabDocumentProvider`'s and, under it, `DurableYorkieProvider`'s — and the
+ * rule the design states is that the deeper one wins *where it has an answer*.
+ * Read literally, `value: lapse` made "no answer" an answer: whichever scope
+ * happened to be innermost erased the other's reason, silently and with nothing
+ * to observe it by. Inheriting is what makes the documented rule the
+ * implemented one no matter which way round the two end up nested.
+ */
 export function DurabilityLapseScope({
   lapse,
   children,
@@ -119,7 +130,12 @@ export function DurabilityLapseScope({
   lapse?: DurabilityLapse;
   children: ReactNode;
 }) {
-  return createElement(DurabilityLapseContext.Provider, { value: lapse }, children);
+  const inherited = useContext(DurabilityLapseContext);
+  return createElement(
+    DurabilityLapseContext.Provider,
+    { value: lapse ?? inherited },
+    children,
+  );
 }
 
 /**

@@ -197,6 +197,16 @@ repairs a failed append by writing a fresh snapshot, which would otherwise put
 the whole document straight back on the disk the sign-out just cleared. The
 preference cannot be that guard — it is still on.
 
+The refusal is recorded in `localStorage`, not only in memory, because the tab
+that signs out is not the only tab that writes. A second tab holding the same
+document is a different JS realm: it never sees a module-level set, its
+still-mounted client keeps appending, and the repair-by-snapshot above puts the
+whole document back on the disk — with nothing left scheduled to remove it.
+Enforcing the erase in one realm only would leave the feature's primary privacy
+control failing silently on exactly the shared device it exists for. It names
+accounts rather than devices and is cleared when that account signs in again,
+so it is not a second copy of the preference.
+
 The identity is mirrored in `localStorage` (an id, never content) because
 sign-out is reachable from routes the authenticated shell does not cover, where
 in-memory state is simply absent and the erase would otherwise be a silent
@@ -503,6 +513,12 @@ first. When one has been seen, `WafflebaseDocStore.remove()` **archives instead
 of deleting**, moving the envelope to a separate object store. The archived bytes rehydrate through
 `Document.fromBytes()` (public API, present in the shipped `.d.ts`) into a new
 document titled `<title> (offline copy)`. This requires no SDK change at all.
+
+The copy is created in the source document's workspace — a document cannot be
+created without one — and where the source is gone (one of the three ways an
+archive comes to exist in the first place), in the first workspace the server
+still lists for the user. Handing the work back somewhere beats refusing
+because its original home was deleted.
 
 The user is then told what happened, in the vocabulary of the three reasons,
 with a link to the copy. Archived envelopes are subject to the same 30-day

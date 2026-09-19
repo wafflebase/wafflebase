@@ -2,7 +2,10 @@ import "fake-indexeddb/auto";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import yorkie, { Document, Text } from "@yorkie-js/sdk";
 
-const created: Array<{ title: string; type?: string }> = [];
+const created: Array<{ workspaceId: string; title: string; type?: string }> = [];
+
+/** Workspaces the server would list for this user, for the fallback to find. */
+let workspaces: Array<{ id: string }> = [{ id: "ws-fallback" }];
 const applied: Array<{ docId: string; content: unknown }> = [];
 
 /** Note documents are seeded through a live client; this stands in for it. */
@@ -24,11 +27,26 @@ vi.mock("@yorkie-js/sdk", async (importOriginal) => {
   return { ...actual, Client: FakeClient };
 });
 
-vi.mock("@/api/documents", () => ({
-  createDocument: (payload: { title: string; type?: string }) => {
-    created.push(payload);
+/**
+ * The real create endpoint, standing in for the one the backend actually has.
+ *
+ * `POST /documents` requires a `workspaceId`; recovery used to omit it, so
+ * every "Save a copy" answered 400. This mock refuses a missing workspace for
+ * the same reason the DTO does — a stub that accepted one would let the bug
+ * back in unnoticed.
+ */
+vi.mock("@/api/workspaces", () => ({
+  createWorkspaceDocument: (
+    workspaceId: string,
+    payload: { title: string; type?: string },
+  ) => {
+    if (!workspaceId) {
+      return Promise.reject(new Error("workspaceId must not be blank"));
+    }
+    created.push({ workspaceId, ...payload });
     return Promise.resolve({ id: `new-${created.length}`, ...payload });
   },
+  fetchWorkspaces: () => Promise.resolve(workspaces),
 }));
 
 vi.mock("@/app/documents/apply-imported-content", () => ({
@@ -135,6 +153,7 @@ beforeEach(() => {
   created.length = 0;
   applied.length = 0;
   attached.length = 0;
+  workspaces = [{ id: "ws-fallback" }];
 });
 
 afterEach(() => {
@@ -152,11 +171,16 @@ describe("handing the work back", () => {
     const outcome = await recoverOfflineCopy(store, work, {
       title: "Quarterly plan",
       type: "sheet",
+      workspaceId: "ws-1",
     });
 
     expect(outcome.documentId).toBe("new-1");
     expect(created[0].title).toBe("Quarterly plan (offline copy)");
     expect(created[0].type).toBe("sheet");
+    // The copy belongs where the original did. Creating a document at all
+    // requires saying where; sending no workspace is how this path answered
+    // 400 on every attempt.
+    expect(created[0].workspaceId).toBe("ws-1");
     const content = applied[0].content as { document: SheetRoot };
     expect(content.document.tabOrder).toEqual(["one", "typed-offline"]);
   });
@@ -264,6 +288,41 @@ describe("handing the work back", () => {
     });
 
     expect(outcome.refused).toBe("unsupported-type");
+    expect(created).toEqual([]);
+    expect(await listRecoverableWork(store)).not.toEqual([]);
+  });
+
+  it("falls back to a workspace the user still has when the original is gone", async () => {
+    // "The document was deleted upstream" is one of the three ways an archive
+    // comes to exist, so the caller often has no workspace to name. Refusing
+    // then would strand the work for exactly the loss path it was archived
+    // for.
+    const store = freshStore();
+    await archiveSheet(store, "sheet-12");
+    const [work] = await listRecoverableWork(store);
+
+    const outcome = await recoverOfflineCopy(store, work, {
+      title: "Quarterly plan",
+      type: "sheet",
+    });
+
+    expect(outcome.documentId).toBe("new-1");
+    expect(created[0].workspaceId).toBe("ws-fallback");
+  });
+
+  it("keeps the archive when there is nowhere to put the copy", async () => {
+    const store = freshStore();
+    await archiveSheet(store, "sheet-13");
+    const [work] = await listRecoverableWork(store);
+    workspaces = [];
+
+    await expect(
+      recoverOfflineCopy(store, work, {
+        title: "Quarterly plan",
+        type: "sheet",
+      }),
+    ).rejects.toThrow();
+
     expect(created).toEqual([]);
     expect(await listRecoverableWork(store)).not.toEqual([]);
   });
@@ -449,10 +508,15 @@ describe("rebuilding each document type", () => {
     const outcome = await recoverOfflineCopy(store, work, {
       title: "Ideas",
       type: "note",
+      workspaceId: "ws-notes",
     });
 
     expect(outcome.documentId).toBe("new-1");
-    expect(created[0]).toEqual({ title: "Ideas (offline copy)", type: "note" });
+    expect(created[0]).toEqual({
+      workspaceId: "ws-notes",
+      title: "Ideas (offline copy)",
+      type: "note",
+    });
     // Notes bypass `applyImportedContent` entirely.
     expect(applied).toEqual([]);
     const seeded = attached[0].getRoot().content?.toString() ?? "";

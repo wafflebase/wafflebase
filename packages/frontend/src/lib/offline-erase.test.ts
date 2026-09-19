@@ -299,6 +299,35 @@ describe("signing out", () => {
     expect(isOfflineWritePermitted("logout-6")).toBe(true);
   });
 
+  it("refuses writes in the tab that did not sign out either", async () => {
+    // The erase used to be enforced in one JS realm: the `erased` set lived in
+    // module memory, so a second tab holding the same document never saw it,
+    // kept appending, and the SDK's repair-by-snapshot put the whole document
+    // back on the disk the sign-out had just cleared — with nothing scheduled
+    // to remove it again. On a shared device that is this feature's primary
+    // privacy control failing silently, which is why the denial has to reach
+    // as far as the writers do.
+    //
+    // A freshly imported module is that second tab: same origin, same
+    // `localStorage`, its own empty in-memory set.
+    rememberOfflineUser("logout-other-tab");
+    await eraseOfflineDataOnLogout();
+
+    vi.resetModules();
+    const otherTab = await import("./offline-erase");
+    expect(otherTab.isOfflineWritePermitted("logout-other-tab")).toBe(false);
+    // Still nobody else's problem.
+    expect(otherTab.isOfflineWritePermitted("someone-else")).toBe(true);
+
+    // And signing back in lifts it for every tab that has not already latched
+    // it in memory — a tab that has stays refused until it reloads, which is
+    // the safe direction: it is still holding the session that was signed out.
+    otherTab.rememberOfflineUser("logout-other-tab");
+    vi.resetModules();
+    const thirdTab = await import("./offline-erase");
+    expect(thirdTab.isOfflineWritePermitted("logout-other-tab")).toBe(true);
+  });
+
   it("refuses writes before it deletes anything, not after", async () => {
     // The whole erase is a window in which a still-mounted durable client keeps
     // writing: the SDK repairs an append that failed against a deleted base by

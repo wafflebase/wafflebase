@@ -29,7 +29,11 @@ import {
   getOfflinePersistenceEnabled,
   setOfflinePersistenceEnabled,
 } from '@/lib/offline-persistence-preference';
-import { DurableDocumentScope } from '@/lib/durable-document-context';
+import {
+  DurabilityLapseScope,
+  DurableDocumentScope,
+  type DurabilityLapse,
+} from '@/lib/durable-document-context';
 import type { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -745,5 +749,84 @@ describe('the tooltip on a state that is now designed rather than inevitable', (
     expect(tooltipFor('saved', null, true, false, 'another-tab')).toBe(
       'All changes are on the server.',
     );
+  });
+});
+
+/**
+ * ...and that the reason actually travels from where it is known to the chip.
+ *
+ * Everything above calls `tooltipFor` with a lapse handed to it, which passes
+ * whether or not `useDurabilityLapse()` ever answers anything — and it did
+ * not: `CollabDocumentProvider` mounted its own scope *inside*
+ * `DurableYorkieProvider`'s, so the `undefined` a durable document computes at
+ * the call site overwrote every reason the durable client publishes
+ * (`dropped`, `too-large`, `out-of-space`, `write-failed`). The requirement the
+ * design states — "its tooltip must name which case applies" — was therefore
+ * unmet for precisely the four causes only the client can see, with a green
+ * test suite. These drive the wiring instead of the function.
+ */
+describe('the lapse reaching the chip', () => {
+  /** Renders a stranded chip under the two scopes, in the app's own order. */
+  function strandedUnderScopes(
+    callSite: DurabilityLapse | undefined,
+    durableClient?: DurabilityLapse,
+  ): string {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    render(
+      <TooltipProvider>
+        <DurabilityLapseScope lapse={callSite}>
+          <DurabilityLapseScope lapse={durableClient}>
+            <SyncStatusChip />
+          </DurabilityLapseScope>
+        </DurabilityLapseScope>
+      </TooltipProvider>,
+    );
+    act(() => {
+      doc.type();
+    });
+    // Radix renders the content only once the tooltip is open; the chip is
+    // focusable precisely so this is reachable without a pointer.
+    act(() => {
+      fireEvent.focus(screen.getByRole('status'));
+    });
+    return document.body.textContent ?? '';
+  }
+
+  it('names a cause only the call site knows', () => {
+    expect(strandedUnderScopes('another-tab')).toContain('open in another tab');
+  });
+
+  it('names a cause only the durable client knows', () => {
+    // The nesting is the whole mechanism: the client's scope is the deeper
+    // one, so its answer is the one the chip reads. Rendered the other way
+    // round — which is what shipped — this sentence never appears.
+    expect(strandedUnderScopes(undefined, 'dropped')).toContain(
+      'no longer being saved',
+    );
+  });
+
+  it('lets the durable client overrule the call site', () => {
+    const text = strandedUnderScopes('another-tab', 'out-of-space');
+    expect(text).toContain('out of local storage space');
+    expect(text).not.toContain('open in another tab');
+  });
+
+  it('says nothing extra where no scope was mounted at all', () => {
+    // Every editor that never persists renders the chip with no scope above
+    // it, and it must keep its pre-offline wording rather than inventing a
+    // cause.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    renderChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      fireEvent.focus(screen.getByRole('status'));
+    });
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('exist only in this tab');
+    expect(text).not.toContain('this device');
   });
 });

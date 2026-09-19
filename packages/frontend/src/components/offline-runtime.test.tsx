@@ -42,7 +42,11 @@ vi.mock('@/lib/wafflebase-doc-store', () => ({
 }));
 
 const fetchDocuments = vi.fn(async () => [{ id: 'a' }, { id: 'b' }]);
-const fetchDocument = vi.fn(async (id: string) => ({ id, title: 'Budget' }));
+const fetchDocument = vi.fn(async (id: string) => ({
+  id,
+  title: 'Budget',
+  workspaceId: 'ws-1',
+}));
 
 vi.mock('@/api/documents', () => ({
   fetchDocuments: () => fetchDocuments(),
@@ -249,21 +253,28 @@ describe('accepting the offer', () => {
     options.action.onClick();
   }
 
-  it('hands the archive, its title and its type to the recovery', async () => {
+  it('hands the archive, its title, its type and its workspace to the recovery', async () => {
     // The type is read from the stored key rather than guessed: writing the
     // content into the wrong engine's shape does not throw, it produces a
     // plausible document that is not what the user wrote.
+    //
+    // The workspace has to travel too — a document cannot be created without
+    // one, and omitting it is how "Save a copy" answered 400 every time.
     await clickSaveACopy();
 
     await waitFor(() => expect(recoverOfflineCopy).toHaveBeenCalled());
     const [store, item, meta] = recoverOfflineCopy.mock.calls[0] as unknown as [
       unknown,
       { id: number; docKey: string },
-      { title: string; type: string },
+      { title: string; type: string; workspaceId?: string },
     ];
     expect(store).toBeDefined();
     expect(item).toEqual({ id: 1, docKey: 'sheet-7' });
-    expect(meta).toEqual({ title: 'Budget', type: 'sheet' });
+    expect(meta).toEqual({
+      title: 'Budget',
+      type: 'sheet',
+      workspaceId: 'ws-1',
+    });
   });
 
   it('offers to open what it recovered, at that type’s route', async () => {

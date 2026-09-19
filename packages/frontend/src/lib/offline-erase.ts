@@ -67,10 +67,10 @@ let signedInUserId: string | undefined;
 export function rememberOfflineUser(userId: string | undefined): void {
   signedInUserId = userId;
   if (userId !== undefined) {
-    // Signing back in re-permits writing. The denial below stands for "this
-    // account's documents were just erased from this device", and a fresh
-    // session is the user asking for them again.
-    erased.delete(userId);
+    // Signing back in re-permits writing, in every tab. The denial below
+    // stands for "this account's documents were just erased from this device",
+    // and a fresh session is the user asking for them again.
+    permitOfflineWrites(userId);
   }
   try {
     if (userId === undefined) {
@@ -110,18 +110,80 @@ export function isOfflineUser(userId: string): boolean {
 }
 
 /**
- * Accounts whose local documents were erased on this page's lifetime, and which
- * must therefore not be written again by a client that is still mounted.
+ * Accounts whose local documents were erased, and which must therefore not be
+ * written again by a client that is still mounted.
  *
- * In memory only, and deliberately: it is a fact about *this page*, not about
- * the device. A reload has no still-mounted client to restrain, and persisting
- * the denial would be a second, invisible copy of the preference.
+ * **Per device, not per page.** This was in-memory only, on the reasoning that
+ * it is a fact about this page — and that reasoning is what left the erase
+ * enforced in exactly one JS realm. A second tab holding the same document is
+ * a *different* realm: it never sees the set, its still-mounted durable client
+ * keeps appending, the SDK repairs an append that failed against the deleted
+ * base by writing a fresh snapshot, and the whole document is back on the disk
+ * the sign-out was supposed to clear — with nothing left scheduled to remove
+ * it. On a shared device that is the feature's primary privacy control failing
+ * silently, so the denial has to travel as far as the writers do.
+ *
+ * `localStorage` is that reach: same-origin, shared by every tab, and read
+ * synchronously at the moment of a write so a tab opened before the sign-out
+ * still honours it. The in-memory set is kept in front of it as the answer
+ * that works when storage is refused outright (Safari private mode) — a
+ * browser in that state cannot hold a durable store to erase either, so the
+ * page-local answer is the whole of the truth there.
+ *
+ * It is *not* a second copy of the preference: it names accounts rather than
+ * devices, it is cleared the moment that account signs in again
+ * ({@link rememberOfflineUser}), and the preference stays on throughout.
  */
+const DENIED_KEY = "wafflebase-offline-denied";
+
 const erased = new Set<string>();
 
-/** Refuses further local writes for `userId` until they sign in again. */
+/** The accounts this device is currently refusing to write. */
+function deniedIds(): Array<string> {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(DENIED_KEY);
+  } catch {
+    return [];
+  }
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((id): id is string => typeof id === "string");
+    }
+  } catch {
+    // Not JSON — treat it as the single id a hand-edited value would be.
+    return [raw];
+  }
+  return [];
+}
+
+function writeDeniedIds(ids: Array<string>): void {
+  try {
+    if (ids.length === 0) {
+      localStorage.removeItem(DENIED_KEY);
+    } else {
+      localStorage.setItem(DENIED_KEY, JSON.stringify([...new Set(ids)]));
+    }
+  } catch {
+    // Same reasoning as the identity mirror: a browser that refuses storage
+    // holds no durable store to erase either.
+  }
+}
+
+/** Refuses further local writes for `userId`, in every tab, until they sign in again. */
 function denyOfflineWrites(userId: string): void {
   erased.add(userId);
+  writeDeniedIds([...deniedIds(), userId]);
+}
+
+/** Lets `userId` be written again — the sign-in that asks for their documents back. */
+function permitOfflineWrites(userId: string): void {
+  erased.delete(userId);
+  writeDeniedIds(deniedIds().filter((id) => id !== userId));
 }
 
 /**
@@ -132,10 +194,14 @@ function denyOfflineWrites(userId: string): void {
  * mounted client's next append throws — and the SDK repairs a failed append by
  * writing a fresh snapshot, which puts the whole document back on the disk the
  * sign-out just cleared. The preference cannot stop that: it is still on. This
- * can.
+ * can — and, being read out of `localStorage`, it can do it for the tab that
+ * did not perform the sign-out as well as the one that did.
  */
 export function isOfflineWritePermitted(userId: string): boolean {
-  return !erased.has(userId);
+  if (erased.has(userId)) {
+    return false;
+  }
+  return !deniedIds().includes(userId);
 }
 
 /**

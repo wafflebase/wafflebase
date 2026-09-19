@@ -236,11 +236,18 @@ async function offerRecoverableWork(
     // The title is a nicety and the server may legitimately no longer have it:
     // "the document was deleted upstream" is one of the three paths that
     // produce an archive in the first place.
+    //
+    // The workspace is not a nicety — a document cannot be created without one
+    // — but it comes from the same answer, and is missing in the same case.
+    // Recovery falls back to the user's first workspace when it is.
     let title = 'Untitled';
+    let workspaceId: string | undefined;
     try {
-      title = (await fetchDocument(described.id)).title || title;
+      const source = await fetchDocument(described.id);
+      title = source.title || title;
+      workspaceId = source.workspaceId;
     } catch {
-      // Keep the fallback.
+      // Keep the fallbacks.
     }
 
     toast.warning('Some changes could not be saved', {
@@ -253,6 +260,7 @@ async function offerRecoverableWork(
           void recoverOfflineCopy(store, item, {
             title,
             type: described.type,
+            workspaceId,
           })
             .then((outcome) => {
               if (!outcome.documentId) {

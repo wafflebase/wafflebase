@@ -1,7 +1,7 @@
 import { Client, Document, Text } from "@yorkie-js/sdk";
 import { fetchYorkieToken } from "@/api/auth";
 import type { DocumentType } from "@/types/documents";
-import { createDocument } from "@/api/documents";
+import { createWorkspaceDocument, fetchWorkspaces } from "@/api/workspaces";
 import type { ImportedContent } from "@/app/documents/apply-imported-content";
 import { applyImportedContent } from "@/app/documents/apply-imported-content";
 import { YorkieDocStore } from "@/app/docs/yorkie-doc-store";
@@ -154,6 +154,35 @@ export function describeArchivedDocument(
   return undefined;
 }
 
+/**
+ * Which workspace the copy is created in.
+ *
+ * A document is never workspace-less: `POST /documents` is bound to
+ * `CreateDocumentInWorkspaceDto`, whose `workspaceId` is `@IsUUID()` and not
+ * optional, so a create without one is a `400` before it reaches any handler.
+ * Recovery used to send exactly that, which made "Save a copy" fail every
+ * single time — on the one path the whole feature exists to reach.
+ *
+ * The source document's own workspace is the right answer and the caller
+ * supplies it where it still has one. It may not: "the document was deleted
+ * upstream" is one of the three ways an archive comes to exist, and a deleted
+ * document answers nothing. So the fallback asks the server which workspaces
+ * this user has and takes the first — the archive holds work they wrote, and
+ * handing it back somewhere is strictly better than refusing because its
+ * original home is gone.
+ */
+async function destinationWorkspace(given?: string): Promise<string> {
+  if (given) {
+    return given;
+  }
+  const workspaces = await fetchWorkspaces();
+  const fallback = workspaces[0]?.id;
+  if (!fallback) {
+    throw new Error("no workspace is available to recover this work into");
+  }
+  return fallback;
+}
+
 export interface RecoveryOutcome {
   /** The new document, when one was created. */
   documentId?: string;
@@ -175,7 +204,7 @@ export interface RecoveryOutcome {
 export async function recoverOfflineCopy(
   store: WafflebaseDocStore,
   work: RecoverableWork,
-  source: { title: string; type: DocumentType },
+  source: { title: string; type: DocumentType; workspaceId?: string },
 ): Promise<RecoveryOutcome> {
   const rebuilt = await rehydrateArchive<never>(store, work.id);
   if (!rebuilt) {
@@ -193,7 +222,10 @@ export async function recoverOfflineCopy(
     if (!markdown) {
       return { complete: rebuilt.complete, refused: "empty" };
     }
-    const created = await createDocument({ title, type: "note" });
+    const created: { id: string } = await createWorkspaceDocument(
+      await destinationWorkspace(source.workspaceId),
+      { title, type: "note" },
+    );
     await writeNote(created.id, markdown);
     await store.dropArchive(work.id);
     return { documentId: created.id, title, complete: rebuilt.complete };
@@ -207,7 +239,10 @@ export async function recoverOfflineCopy(
     return { complete: rebuilt.complete, refused: "empty" };
   }
 
-  const created = await createDocument({ title, type: source.type });
+  const created: { id: string } = await createWorkspaceDocument(
+    await destinationWorkspace(source.workspaceId),
+    { title, type: source.type },
+  );
   await applyImportedContent(created.id, content);
   await store.dropArchive(work.id);
   return { documentId: created.id, title, complete: rebuilt.complete };
