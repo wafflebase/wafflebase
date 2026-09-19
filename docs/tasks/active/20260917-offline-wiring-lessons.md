@@ -291,3 +291,19 @@ dialog between a user and the setting meant to protect their work.
 The dialog's open state is held by `NavUser` rather than inside the dialog,
 because a Radix menu closing takes focus with it and would close a dialog the
 menu owns.
+
+## Self-review rounds
+
+**Round 1** (correctness / test adequacy lens) — blocked on three lenses,
+six major findings, none of them against the two commits this round was run
+for. Four are the cloud panel's own still-open items on #1070: the dark launch
+delivering none of the design's Goals at the pinned dependency, the share-link
+PDF route mounting `CollabDocumentProvider` outside `NonDurableScope`, the
+offline-copy workspace fallback, and the `DurabilityLapse` value no test
+asserts. Two are new: the `lapse reaching the chip` suite hand-builds the scope
+nesting it exists to pin, so the regression its comment describes would stay
+green; and `rememberOfflineUser` re-permits writes on any mount carrying the
+identity, which the code intends as "a fresh session is the user asking for
+them again" but which a second tab holding a cached `me` reaches without one.
+All six carried to the PR rather than fixed here — they are the branch's open
+review, not this round's regressions.
