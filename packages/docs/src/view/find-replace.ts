@@ -60,6 +60,7 @@ export class FindReplaceState {
    * the replacement.
    */
   replaceActive(replacement: string): void {
+    this.search(this.query, this.options);
     if (this.activeIndex < 0 || this.activeIndex >= this.matches.length) return;
     this.snapshot?.();
     const match = this.matches[this.activeIndex];
@@ -82,6 +83,7 @@ export class FindReplaceState {
    * the batch, for the reason `TextEditor.withUndoUnit` documents.
    */
   replaceAll(replacement: string): void {
+    this.search(this.query, this.options);
     if (this.matches.length === 0) return;
     this.snapshot?.();
     this.doc.batch(() => {

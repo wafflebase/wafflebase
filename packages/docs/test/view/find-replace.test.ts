@@ -64,6 +64,42 @@ describe('FindReplaceState', () => {
     expect(state.matches).toHaveLength(0);
   });
 
+  it('should replace the current match after the document changes', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'cat dog');
+
+    const state = new FindReplaceState(doc);
+    state.search('dog');
+
+    // Simulate editing the document while Find & Replace is still open.
+    doc.insertText({ blockId, offset: 0 }, 'big ');
+
+    state.replaceActive('fox');
+
+    expect(doc.document.blocks[0].inlines.map((i) => i.text).join('')).toBe(
+      'big cat fox',
+    );
+  });
+
+  it('should replace all current matches after the document changes', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'cat dog');
+
+    const state = new FindReplaceState(doc);
+    state.search('dog');
+
+    // Simulate editing the document while Find & Replace is still open.
+    doc.insertText({ blockId, offset: 0 }, 'big ');
+
+    state.replaceAll('fox');
+
+    expect(doc.document.blocks[0].inlines.map((i) => i.text).join('')).toBe(
+      'big cat fox',
+    );
+  });
+
   it('should handle empty query', () => {
     const doc = Doc.create();
     const blockId = doc.document.blocks[0].id;
