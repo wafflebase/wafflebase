@@ -25,7 +25,7 @@ Original proposal by @ggyuchive (v1, 2026-08-29).
 Precedent: `scripts/agent/eval/` already measures the code-review panel against
 CodeRabbit — freeze past PRs, replay the real panel K times, score on fixed
 criteria, keep run data outside the repo. This is that method pointed at office
-work instead of review. See [agentic-dev-loop.md](agentic-dev-loop.md) for how
+work instead of review. See [agent-pipeline.md](agent-pipeline.md) for how
 the review side fits together and
 [eval-harness-usage.md](eval-harness-usage.md) for how its numbers are kept
 honest.

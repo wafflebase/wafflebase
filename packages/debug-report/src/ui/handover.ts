@@ -6,7 +6,7 @@
  * travel, which captures travel with them, and what the reporter is told
  * afterwards. The panel's job is to render this and take the decisions.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import {

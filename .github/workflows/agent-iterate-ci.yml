@@ -2,7 +2,7 @@
 # autonomous `agent/` branch, or a human PR opted in via the `agent:managed`
 # label / "@claude loop"), feed the harness failure diagnosis back to Claude Code
 # so it can fix and push a follow-up commit. Completes Phase 21 (Agent Observability) of
-# docs/design/harness-engineering.md by turning the .harness-reports artifacts
+# docs/design/agent-pipeline/harness-engineering.md by turning the .harness-reports artifacts
 # into an agent-readable diagnosis (scripts/agent/summarize-ci.mjs).
 #
 # The loop self-terminates: it only fires while CI is failing, and a bounded
@@ -415,7 +415,7 @@ jobs:
               mid-hook and never lands, producing exactly the dead-end above. You
               already ran the verify lane above and CI re-runs the full lanes on this
               commit, so the hook is redundant here
-              (docs/design/harness-engineering.md documents `--no-verify` as its
+              (docs/design/agent-pipeline/harness-engineering.md documents `--no-verify` as its
               sanctioned bypass).
             - CONFIRM the push landed with `git ls-remote origin <branch>` rather
               than trusting the exit code — a push whose hook output is very large

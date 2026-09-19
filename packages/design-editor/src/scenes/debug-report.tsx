@@ -23,7 +23,7 @@
  * reloads the frame on every theme / scene / mock-data flip and can serve TWO
  * frames of one scene (`before` and `after`) on ONE origin, where the store
  * refuses the second writer as foreign and the badge then reports the session as
- * unpersistable. `docs/design/debug-report.md` asks for exactly this gate, in the
+ * unpersistable. `docs/design/agent-pipeline/debug-report.md` asks for exactly this gate, in the
  * words "no listener, no capture budget, no session in storage until someone asks
  * for one".
  *

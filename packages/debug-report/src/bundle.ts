@@ -8,7 +8,7 @@
  * document ids already removed, the captures that were actually stored rather
  * than the ones that were attempted.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import { BUNDLE_SCHEMA, type Bundle, type DebugItem, type Environment, type ProposedGroup } from './types';

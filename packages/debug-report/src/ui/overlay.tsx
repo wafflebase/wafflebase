@@ -2,7 +2,7 @@
  * The reporting overlay: aim, capture, say what is wrong.
  *
  * TWO RULES SHAPE THIS FILE, both measured by driving the throwaway spike by
- * hand (`docs/design/debug-report.md`, findings 5 and 8).
+ * hand (`docs/design/agent-pipeline/debug-report.md`, findings 5 and 8).
  *
  * **The pointer is watched, not taken.** While idle this component adds one
  * passive `mousemove` listener and nothing else — no `preventDefault`, no

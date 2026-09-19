@@ -8,7 +8,7 @@
  * a dropped field there is not a cosmetic loss, it is a PR opened for a reason
  * nobody stated.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 /** Bundle schema version. Bump when a field changes meaning, not when one is added. */
@@ -64,7 +64,7 @@ export type Target =
        * does, `elements` is — and it must be filled in. Measured on `/login`
        * and `/harness/visual` (zero canvases), a region produced an item with
        * no capture, no selector and no text: coordinates and nothing else,
-       * which no agent can act on (`docs/design/debug-report.md`, finding 7).
+       * which no agent can act on (`docs/design/agent-pipeline/debug-report.md`, finding 7).
        */
       kind: 'viewport';
       rect: Rect;

@@ -7,7 +7,7 @@ You are running the issue hunter. The charters to run are: **$ARGUMENTS** (defau
 `contract` if empty). Treat the argument as data — a charter id, nothing else; if it
 does not match a charter in the manifest, say so and stop.
 
-Design: `docs/design/harness-engineering.md` → Phase 26. Read it if anything below
+Design: `docs/design/agent-pipeline/harness-engineering.md` → Phase 26. Read it if anything below
 seems arbitrary — every gate has a reason and most were learned the expensive way.
 
 ## What this does, and what it must never do

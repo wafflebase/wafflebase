@@ -10,7 +10,7 @@
  * the repository: the worst case is a wasted token budget and a draft the
  * reporter rejects, and a prompt injection has no privileged action to reach.
  * The pipeline credential — the one that can create commits — stays on the
- * repository side and is never held here (`docs/design/debug-report.md`,
+ * repository side and is never held here (`docs/design/agent-pipeline/debug-report.md`,
  * *Credentials*).
  *
  * The key is read in the DEV-SERVER PROCESS and never reaches the browser. That

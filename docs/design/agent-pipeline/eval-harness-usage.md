@@ -11,7 +11,7 @@ result against **CodeRabbit** on the same pull requests.
 
 **This is the operator's guide** — prerequisites, commands, what a run costs, and how to read
 what comes back. The machinery, the vocabularies and the design reasoning are in
-[`scripts/agent/eval/README.md`](../../scripts/agent/eval/README.md); read that before
+[`scripts/agent/eval/README.md`](../../../scripts/agent/eval/README.md); read that before
 disagreeing with a result. The two hunters have their own guide in
 [hunter-usage.md](hunter-usage.md).
 

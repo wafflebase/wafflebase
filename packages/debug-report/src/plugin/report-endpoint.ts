@@ -26,7 +26,7 @@
  * same-origin request AND `application/json`, which together mean a cross-origin
  * page cannot reach them without a preflight it will not be granted.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";

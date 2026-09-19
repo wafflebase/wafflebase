@@ -669,7 +669,7 @@ test("CI_DEFINING_PATHS mirrors harness.config.json's own gating surface", () =>
   for (const p of [
     "packages/sheets/src/index.ts",
     "packages/sheets/src/package.json.ts",
-    "docs/design/harness-engineering.md",
+    "docs/design/agent-pipeline/harness-engineering.md",
     "scripts/agent/checks.mjs",
     "scripts/verify-self.md",
     "packages/frontend/src/nested/package.json", // `*` does not cross a separator

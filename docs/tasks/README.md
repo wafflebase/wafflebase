@@ -18,7 +18,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| agent pipeline docs (2026-09-19) | [20260919-agent-pipeline-docs-todo.md](./active/20260919-agent-pipeline-docs-todo.md) | [20260919-agent-pipeline-docs-lessons.md](./active/20260919-agent-pipeline-docs-lessons.md) |
+| release v0.6.12 (2026-09-18) | [20260918-release-v0.6.12-todo.md](./active/20260918-release-v0.6.12-todo.md) | - |
 | self review loop (2026-09-17) | [20260917-self-review-loop-todo.md](./active/20260917-self-review-loop-todo.md) | [20260917-self-review-loop-lessons.md](./active/20260917-self-review-loop-lessons.md) |
+| slides dash round trip (2026-09-17) | [20260917-slides-dash-round-trip-todo.md](./active/20260917-slides-dash-round-trip-todo.md) | [20260917-slides-dash-round-trip-lessons.md](./active/20260917-slides-dash-round-trip-lessons.md) |
 | slides shape dash render (2026-09-17) | [20260917-slides-shape-dash-render-todo.md](./active/20260917-slides-shape-dash-render-todo.md) | [20260917-slides-shape-dash-render-lessons.md](./active/20260917-slides-shape-dash-render-lessons.md) |
 | cli templates command (2026-09-14) | [20260914-cli-templates-command-todo.md](./active/20260914-cli-templates-command-todo.md) | [20260914-cli-templates-command-lessons.md](./active/20260914-cli-templates-command-lessons.md) |
 | slides board touch input (2026-09-05) | [20260905-slides-board-touch-input-todo.md](./active/20260905-slides-board-touch-input-todo.md) | [20260905-slides-board-touch-input-lessons.md](./active/20260905-slides-board-touch-input-lessons.md) |
@@ -55,4 +58,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 610
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: self review loop (2026-09-17)
+Latest active task: agent pipeline docs (2026-09-19)

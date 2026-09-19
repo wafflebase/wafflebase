@@ -22,7 +22,7 @@ vi.mock('./capture-item', async (importOriginal) => {
 
 /**
  * These tests are the regression net for the two findings that reshaped this
- * component (`docs/design/debug-report.md`, findings 5 and 8):
+ * component (`docs/design/agent-pipeline/debug-report.md`, findings 5 and 8):
  *
  *   - the overlay must not take the pointer, because the state being reported
  *     is often a hover or a drag that the taking would destroy;

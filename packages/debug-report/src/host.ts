@@ -16,11 +16,11 @@
  *
  * `draft` is the only call that reaches a model, and it is tool-free and
  * output-only by design — see the credentials section of
- * `docs/design/debug-report.md`. It never receives repository access, so a
+ * `docs/design/agent-pipeline/debug-report.md`. It never receives repository access, so a
  * grouping proposal it returns cannot know which files an item touches; forced
  * coupling is applied later, on the repository side.
  *
- * Design: `docs/design/debug-report.md`.
+ * Design: `docs/design/agent-pipeline/debug-report.md`.
  */
 
 import type { Bundle, DebugItem, Environment, Point, Target } from './types';

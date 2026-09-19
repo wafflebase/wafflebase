@@ -2,7 +2,7 @@
  * Deciding what a person meant when they aimed at something.
  *
  * Three measured rules govern this file, all from driving the spike by hand
- * (`docs/design/debug-report.md`, findings 3, 4 and 7):
+ * (`docs/design/agent-pipeline/debug-report.md`, findings 3, 4 and 7):
  *
  *   - **Promote to the nearest control.** `elementFromPoint` returns the
  *     deepest node, which is routinely a glyph: aiming at the theme toggle

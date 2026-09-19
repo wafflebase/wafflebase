@@ -38,7 +38,7 @@
 // `misses.jsonl` is STRICT JSONL — one JSON object per line, no comment lines and
 // no header. A `#` line would be an unreadable line, and an unreadable line makes
 // `--append` refuse (below), so the format cannot carry its own documentation.
-// It is described in docs/design/harness-engineering.md instead.
+// It is described in docs/design/agent-pipeline/harness-engineering.md instead.
 //
 // FAIL DIRECTIONS, and there are two opposite ones here:
 //   - Every READ path degrades to fewer candidates and never throws. A GitHub

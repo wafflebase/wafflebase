@@ -539,7 +539,7 @@ export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurn
  *      it fails over inside the round — but the child does not: it holds one
  *      credential and runs with `cwd` set to the untrusted branch checkout. A
  *      plain spread would hand that child all nine, which is the blast radius
- *      `docs/design/harness-engineering.md` records as the pool's residual risk;
+ *      `docs/design/agent-pipeline/harness-engineering.md` records as the pool's residual risk;
  *      this is the half of it that costs nothing to close.
  *
  * One builder, used by the first attempt and by every failover, so the two can

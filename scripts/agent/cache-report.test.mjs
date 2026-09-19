@@ -138,7 +138,7 @@ test("planSessions: at one sample per lens, five lenses still share one warm-up"
   const manifest = loadLenses(path.join(HERE, "lenses")).map((l) => ({ ...l, samples: 1 }));
   const files = [
     "scripts/agent/review-panel.mjs", ".github/workflows/agent-review-panel.yml",
-    "docs/design/harness-engineering.md", "docs/tasks/active/notes.md",
+    "docs/design/agent-pipeline/harness-engineering.md", "docs/tasks/active/notes.md",
   ];
   // Padded to roughly the diff size a real PR carries, so the prefix dominates
   // the round the way it does in production rather than being swamped by the

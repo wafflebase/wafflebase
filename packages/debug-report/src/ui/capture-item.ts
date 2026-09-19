@@ -45,7 +45,7 @@ export type CaptureDeps = {
  * nothing else, which no agent can act on. Photographing the DOM is still
  * rejected (it would mean an `html2canvas`-class dependency, and a selector plus
  * a text excerpt describes a node better than pixels do), so the description has
- * to carry the weight (`docs/design/debug-report.md`, finding 7).
+ * to carry the weight (`docs/design/agent-pipeline/debug-report.md`, finding 7).
  */
 function withInventory(
   target: Target,
@@ -80,7 +80,7 @@ async function attachCapture(
  *
  * This is what the capture KEY runs. It reads the page and never touches the
  * pointer, which is the whole reason a hover tooltip, an open menu or a drag in
- * progress survives being reported (`docs/design/debug-report.md`, finding 5).
+ * progress survives being reported (`docs/design/agent-pipeline/debug-report.md`, finding 5).
  */
 export async function captureAtPoint(
   point: Point,

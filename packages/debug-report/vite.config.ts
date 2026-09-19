@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 // Test-runner config only. This package has no library build: it exports source
 // and reaches its consumers that way, the same arrangement
-// `@wafflebase/design-editor` uses. See `docs/design/debug-report.md`.
+// `@wafflebase/design-editor` uses. See `docs/design/agent-pipeline/debug-report.md`.
 //
 // `jsdom` because all of it runs in a browser — `localStorage`, event loops,
 // blob eviction and now the overlay and panel themselves. The IndexedDB backend

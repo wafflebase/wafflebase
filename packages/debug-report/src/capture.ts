@@ -15,7 +15,7 @@
  * its lower third over the next composited two layers and produced an image
  * whose bottom third was BLACK. Someone crossing a page seam to report the seam
  * would have attached evidence with the seam missing. See
- * `docs/design/debug-report.md`, measured finding 6.
+ * `docs/design/agent-pipeline/debug-report.md`, measured finding 6.
  */
 
 import { rectsIntersect, type Rect } from '@wafflebase/core/geometry';
@@ -359,7 +359,7 @@ export function coverageOf(
  * their wrapper `div`, so `document.elementsFromPoint()` at the grid centre
  * returned four divs and ZERO canvases — a hit-test locator would capture
  * nothing on exactly the surfaces this feature exists for
- * (`docs/design/debug-report.md`, measured finding 1).
+ * (`docs/design/agent-pipeline/debug-report.md`, measured finding 1).
  */
 export function canvasLayers(
   root: ParentNode = document,

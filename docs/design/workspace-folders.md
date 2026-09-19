@@ -52,7 +52,7 @@ entirely by workspace membership and per-document share links.
 > below.
 >
 > **Also delivered:** *REST API v1 folder support*, as the class-A′ close in
-> [agentic-office-workflow.md](agentic-office-workflow.md) §3.1 — an agent
+> [agentic-office-workflow.md](agent-pipeline/agentic-office-workflow.md) §3.1 — an agent
 > holding an API key could reach no folder route at all. `ApiV1FoldersController`
 > mounts the same `FolderService` under `api/v1/workspaces/:wid/folders`, and
 > `PATCH api/v1/.../documents/:did` gained a `folderId`. The workspace nesting

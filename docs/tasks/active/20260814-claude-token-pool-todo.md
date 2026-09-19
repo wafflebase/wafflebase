@@ -133,7 +133,7 @@ any failure and accept one wasted attempt.
       and a `kind: 'limit'` (our own turn ceiling) still throw without consuming a token
 - [x] `auth-smoke.mjs` — check every registered credential, report by secret name
 - [x] `pnpm verify:fast` (exit 0) and `pnpm verify:self` (the pre-push gate)
-- [x] Update `docs/design/harness-engineering.md` with the pool, the per-job constraint, and
+- [x] Update `docs/design/agent-pipeline/harness-engineering.md` with the pool, the per-job constraint, and
       the invariant it relaxes
 - [x] Register `CLAUDE_CODE_OAUTH_TOKEN_1..N` in the `agent` environment
 - [x] Dispatch `agent-sdk-smoke-test.yml` — every credential green, pool size as expected

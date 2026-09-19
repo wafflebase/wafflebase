@@ -151,7 +151,7 @@ Anything not listed under `ci.inert` in `harness.config.json` runs the
 full suite, so you cannot accidentally under-test. To force everything
 anyway, add the `full-ci` label and re-run.
 
-Details: [`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#path-aware-ci).
+Details: [`docs/design/agent-pipeline/harness-engineering.md`](docs/design/agent-pipeline/harness-engineering.md#path-aware-ci).
 
 ## Commit messages
 
@@ -218,7 +218,7 @@ The **merge queue** absorbs the rebase loop: click **Merge when ready**
 and GitHub tests your PR merged onto `main`'s current tip, then merges it
 when green — so `main` moving while you wait is no longer your problem.
 See [MAINTAINING.md](MAINTAINING.md#merge-queue) and
-[`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#merge-queue).
+[`docs/design/agent-pipeline/harness-engineering.md`](docs/design/agent-pipeline/harness-engineering.md#merge-queue).
 
 We don't require a per-PR `CHANGELOG` entry — release notes are
 generated from merged PRs at release time

@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; }
+    img, svg, video { display: block; max-width: 100%; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+</style>
+<script>
+  (function () {
+    var t = "light";
+    try { t = localStorage.getItem("wb-talk-theme") || "light"; } catch (e) {}
+    document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+  })();
+</script>
+<title>Design Editor · Debug Reporter — How to Run</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap">
+
+<style>
+  :root {
+    --bg: #F4F3F0;
+    --surface: #FFFFFF;
+    --surface-2: #EAE8E3;
+    --ink: #17150F;
+    --ink-2: #46413A;
+    --muted: #7C756A;
+    --rule: #D9D5CC;
+    --rule-strong: #B9B3A7;
+    --de: #A85B14;
+    --dr: #1F6A69;
+    --de-wash: rgba(168, 91, 20, 0.10);
+    --dr-wash: rgba(31, 106, 105, 0.10);
+    --warn: #8A5A00;
+    --warn-wash: rgba(138, 90, 0, 0.09);
+    --term-bg: #1E1C18;
+    --term-ink: #E6E1D7;
+    --term-dim: #98907F;
+    --shadow: 0 1px 2px rgba(23, 21, 15, 0.05), 0 8px 24px rgba(23, 21, 15, 0.05);
+
+    --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121110;
+      --surface: #1A1917;
+      --surface-2: #23211D;
+      --ink: #EEEAE2;
+      --ink-2: #C2BBB0;
+      --muted: #8D867B;
+      --rule: #2D2A25;
+      --rule-strong: #423E37;
+      --de: #E0913F;
+      --dr: #6DB5B0;
+      --de-wash: rgba(224, 145, 63, 0.12);
+      --dr-wash: rgba(109, 181, 176, 0.12);
+      --warn: #D9A441;
+      --warn-wash: rgba(217, 164, 65, 0.12);
+      --term-bg: #0D0C0B;
+      --term-ink: #E6E1D7;
+      --term-dim: #8B8375;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #121110;
+    --surface: #1A1917;
+    --surface-2: #23211D;
+    --ink: #EEEAE2;
+    --ink-2: #C2BBB0;
+    --muted: #8D867B;
+    --rule: #2D2A25;
+    --rule-strong: #423E37;
+    --de: #E0913F;
+    --dr: #6DB5B0;
+    --de-wash: rgba(224, 145, 63, 0.12);
+    --dr-wash: rgba(109, 181, 176, 0.12);
+    --warn: #D9A441;
+    --warn-wash: rgba(217, 164, 65, 0.12);
+    --term-bg: #0D0C0B;
+    --term-ink: #E6E1D7;
+    --term-dim: #8B8375;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 0 26px 120px;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 0 44px;
+    align-items: start;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    grid-column: 1 / -1;
+    padding: 62px 0 30px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 34px;
+  }
+  .masthead .kicker { display: block; margin-bottom: 12px; }
+  .masthead h1 {
+    font-size: clamp(32px, 4.6vw, 50px); line-height: 1.1; letter-spacing: -0.03em;
+    font-weight: 700; margin: 0 0 14px; text-wrap: balance;
+  }
+  .masthead p { font-size: 18px; max-width: 60ch; }
+
+  /* ---------- toc ---------- */
+  nav.toc {
+    position: sticky; top: 26px;
+    font-size: 13.5px;
+    display: flex; flex-direction: column; gap: 2px;
+    border-left: 1px solid var(--rule);
+    padding-left: 16px;
+  }
+  nav.toc a {
+    color: var(--muted); text-decoration: none; padding: 3px 0; line-height: 1.4;
+    border-left: 2px solid transparent; margin-left: -18px; padding-left: 16px;
+  }
+  nav.toc a:hover { color: var(--ink); }
+  nav.toc a.on { color: var(--ink); border-left-color: var(--de); font-weight: 500; }
+  nav.toc .grp {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--rule-strong); margin: 16px 0 4px;
+  }
+  nav.toc .grp:first-child { margin-top: 0; }
+
+  @media (max-width: 900px) {
+    .page { grid-template-columns: 1fr; }
+    nav.toc { position: static; border-left: 0; border-bottom: 1px solid var(--rule); padding: 0 0 18px; flex-direction: row; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 26px; }
+    nav.toc a { margin-left: 0; padding-left: 0; border-left: 0; }
+    nav.toc .grp { width: 100%; margin: 8px 0 0; }
+  }
+
+  /* ---------- content ---------- */
+  main { min-width: 0; display: flex; flex-direction: column; gap: 44px; }
+
+  section { scroll-margin-top: 24px; display: flex; flex-direction: column; gap: 16px; }
+
+  h2 {
+    font-size: clamp(24px, 3vw, 31px); line-height: 1.22; letter-spacing: -0.028em;
+    font-weight: 600; margin: 0; text-wrap: balance;
+    padding-bottom: 12px; border-bottom: 1px solid var(--rule);
+  }
+  h2 .badge {
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    vertical-align: middle; margin-right: 12px; padding: 3px 9px; border-radius: 3px;
+    background: var(--de-wash); color: var(--de); font-weight: 500;
+  }
+  h2 .badge.dr { background: var(--dr-wash); color: var(--dr); }
+  h3 { font-size: 18.5px; line-height: 1.35; letter-spacing: -0.018em; font-weight: 600; margin: 10px 0 0; }
+  h4 { font-size: 15px; font-weight: 600; margin: 0; }
+  p { margin: 0; color: var(--ink-2); }
+  .kicker { font-family: var(--f-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  strong { font-weight: 600; color: var(--ink); }
+  em { font-style: normal; color: var(--de); font-weight: 500; }
+
+  code {
+    font-family: var(--f-mono); font-size: .87em;
+    background: var(--surface-2); border-radius: 4px; padding: 1.5px 5px; color: var(--ink);
+  }
+  kbd {
+    font-family: var(--f-mono); font-size: .82em; font-weight: 500;
+    background: var(--surface); border: 1px solid var(--rule-strong);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; color: var(--ink);
+    white-space: nowrap;
+  }
+
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 22px; }
+  ol.steps > li {
+    counter-increment: step; position: relative; padding-left: 42px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  ol.steps > li::before {
+    content: counter(step, decimal-leading-zero);
+    position: absolute; left: 0; top: 1px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--de);
+    border: 1px solid var(--rule); border-radius: 3px;
+    width: 28px; height: 24px; display: grid; place-items: center;
+    background: var(--surface);
+  }
+  section.dr ol.steps > li::before { color: var(--dr); }
+
+  ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  ul > li { padding-left: 17px; position: relative; color: var(--ink-2); }
+  ul > li::before { content: ""; position: absolute; left: 0; top: .72em; width: 7px; height: 1px; background: var(--rule-strong); }
+
+  pre {
+    margin: 0; background: var(--term-bg); color: var(--term-ink);
+    border-radius: 4px; padding: 15px 17px; overflow-x: auto;
+    font-family: var(--f-mono); font-size: 13.5px; line-height: 1.75;
+    border: 1px solid var(--rule);
+  }
+  pre .c { color: var(--term-dim); }
+  pre .p { color: #C98A45; }
+  pre b { color: #FFF; font-weight: 500; }
+
+  .out {
+    background: var(--surface); border: 1px solid var(--rule); border-left: 2px solid var(--rule-strong);
+    border-radius: 3px; padding: 13px 16px;
+    font-family: var(--f-mono); font-size: 13px; line-height: 1.7; color: var(--ink-2);
+    white-space: pre-wrap; overflow-x: auto;
+  }
+
+  .check {
+    background: var(--de-wash); border-radius: 3px; padding: 12px 15px;
+    font-size: 15px; color: var(--ink-2); display: flex; gap: 10px; align-items: baseline;
+  }
+  section.dr .check { background: var(--dr-wash); }
+  .check .l {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--de); flex: none; padding-top: 2px;
+  }
+  section.dr .check .l { color: var(--dr); }
+
+  .warn {
+    background: var(--warn-wash); border-left: 2px solid var(--warn);
+    padding: 12px 16px; border-radius: 0 3px 3px 0; font-size: 15px; color: var(--ink-2);
+  }
+  .warn b { color: var(--ink); }
+
+  .why {
+    border-left: 2px solid var(--rule-strong); padding: 2px 0 2px 15px;
+    font-size: 14.5px; color: var(--muted); max-width: 68ch;
+  }
+  .why b { color: var(--ink-2); font-weight: 500; }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted); font-weight: 500; background: var(--surface-2); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.k { font-family: var(--f-mono); font-size: 13px; color: var(--ink); }
+  td.k.nw { white-space: nowrap; }
+
+  .cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+  .card {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 3px;
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .card p, .card ul > li { font-size: 14.5px; line-height: 1.6; }
+  .card .num { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+  .keys { display: flex; flex-wrap: wrap; gap: 8px; }
+  .keycap {
+    display: inline-flex; align-items: baseline; gap: 8px;
+    border: 1px solid var(--rule); background: var(--surface); border-radius: 3px;
+    padding: 7px 12px; font-size: 14px; color: var(--ink-2);
+  }
+  .keycap b { font-family: var(--f-mono); color: var(--ink); font-weight: 500; font-size: 13px; }
+
+  .agenda { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .agenda .row { background: var(--surface); display: grid; grid-template-columns: 88px 1fr; gap: 16px; padding: 11px 16px; }
+  .agenda .row .t { font-family: var(--f-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .agenda .row .d { font-size: 14.5px; color: var(--ink-2); }
+  .agenda .row .d b { color: var(--ink); }
+
+  hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+
+  a { color: var(--de); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--de); outline-offset: 3px; }
+
+  footer.end {
+    grid-column: 1 / -1; margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--rule);
+    font-family: var(--f-mono); font-size: 12px; color: var(--muted); line-height: 1.8;
+  }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+<style>
+  .sitenav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+    display: flex; gap: 2px; align-items: center;
+    padding: 6px 14px; font-family: var(--f-mono); font-size: 12px;
+    background: var(--surface); border-bottom: 1px solid var(--rule);
+  }
+  .sitenav a { color: var(--muted); text-decoration: none; padding: 4px 11px; border-radius: 3px; }
+  .sitenav a:hover { color: var(--ink); background: var(--surface-2); }
+  .sitenav a.here { color: var(--de); background: var(--de-wash); }
+  .sitenav .mark { color: var(--ink); padding: 4px 11px 4px 0; border-right: 1px solid var(--rule); margin-right: 8px; letter-spacing: .04em; }
+  body { padding-top: 34px; }
+  .progress { top: 34px !important; }
+  .counter { }
+  nav.toc { top: 60px !important; }
+  .slide { min-height: calc(100svh - 34px); }
+  .sitenav .sp { flex: 1; }
+  .sitenav button.theme {
+    font-family: var(--f-mono); font-size: 12px; cursor: pointer;
+    background: transparent; border: 1px solid var(--rule); border-radius: 3px;
+    padding: 3px 10px; color: var(--muted); line-height: 1.6;
+  }
+  .sitenav button.theme:hover { color: var(--ink); border-color: var(--rule-strong); }
+  .sitenav button.theme:focus-visible { outline: 2px solid var(--de); outline-offset: 2px; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  @media print { .sitenav { display: none; } body { padding-top: 0; } }
+</style>
+</head>
+<body>
+<div class="sitenav">
+  <span class="mark">wafflebase</span>
+  <a href="index.html">Overview</a>
+  <a href="deck.html">Deck</a>
+  <a href="tutorial.html" class="here">How to run</a>
+  <span class="sp"></span>
+  <button type="button" class="theme" id="themeToggle">☾ Dark</button>
+</div>
+
+
+<div class="page">
+
+  <header class="masthead">
+    <span class="kicker">2026 NAVER Summer Internship · 2026.07.20 → 08.28 · 6 weeks</span>
+    <h1>Design Editor · Debug Reporter — How to Run</h1>
+    <p>Run both tools end to end once, on your own machine. Change something on screen and take it <strong>all the way to a PR</strong>; spot something on screen and take it <strong>all the way to a report bundle</strong>. Type the commands exactly as written. Every step also tells you <strong>what you should see if it worked</strong>.</p>
+  </header>
+
+  <nav class="toc" id="toc">
+    <span class="grp">Before you start</span>
+    <a href="#agenda">Session plan</a>
+    <a href="#prep">Prerequisites</a>
+    <span class="grp">Part A — Design Editor</span>
+    <a href="#a-what">What the tool does</a>
+    <a href="#a-boot">A1. Boot it</a>
+    <a href="#a-tour">A2. Learn the screen</a>
+    <a href="#a-class">A3. Change a class</a>
+    <a href="#a-token">A4. Change a token</a>
+    <a href="#a-save">A5. Save to code</a>
+    <a href="#a-pr">A6. Open a PR</a>
+    <a href="#a-undo">A7. Undo</a>
+    <a href="#a-trouble">A8. Symptom table</a>
+    <span class="grp">Part B — Debug Reporter</span>
+    <a href="#b-what">What the tool does</a>
+    <a href="#b-boot">B1. Boot the app</a>
+    <a href="#b-on">B2. Turn it on</a>
+    <a href="#b-dom">B3. Aim at a DOM target</a>
+    <a href="#b-canvas">B4. Aim at a canvas target</a>
+    <a href="#b-transient">B5. Transient state</a>
+    <a href="#b-region">B6. Region drag</a>
+    <a href="#b-cancel">B7. What cancel discards</a>
+    <a href="#b-review">B8. Review panel</a>
+    <a href="#b-hand">B9. Hand over</a>
+    <a href="#b-intake">B10. Intake</a>
+    <a href="#b-trouble">B11. Symptom table</a>
+    <span class="grp">Next</span>
+    <a href="#c-own">Adding it to your project</a>
+    <a href="#cheat">Cheat sheet</a>
+  </nav>
+
+  <main>
+
+    <!-- ================= Session plan ================= -->
+    <section id="agenda">
+      <h2>Session plan</h2>
+      <div class="agenda">
+        <div class="row"><span class="t">00:00</span><span class="d"><b>Prerequisites</b> — Node, git, a clone. If anyone is stuck here, we fix that before moving on.</span></div>
+        <div class="row"><span class="t">00:10</span><span class="d"><b>Part A · Design Editor</b> — boot it → edit a class and a token → save to code → PR</span></div>
+        <div class="row"><span class="t">00:45</span><span class="d"><b>Part B · Debug Reporter</b> — boot the app → four kinds of capture → review → hand over → watch intake</span></div>
+        <div class="row"><span class="t">01:20</span><span class="d"><b>Wrap-up</b> — skim the PRs and bundles everyone produced, and talk about wiring this into your own project</span></div>
+      </div>
+      <div class="warn">
+        <b>Run this once before the session.</b> The first run spends about 2 minutes installing dependencies, and on WSL2 or a network drive the first scene load takes close to a minute (that is the dependency optimization step — it has not hung). Every run after that takes seconds. Run <code>pnpm design</code> once in advance and you will not wait during the session.
+      </div>
+    </section>
+
+    <!-- ================= Prerequisites ================= -->
+    <section id="prep">
+      <h2>Prerequisites</h2>
+      <p>These four things are all you need. <strong>pnpm, Docker, a database and the GitHub CLI are not required</strong> — the scripts set them up for you, or there is a path that works without them.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What you need</th><th>Check it with</th><th>If you don't have it</th></tr></thead>
+          <tbody>
+            <tr><td>Node 22 or newer</td><td class="k nw">node --version</td><td>Install the LTS from <a href="https://nodejs.org">nodejs.org</a></td></tr>
+            <tr><td>Git</td><td class="k nw">git --version</td><td><a href="https://git-scm.com">git-scm.com</a></td></tr>
+            <tr><td><strong>A name and address to commit under</strong></td><td class="k">git config --get user.name<br>git config --get user.email</td><td>Both lines must print something. With only one of them, commits fail.<br><code>git config --global user.name "Your Name"</code><br><code>git config --global user.email "you@example.com"</code></td></tr>
+            <tr><td>A clone of the repository</td><td class="k">—</td><td><code>git clone https://github.com/wafflebase/wafflebase.git</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="why"><b>Why check your identity separately</b> — in wafflebase, <code>user.name</code> often lives in the repository's <em>local</em> config. That means <strong>a fresh clone has no identity at all</strong>, and neither do most people who have only ever used git through an IDE. The PR script will not fill this in for you: committing under a name you did not choose is worse than not committing.</p>
+    </section>
+
+    <!-- ================= Part A ================= -->
+    <section id="a-what">
+      <h2><span class="badge">Part A</span>What the Design Editor is</h2>
+      <p>It is a dev-only Vite plugin that renders the app's <strong>real routes</strong> from the <strong>real component source</strong>, then writes what you change on screen back into <strong>the <code>.tsx</code> and token source on your own disk</strong>. You are looking at what the committed code does, not at a mockup — and the review screen is <code>git diff</code>.</p>
+      <div class="warn"><b>This tool writes files into your working tree.</b> That is the point of it. Every write that would land outside <code>root</code> is refused, and backups go to <code>node_modules/.cache/wafflebase-design-editor/</code> rather than next to the source. If you have work in progress, commit or stash it before you start.</div>
+      <p class="why"><b>Why no backend, database or Docker is needed</b> — the scenes answer their own data requests from fixtures, and any network request that would leave the frame is blocked. This is the only part of wafflebase that runs standalone.</p>
+    </section>
+
+    <section id="a-boot">
+      <h2>A1. Boot it</h2>
+      <ol class="steps">
+        <li>
+          <h4>One command, from the repository folder</h4>
+          <pre><span class="c"># from the repository root</span>
+<b>pnpm design</b>
+
+<span class="c"># if you don't have pnpm yet — does the same thing, and sets pnpm up too</span>
+<b>node scripts/design.mjs</b></pre>
+          <p class="why"><b>Why not <code>pnpm --filter … dev</code></b> — the editor UI (the shell) is served from a <em>prebuilt bundle</em>, not from source. The raw dev command will happily serve you yesterday's shell against today's code. <code>pnpm design</code> compares mtimes, rebuilds only when it has to, and skips every step that is already done.</p>
+        </li>
+        <li>
+          <h4>Read these two lines out of the output</h4>
+          <div class="out">✓ dependencies installed
+✓ editor shell built
+✓ @wafflebase/core built
+✓ the design editor is at http://localhost:5173/__design-editor/
+
+[design-editor] editing /home/you/wafflebase — open /__design-editor/
+  VITE v6.4.3  ready in 551 ms</div>
+          <div class="check"><span class="l">Check</span><span>The path after <code>editing</code> is <strong>the repository you actually mean to edit</strong>. If you have several clones or are using a worktree, stop and confirm it here. Get this wrong and your <code>git diff</code> will look empty later.</span></div>
+          <div class="check"><span class="l">Check</span><span>The port may not be 5173. If something already holds it, Vite takes the next one, and <strong>the address it actually printed</strong> is the right one.</span></div>
+        </li>
+        <li>
+          <h4>See at a glance whether your config was picked up</h4>
+          <pre><b>curl -s localhost:5173/__design-editor/api/health | jq</b></pre>
+          <div class="out">{
+  "ok": true,
+  "root": "/home/you/wafflebase",
+  "scenes": ".../packages/design-sandbox/scenes.config.json",
+  "providers": ".../packages/design-sandbox/src/scenes/providers.tsx",
+  "tokens": "configured",
+  "aliases": [{ "find": "@", "replacement": "packages/frontend/src" }, "…"]
+}</div>
+          <p>This is <strong>the first place to look</strong> when the screen comes up but something feels off. Before you debug a scene, it answers "is my config actually wired in?"</p>
+        </li>
+      </ol>
+      <h3>Three URLs</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>URL</th><th>What it is</th></tr></thead>
+          <tbody>
+            <tr><td class="k nw">/__design-editor/</td><td><strong>Open this one.</strong> The 3-pane editor shell.</td></tr>
+            <tr><td class="k nw">/__design-editor/scene?scene=&lt;id&gt;&amp;frame=&lt;side&gt;&amp;theme=light</td><td>One scene on its own, without the frame. Use it when a particular scene misbehaves and you want to see it without the chrome.</td></tr>
+            <tr><td class="k nw">/__design-editor/api/health</td><td>The config as the plugin actually resolved it.</td></tr>
+            <tr><td class="k nw">/</td><td><strong>A 404 here is correct.</strong> This dev server serves the editor's namespace, not the wafflebase app.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="a-tour">
+      <h2>A2. Learn the screen</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="num">Left · what you are looking at</span>
+          <p><strong>Components</strong> — a single piece of the design system (a button, a card, a menu). Split into <em>Primitives</em> and <em>App components</em>.</p>
+          <p><strong>Scenes</strong> — a single page of the real app (document list, login, settings). Ten of the eleven mount; <code>pdf-viewer</code> is marked <em>deferred</em> and shows as disabled.</p>
+        </div>
+        <div class="card">
+          <span class="num">Middle · the real thing</span>
+          <p>Drag the empty background to pan. <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+scroll zooms around the pointer.</p>
+          <p>The buttons along the top: <strong>Pick</strong> (makes a click inside the frame select instead of act), <strong>Mock data</strong> (empties the list fixtures so you can see the empty state), viewport width, and refresh.</p>
+        </div>
+        <div class="card">
+          <span class="num">Right · what you can change</span>
+          <p><strong>Layout</strong> — the structure of what is on screen. Click a row to select that piece; a spacing, size and alignment editor opens beside it.</p>
+          <p><strong>Bindings</strong> (component mode only) — which token each part of this component uses.</p>
+          <p><strong>Tokens</strong> — the values of the tokens themselves. Change one here and everything that uses it follows.</p>
+        </div>
+      </div>
+      <div class="check"><span class="l">Check</span><span>Open a scene and confirm the left-hand list and the middle of the screen name the same thing. If the preview changes but the page "looks the same", you are usually <strong>looking at a different scene than the one you had in mind</strong>.</span></div>
+    </section>
+
+    <section id="a-class">
+      <h2>A3. Hands-on — change one class</h2>
+      <ol class="steps">
+        <li>
+          <h4>Open a scene</h4>
+          <p>In Scenes mode, pick one with clearly separated elements — <strong>documents</strong> or <strong>login</strong> work well.</p>
+        </li>
+        <li>
+          <h4>Turn <strong>Pick</strong> on and click an element inside the frame</h4>
+          <p>With Pick off, a click <em>actually presses</em> the element (a button gets pressed). Clicking a row in the <strong>Layout</strong> outline on the right makes the same selection.</p>
+          <div class="check"><span class="l">Check</span><span>Once something is selected, a small class editor appears next to that node and the matching row in the right-hand outline is highlighted. If the outline is <strong>empty</strong>, that scene's file is missing from <code>components</code> in the manifest, so it has no source anchors.</span></div>
+        </li>
+        <li>
+          <h4>Change a class — a padding or color utility, say</h4>
+          <div class="check"><span class="l">Check</span><span>The frame updates <strong>immediately</strong>. Nothing has been written to any file yet. The number next to <strong>Save to Code</strong> in the header goes up by one.</span></div>
+          <p class="why"><b>If the preview picks up no styling at all</b> — a class assembled at runtime produces no rule unless Tailwind's scan saw it. The editor registers these candidates, but a class that gets rejected or hits the cap has no rule behind it and renders as <strong>nothing visible</strong>.</p>
+        </li>
+        <li>
+          <h4>Undo the staged edits with <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>⇧</kbd>+<kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Z</kbd></h4>
+          <p>Edits made before a save pile up on a stack. <strong>Undo / Redo / Reset</strong> in the header drive the same stack.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="a-token">
+      <h2>A4. Hands-on — change a token value</h2>
+      <ol class="steps">
+        <li>
+          <h4>Go to the <strong>Tokens</strong> tab on the right</h4>
+          <p>Colors are <strong>tokens</strong>, not classes — each has a name like <code>primary</code>, and which part uses which name is already decided.</p>
+        </li>
+        <li>
+          <h4>Change one token's value</h4>
+          <div class="check"><span class="l">Check</span><span><strong>Everything</strong> that uses that token moves at once. If only one element changed, you changed that element's class, not a token.</span></div>
+          <p class="why"><b>Why the preview is the real thing</b> — wafflebase's tokens live in TypeScript consts, and the CSS the app uses is <em>generated</em>. So the preview takes the patched source text and <strong>runs the real emitter over it</strong> to build the variable map. Keeping the preview from diverging from what a save would write is the entire reason that worker exists.</p>
+        </li>
+        <li>
+          <h4>Toggle light and dark</h4>
+          <p>Use the Dark button in the header. For a token with separate per-theme values, only one side changing is correct.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="a-save">
+      <h2>A5. Save to code</h2>
+      <ol class="steps">
+        <li>
+          <h4>Press <strong>Save to Code</strong> in the header</h4>
+          <p>The button shows how many changes are staged. Pressing it opens a review — <strong>how it looks now beside how it will look</strong>, and under that, the exact lines that will change in each file.</p>
+        </li>
+        <li>
+          <h4>Approve</h4>
+          <div class="check"><span class="l">Check</span><span>Nothing is written before you approve. Once you do, the changes land in <strong>the repository files on your own machine</strong> and go nowhere else.</span></div>
+        </li>
+        <li>
+          <h4>Confirm where it wrote, in two places</h4>
+          <ul>
+            <li><strong>The write log</strong> (the scroll icon in the header, with a count beside it) — everything written this session, newest first, down to <strong>which file it landed in</strong>. The toast that appears on save disappears; this does not.</li>
+            <li><strong>The ⓘ button</strong> — <code>Editing</code>, the folder the editor writes to. With several clones around, <em>this</em> is the authority.</li>
+          </ul>
+        </li>
+        <li>
+          <h4>Confirm it in the terminal</h4>
+          <pre><b>git diff</b></pre>
+          <p>Color changes usually land in <code>packages/core/src/tokens/</code>; a change confined to one component lands in that component's file.</p>
+          <div class="warn"><b>If <code>git diff</code> is empty</b>, you are almost certainly looking at <em>a different clone</em>. Press ⓘ in the editor header, read the <code>Editing</code> path, and check again from that folder.</div>
+        </li>
+      </ol>
+      <div class="warn"><b>Leave the editor running as you move to the next step.</b> The PR script reads the record of "what was written" that the <em>running server</em> holds. You can still create a PR after closing it, but the commit then widens to your whole working tree and the description gets less accurate.</div>
+    </section>
+
+    <section id="a-pr">
+      <h2>A6. Open a PR</h2>
+      <ol class="steps">
+        <li>
+          <h4>In a second terminal, from the same folder</h4>
+          <pre><span class="c"># shows only what it would do, and changes nothing</span>
+<b>pnpm design-pr --dry-run</b>
+
+<span class="c"># for real</span>
+<b>pnpm design-pr</b></pre>
+          <p>It prints the branch it will create, the files it will commit and the title, then proceeds. <strong>It commits only the files the editor changed</strong> — any other work in progress is listed and left alone.</p>
+        </li>
+        <li>
+          <h4>The script works out which path your setup is on</h4>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th></th><th>Condition</th><th>Result</th></tr></thead>
+              <tbody>
+                <tr><td class="k nw">rung 3</td><td>GitHub CLI + push access</td><td>Branch, commit, push and PR, all of it. Prints the URL and opens the browser.</td></tr>
+                <tr><td class="k nw">rung 2</td><td>GitHub CLI, no push access</td><td><strong>Most of you will be here.</strong> Creates a fork, pushes there, and opens a PR against the original (it asks for confirmation the first time).</td></tr>
+                <tr><td class="k nw">rung 1</td><td>No GitHub CLI</td><td>Pushes the branch and opens GitHub's <em>compare</em> page in the browser — a pre-filled form, so all that is left is the green button.</td></tr>
+                <tr><td class="k nw">rung 0</td><td>No git / no <code>origin</code></td><td>Says so and stops. Get the code with <code>git clone</code>, not as a copied folder.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="why"><b>Why rung 1 exists</b> — assume <code>gh auth login</code> and the very people this tool exists for (designers who do not write code) stop on the first step. There has to be a path that needs nothing but a browser.</p>
+        </li>
+        <li>
+          <h4>If you want a better description</h4>
+          <p>The default description is pulled from the editor's own edit log: accurate, but dry. If you have Claude Code:</p>
+          <div class="out">Open a PR for my design changes</div>
+          <p>It reads the same log and the real diff, writes a title and body, and hands them to the same script. You can also supply them yourself:</p>
+          <pre><b>pnpm design-pr --title "Soften the primary button's hover" --body-file notes.md</b></pre>
+        </li>
+      </ol>
+      <h3>What it never does (a guarantee, not a convention)</h3>
+      <ul>
+        <li>It never commits to <code>main</code> — it always creates a branch.</li>
+        <li>It never commits a file the editor did not change.</li>
+        <li>It never force-pushes and never overwrites an existing branch.</li>
+        <li>It never stores or asks for a password or token. <code>git</code> and <code>gh</code> run as you, with the credentials already on your machine.</li>
+      </ul>
+    </section>
+
+    <section id="a-undo">
+      <h2>A7. Undo</h2>
+      <ul>
+        <li><strong>Before a save</strong> — <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Z</kbd> in the editor, or Reset in the header.</li>
+        <li><strong>After a save, before the PR</strong> — read the file list out of the write log and run <code>git checkout -- &lt;file&gt;</code>. Or use the editor's Undo, which reverts the file through the bridge.</li>
+        <li><strong>To finish the exercise clean</strong> — run <code>git status</code>, see what is left over, and clear it. Backups live in <code>node_modules/.cache/</code>, not next to the source, so they never dirty the repository.</li>
+      </ul>
+    </section>
+
+    <section id="a-trouble">
+      <h2>A8. Symptom table — Part A</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What you see</th><th>Cause / fix</th></tr></thead>
+          <tbody>
+            <tr><td>Every scene shows <strong>mount error</strong></td><td>A build artifact the scenes need is missing. <code>pnpm design</code> produces it for you — if you started the server some other way, restart with <code>pnpm design</code>. This is what a fresh clone looks like.</td></tr>
+            <tr><td>The shell loads but the frame says <code>no scene "&lt;id&gt;" in the scene manifest</code></td><td>That scene is <em>deferred</em>, or the manifest has no such id.</td></tr>
+            <tr><td>Every scene says <code>does not provide an export named …</code></td><td><code>packages/core/dist</code> is stale. Run <code>pnpm core build</code>.</td></tr>
+            <tr><td>The scene draws but nothing is clickable</td><td>That file is missing from <code>components</code> in the manifest, so it has no source anchors. The outline shows which rows the frame can reach.</td></tr>
+            <tr><td><code>unmocked request</code> in the console</td><td>A scene asked for data that has no fixture. The request never leaves the frame; adding a fixture is the right fix.</td></tr>
+            <tr><td>A scene is stuck on <code>Loading…</code></td><td>The engine mounted but the document never resolved — look at the offline Yorkie shim.</td></tr>
+            <tr><td>No Tailwind class works at all (<code>text-[28px]</code> renders at 16px)</td><td>The host stylesheet loaded without the compiler. The consumer's Vite plugins must include <code>tailwindcss()</code>, and <code>@source</code> must point at where the classes are.</td></tr>
+            <tr><td>My changes to the editor UI don't show up</td><td>The shell is prebuilt. Boot with <code>pnpm design</code> and it rebuilds for you.</td></tr>
+            <tr><td>A component says "needs app context"</td><td>It is a piece that cannot stand on its own (a menu item needs a menu). Open the parent component instead.</td></tr>
+            <tr><td>The first scene load takes close to a minute</td><td>That is the dependency optimization step on WSL2/drvfs. It has not hung, and later loads are fast.</td></tr>
+            <tr><td><code>git does not know who you are yet</code></td><td><code>user.name</code> or <code>user.email</code> is missing. The message tells you which one. Nothing has been changed.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= Part B ================= -->
+    <section id="b-what" class="dr">
+      <h2><span class="badge dr">Part B</span>What the Debug Reporter is</h2>
+      <p>It is a dev-only reporting overlay that sits on top of the running app. Press a shortcut, <strong>point at</strong> what is wrong, say it in <strong>one sentence</strong>, collect a few, and hand them over <strong>in one batch</strong>. An agent drafts the issue text and proposes how the batch splits into PRs; only <strong>after a person confirms</strong> does the pipeline verify it and land it.</p>
+      <div class="cards">
+        <div class="card"><span class="num">What the person does</span><p>Point, write one sentence, and <strong>judge</strong> — fix the wording, drop an item, adjust the grouping, confirm.</p></div>
+        <div class="card"><span class="num">What the person does not do</span><p>File paths, repro steps, labels. That one sentence goes on to become the "why" in the commit message, verbatim.</p></div>
+        <div class="card"><span class="num">What the pipeline does not do</span><p><strong>It opens nothing on its own.</strong> None of the intake scripts creates a branch, a commit, an issue or a PR.</p></div>
+      </div>
+      <div class="warn"><b>This is not only for bugs.</b> An item is one of eight kinds — <code>spacing</code>, <code>color</code>, <code>token</code>, <code>copy</code>, <code>a11y</code>, <code>affordance</code>, <code>layout</code>, <code>logic</code> — and an outright bug is just the one, <code>logic</code>. "This gap looks a bit tight", "this wording reads oddly", "there should be a button here" are all perfectly normal reports. <b>Look for that sort of thing in the exercise too</b> — if you think you have to find a bug, nobody finds anything.</div>
+      <p class="why"><b>In production it does not exist at all</b> — the mount is statically replaced by <code>import.meta.env.DEV</code>, so the code never enters the shipped bundle. It is absent, not disabled.</p>
+    </section>
+
+    <section id="b-boot" class="dr">
+      <h2>B1. Boot the app</h2>
+      <h3>Recommended — no infrastructure</h3>
+      <pre><b>pnpm frontend dev</b></pre>
+      <p>Then go to one of the routes below. No login, no backend, no Docker. They differ in how many canvases they hold, which is <strong>what makes this set good for the exercise</strong>.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Route</th><th>Canvases</th><th>Why we use it</th></tr></thead>
+          <tbody>
+            <tr><td class="k nw">/harness/hunt?surface=sheet</td><td>2</td><td>Grid and overlay share one box across two layers — composite capture and cell addresses</td></tr>
+            <tr><td class="k nw">/harness/docs</td><td>12</td><td>Canvases stacked <strong>vertically</strong> — for practising a region across a seam</td></tr>
+            <tr><td class="k nw">/harness/hunt?surface=slides</td><td>1</td><td>A single canvas</td></tr>
+            <tr><td class="k nw">/login</td><td>0</td><td>The pure-DOM path</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>If you want the whole app</h3>
+      <pre><b>docker compose up -d</b>   <span class="c"># PostgreSQL + Yorkie</span>
+<b>pnpm dev</b>              <span class="c"># frontend (:5173) + backend (:3000)</span></pre>
+      <h3>Optional — a drafting key</h3>
+      <p>For the agent to write drafts, the dev server process has to be able to see a credential (<code>ANTHROPIC_API_KEY</code>, <code>ANTHROPIC_AUTH_TOKEN</code>, or <code>ant auth login</code>). <strong>The whole exercise works without one</strong> — your sentence is handed over as written, with no draft, and you get one PR per item.</p>
+      <p class="why"><b>The key never reaches the browser.</b> Drafting is a dev-server endpoint, and the request carries no <code>tools</code> parameter at all — it is output-only. The scene frame is where app code runs, so a key readable from there is a key exposed to every dependency.</p>
+    </section>
+
+    <section id="b-on" class="dr">
+      <h2>B2. Turn it on</h2>
+      <div class="keys">
+        <span class="keycap"><b>Mod+Shift+Y</b> toggle debug mode</span>
+        <span class="keycap"><b>c</b> capture</span>
+        <span class="keycap"><b>r</b> region drag</span>
+        <span class="keycap"><b>v</b> review panel</span>
+        <span class="keycap"><b>Esc</b> peel off one layer</span>
+      </div>
+      <div class="check"><span class="l">Check</span><span>The floating badge reads <code>c capture · r region · v review · Esc</code>, and <strong>an outline follows your pointer at all times</strong>. The badge is the authority on the current bindings.</span></div>
+      <p class="why"><b>Why <code>Mod+Shift+Y</code></b> — it is the combination that avoids both the engines' own shortcut catalogues and everything the browser reserves. It is also <strong>the only binding that has to work while debug mode is off</strong>, which is why it is the only one with modifiers. The rest are single keys that respond only while the mode is on, and if a text field has focus, the field takes the keyboard.</p>
+    </section>
+
+    <section id="b-dom" class="dr">
+      <h2>B3. Hands-on — aim at a DOM target</h2>
+      <ol class="steps">
+        <li><h4>Put the pointer over a button on <code>/login</code> or in the header</h4></li>
+        <li>
+          <h4>Press <kbd>c</kbd> — do not click</h4>
+          <div class="check"><span class="l">Check</span><span>Even with the pointer over an icon, <strong>it captures the button, not the icon's <code>&lt;svg&gt;</code></strong>. Pointing at a control means you meant that control, so it promotes to the nearest meaningful ancestor.</span></div>
+        </li>
+        <li>
+          <h4>Write one sentence and press <kbd>Enter</kbd></h4>
+          <p>For example: "The horizontal padding on this button looks tighter than on the one next to it." You write no file, and no repro steps.</p>
+          <div class="check"><span class="l">Check</span><span>The count on the badge goes up by one. DOM targets are <strong>not photographed</strong> — they are <em>described</em> by selector, box and a text excerpt. That is what the agent greps the source with.</span></div>
+        </li>
+      </ol>
+    </section>
+
+    <section id="b-canvas" class="dr">
+      <h2>B4. Hands-on — aim at a canvas target</h2>
+      <ol class="steps">
+        <li><h4>Go to <code>/harness/hunt?surface=sheet</code> and put the pointer over a cell</h4></li>
+        <li>
+          <h4>Press <kbd>c</kbd></h4>
+          <div class="check"><span class="l">Check</span><span>The target comes out as <strong>a meaningful address</strong> — <code>Sheet1!C7</code>, say. Not a 1280×721 photograph of the whole sheet.</span></div>
+          <div class="check"><span class="l">Check</span><span>The captured image contains <strong>both the grid and the selection markers</strong>.</span></div>
+        </li>
+      </ol>
+      <p class="why"><b>This is the reason the tool exists.</b> The accessibility tree cannot see inside a canvas, and hit-testing gives no answer either — both sheet canvases are <code>pointer-events: none</code> and the wrapping <code>div</code> handles the events, so in the middle of the grid <code>elementsFromPoint</code> returns four divs and zero canvases. So the locator queries the DOM to find the canvas, then asks <strong>the mounted engine</strong> which cell it is. When the engine locator cannot answer, it <em>falls back</em> to a small region around the cursor rather than photographing the whole container.</p>
+    </section>
+
+    <section id="b-transient" class="dr">
+      <h2>B5. Hands-on — report a state that disappears</h2>
+      <ol class="steps">
+        <li><h4>Hover somewhere a tooltip appears, or open a dropdown and leave it open.</h4></li>
+        <li>
+          <h4>Press <kbd>c</kbd> <strong>without moving the pointer</strong></h4>
+          <div class="check"><span class="l">Check</span><span>The tooltip is captured <strong>while it is still alive</strong>. The sentence box opens after the capture is done, so it does not matter if the state collapses afterwards.</span></div>
+        </li>
+      </ol>
+      <p class="why"><b>This is why the trigger is a key and not a click.</b> Hover tooltips, open menus and drags in progress are destroyed by <em>the very click that pointing would require</em>. On top of that, an overlay that intercepts pointer events stops the app underneath from tracking hover and from seeing the <code>mouseup</code> of a drag in progress. So while idle the overlay <strong>observes the pointer passively only</strong> (no <code>preventDefault</code>, no <code>stopPropagation</code>) and intercepts keys alone, in the capture phase. A key does not move the pointer.</p>
+      <p class="why"><b>The limitation that remains</b> — you still cannot aim at a tooltip drawn <em>away from</em> the cursor, because moving the pointer there is what dismisses it. The only answer is to freeze the frame and aim inside it, and on a screen with DPR 2 and 12 canvases that is not cheap, so it is on hold.</p>
+    </section>
+
+    <section id="b-region" class="dr">
+      <h2>B6. Hands-on — the region drag</h2>
+      <ol class="steps">
+        <li><h4>Go to <code>/harness/docs</code> (12 canvases stacked vertically)</h4></li>
+        <li>
+          <h4>Press <kbd>r</kbd> and drag <strong>across a page seam</strong></h4>
+          <div class="check"><span class="l">Check</span><span><strong>The bottom of the captured image is not black.</strong> It composites every canvas the rectangle <em>intersects</em> — pick by which one contains the center instead, and the person reporting a seam ends up attaching evidence with the seam missing.</span></div>
+        </li>
+        <li>
+          <h4>Try the same <kbd>r</kbd> drag on a screen with zero canvases, like <code>/login</code></h4>
+          <div class="check"><span class="l">Check</span><span>You get more than coordinates — it records <strong>a list of the meaningful elements</strong> the rectangle intersects (selector plus text excerpt).</span></div>
+        </li>
+      </ol>
+    </section>
+
+    <section id="b-cancel" class="dr">
+      <h2>B7. Hands-on — what cancel discards</h2>
+      <p>This step lets you see one of the tool's rules for yourself. <strong>A tool that loses reports is worse than no tool at all</strong> — the reporter believes it was filed, and never makes the next observation.</p>
+      <ol class="steps">
+        <li>
+          <h4>Press <kbd>Esc</kbd> while typing the sentence</h4>
+          <div class="check"><span class="l">Check</span><span>Only that <strong>item</strong> is discarded; debug mode stays on. You return to aiming.</span></div>
+        </li>
+        <li>
+          <h4>Try to save with an empty sentence</h4>
+          <div class="check"><span class="l">Check</span><span>The save control is <strong>visibly</strong> disabled and says why. It never swallows the report silently and drops it.</span></div>
+        </li>
+        <li>
+          <h4>Keep pressing <kbd>Esc</kbd></h4>
+          <p>It peels off one layer at a time: panel → pending item → region mode → debug mode. It does not close everything at once, so that one key cannot destroy work you did not know was about to vanish.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="b-review" class="dr">
+      <h2>B8. The review panel</h2>
+      <p>Once you have three or four, press <kbd>v</kbd> to open the <strong>Debug reports</strong> panel.</p>
+      <ul>
+        <li><strong>Fix the sentences and titles.</strong> With a drafting key, the agent's draft is already filled in; without one, your own sentence is. Either way it is <strong>an editable draft</strong> and you are the author.</li>
+        <li><strong>The thumbnails are the consent gate.</strong> Every image that will leave is shown here.</li>
+        <li><strong>Three dispositions</strong> — <em>Verify</em> (replay it; if it holds, a PR) · <em>File it</em> (an issue, no replay) · <em>Drop</em> (this one is not going out).</li>
+        <li>The <strong><code>agent:candidate</code></strong> checkbox records <em>intent</em>. The automated-contribution gate requires a non-bot author, so a label alone never opens it — which is why this checkbox does not weaken the gate.</li>
+        <li><strong>Proposed pull requests</strong> — detach an item from a proposed group, split a PR, merge two. <strong>File names never appear in the UI.</strong> Merging across kinds is warned about, not blocked.</li>
+      </ul>
+      <p class="why"><b>What gets grouped together</b> — the criterion is <em>homogeneity</em>, not count. Two padding fixes pass or fail together; a padding fix and a formula-engine bug do not. So <code>spacing</code>, <code>color</code>, <code>token</code>, <code>copy</code> and <code>a11y</code> group with their own kind, <code>layout</code> only within the same file, and <code>logic</code> is <strong>never grouped</strong> — there is no reason for one blocked item to hold the rest hostage. One item is one commit, so a reviewer can reject a single report by dropping a single commit.</p>
+    </section>
+
+    <section id="b-hand" class="dr">
+      <h2>B9. Hand over</h2>
+      <ol class="steps">
+        <li>
+          <h4><strong>Hand over N report(s)</strong>, at the bottom of the panel</h4>
+          <div class="check"><span class="l">Check</span><span>If any sentence is still empty the button is disabled and tells you how many are blank. You <strong>can</strong> hand over while drafts are still pending — the model is not a dependency.</span></div>
+        </li>
+        <li>
+          <h4>Confirm it on disk</h4>
+          <pre><b>ls .wb-reports/</b>
+<b>cat .wb-reports/&lt;session&gt;/bundle.json | jq '.items[] | {note, target: .target.kind}'</b></pre>
+          <p>Capture images are stored as separate files <em>beside</em> the bundle — the bundle has to stay small and the images run to megabytes.</p>
+          <div class="check"><span class="l">Check</span><span>Hand over twice in one session and <code>bundle-2.json</code> appears next to <code>bundle.json</code>. <strong>Nothing is overwritten</strong> — saying it was sent and then erasing the earlier batch is the failure this feature most wants to avoid.</span></div>
+        </li>
+      </ol>
+    </section>
+
+    <section id="b-intake" class="dr">
+      <h2>B10. Intake — what happens to the batch</h2>
+      <p>In the session we <strong>run only step 1 by hand</strong> and skim the rest from the table. None of these scripts opens a PR or an issue on its own.</p>
+      <pre><b>DIR=.wb-reports/&lt;session&gt;</b>
+
+<span class="c"># 1. Reject a bundle that cannot be acted on. From the next step on, commits can be made.</span>
+<b>node ./scripts/agent/report-bundle.mjs "$DIR" --check</b></pre>
+      <p>If you use Claude Code, the whole flow is one command:</p>
+      <pre><b>/report-intake</b>            <span class="c"># defaults to the newest directory under .wb-reports/</span></pre>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Stage</th><th>What it does</th><th>What it does not do</th></tr></thead>
+          <tbody>
+            <tr><td class="k">report-bundle</td><td>Reads and validates the bundle, fail-closed</td><td>Does not repair anything — a bundle it does not understand is <strong>rejected</strong></td></tr>
+            <tr><td class="k">report-prior</td><td>Reads the repo's open issues as prior reports</td><td>No judgement, no writes</td></tr>
+            <tr><td class="k">report-intake</td><td>Masks secrets, decides duplicates, routes destinations, produces a plan</td><td>Executes nothing, files nothing. <strong>A destination is not a deletion</strong></td></tr>
+            <tr><td class="k">report-verify</td><td>Works out what verification means for each item</td><td>Does not run the lanes itself (they need a browser and Docker)</td></tr>
+            <tr><td class="k">report-to-pr</td><td>Assembles PRs, forces splits and merges, records the deltas</td><td>Starts no processes at all</td></tr>
+            <tr><td class="k">report-back</td><td>Writes the outcome beside the bundle — including the reason for every adjustment</td><td>Does not interpret it</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Two things worth watching here</h3>
+      <ul>
+        <li><strong>A proposal is not a contract.</strong> The browser does not know which files will change. So it is adjusted in exactly two directions — overlapping files force a <em>merge</em> (transitively: if A–B overlap and B–C overlap, all three become one PR), and a misjudged kind forces a <em>split</em>. Splitting is always safe; merging is not. And <strong>an adjustment is never silent</strong> — the result comes back as "proposed 2 PRs → actually 3 (…reason…)".</li>
+        <li><strong>A failed verification never deletes a report.</strong> "Did not reproduce" does not mean "the observation was wrong", so it only <em>lowers</em> the destination — the expectation and the failed replay go into an issue together, so a person, not a machine, looks at the discrepancy.</li>
+      </ul>
+      <p class="why"><b>Why duplicate detection uses two different measures</b> — a report is one sentence; an issue body is several paragraphs. Under containment, <em>a long issue merely happening to contain the short sentence's words</em> scores 1.0, and a perfectly good report vanishes as a comment on the wrong issue. So report↔issue uses Dice, and report↔ledger uses containment.</p>
+    </section>
+
+    <section id="b-trouble" class="dr">
+      <h2>B11. Symptom table — Part B</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What you see</th><th>Cause / fix</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Mod+Shift+Y</kbd> does nothing</td><td>You are looking at a production build (the overlay only exists in dev), or a text field has focus.</td></tr>
+            <tr><td><kbd>c</kbd> and <kbd>r</kbd> type straight into the app's input</td><td>That is correct. A focused text field owns the keyboard — the rule exists because typing "chart" into the rename box used to produce "hat".</td></tr>
+            <tr><td>The outline shows, but the capture photographs the whole sheet</td><td>The engine locator could not answer. Falling back to a small region around the cursor is the designed behavior.</td></tr>
+            <tr><td>The bottom of the capture comes out black</td><td>A region crossing a seam composited only one of the canvases — that is the behavior that was fixed, so if you see it, it is worth reporting.</td></tr>
+            <tr><td>The panel says a capture was "evicted"</td><td>The size guard drops the oldest captures first. <strong>The item itself survives</strong> — the sentence is what matters, and you are told what was dropped before you confirm.</td></tr>
+            <tr><td>The draft comes back as <code>not-configured</code></td><td>The dev server process has no model credential. This is normal: your sentence is handed over as written and you get one PR per item.</td></tr>
+            <tr><td>There is no <code>.wb-reports/</code></td><td>You have not pressed Hand over yet, or you opened the app on a server other than the frontend dev server.</td></tr>
+            <tr><td><code>/harness/docs</code> logs console errors on load</td><td>A known pre-existing defect, unrelated to debug mode.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= Next ================= -->
+    <section id="c-own">
+      <h2>Adding it to your own project</h2>
+      <p>Not part of the session exercise, but this is where most of the questions come from.</p>
+      <h3>Design Editor</h3>
+      <pre><span class="c">// the consumer's vite.config.ts</span>
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { <b>designEditor</b>, <b>cssVariables</b> } from '@wafflebase/design-editor'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    designEditor({
+      root:      process.cwd(),         <span class="c">// the write boundary — nothing is written outside it</span>
+      scenes:    'design/scenes.json',  <span class="c">// which routes are editable</span>
+      providers: 'design/providers.tsx',
+      tokens:    cssVariables({ stylesheet: 'src/index.css' }),
+    }),
+  ],
+})</pre>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Support matrix</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Bundler</td><td class="k">Vite 6+ (dev server only)</td></tr>
+            <tr><td>Framework</td><td class="k">React 19, JSX/TSX source</td></tr>
+            <tr><td>Styling</td><td class="k">Tailwind v4 <span style="font-family:var(--f-body)">(required for class editing; not required if you only edit tokens)</span></td></tr>
+            <tr><td>Variants</td><td class="k">class-variance-authority</td></tr>
+            <tr><td>Component convention</td><td class="k">shadcn/ui shape (Radix + CVA + a token layer)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="warn"><b>The real barrier to entry is <code>scenes.json</code>, not the AST.</b> wafflebase's own manifest is 204 hand-written lines, and on top of that you need a providers module and fixtures shaped like your own API. "Just install the plugin" is not true — between installing and the first render there is <em>authoring</em>. The baseline is this: if that takes more than an hour on an unfamiliar app, the answer is not more documentation, it is that <strong>the configuration surface needs redesigning</strong>.</div>
+      <p>Trying it outside the monorepo is five commands. Build a tarball with <code>npm pack</code>, then <code>npm install</code> it from a directory outside the repo. <strong>It is not published to npm.</strong> There is a skill in the repository that helps with setup — <code>design-sandbox-bringup</code>.</p>
+      <h3>Debug Reporter</h3>
+      <ul>
+        <li>Mount <code>@wafflebase/debug-report/react</code> and add <code>/plugin</code> as a Vite plugin.</li>
+        <li>The host supplies <strong>two things only</strong>: the routes to report on, and — if it has canvas surfaces — <code>locateOnCanvas</code> (a point → a meaningful address). With no canvases, drop the second one and every point on a canvas becomes a region.</li>
+        <li>A host without React can use the core (<code>.</code>) alone and draw its own UI — the session, the store, the parser and <code>HostAdapter</code> are framework-agnostic.</li>
+      </ul>
+    </section>
+
+    <section id="cheat">
+      <h2>Cheat sheet</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="num">Design Editor</span>
+          <pre style="font-size:12.5px">pnpm design
+node scripts/design.mjs
+pnpm design -- --port 5200
+pnpm design -- --no-open
+
+pnpm design-pr --dry-run
+pnpm design-pr
+
+curl -s localhost:5173\
+/__design-editor/api/health | jq</pre>
+        </div>
+        <div class="card">
+          <span class="num">Debug Reporter</span>
+          <pre style="font-size:12.5px">pnpm frontend dev
+
+Mod+Shift+Y   toggle
+c             capture
+r             region
+v             review panel
+Esc           peel one layer
+Enter         save the sentence
+
+ls .wb-reports/</pre>
+        </div>
+        <div class="card">
+          <span class="num">Maintenance gates (for reference)</span>
+          <pre style="font-size:12.5px">pnpm design-editor  verify:consumer
+                     # 57 checks
+pnpm design-editor  verify:frame
+                     # 40 checks
+pnpm design-sandbox verify:scenes
+                     # 57 checks, ~15 min
+pnpm design-sandbox verify:tokens
+                     # 32 checks
+
+pnpm core build      # needed on a fresh clone
+                     # (pnpm design does it for you)</pre>
+        </div>
+      </div>
+      <h3>Further reading</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Document</th><th>What's in it</th></tr></thead>
+          <tbody>
+            <tr><td class="k">docs/design/design-editor/design-editor-local-plugin.md</td><td><strong>Start here.</strong> The local-plugin pivot, the package boundary, the support matrix, the PR order</td></tr>
+            <tr><td class="k">docs/design/design-editor/design-editor-running.md</td><td>Operator's guide — URLs, gates, symptom table</td></tr>
+            <tr><td class="k">docs/design/design-editor/design-editor-packaging.md</td><td>What an installed copy needs, and the three defects only that test found</td></tr>
+            <tr><td class="k">docs/design/agent-pipeline/debug-report.md</td><td>The reporter's full design — measured findings, credential separation, grouping rules</td></tr>
+            <tr><td class="k">packages/documentation/developers/design-editor.md</td><td>User documentation for people who don't write code</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="end">
+    wafflebase · design-editor + debug-report hands-on · 2026-08
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+    var map = {};
+    links.forEach(function (a) {
+      var el = document.querySelector(a.getAttribute("href"));
+      if (el) map[el.id] = a;
+    });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        links.forEach(function (a) { a.classList.remove("on"); });
+        var a = map[e.target.id];
+        if (a) a.classList.add("on");
+      });
+    }, { rootMargin: "-10% 0px -70% 0px", threshold: 0 });
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) io.observe(el);
+    });
+  })();
+</script>
+
+<script>
+  (function () {
+    var btn = document.getElementById("themeToggle");
+    if (!btn) return;
+    function paint() {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      btn.textContent = dark ? "☀ Light" : "☾ Dark";
+      btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+    }
+    btn.addEventListener("click", function () {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      var next = dark ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("wb-talk-theme", next); } catch (e) {}
+      paint();
+    });
+    paint();
+  })();
+</script>
+</body>
+</html>

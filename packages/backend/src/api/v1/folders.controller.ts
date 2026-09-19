@@ -26,7 +26,7 @@ import { CreateFolderDto, UpdateFolderDto } from '../../folder/folder.dto';
  *
  * The web surface (`folder.controller.ts`) is `JwtAuthGuard` on a bare
  * `@Controller()`, so an API key cannot call it at all — the class-A′ gap in
- * docs/design/agentic-office-workflow.md. This is the same tree under
+ * docs/design/agent-pipeline/agentic-office-workflow.md. This is the same tree under
  * `/api/v1`, and the routes are **nested under the workspace** rather than
  * copied as `folders/:id`: `WorkspaceScopeGuard` is what refuses a key minted
  * for a different workspace, and it has nothing to check when the workspace is

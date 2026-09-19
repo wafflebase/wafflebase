@@ -7,7 +7,7 @@ on:
   # anyway. Nothing anywhere enforced "full CI before deploy"; this trigger is
   # what makes that true. The other half is in `scripts/changed-areas.mjs`: a
   # `push` to `main` is never path-filtered, so the run gating this is always the
-  # complete suite. See docs/design/harness-engineering.md#deploy-gate.
+  # complete suite. See docs/design/agent-pipeline/harness-engineering.md#deploy-gate.
   #
   # CHAIN DEPTH IS UNCHANGED. GitHub allows three levels of `workflow_run`
   # chaining, and `capture-collect.yml` documents that `ci.yml` →

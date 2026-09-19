@@ -1,6 +1,6 @@
 # Agentic Office Workflow — Task Tracking
 
-Design doc: [agentic-office-workflow.md](../../design/agentic-office-workflow.md)
+Design doc: [agentic-office-workflow.md](../../design/agent-pipeline/agentic-office-workflow.md)
 Tracking issue: [#998](https://github.com/wafflebase/wafflebase/issues/998)
 Original proposal: @ggyuchive, v1, 2026-08-29
 
@@ -25,7 +25,7 @@ Original proposal: @ggyuchive, v1, 2026-08-29
 - [x] Corrections to the original audit recorded: tab rearrange A → B, comments
       and sheet floating images A → B, slide editing A → A′ (whole-content
       write only), folders reachable by JWT but not by API key, board B confirmed
-- [x] `docs/design/agentic-office-workflow.md` + index row in `docs/design/README.md`
+- [x] `docs/design/agent-pipeline/agentic-office-workflow.md` + index row in `docs/design/README.md`
 - [x] Issue #998 body updated with the measured list
 
 ## Step 1: Close the bench's own holes (blocks every number)

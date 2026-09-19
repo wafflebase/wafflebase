@@ -1092,7 +1092,7 @@ export function SheetView({
       // DEV only: let the debug-report overlay turn a point on the grid into
       // `Sheet1!C7`. Nothing outside the engine can answer that — the canvases
       // are `pointer-events: none`, so even hit-testing does not find them.
-      // See `docs/design/debug-report.md`.
+      // See `docs/design/agent-pipeline/debug-report.md`.
       if (import.meta.env.DEV && container) {
         unregisterDebugSurface = registerDebugSurface(
           sheetSurface(s, container, () => debugTabNameRef.current),

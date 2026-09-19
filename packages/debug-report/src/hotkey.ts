@@ -8,7 +8,7 @@
  * worse, because the app underneath then stops tracking hover and never sees the
  * `mouseup` of a drag already under way. A keypress moves no pointer, so `:hover`,
  * JS hover state and a held button all survive it. Measured by hand; recorded as
- * finding 5 in `docs/design/debug-report.md`.
+ * finding 5 in `docs/design/agent-pipeline/debug-report.md`.
  *
  * Two consequences for this module:
  *

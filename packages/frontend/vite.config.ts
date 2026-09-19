@@ -309,7 +309,7 @@ export default defineConfig({
   plugins: [
     // Dev-only: writes confirmed reports into `.wb-reports/` and hosts the
     // drafting call, so the model credential stays in this process and never
-    // reaches the browser (`docs/design/debug-report.md`).
+    // reaches the browser (`docs/design/agent-pipeline/debug-report.md`).
     debugReportPlugin({ repoRoot: path.resolve(__dirname, "../..") }),
     gaSnippet(),
     antlr4tsAssertShim(),
