@@ -157,12 +157,24 @@ describe("upload-queue unsaved-work probe", () => {
     expect(hasUnsavedWork()).toBe(false);
   });
 
-  it("does not count a failed upload as work at risk", () => {
-    // An errored row is still on screen with a Retry button, but its bytes
-    // are not mid-flight and a reload costs nothing that is not already lost.
+  it("counts a failed upload that can still be retried", () => {
+    // The worker's catch sets "error" without clearing `file`, so the row
+    // keeps a working Retry button. Reloading would drop the handle and make
+    // the user find the file again.
     const [item] = q.enqueue([file("a.xlsx")], "ws1");
     q.patchItem(item.id, { status: "error", reason: "network" });
 
+    expect(q.isRetryable(q.getSnapshot()[0])).toBe(true);
+    expect(hasUnsavedWork()).toBe(true);
+  });
+
+  it("does not count a failure whose blob is already gone", () => {
+    // Over the size cap: rejected at enqueue time and the File is dropped
+    // there, so Retry is not offered and a reload costs nothing.
+    const [item] = q.enqueue([file("huge.zip", 60 * 1024 * 1024)]);
+
+    expect(item.status).toBe("error");
+    expect(q.isRetryable(item)).toBe(false);
     expect(hasUnsavedWork()).toBe(false);
   });
 });

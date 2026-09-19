@@ -199,7 +199,15 @@ registerUnsavedWorkProbe(() =>
     (it) =>
       it.status === "pending" ||
       it.status === "parsing" ||
-      it.status === "uploading",
+      it.status === "uploading" ||
+      // A FAILED upload counts too, as long as it can still be retried. The
+      // worker's catch sets `status: "error"` without clearing `file`, so the
+      // row keeps its Retry button and `retry()` re-runs from the same handle
+      // — a reload would take that away and make the user find the file
+      // again. `isRetryable` is the panel's own rule, so the two cannot drift:
+      // a row whose blob was dropped (an over-cap file, an externally driven
+      // import) has nothing left to lose and stays reloadable.
+      (it.status === "error" && isRetryable(it)),
   ),
 );
 

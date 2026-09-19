@@ -182,8 +182,14 @@ function canReload(env: ChunkRecoveryEnv): boolean {
   }
   if (elapsed < RELOAD_WINDOW_MS) return false;
 
-  env.setItem(RELOAD_STAMP_KEY, String(env.now()));
-  return true;
+  // Read back, exactly as the no-stamp branch above does, and for the same
+  // reason: `browserEnv.setItem` swallows a failed write. A store whose reads
+  // succeed while its writes do not would leave this expired stamp in place,
+  // so every later failure would clear this check and reload again — the
+  // unbounded loop the rate limit exists to prevent.
+  const next = String(env.now());
+  env.setItem(RELOAD_STAMP_KEY, next);
+  return env.getItem(RELOAD_STAMP_KEY) === next;
 }
 
 /**

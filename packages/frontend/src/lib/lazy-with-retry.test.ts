@@ -291,6 +291,26 @@ describe("loadWithRetry", () => {
     expect(env.store.size).toBe(0);
   });
 
+  it("does not reload on an expired stamp it cannot overwrite", async () => {
+    // Reads work, writes silently do not. Without the read-back the expired
+    // stamp would survive, so every later failure would clear the window
+    // check and reload again — an unbounded loop, which is the one outcome
+    // the rate limit exists to prevent.
+    const importer = vi.fn().mockRejectedValue(chunkError());
+    const env = testEnv({ setItem: () => {} });
+    env.store.set(
+      RELOAD_STAMP_KEY,
+      String(env.clock.value - RELOAD_WINDOW_MS - 1),
+    );
+
+    await expect(loadWithRetry(importer, env)).rejects.toThrow(WEBKIT);
+    expect(env.reloads).toBe(0);
+
+    // Still refused on the next pass, rather than looping.
+    await expect(loadWithRetry(importer, env)).rejects.toThrow(WEBKIT);
+    expect(env.reloads).toBe(0);
+  });
+
   it("does not reload when the stamp cannot be persisted", async () => {
     // Safari private mode: `setItem` throws, `browserEnv` swallows it, and
     // without this check the guard would have nothing stopping a loop.
