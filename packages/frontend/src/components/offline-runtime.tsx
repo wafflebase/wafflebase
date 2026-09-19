@@ -321,15 +321,35 @@ async function offerRecoverableWork(
       continue;
     }
 
+    // The offer's own id, so the click that spends it can retract exactly the
+    // toast it was made in.
+    const offerId = `offline-recovery-${item.id}`;
+    // Whether a recovery for this offer is already running. The archive is
+    // consumed by a successful recovery, so a second attempt finds nothing and
+    // would report "The stored copy could not be read." for work that was in
+    // fact recovered.
+    let recovering = false;
+
     toast.warning('Some changes could not be saved', {
-      id: `offline-recovery-${item.id}`,
+      id: offerId,
       duration: Infinity,
       description: destination.shared
         ? `Edits to "${title}" could not be reconciled with the server, and the document they belonged to is gone. Saving a copy puts them in "${destination.name}", which you share with other people.`
         : `Edits to "${title}" could not be reconciled with the server. They are still on this device.`,
       action: {
         label: 'Save a copy',
-        onClick: () => {
+        onClick: (event) => {
+          // Sonner retracts a toast as soon as its action is clicked unless the
+          // handler says otherwise, and recovery is asynchronous: letting it go
+          // would take the offer away before anybody knows whether it worked,
+          // leaving a failure with nothing to retry from until the next
+          // session. So the offer is held here and retracted below — on success
+          // only, which is also the only outcome that spends the archive.
+          event.preventDefault();
+          if (recovering) {
+            return;
+          }
+          recovering = true;
           void recoverOfflineCopy(store, item, {
             title,
             type: described.type,
@@ -337,6 +357,9 @@ async function offerRecoverableWork(
           })
             .then((outcome) => {
               if (!outcome.documentId) {
+                // Nothing was consumed, so the offer stands and may be tried
+                // again — by this click's owner or by the next session.
+                recovering = false;
                 toast.error('Could not recover those changes', {
                   description:
                     outcome.refused === 'empty'
@@ -347,6 +370,12 @@ async function offerRecoverableWork(
                 });
                 return;
               }
+              // The work this offer named is now a document, and the archive
+              // behind it is gone. The warning is `duration: Infinity` with no
+              // close button, so nothing else would ever take it off the
+              // screen — it would sit there offering work that has already
+              // been returned.
+              toast.dismiss(offerId);
               toast.success(`Recovered as "${outcome.title}"`, {
                 description: outcome.complete
                   ? undefined
@@ -365,6 +394,9 @@ async function offerRecoverableWork(
             })
             .catch((err) => {
               console.warn('[offline] recovery failed:', err);
+              // Same reasoning as the refusal above: the offer is left standing
+              // because nothing was spent.
+              recovering = false;
               toast.error('Could not recover those changes');
             });
         },

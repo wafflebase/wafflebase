@@ -8,7 +8,10 @@ import {
   useDurabilityPermitted,
   useDurableDocument,
 } from '@/lib/use-durable-document';
-import { useOfflinePersistenceEnabled } from '@/lib/offline-persistence-preference';
+import {
+  hasOfflinePersistenceConsent,
+  useOfflinePersistenceEnabled,
+} from '@/lib/offline-persistence-preference';
 import { supportsClientKey } from '@/lib/yorkie-capabilities';
 import {
   DurableLossWatch,
@@ -213,19 +216,34 @@ export function CollabDocumentProvider<R, P extends Indexable = Indexable>({
     lastKnown.current = me;
   }
   const person = me ?? lastKnown.current;
+  const personId = person?.id === undefined ? undefined : String(person.id);
   const docKey = (rest as { docKey: string }).docKey;
-  const offlineEnabled = useOfflinePersistenceEnabled();
+  // Asked for this person, not for the device: the opt-in is per account as
+  // well as per device, so somebody else's consent on this machine must not
+  // start writing *their* successor's documents to it.
+  const offlineEnabled = useOfflinePersistenceEnabled(personId);
   const permitted = useDurabilityPermitted();
   // Every term here is synchronous, so the answer is known on the first render.
   // It exists only to decide whether the identity is worth waiting for: with
   // the opt-in declined — which is every document today — nothing about this
   // component's timing changes.
-  const mayPersist = supportsClientKey() && offlineEnabled && permitted;
+  //
+  // While the identity is still pending the per-account answer is not merely
+  // unknown, it is unknowable — and reading it as "off" would decide the
+  // question this flag exists to keep open, mounting the ambient client and
+  // latching non-durable for a person who *has* opted in here. So the device's
+  // own answer stands in for theirs until they arrive: somebody consented on
+  // this machine, so the person being fetched might be them. A device where
+  // nobody has is still decided instantly.
+  const mayPersist =
+    supportsClientKey() &&
+    permitted &&
+    (identityPending ? hasOfflinePersistenceConsent() : offlineEnabled);
   const identified = !mayPersist || !identityPending;
 
   const { durable, clientKey, settled, standDown } = useDurableDocument({
     docKey,
-    userId: person?.id === undefined ? undefined : String(person.id),
+    userId: personId,
   });
 
   /**

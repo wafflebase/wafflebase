@@ -1,4 +1,11 @@
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import {
+  render as rtlRender,
+  screen,
+  act,
+  fireEvent,
+} from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let mockCtx: { doc: FakeDoc | undefined; connection: string };
@@ -42,6 +49,33 @@ import {
   type NavigationGuard,
 } from '@/components/navigation-guard/use-navigation-guard';
 import { TooltipProvider } from '@/components/ui/tooltip';
+
+/**
+ * Whoever is signed in. The chip asks the preference *for an account* — the
+ * opt-in is per device and per account — so it reads the identity the
+ * authenticated shell resolved, and every case here has to supply one.
+ */
+const USER = '7';
+
+/**
+ * Every render goes through a seeded query client, because the chip reads the
+ * identity from the same cache the shell filled. Seeded rather than fetched:
+ * nothing here is testing the request.
+ */
+function render(ui: ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(['me', 'optional'], { id: Number(USER), username: 'ada' });
+  const wrap = (node: ReactElement) => (
+    <QueryClientProvider client={client}>{node}</QueryClientProvider>
+  );
+  const view = rtlRender(wrap(ui));
+  return {
+    ...view,
+    rerender: (node: ReactElement) => view.rerender(wrap(node)),
+  };
+}
 
 type DocEvent = { type: string; value: unknown };
 
@@ -497,7 +531,7 @@ describe('the offer to turn offline saving on', () => {
   /** A stranded chip on a build that can honour the offer. */
   function renderStranded() {
     vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled(USER, false);
     success.mockClear();
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'disconnected' };
@@ -526,7 +560,7 @@ describe('the offer to turn offline saving on', () => {
       fireEvent.click(chip);
     });
 
-    expect(getOfflinePersistenceEnabled()).toBe(true);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
     // Confirmed, and honestly: the decision to persist is made when a document
     // opens, so this one is not rescued retroactively.
     expect(success).toHaveBeenCalledTimes(1);
@@ -561,7 +595,7 @@ describe('the offer to turn offline saving on', () => {
       options.action!.onClick();
     });
 
-    expect(getOfflinePersistenceEnabled()).toBe(true);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
     expect(success).toHaveBeenCalledTimes(1);
   });
 
@@ -570,7 +604,7 @@ describe('the offer to turn offline saving on', () => {
     // persists: a build below `MinClientKeyVersion` can store nothing, so the
     // offer would promise storage — and an erasure of it — that cannot happen.
     vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.22');
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled(USER, false);
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'disconnected' };
     renderChip();
@@ -628,7 +662,7 @@ describe('the offer on a document that can never be durable', () => {
    */
   function renderWithLapse(lapse: DurabilityLapse) {
     vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled(USER, false);
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'disconnected' };
     const view = render(

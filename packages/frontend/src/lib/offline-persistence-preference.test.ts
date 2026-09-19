@@ -2,6 +2,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const STORAGE_KEY = "wafflebase-offline-persistence";
 
+/** Whoever is signed in; the preference is recorded per account. */
+const USER = "u1";
+
 /**
  * The session mirror is module state, so a test that leaves it set would
  * decide the next test's answer. Each case loads its own copy of the module
@@ -20,18 +23,60 @@ beforeEach(() => {
 describe("offline persistence preference", () => {
   it("defaults to off", async () => {
     const { getOfflinePersistenceEnabled } = await load();
-    expect(getOfflinePersistenceEnabled()).toBe(false);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(false);
   });
 
   it("round-trips through localStorage", async () => {
     const { getOfflinePersistenceEnabled, setOfflinePersistenceEnabled } =
       await load();
 
-    setOfflinePersistenceEnabled(true);
-    expect(getOfflinePersistenceEnabled()).toBe(true);
+    setOfflinePersistenceEnabled(USER, true);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
 
-    setOfflinePersistenceEnabled(false);
-    expect(getOfflinePersistenceEnabled()).toBe(false);
+    setOfflinePersistenceEnabled(USER, false);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(false);
+  });
+
+  it("does not opt one account in because another did on this device", async () => {
+    // The whole point of a per-device setting is the shared machine, and a
+    // device-wide answer gets that case backwards: one user's consent would
+    // start writing the *next* user's document content to that disk, without
+    // that account ever being asked and with the Settings switch showing "on"
+    // for a choice they did not make.
+    const { getOfflinePersistenceEnabled, setOfflinePersistenceEnabled } =
+      await load();
+
+    setOfflinePersistenceEnabled(USER, true);
+
+    expect(getOfflinePersistenceEnabled("u2")).toBe(false);
+    // And turning it on for them leaves the first account's answer alone.
+    setOfflinePersistenceEnabled("u2", true);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
+    // As does turning it off again.
+    setOfflinePersistenceEnabled("u2", false);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
+    expect(getOfflinePersistenceEnabled("u2")).toBe(false);
+  });
+
+  it("reads as off for an account nobody can name", async () => {
+    // Every consumer either knows who is signed in or is in no position to
+    // persist anything for them, so an absent identity is off rather than the
+    // device's answer.
+    const { getOfflinePersistenceEnabled, setOfflinePersistenceEnabled } =
+      await load();
+
+    setOfflinePersistenceEnabled(USER, true);
+    expect(getOfflinePersistenceEnabled(undefined)).toBe(false);
+  });
+
+  it("reads a device-wide `true` as nobody's consent", async () => {
+    // The shape an unqualified spelling of this key would have left behind.
+    // Honoring it for whoever happens to be signed in is exactly the leak the
+    // per-account set exists to close, so junk reads as off.
+    const { getOfflinePersistenceEnabled } = await load();
+
+    localStorage.setItem(STORAGE_KEY, "true");
+    expect(getOfflinePersistenceEnabled(USER)).toBe(false);
   });
 
   it("notifies subscribers in the same tab", async () => {
@@ -44,11 +89,11 @@ describe("offline persistence preference", () => {
     const unsubscribe = subscribeOfflinePersistence(() => {
       calls += 1;
     });
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled(USER, true);
     expect(calls).toBe(1);
 
     unsubscribe();
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled(USER, false);
     expect(calls).toBe(1);
   });
 
@@ -63,8 +108,8 @@ describe("offline persistence preference", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
-    setOfflinePersistenceEnabled(true);
-    expect(getOfflinePersistenceEnabled()).toBe(true);
+    setOfflinePersistenceEnabled(USER, true);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
   });
 
   it("stops preferring the mirror once a write succeeds", async () => {
@@ -78,14 +123,14 @@ describe("offline persistence preference", () => {
     setItem.mockImplementationOnce(() => {
       throw new Error("QuotaExceededError");
     });
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled(USER, true);
 
     // This write lands, so the mirror must give way to storage again.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled(USER, true);
 
     // Another tab turns it off.
-    localStorage.setItem(STORAGE_KEY, "false");
-    expect(getOfflinePersistenceEnabled()).toBe(false);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    expect(getOfflinePersistenceEnabled(USER)).toBe(false);
   });
 
   it("reads as off when touching localStorage throws", async () => {
@@ -96,7 +141,7 @@ describe("offline persistence preference", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("SecurityError");
     });
-    expect(getOfflinePersistenceEnabled()).toBe(false);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(false);
   });
 
   it("does not throw out of the setter when storage refuses the write", async () => {
@@ -107,7 +152,7 @@ describe("offline persistence preference", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
-    expect(() => setOfflinePersistenceEnabled(true)).not.toThrow();
+    expect(() => setOfflinePersistenceEnabled(USER, true)).not.toThrow();
   });
 
   it("yields to another tab after a write of ours failed", async () => {
@@ -126,21 +171,21 @@ describe("offline persistence preference", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
-    setOfflinePersistenceEnabled(true);
-    expect(getOfflinePersistenceEnabled()).toBe(true);
+    setOfflinePersistenceEnabled(USER, true);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
     vi.restoreAllMocks();
 
     // Another tab turns it off, which arrives as a `storage` event.
-    localStorage.setItem(STORAGE_KEY, "false");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
     window.dispatchEvent(
       new StorageEvent("storage", {
         key: STORAGE_KEY,
-        newValue: "false",
+        newValue: "[]",
         storageArea: localStorage,
       }),
     );
 
-    expect(getOfflinePersistenceEnabled()).toBe(false);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(false);
   });
 
   it("keeps the mirror when another key changes", async () => {
@@ -151,7 +196,7 @@ describe("offline persistence preference", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled(USER, true);
     vi.restoreAllMocks();
 
     window.dispatchEvent(
@@ -162,6 +207,6 @@ describe("offline persistence preference", () => {
       }),
     );
 
-    expect(getOfflinePersistenceEnabled()).toBe(true);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
   });
 });

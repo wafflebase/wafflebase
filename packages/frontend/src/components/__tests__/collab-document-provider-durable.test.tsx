@@ -154,7 +154,7 @@ function mount(docKey: string) {
 
 describe('when the document is durable', () => {
   it('mounts a client keyed to the user and the document, with the store', async () => {
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     const { getByTestId } = mount('note-7');
 
     await waitFor(() => expect(mounted.length).toBe(1));
@@ -179,7 +179,11 @@ describe('when the document is durable', () => {
     // second user's edits would be written under the first user's Yorkie
     // actor, into the first user's store scope, on the shared device this
     // feature is most careful about.
-    setOfflinePersistenceEnabled(true);
+    //
+    // Both accounts opt in on this device: the subject of the test is the
+    // identity changing, not the preference.
+    setOfflinePersistenceEnabled('7', true);
+    setOfflinePersistenceEnabled('9', true);
     const { rerender } = mount('note-7');
     await waitFor(() => expect(mounted.length).toBe(1));
     expect(mounted[0].clientKey).toContain(':7:note-7');
@@ -218,7 +222,7 @@ describe('when the preference is switched on with a document already open', () =
     await waitFor(() => expect(getByTestId('child')).toBeTruthy());
     const before = getByTestId('child');
 
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     rerender(
       <CollabDocumentProvider docKey="note-7" initialRoot={{}}>
         <div data-testid="child" />
@@ -241,7 +245,7 @@ describe('when the preference is switched on with a document already open', () =
     mount('note-7');
     await waitFor(() => expect(screen.getByTestId('child')).toBeTruthy());
 
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(locks.held.size).toBe(0);
@@ -262,7 +266,7 @@ describe('when it is not', () => {
     // PDF documents ride this same seam and have no sync chip, so durable
     // without a way to report it would break the invariant the chip depends
     // on: whatever is durable must be reportable.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('pdf-123');
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -273,7 +277,7 @@ describe('when it is not', () => {
     // Two tabs on one document is ordinary, and a stable key in both means one
     // shared actor — colliding clientSeqs, each tab's changes filtered out of
     // the other. The second must stay on today's random key.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
     await waitFor(() => expect(mounted.length).toBe(1));
 
@@ -291,7 +295,7 @@ describe('when it is not', () => {
     // authenticated with their personal Yorkie token rather than the share
     // token whose role and expiry the auth webhook validates — and would write
     // the shared document to a disk the link's revocation cannot reach.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     render(
       <NonDurableScope>
         <CollabDocumentProvider docKey="note-7" initialRoot={{}}>
@@ -309,7 +313,7 @@ describe('when it is not', () => {
 
   it('stays on the ambient client when the build cannot carry a key', async () => {
     vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(false);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -323,7 +327,7 @@ describe('before the election has answered', () => {
     // document twice on every durable open — and an edit made in that window
     // would live in a client React is about to unmount, which offline is
     // exactly where it would be lost.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     const { queryByTestId, getByTestId } = mount('note-7');
 
     // Synchronously, before any effect has resolved the election.
@@ -340,7 +344,7 @@ describe('before the election has answered', () => {
     // attaches the document, and then tears the whole subtree down when the
     // answer arrives. Attaching nothing is the only safe thing to do while the
     // question is open.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     me.data = undefined;
     me.isPending = true;
 
@@ -370,14 +374,14 @@ describe('once a document is open', () => {
     // is reachable from Settings and from another tab while an editor sits
     // here with work in it, so the decision is made once per open and applies
     // to the documents opened after it.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     const { getByTestId } = mount('note-7');
     await waitFor(() => expect(mounted.length).toBe(1));
     // The identity of the rendered node is what says the subtree survived: a
     // remount builds a new one.
     const child = getByTestId('child');
 
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled('7', false);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(getByTestId('child')).toBe(child);
@@ -390,7 +394,7 @@ describe('telling the store which removals are losses', () => {
     // Without this the store cannot tell a close from a loss — the SDK removes
     // the entry on both — and would archive a full copy of every document the
     // user ever closed.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
     // The subscription, not the mount. `mounted` is pushed to during render,
     // and the watch subscribes from an effect one level below — so waiting on
@@ -412,7 +416,7 @@ describe('telling the store which removals are losses', () => {
     // — which *are* the `DocumentProvider` — it sits above the context it
     // needs and can only ever see no document, so nothing subscribes and no
     // removal is ever recognised as a loss.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
 
     await waitFor(() => expect(mounted.length).toBe(1));
@@ -424,7 +428,7 @@ describe('telling the store which removals are losses', () => {
     // too large, too slow — is not on this disk, and nothing else observes
     // that: the store simply stops being called while the chip keeps saying
     // "Saved to this device".
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
 
     await waitFor(() =>
@@ -443,7 +447,7 @@ describe('the cross-tab guard', () => {
       .spyOn(session, 'isOpenInAnyTab')
       .mockResolvedValue(true);
 
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
     await waitFor(() => expect(mounted.length).toBe(1));
     const store = mounted[0].store as WafflebaseDocStore;
@@ -487,7 +491,7 @@ describe('when the SDK refuses the attach for its own lock', () => {
     // *and* every other tab refused, which is strictly worse than having lost
     // the election in the first place.
     yorkieError = { code: 'ErrDocumentOpenElsewhere' };
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
 
     await waitFor(() => expect(mounted.length).toBe(1));
@@ -503,7 +507,8 @@ describe('when the SDK refuses the attach for its own lock', () => {
     // every other tab — while refusing to mount the client the lock was taken
     // for. That is the state standing down exists to escape, made permanent.
     yorkieError = { code: 'ErrDocumentOpenElsewhere' };
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
+    setOfflinePersistenceEnabled('9', true);
     const { rerender } = mount('note-7');
     await waitFor(() => expect(locks.held.size).toBe(0));
     const afterStandDown = mounted.length;
@@ -533,7 +538,7 @@ describe('when the SDK refuses the attach for its own lock', () => {
     // A failed attach for another reason is not a reason to give up an
     // election that is doing its job.
     yorkieError = { code: 'ErrClientNotActivated' };
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mount('note-7');
 
     await waitFor(() => expect(mounted.length).toBe(1));
@@ -580,13 +585,13 @@ describe('the lapse it publishes', () => {
   });
 
   it('names a subtree that may never persist', async () => {
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mountProbe('note-7', (node) => <NonDurableScope>{node}</NonDurableScope>);
     expect(await lapseText()).toBe('not-permitted');
   });
 
   it('names the tab that won the election instead', async () => {
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mountProbe();
     await waitFor(() => expect(mounted.length).toBe(1));
 
@@ -599,7 +604,7 @@ describe('the lapse it publishes', () => {
   });
 
   it('names nothing while the document is durable', async () => {
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mountProbe();
     await waitFor(() => expect(mounted.length).toBe(1));
     expect(await lapseText()).toBe('none');
@@ -612,7 +617,7 @@ describe('the lapse it publishes', () => {
     // browser cannot save documents locally, which is a dependency of ours
     // reported as a fault of theirs, about a feature they were never offered.
     vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(false);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mountProbe();
     expect(await lapseText()).toBe('none');
   });
@@ -622,7 +627,7 @@ describe('the lapse it publishes', () => {
     // components rather than of either. With them the other way round — which
     // is what shipped once — the `undefined` a durable document computes at
     // the call site erased every reason the client can see.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled('7', true);
     mountProbe();
     await waitFor(() => expect(subscribers.length).toBe(1));
     expect(await lapseText()).toBe('none');

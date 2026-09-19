@@ -95,11 +95,13 @@ vi.mock('@/lib/offline-copy-recovery', () => ({
 const toastWarning = vi.fn();
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
+const toastDismiss = vi.fn();
 vi.mock('sonner', () => ({
   toast: {
     warning: (...args: Array<unknown>) => toastWarning(...args),
     success: (...args: Array<unknown>) => toastSuccess(...args),
     error: (...args: Array<unknown>) => toastError(...args),
+    dismiss: (...args: Array<unknown>) => toastDismiss(...args),
   },
 }));
 
@@ -425,16 +427,21 @@ describe('accepting the offer', () => {
    * a document — and that button's handler is the only place the store, the
    * archive, the document type and the navigation are brought together.
    */
-  async function clickSaveACopy(): Promise<void> {
+  async function clickSaveACopy(): Promise<() => void> {
     listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
     render(<OfflineRuntime userId="42" />);
     await waitFor(() => expect(toastWarning).toHaveBeenCalled());
     const [, options] = toastWarning.mock.calls[0] as [
       string,
-      { action: { label: string; onClick: () => void } },
+      { action: { label: string; onClick: (event: MouseEvent) => void } },
     ];
     expect(options.action.label).toBe('Save a copy');
-    options.action.onClick();
+    // Sonner hands the action its click event and retracts the toast unless the
+    // handler prevents it, so the real button's argument is supplied here too.
+    const click = () =>
+      options.action.onClick(new MouseEvent('click', { cancelable: true }));
+    click();
+    return click;
   }
 
   it('hands the archive, its title, its type and its workspace to the recovery', async () => {
@@ -522,6 +529,44 @@ describe('accepting the offer', () => {
     expect(options.description).toContain(said);
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('retracts the offer once the work has been handed back', async () => {
+    // The warning is `duration: Infinity` with no close button, so nothing else
+    // ever takes it off the screen: left standing it goes on offering work that
+    // is already a document, and pressing it again finds an archive the
+    // recovery consumed and reports a failure for work that did not fail.
+    const click = await clickSaveACopy();
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(toastDismiss).toHaveBeenCalledWith('offline-recovery-1');
+
+    click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(recoverOfflineCopy).toHaveBeenCalledTimes(1);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('leaves the offer standing when the recovery failed', async () => {
+    // Sonner retracts a toast on its action click unless the handler says
+    // otherwise, and this one is asynchronous: letting it go would take the
+    // offer away before anybody knew whether it worked.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    recoverOfflineCopy.mockRejectedValue(new Error('nope'));
+
+    const click = await clickSaveACopy();
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(toastDismiss).not.toHaveBeenCalled();
+
+    // And it can be pressed again, because nothing was spent.
+    recoverOfflineCopy.mockResolvedValue({
+      documentId: 'new-3',
+      title: 'Budget (offline copy)',
+      complete: true,
+    });
+    click();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
   });
 
   it('survives a recovery that throws', async () => {

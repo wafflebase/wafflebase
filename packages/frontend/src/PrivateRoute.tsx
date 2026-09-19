@@ -22,7 +22,12 @@ export const PrivateRoute = (): ReactElement => {
     return <Loader />;
   }
 
-  const offlineInPlay = supportsClientKey() || getOfflinePersistenceEnabled();
+  // Asked for the account that is actually signed in: the opt-in is per device
+  // *and* per account, so another user's consent on this machine says nothing
+  // about whether this session has anything stored to erase or sweep.
+  const offlineInPlay =
+    supportsClientKey() ||
+    getOfflinePersistenceEnabled(me ? String(me.id) : undefined);
 
   return me ? (
     <YorkieProvider

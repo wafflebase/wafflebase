@@ -1,4 +1,6 @@
 import { useContext } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchMe } from "@/api/auth";
 import { ThemeProviderContext } from "@/components/theme-provider";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -29,7 +31,12 @@ import { supportsClientKey } from "@/lib/yorkie-capabilities";
 export default function Settings() {
   const { theme, setTheme } = useContext(ThemeProviderContext);
   const dateFormat = useDateFormat();
-  const offlineEnabled = useOfflinePersistenceEnabled();
+  // The signed-in account, off the cache the authenticated shell already
+  // filled: offline saving is consented to per account *on this device*, so
+  // this switch shows and writes this user's answer rather than the machine's.
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, retry: false });
+  const userId = me?.id === undefined ? undefined : String(me.id);
+  const offlineEnabled = useOfflinePersistenceEnabled(userId);
   // Read once per render, not stored: it is a build-time fact about the pinned
   // `@yorkie-js/react`, not a preference.
   const offlineAvailable = supportsClientKey();
@@ -100,6 +107,12 @@ export default function Settings() {
           a shared machine and re-enable there, which is the case this toggle
           exists to prevent (docs/design/offline-local-persistence.md).
 
+          Per *account* as well, which is the same argument pointed the other
+          way: a device-wide answer would have one user's consent start writing
+          the next user's documents to that machine's disk, with this switch
+          showing "on" for a choice they never made. So it is stored per device
+          and asked per account.
+
           Offered only on a build that can honour it. `supportsClientKey()` is
           a hard precondition — without a client key the store fills with
           entries no reload can use — and every other consumer is already
@@ -119,13 +132,21 @@ export default function Settings() {
             <p className="text-xs text-muted-foreground">
               Keeps edits that have not reached the server on this device, so
               they survive a reload or a crash while you are offline. Applies to
-              this device only, and turning it off deletes what was stored.
+              this device and this account only, and turning it off deletes what
+              was stored.
             </p>
           </div>
           <Switch
             id="offline-switch"
             checked={offlineEnabled}
-            onCheckedChange={setOfflinePersistenceEnabled}
+            // Disabled until the identity resolves: the choice is recorded
+            // against an account, and one made with nobody signed in would be
+            // written nowhere while the switch showed it as on.
+            disabled={!userId}
+            onCheckedChange={(enabled) => {
+              if (!userId) return;
+              setOfflinePersistenceEnabled(userId, enabled);
+            }}
           />
         </div>
       </section>

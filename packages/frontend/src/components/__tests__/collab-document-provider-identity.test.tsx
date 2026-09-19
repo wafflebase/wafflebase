@@ -82,7 +82,7 @@ beforeEach(() => {
   fetchMeOptional.mockResolvedValue(ADA);
   vi.spyOn(capabilities, 'supportsClientKey').mockReturnValue(true);
   setDurableLockForTest(fakeLocks());
-  setOfflinePersistenceEnabled(true);
+  setOfflinePersistenceEnabled('7', true);
   client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });

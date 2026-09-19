@@ -576,17 +576,30 @@ export function watchForOfflineDisable(
   // The listener fires on both edges, so the previous value is what tells them
   // apart. Erasing on the *enabling* edge would delete the documents the user
   // just asked to start keeping.
-  let wasEnabled = getOfflinePersistenceEnabled();
+  //
+  // The previous value is remembered **per account**, because the preference
+  // is per account on this device: the edge that matters is the signed-in
+  // person's own answer changing, and one reading of "off" is otherwise
+  // indistinguishable from somebody else's toggle in another tab.
+  //
+  // An account nobody has read yet counts as *was enabled*, so the first event
+  // after the identity changes still erases when the answer is off. That is
+  // the safe default rather than a guess: "off" for the person signed in now
+  // means their documents should not be on this disk, whether they just said
+  // so or said so in a previous session, and the erase is scoped to them and
+  // deletes nothing when they stored nothing.
+  const seen = new Map<string | undefined, boolean>();
+  seen.set(userId(), getOfflinePersistenceEnabled(userId()));
 
   return subscribeOfflinePersistence(() => {
-    const enabled = getOfflinePersistenceEnabled();
-    const turnedOff = wasEnabled && !enabled;
-    wasEnabled = enabled;
+    const who = userId();
+    const enabled = getOfflinePersistenceEnabled(who);
+    const turnedOff = !enabled && (seen.get(who) ?? true);
+    seen.set(who, enabled);
     if (!turnedOff) {
       return;
     }
 
-    const who = userId();
     if (!who) {
       // Nobody to erase for. Signed out already, which means logout's own
       // cleanup either ran or never had an identity to run under.

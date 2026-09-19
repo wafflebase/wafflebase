@@ -791,6 +791,16 @@ export class WafflebaseDocStore implements DocStore {
    *
    * The archive is written in the same transaction as the delete, so no crash
    * can land between them and leave the only copy gone.
+   *
+   * **Archiving is a write, and obeys the same permission every other write
+   * here does.** Once offline saving is switched off — or this account's data
+   * has been erased from the device — an archive would put a full compressed
+   * copy of the document back onto the disk the user just cleared, under a
+   * store the erase has already walked past, with nothing scheduled to remove
+   * it before the thirty-day sweep. So a refused store deletes and keeps
+   * nothing. Unlike the three writers above this does not *throw*: the removal
+   * itself is exactly what a disabled store wants to happen, and refusing it
+   * would leave the entry behind.
    */
   public async remove(docKey: string): Promise<void> {
     const db = await this.open();
@@ -806,7 +816,9 @@ export class WafflebaseDocStore implements DocStore {
     // the work the user could not reconcile would be gone with nothing kept.
     // It is cleared below, once the commit has actually happened.
     const documentKey = documentKeyOf(docKey);
-    const losing = this.expectedLosses.has(documentKey);
+    const losing =
+      this.expectedLosses.has(documentKey) &&
+      this.isPersistenceEnabled?.() !== false;
 
     // `atomically` for the same reason every other writer here uses it: this
     // issues an archive `put` and three deletes into one transaction, and a

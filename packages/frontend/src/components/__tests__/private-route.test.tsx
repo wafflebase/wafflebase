@@ -127,7 +127,7 @@ describe("the authenticated shell", () => {
     // erase, the sweep and the reconcile all stop running over content that is
     // still on the disk.
     vi.spyOn(capabilities, "supportsClientKey").mockReturnValue(false);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("42", true);
     fetchMe.mockResolvedValue({ id: 42, username: "ada" });
 
     renderAt();

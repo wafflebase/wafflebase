@@ -1,4 +1,11 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
@@ -29,13 +36,34 @@ import {
   setOfflinePersistenceEnabled,
 } from "../../src/lib/offline-persistence-preference";
 
+/**
+ * Whoever is signed in. Offline saving is consented to per account on this
+ * device, so the switch reads and writes an identity rather than the machine.
+ */
+const USER = "7";
+
+/**
+ * Settings reads the signed-in account from the cache the authenticated shell
+ * filled, so every case renders under a seeded client. Seeded rather than
+ * fetched: nothing here is testing the request.
+ */
+function render(ui: ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(["me"], { id: Number(USER), username: "ada" });
+  return rtlRender(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
   localStorage.clear();
   supportsClientKey.mockReturnValue(true);
 });
 
 afterEach(() => {
-  setOfflinePersistenceEnabled(false);
+  setOfflinePersistenceEnabled(USER, false);
   localStorage.clear();
 });
 
@@ -64,7 +92,7 @@ describe("the offline setting", () => {
 
     fireEvent.click(screen.getByLabelText("Save documents on this device"));
 
-    await waitFor(() => expect(getOfflinePersistenceEnabled()).toBe(true));
+    await waitFor(() => expect(getOfflinePersistenceEnabled(USER)).toBe(true));
     expect(
       screen
         .getByLabelText("Save documents on this device")
@@ -75,7 +103,7 @@ describe("the offline setting", () => {
   it("reflects a preference another surface already set", () => {
     // The chip offers the same switch from inside an editor, so Settings must
     // not be the only writer nor show a stale answer.
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled(USER, true);
 
     render(<Settings />);
 
@@ -92,7 +120,7 @@ describe("the offline setting", () => {
     // prevent, and the erase is a promise another module has to keep.
     render(<Settings />);
 
-    const copy = screen.getByText(/Applies to this device only/);
+    const copy = screen.getByText(/Applies to this device and this account only/);
     expect(copy.textContent).toContain("turning it off deletes what was stored");
   });
 });

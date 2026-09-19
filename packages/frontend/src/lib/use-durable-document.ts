@@ -118,7 +118,7 @@ export function useDurableDocument({
   docKey: string;
   userId?: string;
 }): DurableDocument {
-  const enabled = useOfflinePersistenceEnabled();
+  const enabled = useOfflinePersistenceEnabled(userId);
   const permitted = useContext(DurabilityPermitted);
   // `supportsClientKey` is first because it is the one term that cannot change
   // at runtime: on a build whose provider cannot carry a client key, the store

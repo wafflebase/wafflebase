@@ -137,14 +137,14 @@ describe("erasing", () => {
 describe("watching the preference", () => {
   it("erases when it is switched off", async () => {
     const store = freshStore();
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("user-1", true);
     await seed(store, "doc-a");
 
     const stop = watchForOfflineDisable(
       () => store,
       () => "user-1",
     );
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled("user-1", false);
     await vi.waitFor(async () =>
       expect(await store.load("doc-a")).toBeUndefined(),
     );
@@ -160,7 +160,7 @@ describe("watching the preference", () => {
       () => store,
       () => "user-1",
     );
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("user-1", true);
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(await store.load("doc-a")).toBeDefined();
     stop();
@@ -168,7 +168,7 @@ describe("watching the preference", () => {
 
   it("stops watching once released", async () => {
     const store = freshStore();
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("user-1", true);
     await seed(store, "doc-a");
 
     const stop = watchForOfflineDisable(
@@ -177,7 +177,7 @@ describe("watching the preference", () => {
     );
     stop();
 
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled("user-1", false);
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(await store.load("doc-a")).toBeDefined();
   });
@@ -186,7 +186,7 @@ describe("watching the preference", () => {
     // The watcher outlives a sign-out and sign-in, and erasing the wrong
     // account's documents would be the same harm this module exists to avoid.
     const store = freshStore("user-2");
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("user-1", true);
     await seed(store, "doc-a");
 
     let who = "user-1";
@@ -195,7 +195,7 @@ describe("watching the preference", () => {
       () => who,
     );
     who = "user-2";
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled("user-1", false);
 
     await vi.waitFor(async () =>
       expect(await store.load("doc-a")).toBeUndefined(),
@@ -208,17 +208,17 @@ describe("watching the preference", () => {
     // is still "it is off" — re-enabling it to match the disk would be the
     // setting fighting the user.
     const store = freshStore();
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("user-1", true);
     vi.spyOn(store, "dropAllForUser").mockRejectedValue(new Error("nope"));
 
     const stop = watchForOfflineDisable(
       () => store,
       () => "user-1",
     );
-    expect(() => setOfflinePersistenceEnabled(false)).not.toThrow();
+    expect(() => setOfflinePersistenceEnabled("user-1", false)).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(getOfflinePersistenceEnabled()).toBe(false);
+    expect(getOfflinePersistenceEnabled("user-1")).toBe(false);
     stop();
   });
 });
@@ -230,7 +230,7 @@ describe("when no editor is open", () => {
     // exactly when it is asked for — and spends the edge doing it, since the
     // preference is now off and no later change fires again.
     const seeded = new WafflebaseDocStore({ userId: "user-1" });
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("user-1", true);
     await seed(seeded, "doc-a");
 
     // The app has no store to hand over.
@@ -238,7 +238,7 @@ describe("when no editor is open", () => {
       () => undefined,
       () => "user-1",
     );
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled("user-1", false);
 
     // The fallback opens the default database, so point the check there.
     const app = new WafflebaseDocStore({ userId: "user-1" });
@@ -252,14 +252,14 @@ describe("when no editor is open", () => {
     // No identity means no scope to erase under, and erasing everything on the
     // device would reach another account's documents.
     const store = freshStore();
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("user-1", true);
     await seed(store, "doc-a");
 
     const stop = watchForOfflineDisable(
       () => store,
       () => undefined,
     );
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled("user-1", false);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(await store.load("doc-a")).toBeDefined();
@@ -300,7 +300,7 @@ describe("signing out", () => {
     // would be the worst reading of it.
     const mine = defaultStore("logout-3");
     await seed(mine, "logout-pref");
-    setOfflinePersistenceEnabled(false);
+    setOfflinePersistenceEnabled("user-1", false);
 
     rememberOfflineUser("logout-3");
     await eraseOfflineDataOnLogout();

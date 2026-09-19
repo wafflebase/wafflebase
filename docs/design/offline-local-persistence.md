@@ -160,6 +160,20 @@ on `lib/date-format-preference.ts`'s shape — `useSyncExternalStore`, a same-ta
 change event beside the cross-tab `storage` event, and a session-only fallback
 when `localStorage` itself refuses the write.
 
+And it is asked **per account as well as per device**. Storing one unqualified
+flag answers for whoever is sitting at the machine, which on the shared
+workstation this whole section is about is the wrong person: one user's opt-in
+would silently start writing the *next* user's document content to that disk,
+without that account ever being asked, with the Settings switch showing "on"
+for a choice they never made, and with the erase-on-disable belonging to
+somebody else. So the stored value is the set of accounts that have consented
+**on this device** (`hasOfflinePersistenceConsent()` answers the device-wide
+question for the one caller that must decide something before the identity
+resolves), every read names the account it is asking for, and an unknown
+identity reads as off. That is not an account-level setting in the sense
+rejected above: nothing follows the user to the next machine, because nothing
+leaves this `localStorage`.
+
 That last path degrades to a session-only "on" — the choice applies until the
 tab closes, and does not survive a reload. It is tempting to justify it by
 saying a browser that will not persist a preference will not give us IndexedDB
@@ -182,6 +196,15 @@ when they need this:
 **Turning it off erases.** Disabling drops every stored entry for that user on
 that device, including archived envelopes. A toggle that left the content
 behind would not be the control it presents itself as.
+
+And it keeps it off: **archiving obeys the preference too**. `DocStore.remove()`
+is the fourth write path and the only one that *creates* content — on a loss it
+keeps the whole compressed document in the archive store — so a
+`LocalChangesDropped` arriving after the erase would put a full copy back on the
+disk that was just cleared, behind the sweep that has already walked the
+archives. A refused store therefore deletes and keeps nothing. It does not
+*throw* the way the three other writers do: the removal itself is what a
+switched-off store wants to happen.
 
 Two consequences elsewhere in this design:
 

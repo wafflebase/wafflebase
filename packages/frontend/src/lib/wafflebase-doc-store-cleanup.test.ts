@@ -869,6 +869,49 @@ describe("after offline saving is switched off", () => {
     expect(failures).toHaveLength(1);
   });
 
+  it("archives nothing on a loss, so the erase is not undone by one", async () => {
+    // `remove` is a write path too, and the only one that *creates* content:
+    // on a loss it keeps a full compressed copy of the document in the archive
+    // store. Ungated, a `LocalChangesDropped` arriving after the user switched
+    // offline saving off — or after their sign-out erased this device — puts
+    // that copy back on the disk they just cleared, past the erase that has
+    // already walked the archives, with nothing scheduled to remove it before
+    // the thirty-day sweep.
+    let enabled = true;
+    const client = new WafflebaseDocStore({
+      dbName: "wafflebase-disabled-4",
+      userId: "user-1",
+      isPersistenceEnabled: () => enabled,
+    });
+    await seed(client, "sheet-lost");
+
+    enabled = false;
+    client.expectLoss("sheet-lost");
+    await client.remove("sheet-lost");
+
+    const reader = reopen(client, "user-1");
+    // Removed, because removing is what a refused store wants to happen…
+    expect(await reader.load("sheet-lost")).toBeUndefined();
+    // …and kept nowhere.
+    expect(await reader.listArchives()).toEqual([]);
+  });
+
+  it("still archives a loss while it is on", async () => {
+    // The refusal above is about the preference, not about losses: the archive
+    // is the work this feature promises to hand back.
+    const client = new WafflebaseDocStore({
+      dbName: "wafflebase-disabled-5",
+      userId: "user-1",
+      isPersistenceEnabled: () => true,
+    });
+    await seed(client, "sheet-lost");
+
+    client.expectLoss("sheet-lost");
+    await client.remove("sheet-lost");
+
+    expect(await reopen(client, "user-1").listArchives()).toHaveLength(1);
+  });
+
   it("writes as usual while it is still on", async () => {
     const store = new WafflebaseDocStore({
       dbName: "wafflebase-disabled-3",

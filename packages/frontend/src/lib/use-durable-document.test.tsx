@@ -46,7 +46,7 @@ afterEach(() => {
 describe("when it elects the tab", () => {
   it("is durable, with a key scoped to user and document", async () => {
     setDurableLockForTest(fakeLocks());
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result } = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: "u1" }),
@@ -59,7 +59,7 @@ describe("when it elects the tab", () => {
   it("releases the election when the view unmounts", async () => {
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result, unmount } = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: "u1" }),
@@ -105,7 +105,7 @@ describe("when it refuses", () => {
     // a stable key in both tabs means one shared actor, colliding clientSeqs,
     // and each tab's changes filtered out of the other — silent edit loss.
     setDurableLockForTest(fakeLocks());
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const first = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: "u1" }),
@@ -128,7 +128,7 @@ describe("when it refuses", () => {
     // without a way to report it breaks the invariant the chip depends on:
     // whatever is durable must be reportable.
     setDurableLockForTest(fakeLocks());
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result } = renderHook(() =>
       useDurableDocument({ docKey: "pdf-123", userId: "u1" }),
@@ -142,7 +142,7 @@ describe("when it refuses", () => {
     // An anonymous share-link visitor. Their key would not be theirs to scope,
     // and the entry would be unattributable at logout.
     setDurableLockForTest(fakeLocks());
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result } = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: undefined }),
@@ -172,7 +172,7 @@ describe("when the preference changes mid-session", () => {
     await waitFor(() => expect(result.current.settled).toBe(true));
     expect(result.current.durable).toBe(false);
 
-    act(() => setOfflinePersistenceEnabled(true));
+    act(() => setOfflinePersistenceEnabled("u1", true));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(result.current.durable).toBe(false);
@@ -193,7 +193,7 @@ describe("when the preference changes mid-session", () => {
     );
     await waitFor(() => expect(result.current.settled).toBe(true));
 
-    act(() => setOfflinePersistenceEnabled(true));
+    act(() => setOfflinePersistenceEnabled("u1", true));
     rerender({ docKey: "note-8" });
 
     await waitFor(() => expect(result.current.durable).toBe(true));
@@ -211,14 +211,14 @@ describe("when the preference changes mid-session", () => {
     // that accompanies switching it off is what removes what was stored.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result } = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: "u1" }),
     );
     await waitFor(() => expect(result.current.durable).toBe(true));
 
-    act(() => setOfflinePersistenceEnabled(false));
+    act(() => setOfflinePersistenceEnabled("u1", false));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(result.current.durable).toBe(true);
@@ -230,14 +230,14 @@ describe("when the preference changes mid-session", () => {
     // must be able to be the durable one.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result, unmount } = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: "u1" }),
     );
     await waitFor(() => expect(result.current.durable).toBe(true));
 
-    act(() => setOfflinePersistenceEnabled(false));
+    act(() => setOfflinePersistenceEnabled("u1", false));
     unmount();
 
     await waitFor(() => expect(locks.held.size).toBe(0));
@@ -248,7 +248,7 @@ describe("moving between documents", () => {
   it("releases the old document's election and takes the new one's", async () => {
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result, rerender } = renderHook(
       (props: { docKey: string }) =>
@@ -279,7 +279,7 @@ describe("what it says on the way between answers", () => {
     // state is correct either way; only the renders between answers are not.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const seen: Array<{ clientKey?: string; held: Array<string> }> = [];
     function Probe({ docKey }: { docKey: string }) {
@@ -311,7 +311,11 @@ describe("what it says on the way between answers", () => {
     // new question is answered when only the old one was.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    // Both accounts, because the opt-in is recorded per account on this
+    // device: the case under test is a changed identity, not a changed
+    // preference.
+    setOfflinePersistenceEnabled("u1", true);
+    setOfflinePersistenceEnabled("u2", true);
 
     const { result, rerender } = renderHook(
       (props: { userId: string }) =>
@@ -340,7 +344,7 @@ describe("on a build that cannot carry a client key", () => {
     vi.spyOn(capabilities, "supportsClientKey").mockReturnValue(false);
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result } = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: "u1" }),
@@ -383,7 +387,7 @@ describe("answering without waiting", () => {
     // The other half: when there *is* something to wait for, saying settled
     // early would have the caller mount the ambient client and swap.
     setDurableLockForTest(fakeLocks());
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const seen: Array<boolean> = [];
     function Probe() {
@@ -408,7 +412,7 @@ describe("giving up the election", () => {
     // worse than losing — this tab is not durable and nobody else can be.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const { result } = renderHook(() =>
       useDurableDocument({ docKey: "note-7", userId: "u1" }),
@@ -445,7 +449,7 @@ describe("when eligibility is lost", () => {
     // an answer taken from it alone hands the *new* key the *old* session.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const seen: Array<{ docKey: string; durable: boolean; key?: string }> = [];
     function Probe({ docKey }: { docKey: string }) {
@@ -478,7 +482,7 @@ describe("when eligibility is lost", () => {
     // have to agree, in both directions.
     const locks = fakeLocks();
     setDurableLockForTest(locks);
-    setOfflinePersistenceEnabled(true);
+    setOfflinePersistenceEnabled("u1", true);
 
     const seen: Array<{ docKey: string; durable: boolean }> = [];
     function Probe({ docKey }: { docKey: string }) {
@@ -490,7 +494,7 @@ describe("when eligibility is lost", () => {
     const { rerender } = render(<Probe docKey="note-7" />);
     await waitFor(() => expect(seen.at(-1)!.durable).toBe(true));
 
-    act(() => setOfflinePersistenceEnabled(false));
+    act(() => setOfflinePersistenceEnabled("u1", false));
     rerender(<Probe docKey="note-8" />);
     await new Promise((resolve) => setTimeout(resolve, 20));
 

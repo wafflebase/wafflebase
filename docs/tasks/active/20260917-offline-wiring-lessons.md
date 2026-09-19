@@ -163,3 +163,42 @@ coverage goes missing.** Every chip test injected a `DurabilityLapse` by hand,
 so the two real publishers — and which of them wins when both are mounted —
 were never exercised. Same shape as round 5's deleted call site: the seam is
 tested, the wiring is not.
+
+## Review panel, round 7 (security / correctness)
+
+**A consent control has to name who consented.** The opt-in was one
+unqualified `localStorage` flag, justified in the design as "per device, never
+per account" — and that argument, which is about the setting not *following*
+the user to the next machine, was quietly read as "the machine answers for
+whoever is at it". On the shared workstation the feature exists for, that means
+user A's opt-in starts writing user B's document content to the disk, with B's
+own Settings switch showing "on" for a choice they never made. Per device and
+per account are not alternatives: the store is the device's, the answer is the
+account's. The stored value is now the set of ids that consented here, and
+every read names one.
+
+**Threading an identity has a hole exactly where the identity is not there
+yet.** Making the preference per-account turned a synchronous read into one
+that cannot be answered while `me` is in flight — and reading "unknown" as
+"off" would have latched non-durable for a person who *had* opted in, for the
+life of the open document. The device-wide question (`has anybody consented
+here?`) is the one thing that is still answerable without an identity, so it
+stands in during the wait; a device where nobody has is still decided on the
+first render, which is what keeps "declining costs nothing" true.
+
+**The write you did not count is the one that outlives the erase.** Three
+writers asked `isPersistenceEnabled`; `remove()` did not, and it is the only
+path that *creates* content — a full compressed archive of the document on a
+loss. So a `LocalChangesDropped` after a sign-out or a disable put the whole
+document back on the disk that had just been cleared, past a sweep that had
+already walked the archives. Count write paths by what they write, not by what
+they are named.
+
+**Sonner retracts a toast on its action click, which is the wrong half of the
+behaviour when the action is asynchronous.** The recovery offer lost its own
+toast before anybody knew whether the recovery worked, so a failure left
+nothing to retry from; the success case, meanwhile, had nothing explicit
+retracting an `Infinity`-duration warning. The handler now prevents the default
+and dismisses on success only, with a re-entrancy latch so a second press
+cannot report "the stored copy could not be read" for work that was in fact
+recovered.

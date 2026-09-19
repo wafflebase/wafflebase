@@ -183,7 +183,8 @@ export function DurableYorkieProvider({
         // to the disk the sign-out was supposed to clear. The preference is
         // still on at that moment, so it cannot be the guard.
         isPersistenceEnabled: () =>
-          getOfflinePersistenceEnabled() && isOfflineWritePermitted(userId),
+          getOfflinePersistenceEnabled(userId) &&
+          isOfflineWritePermitted(userId),
       }),
     [userId],
   );

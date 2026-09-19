@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import type { User } from '@/types/users';
+import { fetchMeOptional } from '@/api/auth';
 import {
   IconAlertTriangle,
   IconCheck,
@@ -77,7 +80,20 @@ export function SyncStatusChip({ className }: { className?: string }) {
   const { state, connected, hasUnsentEdits, pendingSince } = useSyncStatus();
   const stranded = state === 'not-saved';
   const lapse = useDurabilityLapse();
-  const offlineEnabled = useOfflinePersistenceEnabled();
+  // Who would be opting in. The preference is per account as well as per
+  // device, so both the question ("has this person already turned it on?") and
+  // the answer the button writes have to name somebody — and this chip is also
+  // mounted on the share route, where there may be nobody at all. Asked
+  // optionally, off the same cache entry the authenticated shell already filled.
+  const queryClient = useQueryClient();
+  const { data: me } = useQuery({
+    queryKey: ['me', 'optional'],
+    queryFn: fetchMeOptional,
+    retry: false,
+    initialData: () => queryClient.getQueryData<User>(['me']),
+  });
+  const userId = me?.id === undefined ? undefined : String(me.id);
+  const offlineEnabled = useOfflinePersistenceEnabled(userId);
   // Offered only where it is both possible and useful: a build that can carry
   // a client key (see `yorkie-capabilities.ts` — without one nothing is
   // persisted), the device has not already opted in, and there is work at risk
@@ -92,14 +108,22 @@ export function SyncStatusChip({ className }: { className?: string }) {
   // anonymous one there is no account for the preference to ever apply to. The
   // lapse is what carries that fact to the chip: it is published above every
   // editor on that route and nowhere else.
+  //
+  // And never without an account to attribute the choice to: consent is
+  // recorded per account on this device, so an offer nobody could accept would
+  // do nothing but promise it.
   const offerOffline =
     stranded &&
     supportsClientKey() &&
+    !!userId &&
     !offlineEnabled &&
     lapse !== 'not-permitted';
 
   const turnOnOfflineSaving = useCallback(() => {
-    setOfflinePersistenceEnabled(true);
+    if (!userId) {
+      return;
+    }
+    setOfflinePersistenceEnabled(userId, true);
     // Honest about when it applies. The decision to persist is made when a
     // document is opened — changing it under a mounted editor would tear the
     // editor down and take the very changes this chip is warning about with
@@ -108,7 +132,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
       description:
         'Documents you open from now on keep un-sent changes on this device, so a reload no longer loses them. Turn it off in Settings; doing so deletes what was stored.',
     });
-  }, []);
+  }, [userId]);
   // `Saving…` is not safe either — the work is not on the server yet, and a
   // reload during it loses the edit just as surely as one while disconnected.
   //
