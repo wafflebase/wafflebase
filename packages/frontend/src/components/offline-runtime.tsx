@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { fetchDocument, fetchDocuments } from '@/api/documents';
+import { HttpError } from '@/api/http-error';
 import { getDocumentPath } from '@/app/documents/document-list-utils';
 import { isOpenInAnyTab } from '@/lib/durable-session';
 import { listRecoverableWork } from '@/lib/offline-copy';
@@ -239,15 +240,29 @@ async function offerRecoverableWork(
     //
     // The workspace is not a nicety — a document cannot be created without one
     // — but it comes from the same answer, and is missing in the same case.
-    // Recovery falls back to the user's first workspace when it is.
+    // Recovery falls back to the user's first workspace when it is, which is
+    // why **only a `404` may reach that fallback**. A `403` is the opposite
+    // fact: the document is still there and this user may no longer read it,
+    // so falling back would materialize a workspace's content as a new
+    // document in a workspace the user owns, with their name on it — the same
+    // harm the reconcile gate above exists to prevent, arriving through the
+    // error handler instead. Anything else (a network failure, a 5xx, a 401)
+    // establishes neither, and an archive left in place is offered again next
+    // session, so an unclear answer costs a delay and nothing more.
     let title = 'Untitled';
     let workspaceId: string | undefined;
     try {
       const source = await fetchDocument(described.id);
       title = source.title || title;
       workspaceId = source.workspaceId;
-    } catch {
-      // Keep the fallbacks.
+    } catch (err) {
+      if (!(err instanceof HttpError) || err.status !== 404) {
+        console.warn(
+          '[offline] leaving work archived: could not confirm the document is gone',
+        );
+        continue;
+      }
+      // Deleted upstream. Keep the fallbacks.
     }
 
     toast.warning('Some changes could not be saved', {

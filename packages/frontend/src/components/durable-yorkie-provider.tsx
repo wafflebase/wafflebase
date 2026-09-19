@@ -257,22 +257,53 @@ export function DurableLossWatch() {
     // collaborative document, so it must not be able to break one.
     if (typeof doc.subscribe !== 'function' || typeof doc.getKey !== 'function')
       return;
-    const unsubscribeLoss = doc.subscribe('local-changes-dropped', () => {
-      durable.store.expectLoss(doc.getKey());
-      durable.reportLoss();
-    });
+    // Both subscriptions are guarded, because `subscribe` does not merely
+    // ignore an event name it does not know — it *throws*
+    // (`YorkieError(ErrInvalidArgument, 'Unsupported event type')`), and these
+    // two names are newer than versions this app can be pinned to. A throw out
+    // of a passive effect propagates through render and takes the whole editor
+    // subtree with it, which is the same failure the doc-like-stub guard above
+    // exists to avoid. An SDK that cannot report a lapse costs the chip its
+    // certainty, never the document.
+    const unsubscribers: Array<() => void> = [];
+    const watch = (subscribe: () => (() => void) | undefined) => {
+      try {
+        const unsubscribe = subscribe();
+        if (typeof unsubscribe === 'function') {
+          unsubscribers.push(unsubscribe);
+        }
+      } catch (err) {
+        console.warn('[offline] could not watch a durability event:', err);
+      }
+    };
+
+    watch(() =>
+      doc.subscribe('local-changes-dropped', () => {
+        durable.store.expectLoss(doc.getKey());
+        durable.reportLoss();
+      }),
+    );
     // The other event this component exists to catch, and the one the design
     // names as `durable`'s second conjunct: the SDK gives up on a document
     // whose snapshot is too large or too slow to write, and carries on letting
     // the user edit it. Nothing is archived — nothing was lost, it simply
     // stopped being saved — so this latches durability off without telling the
     // store to expect a loss.
-    const unsubscribePersist = doc.subscribe('persist-disabled', () => {
-      durable.reportPersistDisabled();
-    });
+    watch(() =>
+      doc.subscribe('persist-disabled', () => {
+        durable.reportPersistDisabled();
+      }),
+    );
     return () => {
-      unsubscribeLoss?.();
-      unsubscribePersist?.();
+      for (const unsubscribe of unsubscribers) {
+        try {
+          unsubscribe();
+        } catch (err) {
+          // Same reasoning, on the way out: an unsubscribe that throws during
+          // teardown would propagate out of the effect cleanup.
+          console.warn('[offline] could not stop watching a document:', err);
+        }
+      }
     };
   }, [doc, durable]);
 

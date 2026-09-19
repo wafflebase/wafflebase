@@ -29,16 +29,26 @@ vi.mock('@/lib/offline-erase', () => ({
 
 const collectStale = vi.fn(async () => 0);
 const close = vi.fn();
-const constructed: Array<{ userId: string }> = [];
+interface StoreOptions {
+  userId: string;
+  isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
+}
+const constructed: Array<StoreOptions> = [];
 
 vi.mock('@/lib/wafflebase-doc-store', () => ({
   WafflebaseDocStore: class {
-    constructor(options: { userId: string }) {
+    constructor(options: StoreOptions) {
       constructed.push(options);
     }
     collectStale = collectStale;
     close = close;
   },
+}));
+
+const isOpenInAnyTab = vi.fn(async () => false);
+vi.mock('@/lib/durable-session', () => ({
+  isOpenInAnyTab: (...args: Array<unknown>) =>
+    isOpenInAnyTab(...(args as [])),
 }));
 
 const fetchDocuments = vi.fn(async () => [{ id: 'a' }, { id: 'b' }]);
@@ -90,12 +100,19 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => navigate,
 }));
 
+import { HttpError } from '@/api/http-error';
 import { OfflineRuntime } from './offline-runtime';
 
 beforeEach(() => {
   constructed.length = 0;
   vi.clearAllMocks();
   fetchDocuments.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+  fetchDocument.mockImplementation(async (id: string) => ({
+    id,
+    title: 'Budget',
+    workspaceId: 'ws-1',
+  }));
+  purgeRevokedOfflineDocuments.mockResolvedValue(0);
   listRecoverableWork.mockResolvedValue([]);
   // `clearAllMocks` forgets calls, not implementations, so a resolved value
   // set by one case would otherwise be the next one's starting point.
@@ -114,6 +131,32 @@ describe('on mount', () => {
   it('records the signed-in identity, which is the only thing logout can erase under', async () => {
     render(<OfflineRuntime userId="42" />);
     await waitFor(() => expect(rememberOfflineUser).toHaveBeenCalledWith('42'));
+  });
+
+  it('scopes the housekeeping store to the signed-in user', async () => {
+    // Everything the store answers is scoped by this id: the thirty-day sweep,
+    // and — the one that matters — the archive listing recovery reads, which
+    // materializes a full snapshot as a new document owned by whoever is
+    // signed in. A wrong or absent id here hands one account another account's
+    // archived documents.
+    render(<OfflineRuntime userId="42" />);
+    await waitFor(() => expect(constructed.length).toBeGreaterThan(0));
+    expect(constructed[0].userId).toBe('42');
+  });
+
+  it('asks the open-document guard under this user, reading unknown as not-open', async () => {
+    // Collection is not eviction: a browser that cannot answer the question
+    // must not switch the sweep off, and another account's open document on a
+    // shared device must not defer this account's cleanup.
+    render(<OfflineRuntime userId="42" />);
+    await waitFor(() => expect(constructed.length).toBeGreaterThan(0));
+    const { isOpenElsewhere } = constructed[0];
+    expect(typeof isOpenElsewhere).toBe('function');
+    await isOpenElsewhere!('pk/wb:1:sheet-7/sheet-7');
+    expect(isOpenInAnyTab).toHaveBeenCalledWith('pk/wb:1:sheet-7/sheet-7', {
+      userId: '42',
+      whenUnknown: false,
+    });
   });
 
   it('finishes an erase a previous sign-out could not', async () => {
@@ -200,6 +243,47 @@ describe('on mount', () => {
     // The sweep before it still ran — declining to offer is not declining to
     // clean up.
     expect(collectStale).toHaveBeenCalled();
+  });
+
+  it('offers nothing back when the purge itself failed', async () => {
+    // The listing succeeding is only half of the reconcile. If the deleting
+    // half failed, the archive of a workspace the user was removed from is
+    // still on this disk — so a gate that opened on "the listing came back"
+    // would offer exactly the content it exists to withhold.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    purgeRevokedOfflineDocuments.mockRejectedValue(new Error('idb closed'));
+    listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
+    render(<OfflineRuntime userId="42" />);
+
+    await waitFor(() => expect(purgeRevokedOfflineDocuments).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(listRecoverableWork).not.toHaveBeenCalled();
+    expect(toastWarning).not.toHaveBeenCalled();
+  });
+
+  it('leaves work archived when the server refuses the document', async () => {
+    // A 403 says the document is still there and this user may no longer read
+    // it. Offering it anyway falls back to the user's own first workspace,
+    // which copies a workspace's content into one they own with their name on
+    // it.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchDocument.mockRejectedValue(new HttpError('Forbidden', 403));
+    listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
+    render(<OfflineRuntime userId="42" />);
+
+    await waitFor(() => expect(listRecoverableWork).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(toastWarning).not.toHaveBeenCalled();
+  });
+
+  it('still offers work whose document was deleted upstream', async () => {
+    // The case the workspace fallback exists for, and the only one that may
+    // reach it: a 404 is the document being gone, not access being revoked.
+    fetchDocument.mockRejectedValue(new HttpError('Not Found', 404));
+    listRecoverableWork.mockResolvedValue([{ id: 1, docKey: 'sheet-7' }]);
+    render(<OfflineRuntime userId="42" />);
+
+    await waitFor(() => expect(toastWarning).toHaveBeenCalled());
   });
 
   it('offers it back once access has been reconciled', async () => {

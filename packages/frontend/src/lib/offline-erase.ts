@@ -439,6 +439,15 @@ export async function purgeOfflineDocuments(
  * or one touched since the question was asked, is not evidence of lost access.
  * Both are optional so a caller with no clock or no lock registry still gets
  * the reconcile, just without the guards.
+ *
+ * **Throws when it could not do its work**, unlike the best-effort purges
+ * above, and that is the point rather than an inconsistency. The caller gates
+ * offline-copy *recovery* on this having run: an archive is only ever offered
+ * back once this session has established what the user may still read, because
+ * recovery materializes it as a new document owned by whoever is signed in.
+ * Swallowing a failed listing or a failed delete and answering `0` reported
+ * success for a reconcile that never happened, so the content stayed on the
+ * disk *and* the gate opened — precisely the case the gate exists for.
  */
 export async function purgeRevokedOfflineDocuments(
   accessible: Array<string>,
@@ -479,9 +488,6 @@ export async function purgeRevokedOfflineDocuments(
       });
     }
     return purged;
-  } catch (err) {
-    console.warn("[offline] could not reconcile local copies:", err);
-    return 0;
   } finally {
     store.close();
   }
