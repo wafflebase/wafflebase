@@ -35,8 +35,9 @@ import { supportsClientKey } from "@/lib/yorkie-capabilities";
  * from one, which for a document with unsent edits is the difference between a
  * settings change and the navigation guard's "leave without saving?".
  *
- * Everything here is per device rather than per account, which is why it is
- * not the workspace's Settings page and must not read as it.
+ * Everything here is scoped to this device — the offline switch to this
+ * account *on* it — rather than to the workspace, which is why it is not the
+ * workspace's Settings page and must not read as it.
  */
 export function SettingsContent() {
   const { theme, setTheme } = useContext(ThemeProviderContext);

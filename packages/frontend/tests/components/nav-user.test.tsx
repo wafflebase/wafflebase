@@ -19,7 +19,14 @@
  * `tests/app/docs/docs-export-button.test.tsx` documents.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const supportsClientKey = vi.fn(() => true);
 vi.mock("@/lib/yorkie-capabilities", () => ({
@@ -27,7 +34,14 @@ vi.mock("@/lib/yorkie-capabilities", () => ({
 }));
 
 const logout = vi.fn(async () => {});
-vi.mock("@/api/auth", () => ({ logout: () => logout() }));
+// `fetchMe` as well as `logout`: the settings inside the dialog read the
+// signed-in account, because offline saving is consented to per account on
+// this device. Seeded below rather than fetched — nothing here tests the
+// request.
+vi.mock("@/api/auth", () => ({
+  logout: () => logout(),
+  fetchMe: async () => ({ id: Number(USER), username: "hackerwins" }),
+}));
 
 vi.mock("@/components/theme-provider", async () => {
   const react = await import("react");
@@ -45,17 +59,30 @@ import {
   setOfflinePersistenceEnabled,
 } from "@/lib/offline-persistence-preference";
 
-const USER = {
-  id: 1,
+/** Whoever is signed in, as the offline preference keys it. */
+const USER = "7";
+
+const PERSON = {
+  id: Number(USER),
   username: "hackerwins",
   email: "susukang98@gmail.com",
   photo: "",
 } as unknown as Parameters<typeof NavUser>[0]["user"];
 
+function render(ui: ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(["me"], { id: Number(USER), username: "hackerwins" });
+  return rtlRender(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 function renderMenu() {
   return render(
     <SidebarProvider>
-      <NavUser user={USER} />
+      <NavUser user={PERSON} />
     </SidebarProvider>,
   );
 }
@@ -90,7 +117,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setOfflinePersistenceEnabled(false);
+  setOfflinePersistenceEnabled(USER, false);
   localStorage.clear();
 });
 
@@ -120,11 +147,11 @@ describe("NavUser", () => {
     openMenu();
     fireEvent.click(await screen.findByText("Settings"));
     await screen.findByRole("dialog");
-    expect(getOfflinePersistenceEnabled()).toBe(false);
+    expect(getOfflinePersistenceEnabled(USER)).toBe(false);
 
     fireEvent.click(screen.getByLabelText("Save documents on this device"));
 
-    await waitFor(() => expect(getOfflinePersistenceEnabled()).toBe(true));
+    await waitFor(() => expect(getOfflinePersistenceEnabled(USER)).toBe(true));
   });
 
   it("hides the offline section on a build that cannot persist", async () => {
