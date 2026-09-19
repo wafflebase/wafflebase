@@ -62,4 +62,29 @@ touched it.
 
 ## Self-review rounds
 
-_(one entry per round: lens, findings, what was fixed or rebutted)_
+**Round 0 (void).** All six lenses returned "Reviewer did not produce a valid
+verdict: Cannot find package `@anthropic-ai/claude-agent-sdk`". `scripts/agent`
+had a `node_modules` but not that package, so the check *looked* satisfied. Six
+identical `[major]` findings with no file cited is the shape of a harness that
+did not run, not of a branch with six problems — reporting it as a review would
+have been reporting a skipped gate as a passing one. Fixed with
+`cd scripts/agent && npm ci` and re-run with `--fresh`.
+
+**Round 1 — correctness / test adequacy.** Five lenses clean, `blast-radius`
+blocking, one finding, and it was right:
+`walkthrough/deck.html:486` still pointed at
+`../design-editor/images/foreign-install.png`. Correct from
+`docs/design/agentic-dev-loop/`; from `docs/design/agent-pipeline/walkthrough/`
+it resolves to a path that does not exist. Fixed to `../../`.
+
+That is the third instance of the same root cause as the misses in "During
+implementation", and the sharpest: the sweep agent that owned those files was
+told the pages' relative cross-links "must NOT change, since the whole directory
+moved together". True of the three sibling `.html` links, false of the one
+reference that pointed *out* of the directory — and the instruction's own
+reasoning ("moved together") is exactly what does not hold for an escaping path.
+A blanket "do not touch relative links" is never right after a move; the rule is
+per-link, and the question is whether the target moved with it. Audited all 12
+relative `src`/`href` targets in the three pages afterwards; the rest resolve.
+
+**Round 2 — design fit / simplification / blast radius.** _(pending)_
