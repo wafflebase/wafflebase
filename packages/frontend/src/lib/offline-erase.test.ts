@@ -503,6 +503,57 @@ describe("access somebody else ended", () => {
     expect(await store.listArchives()).toEqual([]);
   });
 
+  it("throws when it could not enumerate what is stored", async () => {
+    // The caller gates offline-copy *recovery* on this having run: an archive
+    // becomes a new document owned by whoever is signed in, so it may only be
+    // offered once this session has established what the user may still read.
+    // Answering `0` for a reconcile that never happened reported success and
+    // opened that gate — precisely the case the gate exists for.
+    const store = new WafflebaseDocStore({ userId: "revoked-7" });
+    await seed(store, "pk/wb:1:sheet-listfail/sheet-listfail");
+    rememberOfflineUser("revoked-7");
+
+    const failed = new Error("the database would not open");
+    const listing = vi
+      .spyOn(WafflebaseDocStore.prototype, "storedDocumentIds")
+      .mockRejectedValue(failed);
+
+    await expect(purgeRevokedOfflineDocuments(["kept"])).rejects.toThrow(
+      failed,
+    );
+
+    listing.mockRestore();
+    // And the content is still there, which is the other half of why the
+    // answer must not be a number: it was never deleted.
+    expect(
+      await store.load("pk/wb:1:sheet-listfail/sheet-listfail"),
+    ).toBeDefined();
+  });
+
+  it("throws when a delete fails part way through", async () => {
+    // Same contract on the other side of the loop. A purge that stopped early
+    // has left content on the disk for a membership the server has already
+    // ended, and reporting the count it managed would let recovery run on a
+    // half-answered question.
+    const store = new WafflebaseDocStore({ userId: "revoked-8" });
+    await seed(store, "pk/wb:1:sheet-purgefail/sheet-purgefail");
+    rememberOfflineUser("revoked-8");
+
+    const failed = new Error("delete refused");
+    const purge = vi
+      .spyOn(WafflebaseDocStore.prototype, "purgeDocument")
+      .mockRejectedValue(failed);
+
+    await expect(purgeRevokedOfflineDocuments(["kept"])).rejects.toThrow(
+      failed,
+    );
+
+    purge.mockRestore();
+    expect(
+      await store.load("pk/wb:1:sheet-purgefail/sheet-purgefail"),
+    ).toBeDefined();
+  });
+
   it("does nothing while signed out", async () => {
     const store = new WafflebaseDocStore({ userId: "revoked-3" });
     await seed(store, "sheet-anon-2");

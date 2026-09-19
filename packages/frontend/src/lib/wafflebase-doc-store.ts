@@ -136,6 +136,23 @@ export interface WafflebaseDocStoreOptions {
    */
   isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
   /**
+   * The same question asked **across every account on this device**, for
+   * {@link WafflebaseDocStore.collectStale} alone.
+   *
+   * The thirty-day sweep is deliberately cross-account — a departed user's
+   * entries are precisely the ones no session of their own will ever come back
+   * to collect — so the guard that spares an open document has to reach as far
+   * as the sweep does. Asked with {@link isOpenElsewhere}, which callers scope
+   * to one account so another account cannot defer *this* one's erase, the
+   * sweep sees another user's live document as idle and collects it: their
+   * client's next append then finds no header, takes the contract's silent "no
+   * base" success, and every edit after that goes nowhere.
+   *
+   * Left unset, the sweep falls back to {@link isOpenElsewhere} — which is what
+   * a caller with no cross-account registry, and every test, wants.
+   */
+  isOpenForAnyUser?: (docKey: string) => Promise<boolean> | boolean;
+  /**
    * Called when a write did not land — the database would not open (private
    * browsing), the origin is full and eviction freed nothing, or the entry was
    * taken out from under this client.
@@ -357,6 +374,10 @@ export class WafflebaseDocStore implements DocStore {
     docKey: string,
   ) => Promise<boolean> | boolean;
 
+  private readonly isOpenForAnyUser?: (
+    docKey: string,
+  ) => Promise<boolean> | boolean;
+
   private readonly onWriteFailure?: (err: unknown) => void;
 
   private readonly isPersistenceEnabled?: () => boolean;
@@ -366,6 +387,7 @@ export class WafflebaseDocStore implements DocStore {
     this.userId = options.userId;
     this.now = options.now ?? (() => Date.now());
     this.isOpenElsewhere = options.isOpenElsewhere;
+    this.isOpenForAnyUser = options.isOpenForAnyUser;
     this.onWriteFailure = options.onWriteFailure;
     this.isPersistenceEnabled = options.isPersistenceEnabled;
   }
@@ -399,6 +421,22 @@ export class WafflebaseDocStore implements DocStore {
       return true;
     }
     return (await this.isOpenElsewhere?.(docKey)) ?? false;
+  }
+
+  /**
+   * The same question as {@link isLive}, asked across every account.
+   *
+   * Only {@link collectStale} uses it, because only that pass deletes other
+   * accounts' rows — see {@link WafflebaseDocStoreOptions.isOpenForAnyUser}.
+   */
+  private async isLiveAnywhere(docKey: string): Promise<boolean> {
+    if (this.touched.has(docKey)) {
+      return true;
+    }
+    if (this.isOpenForAnyUser) {
+      return await this.isOpenForAnyUser(docKey);
+    }
+    return this.isLive(docKey);
   }
 
   /** The database this store reads and writes; a second store can share it. */
@@ -1163,11 +1201,15 @@ export class WafflebaseDocStore implements DocStore {
     //
     // A document open right now is not stale, whatever its timestamp says:
     // purging it out from under a live SDK client is the same silent loss
-    // eviction has to avoid, and it needs no quota failure to happen.
+    // eviction has to avoid, and it needs no quota failure to happen. Asked
+    // **across every account**, because that is the reach of what this deletes:
+    // the account-scoped question every other caller asks reports another
+    // user's open document as idle, and collecting one is that same silent loss
+    // on somebody who never even ran this sweep.
     const aged = await this.headerKeysWhere(BY_UPDATED_AT, range);
     const keys: Array<string> = [];
     for (const docKey of aged) {
-      if (!(await this.isLive(docKey))) {
+      if (!(await this.isLiveAnywhere(docKey))) {
         keys.push(docKey);
       }
     }

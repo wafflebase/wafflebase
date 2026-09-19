@@ -32,6 +32,7 @@ const close = vi.fn();
 interface StoreOptions {
   userId: string;
   isOpenElsewhere?: (docKey: string) => Promise<boolean> | boolean;
+  isOpenForAnyUser?: (docKey: string) => Promise<boolean> | boolean;
 }
 const constructed: Array<StoreOptions> = [];
 
@@ -155,6 +156,22 @@ describe('on mount', () => {
     await isOpenElsewhere!('pk/wb:1:sheet-7/sheet-7');
     expect(isOpenInAnyTab).toHaveBeenCalledWith('pk/wb:1:sheet-7/sheet-7', {
       userId: '42',
+      whenUnknown: false,
+    });
+  });
+
+  it('asks the sweep guard across every account, because the sweep deletes across every account', async () => {
+    // `collectStale` collects whoever wrote the entry — that is the point of
+    // it, since a departed user never returns to run their own housekeeping.
+    // Asking whether *this* account has the document open therefore reports
+    // another account's live document as idle, and collecting one makes every
+    // later append in that tab vanish while its chip still reads saved.
+    render(<OfflineRuntime userId="42" />);
+    await waitFor(() => expect(constructed.length).toBeGreaterThan(0));
+    const { isOpenForAnyUser } = constructed[0];
+    expect(typeof isOpenForAnyUser).toBe('function');
+    await isOpenForAnyUser!('pk/wb:9:sheet-7/sheet-7');
+    expect(isOpenInAnyTab).toHaveBeenCalledWith('pk/wb:9:sheet-7/sheet-7', {
       whenUnknown: false,
     });
   });

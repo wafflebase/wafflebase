@@ -35,6 +35,8 @@ const LAPSE_REASONS: Partial<Record<DurabilityLapse, string>> = {
   'too-large': 'This document is too large to save on this device.',
   'out-of-space': 'This device is out of local storage space.',
   'write-failed': 'This device could not be written to.',
+  unreportable:
+    'This browser cannot confirm that changes are being saved to this device, so it is not promising that they are.',
 };
 
 /**

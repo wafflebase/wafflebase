@@ -18,11 +18,16 @@ interface CapturedOptions {
 }
 
 const captured: Array<CapturedOptions> = [];
+/** Document keys the store was told to expect a loss for. */
+const expectedLosses: Array<string> = [];
 
 vi.mock('@/lib/wafflebase-doc-store', () => ({
   WafflebaseDocStore: class {
     constructor(options: CapturedOptions) {
       captured.push(options);
+    }
+    expectLoss(docKey: string) {
+      expectedLosses.push(docKey);
     }
   },
 }));
@@ -107,6 +112,7 @@ function renderProvider() {
 
 beforeEach(() => {
   captured.length = 0;
+  expectedLosses.length = 0;
   mockDoc = undefined;
   offlineEnabled.mockReturnValue(true);
   writePermitted.mockReturnValue(true);
@@ -235,5 +241,106 @@ describe('durability', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(screen.getByText('not-durable')).toBeInTheDocument();
+  });
+});
+
+/**
+ * `DurableLossWatch` is rendered by `CollabDocumentProvider` for **every**
+ * collaborative document, and `doc.subscribe` throws
+ * (`YorkieError(ErrInvalidArgument, 'Unsupported event type')`) on an SDK that
+ * does not know one of these event names. A throw out of a passive effect
+ * propagates through render and blanks the editor, so each guard is driven
+ * here rather than trusted — remove one and a pinned-SDK mismatch becomes a
+ * blank screen.
+ */
+describe('watching a document the SDK will not let us watch', () => {
+  /** A doc whose `subscribe` refuses the named events, the way the SDK does. */
+  function refusingDoc(...unsupported: Array<string>): FakeDoc {
+    const real = fakeDoc();
+    return {
+      ...real,
+      subscribe: (type, cb) => {
+        if (unsupported.includes(type)) {
+          throw new Error(`Unsupported event type: ${type}`);
+        }
+        return real.subscribe(type, cb);
+      },
+    };
+  }
+
+  it('latches the loss and lowers durability when the loss event is refused', async () => {
+    // Swallowing this was two failures at once. The chip kept promising
+    // "Saved to this device" for a client that could never be told the work
+    // was dropped — and this handler is the only caller of `expectLoss`, which
+    // is what makes `remove()` archive the work instead of deleting it.
+    mockDoc = refusingDoc('local-changes-dropped');
+    renderProvider();
+
+    await waitFor(() =>
+      expect(screen.getByText('not-durable')).toBeInTheDocument(),
+    );
+    expect(expectedLosses).toContain('sheet-7');
+  });
+
+  it('lowers durability when the persist-disabled event is refused', async () => {
+    // Nothing is lost here, so nothing is archived — but a conjunct that can
+    // never be lowered is not one the chip may keep asserting.
+    mockDoc = refusingDoc('persist-disabled');
+    renderProvider();
+
+    await waitFor(() =>
+      expect(screen.getByText('not-durable')).toBeInTheDocument(),
+    );
+    expect(expectedLosses).toEqual([]);
+  });
+
+  it('renders rather than throwing when both are refused', async () => {
+    mockDoc = refusingDoc('local-changes-dropped', 'persist-disabled');
+    expect(() => renderProvider()).not.toThrow();
+
+    await waitFor(() =>
+      expect(screen.getByText('not-durable')).toBeInTheDocument(),
+    );
+  });
+
+  it('survives a doc-like stub with no subscribe at all', async () => {
+    // Several suites answer `useDocument()` with only the members they need,
+    // and this component is mounted over every collaborative document.
+    mockDoc = { getKey: () => 'sheet-7' } as unknown as FakeDoc;
+    expect(() => renderProvider()).not.toThrow();
+
+    await waitFor(() => expect(screen.getByText('durable')).toBeInTheDocument());
+  });
+
+  it('survives an unsubscribe that throws while tearing down', async () => {
+    // The cleanup side of the same problem: a throw out of an effect cleanup
+    // propagates exactly as far as one out of the effect body.
+    const real = fakeDoc();
+    mockDoc = {
+      ...real,
+      subscribe: () => () => {
+        throw new Error('already detached');
+      },
+    };
+    const view = renderProvider();
+    await waitFor(() => expect(screen.getByText('durable')).toBeInTheDocument());
+
+    expect(() => view.unmount()).not.toThrow();
+  });
+
+  it('still latches and reports an ordinary loss', async () => {
+    // The path all of the above is defending: the SDK knows the event, fires
+    // it, and the store is told this removal is a loss so the work is archived
+    // rather than deleted.
+    mockDoc = fakeDoc();
+    renderProvider();
+    await waitFor(() => expect(screen.getByText('durable')).toBeInTheDocument());
+
+    act(() => mockDoc!.emit('local-changes-dropped'));
+
+    await waitFor(() =>
+      expect(screen.getByText('not-durable')).toBeInTheDocument(),
+    );
+    expect(expectedLosses).toContain('sheet-7');
   });
 });

@@ -55,3 +55,33 @@ to ask of every test here is not "does it pass" but "would it still pass if the
 thing it describes were broken".
 
 _Appended as the work proceeds._
+
+## Review panel, round 4 (blast radius / tests / design fit / security / correctness)
+
+**A guard's scope must match the reach of what it guards.** `collectStale`
+deletes across every account on the device — deliberately, since a departed
+user never runs their own housekeeping — but it was handed the *account-scoped*
+"is this open somewhere" predicate every other caller uses. That answers "not
+mine, therefore idle" about another account's live document, so the sweep
+collected it and that tab's later appends silently vanished. The two callers
+need two predicates (`isOpenElsewhere` / `isOpenForAnyUser`), because the
+account scoping is right for the purges and wrong for the sweep.
+
+**Catching a throw is not the same as answering it.** `doc.subscribe` throws on
+an event name the pinned SDK does not know, so the subscription had to be
+wrapped — but the `catch` only logged. That handler is the sole caller of
+`expectLoss`, and `remove()` archives only when the latch is set, so a
+swallowed failure turned "archive the work" into "delete it" while the chip
+still read `Saved to this device`. Every swallowed failure needs an answer to
+"what does the rest of the system now believe that is no longer true".
+
+**A per-device secret on a shared device is a per-everyone secret.** The
+client-key salt lived in one `localStorage` key, and the device this feature
+exists for is precisely the one where the next reader is a different person. It
+is now per account and dropped by the erase.
+
+**An offer is a claim too.** The chip's "turn offline saving on" call to action
+fired on the share-link route the design excludes, promising a visitor a
+guarantee that could never apply to the document in front of them. The
+`not-permitted` lapse already carried the fact; the offer just was not reading
+it.

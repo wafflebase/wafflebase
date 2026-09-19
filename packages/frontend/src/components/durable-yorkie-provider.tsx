@@ -130,6 +130,19 @@ export function DurableYorkieProvider({
    * `useDurableDocument` holds that election for the life of the open document
    * rather than releasing it under a still-mounted client.)
    */
+  /**
+   * The promise withdrawn because it cannot be checked.
+   *
+   * `durable` is only worth anything if a lapse can be *reported*, and the two
+   * events above are the only channel for that. An SDK that refuses the
+   * subscription — it throws on an event name it does not know — leaves this
+   * client unable to ever tell the user the guarantee failed, which the design
+   * names as worse than not making it: "durable-but-unreportable is worse than
+   * uniformly non-durable". So it is not made.
+   */
+  const [unreportable, setUnreportable] = useState(false);
+  const reportUnreportable = useCallback(() => setUnreportable(true), []);
+
   const [writesFailing, setWritesFailing] = useState(false);
   const [outOfSpace, setOutOfSpace] = useState(false);
   const store = useMemo(
@@ -178,17 +191,20 @@ export function DurableYorkieProvider({
   const value = useMemo(
     () => ({
       store,
-      durable: !lost && !writesFailing && !persistDisabled,
+      durable: !lost && !writesFailing && !persistDisabled && !unreportable,
       reportLoss,
       reportPersistDisabled,
+      reportUnreportable,
     }),
     [
       store,
       lost,
       writesFailing,
       persistDisabled,
+      unreportable,
       reportLoss,
       reportPersistDisabled,
+      reportUnreportable,
     ],
   );
 
@@ -204,7 +220,9 @@ export function DurableYorkieProvider({
         ? 'out-of-space'
         : writesFailing
           ? 'write-failed'
-          : undefined;
+          : unreportable
+            ? 'unreportable'
+            : undefined;
 
   return (
     <KeyedYorkieProvider
@@ -263,37 +281,72 @@ export function DurableLossWatch() {
     // two names are newer than versions this app can be pinned to. A throw out
     // of a passive effect propagates through render and takes the whole editor
     // subtree with it, which is the same failure the doc-like-stub guard above
-    // exists to avoid. An SDK that cannot report a lapse costs the chip its
-    // certainty, never the document.
+    // exists to avoid.
+    //
+    // Caught is not the same as shrugged off, though, and the earlier claim
+    // that a failed subscription "costs the chip its certainty, never the
+    // document" was wrong twice over. It costs the chip nothing unless
+    // something lowers `durable`, and it costs the *document*: this handler is
+    // the only caller of `expectLoss`, and `WafflebaseDocStore.remove()`
+    // archives a removal only when that latch is set — so a swallowed failure
+    // silently turns the loss path from "archive the work" into "delete it".
+    // Each failure is therefore answered below rather than only logged.
     const unsubscribers: Array<() => void> = [];
-    const watch = (subscribe: () => (() => void) | undefined) => {
+    const watch = (subscribe: () => (() => void) | undefined): boolean => {
       try {
         const unsubscribe = subscribe();
         if (typeof unsubscribe === 'function') {
           unsubscribers.push(unsubscribe);
         }
+        return true;
       } catch (err) {
         console.warn('[offline] could not watch a durability event:', err);
+        return false;
       }
     };
 
-    watch(() =>
+    const watchingLoss = watch(() =>
       doc.subscribe('local-changes-dropped', () => {
         durable.store.expectLoss(doc.getKey());
         durable.reportLoss();
       }),
     );
+    if (!watchingLoss) {
+      // Two consequences, and both are needed.
+      //
+      // The latch, so a removal on this document archives instead of deleting.
+      // Without the event there is no way to tell an ordinary detach from a
+      // drop, and the two directions are not symmetric: over-archiving costs
+      // disk that the thirty-day sweep reclaims, under-archiving costs work
+      // that nothing can give back. It is set here rather than guessed at
+      // inside `remove()` so the conservative reading stays confined to the one
+      // document whose SDK could not be asked.
+      try {
+        durable.store.expectLoss?.(doc.getKey());
+      } catch (err) {
+        console.warn('[offline] could not latch an unobservable loss:', err);
+      }
+      // And the withdrawal, because a guarantee nothing can report a lapse of
+      // is one the user cannot check — the design's rule is to under-promise.
+      durable.reportUnreportable();
+    }
     // The other event this component exists to catch, and the one the design
     // names as `durable`'s second conjunct: the SDK gives up on a document
     // whose snapshot is too large or too slow to write, and carries on letting
     // the user edit it. Nothing is archived — nothing was lost, it simply
     // stopped being saved — so this latches durability off without telling the
     // store to expect a loss.
-    watch(() =>
+    const watchingPersist = watch(() =>
       doc.subscribe('persist-disabled', () => {
         durable.reportPersistDisabled();
       }),
     );
+    if (!watchingPersist) {
+      // Nothing to latch — this event never means work was lost — but the same
+      // rule applies: a conjunct that can never be lowered is not one the chip
+      // may keep asserting.
+      durable.reportUnreportable();
+    }
     return () => {
       for (const unsubscribe of unsubscribers) {
         try {

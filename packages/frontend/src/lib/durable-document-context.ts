@@ -37,6 +37,18 @@ export interface DurableDocumentValue {
    * disk any more and the chip must stop saying it is.
    */
   reportPersistDisabled(): void;
+  /**
+   * Called when this client cannot *observe* the SDK's durability events at
+   * all — `doc.subscribe` threw for an event name this pinned SDK does not
+   * know, or the document is not one that can be subscribed to.
+   *
+   * `durable` is a promise the user can check, and the design's rule is that a
+   * failure we cannot classify still lowers it: "durable-but-unreportable is
+   * worse than uniformly non-durable". A client that could never be told the
+   * work was dropped is exactly that case, so it reports here rather than
+   * keeping a promise it has no way to withdraw.
+   */
+  reportUnreportable(): void;
 }
 
 const DurableDocumentContext = createContext<DurableDocumentValue | undefined>(
@@ -105,7 +117,9 @@ export type DurabilityLapse =
   /** The origin is out of storage, even after eviction. */
   | "out-of-space"
   /** The store is refusing writes for some other reason. */
-  | "write-failed";
+  | "write-failed"
+  /** This client cannot hear the SDK's durability events, so it promises nothing. */
+  | "unreportable";
 
 const DurabilityLapseContext = createContext<DurabilityLapse | undefined>(
   undefined,

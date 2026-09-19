@@ -9,12 +9,14 @@ vi.mock('@yorkie-js/react', () => ({
 
 const warning = vi.fn();
 const success = vi.fn();
+const info = vi.fn();
 const dismiss = vi.fn();
 
 vi.mock('sonner', () => ({
   toast: {
     warning: (...args: unknown[]) => warning(...args),
     success: (...args: unknown[]) => success(...args),
+    info: (...args: unknown[]) => info(...args),
     dismiss: (...args: unknown[]) => dismiss(...args),
   },
 }));
@@ -112,6 +114,7 @@ function renderDurableChip() {
           durable: true,
           reportLoss: () => {},
           reportPersistDisabled: () => {},
+          reportUnreportable: () => {},
         }}
       >
         <SyncStatusChip />
@@ -154,6 +157,7 @@ beforeEach(() => {
   removeSpy.mockClear();
   warning.mockClear();
   success.mockClear();
+  info.mockClear();
   dismiss.mockClear();
 });
 
@@ -609,6 +613,62 @@ describe('the offer to turn offline saving on', () => {
   });
 });
 
+describe('the offer on a document that can never be durable', () => {
+  /**
+   * `docs/design/offline-local-persistence.md` § Who gets it excludes
+   * anonymous share links outright, and `shared-document.tsx` wraps the whole
+   * route in `NonDurableScope` — which publishes `not-permitted`. Offering the
+   * preference there promises a visitor something that cannot happen for the
+   * document in front of them however they answer, and an anonymous one has no
+   * account for it to apply to at all.
+   */
+  function renderWithLapse(lapse: DurabilityLapse) {
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
+    setOfflinePersistenceEnabled(false);
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const view = render(
+      <TooltipProvider>
+        <DurabilityLapseScope lapse={lapse}>
+          <SyncStatusChip />
+        </DurabilityLapseScope>
+      </TooltipProvider>,
+    );
+    act(() => {
+      doc.type();
+    });
+    return view;
+  }
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('makes no offer on a share link', () => {
+    renderWithLapse('not-permitted');
+
+    // Still the status, never the call to action.
+    expect(screen.getByRole('status').tagName).toBe('SPAN');
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    const options = warning.mock.calls[0]?.[1] as
+      | { action?: { label: string } }
+      | undefined;
+    expect(options?.action).toBeUndefined();
+  });
+
+  it('still offers it where the feature is merely switched off', () => {
+    // The control case, so the suppression above is about `not-permitted` and
+    // not about the offer having quietly stopped working.
+    renderWithLapse('not-enabled');
+
+    expect(screen.getByRole('status').tagName).toBe('BUTTON');
+  });
+});
+
 describe('SyncStatusChip on a durable document', () => {
   it('reports the work as saved to this device instead of not saved', () => {
     // The entire user-facing value of offline persistence: the same situation
@@ -663,6 +723,33 @@ describe('SyncStatusChip on a durable document', () => {
 
     expect(warning).not.toHaveBeenCalled();
     expect(unloadGuards()).toBe(0);
+  });
+
+  it('says where the work went instead of saying nothing', () => {
+    // `docs/design/offline-local-persistence.md`: the offline-transition toast
+    // "changes from 'keep this tab open' to 'saved to this device'". Dropping
+    // it entirely leaves the durable case as the one where the app says
+    // nothing at all about work it has stopped sending to the server.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(info).toHaveBeenCalled();
+    const [title, options] = info.mock.calls[0] as [
+      string,
+      { description?: string },
+    ];
+    expect(title).toMatch(/this device/i);
+    // And it must not repeat the sentence it replaces.
+    expect(options.description ?? '').not.toMatch(/keep this tab open/i);
+    expect(options.description ?? '').toMatch(/saved on this device/i);
   });
 
   it('still says Saving while the push is in flight', () => {

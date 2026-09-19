@@ -83,7 +83,20 @@ export function SyncStatusChip({ className }: { className?: string }) {
   // persisted), the device has not already opted in, and there is work at risk
   // right now. A call to action on a healthy document would be an
   // advertisement.
-  const offerOffline = stranded && supportsClientKey() && !offlineEnabled;
+  //
+  // And never where the answer is already no. `not-permitted` is the subtree
+  // that must never persist — the share-link route wraps itself in
+  // `NonDurableScope`, and the design excludes anonymous share links from this
+  // feature outright — so the offer there promises a visitor something that
+  // cannot happen for this document however they answer it, and for an
+  // anonymous one there is no account for the preference to ever apply to. The
+  // lapse is what carries that fact to the chip: it is published above every
+  // editor on that route and nowhere else.
+  const offerOffline =
+    stranded &&
+    supportsClientKey() &&
+    !offlineEnabled &&
+    lapse !== 'not-permitted';
 
   const turnOnOfflineSaving = useCallback(() => {
     setOfflinePersistenceEnabled(true);
@@ -161,7 +174,34 @@ export function SyncStatusChip({ className }: { className?: string }) {
   // confirms when there was something to recover from.
   const warned = useRef(false);
 
+  // The same moment, on a document whose work *is* on disk. The design states
+  // it as a consequence that "follows automatically" from `durable`: the
+  // offline-transition toast changes from "keep this tab open" to "saved to
+  // this device". Without it the durable case is the one that interrupts
+  // nobody — which sounds like restraint, and reads to the user as the app
+  // having said nothing about work it has stopped sending to the server.
+  const savedLocally = state === 'saved-locally';
+
   useEffect(() => {
+    if (savedLocally) {
+      const timer = setTimeout(() => {
+        // Latched like the warning's, so the recovery arm below retracts this
+        // one too and confirms once the work actually reaches the server.
+        warned.current = true;
+        // `info`, not `warning`: nothing is at risk, and dressing it as an
+        // alarm would undo the state it is announcing. Finite duration for the
+        // same reason — the warning stays until it stops being true because
+        // acting on it is urgent; this is a notification.
+        toast.info('Saved to this device', {
+          id: TOAST_ID,
+          description: connected
+            ? "The server rejected your recent changes, so they aren't there yet. They are saved on this device and will be sent when syncing resumes."
+            : "Your connection dropped, so recent changes haven't reached the server. They are saved on this device and will be sent when the connection returns.",
+        });
+      }, TOAST_DELAY_MS);
+      return () => clearTimeout(timer);
+    }
+
     if (stranded) {
       const timer = setTimeout(() => {
         warned.current = true;
@@ -210,7 +250,14 @@ export function SyncStatusChip({ className }: { className?: string }) {
       id: RECOVERY_TOAST_ID,
       description: 'Your changes reached the server.',
     });
-  }, [stranded, state, connected, offerOffline, turnOnOfflineSaving]);
+  }, [
+    savedLocally,
+    stranded,
+    state,
+    connected,
+    offerOffline,
+    turnOnOfflineSaving,
+  ]);
 
   // `<Toaster />` is mounted outside the router, and the warning is
   // `duration: Infinity` with no close button. Without this, leaving the

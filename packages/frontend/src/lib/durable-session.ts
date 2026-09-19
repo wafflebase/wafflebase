@@ -94,11 +94,11 @@ export function durableLockName(userId: string, docKey: string): string {
  * what makes the whole thing unguessable.
  */
 export function durableClientKey(userId: string, docKey: string): string {
-  return `wb:${deviceSecret()}:${userId}:${docKey}`;
+  return `wb:${deviceSecret(userId)}:${userId}:${docKey}`;
 }
 
 /**
- * Where this device's client-key secret lives.
+ * Where this device's client-key secrets live, one per account.
  *
  * `localStorage` rather than memory, because the key's whole purpose is to be
  * the *same* one after a reload: the SDK's store is scoped
@@ -106,11 +106,31 @@ export function durableClientKey(userId: string, docKey: string): string {
  * Clearing site data mints a new one and orphans whatever was written under the
  * old, which the thirty-day sweep collects — the same outcome as clearing the
  * database itself, and the direction that costs storage rather than safety.
+ *
+ * **Per account, not per browser profile**, and that is the whole point of the
+ * salt. A single profile-wide secret is read by whoever is signed in *now*, and
+ * a shared device — the case this feature exists for — is exactly where that
+ * somebody is a different person: with one value, a signed-in user could
+ * reconstruct every other account's `wb:{secret}:{userId}:{docKey}` from
+ * ingredients (`userId`, `docKey`) a workspace peer already holds, and Yorkie
+ * authorizes `ActivateClient`/`DeactivateClient` on token validity alone. One
+ * secret per account removes the shared ingredient.
+ *
+ * And it is spent with that account's data: {@link forgetDeviceSecret} is
+ * called by the erase, so a sign-out leaves the next user of this device
+ * nothing to read. The residual — an account whose erase never ran leaves its
+ * own entry behind — is bounded by the thirty-day sweep and by that erase's own
+ * retry, and is strictly smaller than one value covering everybody.
  */
-const DEVICE_SECRET_KEY = "wafflebase-durable-device";
+const DEVICE_SECRET_PREFIX = "wafflebase-durable-device";
 
-/** This session's secret, for a browser that will not hold one. */
-let volatileSecret: string | undefined;
+/** The `localStorage` key holding `userId`'s secret. */
+function deviceSecretKey(userId: string): string {
+  return `${DEVICE_SECRET_PREFIX}:${userId}`;
+}
+
+/** This session's secrets, per account, for a browser that will not hold them. */
+const volatileSecrets = new Map<string, string>();
 
 function randomSecret(): string {
   const bytes = new Uint8Array(8);
@@ -128,36 +148,70 @@ function randomSecret(): string {
 }
 
 /**
- * A stable random id for this browser profile, minted once.
+ * A stable random id for one account on this browser profile, minted once.
  *
- * Opaque and content-free: it names no user and no document, it is never sent
- * anywhere on its own, and it exists purely so the client key above cannot be
- * *derived* by somebody who knows who you are and what you are editing.
+ * Opaque and content-free: it names no document, it is never sent anywhere on
+ * its own, and it exists purely so the client key above cannot be *derived* by
+ * somebody who knows who you are and what you are editing — including the next
+ * person to sign in on this machine.
  */
-function deviceSecret(): string {
+function deviceSecret(userId: string): string {
+  const key = deviceSecretKey(userId);
   try {
-    const stored = localStorage.getItem(DEVICE_SECRET_KEY);
+    const stored = localStorage.getItem(key);
     if (stored) {
       return stored;
     }
     const minted = randomSecret();
-    localStorage.setItem(DEVICE_SECRET_KEY, minted);
+    localStorage.setItem(key, minted);
     return minted;
   } catch {
     // Storage refused (private mode, blocked third-party storage). A key that
     // does not survive a reload costs this device its resume; a guessable one
     // would cost every device its client row — so an unguessable
     // session-scoped secret is the right way to fail here.
-    volatileSecret ??= randomSecret();
-    return volatileSecret;
+    let secret = volatileSecrets.get(userId);
+    if (!secret) {
+      secret = randomSecret();
+      volatileSecrets.set(userId, secret);
+    }
+    return secret;
   }
 }
 
-/** Forgets the minted device secret. Test-only. */
-export function resetDeviceSecretForTest(): void {
-  volatileSecret = undefined;
+/**
+ * Drops one account's secret, so nothing left on this device can be tied back
+ * to it — and so the next sign-in mints a fresh one.
+ *
+ * Called by the erase (`offline-erase.ts`), which is the moment this account's
+ * stored documents go: keeping the salt that named them would leave the one
+ * ingredient a later user of the machine cannot otherwise obtain.
+ */
+export function forgetDeviceSecret(userId: string): void {
+  volatileSecrets.delete(userId);
   try {
-    localStorage.removeItem(DEVICE_SECRET_KEY);
+    localStorage.removeItem(deviceSecretKey(userId));
+  } catch {
+    // Nothing stored to forget.
+  }
+}
+
+/** Forgets every minted device secret. Test-only. */
+export function resetDeviceSecretForTest(): void {
+  volatileSecrets.clear();
+  try {
+    // Every account's, and the profile-wide key earlier builds wrote, so a
+    // test (or a device) carrying the old shape starts from nothing.
+    const stale: Array<string> = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DEVICE_SECRET_PREFIX)) {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) {
+      localStorage.removeItem(key);
+    }
   } catch {
     // Nothing stored to forget.
   }

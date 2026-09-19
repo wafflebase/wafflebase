@@ -579,6 +579,30 @@ describe("documents open in another tab", () => {
     expect(await sweeper.load("open-in-tab-a")).toBeDefined();
   });
 
+  it("asks the cross-account guard before collecting another account's entry", async () => {
+    // The sweep is deliberately cross-account — a departed user's entries are
+    // the ones no session of theirs will ever come back for — so the guard
+    // that spares an open document has to reach as far. The account-scoped
+    // question every other caller asks answers "not mine, therefore idle",
+    // and collecting it makes that tab's later appends silently vanish.
+    const time = clock("2026-01-01T00:00:00Z");
+    const seeder = freshStore("user-2", time.now);
+    await seed(seeder, "theirs-and-open");
+
+    time.set("2026-06-01T00:00:00Z");
+    const sweeper = new WafflebaseDocStore({
+      dbName: seeder.databaseName,
+      userId: "user-1",
+      now: time.now,
+      // What a user-scoped guard answers about somebody else's document.
+      isOpenElsewhere: () => false,
+      isOpenForAnyUser: openSet(new Set(["theirs-and-open"])),
+    });
+
+    expect(await sweeper.collectStale(30 * 24 * 60 * 60 * 1000)).toBe(0);
+    expect(await sweeper.load("theirs-and-open")).toBeDefined();
+  });
+
   it("collects it once no tab has it open", async () => {
     const time = clock("2026-01-01T00:00:00Z");
     const seeder = freshStore("user-1", time.now);

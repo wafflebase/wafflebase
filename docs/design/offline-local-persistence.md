@@ -90,6 +90,13 @@ opened the link, keyed by an identifier we would have to plant in
 share link is the one path where we cannot assume the browser belongs to
 someone entitled to keep the content.
 
+The exclusion reaches the chip's *offer* too, not only the client. The share
+route wraps itself in `NonDurableScope`, which publishes the `not-permitted`
+lapse, and the chip suppresses the "turn on offline saving" call to action
+wherever it sees that — otherwise a share-link editor (or an anonymous visitor
+with no account for the preference to apply to) is offered a guarantee that
+cannot happen for the document in front of them however they answer.
+
 The blob types (image, file) mount no CRDT document and are unaffected.
 
 **PDF is the exception that has to be handled explicitly.** `pdf` is a blob
@@ -313,6 +320,14 @@ backstop. The policy applied is identical to the one the signed-in user's own
 entries get, at the same age. Archives stay scoped: another account's is the
 only copy of work their SDK could not reconcile, and it is theirs to collect.
 
+Because that sweep reaches across accounts, so must the guard that spares a
+document somebody has open. `isOpenInAnyTab` is normally asked with a `userId`,
+so that another account's open document cannot defer *this* account's erase —
+but asked that way by the sweep it answers "not mine, therefore idle" about a
+live document and collects it, and the owning tab's later appends then find no
+header and vanish silently. The store therefore takes a second, unscoped
+predicate (`isOpenForAnyUser`) used by `collectStale` alone.
+
 Eviction deletes outright — no archive, nothing offered back — so it may only
 take an entry that has been compacted. A non-empty log is work that may never
 have reached the server, and freeing space with it would spend one document's
@@ -370,8 +385,14 @@ document (rather than to the user) keeps each document on its own server-side
 client row, so one tab's detach cannot disturb another tab holding a different
 document.
 
-`deviceSecret` is 64 random bits minted once per browser profile and kept in
-`localStorage` — opaque, content-free, and never sent anywhere on its own. It
+`deviceSecret` is 64 random bits minted once **per account** on this browser
+profile (`wafflebase-durable-device:{userId}`) and kept in `localStorage` —
+opaque, content-free, and never sent anywhere on its own. Per account rather
+than per profile, because the shared device is the whole case: `localStorage`
+is read by whoever is signed in now, so one profile-wide value would hand them
+the only ingredient of another account's key they cannot otherwise derive. It
+is dropped by the erase (`eraseOfflineData`), so a sign-out leaves the next
+user of the machine nothing to read. It
 is there because Yorkie authorizes `ActivateClient` and `DeactivateClient` on
 **token validity alone**: the auth webhook gates documents, not client rows. A
 key that can be *derived* is therefore one that anybody holding any valid
@@ -480,6 +501,7 @@ chip honest without giving each failure its own surface:
 | Document too large / too slow to snapshot | false | Too large to save on this device |
 | Quota exhausted after eviction | false | Out of local storage space |
 | Store writes failing | false | Could not save to this device |
+| This client cannot subscribe to the SDK's durability events | false | Cannot confirm changes are being saved to this device |
 
 Every row collapses to the same chip state and differs only in the reason, so
 the user always learns *that* the guarantee has lapsed even when the cause is
@@ -488,7 +510,22 @@ one we did not anticipate. A failure the store cannot classify still flips
 
 Two consequences follow automatically: the `beforeunload` guard is suppressed
 when `durable`, and the offline-transition toast changes from "keep this tab
-open" to "saved to this device".
+open" to "saved to this device" (`toast.info`, finite duration — nothing is at
+risk, so it notifies rather than alarms, and it is retracted and confirmed by
+the same recovery arm the warning uses).
+
+The last row is the rule stated as machinery. `durable` is only worth anything
+if a lapse can be *reported*, and the SDK's `local-changes-dropped` /
+`persist-disabled` subscriptions are the only channel for that — `subscribe`
+**throws** on an event name the pinned SDK does not know. Catching that throw
+is required (it would otherwise blank the editor subtree), but catching it
+silently is not enough: the loss handler is also the only caller of
+`WafflebaseDocStore.expectLoss`, and `remove()` archives a document only when
+that latch is set, so a swallowed failure quietly turns the loss path from
+"archive the work" into "delete it". A refused subscription therefore lowers
+`durable`, and a refused *loss* subscription additionally latches `expectLoss`
+for that document — over-archiving costs disk the thirty-day sweep reclaims,
+under-archiving costs work nothing can give back.
 
 Because `Not saved` is now a *designed* state rather than the only state — the
 second tab, an oversized document, a broken store — the chip carries the

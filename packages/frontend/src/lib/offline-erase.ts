@@ -1,4 +1,5 @@
 import { WafflebaseDocStore } from "./wafflebase-doc-store";
+import { forgetDeviceSecret } from "./durable-session";
 import {
   getOfflinePersistenceEnabled,
   subscribeOfflinePersistence,
@@ -29,6 +30,13 @@ export async function eraseOfflineData(
   options: { keepArchives?: boolean } = {},
 ): Promise<void> {
   await store.dropAllForUser(userId, options);
+  // The client-key salt goes with the content it named. It is per account
+  // precisely so the next person to sign in on a shared device cannot derive
+  // this account's per-document Yorkie client keys, and leaving it behind
+  // would hand them the one ingredient they have no other way to obtain — for
+  // documents that are no longer even here. Dropped last, so a failed erase
+  // above keeps the secret that still matches what is on the disk.
+  forgetDeviceSecret(userId);
 }
 
 /**

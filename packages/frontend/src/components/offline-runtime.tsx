@@ -71,13 +71,25 @@ export function OfflineRuntime({ userId }: { userId: string }) {
     // spares the entry — but a browser that cannot answer the question must
     // not thereby switch the sweep off, and another account's open document on
     // a shared device must not defer this account's cleanup. Scoped to this
-    // user, and "unknown" reads as not-open.
+    // user, and "unknown" reads as not-open. Used by the purges below, which
+    // only ever delete this user's rows.
     const openElsewhere = (docKey: string) =>
       isOpenInAnyTab(docKey, { userId, whenUnknown: false });
+
+    // And the same question with no account on it, for the one pass that
+    // deletes across accounts. The thirty-day sweep collects whoever wrote the
+    // entry — that is the point of it, since a departed user never returns to
+    // run their own — so asking whether *this* account has it open reports
+    // another account's live document as idle and collects it out from under a
+    // client that is still writing. The scoped answer above is right for every
+    // other caller here, all of which only ever delete this user's rows.
+    const openAnywhere = (docKey: string) =>
+      isOpenInAnyTab(docKey, { whenUnknown: false });
 
     const store = new WafflebaseDocStore({
       userId,
       isOpenElsewhere: openElsewhere,
+      isOpenForAnyUser: openAnywhere,
     });
 
     // Reads store and user at fire time, never captures them — the watcher

@@ -105,6 +105,34 @@ describe("names", () => {
     expect(durableClientKey("u1", "note-7")).not.toBe(here);
   });
 
+  it("gives each account its own secret, so one cannot derive another's key", () => {
+    // The device this feature exists for is a *shared* one, and `localStorage`
+    // is shared with it: a single profile-wide secret is read by whoever is
+    // signed in now, which would hand them the one ingredient of another
+    // account's key they cannot otherwise obtain (`userId` and `docKey` are
+    // both public to a workspace peer). Yorkie authorizes
+    // `ActivateClient`/`DeactivateClient` on token validity alone.
+    resetDeviceSecretForTest();
+    const mine = durableClientKey("u1", "note-7");
+    const theirs = durableClientKey("u2", "note-7");
+    const secretOf = (key: string) => key.split(":")[1];
+
+    expect(secretOf(mine)).not.toBe(secretOf(theirs));
+  });
+
+  it("forgets an account's secret when its data is erased", async () => {
+    // The salt goes with the content it named: leaving it behind would let the
+    // next person to sign in on this machine reconstruct the keys of documents
+    // that are not even here any more.
+    const { forgetDeviceSecret } = await import("./durable-session");
+    resetDeviceSecretForTest();
+    const before = durableClientKey("u1", "note-7");
+
+    forgetDeviceSecret("u1");
+
+    expect(durableClientKey("u1", "note-7")).not.toBe(before);
+  });
+
   it("keeps the same key across reloads of this device", () => {
     // The whole point of a stable key: the SDK's store is scoped
     // `apiKey/clientKey/docKey`, so a key minted per session resumes nothing.
