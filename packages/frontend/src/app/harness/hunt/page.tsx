@@ -42,7 +42,8 @@ import {
 // navigation timed out after 30s waiting for `networkidle` and the run printed no checks at
 // all. The surfaces that changed were the two this feature does not touch, which is the
 // worst shape of regression to debug. Both forms below keep them byte-identical.
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 
 import {
   registerDebugSurface,
@@ -56,11 +57,11 @@ import type { Element, MemSlidesStore, SlidesDocument, SlidesEditor } from "@waf
 /** The slides module, as a type only — the value arrives from `await import(...)`. */
 type SlidesModule = typeof import("@wafflebase/slides");
 
-const SlidesToolbarLazy = lazy(() =>
+const SlidesToolbarLazy = lazyWithRetry(() =>
   import("@/app/slides/toolbar").then((m) => ({ default: m.SlidesToolbar })),
 );
 
-const BoardToolbarLazy = lazy(() =>
+const BoardToolbarLazy = lazyWithRetry(() =>
   import("@/app/board/board-toolbar").then((m) => ({ default: m.BoardToolbar })),
 );
 

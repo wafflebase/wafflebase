@@ -2,7 +2,8 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { Loader } from "@/components/loader";
 
 import { PrivateRoute } from "./PrivateRoute";
@@ -12,24 +13,32 @@ import { HomeOrRedirect } from "./app/home-or-redirect";
 import { AnalyticsTracker } from "./analytics";
 import { NavigationGuardProvider } from "./components/navigation-guard/navigation-guard-provider";
 
-const Login = lazy(() => import("@/app/login/page"));
-const Documents = lazy(() => import("@/app/documents/page"));
-const DocumentDetail = lazy(() => import("@/app/documents/document-detail"));
-const DataSourcesPage = lazy(() => import("@/app/datasources/page"));
-const SharedDocument = lazy(() => import("@/app/shared/shared-document"));
-const TemplateLanding = lazy(() => import("@/app/templates/template-landing"));
-const TemplateReviewQueue = lazy(
+const Login = lazyWithRetry(() => import("@/app/login/page"));
+const Documents = lazyWithRetry(() => import("@/app/documents/page"));
+const DocumentDetail = lazyWithRetry(
+  () => import("@/app/documents/document-detail"),
+);
+const DataSourcesPage = lazyWithRetry(() => import("@/app/datasources/page"));
+const SharedDocument = lazyWithRetry(
+  () => import("@/app/shared/shared-document"),
+);
+const TemplateLanding = lazyWithRetry(
+  () => import("@/app/templates/template-landing"),
+);
+const TemplateReviewQueue = lazyWithRetry(
   () => import("@/app/templates/template-review-queue"),
 );
-const PublicTemplates = lazy(
+const PublicTemplates = lazyWithRetry(
   () => import("@/app/templates/public-templates"),
 );
-const Settings = lazy(() => import("@/app/settings/page"));
-const VisualHarnessPage = lazy(() => import("@/app/harness/visual/page"));
-const InteractionHarnessPage = lazy(
+const Settings = lazyWithRetry(() => import("@/app/settings/page"));
+const VisualHarnessPage = lazyWithRetry(
+  () => import("@/app/harness/visual/page"),
+);
+const InteractionHarnessPage = lazyWithRetry(
   () => import("@/app/harness/interaction/page"),
 );
-const DocsHarnessPage = lazy(() => import("@/app/harness/docs/page"));
+const DocsHarnessPage = lazyWithRetry(() => import("@/app/harness/docs/page"));
 /**
  * DEV-only, unlike the three harness routes above, and the reason is measurable.
  *
@@ -48,7 +57,7 @@ const DocsHarnessPage = lazy(() => import("@/app/harness/docs/page"));
  * `hunt-ui-runner.mjs`), where DEV is true.
  */
 const HuntHarnessPage = import.meta.env.DEV
-  ? lazy(() => import("@/app/harness/hunt/page"))
+  ? lazyWithRetry(() => import("@/app/harness/hunt/page"))
   : null;
 /**
  * The debug-report overlay. DEV-gated for the same chunk-graph reason as above,
@@ -56,34 +65,36 @@ const HuntHarnessPage = import.meta.env.DEV
  * `docs/design/debug-report.md`).
  */
 const DebugReportMount = import.meta.env.DEV
-  ? lazy(() => import("./debug/mount"))
+  ? lazyWithRetry(() => import("./debug/mount"))
   : null;
-const DocsDetail = lazy(() => import("@/app/docs/docs-detail"));
-const SlidesDetail = lazy(() => import("@/app/slides/slides-detail"));
-const FileDetail = lazy(() => import("@/app/files/file-detail"));
-const NotesDetail = lazy(() => import("@/app/notes/notes-detail"));
-const BoardDetail = lazy(() => import("@/app/board/board-detail"));
-const DocumentAnalyticsPage = lazy(
+const DocsDetail = lazyWithRetry(() => import("@/app/docs/docs-detail"));
+const SlidesDetail = lazyWithRetry(() => import("@/app/slides/slides-detail"));
+const FileDetail = lazyWithRetry(() => import("@/app/files/file-detail"));
+const NotesDetail = lazyWithRetry(() => import("@/app/notes/notes-detail"));
+const BoardDetail = lazyWithRetry(() => import("@/app/board/board-detail"));
+const DocumentAnalyticsPage = lazyWithRetry(
   () => import("@/app/analytics/document-analytics"),
 );
-const Layout = lazy(() => import("./app/Layout"));
+const Layout = lazyWithRetry(() => import("./app/Layout"));
 
-const WorkspaceDocuments = lazy(
+const WorkspaceDocuments = lazyWithRetry(
   () => import("@/app/workspaces/workspace-documents"),
 );
-const WorkspaceSettings = lazy(
+const WorkspaceSettings = lazyWithRetry(
   () => import("@/app/workspaces/workspace-settings"),
 );
-const WorkspaceAnalytics = lazy(
+const WorkspaceAnalytics = lazyWithRetry(
   () => import("@/app/workspaces/workspace-analytics"),
 );
-const WorkspaceTemplates = lazy(
+const WorkspaceTemplates = lazyWithRetry(
   () => import("@/app/workspaces/workspace-templates"),
 );
-const WorkspaceDataSources = lazy(
+const WorkspaceDataSources = lazyWithRetry(
   () => import("@/app/workspaces/workspace-datasources"),
 );
-const InviteAccept = lazy(() => import("@/app/workspaces/invite-accept"));
+const InviteAccept = lazyWithRetry(
+  () => import("@/app/workspaces/invite-accept"),
+);
 
 function App() {
   const [queryClient] = useState(() => new QueryClient());

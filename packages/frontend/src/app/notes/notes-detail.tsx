@@ -1,7 +1,9 @@
 import { createDocumentSelector } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { ChunkBoundary } from "@/components/chunk-boundary";
 import type {
   NoteViewMode,
   NoteEditorAPI,
@@ -55,7 +57,7 @@ import { CollabDocumentProvider } from "@/components/collab-document-provider";
 // whichever engine a preview needs), so an eager import here would pull the
 // other two engines into this note route's own chunk for a feature almost
 // never opened.
-const RevisionPreviewOverlay = lazy(() =>
+const RevisionPreviewOverlay = lazyWithRetry(() =>
   import("@/components/history/revision-preview").then((module) => ({
     default: module.RevisionPreviewOverlay,
   })),
@@ -305,7 +307,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
             <PreviewSurface
               preview={
                 previewing && previewRevisionId && currentUser ? (
-                  <Suspense fallback={null}>
+                  <ChunkBoundary fallback={null}>
                     <RevisionPreviewOverlay
                       revisionId={previewRevisionId}
                       type="note"
@@ -313,7 +315,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
                       onClose={() => setPreviewRevisionId(null)}
                       onRestored={handleHistoryRestored}
                     />
-                  </Suspense>
+                  </ChunkBoundary>
                 ) : null
               }
             >

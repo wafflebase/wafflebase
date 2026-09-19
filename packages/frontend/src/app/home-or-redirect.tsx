@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "@/api/auth";
 import { fetchWorkspaces } from "@/api/workspaces";
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { Navigate } from "react-router-dom";
 import { Loader } from "@/components/loader";
 
-const HomePage = lazy(() => import("@/app/home/page"));
+const HomePage = lazyWithRetry(() => import("@/app/home/page"));
 
 export function HomeOrRedirect() {
   const { data: user, isLoading: userLoading } = useQuery({

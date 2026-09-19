@@ -1,4 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { ChunkBoundary } from "@/components/chunk-boundary";
 import type {
   NoteEditorAPI,
   NoteKeymap,
@@ -22,7 +24,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 // tabler icons. Lazy-load it for the same reason `shared-document.tsx` does
 // with `SlidesToolbar`: a share link to another document type shouldn't pay
 // for it, and neither should a note share link until this layout mounts.
-const NotesToolbar = lazy(() =>
+const NotesToolbar = lazyWithRetry(() =>
   import("@/app/notes/notes-toolbar").then((module) => ({
     default: module.NotesToolbar,
   })),
@@ -127,7 +129,7 @@ export function SharedNotesLayout({
           is the whole point of the toolbar on a read-only mount. The "View
           only" badge still comes from `SharedHeaderStatus`.
         */}
-        <Suspense fallback={null}>
+        <ChunkBoundary fallback={null}>
           <NotesToolbar
             mode={effectiveViewMode}
             onModeChange={handleModeChange}
@@ -138,7 +140,7 @@ export function SharedNotesLayout({
             editor={editor}
             readOnly={readOnly}
           />
-        </Suspense>
+        </ChunkBoundary>
         <NotesView
           onEditorReady={setEditor}
           readOnly={readOnly}

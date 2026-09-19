@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { backendOrigin } from "@/api/images";
+import { redactCapabilityTokens } from "@/lib/redact-url";
 
 /**
  * Default share of transactions sampled for tracing. Deliberately not 1.0 —
@@ -84,8 +85,69 @@ function initClient(origin: string, dsn: string): void {
     // nobody else's server has been asked to accept them.
     ...(origin ? { tracePropagationTargets: [origin] } : {}),
     // Left at the default. Request bodies on this backend carry document
-    // content and URLs carry share tokens, so turning PII on needs a scrubbing
-    // policy first.
+    // content, so turning PII on needs a policy for those first.
     sendDefaultPii: false,
+    // BOTH hooks, and that is the whole point. `beforeSend` runs for error
+    // events only; `browserTracingIntegration` two options up emits pageload
+    // and navigation TRANSACTIONS, which carry the same URL and go out through
+    // `beforeSendTransaction`. Installing one without the other leaves the
+    // token on every sampled transaction — and `tracesSampleRate` defaults to
+    // 0.1, so that is a normal deployment, not an edge case.
+    beforeSend: scrubCapabilityTokens,
+    beforeSendTransaction: scrubCapabilityTokens,
   });
+}
+
+/**
+ * Strips share/invite/template tokens out of every event before it is sent.
+ *
+ * `sendDefaultPii: false` does NOT cover this — it governs IPs, cookies and
+ * session data, while the browser SDK attaches `location.href` (and a
+ * `Referer` taken from `document.referrer`) unconditionally. On a deployment
+ * with a DSN set, every event raised while a user is on `/shared/<token>`
+ * therefore hands that token, which is the whole credential, to a third party
+ * that retains and indexes it.
+ *
+ * Applied at the send hooks rather than at each capture site, so it covers
+ * what the SDK sends on its own — global handlers, breadcrumbs, navigation
+ * transactions — not just the places this codebase calls `captureException`.
+ *
+ * Exported for the tests: the hooks are where this has to be right, and
+ * testing only the pure helper would prove nothing about which fields are
+ * actually reached.
+ */
+export function scrubCapabilityTokens<T extends Sentry.Event>(event: T): T {
+  if (event.request?.url) {
+    event.request.url = redactCapabilityTokens(event.request.url);
+  }
+
+  // `Referer` is filled from `document.referrer`, so navigating from a share
+  // link to anywhere else carries the token into the NEXT page's events.
+  // Header names arrive in whatever case the SDK used, so match loosely.
+  const headers = event.request?.headers;
+  if (headers) {
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === "referer" || name.toLowerCase() === "referrer") {
+        headers[name] = redactCapabilityTokens(headers[name]);
+      }
+    }
+  }
+
+  // The route. For `/shared/:token` this is the raw path, and on a transaction
+  // event it is the transaction's NAME — the thing the Sentry UI groups by.
+  if (event.transaction) {
+    event.transaction = redactCapabilityTokens(event.transaction);
+  }
+
+  for (const crumb of event.breadcrumbs ?? []) {
+    // `navigation` crumbs carry `from`/`to`, `fetch`/`xhr` carry `url`.
+    for (const key of ["url", "from", "to"]) {
+      const value = crumb.data?.[key];
+      if (typeof value === "string") {
+        crumb.data![key] = redactCapabilityTokens(value);
+      }
+    }
+  }
+
+  return event;
 }

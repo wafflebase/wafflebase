@@ -88,6 +88,13 @@ const APP_LIBS = [
   // Canvas engines reach the SDK directly, and the shim constructs its `Document` from it.
   // One copy — the app's — for the same class-identity reason as the rest of this list.
   '@yorkie-js/sdk',
+  // Reached by every editor scene since chunk-load recovery landed: the route
+  // modules import `@/lib/lazy-with-retry`, which reports a failed chunk. Listed
+  // here for RESOLUTION rather than identity — `root` is this package, and the
+  // package is installed only under `packages/frontend/node_modules`, so without
+  // the alias the `optimizeDeps.include` entry below cannot resolve and is
+  // silently skipped.
+  '@sentry/react',
 ];
 
 /**
@@ -301,6 +308,15 @@ export default defineConfig({
       'react-router-dom',
       'sonner',
       'lucide-react',
+      /*
+       * Reached by every editor scene since the chunk-load recovery landed:
+       * each route module imports `@/lib/lazy-with-retry`, which reports a
+       * failed chunk to Sentry. Before that it was only in `main.tsx`, which
+       * no scene mounts — so without this line the first scene load is the
+       * mid-session "new dependencies optimized, reloading" this list exists
+       * to prevent, and it throws away the selection.
+       */
+      '@sentry/react',
     ],
   },
   plugins: [

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { redactCapabilityTokens } from "@/lib/redact-url";
 
 type GtagFn = (
   command: "event" | "config" | "js" | "set",
@@ -19,10 +20,16 @@ export function AnalyticsTracker() {
 
   useEffect(() => {
     if (!GA_ID || typeof window.gtag !== "function") return;
-    const pagePath = location.pathname + location.search;
+    // `/shared/:token` and `/invite/:token` ARE credentials, so the raw path
+    // must not be reported: a page_view would hand the whole capability to
+    // Google, where it is retained and queryable. Same helper, and the same
+    // reasoning, as the Sentry scrubber in `sentry.ts`.
+    const pagePath = redactCapabilityTokens(
+      location.pathname + location.search
+    );
     window.gtag("event", "page_view", {
       page_path: pagePath,
-      page_location: window.location.href,
+      page_location: redactCapabilityTokens(window.location.href),
       page_title: document.title,
     });
   }, [location]);

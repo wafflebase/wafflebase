@@ -1,6 +1,8 @@
-import { lazy, Suspense, type ComponentProps } from "react";
+import { type ComponentProps } from "react";
+import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { ChunkBoundary } from "@/components/chunk-boundary";
 
-const HistoryPanelImpl = lazy(() =>
+const HistoryPanelImpl = lazyWithRetry(() =>
   import("./history-panel").then((module) => ({
     default: module.HistoryPanel,
   })),
@@ -17,15 +19,15 @@ const HistoryPanelImpl = lazy(() =>
  * reason (it pulls in three engine packages); this makes the panel match.
  *
  * The five call sites import this rather than each declaring their own
- * `lazy()`, so all five share one chunk instead of five.
+ * `lazyWithRetry()`, so all five share one chunk instead of five.
  */
 export function LazyHistoryPanel(
   props: ComponentProps<typeof HistoryPanelImpl>,
 ) {
   return (
-    <Suspense fallback={null}>
+    <ChunkBoundary fallback={null}>
       <HistoryPanelImpl {...props} />
-    </Suspense>
+    </ChunkBoundary>
   );
 }
 

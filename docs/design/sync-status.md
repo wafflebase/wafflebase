@@ -441,6 +441,30 @@ The toast and the `beforeunload` guard live in `SyncStatusChip`, not in
 `useSyncStatus`, so that mounting the chip is what arms them and the hook stays
 usable for plain display.
 
+### The third consumer: reloads this app initiates
+
+`hasUnsentEdits()` now has three arms, not two. The chunk-load recovery in
+`lib/lazy-with-retry.ts` reloads the document to replace a module the browser
+would not fetch, and **`beforeunload` is not a backstop for it**: the event is
+unreliable for a programmatic reload and iOS — the platform the failure that
+motivated the recovery came from — ignores it outright. So the chip also
+registers the same live read into `lib/unsaved-work.ts`, a module-global probe
+registry, and the recovery declines to reload while any probe answers yes. The
+user keeps the page and their queue, and the fallback's button puts the reload
+one deliberate click away.
+
+The registry is deliberately not chip-specific. `app/documents/upload-queue.ts`
+registers its own probe for the same reason: an upload in flight exists only in
+this tab, since the bytes come from a `File` handle the browser hands over
+once. A probe that throws counts as "yes" — the caller is deciding whether to
+discard the page, and an unanswerable question is not permission.
+
+One thing this does **not** mean: that an unmount loses the queue. A clean
+unmount runs `@yorkie-js/react`'s cleanup, which calls `Client.detachDocument`,
+and that sends a final change pack before detaching. A `location.reload()`
+sends nothing. That asymmetry is the whole reason the guard is on the reload
+and not on ordinary unmounting.
+
 ## Risks and Mitigation
 
 **The chip could imply durability it does not have.** The largest risk is
