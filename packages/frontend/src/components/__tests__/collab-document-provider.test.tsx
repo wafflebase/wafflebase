@@ -1,5 +1,5 @@
-import { render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * These pin the repair described in `collab-document-provider.tsx`: after
@@ -14,14 +14,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 const useDocumentMock = vi.fn();
 
-vi.mock("@yorkie-js/react", () => ({
+vi.mock('@yorkie-js/react', () => ({
   DocumentProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  // The provider now nests one of these when a document is durable. These
+  // cases are about the presence repair, which happens either way, so it is a
+  // pass-through here; `durable-yorkie-provider.test.tsx` covers the nesting.
+  YorkieProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
   useDocument: () => useDocumentMock(),
 }));
 
-import { CollabDocumentProvider } from "../collab-document-provider";
+// The provider asks who is signed in; these cases do not care, and a real
+// query client would make every one of them need a wrapper.
+vi.mock('@tanstack/react-query', () => ({
+  useQuery: () => ({ data: undefined, isPending: false }),
+  // The provider seeds its optional-me query from the one the authenticated
+  // shell already resolved, so it needs the client to read that cache.
+  useQueryClient: () => ({ getQueryData: () => undefined }),
+}));
+
+import { CollabDocumentProvider } from '../collab-document-provider';
 
 type FakeDoc = {
   getStatus: () => string;
@@ -32,7 +47,7 @@ type FakeDoc = {
 /** A document whose presence is `presence`, recording what gets written. */
 function fakeDoc(
   presence: Record<string, unknown> | null,
-  status = "attached",
+  status = 'attached',
 ): FakeDoc {
   const update = vi.fn((fn: (root: unknown, p: unknown) => void) =>
     fn({}, { set: (patch: Record<string, unknown>) => patch }),
@@ -54,9 +69,9 @@ function writtenPatch(doc: FakeDoc): Record<string, unknown> | undefined {
 }
 
 const IDENTITY = {
-  username: "hackerwins",
-  email: "a@b.c",
-  photo: "p.png",
+  username: 'hackerwins',
+  email: 'a@b.c',
+  photo: 'p.png',
 };
 
 function mount(doc: FakeDoc, initialPresence: Record<string, unknown>) {
@@ -68,19 +83,19 @@ function mount(doc: FakeDoc, initialPresence: Record<string, unknown>) {
   );
 }
 
-describe("CollabDocumentProvider presence repair", () => {
+describe('CollabDocumentProvider presence repair', () => {
   beforeEach(() => {
     useDocumentMock.mockReset();
   });
 
-  it("restores initialPresence when attach dropped it entirely", () => {
+  it('restores initialPresence when attach dropped it entirely', () => {
     // The measured symptom: attached, no error, presence silently empty.
     const doc = fakeDoc({});
     mount(doc, IDENTITY);
     expect(writtenPatch(doc)).toEqual(IDENTITY);
   });
 
-  it("writes nothing when attach honoured initialPresence", () => {
+  it('writes nothing when attach honoured initialPresence', () => {
     const doc = fakeDoc({ ...IDENTITY });
     mount(doc, IDENTITY);
     // Not merely "wrote the same values" — no CRDT write at all, so the
@@ -88,11 +103,11 @@ describe("CollabDocumentProvider presence repair", () => {
     expect(doc.update).not.toHaveBeenCalled();
   });
 
-  it("never overwrites a key the editor already published", () => {
+  it('never overwrites a key the editor already published', () => {
     // The regression this guards: SlidesView/BoardView broadcast their own
     // presence fields and rely on identity fields being left alone. A repair
     // that re-set every key would clobber a live selection.
-    const doc = fakeDoc({ selectedElementIds: ["el-9"], cursor: [12, 34] });
+    const doc = fakeDoc({ selectedElementIds: ['el-9'], cursor: [12, 34] });
     mount(doc, {
       ...IDENTITY,
       selectedElementIds: [],
@@ -101,25 +116,25 @@ describe("CollabDocumentProvider presence repair", () => {
 
     const patch = writtenPatch(doc);
     expect(patch).toEqual(IDENTITY);
-    expect(patch).not.toHaveProperty("selectedElementIds");
-    expect(patch).not.toHaveProperty("cursor");
+    expect(patch).not.toHaveProperty('selectedElementIds');
+    expect(patch).not.toHaveProperty('cursor');
   });
 
-  it("repairs only the subset of keys that went missing", () => {
-    const doc = fakeDoc({ username: "hackerwins" });
+  it('repairs only the subset of keys that went missing', () => {
+    const doc = fakeDoc({ username: 'hackerwins' });
     mount(doc, IDENTITY);
-    expect(writtenPatch(doc)).toEqual({ email: "a@b.c", photo: "p.png" });
+    expect(writtenPatch(doc)).toEqual({ email: 'a@b.c', photo: 'p.png' });
   });
 
-  it("leaves a document that is not attached alone", () => {
+  it('leaves a document that is not attached alone', () => {
     // `getMyPresence()` answers {} for a detached document too. Writing then
     // would fabricate presence rather than restore it.
-    const doc = fakeDoc({}, "detached");
+    const doc = fakeDoc({}, 'detached');
     mount(doc, IDENTITY);
     expect(doc.update).not.toHaveBeenCalled();
   });
 
-  it("does nothing before the document exists", () => {
+  it('does nothing before the document exists', () => {
     useDocumentMock.mockReturnValue({ doc: undefined });
     expect(() =>
       render(
@@ -130,26 +145,26 @@ describe("CollabDocumentProvider presence repair", () => {
     ).not.toThrow();
   });
 
-  it("ignores keys whose value is undefined", () => {
+  it('ignores keys whose value is undefined', () => {
     // `DocsDetail` passes `activeCursorPos: undefined`, and the SDK does not
     // store an undefined value — so the key is absent even after a healthy
     // attach. Measured against a live server. Treating it as "missing" would
     // fire a pointless presence write on every docs open and break the
     // no-op-when-healthy property.
-    const doc = fakeDoc({ username: "hackerwins", email: "a@b.c", photo: "" });
+    const doc = fakeDoc({ username: 'hackerwins', email: 'a@b.c', photo: '' });
     mount(doc, { ...IDENTITY, activeCursorPos: undefined });
     expect(doc.update).not.toHaveBeenCalled();
   });
 
-  it("still repairs real keys alongside an undefined one", () => {
+  it('still repairs real keys alongside an undefined one', () => {
     const doc = fakeDoc({});
     mount(doc, { ...IDENTITY, activeCursorPos: undefined });
     const patch = writtenPatch(doc);
     expect(patch).toEqual(IDENTITY);
-    expect(patch).not.toHaveProperty("activeCursorPos");
+    expect(patch).not.toHaveProperty('activeCursorPos');
   });
 
-  it("treats an explicit null as a real value to restore", () => {
+  it('treats an explicit null as a real value to restore', () => {
     // Distinct from undefined: notes/board pass `selection: null` and
     // `cursor: null`, and the SDK does store those.
     const doc = fakeDoc({});
@@ -157,7 +172,7 @@ describe("CollabDocumentProvider presence repair", () => {
     expect(writtenPatch(doc)).toEqual({ selection: null, cursor: null });
   });
 
-  it("tolerates a doc-like value that is missing the presence API", () => {
+  it('tolerates a doc-like value that is missing the presence API', () => {
     // Not hypothetical: several existing tests stub `useDocument()` with only
     // the members they need. This effect runs in the provider of every
     // collaborative document, and a throw from a passive effect unmounts the
@@ -172,10 +187,10 @@ describe("CollabDocumentProvider presence repair", () => {
     ).not.toThrow();
   });
 
-  it("does not propagate a failure from the presence write", () => {
+  it('does not propagate a failure from the presence write', () => {
     const doc = fakeDoc({});
     doc.update = vi.fn(() => {
-      throw new Error("document is not attached");
+      throw new Error('document is not attached');
     });
     useDocumentMock.mockReturnValue({ doc });
     expect(() =>
@@ -187,7 +202,7 @@ describe("CollabDocumentProvider presence repair", () => {
     ).not.toThrow();
   });
 
-  it("renders its children", () => {
+  it('renders its children', () => {
     const doc = fakeDoc({ ...IDENTITY });
     useDocumentMock.mockReturnValue({ doc });
     const { getByText } = render(
@@ -195,6 +210,6 @@ describe("CollabDocumentProvider presence repair", () => {
         <div>child</div>
       </CollabDocumentProvider>,
     );
-    expect(getByText("child")).toBeTruthy();
+    expect(getByText('child')).toBeTruthy();
   });
 });

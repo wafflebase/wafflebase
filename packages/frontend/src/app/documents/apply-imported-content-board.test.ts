@@ -180,3 +180,90 @@ describe("applyBoardElements", () => {
     expect(connector.end).toEqual({ kind: "free", x: 30, y: 40 });
   });
 });
+
+describe("elements read back out of a document", () => {
+  it("keeps connectors attached when the handle is the element's own id", () => {
+    // The offline-copy recovery path reads a rehydrated board through
+    // `YorkieBoardStore` and hands the resulting `Element`s here. Those carry
+    // no mapper `__id`, and their connectors reference their real ids — so a
+    // handle map built from `__id` alone matched nothing and dropped every
+    // attached connector from the recovered copy.
+    const { calls, store } = recordingStore();
+
+    applyBoardElements(store as never, [
+      {
+        id: "el-1",
+        type: "shape",
+        frame: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+        data: { kind: "rect" },
+      },
+      {
+        id: "el-2",
+        type: "shape",
+        frame: { x: 10, y: 0, w: 1, h: 1, rotation: 0 },
+        data: { kind: "rect" },
+      },
+      {
+        id: "el-3",
+        type: "connector",
+        frame: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+        data: { kind: "straight" },
+        start: { kind: "attached", elementId: "el-1", site: "right" },
+        end: { kind: "attached", elementId: "el-2", site: "left" },
+      },
+    ] as unknown as ElementInit[]);
+
+    expect(calls).toHaveLength(3);
+    const connector = calls[2].init as unknown as {
+      start: { elementId: string };
+      end: { elementId: string };
+    };
+    expect(connector.start.elementId).toBe("real-1");
+    expect(connector.end.elementId).toBe("real-2");
+  });
+
+  it("keeps a connector attached to a group member", () => {
+    // `addElement` mints a fresh id only for the element it is given, so a
+    // nested child keeps its own — but a map that never learned about it makes
+    // the connector look unresolvable and drops it.
+    const { calls, store } = recordingStore();
+
+    const result = applyBoardElements(store as never, [
+      {
+        id: "grp-1",
+        type: "group",
+        frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+        data: {
+          children: [
+            {
+              id: "child-1",
+              type: "shape",
+              frame: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+              data: { kind: "rect" },
+            },
+          ],
+        },
+      },
+      {
+        id: "el-2",
+        type: "shape",
+        frame: { x: 10, y: 0, w: 1, h: 1, rotation: 0 },
+        data: { kind: "rect" },
+      },
+      {
+        id: "el-3",
+        type: "connector",
+        frame: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+        data: { kind: "straight" },
+        start: { kind: "attached", elementId: "child-1", site: "right" },
+        end: { kind: "attached", elementId: "el-2", site: "left" },
+      },
+    ] as unknown as ElementInit[]);
+
+    expect(result.droppedConnectors).toBe(0);
+    const connector = calls[2].init as unknown as {
+      start: { elementId: string };
+    };
+    expect(connector.start.elementId).toBe("child-1");
+  });
+});
