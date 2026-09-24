@@ -195,7 +195,7 @@ export const workshopTraining: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('beach-day', 'Workshop / Training', [
-      ['title-slide', [['Workshop / Training'], ['<facilitator> · <date>']], 'block'],
+      ['title-slide', [['Workshop / Training'], ['<facilitator> · <date>']], 'split'],
       [
         'title-body',
         [

@@ -36,8 +36,9 @@ layout whose slots match the idea.
 | `title-only` | title | a heading over content you add later |
 | `blank` | (none) | start from nothing |
 
-Each slot takes an **array of lines**; in a `body` slot each line is one
-bullet. An omitted slot stays the empty placeholder the layout seeded (that is
+Each slot takes an **array of lines**; in a `body` slot each line becomes its
+own paragraph (not a bulleted list — the seed builder emits `paragraph` blocks).
+An omitted slot stays the empty placeholder the layout seeded (that is
 what an unfilled placeholder is — leave it for the user to fill).
 
 ## Design rules (what keeps it from looking AI-generated)
