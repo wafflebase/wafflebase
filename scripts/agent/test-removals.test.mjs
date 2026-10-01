@@ -255,6 +255,99 @@ test("countCases: a newly added node:test `{ todo }` / `{ skip }` option is a di
     { removed: 1, added: 1, suitesOff: 0 });
 });
 
+// The prompt's own form, `test("long title", { todo: '…' }, async () => {…})`,
+// does not fit in 80 columns, and Prettier wraps every argument onto its own
+// line. These patches are `git diff` output of Prettier's real formatting
+// (this repo's .prettierrc): the option line then matches no case pattern.
+test("countCases: a `{ todo }` / `{ skip }` option Prettier wrapped onto its own line is a disablement", () => {
+  const wrapped = [
+    " describe('suite', () => {",
+    "-  test('rejects a concurrent merge across a split boundary', async () => {",
+    "-    assert.equal(1, 1);",
+    "-  });",
+    "+  test(",
+    "+    'rejects a concurrent merge across a split boundary',",
+    "+    { todo: 'still reproduces: merge split boundary' },",
+    "+    async () => {",
+    "+      assert.equal(1, 1);",
+    "+    },",
+    "+  );",
+  ].join("\n");
+  assert.deepEqual(countCases(wrapped), { removed: 1, added: 1, suitesOff: 0, optionsOff: 1 });
+  // A case already wrapped (a long title) gains only the option line; the
+  // opener and title are context.
+  const lone = [
+    "@@ -5,6 +5,7 @@ describe('suite', () => {",
+    "   test(",
+    "     'rejects a concurrent merge across a split boundary that was already applied',",
+    "+    { todo: 'still reproduces: merge split boundary' },",
+    "     async () => {",
+    "       assert.equal(1, 1);",
+    "     },",
+  ].join("\n");
+  assert.deepEqual(countCases(lone), { removed: 0, added: 0, suitesOff: 0, optionsOff: 1 });
+  // A long option breaks the object too, one property per line.
+  const broken = [
+    "+test(",
+    "+  'rejects a concurrent merge',",
+    "+  {",
+    "+    timeout: 5000,",
+    "+    skip: process.platform === 'win32' && 'flaky on windows runners for now',",
+    "+  },",
+    "+  async () => {",
+  ].join("\n");
+  assert.equal(countCases(broken).optionsOff, 1);
+  // An existing option on a wrapped case gained a key.
+  assert.equal(countCases("   it(\n     'x',\n-    { timeout: 5000 },\n+    { timeout: 5000, skip: true },\n     async () => {").optionsOff, 1);
+});
+
+test("countCases: a wrapped option that was already there is not a new disablement", () => {
+  // Re-wrapped from one line (a longer title made it overflow).
+  assert.deepEqual(countCases([
+    "-  it('x', { skip: !shouldRun }, async () => {",
+    "+  it(",
+    "+    'x with a title long enough that Prettier now wraps every argument',",
+    "+    { skip: !shouldRun },",
+    "+    async () => {",
+  ].join("\n")), { removed: 1, added: 1, suitesOff: 0 });
+  // Re-indented (moved into a describe), the object broken over lines.
+  assert.deepEqual(countCases([
+    "-test(",
+    "-  'x',",
+    "-  {",
+    "-    skip: !shouldRun,",
+    "-  },",
+    "-  async () => {",
+    "+  test(",
+    "+    'x',",
+    "+    {",
+    "+      skip: !shouldRun,",
+    "+    },",
+    "+    async () => {",
+  ].join("\n")), { removed: 1, added: 1, suitesOff: 0 });
+  // Its title edited in place, the option line untouched context.
+  assert.deepEqual(countCases([
+    "   it(",
+    "-    'old title that is long enough to make Prettier wrap the call',",
+    "+    'new title that is long enough to make Prettier wrap the call',",
+    "     { skip: !shouldRun },",
+    "     async () => {",
+  ].join("\n")), { removed: 0, added: 0, suitesOff: 0 });
+});
+
+test("countCases: `todo`/`skip` keys outside a case's options are not disablements", () => {
+  for (const patch of [
+    // A `test.each` table: the first argument is data, not a title.
+    "+test.each([\n+  { skip: true, a: 1 },\n+  { skip: false, a: 2 },\n+])('row %o', ({ a }) => {});",
+    // A call that is not a case, shaped like one.
+    "+  register(\n+    'x',\n+    { skip: true },\n+    async () => {",
+    // An object in a case's body.
+    "+  test(\n+    'x',\n+    async () => {\n+      const opts = { skip: true };\n+      run({ todo: 1 });",
+    // A key in the callback's own object, after the options slot.
+    "+  test(\n+    'x',\n+    { timeout: 5 },\n+    async () => {\n+      const o = {\n+        todo: 1,\n+      };",
+  ]) assert.equal(countCases(patch).optionsOff, undefined, patch);
+});
+
 test("aggregateCommits: a suite skipped and un-skipped inside one round is not reported", () => {
   const commits = [
     { sha: "a", parents: [{}], files: [{ filename: "packages/sheets/test/m.test.ts", status: "modified", patch: "-describe('m', () => {\n+describe.skip('m', () => {" }] },
@@ -283,3 +376,4 @@ test("capRoundCommits: commits past the cap are flagged, never silently dropped"
   // A truncated record with nothing seen is still believable: it says the round was not fully read.
   assert.equal(collectTestRemovals([bot(body)])[0].truncated, true);
 });
+

@@ -108,6 +108,24 @@ const FOCUS = /^[-+]\s*(?:(?:it|test|describe)(?:\.\w+)*\.only|fdescribe|fit(?=\
 // suite. It is the form the fixer prompt gives for node:test files, so a newly
 // added one is evidence, netted only against lines that already carried it.
 const OPTION_OFF = /,\s*\{[^}]*\b(?:todo|skip)\s*:/;
+// The same option once Prettier has WRAPPED the call: the prompt's
+// `test("long title", { todo: '…' }, async () => {…})` overflows 80 columns,
+// and Prettier puts the opener, the title, the options and the callback on
+// lines of their own, the object itself broken one key per line when long:
+//
+//   test(                                test(
+//     'long title',                        'long title',
+//     { todo: 'still reproduces: …' },     {
+//     async () => {                          timeout: 5000,
+//                                            skip: !shouldRun,
+//                                          },
+//
+// Recognised only in that slot — a bare case opener, a title that starts with
+// a quote, then the object — so a `test.each` table, a look-alike call or an
+// object in the body never counts (`wrappedOptions`).
+const WRAPPED_OPENER = /^\s*(?:it|test)(?:\.(?:only|concurrent|fails|failing|sequential))*\s*\(\s*$/;
+const WRAPPED_TITLE = /^\s*['"`]/;
+const OPTION_KEY = /(?:^|[{,])\s*(?:todo|skip)\s*:/;
 // A suite that may not run. Counted apart from cases and never netted against
 // added ones: one `describe.skip` silences every case under it without those
 // lines changing, so "one suite off, one case added" must still be reported.
@@ -122,6 +140,9 @@ const SUITE_OFF = /^[-+]\s*(?:describe(?:\.\w+)*\.(?:skip|todo|skipIf|runIf)|xde
  */
 function tally(patch) {
   const t = { removed: 0, added: 0, offAdded: 0, offRemoved: 0, focusAdded: 0, focusRemoved: 0, optAdded: 0, optRemoved: 0 };
+  const wrapped = wrappedOptions(patch);
+  t.optAdded += wrapped.added;
+  t.optRemoved += wrapped.removed;
   for (const line of str(patch).split("\n")) {
     if (line.startsWith("---") || line.startsWith("+++")) continue;
     const plus = line[0] === "+";
@@ -136,6 +157,68 @@ function tally(patch) {
     if (OPTION_OFF.test(line)) plus ? t.optAdded++ : t.optRemoved++;
   }
   return t;
+}
+
+/**
+ * Options on WRAPPED case calls that a patch adds and removes. Each side of the
+ * diff is read as its own file (context lines belong to both), so a call whose
+ * opener and title are unchanged context still has its options slot found. An
+ * option counts on a side only when its key line CHANGED on that side: an
+ * existing `{ skip: !shouldRun },` left as context counts nowhere, and one
+ * re-indented or re-wrapped is removed on one side and added on the other,
+ * which nets to zero like the one-line form.
+ */
+function wrappedOptions(patch) {
+  const out = { added: 0, removed: 0 };
+  const sides = { "+": { phase: 0 }, "-": { phase: 0 } };
+  for (const line of str(patch).split("\n")) {
+    if (line.startsWith("---") || line.startsWith("+++")) continue;
+    if (line.startsWith("@@")) {
+      sides["+"].phase = 0;
+      sides["-"].phase = 0;
+      continue;
+    }
+    const mark = line[0];
+    if (mark !== " " && mark !== "+" && mark !== "-") continue;
+    const text = line.slice(1);
+    for (const side of mark === " " ? ["+", "-"] : [mark]) {
+      const st = sides[side];
+      const changed = mark === side;
+      const hit = () => {
+        if (changed && !st.counted) {
+          out[side === "+" ? "added" : "removed"]++;
+          st.counted = true;
+        }
+      };
+      if (st.phase === 1) {
+        st.phase = WRAPPED_TITLE.test(text) ? 2 : 0;
+        if (st.phase) continue;
+      } else if (st.phase === 2) {
+        st.phase = 0;
+        st.counted = false;
+        if (/^\s*\{.*\}\s*,?\s*$/.test(text)) {
+          if (OPTION_KEY.test(text)) hit();
+          continue;
+        }
+        if (/^\s*\{\s*$/.test(text)) {
+          st.phase = 3;
+          st.depth = 0;
+          continue;
+        }
+      } else if (st.phase === 3) {
+        // One key per line at the object's own depth; a nested object's keys
+        // are not the case's options.
+        if (st.depth === 0 && /^\s*(?:todo|skip)\s*:/.test(text)) hit();
+        const opens = (text.match(/[{[(]/g) ?? []).length;
+        const closes = (text.match(/[}\])]/g) ?? []).length;
+        st.depth += opens - closes;
+        if (st.depth < 0) st.phase = 0;
+        continue;
+      }
+      if (WRAPPED_OPENER.test(text)) st.phase = 1;
+    }
+  }
+  return out;
 }
 
 /**
