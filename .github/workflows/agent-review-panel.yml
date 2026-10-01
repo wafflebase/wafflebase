@@ -1978,9 +1978,14 @@ jobs:
           }
           node "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" --state /tmp/review-panel-execution --probe --model claude-opus-5
 
+      # A KNOWN-DEAD POOL STOPS HERE. Everything from the App token to the state
+      # flip is setup for the fixer — a token mint, a branch checkout, a toolchain
+      # and a `pnpm install` — and none of it serves the no-credential page below,
+      # which needs only the staged scripts and the GITHUB_TOKEN. Same `!= 'false'`
+      # as the dispatch record: an unset answer proceeds as before.
       - name: Generate GitHub App token
         id: app-token
-        if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         # Pinned to an immutable commit SHA (not the movable @v1 tag) for
         # supply-chain safety — this action handles the App private key.
         # Dependabot updates the pin. Renovate/Dependabot track the # comment.
@@ -1997,27 +2002,27 @@ jobs:
           permission-issues: write # PR conversation comments use the issues API
 
       - uses: actions/checkout@v4
-        if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
       - uses: pnpm/action-setup@v4
-        if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
       - uses: actions/setup-node@v4
-        if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         with:
           node-version: 22.x
           cache: pnpm
       - name: Install dependencies
-        if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         run: pnpm install --frozen-lockfile
 
       # Single-value state: a fix round is in flight → agent:fixing. Uses the
       # branch's own checkout (this job is author-side and already runs branch
       # code). Best-effort; advisory only.
       - name: Set state → fixing
-        if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

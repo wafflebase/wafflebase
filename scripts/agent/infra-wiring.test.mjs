@@ -108,3 +108,40 @@ test("the page and the evidence never run in the agent's own job", () => {
     assert.ok(!fix.includes(s), `${s} must run in fix-evidence, not after the agent in fix`);
   }
 });
+
+// A dead pool must go straight to its page. Before this, `available=false`
+// still minted the App token, checked the branch out and ran `pnpm install`
+// (minutes, and branch code on disk for nothing), then set `agent:fixing`
+// just before the page set `agent:blocked`.
+test("a known-dead pool skips the setup steps and still reaches its page", () => {
+  const fix = job("fix");
+  const steps = fix.split("\n      - ").slice(1).map((s) => "      - " + s);
+  const at = (needle) => {
+    const i = steps.findIndex((s) => s.includes(needle));
+    assert.ok(i >= 0, `no step with ${JSON.stringify(needle)}`);
+    return i;
+  };
+  const from = at("name: Generate GitHub App token");
+  const to = at("name: Set state → fixing");
+  assert.ok(from < to);
+  const gated = steps.slice(from, to + 1);
+  // The token, the branch checkout, the toolchain, the install, the state flip.
+  assert.ok(gated.length >= 6, `expected the setup block, got ${gated.length} step(s)`);
+  for (const st of gated) {
+    assert.match(st, /\n\s+if: steps\.guard\.outputs\.proceed == 'true' && steps\.cred\.outputs\.available != 'false'(\n|$)/,
+      `a setup step runs on a dead pool: ${st.split("\n")[0].trim()}`);
+  }
+  // What the page needs runs regardless: the staged scripts (set-state.mjs)
+  // and the probe that decided. The page itself uses only those and the
+  // GITHUB_TOKEN, never anything the gated block produced.
+  for (const pre of ["name: Stage the trusted agent scripts", "name: Pick a live fixer credential"]) {
+    const st = steps[at(pre)];
+    assert.doesNotMatch(st, /available/, `${pre} must not depend on the probe's answer`);
+    assert.ok(at(pre) < at("name: Page — no live credential for the fixer"));
+  }
+  const page = steps[at("name: Page — no live credential for the fixer")];
+  assert.match(page, /if: steps\.guard\.outputs\.proceed == 'true' && steps\.cred\.outputs\.available == 'false'/);
+  assert.match(page, /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+  assert.doesNotMatch(page, /steps\.app-token|steps\.before-fix|pnpm/);
+  assert.match(page, /"\$RUNNER_TEMP\/agent-tools\/set-state\.mjs" "\$PR" blocked/);
+});

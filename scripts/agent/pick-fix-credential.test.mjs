@@ -185,7 +185,9 @@ test("the fix job picks a credential BEFORE recording the round, and gates on it
   // BOTH gates are `!= 'false'`, never `== 'true'`: an unset output has to proceed,
   // or a skipped/older picker would silently stop every fixer in the pipeline.
   const gate = /if: steps\.guard\.outputs\.proceed == 'true' && steps\.cred\.outputs\.available != 'false'/g;
-  assert.equal((wf.match(gate) ?? []).length, 2, "the dispatch record and the fixer must both carry the gate");
+  // The six setup steps from the App token to `Set state → fixing` carry it too
+  // (infra-wiring.test.mjs pins which), so a dead pool goes straight to its page.
+  assert.equal((wf.match(gate) ?? []).length, 8, "the setup block, the dispatch record and the fixer must carry the gate");
   assert.doesNotMatch(wf, /steps\.cred\.outputs\.available == 'true'/, "a positive gate would fail closed");
 
   // The fixer is handed the picked slot, resolved through `secrets` so the token
