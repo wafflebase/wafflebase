@@ -91,7 +91,7 @@ const refuse = (msg) => {
  * differ by construction, so feeding the version in as well would add nothing and
  * would make every future bump look like a panel change.
  */
-export const PANEL_DIGEST_VERSION = "wafflebase/panel-digest@1";
+export const PANEL_DIGEST_VERSION = "wafflebase/panel-digest@2";
 
 /**
  * The digest states that are NOT digests, spelled out rather than left to a falsy
@@ -173,11 +173,14 @@ export const PANEL_ENTRY = "review-panel.mjs";
  *   `rebuttal.mjs`        the adjudicator's schema, prompt and overturn rule
  *   `fix-report.mjs`      `authorClaims` / `claimFor` — which author claims are
  *                         adjudicated at all
+ *   `test-removals.mjs`   `describeRemoval`, the pipeline-evidence lines the
+ *                         adjudicator reads before the author's fence, so it can
+ *                         change which disputes are overturned (@2 added it)
  *   `citation.mjs`        `CITATION`, prompt text every lens is sent
  *   `review-state.mjs`    `renderScopeNote`, prompt text, and the state a later round
  *                         reads back
  *
- * Bare basenames because all ten live in one directory today. The digest keys on
+ * Bare basenames because all eleven live in one directory today. The digest keys on
  * `path.basename` regardless, so a file that later moves into a subdirectory keeps its
  * identity — see `panelManifest`.
  */
@@ -192,6 +195,7 @@ export const PANEL_FILES = Object.freeze([
   "review-surface.mjs",
   "rounds.mjs",
   "severity.mjs",
+  "test-removals.mjs",
 ]);
 
 /**

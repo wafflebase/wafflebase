@@ -685,8 +685,9 @@ jobs:
           pnpm slides build
           pnpm sheets build
 
-      # quay.io, not Docker Hub: MinIO withdrew the `minio/minio` repository
-      # there, so an unqualified pull is denied. Do not "normalize" this back.
+      # MinIO withdrew its public images from Docker Hub and then quay.io (a
+      # pull of either is denied), so this is the community-maintained build of
+      # the same server, pinned by digest. Do not "normalize" it back.
       - name: Start MinIO object storage
         if: env.RUN_HEAVY == 'true'
         run: |
@@ -694,7 +695,7 @@ jobs:
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+            pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372 server /data
 
       - name: Wait for MinIO to become healthy
         if: env.RUN_HEAVY == 'true'

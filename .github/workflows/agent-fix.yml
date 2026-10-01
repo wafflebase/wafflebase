@@ -88,6 +88,16 @@ jobs:
       cancel-in-progress: false
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    # For `fix-evidence`, which reads the run from a fresh runner rather than
+    # from a step after the agent on this one.
+    outputs:
+      before: ${{ steps.before-fix.outputs.sha }}
+      branch: ${{ steps.pr.outputs.branch }}
+      head: ${{ steps.eligible.outputs.head }}
+      # Who the fixer pushes as and when its run began, both written BEFORE
+      # the agent runs, so the removal record counts only the pushes it made.
+      app_slug: ${{ steps.app-token.outputs.app-slug }}
+      since: ${{ steps.before-fix.outputs.since }}
     steps:
       # Authoritative trust gate — this verb pushes commits to the PR branch, so
       # it is maintainers only (org membership is not repo write; check the real
@@ -297,12 +307,16 @@ jobs:
           fi
           echo "Head still $ACTUAL — the panel's verdict describes this tree."
 
+      # `since` stamps the run's start for `fix-evidence` (see the panel's step
+      # of the same name). Written before the agent, so the agent cannot move it.
       - name: Record branch head before fix
         id: before-fix
         if: steps.eligible.outputs.eligible == 'true'
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
-        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
 
       # WHICH POOL SLOT THIS JOB USES. `claude-code-action` takes one credential and
       # cannot consult `token-pool.mjs`, so without this the step below is pinned to
@@ -377,6 +391,19 @@ jobs:
               requires touching others; do not refactor unrelated code.
             - Run `pnpm verify:fast` ONCE at the end to confirm green — not after
               every edit.
+            - NEVER DELETE OR DISABLE A TEST THAT SHOWS A FINDING STILL REPRODUCES.
+              If a test you wrote (or found) still fails, the finding is not
+              fixed. Keep it running and report that item `--skipped` with the
+              reason; do not claim it `--fixed`. The form depends on the runner:
+              Vitest: `it.fails(...)`. Jest (packages/backend `*.spec.ts`,
+              `*.e2e-spec.ts`): `test.failing(...)`. node:test (`scripts/**`
+              `*.test.mjs`, the frontend's `*.integration.ts`) has neither, and
+              either one crashes the file there; use the option
+              `{ todo: 'still reproduces: <finding>' }`, which runs and reports
+              without failing. Name the finding in a comment. The pipeline
+              records every test a fix round removes, focuses (`.only`, `fit`),
+              or turns into `.skip`/`.todo`/`xit`/`{ todo }`/`{ skip }`, and
+              shows it to the next round's adjudicator beside your claims.
 
             THEN REPORT WHAT YOU DID. This is required, and it is not optional
             paperwork: the next review round reads this report and hands each claim
@@ -586,3 +613,54 @@ jobs:
             --event on-demand-fix \
             --note "An on-demand @claude fix ran — the outcome comment above says whether a commit landed; if one did, CI and a fresh panel round run on it." \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+  # WHAT THE FIX RUN TOOK AWAY FROM THE TESTS — the same record the panel's
+  # `fix-evidence` job posts (see agent-review-panel.yml, which says why it is
+  # a separate job on a fresh runner rather than a step after the agent), so a
+  # `@claude fix` run's "fixed" claims reach the next adjudicator with it too.
+  fix-evidence:
+    needs: [fix]
+    if: always() && needs.fix.outputs.before != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # the branch head and the run's commits, through the API
+      pull-requests: write # the removal record (GITHUB_TOKEN)
+      issues: write # PR conversation comments use the issues API
+    steps:
+      - uses: actions/checkout@v4
+        if: always()
+        with:
+          ref: main
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: always()
+        with:
+          node-version: 22.x
+      - name: Record tests the fix round removed
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.issue.number }}
+          BEFORE: ${{ needs.fix.outputs.before }}
+          BRANCH: ${{ needs.fix.outputs.branch }}
+          HEAD_SHA: ${{ needs.fix.outputs.head }}
+          ACTOR: ${{ needs.fix.outputs.app_slug }}[bot]
+          SINCE: ${{ needs.fix.outputs.since }}
+        # The head is read only to skip a run that pushed nothing. The record
+        # itself counts the App bot's pushes since SINCE, so a human push after
+        # the fixer is not blamed on it (test-removals.mjs `fixerPushes`).
+        run: |
+          AFTER="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha 2>/dev/null || echo '')"
+          if [ -z "$AFTER" ]; then
+            echo "could not read the branch head; recording nothing"
+            exit 0
+          fi
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "$AFTER" ]; then
+            echo "the branch head did not advance; nothing to compare"
+            exit 0
+          fi
+          node scripts/agent/test-removals.mjs post "$PR" --before "$BEFORE" --branch "$BRANCH" --actor "$ACTOR" --since "$SINCE" --head "$HEAD_SHA"
