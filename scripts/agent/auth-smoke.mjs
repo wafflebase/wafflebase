@@ -103,11 +103,14 @@ export function classifyFailure(message) {
  * One vocabulary, two thresholds: the AUTH list and SESSION_LIMIT_RE are shared,
  * so the two cannot disagree about what a rejected credential looks like.
  *
- * Quota first, as above: a usage-window refusal often arrives worded as auth.
+ * Order: a closed usage window first (it often arrives worded as auth, and
+ * with a 429); then any transient capacity signal, which wins over auth words
+ * so a 429 that also says "403" or "unauthorized" cannot latch a PR; then auth.
  */
 export function classifyRefusal(message) {
   const text = String(message ?? "");
   if (SESSION_LIMIT_RE.test(text)) return "quota";
+  if (QUOTA.some((re) => re !== SESSION_LIMIT_RE && re.test(text))) return "unknown";
   if (AUTH.some((re) => re.test(text))) return "auth";
   return "unknown";
 }

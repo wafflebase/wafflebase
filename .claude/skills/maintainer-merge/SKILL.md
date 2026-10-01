@@ -103,7 +103,8 @@ non-interactive tool call. Have the human run it, then continue.
    **On an `agent:managed` PR the new head re-runs the panel**, and the panel
    is a sample. A merge of main that leaves the PR's own diff unchanged (same
    `git patch-id --verbatim`) carries the approval instead: the lens checks on
-   the new head read "carried from <sha>" and `agent:ready` stays. A merge
+   the new head read "carried from <sha>" and the PR returns to `agent:ready`
+   once CI is green (it reads `agent:reviewing` meanwhile). A merge
    that touched the PR's hunks or their context, such as the conflict
    resolution in step 2, is a full review again. With the fix budget spent,
    that review can move a ready PR to `agent:blocked` on code nobody changed —

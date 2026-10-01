@@ -7,7 +7,8 @@
 // not converge, when the API had stopped answering. The cause was computed by
 // `classifyFixResult`, but only into the job summary, which nobody paged reads.
 //
-// This runs in the trusted `fix-report` job, on a runner the agent never had a
+// This runs in a trusted job (js-sdk's `fix-report`, wafflebase's
+// `fix-evidence`), on a runner the agent never had a
 // shell on, and decides from the fixer's execution log:
 //
 //   infra  the fixer step FAILED, the branch head is KNOWN not to have

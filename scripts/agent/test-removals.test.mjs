@@ -37,7 +37,8 @@ test("isRunnableTest: every name this repo's runners collect", () => {
     "packages/backend/test/http.e2e-spec.ts", // Jest e2e
     "packages/frontend/tests/app/docs/yorkie-doc-store-concurrent.integration.ts", // tsx --test
   ]) assert.equal(isRunnableTest(f), true, f);
-  for (const f of ["packages/backend/test/jest-e2e.json", "packages/backend/test/seed-lakehouse-fixtures.ts", "packages/backend/test/http.e2e-spec.ts.off"]) {
+  for (const f of ["packages/backend/test/jest-e2e.json", "packages/backend/test/seed-lakehouse-fixtures.ts", "packages/backend/test/http.e2e-spec.ts.off",
+    "packages/slides/src/view/editor/hit-test.ts"]) {
     assert.equal(isRunnableTest(f), false, f);
   }
 });
@@ -53,6 +54,8 @@ test("countCases: Jest's spellings — `failing` runs, `xit`/`xtest` do not, `xd
     "+xdescribe('FolderController', () => {",
   ].join("\n");
   assert.deepEqual(countCases(patch), { removed: 2, added: 2, suitesOff: 1 });
+  // A local helper named `fit` (fit-to-content.test.ts) is not a case.
+  assert.deepEqual(countCases("+  fit();\n-  fit(board, 2);\n+  fitness(x);"), { removed: 0, added: 0, suitesOff: 0 });
 });
 
 test("testRemovals: a Jest e2e spec renamed out of the runner's pattern is a deletion", () => {

@@ -12,16 +12,15 @@
 // (checks.mjs says as much), which reads the cumulative diff and cannot see a
 // test that was written and removed between two of its rounds.
 //
-// This is the mechanical half. The trusted `fix-evidence` job (the panel's;
-// `agent-fix.yml` has its own) reads the round's
-// commits through the API — never a checkout the agent touched — and when a
-// test file was deleted, renamed out of the runner's reach, lost active cases,
-// or had a suite switched off, posts a `<!-- agent-fix-tests -->` record as
-// `github-actions[bot]`. The next round puts it in front of the adjudicator,
-// before the author's fence, for every claim and dispute it adjudicates
-// (fix-report.mjs, rebuttal.mjs). It decides nothing itself: a removed test can
-// be a legitimate cleanup, so it is EVIDENCE for a component that already
-// re-reads the code, not a gate.
+// This is the mechanical half. A trusted `fix-evidence` job (one in each fixer
+// workflow) reads the round's commits through the API — never a checkout the
+// agent touched — and when a test file was deleted, renamed out of the
+// runner's reach, lost active cases, or had a suite switched off, posts a
+// `<!-- agent-fix-tests -->` record as `github-actions[bot]`. The next round
+// puts it in front of the adjudicator, before the author's fence, for every
+// claim and dispute it adjudicates (fix-report.mjs, rebuttal.mjs). It decides
+// nothing itself: a removed test can be a legitimate cleanup, so it is
+// EVIDENCE for a component that already re-reads the code, not a gate.
 //
 // PER COMMIT, NOT ONE COMPARE. A three-dot compare diffs from the merge base:
 // a merge of main would be blamed on the fixer, a test committed and deleted
@@ -80,23 +79,24 @@ export function isTestFile(file) {
  *   `*.spec.ts`              Jest, packages/backend (`testRegex: .spec.ts$`)
  *   `*.e2e-spec.ts`          Jest, packages/backend/test/jest-e2e.json
  *   `*.integration.ts`       `tsx --test`, packages/frontend (test:integration)
- * `_test` is kept from the js-sdk copy; nothing here uses it today, and a
- * name the runners ignore is no removal if it is never matched.
+ * Dot-separated only, unlike the js-sdk copy's `[._]`: no runner here collects
+ * `_test` or `-test`, and `hit-test.ts` (packages/slides) is source.
  */
 export function isRunnableTest(file) {
-  return /(?:[._-](?:test|spec)|\.integration)\.[cm]?[jt]sx?$/.test(str(file));
+  return /\.(?:test|spec|e2e-spec|integration)\.[cm]?[jt]sx?$/.test(str(file));
 }
 
 // An ACTIVE case declaration at the start of a diff line: `it`/`test` with any
 // chain of the modifiers that still RUN (`only`, `each`, `concurrent`, `fails`,
 // `sequential`, `for`; Jest's `failing`), called or tagged (`test.each\`…\``),
-// or Jest's focused `fit`. `.fails` (Vitest) and `.failing` (Jest) run and
+// or Jest's focused `fit` — only with a string title, because this repo has a
+// local `fit()` helper (`fit-to-content.test.ts`) whose calls are not cases. `.fails` (Vitest) and `.failing` (Jest) run and
 // assert the failure — how a fixer should record a reproduction it could not
 // fix — so turning a case into one is not a removal. `.skip`, `.todo`,
 // `.skipIf(…)`, `.runIf(…)` and Jest's `xit`/`xtest` may not run: a case
 // rewritten to one stops matching, which counts it removed. node:test's
 // `{ skip }` / `{ todo }` OPTION is not seen; it sits after the case name.
-const CASE = /^[-+]\s*(?:(?:it|test)(?:\.(?:only|each|concurrent|fails|failing|sequential|for))*|fit)\s*[(`]/;
+const CASE = /^[-+]\s*(?:(?:it|test)(?:\.(?:only|each|concurrent|fails|failing|sequential|for))*\s*[(`]|fit\s*\(\s*['"`])/;
 // A suite that may not run. Counted apart from cases and never netted against
 // added ones: one `describe.skip` silences every case under it without those
 // lines changing, so "one suite off, one case added" must still be reported.

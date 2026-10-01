@@ -2573,8 +2573,9 @@ jobs:
       # `stalled` stands down. Otherwise it does nothing and the existing nets
       # page.
       #
-      # NOT continue-on-error: a page that failed to post must red this job, so
-      # `stalled` (which tests `fix-evidence` failing) still pages.
+      # NOT continue-on-error, and `paged=true` is written only after the post:
+      # a page that failed leaves `infra_paged` empty, so `stalled` still pages
+      # the failed fixer as before.
       - name: Page an infrastructure failure
         id: infra
         # `advanced == 'false'` is set only when both heads were read and match:

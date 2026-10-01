@@ -429,4 +429,6 @@ test("classifyProbeFailure: auth-smoke's vocabulary, narrowed to refusals that s
     assert.equal(classifyFailure(msg), "quota", msg);
     assert.equal(classifyProbeFailure(msg), "unknown", msg);
   }
+  // A transient refusal that also carries auth words is still transient.
+  assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
 });
