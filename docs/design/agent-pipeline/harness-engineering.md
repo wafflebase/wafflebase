@@ -3654,7 +3654,11 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
   the PR's hunks or their context changes the fingerprint and is reviewed.
   `resolveReviewMode` checks the fingerprint before the git facts, so a merge in
   range or a clean rebase no longer forces `merge-in-range` when the diff is the
-  same artifact.
+  same artifact. A rebase rewrites every commit, so the approved head is no
+  longer in the PR's commit list. It is found through the PR's force-push
+  events instead: GraphQL `beforeCommit`, because the REST event names only the
+  new head. Check runs on the replaced head stay readable. A replaced head is
+  used only when it holds the newest verdicts, and only to carry.
 - **Reuse.** A rerun on a commit that already has verdicts re-stamps them, so a
   blocking verdict goes straight to the fixer. `@claude rerun review` asks for a
   fresh sample; only a trusted commenter's latest rerun speaks, and only when it

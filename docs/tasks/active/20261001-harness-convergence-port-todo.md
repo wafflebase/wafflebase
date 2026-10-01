@@ -305,10 +305,28 @@ here.
 Verification: `cd scripts/agent && npm test` 2741 pass, 0 fail (2733 before);
 `pnpm lint:scripts` clean; `verify:doc-index`, `verify:doc-links` pass.
 
+**Shared-module fixes, carried from the yorkie port (yorkie#2086).** The
+yorkie diff for `review-scope.mjs`, `fix-report.mjs` and their tests applies
+here unchanged. `review-scope.mjs` is byte-identical to yorkie's again.
+- A failed permission lookup can force a review, but it can no longer cancel a
+  trusted `@claude rerun review`. A 404 counts as no access. Reruns are
+  filtered by time before any permission call, and trust is resolved newest
+  first.
+- Carry survives a clean rebase. The replaced head is found through GraphQL
+  `HeadRefForcePushedEvent.beforeCommit`. It is used only when it holds the
+  newest verdicts, and only to carry.
+- Removal records for the same head are merged per file instead of the last
+  one winning.
+- `evidence-wiring.test.mjs` now requires every `--jq` that `ghLines` parses to
+  print JSON. That is the class of the `.[].sha` bug above, which yorkie had
+  as well.
+
+After: `scripts/agent` 2749 pass, 0 fail.
+
 ### Verification
 
-- `cd scripts/agent && npm test`: 2741 tests, 2741 pass, 0 fail after the
-  /code-review fixes; 2733 after the second review (2728 before it;
+- `cd scripts/agent && npm test`: 2749 tests, 2749 pass, 0 fail after the
+  /code-review fixes and the shared ones from yorkie (2741 before those); 2733 after the second review (2728 before it;
   baseline 2659: 2654 pass, 5 skipped before
   `pnpm install`).
 - `pnpm lint:scripts`: clean. `verify:doc-index` and `verify:doc-links`: pass.
