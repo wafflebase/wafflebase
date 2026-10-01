@@ -385,12 +385,17 @@ jobs:
               every edit.
             - NEVER DELETE OR DISABLE A TEST THAT SHOWS A FINDING STILL REPRODUCES.
               If a test you wrote (or found) still fails, the finding is not
-              fixed. Keep it as `it.fails(...)` with a comment naming the
-              finding (Vitest; under Jest in packages/backend the same is
-              `test.failing(...)`), and report that item `--skipped` with the
-              reason. Do not claim it `--fixed`. The pipeline records every test
-              a fix round removes or turns into `.skip`/`.todo`/`xit` and shows
-              it to the next round's adjudicator beside your claims.
+              fixed. Keep it running and report that item `--skipped` with the
+              reason; do not claim it `--fixed`. The form depends on the runner:
+              Vitest: `it.fails(...)`. Jest (packages/backend `*.spec.ts`,
+              `*.e2e-spec.ts`): `test.failing(...)`. node:test (`scripts/**`
+              `*.test.mjs`, the frontend's `*.integration.ts`) has neither, and
+              either one crashes the file there; use the option
+              `{ todo: 'still reproduces: <finding>' }`, which runs and reports
+              without failing. Name the finding in a comment. The pipeline
+              records every test a fix round removes, focuses (`.only`, `fit`),
+              or turns into `.skip`/`.todo`/`xit`/`{ todo }`/`{ skip }`, and
+              shows it to the next round's adjudicator beside your claims.
 
             THEN REPORT WHAT YOU DID. This is required, and it is not optional
             paperwork: the next review round reads this report and hands each claim
@@ -637,7 +642,11 @@ jobs:
           HEAD_SHA: ${{ needs.fix.outputs.head }}
         run: |
           AFTER="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha 2>/dev/null || echo '')"
-          if [ -z "$BEFORE" ] || [ -z "$AFTER" ] || [ "$BEFORE" = "$AFTER" ]; then
+          if [ -z "$AFTER" ]; then
+            echo "could not read the branch head; recording nothing"
+            exit 0
+          fi
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "$AFTER" ]; then
             echo "the branch head did not advance; nothing to compare"
             exit 0
           fi

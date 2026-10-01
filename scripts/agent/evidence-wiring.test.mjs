@@ -39,9 +39,12 @@ for (const file of ["agent-review-panel.yml", "agent-fix.yml"]) {
 
   test(`${file}: the fixer is told not to delete a test that still reproduces`, () => {
     assert.match(WF(file), /NEVER DELETE OR DISABLE A TEST THAT SHOWS A FINDING STILL REPRODUCES\./);
-    assert.match(WF(file), /Keep it as `it\.fails\(\.\.\.\)`/);
+    assert.match(WF(file), /Vitest: `it\.fails\(\.\.\.\)`/);
     // This repo's backend runs Jest, where the same thing is spelled differently.
     assert.match(WF(file), /`test\.failing\(\.\.\.\)`/);
+    // node:test files (scripts/**/*.test.mjs, the frontend's *.integration.ts)
+    // have neither, and either one crashes the file there.
+    assert.match(WF(file), /node:test[\s\S]{0,200}\{ todo: 'still reproduces: <finding>' \}/);
   });
 }
 

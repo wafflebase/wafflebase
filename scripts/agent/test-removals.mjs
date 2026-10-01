@@ -90,13 +90,24 @@ export function isRunnableTest(file) {
 // chain of the modifiers that still RUN (`only`, `each`, `concurrent`, `fails`,
 // `sequential`, `for`; Jest's `failing`), called or tagged (`test.each\`…\``),
 // or Jest's focused `fit` — only with a string title, because this repo has a
-// local `fit()` helper (`fit-to-content.test.ts`) whose calls are not cases. `.fails` (Vitest) and `.failing` (Jest) run and
-// assert the failure — how a fixer should record a reproduction it could not
-// fix — so turning a case into one is not a removal. `.skip`, `.todo`,
-// `.skipIf(…)`, `.runIf(…)` and Jest's `xit`/`xtest` may not run: a case
-// rewritten to one stops matching, which counts it removed. node:test's
-// `{ skip }` / `{ todo }` OPTION is not seen; it sits after the case name.
+// local `fit()` helper (`fit-to-content.test.ts`) whose calls are not cases.
+// `.fails` (Vitest) and `.failing` (Jest) run and assert the failure — how a
+// fixer should record a reproduction it could not fix — so turning a case into
+// one is not a removal. `.skip`, `.todo`, `.skipIf(…)`, `.runIf(…)` and Jest's
+// `xit`/`xtest` may not run: a case rewritten to one stops matching, which
+// counts it removed.
 const CASE = /^[-+]\s*(?:(?:it|test)(?:\.(?:only|each|concurrent|fails|failing|sequential|for))*\s*[(`]|fit\s*\(\s*['"`])/;
+// A FOCUS: the focused case runs, and every sibling silently stops. Jest has
+// no CI guard (`CI=true jest --ci` reports "1 skipped, 1 passed", exit 0) and
+// this repo has no `no-focused-tests` rule. Vitest rejects `.only` under CI,
+// but counting it everywhere is simpler and costs nothing. Counted apart from
+// cases and netted only against itself, like a suite switched off.
+const FOCUS = /^[-+]\s*(?:(?:it|test|describe)(?:\.\w+)*\.only|fdescribe|fit(?=\s*\(\s*['"`]))\s*[(`]/;
+// node:test's OPTION form, `test("x", { todo: … }, fn)` / `{ skip: … }`: the
+// case still runs (todo) or is skipped, and a failure no longer fails the
+// suite. It is the form the fixer prompt gives for node:test files, so a newly
+// added one is evidence, netted only against lines that already carried it.
+const OPTION_OFF = /,\s*\{[^}]*\b(?:todo|skip)\s*:/;
 // A suite that may not run. Counted apart from cases and never netted against
 // added ones: one `describe.skip` silences every case under it without those
 // lines changing, so "one suite off, one case added" must still be reported.
@@ -104,25 +115,51 @@ const CASE = /^[-+]\s*(?:(?:it|test)(?:\.(?:only|each|concurrent|fails|failing|s
 const SUITE_OFF = /^[-+]\s*(?:describe(?:\.\w+)*\.(?:skip|todo|skipIf|runIf)|xdescribe(?:\.\w+)*)\s*[(`]/;
 
 /**
- * Active cases a unified diff removes and adds, and how many suites it newly
- * switches off. Suite lines are netted against THEMSELVES only, so editing an
- * already-skipped suite's title, or re-enabling one, is not a disablement.
+ * The RAW counters of one patch: active cases removed and added, and each
+ * switch (suite off, focus, node:test option) as lines added and removed. Raw,
+ * so a round's commits can be summed per path before anything is clamped — a
+ * suite skipped in one commit and re-enabled in the next is no disablement.
  */
-export function countCases(patch) {
-  let removed = 0, added = 0, offAdded = 0, offRemoved = 0;
+function tally(patch) {
+  const t = { removed: 0, added: 0, offAdded: 0, offRemoved: 0, focusAdded: 0, focusRemoved: 0, optAdded: 0, optRemoved: 0 };
   for (const line of str(patch).split("\n")) {
     if (line.startsWith("---") || line.startsWith("+++")) continue;
+    const plus = line[0] === "+";
+    if (line[0] !== "+" && line[0] !== "-") continue;
+    if (FOCUS.test(line)) plus ? t.focusAdded++ : t.focusRemoved++;
     if (SUITE_OFF.test(line)) {
-      if (line[0] === "+") offAdded++;
-      else offRemoved++;
+      plus ? t.offAdded++ : t.offRemoved++;
       continue;
     }
     if (!CASE.test(line)) continue;
-    if (line[0] === "-") removed++;
-    else added++;
+    plus ? t.added++ : t.removed++;
+    if (OPTION_OFF.test(line)) plus ? t.optAdded++ : t.optRemoved++;
   }
-  return { removed, added, suitesOff: Math.max(0, offAdded - offRemoved) };
+  return t;
 }
+
+/**
+ * Clamp raw counters to the record shape. Each switch is netted against
+ * ITSELF only, so editing an already-skipped suite's title, or re-enabling
+ * one, is not a disablement, and none is ever netted against added cases.
+ * `focused` / `optionsOff` are present only when non-zero.
+ */
+function settle(t) {
+  const focused = Math.max(0, t.focusAdded - t.focusRemoved);
+  const optionsOff = Math.max(0, t.optAdded - t.optRemoved);
+  return {
+    removed: t.removed, added: t.added, suitesOff: Math.max(0, t.offAdded - t.offRemoved),
+    ...(focused ? { focused } : {}),
+    ...(optionsOff ? { optionsOff } : {}),
+  };
+}
+
+/** Active cases a unified diff removes and adds, and the switches it newly turns on. */
+export function countCases(patch) {
+  return settle(tally(patch));
+}
+
+const RAW_ZERO = () => tally("");
 
 /** One commit's (or one compare's) files → per-path entries. Not yet filtered. */
 function entries(files) {
@@ -137,13 +174,17 @@ function entries(files) {
     if (!isTestFile(now) && !renamedAway) continue;
     const deleted = f.status === "removed" || renamedAway;
     // GitHub omits `patch` for a diff too large to show. That is "unknown", not
-    // "nothing removed". (A pure rename also carries no patch, but an unchanged
-    // file is not a removal.)
-    if (typeof f.patch !== "string" && !(f.status === "renamed" && !renamedAway)) {
-      if (deleted || f.status === "modified") out.push({ file: was, deleted, removed: 0, added: 0, suitesOff: 0, unreadable: true });
+    // "nothing removed". A PURE rename (`changes: 0`) also carries no patch, and
+    // an unchanged file is not a removal; a rename that changed content is
+    // unknown like any other unshown diff.
+    if (typeof f.patch !== "string") {
+      const pureRename = f.status === "renamed" && !renamedAway && !(Number(f.changes) > 0);
+      if (!pureRename && (deleted || f.status === "modified" || f.status === "renamed")) {
+        out.push({ file: was, deleted, ...RAW_ZERO(), unreadable: true });
+      }
       continue;
     }
-    out.push({ file: was, deleted, renamedAway, ...countCases(f.patch) });
+    out.push({ file: was, deleted, renamedAway, ...tally(f.patch) });
   }
   return out;
 }
@@ -152,11 +193,11 @@ function entries(files) {
 function removalsOf(list) {
   const out = [];
   for (const e of list) {
-    const hit = e.unreadable || e.renamedAway || e.suitesOff > 0 || (e.deleted ? e.removed > 0 : e.removed > e.added);
+    const c = settle(e);
+    const hit = e.unreadable || e.renamedAway || c.suitesOff > 0 || c.focused > 0 || c.optionsOff > 0
+      || (e.deleted ? c.removed > 0 : c.removed > c.added);
     if (!hit) continue;
-    const rest = { ...e };
-    delete rest.renamedAway;
-    out.push(rest);
+    out.push({ file: e.file, deleted: e.deleted, ...c, ...(e.unreadable ? { unreadable: true } : {}) });
   }
   return out;
 }
@@ -181,10 +222,9 @@ export function aggregateCommits(commits) {
   for (const c of Array.isArray(commits) ? commits : []) {
     if (Array.isArray(c?.parents) && c.parents.length > 1) continue;
     for (const e of entries(c?.files)) {
-      const cur = byFile.get(e.file) ?? { file: e.file, deleted: false, removed: 0, added: 0, suitesOff: 0 };
-      cur.removed += e.removed;
-      cur.added += e.added;
-      cur.suitesOff += e.suitesOff;
+      const cur = byFile.get(e.file) ?? { file: e.file, deleted: false, ...RAW_ZERO() };
+      // RAW counters summed across the round, clamped once in `removalsOf`.
+      for (const k of Object.keys(RAW_ZERO())) cur[k] += e[k];
       cur.deleted = e.deleted || (cur.deleted && e.removed === 0 && e.added === 0);
       if (e.unreadable) cur.unreadable = true;
       if (e.renamedAway) cur.renamedAway = true;
@@ -207,19 +247,31 @@ export function roundCommits(compareCommits, prShas) {
     .filter((c) => c && prShas.has(c.sha) && Number(c.n) === 1);
 }
 
+/** Read at most this many of a round's commits; more is flagged `truncated`. */
+export const ROUND_COMMIT_CAP = 50;
+
+/** The first `cap` commits, and whether any were left unread. */
+export function capRoundCommits(commits, cap = ROUND_COMMIT_CAP) {
+  const list = Array.isArray(commits) ? commits : [];
+  return { commits: list.slice(0, cap), truncated: list.length > cap };
+}
+
 /** The hidden record. The terminator is escaped, as every record here does. */
-export function serializeTestRemovals({ head = "", after = "", removals = [], rewritten = false } = {}) {
+export function serializeTestRemovals({ head = "", after = "", removals = [], rewritten = false, truncated = false } = {}) {
   const payload = {
     v: TEST_REMOVALS_VERSION,
     head: str(head).slice(0, 64),
     after: str(after).slice(0, 64),
     ...(rewritten ? { rewritten: true } : {}),
+    ...(truncated ? { truncated: true } : {}),
     removals: (Array.isArray(removals) ? removals : []).slice(0, 40).map((r) => ({
       file: safePath(r.file),
       deleted: r.deleted === true,
       removed: int(r.removed),
       added: int(r.added),
       suitesOff: int(r.suitesOff),
+      ...(int(r.focused) ? { focused: int(r.focused) } : {}),
+      ...(int(r.optionsOff) ? { optionsOff: int(r.optionsOff) } : {}),
       ...(r.unreadable === true ? { unreadable: true } : {}),
     })),
   };
@@ -238,6 +290,8 @@ export function describeRemoval(r) {
   const parts = [];
   if (int(r?.removed) || int(r?.added)) parts.push(`${int(r?.removed)} active case(s) removed or disabled, ${int(r?.added)} added`);
   if (int(r?.suitesOff)) parts.push(`${int(r.suitesOff)} suite(s) switched off`);
+  if (int(r?.focused)) parts.push(`${int(r.focused)} focus(es) added (\`.only\`/\`fit\`/\`fdescribe\`), which stops every sibling`);
+  if (int(r?.optionsOff)) parts.push(`${int(r.optionsOff)} case(s) given a \`{ todo }\`/\`{ skip }\` option`);
   return `- ${file}: ${parts.join("; ")}`;
 }
 
@@ -248,6 +302,7 @@ export function renderTestRemovals(rec) {
     `🧪 **This fix round removed or disabled tests in ${list.length} file(s)** between \`${safePath(rec?.head).slice(0, 9)}\` and \`${safePath(rec?.after).slice(0, 9)}\`. ` +
       "Removing a test can be legitimate; this is passed to the next round's adjudicator as evidence.",
     ...(rec?.rewritten ? ["", "⚠️ The branch history was rewritten during the round, so commits it dropped could not be read."] : []),
+    ...(rec?.truncated ? ["", `⚠️ The round had more than ${ROUND_COMMIT_CAP} commits; only the first ${ROUND_COMMIT_CAP} were read.`] : []),
     "",
     ...list.map(describeRemoval),
   ].join("\n").replace(/<!--/g, "<!-‌-");
@@ -268,12 +323,14 @@ export function collectTestRemovals(comments) {
       continue;
     }
     if (!d || typeof d !== "object" || d.v !== TEST_REMOVALS_VERSION || !Array.isArray(d.removals)) continue;
-    // An EMPTY record is refused unless it says history was rewritten: an empty
-    // list could only ever hide a real record for the same head.
-    if (d.removals.length === 0 && d.rewritten !== true) continue;
+    // An EMPTY record is refused unless it says the round was not fully read
+    // (history rewritten, or commits past the cap): an empty list could only
+    // ever hide a real record for the same head.
+    if (d.removals.length === 0 && d.rewritten !== true && d.truncated !== true) continue;
     out.push({
       head: str(d.head), after: str(d.after),
       ...(d.rewritten === true ? { rewritten: true } : {}),
+      ...(d.truncated === true ? { truncated: true } : {}),
       removals: d.removals.map((r) => ({ ...r, file: safePath(r?.file) })),
     });
   }
@@ -299,6 +356,7 @@ function main() {
     .split("\n").filter((l) => l.trim() !== "").map((l) => JSON.parse(l));
   let commits;
   let rewritten = false;
+  let truncated = false;
   try {
     // The compare is used for its COMMIT list and status only — the commits
     // paginate cleanly; the file list does not (it is capped and lives on page 1).
@@ -307,7 +365,9 @@ function main() {
     const inRound = ghLines(["api", "--paginate", `repos/{owner}/{repo}/compare/${before}...${after}?per_page=100`, "--jq", ".commits[] | {sha, n: (.parents | length)}"]);
     const prShas = new Set(ghLines(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/commits?per_page=100`, "--jq", ".[].sha"]));
     commits = [];
-    for (const { sha } of roundCommits(inRound, prShas).slice(0, 50)) {
+    const capped = capRoundCommits(roundCommits(inRound, prShas));
+    truncated = capped.truncated;
+    for (const { sha } of capped.commits) {
       const files = ghLines(["api", "--paginate", `repos/{owner}/{repo}/commits/${sha}?per_page=100`, "--jq", ".files[]"]);
       commits.push({ sha, parents: [{}], files });
     }
@@ -316,13 +376,13 @@ function main() {
     return;
   }
   const removals = aggregateCommits(commits);
-  if (removals.length === 0 && !rewritten) {
+  if (removals.length === 0 && !rewritten && !truncated) {
     console.error("test-removals: the fix round removed no test.");
     return;
   }
   try {
     execFileSync("gh", ["pr", "comment", pr, "--body-file", "-"], {
-      input: renderTestRemovals({ head, after, removals, rewritten }), encoding: "utf8", maxBuffer: 32 * 1024 * 1024,
+      input: renderTestRemovals({ head, after, removals, rewritten, truncated }), encoding: "utf8", maxBuffer: 32 * 1024 * 1024,
     });
     console.error(`test-removals: recorded ${removals.length} file(s)${rewritten ? " (history rewritten)" : ""}.`);
   } catch (err) {

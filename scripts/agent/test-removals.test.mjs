@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   isTestFile, isRunnableTest, countCases, testRemovals, serializeTestRemovals, collectTestRemovals, aggregateCommits, roundCommits,
-  renderTestRemovals, TEST_REMOVALS_MARKER,
+  renderTestRemovals, TEST_REMOVALS_MARKER, capRoundCommits,
 } from "./test-removals.mjs";
 
 // yorkie-js-sdk#1426, e6900da: the fixer wrote a two-replica test for "the remote path does
@@ -53,7 +53,8 @@ test("countCases: Jest's spellings — `failing` runs, `xit`/`xtest` do not, `xd
     "+  fit('focused', () => {});",
     "+xdescribe('FolderController', () => {",
   ].join("\n");
-  assert.deepEqual(countCases(patch), { removed: 2, added: 2, suitesOff: 1 });
+  // The added `fit('focused')` is a case AND a focus (see the focus test below).
+  assert.deepEqual(countCases(patch), { removed: 2, added: 2, suitesOff: 1, focused: 1 });
   // A local helper named `fit` (fit-to-content.test.ts) is not a case.
   assert.deepEqual(countCases("+  fit();\n-  fit(board, 2);\n+  fitness(x);"), { removed: 0, added: 0, suitesOff: 0 });
 });
@@ -219,4 +220,66 @@ test("roundCommits: only the PR's own non-merge commits in the round", () => {
   assert.deepEqual(roundCommits(compare, pr).map((c) => c.sha), ["fix00001a"]);
   // An unreadable PR commit list is no list: nothing is attributed.
   assert.deepEqual(roundCommits(compare, null), []);
+});
+
+// --- review of the wafflebase port --------------------------------------------
+
+// Jest has no CI guard against focus (`CI=true jest --ci` reports "1 skipped,
+// 1 passed", exit 0) and this repo has no `no-focused-tests` rule, so a focus
+// silently stops every sibling while the focused case still "runs".
+test("countCases: an added focus is a disablement, kept apart from cases", () => {
+  assert.deepEqual(countCases("-  it('a', () => {});\n+  it.only('a', () => {});"), { removed: 1, added: 1, suitesOff: 0, focused: 1 });
+  assert.deepEqual(countCases("-  test('a', () => {});\n+  test.only('a', () => {});").focused, 1);
+  assert.deepEqual(countCases("-describe('s', () => {\n+describe.only('s', () => {"), { removed: 0, added: 0, suitesOff: 0, focused: 1 });
+  assert.deepEqual(countCases("-describe('s', () => {\n+fdescribe('s', () => {").focused, 1);
+  assert.deepEqual(countCases("-  it('a', () => {});\n+  fit('a', () => {});").focused, 1);
+  // The local `fit()` helper is still not a case, nor a focus.
+  assert.deepEqual(countCases("+  fit();\n+  fit(board, 2);"), { removed: 0, added: 0, suitesOff: 0 });
+  // Editing an already-focused line is not a new focus; removing one offsets.
+  assert.deepEqual(countCases("-  it.only('a', () => {});\n+  it.only('b', () => {});"), { removed: 1, added: 1, suitesOff: 0 });
+  // Reported even though the case count is level.
+  assert.deepEqual(testRemovals([{ filename: "packages/backend/src/auth/auth.service.spec.ts", status: "modified",
+    patch: "-  it('a', () => {});\n+  it.only('a', () => {});" }]).map((r) => [r.file, r.focused]),
+  [["packages/backend/src/auth/auth.service.spec.ts", 1]]);
+});
+
+// node:test (scripts/**, frontend *.integration.ts) has no `.fails`; the prompt
+// tells a fixer to use `{ todo }`, which runs and reports without failing. That
+// is evidence the adjudicator should see, like a skip.
+test("countCases: a newly added node:test `{ todo }` / `{ skip }` option is a disablement", () => {
+  assert.deepEqual(countCases("-test('x', async () => {\n+test('x', { todo: 'still reproduces: f' }, async () => {"),
+    { removed: 1, added: 1, suitesOff: 0, optionsOff: 1 });
+  assert.equal(countCases("-it('x', () => {\n+it('x', { skip: true }, () => {").optionsOff, 1);
+  // An existing guarded case edited in place is not a new disablement.
+  assert.deepEqual(countCases("-test('a', { skip: !shouldRun }, async () => {\n+test('b', { skip: !shouldRun }, async () => {"),
+    { removed: 1, added: 1, suitesOff: 0 });
+});
+
+test("aggregateCommits: a suite skipped and un-skipped inside one round is not reported", () => {
+  const commits = [
+    { sha: "a", parents: [{}], files: [{ filename: "packages/sheets/test/m.test.ts", status: "modified", patch: "-describe('m', () => {\n+describe.skip('m', () => {" }] },
+    { sha: "b", parents: [{}], files: [{ filename: "packages/sheets/test/m.test.ts", status: "modified", patch: "-describe.skip('m', () => {\n+describe('m', () => {" }] },
+  ];
+  assert.deepEqual(aggregateCommits(commits), []);
+  // Left skipped at the end of the round: reported once.
+  assert.equal(aggregateCommits(commits.slice(0, 1))[0].suitesOff, 1);
+});
+
+test("testRemovals: a rename that changed content but carries no patch is unreadable", () => {
+  const got = testRemovals([{ filename: "packages/sheets/test/b2.test.ts", previous_filename: "packages/sheets/test/b.test.ts", status: "renamed", changes: 40 }]);
+  assert.deepEqual(got, [{ file: "packages/sheets/test/b.test.ts", deleted: false, removed: 0, added: 0, suitesOff: 0, unreadable: true }]);
+  // A pure rename (no changes) is still a move.
+  assert.deepEqual(testRemovals([{ filename: "packages/sheets/test/b2.test.ts", previous_filename: "packages/sheets/test/b.test.ts", status: "renamed", changes: 0 }]), []);
+});
+
+test("capRoundCommits: commits past the cap are flagged, never silently dropped", () => {
+  const list = Array.from({ length: 51 }, (_, i) => ({ sha: `c${i}`, n: 1 }));
+  const got = capRoundCommits(list, 50);
+  assert.equal(got.commits.length, 50);
+  assert.equal(got.truncated, true);
+  assert.equal(capRoundCommits(list.slice(0, 3), 50).truncated, false);
+  const body = renderTestRemovals({ head: "h", after: "a", truncated: true, removals: [] });
+  assert.match(body, /only the first/);
+  // A truncated record with nothing seen is still believable: it says the round was not fully read.
+  assert.equal(collectTestRemovals([bot(body)])[0].truncated, true);
 });

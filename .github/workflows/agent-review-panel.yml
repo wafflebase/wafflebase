@@ -2171,12 +2171,17 @@ jobs:
               every edit.
             - NEVER DELETE OR DISABLE A TEST THAT SHOWS A FINDING STILL REPRODUCES.
               If a test you wrote (or found) still fails, the finding is not
-              fixed. Keep it as `it.fails(...)` with a comment naming the
-              finding (Vitest; under Jest in packages/backend the same is
-              `test.failing(...)`), and report that item `--skipped` with the
-              reason. Do not claim it `--fixed`. The pipeline records every test
-              a fix round removes or turns into `.skip`/`.todo`/`xit` and shows
-              it to the next round's adjudicator beside your claims.
+              fixed. Keep it running and report that item `--skipped` with the
+              reason; do not claim it `--fixed`. The form depends on the runner:
+              Vitest: `it.fails(...)`. Jest (packages/backend `*.spec.ts`,
+              `*.e2e-spec.ts`): `test.failing(...)`. node:test (`scripts/**`
+              `*.test.mjs`, the frontend's `*.integration.ts`) has neither, and
+              either one crashes the file there; use the option
+              `{ todo: 'still reproduces: <finding>' }`, which runs and reports
+              without failing. Name the finding in a comment. The pipeline
+              records every test a fix round removes, focuses (`.only`, `fit`),
+              or turns into `.skip`/`.todo`/`xit`/`{ todo }`/`{ skip }`, and
+              shows it to the next round's adjudicator beside your claims.
 
             REPORT WHAT YOU DID — AFTER COMMITTING, BEFORE PUSHING. Required, and
             not paperwork: the next round reads this report and hands each claim to
@@ -2483,8 +2488,10 @@ jobs:
   # through the API and the fixer's log as untrusted data.
   #
   # `always()`, like `close-stuck-checks`: the fixer's own push supersedes this
-  # run about half a minute later, and the removal record is wanted exactly on
+  # run once CI reports `requested`, and the removal record is wanted exactly on
   # the rounds that pushed. Every step repeats `always()` for the same reason.
+  # The record must land before the NEXT run reaches "Read fix-agent reports"
+  # (its gate, deps and checkout: about 1–3 minutes); one that loses is unused.
   fix-evidence:
     needs: [review-panel, fix]
     if: >-
