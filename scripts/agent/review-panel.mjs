@@ -73,7 +73,7 @@ import {
   matchRebuttal,
   upheldCount,
 } from "./rebuttal.mjs";
-import { authorClaims, claimFor, MAX_FIX_ADJUDICATIONS } from "./fix-report.mjs";
+import { authorClaims, claimFor, MAX_FIX_ADJUDICATIONS, withRoundEvidence } from "./fix-report.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2687,6 +2687,8 @@ async function main() {
       const split = authorClaims(Array.isArray(raw) ? raw : [], rebuttals);
       skipClaims = [...split.skipped, ...split.deferred];
       if (split.adjudicate.length > 0) rebuttals = [...rebuttals, ...split.adjudicate];
+      // Disputed findings too, not only "fixed" claims (see `withRoundEvidence`).
+      rebuttals = withRoundEvidence(rebuttals, split.testRemovals);
       if (split.adjudicate.length || skipClaims.length) {
         console.log(
           `fix report: ${split.adjudicate.length} fixed-claim(s) to adjudicate, `
