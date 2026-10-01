@@ -1,7 +1,18 @@
-import { render, screen, act } from '@testing-library/react';
+import {
+  render as rtlRender,
+  screen,
+  act,
+  fireEvent,
+} from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-let mockCtx: { doc: FakeDoc | undefined; connection: string };
+let mockCtx: {
+  doc: FakeDoc | undefined;
+  connection: string;
+  error?: Error;
+};
 
 vi.mock('@yorkie-js/react', () => ({
   useDocument: () => mockCtx,
@@ -9,22 +20,66 @@ vi.mock('@yorkie-js/react', () => ({
 
 const warning = vi.fn();
 const success = vi.fn();
+const info = vi.fn();
 const dismiss = vi.fn();
 
 vi.mock('sonner', () => ({
   toast: {
     warning: (...args: unknown[]) => warning(...args),
     success: (...args: unknown[]) => success(...args),
+    info: (...args: unknown[]) => info(...args),
     dismiss: (...args: unknown[]) => dismiss(...args),
   },
 }));
 
 import { SyncStatusChip } from '@/components/sync-status/sync-status-chip';
+import { tooltipFor } from '@/components/sync-status/sync-status-tooltip';
 import {
   hasUnsavedWork,
   resetUnsavedWorkProbes,
 } from '@/lib/unsaved-work';
+import {
+  getOfflinePersistenceEnabled,
+  setOfflinePersistenceEnabled,
+} from '@/lib/offline-persistence-preference';
+import {
+  DurabilityLapseScope,
+  DurableDocumentScope,
+  type DurabilityLapse,
+} from '@/lib/durable-document-context';
+import type { WafflebaseDocStore } from '@/lib/wafflebase-doc-store';
+import {
+  GuardRegistryContext,
+  type NavigationGuard,
+} from '@/components/navigation-guard/use-navigation-guard';
 import { TooltipProvider } from '@/components/ui/tooltip';
+
+/**
+ * Whoever is signed in. The chip asks the preference *for an account* — the
+ * opt-in is per device and per account — so it reads the identity the
+ * authenticated shell resolved, and every case here has to supply one.
+ */
+const USER = '7';
+
+/**
+ * Every render goes through a seeded query client, because the chip reads the
+ * identity from the same cache the shell filled. Seeded rather than fetched:
+ * nothing here is testing the request.
+ */
+function render(ui: ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(['me', 'optional'], { id: Number(USER), username: 'ada' });
+  const wrap = (node: ReactElement) => (
+    <QueryClientProvider client={client}>{node}</QueryClientProvider>
+  );
+  const view = rtlRender(wrap(ui));
+  return {
+    ...view,
+    rerender: (node: ReactElement) => view.rerender(wrap(node)),
+  };
+}
 
 type DocEvent = { type: string; value: unknown };
 
@@ -84,6 +139,32 @@ function renderChip() {
   );
 }
 
+/**
+ * The chip under a durable client — the one thing this feature changes.
+ *
+ * The provider publishes durability through context, which is the seam the
+ * chip reads; supplying it here is what lets these cases ask whether the state
+ * actually reaches the user rather than only whether the pure function can
+ * compute it.
+ */
+function renderDurableChip() {
+  return render(
+    <TooltipProvider>
+      <DurableDocumentScope
+        value={{
+          store: {} as WafflebaseDocStore,
+          durable: true,
+          reportLoss: () => {},
+          reportPersistDisabled: () => {},
+          reportUnreportable: () => {},
+        }}
+      >
+        <SyncStatusChip />
+      </DurableDocumentScope>
+    </TooltipProvider>,
+  );
+}
+
 const addSpy = vi.spyOn(window, 'addEventListener');
 const removeSpy = vi.spyOn(window, 'removeEventListener');
 
@@ -118,6 +199,7 @@ beforeEach(() => {
   removeSpy.mockClear();
   warning.mockClear();
   success.mockClear();
+  info.mockClear();
   dismiss.mockClear();
 });
 
@@ -378,7 +460,16 @@ describe('SyncStatusChip', () => {
       doc.type();
     });
 
-    expect(container.querySelector('[role="status"]')?.getAttribute('tabindex')).toBe('0');
+    // Focusable, not "carries tabindex". A stranded chip on a build that can
+    // persist renders the offer as a `<button>`, which is focusable natively
+    // and so carries no tabindex at all — the same requirement met a different
+    // way. Asserting the attribute made this test pass only while the feature
+    // was dark, and fail on the dependency bump that turns it on.
+    const chip = container.querySelector('[role="status"]');
+    expect(chip).not.toBeNull();
+    expect(
+      chip!.tagName === 'BUTTON' || chip!.getAttribute('tabindex') === '0',
+    ).toBe(true);
   });
 
   it('does not claim the work is stored locally', () => {
@@ -446,5 +537,566 @@ describe('SyncStatusChip unsaved-work probe', () => {
     unmount();
 
     expect(hasUnsavedWork()).toBe(false);
+  });
+});
+
+describe('the offer to turn offline saving on', () => {
+  /** A stranded chip on a build that can honour the offer. */
+  function renderStranded() {
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
+    setOfflinePersistenceEnabled(USER, false);
+    success.mockClear();
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const view = renderChip();
+    act(() => {
+      doc.type();
+    });
+    return view;
+  }
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('turns the preference on when the chip itself is clicked', () => {
+    // The chip is the second of the design's two entry points, and the one
+    // somebody is actually looking at when they discover they wanted the
+    // setting. Nothing exercised the click, so the whole branch — button,
+    // handler, confirmation — could have been inert.
+    renderStranded();
+
+    const chip = screen.getByRole('status');
+    expect(chip.tagName).toBe('BUTTON');
+    act(() => {
+      fireEvent.click(chip);
+    });
+
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
+    // Confirmed, and honestly: the decision to persist is made when a document
+    // opens, so this one is not rescued retroactively.
+    expect(success).toHaveBeenCalledTimes(1);
+    const [, options] = success.mock.calls.at(-1) as [
+      string,
+      { description: string },
+    ];
+    expect(options.description).toMatch(/from now on/i);
+  });
+
+  it('stops offering once the device has opted in', () => {
+    // A call to action that survives being accepted re-warns the user about a
+    // setting they have already turned on.
+    renderStranded();
+    act(() => {
+      fireEvent.click(screen.getByRole('status'));
+    });
+
+    expect(screen.getByRole('status').tagName).toBe('SPAN');
+  });
+
+  it('turns it on from the toast, which is where the interruption lands', () => {
+    renderStranded();
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    const options = warning.mock.calls.at(-1)?.[1] as {
+      action?: { onClick: () => void };
+    };
+    act(() => {
+      options.action!.onClick();
+    });
+
+    expect(getOfflinePersistenceEnabled(USER)).toBe(true);
+    expect(success).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers nothing on a build that could not honour it', () => {
+    // Every surface goes behind the capability check, not only the code that
+    // persists: a build below `MinClientKeyVersion` can store nothing, so the
+    // offer would promise storage — and an erasure of it — that cannot happen.
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.22');
+    setOfflinePersistenceEnabled(USER, false);
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    renderChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(screen.getByRole('status').tagName).toBe('SPAN');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    const options = warning.mock.calls.at(-1)?.[1] as {
+      action?: unknown;
+    };
+    expect(options.action).toBeUndefined();
+  });
+
+  it('never promises to save the changes it is shown beside', async () => {
+    // The preference is read when a document opens and held until it closes,
+    // so accepting this offer reaches the documents opened after it and never
+    // the one the toast is about. Copy that says otherwise invites the exact
+    // sequence it warns about: click, reload, lose the work.
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    const options = warning.mock.calls[0][1] as {
+      action?: { label: string };
+    };
+    expect(options.action?.label).toBeTruthy();
+    // "Save on this device", sitting under "closing it will lose them", reads
+    // as an offer to save *them*.
+    expect(options.action!.label).not.toMatch(/^save /i);
+    expect(options.action!.label).toMatch(/later/i);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('the offer on a document that can never be durable', () => {
+  /**
+   * `docs/design/offline-local-persistence.md` § Who gets it excludes
+   * anonymous share links outright, and `shared-document.tsx` wraps the whole
+   * route in `NonDurableScope` — which publishes `not-permitted`. Offering the
+   * preference there promises a visitor something that cannot happen for the
+   * document in front of them however they answer, and an anonymous one has no
+   * account for it to apply to at all.
+   */
+  function renderWithLapse(lapse: DurabilityLapse) {
+    vi.stubGlobal('__YORKIE_REACT_VERSION__', '0.7.23');
+    setOfflinePersistenceEnabled(USER, false);
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const view = render(
+      <TooltipProvider>
+        <DurabilityLapseScope lapse={lapse}>
+          <SyncStatusChip />
+        </DurabilityLapseScope>
+      </TooltipProvider>,
+    );
+    act(() => {
+      doc.type();
+    });
+    return view;
+  }
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('makes no offer on a share link', () => {
+    renderWithLapse('not-permitted');
+
+    // Still the status, never the call to action.
+    expect(screen.getByRole('status').tagName).toBe('SPAN');
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    const options = warning.mock.calls[0]?.[1] as
+      | { action?: { label: string } }
+      | undefined;
+    expect(options?.action).toBeUndefined();
+  });
+
+  it('still offers it where the feature is merely switched off', () => {
+    // The control case, so the suppression above is about `not-permitted` and
+    // not about the offer having quietly stopped working.
+    renderWithLapse('not-enabled');
+
+    expect(screen.getByRole('status').tagName).toBe('BUTTON');
+  });
+});
+
+describe('SyncStatusChip on a durable document', () => {
+  it('reports the work as saved to this device instead of not saved', () => {
+    // The entire user-facing value of offline persistence: the same situation
+    // drops from destructive to muted, because the pending work is on disk.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { container } = renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(screen.getByText('Saved to this device')).toBeTruthy();
+    expect(screen.queryByText('Not saved')).toBeNull();
+    // And it is not dressed as an alarm — no destructive colouring, since
+    // nothing is about to be lost.
+    expect(
+      container.querySelector('[role="status"]')?.className ?? '',
+    ).not.toMatch(/destructive/);
+  });
+
+  it('announces politely rather than interrupting a screen reader', () => {
+    // `assertive` is reserved for the one state where closing the tab destroys
+    // work. This is not it, and announcing it as if it were would make the
+    // urgent case indistinguishable from the safe one.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { container } = renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(
+      container.querySelector('[role="status"]')?.getAttribute('aria-live'),
+    ).toBe('polite');
+  });
+
+  it('neither warns nor guards the unload', () => {
+    // Deliberate, and the reason the state exists: closing the tab no longer
+    // ends these edits, so interrupting the user would be a false alarm.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(warning).not.toHaveBeenCalled();
+    expect(unloadGuards()).toBe(0);
+  });
+
+  it('says where the work went instead of saying nothing', () => {
+    // `docs/design/offline-local-persistence.md`: the offline-transition toast
+    // "changes from 'keep this tab open' to 'saved to this device'". Dropping
+    // it entirely leaves the durable case as the one where the app says
+    // nothing at all about work it has stopped sending to the server.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(info).toHaveBeenCalled();
+    const [title, options] = info.mock.calls[0] as [
+      string,
+      { description?: string },
+    ];
+    expect(title).toMatch(/this device/i);
+    // And it must not repeat the sentence it replaces.
+    expect(options.description ?? '').not.toMatch(/keep this tab open/i);
+    expect(options.description ?? '').toMatch(/saved on this device/i);
+  });
+
+  it('still holds back in-app navigation, which closes the document', () => {
+    // A reload is safe — the entry is on disk and the next attach resumes from
+    // it — but leaving the route is not the same event. It unmounts the
+    // `DocumentProvider`, which detaches, and the SDK's `detachDocument` calls
+    // `removeFromStore` unconditionally on its success path; the store archives
+    // a removal only when a `LocalChangesDropped` latched it first, which an
+    // ordinary detach never does. So the click deletes the durable entry and
+    // the in-memory queue with it, silently, on the one state whose whole claim
+    // is that the work is safe.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const guards: Array<NavigationGuard> = [];
+    render(
+      <TooltipProvider>
+        <GuardRegistryContext.Provider
+          value={{
+            register: (guard) => {
+              guards.push(guard);
+              return () => {
+                const at = guards.indexOf(guard);
+                if (at !== -1) guards.splice(at, 1);
+              };
+            },
+          }}
+        >
+          <DurableDocumentScope
+            value={{
+              store: {} as WafflebaseDocStore,
+              durable: true,
+              reportLoss: () => {},
+              reportPersistDisabled: () => {},
+              reportUnreportable: () => {},
+            }}
+          >
+            <SyncStatusChip />
+          </DurableDocumentScope>
+        </GuardRegistryContext.Provider>
+      </TooltipProvider>,
+    );
+    act(() => {
+      doc.type();
+    });
+
+    expect(screen.getByText('Saved to this device')).toBeTruthy();
+    expect(guards).toHaveLength(1);
+    const prompt = guards[0]();
+    expect(prompt).not.toBeNull();
+    // And it says the true thing, which is not the stranded sentence: the copy
+    // exists, and leaving is what removes it.
+    expect(prompt?.description ?? '').toMatch(/removes that copy/i);
+    // Still no unload guard — the reload case is the one this state fixed.
+    expect(unloadGuards()).toBe(0);
+  });
+
+  it('lets a fully synced durable document go without a word', () => {
+    // The guard is registered on outstanding work, not on durability.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+
+    const guards: Array<NavigationGuard> = [];
+    render(
+      <TooltipProvider>
+        <GuardRegistryContext.Provider
+          value={{ register: (guard) => (guards.push(guard), () => {}) }}
+        >
+          <DurableDocumentScope
+            value={{
+              store: {} as WafflebaseDocStore,
+              durable: true,
+              reportLoss: () => {},
+              reportPersistDisabled: () => {},
+              reportUnreportable: () => {},
+            }}
+          >
+            <SyncStatusChip />
+          </DurableDocumentScope>
+        </GuardRegistryContext.Provider>
+      </TooltipProvider>,
+    );
+
+    expect(guards).toHaveLength(0);
+  });
+
+  it('still says Saving while the push is in flight', () => {
+    // Durability changes the stranded row and nothing else: connected with
+    // work outstanding is still on its way to the server.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+
+    const { container } = renderDurableChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(container.textContent).toContain('Saving');
+  });
+});
+
+describe('the tooltip on a state that is now designed rather than inevitable', () => {
+  /**
+   * `docs/design/offline-local-persistence.md` § What the user sees:
+   *
+   * > Because `Not saved` is now a *designed* state rather than the only state
+   * > — the second tab, an oversized document, a broken store — the chip
+   * > carries the weight that used to be carried by it simply always being
+   * > true. Its tooltip must name which case applies.
+   *
+   * Every cause collapses to the same chip, so the sentence is the only thing
+   * that tells an oversized document apart from a second tab — three
+   * situations with three different things to do about them.
+   */
+  const stranded = (lapse?: Parameters<typeof tooltipFor>[4]) =>
+    tooltipFor('not-saved', null, false, false, lapse);
+
+  it('says which tab is the one saving', () => {
+    expect(stranded('another-tab')).toContain('open in another tab');
+  });
+
+  it('says when the document is too large for this device', () => {
+    expect(stranded('too-large')).toContain('too large');
+  });
+
+  it('says when the device is out of room', () => {
+    expect(stranded('out-of-space')).toContain('out of local storage space');
+  });
+
+  it('says when the store would not take the write', () => {
+    expect(stranded('write-failed')).toContain('could not be written to');
+  });
+
+  it('says when earlier work could not be reconciled', () => {
+    expect(stranded('dropped')).toContain('no longer being saved');
+  });
+
+  it('keeps naming the tab as the only copy in every case', () => {
+    // The reason is added to that sentence, never instead of it: what the user
+    // must act on is that closing the tab ends these edits.
+    for (const lapse of [
+      undefined,
+      'another-tab',
+      'too-large',
+      'out-of-space',
+      'write-failed',
+      'dropped',
+    ] as const) {
+      expect(stranded(lapse)).toContain('exist only in this tab');
+    }
+  });
+
+  it('diagnoses nothing where a diagnosis would be wrong', () => {
+    // `not-enabled` is a call to action, and the offer says it better. A share
+    // link (`not-permitted`) was never going to be saved to the visitor's
+    // device, so describing the feature to them would be noise.
+    expect(stranded('not-enabled')).toBe(stranded(undefined));
+    expect(stranded('not-permitted')).toBe(stranded(undefined));
+  });
+
+  it('leaves the healthy states alone', () => {
+    // A lapse is not a fault when nothing of the user's is outstanding.
+    expect(tooltipFor('saved', null, true, false, 'another-tab')).toBe(
+      'All changes are on the server.',
+    );
+  });
+});
+
+/**
+ * ...and that the reason actually travels from where it is known to the chip.
+ *
+ * Everything above calls `tooltipFor` with a lapse handed to it, which passes
+ * whether or not `useDurabilityLapse()` ever answers anything — and it did
+ * not: `CollabDocumentProvider` mounted its own scope *inside*
+ * `DurableYorkieProvider`'s, so the `undefined` a durable document computes at
+ * the call site overwrote every reason the durable client publishes
+ * (`dropped`, `too-large`, `out-of-space`, `write-failed`). The requirement the
+ * design states — "its tooltip must name which case applies" — was therefore
+ * unmet for precisely the four causes only the client can see, with a green
+ * test suite. These drive the wiring instead of the function.
+ */
+describe('the lapse reaching the chip', () => {
+  /** Renders a stranded chip under the two scopes, in the app's own order. */
+  function strandedUnderScopes(
+    callSite: DurabilityLapse | undefined,
+    durableClient?: DurabilityLapse,
+  ): string {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    render(
+      <TooltipProvider>
+        <DurabilityLapseScope lapse={callSite}>
+          <DurabilityLapseScope lapse={durableClient}>
+            <SyncStatusChip />
+          </DurabilityLapseScope>
+        </DurabilityLapseScope>
+      </TooltipProvider>,
+    );
+    act(() => {
+      doc.type();
+    });
+    // Radix renders the content only once the tooltip is open; the chip is
+    // focusable precisely so this is reachable without a pointer.
+    act(() => {
+      fireEvent.focus(screen.getByRole('status'));
+    });
+    return document.body.textContent ?? '';
+  }
+
+  it('names a cause only the call site knows', () => {
+    expect(strandedUnderScopes('another-tab')).toContain('open in another tab');
+  });
+
+  it('names a cause only the durable client knows', () => {
+    // The nesting is the whole mechanism: the client's scope is the deeper
+    // one, so its answer is the one the chip reads. Rendered the other way
+    // round — which is what shipped — this sentence never appears.
+    expect(strandedUnderScopes(undefined, 'dropped')).toContain(
+      'no longer being saved',
+    );
+  });
+
+  it('lets the durable client overrule the call site', () => {
+    const text = strandedUnderScopes('another-tab', 'out-of-space');
+    expect(text).toContain('out of local storage space');
+    expect(text).not.toContain('open in another tab');
+  });
+
+  it('says nothing extra where no scope was mounted at all', () => {
+    // Every editor that never persists renders the chip with no scope above
+    // it, and it must keep its pre-offline wording rather than inventing a
+    // cause.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    renderChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      fireEvent.focus(screen.getByRole('status'));
+    });
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('exist only in this tab');
+    // No *diagnosis* is invented — which is what "nothing extra" means here.
+    // Deliberately not `not.toContain('this device')`: on a build that can
+    // persist, a stranded chip also carries the offer to turn saving on, whose
+    // wording names this device and is the feature working rather than a cause
+    // being invented. That broader assertion held only while the gate was shut.
+    for (const cause of [
+      'cannot save documents locally',
+      'open in another tab',
+      'no longer being saved',
+      'too large to save',
+      'out of local storage space',
+      'could not be written to',
+      'cannot confirm that changes are being saved',
+    ]) {
+      expect(text).not.toContain(cause);
+    }
+  });
+});
+
+describe('SyncStatusChip on a document that failed to open', () => {
+  /**
+   * The case a smoke test of the durable path walked into: reload while the
+   * server is unreachable. The editor renders the attach error full-screen, and
+   * the header sat a `✓ Saved` next to it — a tick over a document that never
+   * opened, with the user's unsent work still on disk and undelivered.
+   */
+  const failed = { doc: undefined, connection: 'disconnected' } as const;
+
+  it('renders no chip rather than a tick it cannot support', () => {
+    mockCtx = { ...failed, error: new Error('[unknown] Failed to fetch') };
+
+    renderChip();
+
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.body.textContent).not.toContain('Saved');
+  });
+
+  it('still shows the chip while the open is merely in progress', () => {
+    // The distinction the fix turns on. Without an error this is an attach
+    // still running, where `saved` is the honest answer and suppressing the
+    // chip would blank the header on every document open.
+    mockCtx = { ...failed };
+
+    renderChip();
+
+    expect(screen.getByRole('status')).toHaveTextContent('Saved');
+  });
+
+  it('registers no unload guard for a document that never opened', () => {
+    mockCtx = { ...failed, error: new Error('[unknown] Failed to fetch') };
+
+    renderChip();
+
+    expect(unloadGuards()).toBe(0);
   });
 });

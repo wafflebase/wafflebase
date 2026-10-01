@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock the pdf.js legacy build (what PdfViewer imports at runtime) so importing
 // `pdf-collab` never loads the real worker/engine (mirrors pdf-collab.test.tsx).
@@ -30,6 +31,10 @@ vi.mock('@yorkie-js/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@yorkie-js/react')>();
   return {
     ...actual,
+    // `CollabDocumentProvider` nests one of these for a durable document. It
+    // never does in this suite — the preference is off — but the import has to
+    // resolve.
+    YorkieProvider: ({ children }: { children: React.ReactNode }) => children,
     DocumentProvider: (props: Record<string, unknown>) => {
       mounted.push(props);
       return null;
@@ -47,14 +52,22 @@ const presenceUser = {
 };
 
 function mountProvider(readOnly: boolean) {
+  // `CollabDocumentProvider` asks who is signed in, to decide whether this
+  // document is persisted locally. The app mounts a query client at its root;
+  // an isolated render has to supply one.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <PdfCollabProvider
-      documentId="doc1"
-      readOnly={readOnly}
-      presenceUser={presenceUser}
-    >
-      <div />
-    </PdfCollabProvider>,
+    <QueryClientProvider client={queryClient}>
+      <PdfCollabProvider
+        documentId="doc1"
+        readOnly={readOnly}
+        presenceUser={presenceUser}
+      >
+        <div />
+      </PdfCollabProvider>
+    </QueryClientProvider>,
   );
   const props = mounted.at(-1);
   if (!props) throw new Error('DocumentProvider was never mounted');

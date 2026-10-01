@@ -70,6 +70,7 @@ import {
   type ZoomController,
 } from "@/app/slides/zoom-controller";
 import { CollabDocumentProvider } from "@/components/collab-document-provider";
+import { NonDurableScope } from "@/lib/use-durable-document";
 import {
   Sheet,
   SheetContent,
@@ -1004,12 +1005,19 @@ function SharedDocumentInner({
       : `sheet-${resolved.documentId}`;
 
   return (
-    <YorkieProvider
-      rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
-      apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
-      metadata={{ userID: presence.username }}
-      authTokenInjector={token ? () => fetchYorkieShareToken(token) : undefined}
-    >
+    // The `NonDurableScope` that covers this is mounted by the caller, above
+    // every branch — including the `pdf` early return, which mounts a
+    // `CollabDocumentProvider` of its own and was left outside when the scope
+    // sat here. See {@link SharedDocumentByToken}.
+    <>
+      <YorkieProvider
+        rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
+        apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
+        metadata={{ userID: presence.username }}
+        authTokenInjector={
+          token ? () => fetchYorkieShareToken(token) : undefined
+        }
+      >
       {resolved.type === "doc" ? (
         <CollabDocumentProvider<YorkieDocsRoot>
           docKey={docKey}
@@ -1076,7 +1084,8 @@ function SharedDocumentInner({
           <SharedDocumentLayout resolved={resolved} />
         </CollabDocumentProvider>
       )}
-    </YorkieProvider>
+      </YorkieProvider>
+    </>
   );
 }
 
@@ -1151,7 +1160,28 @@ export function SharedDocumentByToken({ token }: { token?: string }) {
     );
   }
 
-  return <SharedDocumentInner resolved={resolved} token={token} />;
+  return (
+    // Nothing reached through a share link is persisted locally, and the
+    // refusal is positional because nothing else can express it: a share view
+    // of `sheet-7` carries the same document key as its owner's view, so no
+    // key-derived rule can tell them apart. Two reasons, and either alone
+    // would be enough. The client below authenticates with the *share* token,
+    // whose role and expiry the Yorkie auth webhook validates; the durable
+    // branch would mount its own client with the signed-in visitor's personal
+    // token instead. And a share link is a capability that can be revoked,
+    // while a document written to disk is not.
+    //
+    // Mounted **here**, around the whole of `SharedDocumentInner`, rather than
+    // inside it. `SharedDocumentInner` early-returns for `pdf` — a layout that
+    // mounts its own `YorkieProvider` and, through `PdfCollabProvider`, its own
+    // `CollabDocumentProvider` — so a scope placed inside, after that return,
+    // covered every share-link document type except one. Positional means
+    // positional: the wrapper belongs above the branching, where no later
+    // early return can step around it.
+    <NonDurableScope>
+      <SharedDocumentInner resolved={resolved} token={token} />
+    </NonDurableScope>
+  );
 }
 
 /**

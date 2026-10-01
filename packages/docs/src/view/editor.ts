@@ -3198,8 +3198,28 @@ export function initialize(
     }, 300);
   }
 
+  /**
+   * Red squiggles are a decoration, so a recheck that cannot finish must
+   * fail quietly rather than reject into a caller that has no way to
+   * report it. The dictionary is a lazy import: a recheck fired by the
+   * 300 ms timer can still be awaiting it when the editor is destroyed —
+   * and under Vitest that import rejects with an `EnvironmentTeardownError`
+   * once the test environment is gone, which surfaced as an unhandled
+   * rejection that failed the whole frontend run while every test passed.
+   * Both `void`-ed call sites below route through here for that reason.
+   */
   async function runSpellRecheck(): Promise<void> {
-    if (!spellSession || !spellEnabled) return;
+    try {
+      await recheckSpelling();
+    } catch {
+      // Nothing to recover: the words stay unmarked until the next edit
+      // schedules another pass.
+    }
+  }
+
+  async function recheckSpelling(): Promise<void> {
+    const session = spellSession;
+    if (!session || !spellEnabled) return;
     // Body blocks only — the spell-rect computation in render() resolves
     // each error through the body `layout`/`paginatedLayout`, so the ids
     // we feed must come from the same set. Tables expose empty
@@ -3208,9 +3228,13 @@ export function initialize(
       id: b.id,
       text: getBlockText(b),
     }));
-    await spellSession.recheckBlocks(blocks, {
+    await session.recheckBlocks(blocks, {
       composing: textEditor?.isComposing() ?? false,
     });
+    // `destroy()` (or a session swap) can land while the dictionary loads,
+    // and painting into a torn-down editor is the same class of late work
+    // the catch above exists for.
+    if (spellSession !== session || !spellEnabled) return;
     // Repaint-only: errors changed but layout did not.
     renderPaintOnly();
   }

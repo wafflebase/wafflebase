@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 let mockCtx: { doc: FakeDoc | undefined; connection: string };
 
@@ -67,7 +68,15 @@ function fakeDoc(): FakeDoc {
  * document, and the chip mounted where `SiteHeader` mounts it.
  */
 function renderEditor(status: ReactNode = <SyncStatusChip />) {
+  // The chip reads the signed-in identity (the offline opt-in is per account),
+  // so it needs a query client; seeded rather than fetched, since nothing here
+  // is testing the request.
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(['me', 'optional'], { id: 7, username: 'ada' });
   return render(
+    <QueryClientProvider client={client}>
     <MemoryRouter initialEntries={['/s/doc-1']}>
       <NavigationGuardProvider>
         <TooltipProvider>
@@ -78,7 +87,8 @@ function renderEditor(status: ReactNode = <SyncStatusChip />) {
           </Routes>
         </TooltipProvider>
       </NavigationGuardProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
