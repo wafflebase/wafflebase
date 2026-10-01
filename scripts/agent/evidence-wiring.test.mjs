@@ -30,7 +30,23 @@ for (const file of ["agent-review-panel.yml", "agent-fix.yml"]) {
     const end = evidence.indexOf("\n      - ", at + 1);
     const block = evidence.slice(at, end < 0 ? undefined : end);
     assert.match(block, /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
-    assert.match(block, /node scripts\/agent\/test-removals\.mjs post "\$PR" --before "\$BEFORE" --after "\$AFTER" --head "\$HEAD_SHA"/);
+    assert.match(block, /node scripts\/agent\/test-removals\.mjs post "\$PR" --before "\$BEFORE" --branch "\$BRANCH" --actor "\$ACTOR" --since "\$SINCE" --head "\$HEAD_SHA"/);
+    // The round is the fixer's PUSHES, not BEFORE..(head when this job runs):
+    // a human push after the fixer must not be blamed on it.
+    assert.doesNotMatch(block, /--after/);
+    assert.match(block, /ACTOR: \$\{\{ needs\.fix\.outputs\.app_slug \}\}\[bot\]/);
+    assert.match(block, /SINCE: \$\{\{ needs\.fix\.outputs\.since \}\}/);
+    // Both come from fix-job steps that ran BEFORE the agent, so the agent
+    // cannot move them: the App token's slug and the before-fix stamp.
+    const fix = job(src, "fix");
+    assert.match(fix, /app_slug: \$\{\{ steps\.app-token\.outputs\.app-slug \}\}/);
+    assert.match(fix, /since: \$\{\{ steps\.before-fix\.outputs\.since \}\}/);
+    const agentAt = fix.search(/\n {6}- name: Address panel findings\n/);
+    const stampAt = fix.search(/\n {6}- name: Record branch head before fix\n {8}id: before-fix\n/);
+    const tokenAt = fix.search(/\n {6}- name: Generate GitHub App token\n {8}id: app-token\n/);
+    assert.ok(agentAt > 0 && stampAt > 0 && tokenAt > 0, "agent, stamp and token steps must all exist");
+    assert.ok(stampAt < agentAt && tokenAt < agentAt, "the actor and the start time must be fixed before the agent runs");
+    assert.match(fix.slice(stampAt, fix.indexOf("\n      - ", stampAt + 1)), /echo "since=\$\(date -u \+%Y-%m-%dT%H:%M:%SZ\)" >> "\$GITHUB_OUTPUT"/);
     assert.match(block, /continue-on-error: true/, "evidence is best-effort; it must never red the job");
     // From trusted main on a fresh runner, not the agent's runner.
     assert.match(evidence, /ref: main\s+sparse-checkout: scripts\/agent/);

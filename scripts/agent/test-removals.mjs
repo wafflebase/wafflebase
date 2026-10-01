@@ -25,8 +25,9 @@
 // PER COMMIT, NOT ONE COMPARE. A three-dot compare diffs from the merge base:
 // a merge of main would be blamed on the fixer, a test committed and deleted
 // inside the round would not show at all, and only 300 files are listed. So the
-// round's OWN commits are taken (`roundCommits`: in the compare, in the PR's
-// commit list, not merges) and each commit's files are summed per path.
+// round's OWN commits are taken (`pushedRoundCommits`: in one of the fixer's
+// pushes, in the PR's commit list, not merges) and each commit's files are
+// summed per path.
 //
 // WHAT IT CANNOT SEE, stated because #1426 is the case that motivated it and is
 // one it would NOT have caught: there the test was written and deleted in the
@@ -36,11 +37,18 @@
 // force-push that dropped commits is flagged (`rewritten`) rather than hidden:
 // the dropped commits are gone from the API too.
 //
+// WHICH COMMITS ARE THE ROUND'S is bounded by the fixer credential's own
+// pushes, read from the repository activity log (`fixerPushes`), never by the
+// branch head when this runs: a human's push after the fixer is not its work.
+//
 // Usage:
-//   node test-removals.mjs post <pr> --before <sha> --after <sha> [--head <sha>]
-// `--head` is the sha the fix report names (the round's reviewed head), which
-// the record is joined on; it defaults to `--before`. Posts only when something
-// was removed or history was rewritten. Always exits 0: an unread round is "no
+//   node test-removals.mjs post <pr> --before <sha> --branch <name>
+//     --actor <app-slug>[bot] --since <iso8601> [--head <sha>]
+// `--actor` and `--since` come from fix-job steps that ran BEFORE the agent
+// (the App token's slug, the before-fix stamp). `--head` is the sha the fix
+// report names (the round's reviewed head), which the record is joined on; it
+// defaults to `--before`. Posts only when something was removed, history was
+// rewritten, or the round was not fully read. Always exits 0: an unread round is "no
 // evidence", which is exactly the behaviour before this existed.
 
 import { execFileSync } from "node:child_process";
@@ -330,6 +338,64 @@ export function roundCommits(compareCommits, prShas) {
     .filter((c) => c && prShas.has(c.sha) && Number(c.n) === 1);
 }
 
+/** One page of the repository activity log; a full page may not reach back far enough. */
+export const ACTIVITY_PAGE = 100;
+
+/**
+ * The pushes the FIXER made, oldest first. `activities` is
+ * `GET /repos/{o}/{r}/activity?ref=refs/heads/<branch>` (newest first); `actor`
+ * is the fixer credential's login (`<app-slug>[bot]`); `since` is when the
+ * round started, stamped in the fix job BEFORE the agent ran.
+ *
+ * WHY PUSHES, NOT A HEAD. The record used to compare BEFORE against the branch
+ * head read when `fix-evidence` ran, and that is not the fixer's head: the fix
+ * job's reporting steps and a fresh runner's start sit between the agent's last
+ * push and that read, and a commit a human pushed in the gap was blamed on the
+ * fixer. Nothing trustworthy can name the fixer's head from inside the fix job —
+ * every step after the agent runs on its terms, and its own report is a claim it
+ * could stop short of the commit that deleted a test. Nor can the commits: their
+ * author and committer are whatever the agent's git config says (`claude[bot]`
+ * for every agent workflow here), so a fixer could sign as a human and end a
+ * "stop at the first foreign commit" walk before its deletion. The activity log
+ * names the AUTHENTICATED pusher, which GitHub sets from the token, so the
+ * round's commits are exactly the ones its credential pushed after it started,
+ * wherever a human's push fell between them.
+ */
+export function fixerPushes(activities, { actor = "", since = "", pageSize = ACTIVITY_PAGE } = {}) {
+  const start = Date.parse(str(since));
+  const list = Array.isArray(activities) ? activities : [];
+  if (!str(actor) || !Number.isFinite(start)) return { pushes: [], truncated: false };
+  const at = (a) => Date.parse(str(a?.timestamp));
+  const pushes = list
+    .filter((a) => (a?.activity_type === "push" || a?.activity_type === "force_push")
+      && a?.actor?.login === actor && at(a) >= start
+      && !/^0*$/.test(str(a?.before)) && !/^0*$/.test(str(a?.after)))
+    .sort((x, y) => at(x) - at(y))
+    .map((a) => ({ before: a.before, after: a.after, forced: a.activity_type === "force_push" }));
+  // A full page whose oldest entry is still inside the round may have cut off
+  // the round's first pushes.
+  const oldest = list.reduce((m, a) => Math.min(m, at(a)), Infinity);
+  return { pushes, truncated: list.length >= pageSize && oldest >= start };
+}
+
+/**
+ * The round's own commits from the fixer's pushes: each push's compare
+ * commits, kept by `roundCommits` (in the PR's commit list, not merges), each
+ * sha once, in push order.
+ */
+export function pushedRoundCommits(perPush, prShas) {
+  const seen = new Set();
+  const out = [];
+  for (const commits of Array.isArray(perPush) ? perPush : []) {
+    for (const c of roundCommits(commits, prShas)) {
+      if (seen.has(c.sha)) continue;
+      seen.add(c.sha);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
 /** Read at most this many of a round's commits; more is flagged `truncated`. */
 export const ROUND_COMMIT_CAP = 50;
 
@@ -428,28 +494,48 @@ function main() {
     return i >= 0 ? str(argv[i + 1]) : "";
   };
   const before = flag("before");
-  const after = flag("after");
+  const branch = flag("branch");
+  const actor = flag("actor");
+  const since = flag("since");
   const head = /^[0-9a-f]{7,40}$/i.test(flag("head")) ? flag("head") : before;
-  if (verb !== "post" || !/^\d+$/.test(str(pr)) || !/^[0-9a-f]{40}$/i.test(before) || !/^[0-9a-f]{40}$/i.test(after)) {
-    console.error("usage: test-removals.mjs post <pr> --before <sha40> --after <sha40> [--head <sha>]");
+  if (verb !== "post" || !/^\d+$/.test(str(pr)) || !/^[0-9a-f]{40}$/i.test(before) || !branch
+    || !/^[A-Za-z0-9-]+\[bot\]$/.test(actor) || !Number.isFinite(Date.parse(since))) {
+    console.error("usage: test-removals.mjs post <pr> --before <sha40> --branch <name> --actor <app>[bot] --since <iso8601> [--head <sha>]");
     return;
   }
   const ghJson = (args) => JSON.parse(execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
   const ghLines = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
     .split("\n").filter((l) => l.trim() !== "").map((l) => JSON.parse(l));
   let commits;
+  let after = "";
   let rewritten = false;
   let truncated = false;
   try {
-    // The compare is used for its COMMIT list and status only — the commits
-    // paginate cleanly; the file list does not (it is capped and lives on page 1).
-    const status = ghJson(["api", `repos/{owner}/{repo}/compare/${before}...${after}`, "--jq", "{status: .status, behind: .behind_by}"]);
-    rewritten = status.status === "diverged" || Number(status.behind) > 0;
-    const inRound = ghLines(["api", "--paginate", `repos/{owner}/{repo}/compare/${before}...${after}?per_page=100`, "--jq", ".commits[] | {sha, n: (.parents | length)}"]);
-    const prShas = new Set(ghLines(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/commits?per_page=100`, "--jq", ".[].sha"]));
+    // The fixer's pushes, not the branch head (`fixerPushes` says why).
+    const ref = encodeURIComponent(`refs/heads/${branch}`);
+    const activity = ghJson(["api", `repos/{owner}/{repo}/activity?ref=${ref}&per_page=${ACTIVITY_PAGE}`]);
+    const found = fixerPushes(activity, { actor, since });
+    truncated = found.truncated;
+    const pushes = found.pushes.filter((p) => /^[0-9a-f]{40}$/i.test(p.before) && /^[0-9a-f]{40}$/i.test(p.after));
+    if (pushes.length === 0) {
+      console.error(`test-removals: ${actor} pushed nothing to ${branch} since ${since}; recording nothing.`);
+      return;
+    }
+    after = pushes[pushes.length - 1].after;
+    const perPush = [];
+    for (const p of pushes) {
+      // Each compare is used for its COMMIT list and status only — the commits
+      // paginate cleanly; the file list does not (it is capped and lives on page 1).
+      const status = ghJson(["api", `repos/{owner}/{repo}/compare/${p.before}...${p.after}`, "--jq", "{status: .status, behind: .behind_by}"]);
+      if (p.forced || status.status === "diverged" || Number(status.behind) > 0) rewritten = true;
+      perPush.push(ghLines(["api", "--paginate", `repos/{owner}/{repo}/compare/${p.before}...${p.after}?per_page=100`, "--jq", ".commits[] | {sha, n: (.parents | length)}"]));
+    }
+    // `--jq` prints a bare string RAW, not as JSON, so the shas are emitted as
+    // JSON strings (`tojson`) to go through the same line parser.
+    const prShas = new Set(ghLines(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/commits?per_page=100`, "--jq", ".[].sha | tojson"]));
     commits = [];
-    const capped = capRoundCommits(roundCommits(inRound, prShas));
-    truncated = capped.truncated;
+    const capped = capRoundCommits(pushedRoundCommits(perPush, prShas));
+    truncated = truncated || capped.truncated;
     for (const { sha } of capped.commits) {
       const files = ghLines(["api", "--paginate", `repos/{owner}/{repo}/commits/${sha}?per_page=100`, "--jq", ".files[]"]);
       commits.push({ sha, parents: [{}], files });

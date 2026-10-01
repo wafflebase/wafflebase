@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   isTestFile, isRunnableTest, countCases, testRemovals, serializeTestRemovals, collectTestRemovals, aggregateCommits, roundCommits,
-  renderTestRemovals, TEST_REMOVALS_MARKER, capRoundCommits,
+  renderTestRemovals, TEST_REMOVALS_MARKER, capRoundCommits, fixerPushes, pushedRoundCommits,
 } from "./test-removals.mjs";
 
 // yorkie-js-sdk#1426, e6900da: the fixer wrote a two-replica test for "the remote path does
@@ -377,3 +377,52 @@ test("capRoundCommits: commits past the cap are flagged, never silently dropped"
   assert.equal(collectTestRemovals([bot(body)])[0].truncated, true);
 });
 
+// WHOSE COMMITS ARE THE ROUND'S. The record used to compare BEFORE against the
+// branch head read when `fix-evidence` ran — after the fix job's own reporting
+// steps and a fresh runner's start — so a commit a human pushed in that gap was
+// blamed on the fixer. The bound is the PUSHES the fixer's credential made: the
+// repository activity log names the authenticated pusher (`yorkie-agent[bot]` on
+// #1077), which the agent cannot forge, unlike the commit identity it writes
+// itself (`claude[bot]`, the same for every agent workflow here).
+const BOT = "yorkie-agent[bot]";
+const act = (type, login, before, after, timestamp) => ({ activity_type: type, actor: { login }, before, after, timestamp });
+
+test("fixerPushes: only the fixer credential's pushes since the round started, oldest first", () => {
+  const log = [ // the API lists newest first
+    act("push", "hackerwins", "f2", "h1", "2026-10-01T10:20:00Z"), // a human, after the fixer
+    act("push", BOT, "f1", "f2", "2026-10-01T10:12:00Z"),
+    act("push", "dependabot[bot]", "b0", "x1", "2026-10-01T10:06:00Z"), // a human-side push mid-round
+    act("push", BOT, "x1", "f1", "2026-10-01T10:10:00Z"),
+    act("push", BOT, "o0", "b0", "2026-10-01T09:00:00Z"), // an earlier round
+    act("branch_deletion", BOT, "f2", "0000000000000000000000000000000000000000", "2026-10-01T10:13:00Z"),
+  ];
+  assert.deepEqual(fixerPushes(log, { actor: BOT, since: "2026-10-01T10:05:00Z" }),
+    { pushes: [{ before: "x1", after: "f1", forced: false }, { before: "f1", after: "f2", forced: false }], truncated: false });
+  // A force-push is still the fixer's, and says so.
+  assert.deepEqual(fixerPushes([act("force_push", BOT, "b0", "f9", "2026-10-01T10:30:00Z")], { actor: BOT, since: "2026-10-01T10:05:00Z" }).pushes,
+    [{ before: "b0", after: "f9", forced: true }]);
+  // No actor, no start time, or no log: nothing is attributed.
+  for (const opts of [{ actor: "", since: "2026-10-01T10:05:00Z" }, { actor: BOT, since: "" }, { actor: BOT, since: "yesterday" }]) {
+    assert.deepEqual(fixerPushes(log, opts).pushes, [], JSON.stringify(opts));
+  }
+  assert.deepEqual(fixerPushes(null, { actor: BOT, since: "2026-10-01T10:05:00Z" }).pushes, []);
+});
+
+test("fixerPushes: a full page that never reaches the round's start is truncated", () => {
+  const page = Array.from({ length: 100 }, (_, i) => act("push", BOT, `a${i}`, `a${i + 1}`, `2026-10-01T11:${String(i % 60).padStart(2, "0")}:00Z`));
+  assert.equal(fixerPushes(page, { actor: BOT, since: "2026-10-01T10:05:00Z", pageSize: 100 }).truncated, true);
+  assert.equal(fixerPushes(page.slice(0, 99), { actor: BOT, since: "2026-10-01T10:05:00Z", pageSize: 100 }).truncated, false);
+});
+
+test("pushedRoundCommits: each push's own commits, PR-only, no merges, each once", () => {
+  const pr = new Set(["f1a", "f1b", "f2a", "h1a"]);
+  const perPush = [
+    [{ sha: "f1a", n: 1 }, { sha: "f1b", n: 1 }],
+    // A push after an update-branch: its merge and main's commits are not the fixer's.
+    [{ sha: "m1", n: 2 }, { sha: "main1", n: 1 }, { sha: "f2a", n: 1 }, { sha: "f1b", n: 1 }],
+  ];
+  assert.deepEqual(pushedRoundCommits(perPush, pr).map((c) => c.sha), ["f1a", "f1b", "f2a"]);
+  // The human's commit `h1a` is in the PR but in no fixer push, so it is not blamed.
+  assert.ok(!pushedRoundCommits(perPush, pr).some((c) => c.sha === "h1a"));
+  assert.deepEqual(pushedRoundCommits(perPush, null), []);
+});
