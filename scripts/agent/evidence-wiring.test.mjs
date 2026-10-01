@@ -44,3 +44,13 @@ for (const file of ["agent-review-panel.yml", "agent-fix.yml"]) {
     assert.match(WF(file), /`test\.failing\(\.\.\.\)`/);
   });
 }
+
+for (const file of ["agent-review-panel.yml", "agent-review-on-demand.yml"]) {
+  test(`${file}: an unreadable issue is recorded, and the panel is told`, () => {
+    const src = WF(file);
+    assert.match(src, /fs\.writeFileSync\('\/tmp\/issue\.state', 'unreadable'\);/);
+    assert.match(src, /--issue-file \/tmp\/issue\.txt\n\s+--issue-state \/tmp\/issue\.state/);
+    // The swallow-everything catch this replaced must not come back beside it.
+    assert.doesNotMatch(src, /issues\.get\([\s\S]{0,900}?\} catch \{\}/);
+  });
+}
