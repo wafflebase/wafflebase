@@ -121,7 +121,8 @@ Intended divergences:
    `xtest`, `xdescribe`, `.failing`, and `fit` only with a string title (a
    local `fit()` helper exists in `fit-to-content.test.ts`). Names are matched
    dot-separated only; js-sdk's `[._]` would make `hit-test.ts` a test here.
-   node:test's `{ skip }` option is not seen. The D2 prompt rule names `test.failing` for the backend's Jest.
+   node:test's `{ todo }`/`{ skip }` option is counted, wrapped or not. The D2
+   prompt rule names `test.failing` for the backend's Jest.
 7. **`test-removals.mjs` joined the panel identity** (`eval/panel-identity.mjs`).
    Its lines reach the adjudicator, so it can change which disputes are
    overturned; the import walk test failed until it was classified. The digest
@@ -226,10 +227,89 @@ Shared bugs, to fix in yorkie-js-sdk's copies:
   the fixture's `GIT_DIR`/`GIT_WORK_TREE` and strip the other `GIT_*` location
   variables there and in yorkie.
 
+### Code review (/code-review high)
+
+The wafflebase-specific findings, each checked against the code before
+anything changed. The shared modules (`review-scope`, `review-state`,
+`fix-report`, `carry-verdicts`) are left to the yorkie fix and are not touched
+here.
+
+1. **Confirmed: a `{ todo }` option Prettier wraps is not seen.** The prompt's
+   form, `test("long title", { todo: '…' }, async () => {…})`, overflows 80
+   columns. Prettier (this repo's `.prettierrc`) then puts the opener, title,
+   options and callback on lines of their own, and breaks a long object one key
+   per line. `OPTION_OFF` was tested only on a line that also matched `CASE`, so
+   the record stayed empty. Red: the wrapped `git diff` shapes counted no
+   option. Fix: `wrappedOptions` reads each side of the patch as its own file
+   (context lines belong to both), finds the options slot of a wrapped case
+   (a bare `it(`/`test(` opener, then a quoted title, then the object), and
+   counts an option only where its key line changed on that side. Not counted:
+   an option that was already there and is re-wrapped, re-indented or left as
+   context next to an edited title (it is removed on one side and added on the
+   other, or not changed at all), a `test.each` table, a look-alike call, an
+   object in the body, a nested key.
+2. **Confirmed: a dead pool still did the fixer's setup.** With
+   `available=false` the panel's `fix` job still minted the App token, checked
+   out the branch, ran `pnpm install` and set `agent:fixing`, a step before the
+   page set `agent:blocked`. Those six steps now also need
+   `steps.cred.outputs.available != 'false'`. The page needs only the staged
+   scripts, the probe and the GITHUB_TOKEN; none of those is gated, and the
+   post-agent steps that still run on this path need none of the skipped ones
+   (`metrics.mjs record` bails without an execution log). Pinned in
+   `infra-wiring.test.mjs`, Red on the old workflow. **Refuted for
+   `agent-fix.yml`**: it has no probe (`pick-credential.mjs` picks a slot and
+   never writes `available`), so there is no dead-pool path to gate.
+3. **Confirmed: the removal record blamed later pushes on the fixer.** AFTER
+   was the branch head read when `fix-evidence` ran, which comes after the fix
+   job's reporting steps and a fresh runner's start. A commit a human pushed in
+   that gap was in the compare and in the PR's commit list, so it counted.
+   (update-branch only adds a merge, which was already skipped.)
+
+   Design: the round's commits are the ones the **fixer's credential pushed**
+   after the round started, read from the repository activity log
+   (`GET /repos/{o}/{r}/activity?ref=refs/heads/<branch>`), which names the
+   authenticated pusher. Measured on #1077: the pushes are `yorkie-agent[bot]`
+   (the App) and the commits say `claude[bot]`. The actor (`app-slug` of the App
+   token step) and the start time (`since`, stamped in `before-fix`) are step
+   outputs written before the agent runs, so the agent cannot change them.
+   Each fixer push's own compare is read, filtered as before (in the PR's
+   commit list, not merges), and deduplicated; a human push in between, before
+   or after is in no fixer push's range.
+
+   Rejected:
+   - *The SHA the fixer pushed*, from inside the fix job: every step after the
+     agent runs on its terms (`$GITHUB_ENV`, `$GITHUB_PATH`, `.git/config`), and
+     its own report is a claim that could stop short of the commit that deleted
+     a test.
+   - *Stop at the first commit not by the fixer's identity*: the author and
+     committer are whatever the agent's git config says, so a fixer could sign
+     one commit as a human and end the walk before its deletion. The identity is
+     also shared by every agent workflow here.
+
+   Red: `fixerPushes`/`pushedRoundCommits` did not exist, and the wiring test
+   failed on the old workflows. Live check against the real API, with
+   `gh pr comment` shimmed out: on #1077 it read the bot's one push and found
+   nothing removed; with another actor it attributed nothing. That run also
+   found a bug that predates this change: the PR commit list was read with
+   `--jq .[].sha`, which prints bare shas, and parsing them as JSON threw, so
+   `main()` always logged "could not read the round's commits" and never posted.
+   Now `.[].sha | tojson`.
+
+   Limits: the activity endpoint with the GITHUB_TOKEN (`contents: read`) is
+   documented for installation tokens but has not run in Actions yet. If it
+   fails, nothing is recorded, as with any unread round. A second fixer pushing
+   with the same App inside the window (a `@claude fix` beside an autonomous
+   round) is counted as this round's. A full page of 100 activities that does
+   not reach `since` marks the record `truncated`.
+
+Verification: `cd scripts/agent && npm test` 2741 pass, 0 fail (2733 before);
+`pnpm lint:scripts` clean; `verify:doc-index`, `verify:doc-links` pass.
+
 ### Verification
 
-- `cd scripts/agent && npm test`: 2733 tests, 2733 pass, 0 fail after the
-  second review (2728 before it; baseline 2659: 2654 pass, 5 skipped before
+- `cd scripts/agent && npm test`: 2741 tests, 2741 pass, 0 fail after the
+  /code-review fixes; 2733 after the second review (2728 before it;
+  baseline 2659: 2654 pass, 5 skipped before
   `pnpm install`).
 - `pnpm lint:scripts`: clean. `verify:doc-index` and `verify:doc-links`: pass.
   `verify:entropy`: knip 0 dead code (after building `design-editor`, whose

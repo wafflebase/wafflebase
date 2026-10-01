@@ -81,3 +81,14 @@ read. Describe a race by the two events that bound it.
   now fails on any test that spawns git and runs `init` without importing
   `git-env.mjs`. Before porting a test, check it against the target's own
   helpers.
+- Unit tests over the pure functions said nothing about `main()`. The first
+  live run of `test-removals.mjs post` (with `gh pr comment` shimmed out) threw
+  on the PR commit list: `gh --jq .[].sha` prints bare strings, not JSON, so
+  the record could never have been posted. Run a CLI's real read path once
+  against the API before calling it wired.
+- A detector built from regexes on single diff lines misses what the
+  formatter does to the code it asks for. Run Prettier on the exact form a
+  prompt tells the agent to write, and test the `git diff` it produces.
+- Before trusting a value as "the agent's", ask who wrote it. Commit author
+  and committer come from the agent's git config; the activity log's `actor`
+  comes from the token GitHub authenticated.

@@ -3666,7 +3666,8 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
   only a closed usage window or a rejected credential counts, so a transient 429
   or overload proceeds instead of latching the PR. The probe holds every pool
   secret, so it runs before the App token, the branch checkout and the install,
-  and each probe child sees one token and a throwaway HOME.
+  and each probe child sees one token and a throwaway HOME. A pool known to be dead
+  skips the App token, checkout and install and goes straight to its page.
 - **Honest infra pages.** A fixer that failed on an API error with nothing pushed
   is paged with its cause and the next step (`scripts/agent/fix-outcome.mjs`),
   not as "the fixer failed", and `stalled` stands down for it. There is no refund:
@@ -3674,9 +3675,11 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
   restarts the budget anyway.
 - **Evidence beside claims.** When a fix round's own commits delete, rename out of
   a runner's reach, or disable tests, a trusted job records it
-  (`scripts/agent/test-removals.mjs`). "Own commits" means the round's commits that
-  are in the PR's commit list and are not merges, so main's changes are not
-  blamed on the fixer. The next round's adjudicator sees the record ahead of the
+  (`scripts/agent/test-removals.mjs`). "Own commits" means commits in a push the
+  fixer's App credential made after the round started (read from the repository
+  activity log, which names the authenticated pusher), that are in the PR's commit
+  list and are not merges. Main's changes and a human's later push are not blamed
+  on the fixer. A node:test option counts wherever Prettier wrapped it. The next round's adjudicator sees the record ahead of the
   author's fence, for every claim and dispute it adjudicates. A focus (`.only`,
   `fit`, `fdescribe`) and a node:test `{ todo }`/`{ skip }` option count as
   disablements: Jest here has no CI guard against focus. It only sees
