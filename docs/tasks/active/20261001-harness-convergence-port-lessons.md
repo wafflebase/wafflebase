@@ -72,3 +72,12 @@ read. Describe a race by the two events that bound it.
   `scripts/agent` (it is outside the pnpm workspace). For a harness-only change
   the real gates are the `scripts/agent` suite, `lint:scripts` and the doc gates;
   run them by hand and say so.
+- A byte-identical port inherits the source repo's blind spots, not the
+  target's guards. `fingerprint.test.mjs` came from js-sdk without
+  `fixtureGitEnv`. The first `git push` ran it under the pre-push hook with
+  `GIT_DIR` exported. It set `core.bare` and a `t@t` identity in the shared
+  submodule config, broke the submodule checkout, and committed over this
+  branch. The push failed, so nothing reached the remote. `git-env.test.mjs`
+  now fails on any test that spawns git and runs `init` without importing
+  `git-env.mjs`. Before porting a test, check it against the target's own
+  helpers.

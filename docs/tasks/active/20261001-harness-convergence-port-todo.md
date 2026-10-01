@@ -221,6 +221,10 @@ Shared bugs, to fix in yorkie-js-sdk's copies:
   silent 50-commit cap, and the "did not advance" log on a failed `gh api`.
 - Focus (`.only`, `fit`, `fdescribe`) is counted as an active case there too;
   less urgent if its runners reject `.only` under CI.
+- `fingerprint.test.mjs` builds its fixture repo with the inherited
+  environment. Under any git hook that runs it, it writes to the real repo. Pin
+  the fixture's `GIT_DIR`/`GIT_WORK_TREE` and strip the other `GIT_*` location
+  variables there and in yorkie.
 
 ### Verification
 
