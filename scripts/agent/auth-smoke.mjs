@@ -86,6 +86,32 @@ export function classifyFailure(message) {
   return "unknown";
 }
 
+/**
+ * The NARROW form of `classifyFailure`, for a caller whose "refused" answer
+ * latches something — `pick-fix-credential.mjs --probe`, where every candidate
+ * refusing posts the paged latch and stops the PR until a human reruns it.
+ *
+ * Here only a refusal that STAYS refused counts: a closed usage window (until
+ * it resets) or a rejected credential. A plain 429, "rate limit", "overloaded"
+ * or "capacity" is transient, and on an API-wide blip every slot would read as
+ * dead and the PR would latch for nothing — so it is `unknown`, which the probe
+ * treats as "proceed". The same line the panel's own failover draws:
+ * `isAccountLimit` keys on the usage window, not on a rate limit.
+ *
+ * A pre-arm check wants the WIDE form above (a quota refusal still proves the
+ * credential was accepted, and exit 2 says "retry"); a latch wants this one.
+ * One vocabulary, two thresholds: the AUTH list and SESSION_LIMIT_RE are shared,
+ * so the two cannot disagree about what a rejected credential looks like.
+ *
+ * Quota first, as above: a usage-window refusal often arrives worded as auth.
+ */
+export function classifyRefusal(message) {
+  const text = String(message ?? "");
+  if (SESSION_LIMIT_RE.test(text)) return "quota";
+  if (AUTH.some((re) => re.test(text))) return "auth";
+  return "unknown";
+}
+
 /** The message and exit code for a classified failure. */
 export function describeFailure(kind, detail) {
   // REDACTED, because this text is printed to a public Actions log and this is the

@@ -1763,6 +1763,13 @@ jobs:
       actions: read # the no-commit page reads the CI run's current attempt
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    # For `fix-evidence`, which reads the round from a fresh runner rather than
+    # from steps that would run after the agent on this one.
+    outputs:
+      proceed: ${{ steps.guard.outputs.proceed }}
+      available: ${{ steps.cred.outputs.available }}
+      before: ${{ steps.before-fix.outputs.sha }}
+      fixer: ${{ steps.fixer.outcome }}
     steps:
       # Everything below runs against UNTRUSTED PR data (commit list,
       # check-run results, PR comments), so the code deciding what to do with
@@ -1905,6 +1912,66 @@ jobs:
         if: steps.guard.outputs.proceed == 'true'
         run: cp -R ./scripts/agent "${{ runner.temp }}/agent-tools"
 
+      # WHICH CREDENTIAL THE FIXER GETS, and whether one exists at all — PROVEN,
+      # not inferred.
+      #
+      # `claude-code-action` takes ONE credential and cannot consult
+      # `token-pool.mjs`. The picker used to name a slot from the pool state the
+      # panel recorded, and that state only knows what the PANEL's sessions saw.
+      # Without any picker the fixer ran on slot zero, the credential the panel
+      # is likeliest to have just burned: on #876 that killed the fixer 1.6s
+      # after init (`is_error:true`, turns=1, tokens=0) AFTER the round had been
+      # recorded. With the state-only picker, yorkie-js-sdk#1426's fixer still
+      # died 0.5 s after init at $0 on a slot the state called live ("live-slot",
+      # "0 retired"). So `--probe` sends each candidate a one-word query and hands
+      # out the first that answers. A reused round has no panel run and no pool
+      # state; the probe then tries every configured slot.
+      #
+      # HERE, BEFORE THE APP TOKEN AND THE BRANCH CHECKOUT, and that placement is
+      # the security property: the step holds every pool secret, and at this
+      # point the workspace is still trusted main with no branch code on disk.
+      # TRUSTED copy from `$RUNNER_TEMP/agent-tools`, with the Agent SDK the
+      # unprivileged `deps` job built unpacked beside it. Each probe child gets
+      # ONE token and a throwaway HOME (pick-fix-credential.mjs::probeEnv).
+      #
+      # `continue-on-error` with a fail-open default: only an explicit
+      # `available=false` stops the dispatch below — every candidate REFUSED on
+      # a closed usage window or a rejected credential, or a pool state that
+      # proves every slot retired. A transient overload, a missing artifact, an
+      # SDK that will not load, a timeout or an unclassified error leaves
+      # `available` empty or true, which is exactly the old behaviour.
+      - name: Download the Agent SDK (for the credential probe)
+        if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-sdk-node-modules
+          path: /tmp/agent-sdk
+      - name: Unpack the Agent SDK beside the trusted scripts
+        if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        run: tar -xzf /tmp/agent-sdk/agent-sdk-node-modules.tgz -C "$RUNNER_TEMP/agent-tools"
+      - name: Pick a live fixer credential
+        id: cred
+        if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
+          CLAUDE_CODE_OAUTH_TOKEN_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_6 }}
+          CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
+          CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" ] || {
+            echo "pick-fix-credential.mjs is not on main yet; proceeding as before"
+            exit 0
+          }
+          node "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" --state /tmp/review-panel-execution --probe --model claude-opus-5
+
       - name: Generate GitHub App token
         id: app-token
         if: steps.guard.outputs.proceed == 'true'
@@ -1963,60 +2030,6 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
 
-      # SPEND THE ROUND HERE — the LAST step before the fixer, not back at the
-      # guard where the record is written.
-      #
-      # The guard runs fourteen steps earlier, and everything between is setup: an
-      # App-token mint, a branch checkout, a `pnpm install`. This workflow is
-      # `cancel-in-progress: true`, so a push during those one-to-three minutes
-      # kills the run — and if the round had already been posted, it is a round
-      # consumed by a fixer that never started. That is the same shape as the
-      # phantom round this change exists to remove, just smaller and
-      # self-inflicted; #695 had pushes 57 seconds apart, so the window is real.
-      #
-      # It cannot be closed completely — some instant separates "recorded" from
-      # "running" — but from here a cancellation costs a round for a fixer that
-      # had genuinely begun, which is a round honestly spent.
-      #
-      # NOT `continue-on-error`. A dispatch whose record never landed is a round
-      # the next guard hands out again, so a failure here must red the job before
-      # the fixer is reached; the `stalled` net then pages. `test -s` catches the
-      # staged file being absent or empty, which would otherwise post nothing and
-      # succeed.
-      # WHICH CREDENTIAL THE FIXER GETS, and whether one exists at all.
-      #
-      # `claude-code-action` takes ONE credential and cannot consult
-      # `token-pool.mjs`, so this step reads the pool state the panel recorded and
-      # names a slot the panel has not retired. Without it the fixer runs on
-      # `secrets.CLAUDE_CODE_OAUTH_TOKEN` — slot ZERO of that same pool — i.e. the
-      # credential the panel is likeliest to have just burned. On #876 that killed
-      # the fixer 1.6s after init (`is_error:true`, turns=1, tokens=0) AFTER the
-      # round had been recorded, so the PR paid a fix round for a session that never
-      # started.
-      #
-      # TRUSTED copy from `$RUNNER_TEMP/agent-tools`, which "Stage the trusted agent
-      # scripts" above snapshotted from trusted main BEFORE the branch was checked
-      # out. By this point the workspace holds the UNTRUSTED branch, so
-      # `./scripts/agent` is the branch's own copy and `.trusted/` does not exist in
-      # this job at all — that directory belongs to the review-panel job. Every other
-      # script here runs from the staged path for exactly this reason.
-      #
-      # `continue-on-error` with a fail-open default: only an explicit
-      # `available=false` stops the dispatch below. A missing artifact or a broken
-      # picker leaves `available` empty, which reads as "proceed" and is exactly
-      # today's behaviour — this must never be able to block a fixer that would have
-      # worked.
-      - name: Pick a live fixer credential
-        id: cred
-        if: steps.guard.outputs.proceed == 'true'
-        continue-on-error: true
-        run: |
-          [ -f "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" ] || {
-            echo "pick-fix-credential.mjs is not on main yet; proceeding as before"
-            exit 0
-          }
-          node "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" --state /tmp/review-panel-execution
-
       # NO LIVE CREDENTIAL — page, and spend nothing.
       #
       # This is its own page because the `stalled` net cannot see it: skipping the
@@ -2043,6 +2056,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
           CAPACITY: ${{ steps.cred.outputs.capacity }}
+          CRED_REASON: ${{ steps.cred.outputs.reason }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         # Body assembled with printf into a file, then posted with --body-file. An
         # UNQUOTED heredoc would interpolate the marker and the backticks as shell;
@@ -2052,7 +2066,14 @@ jobs:
         run: |
           {
             printf '%s\n' '<!-- agent-review-paged -->'
-            printf '%s\n\n' '🛑 The fix agent was **not dispatched**: no Claude credential had an open usage window, so a fix round would have been spent on a session that could not start.'
+            # Two different findings, said differently: the probe TRIED every
+            # slot and each refused, or the panel's pool state already showed
+            # every slot retired and nothing was tried.
+            if [ "$CRED_REASON" = "probe-all-refused" ]; then
+              printf '%s\n\n' '🛑 The fix agent was **not dispatched**: every Claude credential was probed and each refused — a closed usage window or a rejected credential — so a fix round would have been spent on a session that could not start.'
+            else
+              printf '%s\n\n' '🛑 The fix agent was **not dispatched**: the review panel had already retired every Claude credential this round (closed usage windows), so a fix round would have been spent on a session that could not start.'
+            fi
             printf '%s\n\n' '**No fix round was consumed** — this PR'"'"'s budget is untouched.'
             printf 'Credential capacity: %s\n\n' "${CAPACITY:-unknown}"
             printf '%s\n\n' 'This often clears by itself, because usage windows reset. Comment `@claude rerun` once they have, or register more `CLAUDE_CODE_OAUTH_TOKEN_N` repository secrets so a heavy review round cannot starve the fixer.'
@@ -2062,6 +2083,26 @@ jobs:
           gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"
           node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
 
+      # SPEND THE ROUND HERE — the LAST step before the fixer, not back at the
+      # guard where the record is written.
+      #
+      # The guard runs fourteen steps earlier, and everything between is setup: an
+      # App-token mint, a branch checkout, a `pnpm install`. This workflow is
+      # `cancel-in-progress: true`, so a push during those one-to-three minutes
+      # kills the run — and if the round had already been posted, it is a round
+      # consumed by a fixer that never started. That is the same shape as the
+      # phantom round this change exists to remove, just smaller and
+      # self-inflicted; #695 had pushes 57 seconds apart, so the window is real.
+      #
+      # It cannot be closed completely — some instant separates "recorded" from
+      # "running" — but from here a cancellation costs a round for a fixer that
+      # had genuinely begun, which is a round honestly spent.
+      #
+      # NOT `continue-on-error`. A dispatch whose record never landed is a round
+      # the next guard hands out again, so a failure here must red the job before
+      # the fixer is reached; the `stalled` net then pages. `test -s` catches the
+      # staged file being absent or empty, which would otherwise post nothing and
+      # succeed.
       - name: Record the fix-round dispatch
         # `!= 'false'` and not `== 'true'`: an unset output (picker skipped, older
         # branch, step errored) must proceed exactly as before. Only a KNOWN-drained
@@ -2398,7 +2439,7 @@ jobs:
             NOTE="Fixer pushed \`${AFTER:0:9}\` — CI and a fresh panel round run on it next."
           else
             EVENT=paged
-            NOTE="The fix round did not advance the branch — a page comment follows (from this job's no-commit check or the stalled safety net)."
+            NOTE="The fix round did not advance the branch — a page comment follows (from this job's no-commit check, the infra page in fix-evidence, or the stalled safety net)."
           fi
           node "$RUNNER_TEMP/agent-tools/loop-status.mjs" update "$PR" --event "$EVENT" --note "$NOTE" \
             --max-rounds "$MAX_ROUNDS" \
@@ -2413,6 +2454,111 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ needs.review-panel.outputs.pr }}
         run: node "$RUNNER_TEMP/agent-tools/metrics.mjs" record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind review-fix --pr "$PR"
+
+  # WHAT THE FIX ROUND LEFT BEHIND, read from a FRESH RUNNER.
+  #
+  # The `fix` job runs its reporting steps after the agent, on the runner the
+  # agent had an unrestricted shell on: it could have written `$GITHUB_ENV`,
+  # `~/.gitconfig` or the workspace's `.git/config`, and every later step in
+  # that job runs on its terms. yorkie-js-sdk moved all of its post-agent work
+  # into a separate job for that reason (its `checks.test.mjs` pins "nothing
+  # after the agent but the handoff"). This pipeline has not made that move for
+  # its existing steps, but the two added here — a page that latches the PR and
+  # evidence the next adjudicator trusts — do not join them. They run here, on a
+  # runner the agent never touched, from trusted main, reading the branch head
+  # through the API and the fixer's log as untrusted data.
+  #
+  # `always()`, like `close-stuck-checks`: the fixer's own push supersedes this
+  # run about half a minute later, and the removal record is wanted exactly on
+  # the rounds that pushed. Every step repeats `always()` for the same reason.
+  fix-evidence:
+    needs: [review-panel, fix]
+    if: >-
+      always() && needs.fix.outputs.proceed == 'true' &&
+      needs.fix.outputs.available != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # `stalled` reads this to stand down: an infra failure is paged here, with
+    # its cause, and must not be paged a second time as "the fixer failed".
+    outputs:
+      infra_paged: ${{ steps.infra.outputs.paged }}
+    permissions:
+      contents: read # the branch head and the round's commits, through the API
+      pull-requests: write # the removal record, the infra page, the blocked label
+      issues: write # PR conversation comments use the issues API
+    steps:
+      - uses: actions/checkout@v4
+        if: always()
+        with:
+          ref: main
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: always()
+        with:
+          node-version: 22.x
+
+      - name: Collect the fixer's execution log (untrusted data)
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: claude-fix-execution-output
+          path: ${{ runner.temp }}/agent-output
+
+      # The branch head AFTER the round, from the API. Never from a checkout:
+      # the agent owned the old one's `.git/config`, and this job has none.
+      - name: Read the branch head after the fix
+        if: always()
+        id: after
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          BEFORE: ${{ needs.fix.outputs.before }}
+        run: |
+          AFTER="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha 2>/dev/null || echo '')"
+          echo "sha=$AFTER" >> "$GITHUB_OUTPUT"
+          # "advanced" only when BOTH heads resolved AND differ; "unchanged" only
+          # when both resolved AND match. Anything else is unknown, and neither
+          # step below acts on an unknown head.
+          if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
+            echo "advanced=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$BEFORE" ] && [ -n "$AFTER" ]; then
+            echo "advanced=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # AN INFRA FAILURE IS NOT A FIXER THAT GAVE UP. On yorkie-js-sdk#1426, fix
+      # rounds died with `is_error` after 25 turns and 0.5 s after init — an API
+      # that stopped answering — and `stalled` paged each as "the fixer agent
+      # failed", sending a human after a fixer that could not converge. When the
+      # fixer step FAILED, nothing is KNOWN to have been pushed, and the session
+      # ended on an API error, this pages with the cause and the next step, and
+      # `stalled` stands down. Otherwise it does nothing and the existing nets
+      # page.
+      #
+      # NOT continue-on-error: a page that failed to post must red this job, so
+      # `stalled` (which tests `fix-evidence` failing) still pages.
+      - name: Page an infrastructure failure
+        id: infra
+        # `advanced == 'false'` is set only when both heads were read and match:
+        # "nothing was pushed" must be KNOWN. An unread head is `stalled`'s case.
+        if: >-
+          always() && needs.fix.outputs.fixer == 'failure' &&
+          steps.after.outcome == 'success' && steps.after.outputs.advanced == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          FIXER_OUTCOME: ${{ needs.fix.outputs.fixer }}
+          ADVANCED: ${{ steps.after.outputs.advanced }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node scripts/agent/fix-outcome.mjs page "$PR" \
+            --execution "$RUNNER_TEMP/agent-output/claude-execution-output.json" \
+            --fixer "$FIXER_OUTCOME" --advanced "$ADVANCED" --run-url "$RUN_URL"
+          if grep -q '^paged=true$' "$GITHUB_OUTPUT"; then
+            node scripts/agent/set-state.mjs "$PR" blocked || true
+          fi
 
   # Safety net: the pipeline stopped without promoting → page a human so the loop
   # never silently stalls. This must catch every terminal "no hand-off" shape:
@@ -2518,7 +2664,7 @@ jobs:
             }
 
   stalled:
-    needs: [gate, ci, deps, review-panel, promote, fix]
+    needs: [gate, ci, deps, review-panel, promote, fix, fix-evidence]
     # `!cancelled()`, NOT `always()`. This changed with the concurrency guard at
     # the top of the file: a superseded run is now cancelled mid-flight, and under
     # `always()` this job still fired — a panel cancelled before it started reports
@@ -2540,6 +2686,14 @@ jobs:
     # well would comment twice and latch `agent:blocked` from two places on every
     # timeout, and would page spuriously whenever a fixer's own push superseded
     # the run. Both conditions are pinned in checks.test.mjs.
+    #
+    # A FAILED FIXER THAT `fix-evidence` ALREADY PAGED is left alone: that page
+    # names the infrastructure cause and what to type, and a second one here
+    # would say "the fixer agent failed". When the infra page did not post —
+    # `fix-evidence` failed, was skipped, or found nothing to call infra —
+    # `infra_paged` is empty and this pages as before. `fix-evidence` failing on
+    # its own is NOT a stall: it records evidence and one page, and every other
+    # outcome of the round is paged from the `fix` job or here.
     if: >-
       !cancelled() &&
       (needs.gate.result == 'failure' ||
@@ -2549,7 +2703,7 @@ jobs:
          needs.review-panel.result == 'failure' ||
          needs.review-panel.result == 'skipped' ||
          needs.promote.result == 'failure' ||
-         needs.fix.result == 'failure')))
+         (needs.fix.result == 'failure' && needs.fix-evidence.outputs.infra_paged != 'true'))))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

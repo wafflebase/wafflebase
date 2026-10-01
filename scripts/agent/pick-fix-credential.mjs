@@ -33,14 +33,36 @@
 //     would consume one of three fix rounds on a session that cannot start, which is
 //     strictly worse than pausing and saying so.
 //
+// THE PROBE (`--probe`). The pool state knows only what the PANEL's sessions
+// saw. On yorkie-js-sdk#1426 it named CLAUDE_CODE_OAUTH_TOKEN ("live-slot", "0
+// retired") and the fixer died 0.5 s after init at $0, having already been
+// charged a round. A slot the panel never touched, or one whose window closed
+// after the panel finished, reads as live. So with `--probe` each candidate
+// gets a one-word query before the round is recorded, and the first that
+// answers is the one handed out. Same two fail directions as above: every
+// candidate REFUSED (a closed usage window or a rejected credential) is a
+// known-dead pool and `available=false`; anything inconclusive — a transient
+// overload, an unclassified error, a timeout, an SDK that will not load —
+// proceeds.
+//
+// The refusal vocabulary is auth-smoke.mjs's (`classifyRefusal`, the narrow form
+// of the pre-arm check's `classifyFailure`), not a copy of it.
+//
+// It runs before the branch checkout, so the pool secrets it needs are never in
+// a process that has branch code on disk.
+//
 // Usage:
-//   node pick-fix-credential.mjs [--state <dir-or-file>] [--out-env]
+//   node pick-fix-credential.mjs [--state <dir-or-file>] [--probe] [--model <id>]
 // Always exits 0. Writes `slot=` / `available=` / `reason=` to $GITHUB_OUTPUT when
 // set, and always logs a human line.
 
-import { readFileSync, existsSync, statSync, appendFileSync } from "node:fs";
+import { readFileSync, existsSync, statSync, appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { MAX_SLOTS, TOKEN_ENV, slotSuffix } from "./token-pool.mjs";
+import { fileURLToPath } from "node:url";
+import { MAX_SLOTS, TOKEN_ENV, slotSuffix, readPoolSlots } from "./token-pool.mjs";
+import { classifyRefusal } from "./auth-smoke.mjs";
+import { classifyFixResult } from "./metrics.mjs";
 
 // Re-exported, not redefined: `token-pool.mjs` owns the slot naming, and a second
 // copy of this mapping is exactly the drift its docblock warns about.
@@ -113,6 +135,104 @@ export function chooseCredential(state) {
   return { slot: "", available: false, reason: "all-slots-retired" };
 }
 
+/**
+ * Which slots to probe, in order: the panel's live slots that have a secret
+ * behind them, or — when the state cannot be read — every configured slot. A
+ * KNOWN-drained pool has none, and `chooseCredential`'s refusal stands.
+ */
+export function candidateNames(state, configuredNames) {
+  const configured = (Array.isArray(configuredNames) ? configuredNames : []).filter((n) => slotSuffix(n) !== null);
+  const decided = chooseCredential(state);
+  if (decided.available === false) return [];
+  const live = state && state.v === POOL_STATE_VERSION && Array.isArray(state.live) ? new Set(state.live) : null;
+  if (!live || live.size === 0) return configured;
+  return configured.filter((n) => live.has(n));
+}
+
+/**
+ * "quota" | "auth" | "unknown" for a probe that did not answer. auth-smoke's
+ * narrow classifier: a "refused" here pauses the PR behind the paged latch, so
+ * a transient 429 or overload must read as `unknown` (see `classifyRefusal`).
+ */
+export function classifyProbeFailure(message) {
+  return classifyRefusal(message);
+}
+
+/**
+ * Probe `names` in order with `check(name)` → `{ ok }` or `{ ok: false, kind }`.
+ * Returns the picker's answer, or `null` when there was nothing to probe (the
+ * caller then falls back to `chooseCredential`). A throw is `unknown`.
+ */
+export async function probeCredentials({ names, check, log = console.log }) {
+  const list = Array.isArray(names) ? names : [];
+  if (list.length === 0) return null;
+  let firstUnknown = null;
+  for (const name of list) {
+    let res;
+    try {
+      res = await check(name);
+    } catch (err) {
+      res = { ok: false, kind: "unknown", detail: err?.message };
+    }
+    if (res && res.ok) return { slot: slotSuffix(name), available: true, reason: "probed-live" };
+    const kind = res && (res.kind === "quota" || res.kind === "auth") ? res.kind : "unknown";
+    // The NAME only — never the token, never upstream text (a malformed secret
+    // is quoted back verbatim by the HTTP client).
+    log(`probe: ${name} → ${kind}`);
+    if (kind === "unknown" && firstUnknown === null) firstUnknown = name;
+  }
+  if (firstUnknown !== null) return { slot: slotSuffix(firstUnknown), available: true, reason: "probe-inconclusive" };
+  return { slot: "", available: false, reason: "probe-all-refused" };
+}
+
+/**
+ * One credential, one word, no tools, a hard timeout.
+ *
+ * The child gets ONLY the token under test, PATH, and a throwaway HOME and
+ * CLAUDE_CONFIG_DIR. Not `process.env` — unlike auth-smoke.mjs, which runs where
+ * nothing else is at stake: this step holds every pool secret, and the CLI it
+ * starts would otherwise inherit all nine. And not the real HOME: the CLI
+ * writes state there, on the runner the fixer later gets a shell on.
+ *
+ * 30 s, serial. Nine dead slots cost at most 4.5 minutes of the fix job's
+ * 90-minute wall; a healthy pool answers on the first.
+ */
+export function probeEnv(token, home) {
+  return { PATH: process.env.PATH ?? "", HOME: home, CLAUDE_CONFIG_DIR: home, CLAUDE_CODE_OAUTH_TOKEN: token };
+}
+
+function sdkCheck(query, model, token, timeoutMs = 30_000) {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  const home = mkdtempSync(path.join(tmpdir(), "probe-"));
+  return (async () => {
+    let failure = "(no result message)";
+    try {
+      for await (const m of query({
+        prompt: "Reply with exactly one word: pong",
+        options: {
+          model, allowedTools: [], permissionMode: "dontAsk", settingSources: [], maxTurns: 1,
+          abortController: abort,
+          // `env` REPLACES the child environment (see ask.mjs).
+          env: probeEnv(token, home),
+        },
+      })) {
+        if (m.type !== "result") continue;
+        // The repo's one success rule for a session result (it also reads
+        // `api_error_status` and `terminal_reason`), not a second copy of it.
+        if (classifyFixResult(m)?.ok) return { ok: true };
+        failure = `${m.subtype ?? ""} ${m.api_error_status ?? ""} ${m.result ?? ""}`;
+      }
+    } catch (err) {
+      failure = abort.signal.aborted ? "timeout" : String(err?.message ?? err);
+    } finally {
+      clearTimeout(timer);
+      rmSync(home, { recursive: true, force: true });
+    }
+    return { ok: false, kind: classifyProbeFailure(failure) };
+  })();
+}
+
 /** Read the state file from a directory or an explicit path. Never throws. */
 export function readPoolState(target) {
   try {
@@ -143,11 +263,31 @@ export function capacityNote(state) {
   return detail;
 }
 
-function main(argv) {
+async function main(argv) {
   const at = argv.indexOf("--state");
   const target = at >= 0 ? argv[at + 1] : "/tmp/review-panel-execution";
   const state = readPoolState(target);
-  const { slot, available, reason } = chooseCredential(state);
+  let { slot, available, reason } = chooseCredential(state);
+
+  if (argv.includes("--probe") && available) {
+    const mi = argv.indexOf("--model");
+    const model = mi >= 0 && argv[mi + 1] ? argv[mi + 1] : "claude-opus-5";
+    const slots = readPoolSlots(process.env);
+    const tokenOf = new Map(slots.map((s) => [s.name, s.token]));
+    let query = null;
+    try {
+      ({ query } = await import("@anthropic-ai/claude-agent-sdk"));
+    } catch (err) {
+      console.log(`probe: the Agent SDK did not load (${err.message}); using the pool state alone`);
+    }
+    const probed = query
+      ? await probeCredentials({
+          names: candidateNames(state, slots.map((s) => s.name)),
+          check: (name) => sdkCheck(query, model, tokenOf.get(name)),
+        })
+      : null;
+    if (probed) ({ slot, available, reason } = probed);
+  }
 
   const which = slot === "" ? TOKEN_ENV : `${TOKEN_ENV}_${slot}`;
   console.log(
@@ -165,6 +305,11 @@ function main(argv) {
   }
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  main(process.argv.slice(2));
+// `path.resolve` + `fileURLToPath`, not the `file://${argv[1]}` template this
+// replaces: that compared a percent-encoded URL against a raw path, so the
+// script did nothing at all when run from a path with a space or `%` in it.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // Fail OPEN on a crash, like every other doubt here: no `available=` written
+  // reads as "proceed" in the workflow.
+  main(process.argv.slice(2)).catch((err) => console.log(`pick-fix-credential: crashed (${err.message}); proceeding as before`));
 }
