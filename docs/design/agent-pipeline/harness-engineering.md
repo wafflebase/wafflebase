@@ -3677,10 +3677,13 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
   (`scripts/agent/test-removals.mjs`). "Own commits" means the round's commits that
   are in the PR's commit list and are not merges, so main's changes are not
   blamed on the fixer. The next round's adjudicator sees the record ahead of the
-  author's fence, for every claim and dispute it adjudicates. It only sees
+  author's fence, for every claim and dispute it adjudicates. A focus (`.only`,
+  `fit`, `fdescribe`) and a node:test `{ todo }`/`{ skip }` option count as
+  disablements: Jest here has no CI guard against focus. It only sees
   COMMITTED tests — yorkie-js-sdk#1426's fixer never committed the test it
-  deleted — so both fixer prompts say to keep a reproducing test as `it.fails`
-  (`test.failing` under the backend's Jest) and report the finding skipped.
+  deleted — so both fixer prompts say to keep a reproducing test running
+  (`it.fails` in Vitest, `test.failing` in the backend's Jest, `{ todo }` in
+  node:test) and report the finding skipped.
 - **No spec, no scope verdict.** Without a human-filed `agent:candidate` issue,
   design-fit is told it has no spec, and scope findings are `minor` at most. An
   issue that failed to load is not reported as no spec.
@@ -3720,6 +3723,13 @@ a gate, because removing a test can be legitimate.
 | Main changes what an unchanged diff MEANS, and a carry hides it | CI must pass on the carried head before promote, and the third carry in a row is a full review |
 | A fixer forges an execution log to look like an infra failure | The worst it can choose is which page a human reads; the PR is latched either way |
 | `review-state.mjs`, `review-scope.mjs` and `carry-verdicts.mjs` drift from the js-sdk copies | They are byte-identical today (the `#1426` in them is js-sdk's); diff against `yorkie-js-sdk/scripts/agent/` before changing them |
+
+**The removal record races the next round.** The fixer's push starts CI, the
+panel workflow starts on CI's `requested` event, and that run supersedes this one;
+it reads fix reports after its gate, `deps`, checkout and the steps up to "Read
+fix-agent reports", about 1–3 minutes after the push. A record posted later is
+never used. Whether a `fix` job cancelled by that supersede still publishes the
+outputs `fix-evidence` reads is unverified here and in yorkie-js-sdk.
 
 Not yet run on a real wafflebase PR: the structural tests (`carry-wiring`,
 `infra-wiring`, `evidence-wiring`) pin step order and conditions, and the probe was

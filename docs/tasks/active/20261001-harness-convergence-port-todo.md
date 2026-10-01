@@ -151,13 +151,82 @@ claim. Fixed from its findings:
 Left as is, shared with js-sdk: the infra page promises a rerun reuses
 verdicts, which holds only when every applicable lens stamped state; the issue
 fetch calls a 404 `unreadable` (design-fit then gets no note rather than the
-no-spec note); nothing orders the removal record ahead of the next panel's
-read on a very fast CI.
+no-spec note).
+
+### Second review (coordinator)
+
+Nothing blocking. Fixed, each with a test that was Red first:
+
+1. **Focus is a disablement.** Jest in `packages/backend` has no CI guard
+   (`CI=true jest --ci` reports "1 skipped, 1 passed", exit 0) and there is no
+   `no-focused-tests` rule, so `it(`→`it.only(`/`fit(` or `describe(`→
+   `describe.only(`/`fdescribe(` silently stops the siblings. An added focus is
+   now counted as `focused`, apart from cases and netted only against removed
+   focus lines. Counted for every runner, Vitest included (Vitest rejects
+   `.only` under CI, but one rule is simpler and costs nothing). The local
+   `fit();` helper stays excluded by the string-title rule.
+2. **Switches are summed raw across a round, then clamped once.** A suite
+   skipped in one commit and re-enabled in the next was `suitesOff: 1` (each
+   commit clamped, then summed). Cases stay summed, so a test committed and
+   deleted inside the round is still flagged.
+3. **node:test has a keep-it-failing form.** `it.fails`/`test.failing` are
+   undefined under node:test (106 `scripts/**/*.test.mjs`, the frontend's
+   `*.integration.ts` under `tsx --test`) and crash the file. Both prompts now
+   give `{ todo: 'still reproduces: <finding>' }`, and the detector counts a
+   newly added `{ todo`/`{ skip` option on a case as `optionsOff`, so it reaches
+   the adjudicator as evidence.
+4. **Detector edges.** A rename with no `patch` but `changes > 0` is
+   unreadable, not a pure move. More than 50 round commits marks the record
+   `truncated` (and an empty truncated record is still posted and believed)
+   instead of silently dropping commits. `agent-fix.yml`'s evidence step no
+   longer says "did not advance" when `gh api` failed. The overlong `CASE`
+   comment is rewrapped.
+
+Known limits, not fixed:
+
+- Commenting a case out by wrapping it in `/* … */` changes only the two
+  comment lines, so nothing is counted. (`// it(` is seen: the `it(` line is
+  removed.)
+- Disable-one-add-one nets to zero: `it.skip` on one case plus a new `it` on
+  another is not reported (switches are not netted, cases are).
+- A deletion inside a merge commit the fixer made is not seen; merges are
+  skipped as main's.
+- A test excluded through runner config (`vitest.config` `exclude`, Jest
+  `testPathIgnorePatterns`) is not seen; only test files are read.
+- The PR commit list is capped at 250 by the API, so a longer PR attributes
+  nothing past it.
+
+- **The removal record races the next round.** The fixer's push starts CI,
+  the panel workflow starts on CI's `requested` event, and that run supersedes
+  this one. The next round reads fix reports after its gate, `deps`, checkout
+  and the steps up to "Read fix-agent reports" — about 1–3 minutes after the
+  push. `fix-evidence` has to post inside that window; a record that loses is
+  never used, because the following round reads only the latest report.
+- **Unverified: does a superseded `fix` job still publish its outputs?** When
+  the push cancels the run, `fix-evidence` starts under `always()`, but whether
+  `needs.fix.outputs.*` (`proceed`, `before`) are populated from a job that was
+  cancelled mid-flight must be checked on the first real round. If they are
+  empty, `fix-evidence` skips and no record is posted. js-sdk's `fix-report`
+  has the same open question.
+
+### js-sdk follow-ups
+
+Shared bugs, to fix in yorkie-js-sdk's copies:
+
+- The probe classifier there lets auth words win over a transient 429
+  (`"429 … unauthorized"` → `auth`), which can latch a PR on a blip.
+- Suite switches are clamped per commit and then summed, so skip-then-unskip
+  inside one round reports a disabled suite (item 2 above).
+- The detector edges in item 4: a content-changing rename without a patch, the
+  silent 50-commit cap, and the "did not advance" log on a failed `gh api`.
+- Focus (`.only`, `fit`, `fdescribe`) is counted as an active case there too;
+  less urgent if its runners reject `.only` under CI.
 
 ### Verification
 
-- `cd scripts/agent && npm test`: 2728 tests, 2728 pass, 0 fail (baseline 2659:
-  2654 pass, 5 skipped before `pnpm install`).
+- `cd scripts/agent && npm test`: 2733 tests, 2733 pass, 0 fail after the
+  second review (2728 before it; baseline 2659: 2654 pass, 5 skipped before
+  `pnpm install`).
 - `pnpm lint:scripts`: clean. `verify:doc-index` and `verify:doc-links`: pass.
   `verify:entropy`: knip 0 dead code (after building `design-editor`, whose
   `dist/` knip loads), doc staleness 0 blocking, and one failure that is not
@@ -166,10 +235,9 @@ read on a very fast CI.
 - The probe against the real Agent SDK from a staged copy: with no SDK it logs
   and falls back to the pool state; with a bogus token it classifies `auth` and
   returns `available=false` (`probe-all-refused`). Not run with a valid token.
-- Commit messages checked with `.githooks/commit-msg`. The commits used
-  `--no-verify` because the pre-commit hook runs the whole `pnpm verify:fast`,
-  which does not reach `scripts/agent` (its own `agent:tests` lane does); the
-  gates above were run by hand instead.
+- Commit messages checked with `.githooks/commit-msg`. The first seven commits
+  used `--no-verify` and ran the gates above by hand; the second-review commits
+  went through the hooks, including the full `pnpm verify:fast`.
 - Not verified until it runs on GitHub: the workflow wiring end to end. The
   structural tests pin step order and conditions, but no wafflebase PR has gone
   through a carry, a reuse, a live probe, an infra page or a removal record.

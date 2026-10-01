@@ -46,6 +46,20 @@ Vitest's. The backend runs Jest, where the same idea is `test.failing`; telling
 a fixer in `packages/backend` to use `it.fails` would get a test that does not
 run, which the detector would then (rightly) count as removed.
 
+**A focus is a removal under Jest.** Vitest refuses `.only` in CI; Jest does
+not, and this repo has no lint rule for it. A detector written for one runner
+counted `it.only` as an active case — true, and beside the point: every sibling
+stopped. Ask what each runner does with each spelling, not whether it "runs".
+
+**Clamp once, after summing.** Per-commit clamping turned a suite skipped and
+re-enabled inside one round into a reported disablement. Sum the raw counters
+over the unit you report on, then clamp.
+
+**The race is with the next run's startup, not with CI.** The panel starts on
+CI's `requested` event, so the window for the removal record is the next run's
+gate, `deps` and checkout (1–3 minutes), and a record that misses it is never
+read. Describe a race by the two events that bound it.
+
 ## Process
 
 - Measure byte-identity before porting. Three files were identical and took the
