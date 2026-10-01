@@ -487,6 +487,37 @@ jobs:
             git diff origin/main...HEAD > /tmp/pr.diff
           fi
 
+      # THE PR-DIFF FINGERPRINT: `git patch-id --verbatim` of the PR's own diff.
+      # It ignores line numbers, so it survives a merge of main that touches none
+      # of the PR's hunks or their context, and a clean rebase; it changes on
+      # anything else — including a merge that resolved a conflict. On
+      # yorkie-js-sdk#1426 the approved b9a3ecc and the `update-branch` merge
+      # d593a98 both fingerprint to `b0832c12…`; the conflict-resolving 6915bc6
+      # does not.
+      #
+      # `--verbatim`, NOT `--stable`: `--stable` discards whitespace, so moving
+      # a Python call out of an `if` by indentation alone fingerprinted the same
+      # and would have carried an approval over a change in behaviour.
+      # `--no-ext-diff --no-textconv` so no driver can rewrite what is hashed.
+      # fingerprint.test.mjs runs this exact line against real repositories.
+      # Stamped into every lens's review state, it is what lets a later head
+      # carry an approval instead of re-sampling it (see review-state.mjs).
+      #
+      # UNFILTERED, unlike the reviewed diff: a change to the excluded ANTLR
+      # tooling files must break the fingerprint too. A separate step, so
+      # "Compute diff + changed files" stays byte-identical to the on-demand
+      # workflow's copy. An empty or failed fingerprint is "" — never carried
+      # on, so it fails toward reviewing.
+      - name: Fingerprint the PR diff
+        id: fp
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          FP="$(git diff --no-color --no-ext-diff --no-textconv "$(git merge-base origin/main HEAD)" HEAD | git patch-id --verbatim | cut -d' ' -f1)"
+          echo "fp=$FP" >> "$GITHUB_OUTPUT"
+          echo "PR-diff fingerprint: ${FP:-<empty>}" >&2
+
       - name: Fetch originating issue spec (for design-fit)
         if: steps.pr.outputs.number != ''
         uses: actions/github-script@v7
@@ -584,12 +615,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.pr.outputs.number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DIFF_FP: ${{ steps.fp.outputs.fp }}
         run: >-
           node .trusted/scripts/agent/review-scope.mjs "$PR"
           --head "$HEAD_SHA"
           --lenses .trusted/scripts/agent/lenses/lenses.json
           --changed-files /tmp/changed.txt
           --repo "$GITHUB_WORKSPACE"
+          --fingerprint "$DIFF_FP"
 
       # Why this round did what it did, in the run UI. Without it "we never narrow"
       # and "we narrow and it saves nothing" are indistinguishable from the outside,
@@ -603,6 +636,46 @@ jobs:
           ROUNDS: ${{ steps.scope.outputs.rounds }}
         run: |
           echo "Review scope: **$MODE** (\`$REASON\`), round $ROUNDS" >> "$GITHUB_STEP_SUMMARY"
+
+      # CARRY OR REUSE: no lens runs this round. The scope step found either an
+      # unchanged PR diff since a head every lens approved (`carry`,
+      # yorkie-js-sdk#1426's `update-branch` merge), or a rerun on the very commit
+      # the verdicts are on (`reuse`, that PR's round 8). This writes
+      # `.agent-review/` from the verdicts already recorded on `source`, and "Post
+      # per-lens check runs" below posts them on this head as it posts a reviewed
+      # round's.
+      #
+      # `ok=true` is the ONLY thing that skips the panel. A refusal, a crash or a
+      # skipped step leaves it empty and the panel reviews in full — always
+      # correct, merely the cost this exists to avoid. `continue-on-error` for the
+      # same reason the scope step has it: a bug here must cost a review, never a
+      # blocked PR.
+      - name: Carry the prior verdicts
+        id: carry
+        if: >-
+          steps.pr.outputs.number != '' &&
+          (steps.scope.outputs.mode == 'carry' || steps.scope.outputs.mode == 'reuse')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+          MODE: ${{ steps.scope.outputs.mode }}
+          SOURCE: ${{ steps.scope.outputs.source }}
+          CARRY: ${{ steps.scope.outputs.carry }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BASE_SHA: ${{ steps.diff.outputs.base }}
+          DIFF_FP: ${{ steps.fp.outputs.fp }}
+        run: >-
+          node .trusted/scripts/agent/carry-verdicts.mjs "$PR"
+          --mode "$MODE"
+          --source "$SOURCE"
+          --head "$HEAD_SHA"
+          --base "$BASE_SHA"
+          --fingerprint "$DIFF_FP"
+          --carry "$CARRY"
+          --lenses .trusted/scripts/agent/lenses/lenses.json
+          --changed-files /tmp/changed.txt
+          --out .agent-review
 
       # INCREMENTAL REVIEW, part 2 of 2: replace /tmp/pr.diff with the delta.
       #
@@ -760,7 +833,7 @@ jobs:
       # back to creating fresh checks; the stalled job closes any left spinning).
       - name: Mark lens checks in progress
         id: inprogress
-        if: steps.pr.outputs.number != ''
+        if: steps.pr.outputs.number != '' && steps.carry.outputs.ok != 'true'
         continue-on-error: true
         uses: actions/github-script@v7
         with:
@@ -791,7 +864,7 @@ jobs:
             fs.writeFileSync(`${process.env.RUNNER_TEMP}/lens-check-ids.json`, JSON.stringify(ids));
 
       - name: Run review panel
-        if: steps.pr.outputs.number != ''
+        if: steps.pr.outputs.number != '' && steps.carry.outputs.ok != 'true'
         # continue-on-error: a crash must not skip the needs-gated promote/fix
         # jobs — the post step below then fails closed (per-lens failure checks).
         continue-on-error: true
@@ -835,6 +908,8 @@ jobs:
           # the Claude token, and repo convention keeps workflow expressions out
           # of shell commands in jobs that hold secrets.
           BASE_SHA: ${{ steps.diff.outputs.base }}
+          # Stamped into each lens's review state; see "Fingerprint the PR diff".
+          DIFF_FP: ${{ steps.fp.outputs.fp }}
           # Where the review surface froze — the head when the fixer was first
           # dispatched. Empty when the resolver found no ledger (round 1, a PR older
           # than the ledger) or failed outright, and review-panel.mjs reads empty as
@@ -891,6 +966,7 @@ jobs:
           --frozen-sha "$FROZEN_SHA"
           --review-mode "$REVIEW_MODE"
           --since-sha "$SINCE_SHA"
+          --diff-fingerprint "$DIFF_FP"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
@@ -940,13 +1016,21 @@ jobs:
           # reading a verdict knows it saw a delta rather than the whole PR. Empty
           # in full mode, which keeps those titles byte-identical to before.
           NARROWED_SINCE: ${{ steps.narrow.outputs.mode == 'incremental' && steps.scope.outputs.since || '' }}
+          # Set only when "Carry the prior verdicts" wrote this round. Names the
+          # head the verdict came from on the check-run title, so nobody reads a
+          # carried verdict as a fresh review.
+          CARRIED_MODE: ${{ steps.carry.outputs.ok == 'true' && steps.scope.outputs.mode || '' }}
+          CARRIED_FROM: ${{ steps.carry.outputs.ok == 'true' && steps.scope.outputs.source || '' }}
         with:
           retries: 3
           script: |
             const fs = require('fs');
             const sha = context.payload.workflow_run.head_sha;
             const since = process.env.NARROWED_SINCE || '';
-            const scopeSuffix = since ? ` (delta since ${since.slice(0, 12)})` : '';
+            const carriedFrom = process.env.CARRIED_FROM || '';
+            const scopeSuffix = carriedFrom
+              ? (process.env.CARRIED_MODE === 'reuse' ? ' (reused verdict)' : ` (carried from ${carriedFrom.slice(0, 12)})`)
+              : since ? ` (delta since ${since.slice(0, 12)})` : '';
             // Single source of truth for the lens set: the TRUSTED manifest. The
             // orchestrator writes panel.json (one entry per lens incl. skipped);
             // any manifest lens missing from panel.json = orchestrator crash → fail closed.
@@ -990,7 +1074,20 @@ jobs:
               // an empty carry-forward for an infra lens; its check still fails via
               // `conclusion` above, so nothing promotes. `p.infraError` is the same
               // signal the honest-paging path uses, so the two cannot disagree.
-              if (p && p.infraError) {
+              // A carried or reused round: the findings payload already on the
+              // source run, VERBATIM — it was filtered to the gating findings when
+              // it was first written, and on a reuse it is the fixer's work list.
+              // carry-verdicts.mjs refused the carry if it did not parse as a list.
+              // ONLY on a carried round: a carry that crashed half-way could leave
+              // these files behind, and on a reviewed round they would replace
+              // the findings the panel just produced.
+              let carriedText = null;
+              if (carriedFrom) {
+                try { carriedText = fs.readFileSync(`.agent-review/${lens.id}/carried-text.json`, 'utf8'); } catch {}
+              }
+              if (carriedText !== null && carriedText.length <= 60000) {
+                findingsText = carriedText;
+              } else if (p && p.infraError) {
                 findingsText = '[]';
               } else try {
                 const v = JSON.parse(fs.readFileSync(`.agent-review/${lens.id}/verdict.json`, 'utf8'));
@@ -1103,9 +1200,11 @@ jobs:
       # tally exists to prevent, wearing a different hat. An ordinary FAILURE still
       # publishes: a lens that crashed while others deferred findings is a round
       # worth recording.
+      # Not on a carried round: nothing was reviewed, so there is nothing new to
+      # defer, and the source head's record stays the one of record.
       - name: Record the deferred findings
         if: >-
-          !cancelled() && steps.pr.outputs.number != ''
+          !cancelled() && steps.pr.outputs.number != '' && steps.carry.outputs.ok != 'true'
         continue-on-error: true
         # [ -f ] guard: .trusted is the DEFAULT BRANCH's copy, so until this script
         # has merged the step must skip quietly, not red every panel run.
@@ -1131,7 +1230,7 @@ jobs:
 
       - name: Post the deferred-findings check run
         if: >-
-          !cancelled() && steps.pr.outputs.number != ''
+          !cancelled() && steps.pr.outputs.number != '' && steps.carry.outputs.ok != 'true'
         continue-on-error: true
         uses: actions/github-script@v7
         with:
@@ -1222,8 +1321,11 @@ jobs:
       # `always()` on purpose — a round whose panel crashed is exactly the round
       # worth saying something about, and the script renders the fail-closed case
       # explicitly rather than reporting six red lenses as findings.
+      #
+      # Not on a carried round: the round comment renders a REVIEW, and none ran.
+      # The check-run titles and the loop status below say what happened instead.
       - name: Post this round's findings
-        if: always() && steps.pr.outputs.number != ''
+        if: always() && steps.pr.outputs.number != '' && steps.carry.outputs.ok != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1255,9 +1357,15 @@ jobs:
           PR: ${{ steps.pr.outputs.number }}
           BLOCKED: ${{ steps.panel.outputs.blocked }}
           MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
+          CARRIED_MODE: ${{ steps.carry.outputs.ok == 'true' && steps.scope.outputs.mode || '' }}
+          CARRIED_FROM: ${{ steps.carry.outputs.ok == 'true' && steps.scope.outputs.source || '' }}
         run: |
           [ -f .trusted/scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
-          if [ "$BLOCKED" = "true" ]; then
+          if [ "$CARRIED_MODE" = "carry" ]; then
+            NOTE="Carried the approval from \`${CARRIED_FROM:0:9}\` — this PR's own diff is unchanged, so no lens re-ran. The ready gate promotes once CI is green."
+          elif [ "$CARRIED_MODE" = "reuse" ]; then
+            NOTE="Reused the verdicts already on this commit — no lens re-ran. \`@claude rerun review\` asks for a fresh review."
+          elif [ "$BLOCKED" = "true" ]; then
             NOTE="Panel requested changes — see the agent-review-* checks on this commit; the round guard decides whether another fix round runs."
           elif [ "$BLOCKED" = "false" ]; then
             NOTE="Panel approved — the ready gate promotes once CI is green."
