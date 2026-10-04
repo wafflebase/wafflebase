@@ -336,6 +336,21 @@ const registry: CommandSchema[] = [
     aliases: ['slide.export', 'deck.export', 'decks.export'],
   },
   {
+    name: 'slides.render',
+    description:
+      'Render slides to full-resolution PNGs via a headless browser running the real editor renderer (needs Playwright + login session)',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--out': { type: 'string', required: true, description: 'Output directory; writes slide-<N>.png per slide' },
+      '--slide': { type: 'number', required: false, description: 'Render only slide N (1-based)' },
+      '--frontend': { type: 'string', required: false, description: 'Web app URL (default: inferred from --server or WAFFLEBASE_FRONTEND_URL)' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing PNGs', default: 'false' },
+    },
+    response: { type: 'files', description: 'One PNG per slide written to --out; paths printed to stderr' },
+    aliases: ['slide.render', 'deck.render', 'decks.render'],
+  },
+  {
     name: 'slides.set-content',
     description: 'Replace deck content from JSON (stdin or --data)',
     safety: 'destructive',

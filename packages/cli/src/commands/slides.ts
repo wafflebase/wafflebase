@@ -20,6 +20,7 @@ import {
 import { writeBinary } from '../output/binary.js';
 import { createImageFetcher } from '../docs/image-fetcher.js';
 import { exportPptxCli } from '../slides/pptx-export.js';
+import { parseSlideNumber, renderSlides } from '../slides/render.js';
 import { registerSlidesSetContentCommand } from './content-write.js';
 import { registerSlidesEditCommand } from './slides-edit.js';
 
@@ -236,6 +237,50 @@ export function registerSlidesCommand(program: Command) {
         });
         const bytes = await exportPptxCli(res.data, { imageFetcher });
         writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  slides
+    .command('render <doc-id>')
+    .description(
+      'Render slides to full-resolution PNGs with the real editor renderer (needs Playwright + a login session)',
+    )
+    .requiredOption('--out <dir>', 'Output directory (slide-1.png, slide-2.png, ...)')
+    .option('--slide <n>', 'Render only slide N (1-based)')
+    .option(
+      '--frontend <url>',
+      'Web app URL (default: inferred from --server, or WAFFLEBASE_FRONTEND_URL)',
+    )
+    .option('--force', 'Overwrite existing PNGs', false)
+    .action(async function (this: Command, docId: string) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{
+        out: string;
+        slide?: string;
+        frontend?: string;
+        force: boolean;
+      }>();
+      try {
+        const slide = parseSlideNumber(local.slide);
+        if (opts.dryRun) {
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/content`,
+          );
+          return;
+        }
+        await renderSlides({
+          docId,
+          outDir: local.out,
+          slide,
+          frontend: local.frontend,
+          force: local.force,
+          config: getConfig(opts),
+          quiet: opts.quiet,
+        });
       } catch (e) {
         outputError(e, this);
       }

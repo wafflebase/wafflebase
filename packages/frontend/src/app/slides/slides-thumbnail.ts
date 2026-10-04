@@ -24,7 +24,21 @@ const ASSET_SETTLE_MS = 300;
 export function renderDeckThumbnail(
   doc: SlidesDocument,
 ): Promise<HTMLCanvasElement | null> {
-  const slide = doc.slides?.[0];
+  return renderSlideCanvas(doc, 0);
+}
+
+/**
+ * Paint slide `index` offscreen at the deck's logical size
+ * (`SLIDE_WIDTH` x `deckSlideHeight`, 1:1 pixels) with the same
+ * `renderThumbnail` call the left rail uses. `null` when there is no such
+ * slide or no 2D context. Shared by the template thumbnail (slide 0) and the
+ * `slides render` CLI hook (every slide).
+ */
+export function renderSlideCanvas(
+  doc: SlidesDocument,
+  index: number,
+): Promise<HTMLCanvasElement | null> {
+  const slide = doc.slides?.[index];
   if (!slide) return Promise.resolve(null);
 
   const canvas = document.createElement("canvas");
