@@ -289,3 +289,12 @@ export {
 // Export — PPTX (DOM-free; works in both browser and Node)
 export { exportPptx } from './export/pptx/index.js';
 export type { ExportPptxOptions } from './export/pptx/index.js';
+
+// Deterministic layout linter (overlap / overflow) — pure, Node-safe.
+export { lintLayout } from './layout-lint';
+export type {
+  LayoutFinding,
+  LayoutFindingKind,
+  LintableDeck,
+  LintLayoutOptions,
+} from './layout-lint';
