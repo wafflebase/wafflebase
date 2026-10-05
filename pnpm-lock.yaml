@@ -43,7 +43,7 @@ overrides:
   body-parser@>=2.0.0 <2.3.0: 2.3.0
   vite@>=5.0.0 <6.4.3: 6.4.3
   shell-quote@<1.9.0: 1.9.0
-  piscina@<4.9.3: 4.9.3
+  piscina@<4.9.4: 4.9.4
   form-data@>=4.0.0 <4.0.6: 4.0.6
   '@babel/core@<7.29.6': 7.29.6
   react-router@<7.18.2: 7.18.2
@@ -8815,8 +8815,8 @@ packages:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
 
-  piscina@4.9.3:
-    resolution: {integrity: sha512-3e3ka9QCE8RJ5I9uszdAADZnkcYi21cqmF3gxox3u884N72qpFHCsIVhHt8cEQ9t3Auq/NqoiCEuhxlxxQuDWA==}
+  piscina@4.9.4:
+    resolution: {integrity: sha512-RyBDr2VheQ8ZfH3N8SzQZHztqVyOtadTwLnUYof6gdj5161/eu2wNhCbGl5GHnNKDpnkicJYpKtL2J+y/gk6XA==}
 
   pixelmatch@7.2.0:
     resolution: {integrity: sha512-xhcb4yHu9sM/G7foGzoLtXYcC0zHEaOXXjRKhGup0fw78Nf2Tkiapv4EQyMzrbcmQPsllAI7DbFY2UT7PlI9Pg==}
@@ -14667,7 +14667,7 @@ snapshots:
       commander: 8.3.0
       fast-glob: 3.3.3
       minimatch: 9.0.7
-      piscina: 4.9.3
+      piscina: 4.9.4
       semver: 7.7.1
       slash: 3.0.0
       source-map: 0.7.4
@@ -18999,7 +18999,7 @@ snapshots:
 
   pirates@4.0.7: {}
 
-  piscina@4.9.3:
+  piscina@4.9.4:
     optionalDependencies:
       '@napi-rs/nice': 1.0.1
 
