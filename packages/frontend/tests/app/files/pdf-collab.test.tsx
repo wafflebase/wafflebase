@@ -37,6 +37,10 @@ vi.mock('@yorkie-js/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@yorkie-js/react')>();
   return {
     ...actual,
+    // `CollabDocumentProvider` nests one of these for a durable document. It
+    // never does in this suite — the preference is off — but the import has to
+    // resolve.
+    YorkieProvider: ({ children }: { children: React.ReactNode }) => children,
     useDocument: () => ({
       doc: mockDoc,
       root: mockDoc?.getRoot(),
