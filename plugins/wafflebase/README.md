@@ -51,7 +51,8 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | Exports / downloads that write a local file (`-` for stdout does not) | Always ask |
 | Uploads of a local file (`files upload`, `… import <file>`) | Always ask |
 | `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish` | Always ask |
-| Anything run with `--server`, `--api-key` or `--profile` (sends your credentials there) | Always ask |
+| Anything run with `--server`, `--api-key`, `--profile`, or a `WAFFLEBASE_*=` / `HOME=` prefix (chooses where your credentials go) | Always ask |
+| A cell batch whose inline `--data` deletes a cell (`null`), or whose payload comes from stdin | Always ask |
 | `wafflebase` commands the plugin does not recognize | Ask |
 
 The classification comes from the CLI's own schema
@@ -79,7 +80,7 @@ above are enforced by the hook rather than left to the model.
 
 ## Developing this plugin
 
-`hooks/command-safety.json`, `skills/*/references/` and the `version` in
+`hooks/command-safety.json`, `references/` and the `version` in
 `.claude-plugin/plugin.json` are generated from `packages/cli`:
 
 ```bash

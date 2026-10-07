@@ -75,8 +75,8 @@ do not schedule anything yourself.
 
 ## References
 
-- [references/sheets-read-cells.md](references/sheets-read-cells.md)
-- [references/sheets-write-cells.md](references/sheets-write-cells.md)
-- [references/sheets-import-export.md](references/sheets-import-export.md)
-- [references/recipe-csv-pipeline.md](references/recipe-csv-pipeline.md) — import → formulas → export
-- [references/recipe-data-collect.md](references/recipe-data-collect.md) — compare data across sheets
+- [references/sheets-read-cells.md](../../references/sheets-read-cells.md)
+- [references/sheets-write-cells.md](../../references/sheets-write-cells.md)
+- [references/sheets-import-export.md](../../references/sheets-import-export.md)
+- [references/recipe-csv-pipeline.md](../../references/recipe-csv-pipeline.md) — import → formulas → export
+- [references/recipe-data-collect.md](../../references/recipe-data-collect.md) — compare data across sheets

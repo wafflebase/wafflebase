@@ -78,10 +78,10 @@ wafflebase notes export <id> note.md
 
 ## References
 
-- [references/docs-manage.md](references/docs-manage.md)
-- [references/docs-read-content.md](references/docs-read-content.md)
-- [references/docs-import-docx.md](references/docs-import-docx.md)
-- [references/docs-export-docx.md](references/docs-export-docx.md)
-- [references/docs-export-pdf.md](references/docs-export-pdf.md)
-- [references/recipe-doc-to-markdown.md](references/recipe-doc-to-markdown.md)
-- [references/recipe-docx-to-pdf.md](references/recipe-docx-to-pdf.md)
+- [references/docs-manage.md](../../references/docs-manage.md)
+- [references/docs-read-content.md](../../references/docs-read-content.md)
+- [references/docs-import-docx.md](../../references/docs-import-docx.md)
+- [references/docs-export-docx.md](../../references/docs-export-docx.md)
+- [references/docs-export-pdf.md](../../references/docs-export-pdf.md)
+- [references/recipe-doc-to-markdown.md](../../references/recipe-doc-to-markdown.md)
+- [references/recipe-docx-to-pdf.md](../../references/recipe-docx-to-pdf.md)

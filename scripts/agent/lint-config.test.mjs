@@ -35,10 +35,12 @@ async function load() {
 }
 const SKIP = "eslint not installed (expected without a root workspace install)";
 
-test("the scripts lint config claims scripts/**/*.mjs and nothing else", async (t) => {
+test("the scripts lint config claims scripts/** and plugins/** .mjs and nothing else", async (t) => {
   const l = await load();
   if (!l) return t.skip(SKIP);
-  assert.ok(l.entry.files.includes("scripts/**/*.mjs"));
+  // plugins/** holds the Claude Code plugin's hook scripts — the same kind
+  // of dependency-free Node ESM (see the config's header).
+  assert.deepEqual([...l.entry.files].sort(), ["plugins/**/*.mjs", "scripts/**/*.mjs"]);
   // Not the TypeScript packages — they have their own configs and their own rules.
   assert.ok(!l.entry.files.some((f) => f.includes(".ts")), "must not claim the TS packages");
 });

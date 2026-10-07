@@ -366,7 +366,13 @@
                   "--tab"
                 ],
                 "safety": "write",
-                "description": "Batch update cells"
+                "description": "Batch update cells",
+                "conditional": [
+                  {
+                    "when": "a value is null",
+                    "safety": "destructive"
+                  }
+                ]
               },
               "delete": {
                 "valueOptions": [

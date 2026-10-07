@@ -12,43 +12,17 @@ export const CLI_SKILLS_DIR = resolve(here, '../../skills');
 /** `plugins/wafflebase/` at the repository root. */
 export const PLUGIN_DIR = resolve(here, '../../../../plugins/wafflebase');
 
+/** Where the plugin mirrors `packages/cli/skills/`, relative to the plugin. */
+export const REFERENCES_DIR = 'references';
+
 /**
- * Which plugin skill carries which CLI skill file as a reference. Every
- * file in `packages/cli/skills/` except its index must appear exactly once
- * — the drift test enforces it, so a new CLI skill cannot be forgotten.
+ * The CLI's agent docs, mirrored whole into one directory rather than split
+ * per skill: they link to each other by relative path (`[x](sheets-read-cells.md)`),
+ * and a mirror keeps every one of those links working.
  */
-export const PLUGIN_REFERENCES: Record<string, readonly string[]> = {
-  wafflebase: ['files-upload-download.md'],
-  'wafflebase-sheets': [
-    'sheets-read-cells.md',
-    'sheets-write-cells.md',
-    'sheets-import-export.md',
-    'recipe-csv-pipeline.md',
-    'recipe-data-collect.md',
-  ],
-  'wafflebase-docs': [
-    'docs-manage.md',
-    'docs-read-content.md',
-    'docs-import-docx.md',
-    'docs-export-docx.md',
-    'docs-export-pdf.md',
-    'recipe-doc-to-markdown.md',
-    'recipe-docx-to-pdf.md',
-  ],
-  'wafflebase-slides': [
-    'slides-manage.md',
-    'slides-read-content.md',
-    'slides-import-pptx.md',
-    'slides-export-pptx.md',
-  ],
-};
-
-/** CLI skill files that are not references (the index of the others). */
-const CLI_SKILLS_INDEX = 'SKILL.md';
-
 export function listCliSkillFiles(): string[] {
   return readdirSync(CLI_SKILLS_DIR)
-    .filter((f) => f.endsWith('.md') && f !== CLI_SKILLS_INDEX)
+    .filter((f) => f.endsWith('.md'))
     .sort();
 }
 
@@ -90,13 +64,11 @@ export function generatePluginFiles(): Map<string, string> {
     `${JSON.stringify(table, null, 2)}\n`,
   );
 
-  for (const [skill, refs] of Object.entries(PLUGIN_REFERENCES)) {
-    for (const ref of refs) {
-      files.set(
-        join('skills', skill, 'references', ref),
-        readFileSync(join(CLI_SKILLS_DIR, ref), 'utf8'),
-      );
-    }
+  for (const ref of listCliSkillFiles()) {
+    files.set(
+      join(REFERENCES_DIR, ref),
+      readFileSync(join(CLI_SKILLS_DIR, ref), 'utf8'),
+    );
   }
   return files;
 }

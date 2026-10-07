@@ -6,21 +6,40 @@
 // context line rather than an error: a hook must never block the session.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildContext } from './session-lib.mjs';
 
 const TIMEOUT_MS = 4000;
 
 // On Windows `npm i -g` installs a `wafflebase.cmd` shim, which Node only
-// spawns through a shell (and execFile does not search PATHEXT). The
-// arguments below are constants, so the shell sees nothing user-supplied.
+// spawns through cmd.exe — and cmd.exe looks in the current directory
+// before PATH, so a repository that ships its own `wafflebase.cmd` would run
+// at session start. Resolve the shim on PATH ourselves (never the cwd) and
+// spawn it by absolute path. The arguments are constants.
 const WINDOWS = process.platform === 'win32';
 
+/** Absolute path of `wafflebase.cmd` on PATH, or null. */
+function resolveOnWindowsPath() {
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!isAbsolute(dir)) continue;
+    const candidate = join(dir, 'wafflebase.cmd');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** @returns {string | null | undefined} undefined: not installed; null: failed. */
 function run(args) {
+  let program = 'wafflebase';
+  if (WINDOWS) {
+    const resolved = resolveOnWindowsPath();
+    if (!resolved) return undefined;
+    program = `"${resolved}"`;
+  }
   try {
-    return execFileSync(WINDOWS ? 'wafflebase.cmd' : 'wafflebase', args, {
+    return execFileSync(program, args, {
       encoding: 'utf8',
       timeout: TIMEOUT_MS,
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -46,22 +65,7 @@ function tableVersion() {
   }
 }
 
-// Through a shell, a missing command is just a non-zero exit — the same as
-// a CLI that failed. Ask `where` first so "not installed" stays distinct.
-function installedOnWindows() {
-  try {
-    execFileSync('where', ['wafflebase'], {
-      stdio: 'ignore',
-      timeout: TIMEOUT_MS,
-      windowsHide: true,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const version = WINDOWS && !installedOnWindows() ? undefined : run(['--version']);
+const version = run(['--version']);
 let status = null;
 if (version !== undefined) {
   const raw = run(['status', '--format', 'json']);
@@ -77,8 +81,9 @@ process.stdout.write(
     hookSpecificOutput: {
       hookEventName: 'SessionStart',
       additionalContext: buildContext({
-        // undefined: not installed; null: installed but `--version` failed.
-        cliVersion: version === undefined ? null : (version ?? 'unknown'),
+        // undefined: not installed; null or empty: installed but `--version`
+        // failed.
+        cliVersion: version === undefined ? null : version || 'unknown',
         status,
         tableVersion: tableVersion(),
         webUrlOverride: process.env.WAFFLEBASE_WEB_URL || undefined,

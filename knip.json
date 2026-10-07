@@ -7,38 +7,17 @@
   ],
   "workspaces": {
     "packages/sheets": {
-      "entry": [
-        "src/index.ts",
-        "test/**/*.test.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "test/**/*.ts"
-      ],
-      "ignoreBinaries": [
-        "scripts/fix-antlr-ts.sh"
-      ]
+      "entry": ["src/index.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreBinaries": ["scripts/fix-antlr-ts.sh"]
     },
     "packages/docs": {
-      "entry": [
-        "src/index.ts",
-        "test/**/*.test.ts",
-        "scripts/*.mjs"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "test/**/*.ts"
-      ]
+      "entry": ["src/index.ts", "test/**/*.test.ts", "scripts/*.mjs"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/frontend": {
-      "entry": [
-        "src/main.tsx",
-        "tests/**/*.test.ts"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx}",
-        "tests/**/*.test.ts"
-      ]
+      "entry": ["src/main.tsx", "tests/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}", "tests/**/*.test.ts"]
     },
     "packages/backend": {
       "entry": [
@@ -46,31 +25,15 @@
         "test/**/*.{spec,e2e-spec}.ts",
         "src/template/seed/*-templates.ts"
       ],
-      "project": [
-        "src/**/*.ts",
-        "test/**/*.ts"
-      ]
+      "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/cli": {
-      "entry": [
-        "src/bin.ts",
-        "test/**/*.test.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "test/**/*.ts"
-      ]
+      "entry": ["src/bin.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/slides": {
-      "entry": [
-        "src/index.ts",
-        "src/node.ts",
-        "src/**/*.test.ts",
-        "demo.ts"
-      ],
-      "project": [
-        "src/**/*.ts"
-      ]
+      "entry": ["src/index.ts", "src/node.ts", "src/**/*.test.ts", "demo.ts"],
+      "project": ["src/**/*.ts"]
     },
     "packages/design-editor": {
       "entry": [
@@ -80,22 +43,11 @@
         "src/scenes/scene-entry.tsx",
         "test/**/*.test.{ts,mts,mjs}"
       ],
-      "project": [
-        "src/**/*.{ts,tsx,mts,mjs}",
-        "test/**/*.{ts,mts,mjs}"
-      ]
+      "project": ["src/**/*.{ts,tsx,mts,mjs}", "test/**/*.{ts,mts,mjs}"]
     },
     "packages/design-sandbox": {
-      "entry": [
-        "vite.config.ts",
-        "scripts/*.mjs",
-        "test/**/*.test.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "test/**/*.ts",
-        "scripts/**/*.mjs"
-      ]
+      "entry": ["vite.config.ts", "scripts/*.mjs", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.mjs"]
     },
     "packages/core": {
       "entry": [
@@ -104,11 +56,7 @@
         "scripts/build-css.ts",
         "test/**/*.test.ts"
       ],
-      "project": [
-        "src/**/*.ts",
-        "scripts/**/*.ts",
-        "test/**/*.ts"
-      ]
+      "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
     }
   },
   "ignoreDependencies": [

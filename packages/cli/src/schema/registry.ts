@@ -924,6 +924,12 @@ const registry: CommandSchema[] = [
       '--data': { type: 'string', required: false, description: 'JSON data (or pipe from stdin)' },
     },
     response: { updated: 'number' },
+    // A `null` entry deletes that cell — the same effect `cells delete`
+    // (destructive) has, so a batch carrying one is destructive too.
+    variants: [
+      { when: 'default', safety: 'write', modifies: 'the given cells' },
+      { when: 'a value is null', safety: 'destructive', removes: 'that cell' },
+    ],
     aliases: ['cell.batch', 'cells.batch', 'sheet.cells.batch', 'sheet.cell.batch', 'sheets.cell.batch'],
   },
   {

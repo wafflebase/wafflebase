@@ -148,6 +148,13 @@ export function splitCommand(command) {
 }
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+/**
+ * Environment variables that change where the CLI connects or which
+ * credential it uses — the env spelling of `--server` / `--api-key` /
+ * `--profile` (`resolveConfig` in packages/cli/src/config/config.ts).
+ * `HOME` moves the config and session directory.
+ */
+const CONNECTION_ENV = /^(WAFFLEBASE_[A-Z_]+|HOME)=/;
 
 /**
  * Commands that run the next word as a program. A wrapped `wafflebase` is
@@ -182,10 +189,12 @@ function isWafflebase(word) {
 export function wafflebaseArgs(words) {
   let i = 0;
   let wrapped = false;
+  const connectionEnv = [];
   while (i < words.length) {
     const w = words[i].text;
     if (ENV_ASSIGNMENT.test(w)) {
       wrapped = true;
+      if (CONNECTION_ENV.test(w)) connectionEnv.push(w.slice(0, w.indexOf('=')));
       i++;
     } else if (WRAPPERS.has(w)) {
       wrapped = true;
@@ -215,6 +224,7 @@ export function wafflebaseArgs(words) {
   return {
     args: words.slice(i + 1),
     plain: !wrapped && words[i].text === 'wafflebase' && words[i].exact,
+    connectionEnv,
   };
 }
 
@@ -363,9 +373,12 @@ export function classify(allWords, table) {
       notes.push(`${flag} makes it ${safety}`);
     }
   }
-  // Decided by the payload, which is not on the command line: assume it.
+  // Decided by the payload. An inline `--data` the guard can parse is
+  // checked; a payload from stdin is not on the command line, so the
+  // variant is assumed to apply.
   for (const c of node.conditional ?? []) {
-    if (RANK[c.safety] > RANK[level]) {
+    if (RANK[c.safety] <= RANK[level]) continue;
+    if (!payloadRuledOut(c.when, flags.get('--data'))) {
       level = c.safety;
       notes.push(`${c.safety} when ${c.when}`);
     }
@@ -373,8 +386,11 @@ export function classify(allWords, table) {
   // Root options that choose where the CLI connects and with which
   // credential. Whatever the command, it sends the user's saved session or
   // API key — and on a 401 the refresh token — to that server.
-  const connection = CONNECTION_OPTIONS.filter((o) => flags.has(o)).map(
-    (o) => `${o} ${typeof flags.get(o) === 'string' ? flags.get(o) : ''}`.trim(),
+  // Name the server, never echo a key into the transcript.
+  const connection = CONNECTION_OPTIONS.filter((o) => flags.has(o)).map((o) =>
+    o === '--server' && typeof flags.get(o) === 'string'
+      ? `${o} ${flags.get(o)}`
+      : o,
   );
 
   // A write that reads a local file sends it to the server.
@@ -420,6 +436,22 @@ export function classify(allWords, table) {
  */
 const INVOCATION = /(?:^|[\s;&|(`$/])wafflebase(?=[\s)`'";&|<>]|$)/g;
 
+/** True when an inline JSON payload proves a null-condition false. */
+function payloadRuledOut(when, data) {
+  if (typeof data !== 'string') return false;
+  if (when !== 'a value is null' && when !== 'payload is null') return false;
+  let value;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    return false;
+  }
+  const hasNull = (v) =>
+    v === null ||
+    (typeof v === 'object' && Object.values(v).some((x) => hasNull(x)));
+  return !hasNull(value);
+}
+
 function commandName(c) {
   return ['wafflebase', c.path].filter(Boolean).join(' ');
 }
@@ -437,12 +469,27 @@ function describe(c) {
  * @returns {string | null}
  */
 function innerCommand(words) {
-  const texts = words.map((w) => w.text);
+  let texts = words.map((w) => w.text);
+  // Past `VAR=value` prefixes and wrappers (`FOO=1 sh -c …`, `time bash -c …`).
+  let k = 0;
+  while (
+    k < texts.length &&
+    (ENV_ASSIGNMENT.test(texts[k]) ||
+      (WRAPPERS.has(texts[k]) && texts[k] !== 'env') ||
+      (k > 0 && texts[k].startsWith('-') && !SHELLS.has(texts[k - 1])))
+  ) {
+    k++;
+  }
+  texts = texts.slice(k);
   const head = texts[0]?.split('/').pop();
   if (head === 'eval') return texts.slice(1).join(' ');
   if (SHELLS.has(head)) {
-    const c = texts.indexOf('-c');
-    return c >= 0 && c + 1 < texts.length ? texts[c + 1] : null;
+    // `-c` alone or inside a cluster (`-lc`, `-ec`, `-xc`); the string is
+    // the first operand after the options.
+    const c = texts.findIndex((t, j) => j > 0 && /^-[A-Za-z]*c[A-Za-z]*$/.test(t));
+    if (c < 0) return null;
+    const rest = texts.slice(c + 1).filter((t) => !t.startsWith('-'));
+    return rest.length > 0 ? rest[0] : null;
   }
   if (head === 'env') {
     const i = texts.findIndex((t) => t === '-S' || t === '--split-string');
@@ -477,7 +524,11 @@ export function decide(command, table, options = {}) {
       }
       const hit = wafflebaseArgs(words);
       if (hit) {
-        found.push(classify(hit.args, table));
+        const c = classify(hit.args, table);
+        if (hit.connectionEnv.length > 0) {
+          c.connection = [...(c.connection ?? []), ...hit.connectionEnv];
+        }
+        found.push(c);
         plain &&= hit.plain;
       }
     }
@@ -513,7 +564,7 @@ export function decide(command, table, options = {}) {
   if (redirected) {
     return {
       decision: 'ask',
-      reason: `${describe(redirected)}. It is run with ${redirected.connection.join(', ')}, so it sends your saved Wafflebase credentials to that server — check it is one you trust.`,
+      reason: `${describe(redirected)}. It is run with ${redirected.connection.join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`,
     };
   }
 

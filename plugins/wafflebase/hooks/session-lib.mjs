@@ -16,8 +16,12 @@
  */
 export function webOrigin(server, override) {
   if (override) {
+    // Keep a path: a self-host may serve the app under a basename
+    // (`https://example.com/office`). Only http(s) URLs are accepted.
     try {
-      return new URL(override).origin;
+      const url = new URL(override);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+      return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
     } catch {
       return null;
     }
@@ -115,10 +119,10 @@ export function buildContext({
     );
     return lines.join('\n');
   }
-  lines.push(`- CLI ${cliVersion} is installed.`);
+  lines.push(`- CLI ${quote(cliVersion)} is installed.`);
   if (majorMinor(cliVersion) !== majorMinor(tableVersion)) {
     lines.push(
-      `- The plugin's permission table was generated for CLI ${tableVersion}; commands it does not know will ask for confirmation. Suggest updating whichever side is older.`,
+      `- The plugin's permission table was generated for CLI ${quote(tableVersion)}; commands it does not know will ask for confirmation. Suggest updating whichever side is older.`,
     );
   }
 

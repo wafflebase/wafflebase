@@ -99,7 +99,7 @@ wafflebase comments resolve <id> <thread-id>
 ```
 
 Uploading and downloading arbitrary files (PDF, images, anything) is in
-[references/files-upload-download.md](references/files-upload-download.md).
+[references/files-upload-download.md](../../references/files-upload-download.md).
 
 ## Links
 

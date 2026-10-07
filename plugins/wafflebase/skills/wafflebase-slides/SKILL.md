@@ -47,7 +47,7 @@ and the suggested text instead.
 
 ## References
 
-- [references/slides-manage.md](references/slides-manage.md)
-- [references/slides-read-content.md](references/slides-read-content.md)
-- [references/slides-import-pptx.md](references/slides-import-pptx.md)
-- [references/slides-export-pptx.md](references/slides-export-pptx.md)
+- [references/slides-manage.md](../../references/slides-manage.md)
+- [references/slides-read-content.md](../../references/slides-read-content.md)
+- [references/slides-import-pptx.md](../../references/slides-import-pptx.md)
+- [references/slides-export-pptx.md](../../references/slides-export-pptx.md)
