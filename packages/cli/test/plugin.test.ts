@@ -159,7 +159,13 @@ describe('guard.decide', () => {
 
   it('never auto-allows a composed command, and still asks for its writes', () => {
     expect(decide('wafflebase docs list | jq .')).toBeNull();
-    expect(decide('wafflebase docs list > list.json')).toBeNull();
+    // A redirect is a local write like `--out`; `/dev/null` is not.
+    expect(decide('wafflebase docs list > list.json')?.reason).toContain(
+      'writes list.json on this machine',
+    );
+    expect(decide('wafflebase docs list 2>/dev/null')).toBeNull();
+    expect(decide('wafflebase docs list 2>&1')).toBeNull();
+    expect(decide('wafflebase docs delete x 2>&1')?.decision).toBe('ask');
     expect(decide('wafflebase docs list && wafflebase docs delete x')?.decision).toBe('ask');
     expect(decide('true; wafflebase docs delete x')?.decision).toBe('ask');
     expect(decide('echo "$(wafflebase docs delete x)"')?.decision).toBe('ask');
@@ -271,6 +277,29 @@ describe('guard.decide', () => {
     expect(decide('eval wafflebase docs delete x')?.decision).toBe('ask');
     // …and never auto-allows what it finds there.
     expect(decide("bash -c 'wafflebase docs list'")).toBeNull();
+  });
+
+  // PR review (CodeRabbit): forms that slipped past the guard.
+  it('asks when `--` precedes a subcommand commander will still dispatch', () => {
+    expect(decide('wafflebase -- docs delete x')?.decision).toBe('ask');
+    expect(decide('wafflebase docs -- delete x')?.decision).toBe('ask');
+  });
+
+  it('finds wafflebase past wrapper options that take a value', () => {
+    for (const cmd of [
+      'sudo -u bob wafflebase docs delete x',
+      'env -u FOO wafflebase docs delete x',
+      'timeout -s KILL 30 wafflebase docs delete x',
+      'xargs -a ids.txt wafflebase docs delete',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it('counts a call whose name touches a redirect', () => {
+    expect(
+      decide('if true; then wafflebase>/dev/null docs delete x; fi')?.decision,
+    ).toBe('ask');
   });
 
   it('leaves other commands to the user', () => {

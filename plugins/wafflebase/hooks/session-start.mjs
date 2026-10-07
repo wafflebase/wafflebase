@@ -46,7 +46,22 @@ function tableVersion() {
   }
 }
 
-const version = run(['--version']);
+// Through a shell, a missing command is just a non-zero exit — the same as
+// a CLI that failed. Ask `where` first so "not installed" stays distinct.
+function installedOnWindows() {
+  try {
+    execFileSync('where', ['wafflebase'], {
+      stdio: 'ignore',
+      timeout: TIMEOUT_MS,
+      windowsHide: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const version = WINDOWS && !installedOnWindows() ? undefined : run(['--version']);
 let status = null;
 if (version !== undefined) {
   const raw = run(['status', '--format', 'json']);

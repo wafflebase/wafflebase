@@ -101,3 +101,26 @@ correctness-minded rounds did not.
 Three rounds, each blocking finding fixed. Round 3's fixes were verified
 by their regression tests and a re-run of the adversarial repros rather
 than a fourth review round (the loop is capped at three).
+
+### PR review — CodeRabbit on #1097 (2026-10-07)
+
+Six findings, all valid, all fixed with tests:
+- **Major:** `wafflebase -- docs delete x` → **allow**. The guard read
+  everything after `--` as positionals at the root, but commander still
+  dispatches a subcommand named there (verified: `wafflebase -- schema
+  docs.list` prints the schema).
+- Wrapper options with non-numeric values (`sudo -u bob`, `xargs -a f`)
+  hid the call → `null` instead of ask.
+- `wafflebase>/dev/null` was one word, so neither the segment walk nor the
+  recount saw the call. Redirects are now their own tokens and are
+  classified as local writes / reads (`2>&1`, `/dev/null` exempt).
+- Windows: through a shell a missing CLI looked like a failing one; `where`
+  now decides "not installed".
+- `setup` skill stopped at "log in" for API-key users.
+- `packages/cli/skills/files-upload-download.md` (the source the plugin
+  copies) still said uploads drop the extension; the CLI keeps it.
+
+**Lesson — model the parser you are guarding, not the one you imagine.**
+`--` meaning "end of options, rest positional" is the POSIX convention;
+commander's subcommand dispatch does not honour it. Every guard rule
+about argv should be checked against the real binary once.

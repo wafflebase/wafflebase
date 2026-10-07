@@ -50,9 +50,10 @@ The document type is chosen from the extension: `.pdf` → `pdf`,
 `image` types get a real in-app viewer; a `file` document offers download
 only.
 
-Without `--title` the document is named after the file, minus its extension
-(`report.zip` → "report"). The extension is re-attached on download, so the
-user gets `report.zip` back.
+Without `--title` the document is named after the whole file name,
+extension included (`report.zip` → "report.zip") — the title is the only
+place an extension the server cannot store survives, and download uses it
+to give the user `report.zip` back.
 
 There is **no stdin form** — `files upload -` is an error. Both the type and
 the download extension come from the filename.

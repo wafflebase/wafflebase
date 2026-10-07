@@ -8,8 +8,12 @@ step and stop at the first one that needs the user.
 
 1. `wafflebase --version`. Missing → ask the user to run
    `npm install -g @wafflebase/cli` (Node 20.18+). Do not run it for them.
-2. `wafflebase status`.
-   - `loggedIn: false` → ask the user to run `! wafflebase login` (it
+2. `wafflebase status`. It reports the browser-login session only; an API
+   key (`WAFFLEBASE_API_KEY`, or one saved in a CLI profile) authenticates
+   without one and wins over it.
+   - `loggedIn: false` but the session context says an API key is in use,
+     or `wafflebase docs list` succeeds → authenticated; go on to step 3.
+   - `loggedIn: false` otherwise → ask the user to run `! wafflebase login` (it
      opens a browser; pass `--server <url>` for a self-hosted server), or
      to set `WAFFLEBASE_API_KEY` for a workspace API key.
    - `session: "expired"` → the CLI refreshes it on the next call; only

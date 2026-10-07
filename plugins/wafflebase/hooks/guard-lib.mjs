@@ -109,6 +109,22 @@ export function splitCommand(command) {
       endSegment();
       continue;
     }
+    if (c === '<' || c === '>') {
+      // A redirect ends the word before it (`wafflebase>/dev/null`) and is
+      // never an argument: it becomes its own word, marked as a redirect.
+      complex = true;
+      endWord();
+      let op = c;
+      while (command[i + 1] === '>' || command[i + 1] === '<') op += command[++i];
+      // `2>&1`, `>&-`: duplicating a descriptor names no file.
+      if (command[i + 1] === '&' && /[0-9-]/.test(command[i + 2] ?? '')) {
+        i += 2;
+        words.push({ text: `${op}&${command[i]}`, exact: true, redirect: true, dup: true });
+        continue;
+      }
+      words.push({ text: op, exact: true, redirect: true });
+      continue;
+    }
     if (c === '#' && word === null) {
       // A comment runs to the end of the line; the shell never passes it.
       complex = true;
@@ -188,6 +204,13 @@ export function wafflebaseArgs(words) {
       break;
     }
   }
+  if (i < words.length && wrapped && !isWafflebase(words[i].text)) {
+    // A wrapper option took a value not modeled above (`sudo -u bob`,
+    // `xargs -a ids.txt`): look further along for the program. A false
+    // match can only ask — a wrapped call is never auto-allowed.
+    const j = words.findIndex((w, k) => k > i && w.exact && isWafflebase(w.text));
+    if (j >= 0) i = j;
+  }
   if (i >= words.length || !isWafflebase(words[i].text)) return null;
   return {
     args: words.slice(i + 1),
@@ -218,7 +241,26 @@ function findChild(node, name) {
  *   description?: string, notes: string[], localWrites?: string[]
  * }}
  */
-export function classify(words, table) {
+export function classify(allWords, table) {
+  // Redirects are the shell's, not the CLI's: take them and their targets
+  // out of the arguments, and remember what they read and write locally.
+  const redirectWrites = [];
+  const redirectReads = [];
+  const words = [];
+  for (let i = 0; i < allWords.length; i++) {
+    const w = allWords[i];
+    if (!w.redirect) {
+      words.push(w);
+      continue;
+    }
+    if (w.dup) continue;
+    const target = allWords[i + 1];
+    if (target && !target.redirect) i++;
+    const where = target && !target.redirect ? target.text : 'a file';
+    if (/^\/dev\/(null|stdout|stderr)$/.test(where)) continue;
+    if (w.text.includes('<')) redirectReads.push(where);
+    else redirectWrites.push(where);
+  }
   const inexact = words.find((w) => !w.exact);
   if (inexact) {
     return {
@@ -239,6 +281,17 @@ export function classify(words, table) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--') {
+      // Commander still dispatches a subcommand named after `--`
+      // (`wafflebase -- docs delete x` runs the delete), so at a node that
+      // has subcommands the rest cannot be read as plain positionals.
+      if (node.children && positionals.length === 0) {
+        return {
+          known: false,
+          path: [...path, ...args.slice(i + 1)].join(' '),
+          why: 'commander still dispatches a subcommand named after `--`',
+          notes: [],
+        };
+      }
       positionals.push(...args.slice(i + 1));
       break;
     }
@@ -325,14 +378,14 @@ export function classify(words, table) {
   );
 
   // A write that reads a local file sends it to the server.
-  const localReads = [];
+  const localReads = [...redirectReads];
   if (node.localInputArg !== undefined) {
     const v = positionals[node.localInputArg];
     if (typeof v === 'string' && v !== '-') localReads.push(v);
   }
 
   // A read on the server can still write this machine's disk.
-  const localWrites = [];
+  const localWrites = [...redirectWrites];
   if (level === 'read-only') {
     const outputs = [];
     if (node.localOutputArg !== undefined) {
@@ -365,7 +418,7 @@ export function classify(words, table) {
  * followed by whitespace, a closing delimiter or the end — not a directory
  * in a path like `…/wafflebase/waffledocs`.
  */
-const INVOCATION = /(?:^|[\s;&|(`$/])wafflebase(?=[\s)`'";&|]|$)/g;
+const INVOCATION = /(?:^|[\s;&|(`$/])wafflebase(?=[\s)`'";&|<>]|$)/g;
 
 function commandName(c) {
   return ['wafflebase', c.path].filter(Boolean).join(' ');

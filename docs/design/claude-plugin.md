@@ -182,7 +182,12 @@ looked through, and so are strings handed to another shell (`sh -c`,
 `bash -c`, `env -S`, `eval`); a word the shell will expand makes its
 command unclassifiable, which asks; and when the name appears as a
 program more often than the segment walk found it (`$(…)`, backticks),
-the guard asks. What it finds behind a wrapper is never auto-allowed. A
+the guard asks. What it finds behind a wrapper is never auto-allowed.
+Redirects are lifted out of the arguments and treated like `--out`: a
+`> file` is a local write that always asks (`/dev/null` and `2>&1` are
+not), a `< file` a local read. A `--` before a subcommand asks, because
+commander still dispatches what follows it (`wafflebase -- docs delete
+x` runs the delete). A
 form none of these covers falls to the user's own rules — not silently
 allowed, but not guaranteed to ask either.
 
