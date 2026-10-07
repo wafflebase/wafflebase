@@ -40,6 +40,18 @@ export interface SafetyNode {
   localOutputArg?: number;
   /** Options whose value is a local output path (`--out <file>`). */
   localOutputOptions?: string[];
+  /**
+   * Index of the positional argument naming a local file the command reads
+   * and uploads (`files upload <file>`, `sheets import <doc-id> <file>`).
+   * Sending a local file to the server is outside what "auto-approve
+   * document writes" opted into, so the guard always asks.
+   */
+  localInputArg?: number;
+  /**
+   * The command changes credentials, sign-in state or who can see a
+   * document rather than document content, so auto-approve never covers it.
+   */
+  neverAutoApprove?: boolean;
   children?: Record<string, SafetyNode>;
 }
 
@@ -63,6 +75,19 @@ export class UnclassifiedCommandError extends Error {
  */
 const LOCAL_OUTPUT_ARGS = new Set(['file', 'out']);
 const OPTION_VALUE_NAME = /[<[]([a-z-]+)[>\]]\s*$/;
+
+/**
+ * Writes that are not document edits: they mint credentials, change who is
+ * signed in or which workspace is active, or widen a document's audience.
+ * The plugin's "auto-approve document writes" option never covers them.
+ */
+export const NEVER_AUTO_APPROVE: ReadonlySet<string> = new Set([
+  'login',
+  'logout',
+  'ctx.switch',
+  'api-keys.create',
+  'templates.publish',
+]);
 
 function optionNames(opt: Option): string[] {
   return [opt.long, opt.short].filter((n): n is string => Boolean(n));
@@ -118,8 +143,14 @@ function buildNode(cmd: Command, path: string[]): SafetyNode {
     node.safety = schema.safety;
     node.description = schema.description;
     Object.assign(node, variantsOf(schema.name));
-    // Only a read-only command needs this: a write already asks, and on
-    // `import <file>` the same name is an input.
+    if (NEVER_AUTO_APPROVE.has(schema.name)) node.neverAutoApprove = true;
+    // The same placeholder means an output on a read (`export <doc> <file>`)
+    // and an input on a write (`import <file>`, `upload <file>`).
+    if (schema.safety !== 'read-only') {
+      const args: readonly Argument[] = cmd.registeredArguments;
+      const input = args.findIndex((a) => LOCAL_OUTPUT_ARGS.has(a.name()));
+      if (input >= 0) node.localInputArg = input;
+    }
     if (schema.safety === 'read-only') {
       const args: readonly Argument[] = cmd.registeredArguments;
       const out = args.findIndex((a) => LOCAL_OUTPUT_ARGS.has(a.name()));

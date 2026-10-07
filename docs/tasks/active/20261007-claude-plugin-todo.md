@@ -23,10 +23,24 @@ CLI (approach A). One PR.
 - [x] 8. Drift tests in `packages/cli` (safety table + reference copies are
       in sync; every commander leaf is classified) + guard/session hook tests
 - [x] 9. Plugin README + docs-site / cli.md pointer
-- [ ] 10. `pnpm verify:fast` green; `claude plugin validate` if available
-- [ ] 11. Self-review (max 3 rounds), log in lessons
+- [x] 10. `pnpm verify:fast` green; `claude plugin validate` passes
+- [x] 11. Self-review (max 3 rounds), log in lessons
 - [ ] 12. Rebase, open PR
 
 ## Review
 
-(filled in after self-review)
+- Verified: `verify:fast` green; `verify:self` green except the
+  dependency check, which failed on two critical advisories unrelated to
+  the plugin and is fixed by an override commit on this branch;
+  `claude plugin validate .` passes; CLI tests 1118/1118.
+- End-to-end in a real Claude Code session (`claude -p --plugin-dir`,
+  CLI from this checkout on PATH): `wafflebase schema docs.list` ran
+  unprompted; a `docs delete` was stopped with the guard's reason.
+- Self-review: three rounds (correctness, design fit, security/docs),
+  every blocking finding fixed with a regression test — see the lessons
+  file. The worst two were found only from the attacker's seat:
+  credential exfiltration via `--server`, and local-file upload under
+  auto-approve.
+- Known limitations (PR body): the CLI still sends a session to any
+  `--server` (CLI fix in Future work); `plugins/**` has no inert CI lane;
+  docs/slides text edits are whole replaces until granular APIs exist.

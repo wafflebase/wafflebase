@@ -12,6 +12,9 @@
 // node_modules.
 
 const RANK = { 'read-only': 0, write: 1, destructive: 2 };
+const CONNECTION_OPTIONS = ['--server', '--api-key', '--profile'];
+/** Shells that run their `-c` string, and `eval`, which runs its words. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']);
 
 /**
  * Characters that mean exactly themselves outside quotes. Anything else
@@ -314,6 +317,20 @@ export function classify(words, table) {
       notes.push(`${c.safety} when ${c.when}`);
     }
   }
+  // Root options that choose where the CLI connects and with which
+  // credential. Whatever the command, it sends the user's saved session or
+  // API key — and on a 401 the refresh token — to that server.
+  const connection = CONNECTION_OPTIONS.filter((o) => flags.has(o)).map(
+    (o) => `${o} ${typeof flags.get(o) === 'string' ? flags.get(o) : ''}`.trim(),
+  );
+
+  // A write that reads a local file sends it to the server.
+  const localReads = [];
+  if (node.localInputArg !== undefined) {
+    const v = positionals[node.localInputArg];
+    if (typeof v === 'string' && v !== '-') localReads.push(v);
+  }
+
   // A read on the server can still write this machine's disk.
   const localWrites = [];
   if (level === 'read-only') {
@@ -337,6 +354,9 @@ export function classify(words, table) {
     description: node.description,
     notes,
     localWrites,
+    localReads,
+    connection,
+    neverAutoApprove: Boolean(node.neverAutoApprove),
   };
 }
 
@@ -358,6 +378,27 @@ function describe(c) {
 }
 
 /**
+ * The command string a segment hands to another shell, or null.
+ *
+ * @param {Word[]} words
+ * @returns {string | null}
+ */
+function innerCommand(words) {
+  const texts = words.map((w) => w.text);
+  const head = texts[0]?.split('/').pop();
+  if (head === 'eval') return texts.slice(1).join(' ');
+  if (SHELLS.has(head)) {
+    const c = texts.indexOf('-c');
+    return c >= 0 && c + 1 < texts.length ? texts[c + 1] : null;
+  }
+  if (head === 'env') {
+    const i = texts.findIndex((t) => t === '-S' || t === '--split-string');
+    if (i >= 0 && i + 1 < texts.length) return texts.slice(i + 1).join(' ');
+  }
+  return null;
+}
+
+/**
  * Decide on one Bash command.
  *
  * @param {string} command
@@ -367,16 +408,28 @@ function describe(c) {
  *   null means "not ours": print nothing and let the user's rules decide.
  */
 export function decide(command, table, options = {}) {
-  const { segments, complex } = splitCommand(command);
+  const { segments, complex: topComplex } = splitCommand(command);
+  let complex = topComplex;
   const found = [];
   let plain = true;
-  for (const words of segments) {
-    const hit = wafflebaseArgs(words);
-    if (hit) {
-      found.push(classify(hit.args, table));
-      plain &&= hit.plain;
+  const visit = (segs, depth) => {
+    for (const words of segs) {
+      const inner = innerCommand(words);
+      if (inner !== null && depth < 3) {
+        // `sh -c '…'`, `env -S '…'`, `eval …` run a string the shell has
+        // not split yet: split it the same way and never auto-allow it.
+        complex = true;
+        visit(splitCommand(inner).segments, depth + 1);
+        continue;
+      }
+      const hit = wafflebaseArgs(words);
+      if (hit) {
+        found.push(classify(hit.args, table));
+        plain &&= hit.plain;
+      }
     }
-  }
+  };
+  visit(segments, 0);
 
   // A wafflebase call the segment walk did not reach — inside `$(…)`,
   // backticks or a subshell — must not slip past unprompted beside one it
@@ -403,6 +456,14 @@ export function decide(command, table, options = {}) {
     };
   }
 
+  const redirected = found.find((c) => c.connection?.length > 0);
+  if (redirected) {
+    return {
+      decision: 'ask',
+      reason: `${describe(redirected)}. It is run with ${redirected.connection.join(', ')}, so it sends your saved Wafflebase credentials to that server — check it is one you trust.`,
+    };
+  }
+
   const worst = found.reduce((a, b) => (RANK[b.level] > RANK[a.level] ? b : a));
   if (worst.level === 'destructive') {
     return {
@@ -420,7 +481,23 @@ export function decide(command, table, options = {}) {
       reason: `${describe(local)}. It writes ${local.localWrites.join(', ')} on this machine.`,
     };
   }
+  // Uploading a local file is outside the opt-in for the same reason:
+  // it is the user's disk, and the destination may be shared.
+  const upload = found.find((c) => c.localReads?.length > 0);
+  if (upload) {
+    return {
+      decision: 'ask',
+      reason: `${describe(upload)}. It uploads ${upload.localReads.join(', ')} from this machine.`,
+    };
+  }
   if (worst.level === 'write') {
+    const sensitive = found.find((c) => c.neverAutoApprove);
+    if (sensitive) {
+      return {
+        decision: 'ask',
+        reason: `${describe(sensitive)}. It changes credentials, sign-in or sharing, which auto-approve never covers.`,
+      };
+    }
     if (options.autoApproveWrites && !complex && plain) {
       return { decision: 'allow', reason: `${describe(worst)}; writes are auto-approved.` };
     }

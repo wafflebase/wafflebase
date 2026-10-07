@@ -61,10 +61,12 @@ Summaries and answers cite the documents they came from, with links.
 1. Before any change, tell the user in one or two lines exactly what will
    change (which document, which range / slide / section, old → new when
    short).
-2. Run the command. This plugin's guard asks the user to confirm every
-   write and every delete before it runs — that prompt is the user's
+2. Run the command. This plugin's guard asks the user to confirm writes
+   before they run (unless they enabled auto-approve; deletes, replaces,
+   uploads and credential changes always ask) — that prompt is the user's
    review, so keep the command itself readable (one command per call, no
-   `&&` chains of writes).
+   `&&` chains of writes, no `--server` / `--api-key` overrides the user
+   did not ask for).
 3. After it succeeds, print the link to what changed.
 
 Prefer the narrowest command: a cell batch over re-importing a sheet,

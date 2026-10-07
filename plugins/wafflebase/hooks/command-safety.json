@@ -16,7 +16,8 @@
         "children": {
           "create": {
             "safety": "write",
-            "description": "Create a new API key"
+            "description": "Create a new API key",
+            "neverAutoApprove": true
           },
           "list": {
             "safety": "read-only",
@@ -95,7 +96,8 @@
           },
           "switch": {
             "safety": "write",
-            "description": "Switch active workspace"
+            "description": "Switch active workspace",
+            "neverAutoApprove": true
           }
         }
       },
@@ -153,7 +155,8 @@
             "description": "Import a .docx file as a new (or replacement) document",
             "flagSafety": {
               "--replace": "destructive"
-            }
+            },
+            "localInputArg": 0
           },
           "list": {
             "valueOptions": [
@@ -214,7 +217,8 @@
               "--title"
             ],
             "safety": "write",
-            "description": "Upload any file as a document (stored as bytes; never parsed)"
+            "description": "Upload any file as a document (stored as bytes; never parsed)",
+            "localInputArg": 0
           }
         }
       },
@@ -264,17 +268,20 @@
           },
           "upload": {
             "safety": "write",
-            "description": "Upload an image (png, jpeg, gif, or webp) to the workspace image bucket"
+            "description": "Upload an image (png, jpeg, gif, or webp) to the workspace image bucket",
+            "localInputArg": 0
           }
         }
       },
       "login": {
         "safety": "write",
-        "description": "Authenticate via GitHub OAuth in the browser"
+        "description": "Authenticate via GitHub OAuth in the browser",
+        "neverAutoApprove": true
       },
       "logout": {
         "safety": "write",
-        "description": "Clear session and log out"
+        "description": "Clear session and log out",
+        "neverAutoApprove": true
       },
       "notes": {
         "aliases": [
@@ -317,7 +324,8 @@
             "description": "Import a Markdown file as a new (or replacement) note",
             "flagSafety": {
               "--replace": "destructive"
-            }
+            },
+            "localInputArg": 0
           },
           "list": {
             "safety": "read-only",
@@ -623,7 +631,8 @@
               "--tab"
             ],
             "safety": "write",
-            "description": "Import CSV/JSON into a spreadsheet tab"
+            "description": "Import CSV/JSON into a spreadsheet tab",
+            "localInputArg": 1
           },
           "insert": {
             "valueOptions": [
@@ -870,7 +879,8 @@
             "description": "Import a .pptx file as a new (or replacement) slide deck",
             "flagSafety": {
               "--replace": "destructive"
-            }
+            },
+            "localInputArg": 0
           },
           "layouts": {
             "aliases": [
@@ -952,7 +962,8 @@
               "--visibility"
             ],
             "safety": "write",
-            "description": "Publish (or re-publish) a document as a template; only the options given are sent, so a re-publish leaves the rest of the listing alone"
+            "description": "Publish (or re-publish) a document as a template; only the options given are sent, so a re-publish leaves the rest of the listing alone",
+            "neverAutoApprove": true
           },
           "use": {
             "valueOptions": [

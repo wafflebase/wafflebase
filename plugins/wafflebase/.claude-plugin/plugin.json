@@ -21,7 +21,7 @@
     "auto_approve_writes": {
       "type": "boolean",
       "title": "Auto-approve document writes",
-      "description": "Run wafflebase commands that edit documents without asking first. Deletes, whole-document replaces and local file writes always ask.",
+      "description": "Run wafflebase commands that edit documents without asking first. Deletes, whole-document replaces, local file reads and writes, credential and sharing changes, and --server/--api-key overrides always ask.",
       "default": false
     }
   }

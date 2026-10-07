@@ -22,8 +22,10 @@ step and stop at the first one that needs the user.
 Finish with what the plugin does on its own:
 
 - Read-only `wafflebase` commands run without a prompt.
-- Every write asks first; deletes, whole-document replaces and local file
-  writes always ask. To auto-approve document writes, enable
-  "Auto-approve document writes" for the wafflebase plugin in `/plugin`.
+- Every write asks first. Enabling "Auto-approve document writes" for the
+  wafflebase plugin in `/plugin` lets document edits run unprompted;
+  deletes, whole-document replaces, local file reads/writes, credential
+  and sharing changes, and any `--server` / `--api-key` override always
+  ask.
 - Links use the web origin derived from the server; set
   `WAFFLEBASE_WEB_URL` if they do not open.

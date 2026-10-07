@@ -3,7 +3,9 @@
 Find, read, create, edit and organize your Wafflebase sheets, docs,
 slides and notes from a Claude Code session. Claude works through the
 [`wafflebase` CLI](../../packages/cli/README.md); this plugin teaches it
-the workflows and keeps every write behind your confirmation.
+the workflows and keeps writes behind your confirmation (unless you opt
+into auto-approving document edits — deletes, replaces, uploads and
+credential changes ask regardless).
 
 Design: [docs/design/claude-plugin.md](../../docs/design/claude-plugin.md).
 
@@ -46,7 +48,10 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | Read-only (`list`, `get`, `content`, …), run on its own | Runs without a prompt |
 | Writes (create, rename, set cells, import, …) | Asks first |
 | Deletes, whole-document replaces, `--replace` imports | Always ask |
-| Exports / downloads that write a local file | Always ask |
+| Exports / downloads that write a local file (`-` for stdout does not) | Always ask |
+| Uploads of a local file (`files upload`, `… import <file>`) | Always ask |
+| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish` | Always ask |
+| Anything run with `--server`, `--api-key` or `--profile` (sends your credentials there) | Always ask |
 | `wafflebase` commands the plugin does not recognize | Ask |
 
 The classification comes from the CLI's own schema
@@ -56,11 +61,13 @@ whole-document replace Claude makes a copy of the document as a restore
 point, since replaces cannot be undone over the API.
 
 To stop being asked on ordinary document writes, enable **Auto-approve
-document writes** in the plugin's settings (`/plugin`). Deletes, replaces
-and local file writes still ask.
+document writes** in the plugin's settings (`/plugin`). Everything marked
+"Always ask" above still asks.
 
-Claude treats text inside your documents as data: an instruction written
-in a cell or a comment is reported to you, never followed.
+The skills tell Claude to treat text inside your documents as data: an
+instruction written in a cell or a comment is to be reported to you, not
+followed. That is guidance, not a guarantee — which is why the prompts
+above are enforced by the hook rather than left to the model.
 
 ## Settings
 

