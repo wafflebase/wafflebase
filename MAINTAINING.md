@@ -31,6 +31,15 @@ Bump the version in all packages that will be published:
 # packages/backend/package.json (if applicable)
 ```
 
+The Claude Code plugin (`plugins/wafflebase/`) ships in lockstep with the
+CLI: its `version`, its command-safety table and its reference docs are
+generated from `packages/cli`. Regenerate them after bumping the CLI —
+`pnpm cli test` fails until you do:
+
+```bash
+pnpm cli build:plugin
+```
+
 Commit and push the version bump:
 
 ```bash

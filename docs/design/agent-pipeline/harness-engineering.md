@@ -2897,7 +2897,9 @@ straight through green CI: no test exercises that page, so the guard would have
 thrown a `ReferenceError` exactly when it was supposed to latch a PR. The review
 panel caught it, which is the expensive way to catch a typo.
 
-`eslint.config.mjs` at the repo root, scoped to `scripts/**/*.mjs`, wired into
+`eslint.config.mjs` at the repo root, scoped to `scripts/**/*.mjs` (and, since
+the Claude Code plugin, `plugins/**/*.mjs` — its hooks are the same kind of
+dependency-free Node ESM; see `docs/design/claude-plugin.md`), wired into
 `verify:fast` so it fails in about a second rather than after the build chain.
 Three notes on the shape:
 

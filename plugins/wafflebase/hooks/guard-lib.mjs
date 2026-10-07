@@ -38,7 +38,7 @@ const EXPANDS = new Set(['{', '}', '*', '?', '[', ']', '~', '$', '`']);
  * Split a Bash command into top-level segments of words, the way the shell
  * would before running each one.
  *
- * @returns {{ segments: Word[][], complex: boolean }}
+ * @returns {{ segments: Word[][], complex: boolean, opaque: boolean }}
  *   `complex` is true unless the command is a single invocation made only
  *   of literal characters and quoted strings: more than one segment, a
  *   pipe, a redirect, a comment, any expansion, an escape or an
@@ -49,6 +49,9 @@ export function splitCommand(command) {
   let words = [];
   let word = null;
   let complex = false;
+  // A substitution, subshell or group runs words this split cannot see as
+  // a program call: `$(…)`, backticks, `( … )`, `{ …; }`.
+  let opaque = false;
   let quote = null;
 
   const append = (text, exact = true) => {
@@ -89,6 +92,7 @@ export function splitCommand(command) {
         }
       } else if (c === '$' || c === '`') {
         complex = true;
+        if (c === '`' || command[i + 1] === '(') opaque = true;
         append(c, false);
       } else {
         append(c);
@@ -113,6 +117,8 @@ export function splitCommand(command) {
       // A redirect ends the word before it (`wafflebase>/dev/null`) and is
       // never an argument: it becomes its own word, marked as a redirect.
       complex = true;
+      // `2>file`: the digits name a descriptor, not an argument.
+      if (word !== null && word.exact && /^\d+$/.test(word.text)) word = null;
       endWord();
       let op = c;
       while (command[i + 1] === '>' || command[i + 1] === '<') op += command[++i];
@@ -138,13 +144,19 @@ export function splitCommand(command) {
       continue;
     }
     if (!LITERAL.test(c)) complex = true;
+    // `{` opens a group only as a word of its own (`{ cmd; }`); inside a
+    // word it is brace expansion, which the word's inexactness covers.
+    const group = c === '{' && word === null && /\s/.test(command[i + 1] ?? '');
+    if (c === '(' || c === '`' || group || (c === '$' && command[i + 1] === '(')) {
+      opaque = true;
+    }
     append(c, !EXPANDS.has(c));
   }
   endSegment();
   // An unterminated quote is a parse we cannot trust.
   if (quote !== null) complex = true;
   if (segments.length !== 1) complex = true;
-  return { segments, complex };
+  return { segments, complex, opaque };
 }
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -164,6 +176,8 @@ const CONNECTION_ENV = /^(WAFFLEBASE_[A-Z_]+|HOME)=/;
 const WRAPPERS = new Set([
   'time', 'command', 'builtin', 'exec', 'nice', 'nohup', 'sudo', 'doas',
   'env', 'xargs', 'timeout', 'npx', 'bunx', 'pnpx',
+  // Shell keywords that start a command position: `if true; then wafflebase …`.
+  'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!',
 ]);
 /** Two-word launchers: `pnpm exec wafflebase`, `npm exec …`, `pnpm dlx …`. */
 const LAUNCHERS = new Set(['pnpm exec', 'pnpm dlx', 'npm exec', 'yarn dlx', 'yarn exec']);
@@ -199,12 +213,23 @@ export function wafflebaseArgs(words) {
     } else if (WRAPPERS.has(w)) {
       wrapped = true;
       i++;
-      // Wrapper options and their values (`nice -n 5`, `timeout 30`).
-      while (
-        i < words.length &&
-        (words[i].text.startsWith('-') || /^\d+[a-z]?$/.test(words[i].text))
-      ) {
-        i++;
+      // Wrapper options and their values: `nice -n 5`, `sudo -u bob`,
+      // `timeout -s KILL 30`, `xargs -a ids.txt`. A non-option word is
+      // consumed only right after an option (its value) or when it is a
+      // number (`timeout 30`), so `xargs grep wafflebase f` stops at `grep`
+      // rather than mistaking the data for the program.
+      while (i < words.length) {
+        const t = words[i].text;
+        const afterOption = words[i - 1].text.startsWith('-');
+        if (
+          t.startsWith('-') ||
+          /^\d+[a-z]?$/.test(t) ||
+          (afterOption && !isWafflebase(t) && !ENV_ASSIGNMENT.test(t) && !WRAPPERS.has(t))
+        ) {
+          i++;
+        } else {
+          break;
+        }
       }
     } else if (i + 1 < words.length && LAUNCHERS.has(`${w} ${words[i + 1].text}`)) {
       wrapped = true;
@@ -212,13 +237,6 @@ export function wafflebaseArgs(words) {
     } else {
       break;
     }
-  }
-  if (i < words.length && wrapped && !isWafflebase(words[i].text)) {
-    // A wrapper option took a value not modeled above (`sudo -u bob`,
-    // `xargs -a ids.txt`): look further along for the program. A false
-    // match can only ask — a wrapped call is never auto-allowed.
-    const j = words.findIndex((w, k) => k > i && w.exact && isWafflebase(w.text));
-    if (j >= 0) i = j;
   }
   if (i >= words.length || !isWafflebase(words[i].text)) return null;
   return {
@@ -238,7 +256,37 @@ function findChild(node, name) {
 }
 
 /**
+ * Root options that choose the server or credential, wherever they appear
+ * (commander accepts global options after the subcommand too). Scanned on
+ * their own so that every outcome — help, usage, unknown — carries them.
+ */
+function connectionOptions(words) {
+  const out = [];
+  for (let i = 0; i < words.length; i++) {
+    const t = words[i].text;
+    const eq = t.indexOf('=');
+    const name = eq >= 0 ? t.slice(0, eq) : t;
+    if (!CONNECTION_OPTIONS.includes(name)) continue;
+    const value = eq >= 0 ? t.slice(eq + 1) : words[i + 1]?.text;
+    // Name the server, never echo a key or profile into the transcript.
+    out.push(name === '--server' && value ? `${name} ${value}` : name);
+  }
+  return out;
+}
+
+/**
  * Classify the arguments that follow `wafflebase`.
+ *
+ * @param {Word[]} words
+ */
+export function classify(words, table) {
+  const result = classifyPath(words, table);
+  result.connection = connectionOptions(words);
+  return result;
+}
+
+/**
+ * The command-path walk behind `classify`.
  *
  * There is deliberately no shortcut for `--help` / `--version`: a help flag
  * the guard sees may be one the shell never passes (`delete x # --help`),
@@ -251,7 +299,7 @@ function findChild(node, name) {
  *   description?: string, notes: string[], localWrites?: string[]
  * }}
  */
-export function classify(allWords, table) {
+function classifyPath(allWords, table) {
   // Redirects are the shell's, not the CLI's: take them and their targets
   // out of the arguments, and remember what they read and write locally.
   const redirectWrites = [];
@@ -273,10 +321,11 @@ export function classify(allWords, table) {
   }
   const inexact = words.find((w) => !w.exact);
   if (inexact) {
+    // The path only: an argument list may carry `--api-key <secret>`.
     return {
       known: false,
-      path: words.map((w) => w.text).join(' '),
-      why: `the shell expands \`${inexact.text}\` before the CLI sees it`,
+      path: '…',
+      why: 'the shell expands part of it before the CLI sees it',
       notes: [],
     };
   }
@@ -297,7 +346,7 @@ export function classify(allWords, table) {
       if (node.children && positionals.length === 0) {
         return {
           known: false,
-          path: [...path, ...args.slice(i + 1)].join(' '),
+          path: [...path, '--', '…'].join(' '),
           why: 'commander still dispatches a subcommand named after `--`',
           notes: [],
         };
@@ -383,16 +432,6 @@ export function classify(allWords, table) {
       notes.push(`${c.safety} when ${c.when}`);
     }
   }
-  // Root options that choose where the CLI connects and with which
-  // credential. Whatever the command, it sends the user's saved session or
-  // API key — and on a 401 the refresh token — to that server.
-  // Name the server, never echo a key into the transcript.
-  const connection = CONNECTION_OPTIONS.filter((o) => flags.has(o)).map((o) =>
-    o === '--server' && typeof flags.get(o) === 'string'
-      ? `${o} ${flags.get(o)}`
-      : o,
-  );
-
   // A write that reads a local file sends it to the server.
   const localReads = [...redirectReads];
   if (node.localInputArg !== undefined) {
@@ -424,17 +463,16 @@ export function classify(allWords, table) {
     notes,
     localWrites,
     localReads,
-    connection,
     neverAutoApprove: Boolean(node.neverAutoApprove),
   };
 }
 
 /**
- * `wafflebase` as a program name: at a word start (or after a path `/`),
- * followed by whitespace, a closing delimiter or the end — not a directory
- * in a path like `…/wafflebase/waffledocs`.
+ * The name anywhere it could be a program word, quoted or not, bare or by
+ * path (`/usr/local/bin/wafflebase`) — but not a directory inside a path
+ * (`…/wafflebase/waffledocs`).
  */
-const INVOCATION = /(?:^|[\s;&|(`$/])wafflebase(?=[\s)`'";&|<>]|$)/g;
+const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])/;
 
 /** True when an inline JSON payload proves a null-condition false. */
 function payloadRuledOut(when, data) {
@@ -446,6 +484,9 @@ function payloadRuledOut(when, data) {
   } catch {
     return false;
   }
+  // "payload is null" means the whole payload; "a value is null" means
+  // any entry, at any depth.
+  if (when === 'payload is null') return value !== null;
   const hasNull = (v) =>
     v === null ||
     (typeof v === 'object' && Object.values(v).some((x) => hasNull(x)));
@@ -508,7 +549,7 @@ function innerCommand(words) {
  *   null means "not ours": print nothing and let the user's rules decide.
  */
 export function decide(command, table, options = {}) {
-  const { segments, complex: topComplex } = splitCommand(command);
+  const { segments, complex: topComplex, opaque } = splitCommand(command);
   let complex = topComplex;
   const found = [];
   let plain = true;
@@ -535,18 +576,16 @@ export function decide(command, table, options = {}) {
   };
   visit(segments, 0);
 
-  // A wafflebase call the segment walk did not reach — inside `$(…)`,
-  // backticks or a subshell — must not slip past unprompted beside one it
-  // did. Count every place the name stands as a command word.
-  if (complex) {
-    const mentions = command.match(INVOCATION) ?? [];
-    if (mentions.length > found.length) {
-      return {
-        decision: 'ask',
-        reason:
-          'This command runs wafflebase in a form the Wafflebase plugin cannot classify (substitution, subshell or wrapper).',
-      };
-    }
+  // A wafflebase call inside a substitution, subshell or group is one the
+  // segment walk cannot place. When the command has one of those and names
+  // wafflebase anywhere, ask — rather than count occurrences, which one
+  // spelling can always offset with another.
+  if (opaque && MENTION.test(command)) {
+    return {
+      decision: 'ask',
+      reason:
+        'This command runs wafflebase inside a substitution, subshell or group, which the Wafflebase plugin cannot classify.',
+    };
   }
   if (found.length === 0) return null;
 

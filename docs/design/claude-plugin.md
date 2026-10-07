@@ -177,21 +177,32 @@ with its backslash), and brace expansion (`{D,--out=.zshrc}` becomes an
 `--out` after the guard looked). An allow-list closes the class rather
 than the three instances.
 
-Composition never *hides* a write either. Every `wafflebase` segment of a
-compound command is classified and the worst one decides; wrappers
-(`time`, `env`, `xargs`, `npx @wafflebase/cli`, `pnpm exec`, …) are
-looked through, and so are strings handed to another shell (`sh -c`,
-`bash -c`, `env -S`, `eval`); a word the shell will expand makes its
-command unclassifiable, which asks; and when the name appears as a
-program more often than the segment walk found it (`$(…)`, backticks),
-the guard asks. What it finds behind a wrapper is never auto-allowed.
+The guard makes two promises of different strength, and the difference
+is deliberate:
+
+1. **It never auto-allows anything it cannot read exactly.** `allow` is
+   reserved for one bare, plain, read-only invocation (above). This is
+   the security property, and it rests on the allow-list alone.
+2. **It asks on writes in every form it can parse** — best effort,
+   because a shell can always hide a call (`perl -e`, `base64 -d | sh`,
+   a script file). Covered: every `wafflebase` segment of a compound
+   command (the worst one decides); wrappers and shell keywords (`time`,
+   `env`, `sudo -u x`, `xargs`, `npx @wafflebase/cli`, `pnpm exec`,
+   `if … then`) including their option values; strings handed to
+   another shell (`sh -c`, `bash -lc`, `env -S`, `eval`); and any command
+   with a substitution, subshell or group (`$(…)`, backticks, `( … )`,
+   `{ …; }`) that names `wafflebase` at all — asked outright, not
+   counted, since one spelling can always offset another in a count.
+   A form none of these covers falls to the user's own Claude Code
+   rules, which prompt for Bash unless the user allowed it.
+
 Redirects are lifted out of the arguments and treated like `--out`: a
 `> file` is a local write that always asks (`/dev/null` and `2>&1` are
-not), a `< file` a local read. A `--` before a subcommand asks, because
-commander still dispatches what follows it (`wafflebase -- docs delete
-x` runs the delete). A
-form none of these covers falls to the user's own rules — not silently
-allowed, but not guaranteed to ask either.
+not; the `2` of `2>file` is a descriptor, not an argument), a `< file`
+a local read. A `--` before a subcommand asks, because commander still
+dispatches what follows it (`wafflebase -- docs delete x` runs the
+delete). An unclassifiable command's prompt names only `wafflebase …`,
+never its arguments, which may carry `--api-key`.
 
 There is no shortcut for `--help` / `--version`: a command is judged by
 its path, so `docs delete --help` asks. Help that can be faked by a token
@@ -249,8 +260,9 @@ Deep links follow the frontend routes: `/s/:id` sheet, `/d/:id` doc,
 | `wafflebase-docs` | Reading as Markdown, DOCX import/export, PDF export, notes (Markdown in / out), and why docs edits are a backed-up whole replace today |
 | `wafflebase-slides` | Deck outline reads, slide add/duplicate/move/delete, PPTX import/export |
 
-Each domain skill links into `references/` rather than restating
-command syntax, so the CLI skill files remain the one place syntax lives.
+The full command syntax lives in `references/` (and `wafflebase
+schema`); a domain skill shows only the handful of commands its workflow
+needs and links there for the rest.
 
 ### Commands
 
@@ -302,6 +314,12 @@ command syntax, so the CLI skill files remain the one place syntax lives.
   too.
 - **Local-file exfiltration through uploads.** Uploads ask even under
   auto-approve, for the same reason.
+- **The auto-approve switch is an environment variable.** Claude Code
+  hands `userConfig` to hooks as `CLAUDE_PLUGIN_OPTION_AUTO_APPROVE_WRITES`
+  (a shell-form hook cannot take `${user_config.*}`), so anything that
+  sets the Claude Code process's environment — a sourced `.env`, an
+  approved `direnv` — can switch it on. It widens only document edits;
+  every "always ask" row above still asks.
 - **Prompt injection via the session context.** Workspace names and
   usernames are free text other people choose, and SessionStart context
   outranks document text. The hook strips control and bidi characters,

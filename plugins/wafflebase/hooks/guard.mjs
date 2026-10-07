@@ -34,6 +34,8 @@ function main() {
   let result;
   try {
     result = decide(command, loadTable(), {
+      // Claude Code exports each userConfig option to hook processes as
+      // CLAUDE_PLUGIN_OPTION_<KEY>. Anything but true/1 leaves writes asking.
       autoApproveWrites: /^(true|1)$/i.test(
         process.env.CLAUDE_PLUGIN_OPTION_AUTO_APPROVE_WRITES ?? '',
       ),

@@ -84,6 +84,25 @@ function linkLine(server, webUrlOverride) {
   return `- Link every document you mention or touch as ${origin}/<route>/<id> (${routes}).${webUrlOverride ? '' : ' If links do not open, the user can set WAFFLEBASE_WEB_URL.'}`;
 }
 
+/**
+ * Absolute path of `name` on a PATH-style list, skipping relative entries
+ * (`.`, `bin`) so the current directory is never searched — cmd.exe would
+ * otherwise run a `wafflebase.cmd` shipped by whatever repository is open.
+ *
+ * @param {string | undefined} pathValue  PATH
+ * @param {string} delimiter
+ * @param {(dir: string) => boolean} isAbsolute
+ * @param {(dir: string, name: string) => string | null} find  existing file or null
+ */
+export function resolveOnPath(pathValue, delimiter, isAbsolute, find) {
+  for (const dir of (pathValue ?? '').split(delimiter)) {
+    if (!dir || !isAbsolute(dir)) continue;
+    const hit = find(dir, 'wafflebase.cmd');
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function majorMinor(v) {
   const m = /^(\d+)\.(\d+)/.exec(v ?? '');
   return m ? `${m[1]}.${m[2]}` : null;
@@ -120,7 +139,8 @@ export function buildContext({
     return lines.join('\n');
   }
   lines.push(`- CLI ${quote(cliVersion)} is installed.`);
-  if (majorMinor(cliVersion) !== majorMinor(tableVersion)) {
+  // An unreadable version is not a mismatch worth warning about.
+  if (cliVersion !== 'unknown' && majorMinor(cliVersion) !== majorMinor(tableVersion)) {
     lines.push(
       `- The plugin's permission table was generated for CLI ${quote(tableVersion)}; commands it does not know will ask for confirmation. Suggest updating whichever side is older.`,
     );

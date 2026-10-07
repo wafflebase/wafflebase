@@ -8,7 +8,7 @@ import { version } from '../../package.json';
 const here = fileURLToPath(new URL('.', import.meta.url));
 
 /** `packages/cli/skills/` — the single source of the CLI's agent docs. */
-export const CLI_SKILLS_DIR = resolve(here, '../../skills');
+const CLI_SKILLS_DIR = resolve(here, '../../skills');
 /** `plugins/wafflebase/` at the repository root. */
 export const PLUGIN_DIR = resolve(here, '../../../../plugins/wafflebase');
 

@@ -162,3 +162,35 @@ and is covered by the CLI's typecheck.
 a cell" had a batch spelling. When a guard keys on one surface form,
 enumerate the others from the program's own parser (`resolveConfig`,
 getopt clusters, the registry's semantics), not from the first form.
+
+### PR review — panel second pass on #1097 (`fe00a2e6`, 2026-10-07)
+
+6 blocking, all fixed with tests:
+- The hidden-invocation **count** was defeatable: recursing into `sh -c`
+  inflated `found` while the textual count skipped quoted names, so
+  `sh -c 'wafflebase docs list' && $(wafflebase docs delete x)` balanced
+  out. Replaced by a rule with nothing to offset: a substitution,
+  subshell or group plus any mention of the name → ask.
+- The unclassifiable paths echoed the whole argv, `--api-key` included,
+  into the prompt. They now name only `wafflebase …`.
+- Env credentials after a wrapper option value (`env -u FOO
+  WAFFLEBASE_API_KEY=…`) were skipped by the jump to the program. The
+  wrapper loop now consumes option values in place, so every prefix word
+  is still examined — and `xargs grep wafflebase f` is no longer mistaken
+  for a call.
+- `guard.mjs` and `session-start.mjs` had no tests; both are now run as
+  processes (stdin JSON, the exported option variable, a fake CLI on
+  PATH), and the Windows PATH resolver is a pure tested function.
+
+Also fixed: `2>file` left `2` as an argument; help/usage forms dropped
+the `--server` check; "payload is null" was scanned recursively; root
+options pinned by test; routes pinned to App.tsx; release doc, docs site,
+CODEOWNERS, the generated-file edit hook and harness-engineering.md
+updated. Design doc now states two promises of different strength.
+
+**Lesson — stop counting, start stating.** Each pass found another
+spelling past the "always ask" promise; a count of occurrences was the
+worst of them, since any spelling can offset another. Make the strong
+promise only where an allow-list backs it (never auto-allow what you
+cannot read exactly), make the other promise best-effort *in writing*,
+and prefer rules with nothing to balance (opaque form + mention → ask).

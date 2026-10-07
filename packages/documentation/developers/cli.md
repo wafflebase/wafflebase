@@ -1149,6 +1149,17 @@ $ wafflebase --dry-run sheets cells set abc-123 A1 "Hello"
 
 ## Skills (for AI Agents)
 
+For Claude Code there is a plugin that packages these skills together with
+a permission guard — read-only commands run unprompted, writes ask first,
+deletes always ask:
+
+```
+/plugin marketplace add wafflebase/wafflebase
+/plugin install wafflebase@wafflebase
+```
+
+See [`plugins/wafflebase/README.md`](https://github.com/wafflebase/wafflebase/tree/main/plugins/wafflebase).
+
 The CLI ships namespace-prefixed skill files in
 `packages/cli/skills/` so AI agents (Claude Code, Cursor, etc.) can
 discover commands by intent:

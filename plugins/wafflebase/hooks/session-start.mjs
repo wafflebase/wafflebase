@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildContext } from './session-lib.mjs';
+import { buildContext, resolveOnPath } from './session-lib.mjs';
 
 const TIMEOUT_MS = 4000;
 
@@ -20,14 +20,11 @@ const TIMEOUT_MS = 4000;
 // spawn it by absolute path. The arguments are constants.
 const WINDOWS = process.platform === 'win32';
 
-/** Absolute path of `wafflebase.cmd` on PATH, or null. */
 function resolveOnWindowsPath() {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (!isAbsolute(dir)) continue;
-    const candidate = join(dir, 'wafflebase.cmd');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+  return resolveOnPath(process.env.PATH, delimiter, isAbsolute, (dir, name) => {
+    const candidate = join(dir, name);
+    return existsSync(candidate) ? candidate : null;
+  });
 }
 
 /** @returns {string | null | undefined} undefined: not installed; null: failed. */
