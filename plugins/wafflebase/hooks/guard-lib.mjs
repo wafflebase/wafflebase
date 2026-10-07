@@ -475,14 +475,56 @@ function classifyPath(words, table) {
 const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])|@wafflebase\/cli/i;
 
 /**
- * Commands that change how a later bare `wafflebase` resolves in Claude
- * Code's persistent shell: PATH, an alias or function by that name, the
- * command hash, or sourcing a script that could do any of those. The guard sees one command at a time, so a later exact
- * `wafflebase docs list` — which it allows — could run whatever this set
- * up. Such a command asks, whatever else it does.
+ * Variables whose value, once in the persistent shell, changes what a later
+ * bare `wafflebase` runs or where it connects: the lookup path, Node's
+ * preload hooks, the dynamic loader, the CLI's own server / key / config,
+ * and the home and config directories it reads.
  */
-const SHELL_STATE =
-  /(?:^|[^\w])PATH\+?=|(?:^|[\s;&|(])(?:alias|unalias|hash|enable|source|\.)(?:\s|$)|(?:^|[\s;&|(])(?:function\s+)?wafflebase\s*\(\s*\)/i;
+const SENSITIVE_VAR =
+  /^(PATH|NODE_[A-Z_]*|LD_[A-Z_]*|DYLD_[A-Z_]*|WAFFLEBASE_[A-Z_]*|HOME|XDG_CONFIG_HOME|BASH_ENV|ENV)$/;
+/** Builtins that change name resolution or run a file in this shell. */
+const STATE_BUILTINS = new Set(['alias', 'unalias', 'hash', 'enable', 'source', '.']);
+/** Builtins that export or declare variables. */
+const EXPORTERS = new Set(['export', 'declare', 'typeset', 'readonly', 'local']);
+
+/**
+ * True when one of the command's segments changes Claude Code's persistent
+ * shell in a way that decides what a later bare `wafflebase` runs. The
+ * guard sees one command at a time and allows an exact read later, so
+ * these must ask now. Judged on command words only — `find . -name x` is
+ * not `.`, and `echo alias` is not `alias`.
+ */
+function changesShellState(command, segments) {
+  // `wafflebase() { … }` / `function wafflebase { … }` define the name.
+  if (/(?:^|[\s;&|(])(?:function\s+)?wafflebase\s*(?:\(\s*\)|\{)/i.test(command)) {
+    return true;
+  }
+  for (const words of segments) {
+    const texts = words.map((w) => w.text);
+    const varName = (t) => t.slice(0, t.indexOf('=')).replace(/\+$/, '');
+    // A segment of only assignments sets shell variables that persist
+    // (`PATH=/tmp`); assignments before a command are that command's
+    // environment only, which the prefix rule already asks on.
+    if (texts.every((t) => ENV_ASSIGNMENT.test(t))) {
+      if (texts.some((t) => SENSITIVE_VAR.test(varName(t)))) return true;
+      continue;
+    }
+    let k = 0;
+    while (ENV_ASSIGNMENT.test(texts[k])) k++;
+    const head = texts[k];
+    if (head === undefined) continue;
+    if (STATE_BUILTINS.has(head)) return true;
+    if (head === 'set' && texts.slice(k + 1).some((t) => /^-[a-z]*a/.test(t))) return true;
+    if (EXPORTERS.has(head)) {
+      for (const t of texts.slice(k + 1)) {
+        if (t.startsWith('-')) continue;
+        if (SENSITIVE_VAR.test(t.includes('=') ? varName(t) : t)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 
 /** True when an inline JSON payload proves a null-condition false. */
 function payloadRuledOut(when, data) {
@@ -598,11 +640,11 @@ export function decide(command, table, options = {}) {
   //    shell spellings, no counting: a composition, a wrapper, a prefix,
   //    a substitution or an inner shell all land here alike.
   // Shell state that a later exact call would inherit.
-  if (SHELL_STATE.test(command)) {
+  if (changesShellState(command, segments)) {
     return {
       decision: 'ask',
       reason:
-        'This command changes PATH, an alias, a function or the command hash in the persistent shell — which decides what a later `wafflebase` runs, and the Wafflebase plugin auto-allows later read-only calls.',
+        'This command changes the persistent shell (PATH, NODE_* / LD_* / WAFFLEBASE_* variables, an alias, a function, the command hash, or a sourced file) — which decides what a later `wafflebase` runs, and the Wafflebase plugin auto-allows later read-only calls.',
     };
   }
   // The name, also when the shell will join it from quoted pieces

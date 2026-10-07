@@ -106,17 +106,9 @@ describe('root options', () => {
   });
 });
 
-describe('deep-link routes', () => {
-  it('match the frontend router', () => {
-    const app = readFileSync(
-      join(PLUGIN_DIR, '../../packages/frontend/src/App.tsx'),
-      'utf8',
-    );
-    for (const prefix of new Set(Object.values(session.ROUTES))) {
-      expect(app, `/${prefix}/:id`).toContain(`path="/${prefix}/:id"`);
-    }
-  });
-});
+// The deep-link routes are pinned to the frontend router by
+// packages/frontend/tests/app/claude-plugin-routes.test.ts, so a route
+// rename fails the frontend lane rather than only an unfiltered run.
 
 describe('buildSafetyTable', () => {
   it('refuses a leaf command the schema registry does not classify', () => {
@@ -544,6 +536,31 @@ describe('guard.decide', () => {
       '. ./evil.sh',
     ]) {
       expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  // Review panel, sixth pass.
+  it('asks on exporting a variable that steers a later call', () => {
+    for (const cmd of [
+      'export NODE_OPTIONS=--require=/tmp/x.js',
+      'export WAFFLEBASE_SERVER=https://evil.example',
+      'declare -x LD_PRELOAD=/tmp/x.so',
+      'export HOME=/tmp/x',
+      'set -a',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it('judges shell state on command words, not on any token', () => {
+    for (const cmd of [
+      'find . -name x',
+      'echo alias',
+      'git hash-object x',
+      'export FOO=bar',
+      'FOO=1',
+    ]) {
+      expect(decide(cmd), cmd).toBeNull();
     }
   });
 

@@ -256,3 +256,24 @@ generated; fail-safe reason sanitized; plugin.json in the edit guard.
 string.** In a persistent shell, what a word means is set by earlier
 commands; guarding one command at a time means guarding the commands
 that change meaning, too.
+
+### PR review — panel sixth pass on #1097 (`0b9df474`, 2026-10-07)
+
+5 blocking; 3 fixed, 2 rebutted:
+- `export NODE_OPTIONS=…` / `export WAFFLEBASE_SERVER=…` persist into the
+  shell too — exports of steering variables now ask.
+- The shell-state regex matched any token (`find . -name x` asked about
+  `.`). Rewritten on command words per segment.
+- **I was wrong in an earlier rebuttal.** I said a frontend-only change
+  runs `cli:check` because `packages/frontend/**` is not CI-inert; but
+  `verify-self.mjs` filters its lanes by changed package, so it does
+  not. The route pin moved to the frontend suite
+  (`packages/frontend/tests/app/claude-plugin-routes.test.ts`), now
+  checked in both directions. Corrected on the PR.
+- Rebutted: the hook inheriting an ambient `WAFFLEBASE_SERVER` is the
+  user's own configuration (and SessionStart reports it); `allow` does
+  not override deny rules (hooks docs).
+
+**Lesson — verify a rebuttal against the mechanism that runs, not the
+one next to it.** CI's inert list and verify:self's package filter are
+two different gates; I checked one and cited it for the other.

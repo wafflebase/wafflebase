@@ -197,8 +197,12 @@ A command that does not name `wafflebase` falls to the user's own rules
 and the guard sees one command at a time, so an earlier call could
 change what a later, *allowed* `wafflebase docs list` actually runs.
 Anything that changes that resolution therefore asks, whether or not it
-names the CLI: setting `PATH`, `alias` / `unalias`, a function named
-`wafflebase`, `hash`, `enable`, `source` / `.`. The name is also matched
+names the CLI: setting or exporting a variable that steers it (`PATH`,
+`NODE_*`, `LD_*`, `DYLD_*`, `WAFFLEBASE_*`, `HOME`, `XDG_CONFIG_HOME`,
+`BASH_ENV`, `ENV`; `export`, `declare -x`, `set -a`), `alias` /
+`unalias`, a function named `wafflebase`, `hash`, `enable`, `source` /
+`.`. These are judged on command words, so `find . -name x` and
+`export FOO=bar` stay silent. The name is also matched
 case-insensitively (APFS and NTFS resolve `Wafflebase` to the same file)
 and after the shell would join it from quoted pieces (`waffle"base"`).
 What remains is state the guard cannot see at all — a profile file read
