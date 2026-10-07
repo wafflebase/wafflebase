@@ -46,6 +46,18 @@ export const ROUTES = {
   file: 'f',
 };
 
+/** The CLI's default API server (`packages/cli/src/config/config.ts`). */
+const DEFAULT_SERVER = 'https://api.wafflebase.io';
+
+function linkLine(server, webUrlOverride) {
+  const origin = webOrigin(server, webUrlOverride);
+  if (!origin) return null;
+  const routes = Object.entries(ROUTES)
+    .map(([type, r]) => `${type} → /${r}/<id>`)
+    .join(', ');
+  return `- Link every document you mention or touch as ${origin}/<route>/<id> (${routes}).${webUrlOverride ? '' : ' If links do not open, the user can set WAFFLEBASE_WEB_URL.'}`;
+}
+
 function majorMinor(v) {
   const m = /^(\d+)\.(\d+)/.exec(v ?? '');
   return m ? `${m[1]}.${m[2]}` : null;
@@ -59,10 +71,19 @@ function majorMinor(v) {
  *   status: object | null,          // `wafflebase status` JSON, null = failed
  *   tableVersion: string,           // CLI version the guard table came from
  *   webUrlOverride?: string,
+ *   apiKeyInEnv?: boolean,          // WAFFLEBASE_API_KEY is set
+ *   envServer?: string,             // WAFFLEBASE_SERVER, for API-key sessions
  * }} input
  * @returns {string}
  */
-export function buildContext({ cliVersion, status, tableVersion, webUrlOverride }) {
+export function buildContext({
+  cliVersion,
+  status,
+  tableVersion,
+  webUrlOverride,
+  apiKeyInEnv,
+  envServer,
+}) {
   const lines = ['Wafflebase plugin:'];
   if (!cliVersion) {
     lines.push(
@@ -83,9 +104,19 @@ export function buildContext({ cliVersion, status, tableVersion, webUrlOverride 
     );
     return lines.join('\n');
   }
+  // `status` reports the browser-login session only; an API key (in the
+  // environment or a config profile) authenticates without one.
+  if (!status.loggedIn && apiKeyInEnv) {
+    lines.push(
+      '- Authenticating with WAFFLEBASE_API_KEY (no browser login session).',
+    );
+    const link = linkLine(envServer ?? DEFAULT_SERVER, webUrlOverride);
+    if (link) lines.push(link);
+    return lines.join('\n');
+  }
   if (!status.loggedIn) {
     lines.push(
-      '- Not logged in. Ask the user to run `wafflebase login` themselves (it opens a browser), or to set WAFFLEBASE_API_KEY. Do not run login for them.',
+      '- No login session. If the user configured an API key in a CLI profile, commands still work — try `wafflebase docs list`. Otherwise ask the user to run `wafflebase login` themselves (it opens a browser) or set WAFFLEBASE_API_KEY. Do not run login for them.',
     );
     return lines.join('\n');
   }
@@ -99,14 +130,7 @@ export function buildContext({ cliVersion, status, tableVersion, webUrlOverride 
     : status.workspaceId;
   lines.push(`- Logged in as ${status.user} on ${status.server}, workspace ${ws}.`);
 
-  const origin = webOrigin(status.server, webUrlOverride);
-  if (origin) {
-    const routes = Object.entries(ROUTES)
-      .map(([type, r]) => `${type} → /${r}/<id>`)
-      .join(', ');
-    lines.push(
-      `- Link every document you mention or touch as ${origin}/<route>/<id> (${routes}).${webUrlOverride ? '' : ' If links do not open, the user can set WAFFLEBASE_WEB_URL.'}`,
-    );
-  }
+  const link = linkLine(status.server, webUrlOverride);
+  if (link) lines.push(link);
   return lines.join('\n');
 }

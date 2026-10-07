@@ -157,18 +157,31 @@ The guard reads the hook's stdin, and only when the Bash command is a
 | Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |
 | Not a `wafflebase` command | no output | The user's own rules apply unchanged |
 
-"Simple" is strict, because an `allow` skips the user's prompt: one
-`wafflebase` invocation with no shell control or substitution characters
-(`; & | $ \` < > ( )`, newlines), no `VAR=value` prefix, and the binary
-named bare as `wafflebase` (not `./wafflebase`, which could be any
-program). `wafflebase docs list | jq` therefore falls through to the
-normal prompt rather than being auto-allowed, and `wafflebase docs list
-&& rm -rf x` can never be. Composition never *hides* a write either:
-every `wafflebase` segment of a compound command is classified and the
-worst one decides, and a `wafflebase` call inside a substitution the
-guard cannot parse (`$(…)`, backticks) asks. An `ask` reason names
-the command, its safety level, and what it creates / modifies / removes
-when the schema says so — the confirmation the user sees is the preview.
+"Simple" is strict, because an `allow` skips the user's prompt, and it
+is an **allow-list**, not a list of dangerous characters: the whole
+command must be one bare `wafflebase` invocation whose unquoted
+characters are all in `[A-Za-z0-9_-.,:/=@+%]`, plus single- or
+double-quoted strings without `$`, backticks or backslashes. Anything
+else — operators, redirects, `#` comments, brace / glob / tilde
+expansion, escapes, `VAR=` prefixes, a path to the binary, wrappers —
+leaves the command to the user's normal prompt. The first version used a
+deny-list and self-review found three ways past it, each auto-allowing a
+write: a comment (`docs delete x # --help`, the guard read the `--help`
+the shell drops), double-quote escaping (`"\--help"` reaches commander
+with its backslash), and brace expansion (`{D,--out=.zshrc}` becomes an
+`--out` after the guard looked). An allow-list closes the class rather
+than the three instances.
+
+Composition never *hides* a write either. Every `wafflebase` segment of a
+compound command is classified and the worst one decides; wrappers
+(`time`, `env`, `xargs`, `npx @wafflebase/cli`, `pnpm exec`, …) are
+looked through; a word the shell will expand makes its command
+unclassifiable, which asks; and when the name appears as a program more
+often than the segment walk found it (`$(…)`, backticks), the guard asks.
+
+There is no shortcut for `--help` / `--version`: a command is judged by
+its path, so `docs delete --help` asks. Help that can be faked by a token
+the shell discards is not worth the one prompt it saves.
 
 Global options (`--format json`, `--workspace <id>`, …) are skipped when
 locating the command path. `--dry-run` does **not** downgrade a write to

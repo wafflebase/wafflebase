@@ -12,18 +12,34 @@
 // node_modules.
 
 const RANK = { 'read-only': 0, write: 1, destructive: 2 };
-const HELP_FLAGS = new Set(['--help', '-h', '--version', '-V']);
 
 /**
- * Split a Bash command into top-level segments, the way the shell would
- * before running each one. Quotes are honored; anything the guard cannot
- * reason about (substitution, redirection, subshells) is reported rather
- * than parsed, so the caller can refuse to auto-allow it.
+ * Characters that mean exactly themselves outside quotes. Anything else
+ * unquoted — `#` (comment), `{ } * ? [ ] ~` (expansion), `\`, `!`, `$`,
+ * operators, non-ASCII — is something the shell may rewrite before the CLI
+ * sees it. The guard never auto-allows a command containing one: an
+ * allow-list is the only shape of this check that a shell feature nobody
+ * thought of cannot get past.
+ */
+const LITERAL = /^[A-Za-z0-9_\-.,:/=@+%]$/;
+/** Unquoted characters after which the word the shell passes is unknown. */
+const EXPANDS = new Set(['{', '}', '*', '?', '[', ']', '~', '$', '`']);
+
+/**
+ * @typedef {{ text: string, exact: boolean }} Word
+ *   `exact` is false when the shell may expand the word into something
+ *   other than `text` (brace, glob, tilde, parameter or command expansion).
+ */
+
+/**
+ * Split a Bash command into top-level segments of words, the way the shell
+ * would before running each one.
  *
- * @returns {{ segments: string[][], complex: boolean }}
- *   `complex` is true when the command is anything other than a single
- *   plain invocation: more than one segment, a pipe, a redirect, a
- *   substitution, or an environment prefix.
+ * @returns {{ segments: Word[][], complex: boolean }}
+ *   `complex` is true unless the command is a single invocation made only
+ *   of literal characters and quoted strings: more than one segment, a
+ *   pipe, a redirect, a comment, any expansion, an escape or an
+ *   unterminated quote all set it.
  */
 export function splitCommand(command) {
   const segments = [];
@@ -32,6 +48,11 @@ export function splitCommand(command) {
   let complex = false;
   let quote = null;
 
+  const append = (text, exact = true) => {
+    word ??= { text: '', exact: true };
+    word.text += text;
+    if (!exact) word.exact = false;
+  };
   const endWord = () => {
     if (word !== null) words.push(word);
     word = null;
@@ -46,27 +67,34 @@ export function splitCommand(command) {
     const c = command[i];
     if (quote === "'") {
       if (c === "'") quote = null;
-      else word += c;
+      else append(c);
       continue;
     }
     if (quote === '"') {
-      if (c === '"') quote = null;
-      else if (c === '\\' && i + 1 < command.length) word += command[++i];
-      else {
-        // `$` and backticks still expand inside double quotes.
-        if (c === '$' || c === '`') complex = true;
-        word += c;
+      if (c === '"') {
+        quote = null;
+      } else if (c === '\\') {
+        // Inside double quotes a backslash escapes only these; before
+        // anything else it is a literal backslash, exactly as bash/zsh.
+        complex = true;
+        const next = command[i + 1];
+        if (next !== undefined && '$`"\\\n'.includes(next)) {
+          i++;
+          if (next !== '\n') append(next);
+        } else {
+          append(c);
+        }
+      } else if (c === '$' || c === '`') {
+        complex = true;
+        append(c, false);
+      } else {
+        append(c);
       }
       continue;
     }
     if (c === "'" || c === '"') {
       quote = c;
-      word ??= '';
-      continue;
-    }
-    if (c === '\\' && i + 1 < command.length) {
-      const next = command[++i];
-      if (next !== '\n') word = (word ?? '') + next;
+      append('');
       continue;
     }
     if (c === ' ' || c === '\t') {
@@ -78,8 +106,20 @@ export function splitCommand(command) {
       endSegment();
       continue;
     }
-    if ('<>()`$'.includes(c)) complex = true;
-    word = (word ?? '') + c;
+    if (c === '#' && word === null) {
+      // A comment runs to the end of the line; the shell never passes it.
+      complex = true;
+      while (i + 1 < command.length && command[i + 1] !== '\n') i++;
+      continue;
+    }
+    if (c === '\\') {
+      complex = true;
+      const next = command[++i];
+      if (next !== undefined && next !== '\n') append(next);
+      continue;
+    }
+    if (!LITERAL.test(c)) complex = true;
+    append(c, !EXPANDS.has(c));
   }
   endSegment();
   // An unterminated quote is a parse we cannot trust.
@@ -90,25 +130,66 @@ export function splitCommand(command) {
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-/** True when `word` names the wafflebase binary (bare or by path). */
+/**
+ * Commands that run the next word as a program. A wrapped `wafflebase` is
+ * still classified — so a delete behind `time` or `xargs` still asks — but
+ * never auto-allowed.
+ */
+const WRAPPERS = new Set([
+  'time', 'command', 'builtin', 'exec', 'nice', 'nohup', 'sudo', 'doas',
+  'env', 'xargs', 'timeout', 'npx', 'bunx', 'pnpx',
+]);
+/** Two-word launchers: `pnpm exec wafflebase`, `npm exec …`, `pnpm dlx …`. */
+const LAUNCHERS = new Set(['pnpm exec', 'pnpm dlx', 'npm exec', 'yarn dlx', 'yarn exec']);
+
+/** True when `word` names the wafflebase binary (bare, by path, or its npm package). */
 function isWafflebase(word) {
-  return word === 'wafflebase' || word.endsWith('/wafflebase');
+  return (
+    word === 'wafflebase' ||
+    word.endsWith('/wafflebase') ||
+    /^@wafflebase\/cli(@[^/\s]*)?$/.test(word)
+  );
 }
 
 /**
  * Find the wafflebase invocation in one segment's words, past any
- * `VAR=value` prefix.
+ * `VAR=value` prefix and wrapper commands.
  *
- * @returns {{ args: string[], plain: boolean } | null}
- *   `plain` is false when an environment prefix or a path could make this
- *   run something other than the installed CLI (`PATH=… wafflebase`,
- *   `./wafflebase`). Such a call is still classified, never auto-allowed.
+ * @param {Word[]} words
+ * @returns {{ args: Word[], plain: boolean } | null}
+ *   `plain` is true only for a bare `wafflebase` with no prefix or
+ *   wrapper: a path, `PATH=…` or a launcher could run some other program.
  */
 export function wafflebaseArgs(words) {
   let i = 0;
-  while (i < words.length && ENV_ASSIGNMENT.test(words[i])) i++;
-  if (i >= words.length || !isWafflebase(words[i])) return null;
-  return { args: words.slice(i + 1), plain: i === 0 && words[i] === 'wafflebase' };
+  let wrapped = false;
+  while (i < words.length) {
+    const w = words[i].text;
+    if (ENV_ASSIGNMENT.test(w)) {
+      wrapped = true;
+      i++;
+    } else if (WRAPPERS.has(w)) {
+      wrapped = true;
+      i++;
+      // Wrapper options and their values (`nice -n 5`, `timeout 30`).
+      while (
+        i < words.length &&
+        (words[i].text.startsWith('-') || /^\d+[a-z]?$/.test(words[i].text))
+      ) {
+        i++;
+      }
+    } else if (i + 1 < words.length && LAUNCHERS.has(`${w} ${words[i + 1].text}`)) {
+      wrapped = true;
+      i += 2;
+    } else {
+      break;
+    }
+  }
+  if (i >= words.length || !isWafflebase(words[i].text)) return null;
+  return {
+    args: words.slice(i + 1),
+    plain: !wrapped && words[i].text === 'wafflebase' && words[i].exact,
+  };
 }
 
 function findChild(node, name) {
@@ -123,12 +204,28 @@ function findChild(node, name) {
 /**
  * Classify the arguments that follow `wafflebase`.
  *
+ * There is deliberately no shortcut for `--help` / `--version`: a help flag
+ * the guard sees may be one the shell never passes (`delete x # --help`),
+ * so a command is judged by its path, never by a flag claiming it is
+ * harmless. `wafflebase docs delete --help` asks; that is the price.
+ *
+ * @param {Word[]} words
  * @returns {{
- *   known: boolean, path: string, level?: string, description?: string,
- *   notes: string[], localWrites?: string[]
+ *   known: boolean, path: string, why?: string, level?: string,
+ *   description?: string, notes: string[], localWrites?: string[]
  * }}
  */
-export function classify(args, table) {
+export function classify(words, table) {
+  const inexact = words.find((w) => !w.exact);
+  if (inexact) {
+    return {
+      known: false,
+      path: words.map((w) => w.text).join(' '),
+      why: `the shell expands \`${inexact.text}\` before the CLI sees it`,
+      notes: [],
+    };
+  }
+  const args = words.map((w) => w.text);
   let node = table.root;
   const path = [];
   const valueOptions = new Set(node.valueOptions ?? []);
@@ -138,9 +235,6 @@ export function classify(args, table) {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (HELP_FLAGS.has(arg)) {
-      return { known: true, path: path.join(' '), level: 'read-only', notes: [] };
-    }
     if (arg === '--') {
       positionals.push(...args.slice(i + 1));
       break;
@@ -176,7 +270,13 @@ export function classify(args, table) {
       }
       // Commander's implicit `help` subcommand prints and exits.
       if (arg === 'help') {
-        return { known: true, path: path.join(' '), level: 'read-only', notes: [] };
+        return {
+          known: true,
+          path: [...path, 'help'].join(' '),
+          level: 'read-only',
+          description: 'prints help',
+          notes: [],
+        };
       }
       if (!node.safety) {
         return { known: false, path: [...path, arg].join(' '), notes: [] };
@@ -188,7 +288,13 @@ export function classify(args, table) {
   // `wafflebase` or `wafflebase docs` alone prints usage.
   if (!node.safety) {
     if (node.children) {
-      return { known: true, path: path.join(' '), level: 'read-only', notes: [] };
+      return {
+        known: true,
+        path: path.join(' '),
+        level: 'read-only',
+        description: 'prints usage',
+        notes: [],
+      };
     }
     return { known: false, path: path.join(' '), notes: [] };
   }
@@ -234,6 +340,13 @@ export function classify(args, table) {
   };
 }
 
+/**
+ * `wafflebase` as a program name: at a word start (or after a path `/`),
+ * followed by whitespace, a closing delimiter or the end — not a directory
+ * in a path like `…/wafflebase/waffledocs`.
+ */
+const INVOCATION = /(?:^|[\s;&|(`$/])wafflebase(?=[\s)`'";&|]|$)/g;
+
 function commandName(c) {
   return ['wafflebase', c.path].filter(Boolean).join(' ');
 }
@@ -265,24 +378,28 @@ export function decide(command, table, options = {}) {
     }
   }
 
-  if (found.length === 0) {
-    // A wafflebase call hidden in a substitution or a subshell is one the
-    // guard cannot classify, so it must not slip past unprompted.
-    if (complex && /(^|[^\w/-])wafflebase(?![\w-])/.test(command)) {
+  // A wafflebase call the segment walk did not reach — inside `$(…)`,
+  // backticks or a subshell — must not slip past unprompted beside one it
+  // did. Count every place the name stands as a command word.
+  if (complex) {
+    const mentions = command.match(INVOCATION) ?? [];
+    if (mentions.length > found.length) {
       return {
         decision: 'ask',
         reason:
-          'This command runs wafflebase in a form the Wafflebase plugin cannot classify (substitution or subshell).',
+          'This command runs wafflebase in a form the Wafflebase plugin cannot classify (substitution, subshell or wrapper).',
       };
     }
-    return null;
   }
+  if (found.length === 0) return null;
 
-  const unknown = found.filter((c) => !c.known);
-  if (unknown.length > 0) {
+  const unknown = found.find((c) => !c.known);
+  if (unknown) {
     return {
       decision: 'ask',
-      reason: `\`${commandName(unknown[0])}\` is not in the Wafflebase plugin's command table (generated for CLI ${table.cliVersion}); review it before it runs.`,
+      reason: unknown.why
+        ? `\`${commandName(unknown)}\`: ${unknown.why}; review it before it runs.`
+        : `\`${commandName(unknown)}\` is not in the Wafflebase plugin's command table (generated for CLI ${table.cliVersion}); review it before it runs.`,
     };
   }
 

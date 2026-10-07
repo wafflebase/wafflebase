@@ -60,6 +60,8 @@ process.stdout.write(
         status,
         tableVersion: tableVersion(),
         webUrlOverride: process.env.WAFFLEBASE_WEB_URL || undefined,
+        apiKeyInEnv: Boolean(process.env.WAFFLEBASE_API_KEY),
+        envServer: process.env.WAFFLEBASE_SERVER || undefined,
       }),
     },
   }),

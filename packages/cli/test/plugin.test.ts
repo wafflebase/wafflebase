@@ -95,8 +95,11 @@ describe('guard.decide', () => {
     'wafflebase docs content d --format md --out -',
     'wafflebase schema docs.content',
     'wafflebase --help',
+    'wafflebase --version',
     'wafflebase sheets',
     'wafflebase help docs',
+    'wafflebase help docs delete',
+    "wafflebase docs content d --format 'md'",
   ])('allows the plain read %s', (cmd) => {
     expect(decide(cmd)?.decision).toBe('allow');
   });
@@ -159,10 +162,64 @@ describe('guard.decide', () => {
     expect(decide('PATH=/tmp wafflebase docs delete x')?.decision).toBe('ask');
   });
 
+  // Self-review round 1: each of these was auto-allowed by the first
+  // version of the guard, because it believed a token the shell rewrites.
+  it.each([
+    // The shell drops a comment; the guard used to read `--help` in it.
+    ['wafflebase docs delete abc # --help', 'is destructive'],
+    ['wafflebase files delete f # -V', 'is destructive'],
+    // Inside "…", `\-` keeps its backslash, so commander sees `\--help`,
+    // a positional — the rename runs.
+    ['wafflebase docs rename D "\\--help"', 'is write'],
+    // Brace / glob expansion can produce `--out=…` after the guard looked.
+    ['wafflebase docs content {D,--out=.zshrc,--force}', 'shell expands'],
+    ['wafflebase docs content D ?-out=x', 'shell expands'],
+    ['wafflebase docs content D ~/x', 'shell expands'],
+    // Help flags no longer short-circuit at all.
+    ['wafflebase docs delete x --help', 'is destructive'],
+  ])('asks on %s', (cmd, why) => {
+    const d = decide(cmd, { autoApproveWrites: true });
+    expect(d?.decision).toBe('ask');
+    expect(d?.reason).toContain(why);
+  });
+
+  it('classifies wrapped invocations instead of ignoring them', () => {
+    for (const cmd of [
+      'time wafflebase docs delete x',
+      'env FOO=1 wafflebase docs delete x',
+      'nice -n 5 wafflebase docs delete x',
+      'xargs wafflebase docs delete',
+      'npx @wafflebase/cli docs delete x',
+      'pnpm exec wafflebase docs delete x',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+    // …and never auto-allows them, even when read-only.
+    expect(decide('time wafflebase docs list')).toBeNull();
+  });
+
+  it('asks when a wafflebase call hides in a substitution beside one it can see', () => {
+    expect(
+      decide('wafflebase docs list && echo $(wafflebase docs delete x)')?.decision,
+    ).toBe('ask');
+    expect(decide('echo $(/usr/local/bin/wafflebase docs delete x)')?.decision).toBe('ask');
+  });
+
+  it('treats `--` and consumed option values as the CLI does', () => {
+    // After `--`, `--out` is a positional (and an excess one commander rejects).
+    expect(decide('wafflebase docs content d -- --out x')?.decision).toBe('allow');
+    // `--format` consumes `--help` as its value: no help shortcut either way.
+    expect(decide('wafflebase --format --help docs delete x')?.decision).toBe('ask');
+    expect(decide('wafflebase docs export d -')?.decision).toBe('allow');
+  });
+
   it('leaves other commands to the user', () => {
     expect(decide('ls -la')).toBeNull();
     expect(decide('git commit -m "update wafflebase docs"')).toBeNull();
     expect(decide("echo 'wafflebase docs delete x'")).toBeNull();
+    // The repository path contains the name; that is not an invocation.
+    expect(decide('cd /src/wafflebase/waffledocs && git status')).toBeNull();
+    expect(decide('wafflebase docs list # what is here')).toBeNull();
   });
 });
 
@@ -204,6 +261,19 @@ describe('session context', () => {
     expect(ctx).toContain('Team (ws-1)');
     expect(ctx).toContain('https://wafflebase.io/<route>/<id>');
     expect(ctx).not.toContain('permission table was generated');
+  });
+
+  it('does not call an API-key setup logged out', () => {
+    const ctx = session.buildContext({
+      cliVersion: '0.6.12',
+      status: { loggedIn: false },
+      tableVersion: '0.6.12',
+      apiKeyInEnv: true,
+      envServer: 'https://api.example.com',
+    });
+    expect(ctx).toContain('WAFFLEBASE_API_KEY');
+    expect(ctx).not.toContain('No login session');
+    expect(ctx).toContain('https://example.com/<route>/<id>');
   });
 
   it('warns when the CLI and the guard table disagree on major.minor', () => {
