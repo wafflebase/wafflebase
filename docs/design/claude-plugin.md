@@ -152,7 +152,7 @@ The guard reads the hook's stdin, and only when the Bash command is a
 
 | Classified as | Decision | Why |
 | --- | --- | --- |
-| `read-only`, a *simple* command | `allow` | Reads are the bulk of a session; prompting on each trains users to click through |
+| `read-only`, a *simple* command | no decision — the user's own rules (or `allow` with the *Auto-allow read-only commands* option) | An `allow` trusts that `wafflebase` in the persistent shell is still the real CLI, which the guard cannot check; see below |
 | `write` | `ask` (or `allow` with the *Auto-approve document writes* option, for a plain invocation) | "Ask before edits" default, accept-all opt-in |
 | `destructive`, a `--replace` variant, or a payload-dependent destructive variant | `ask`, always | Delete / overwrite are not undoable over the API today |
 | `read-only` that writes a local file (`export <file>`, `--out <file>`, `files download`; `-` = stdout is exempt) | `ask`, always | The server sees a read, the user's disk sees a write; the opt-in covers Wafflebase edits, not files |
@@ -182,15 +182,28 @@ between them is the whole design:
 
 1. **Exact** — one bare `wafflebase` invocation, no prefix, wrapper,
    path, composition, redirect, substitution or escape, every character
-   literal. Only here does the per-command judgement run (allow a read,
-   ask a write unless auto-approved, always ask a delete), and only here
-   can anything be allowed.
+   literal. Only here does the per-command judgement run (a read falls
+   to the user's rules or, opted in, is allowed; a write asks unless
+   auto-approved; a delete always asks), and only here can anything be
+   allowed.
 2. **Not exact, and names `wafflebase` anywhere** — asks. Reads
    included, and without enumerating how the shell might hide a call:
    a composition, a wrapper (known or not), a `VAR=` or `export` prefix,
    a leading redirect, a substitution, an inner shell, an interpreter's
    quoted string. When the guard can still classify the call it says
    what the call is; otherwise the prompt says the command is not exact.
+
+**Allowing is opt-in, for reads as well as writes.** Six review passes
+narrowed the gaps around an `allow` to one class the guard cannot close:
+Claude Code's shell persists, so what a bare `wafflebase` runs is decided
+by earlier commands the guard judged one at a time. An `allow` is only as
+good as that resolution. So the default gives none: reads fall to the
+user's own permission rules (which prompt unless the user allowed them)
+and the guard's job is to *ask* — on writes, deletes, local file I/O,
+credential changes and anything inexact. *Auto-allow read-only commands*
+and *Auto-approve document writes* turn the `allow` on for exact calls,
+for users who accept that trade; the shell-state rule below still asks on
+the commands that would subvert it.
 
 A command that does not name `wafflebase` falls to the user's own rules
 — with one exception. Claude Code's Bash shell persists between calls,

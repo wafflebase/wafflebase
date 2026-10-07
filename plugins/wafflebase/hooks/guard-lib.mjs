@@ -3,7 +3,8 @@
 // Classifies `wafflebase …` commands with the table generated from the CLI
 // (`command-safety.json`, see packages/cli/src/plugin/safety-table.ts) and
 // answers:
-//   - read-only, and the whole Bash command is one plain invocation → allow
+//   - read-only, one plain invocation → no decision (the user's own rules),
+//     or allow when the user opted into auto-allowed reads
 //   - write → ask (allow when the user opted into auto-approved writes)
 //   - destructive, or anything the table cannot classify → ask, always
 //   - not a wafflebase command → no output, the user's own rules apply
@@ -601,7 +602,10 @@ function innerCommand(words) {
  *
  * @param {string} command
  * @param {object} table   parsed command-safety.json
- * @param {{ autoApproveWrites?: boolean }} [options]
+ * @param {{ autoAllowReads?: boolean, autoApproveWrites?: boolean }} [options]
+ *   Both default off. An `allow` trusts that a bare `wafflebase` in Claude
+ *   Code's persistent shell is the real CLI — something earlier commands
+ *   can change and the guard cannot see — so it is the user's to opt into.
  * @returns {{ decision: 'allow' | 'ask', reason: string } | null}
  *   null means "not ours": print nothing and let the user's rules decide.
  */
@@ -644,7 +648,7 @@ export function decide(command, table, options = {}) {
     return {
       decision: 'ask',
       reason:
-        'This command changes the persistent shell (PATH, NODE_* / LD_* / WAFFLEBASE_* variables, an alias, a function, the command hash, or a sourced file) — which decides what a later `wafflebase` runs, and the Wafflebase plugin auto-allows later read-only calls.',
+        'This command changes the persistent shell (PATH, NODE_* / LD_* / WAFFLEBASE_* variables, an alias, a function, the command hash, or a sourced file) — which decides what a later `wafflebase` runs, and a later call the Wafflebase plugin or your own rules allow would run whatever it now points at.',
     };
   }
   // The name, also when the shell will join it from quoted pieces
@@ -738,6 +742,9 @@ function judge(found, table, options, exact) {
     }
     return { decision: 'ask', reason: `${describe(worst)}.` };
   }
-  // Read-only: allowed only when exact.
-  return exact ? { decision: 'allow', reason: `${describe(worst)}.` } : null;
+  // Read-only: allowed only when exact and the user opted in; otherwise
+  // the user's own permission rules decide.
+  return exact && options.autoAllowReads
+    ? { decision: 'allow', reason: `${describe(worst)}; reads are auto-allowed.` }
+    : null;
 }

@@ -26,7 +26,11 @@ step and stop at the first one that needs the user.
 
 Finish with what the plugin does on its own:
 
-- Read-only `wafflebase` commands run without a prompt.
+- Read-only `wafflebase` commands follow the user's own permission rules
+  (a prompt by default). "Auto-allow read-only commands" for the
+  wafflebase plugin in `/plugin` runs plain reads unprompted; explain
+  the trade (an allowed call trusts the shell's `wafflebase`) before
+  suggesting it.
 - Every write asks first. Enabling "Auto-approve document writes" for the
   wafflebase plugin in `/plugin` lets document edits run unprompted;
   deletes, whole-document replaces, local file reads/writes, credential

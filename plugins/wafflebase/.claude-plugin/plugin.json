@@ -18,6 +18,12 @@
     "office"
   ],
   "userConfig": {
+    "auto_allow_reads": {
+      "type": "boolean",
+      "title": "Auto-allow read-only commands",
+      "description": "Run a single plain read-only wafflebase command (list, get, content, …) without asking. Off by default: an allowed call trusts that `wafflebase` in the persistent shell is still the real CLI, which an earlier command could have changed.",
+      "default": false
+    },
     "auto_approve_writes": {
       "type": "boolean",
       "title": "Auto-approve document writes",

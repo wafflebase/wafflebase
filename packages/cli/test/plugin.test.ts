@@ -75,11 +75,12 @@ describe('plugin generated files', () => {
     }
   });
 
-  it('defaults auto-approve to off', () => {
+  it('defaults both opt-ins to off', () => {
     const manifest = JSON.parse(
       readFileSync(join(PLUGIN_DIR, '.claude-plugin/plugin.json'), 'utf8'),
     );
     expect(manifest.userConfig.auto_approve_writes.default).toBe(false);
+    expect(manifest.userConfig.auto_allow_reads.default).toBe(false);
   });
 });
 
@@ -144,10 +145,22 @@ describe('buildSafetyTable', () => {
 });
 
 type Decision = { decision: 'allow' | 'ask'; reason: string } | null;
-const decide = (cmd: string, opts?: { autoApproveWrites?: boolean }) =>
-  guard.decide(cmd, table, opts) as Decision;
+// Most cases below describe the judgement itself, so they run with read
+// auto-allow on; the default (off) has its own test.
+const decide = (
+  cmd: string,
+  opts?: { autoAllowReads?: boolean; autoApproveWrites?: boolean },
+) => guard.decide(cmd, table, { autoAllowReads: true, ...opts }) as Decision;
 
 describe('guard.decide', () => {
+  it('allows nothing by default — reads fall to the user\'s own rules', () => {
+    const off = (cmd: string) => guard.decide(cmd, table) as Decision;
+    expect(off('wafflebase docs list')).toBeNull();
+    expect(off('wafflebase docs delete x')?.decision).toBe('ask');
+    expect(off('wafflebase sheets cells set d A1 5')?.decision).toBe('ask');
+    expect(off('wafflebase docs list | jq .')?.decision).toBe('ask');
+  });
+
   it.each([
     'wafflebase docs list',
     'wafflebase --format json doc list',
@@ -594,10 +607,11 @@ describe('hook entry points', () => {
   const bash = (command: string) => ({ tool_name: 'Bash', tool_input: { command } });
 
   it('emits the PreToolUse decision shape', () => {
-    expect(runGuard(bash('wafflebase docs list'))).toMatchObject({
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'allow',
-    });
+    // Reads are not auto-allowed unless the option is on.
+    expect(runGuard(bash('wafflebase docs list'))).toBeNull();
+    expect(
+      runGuard(bash('wafflebase docs list'), { CLAUDE_PLUGIN_OPTION_AUTO_ALLOW_READS: 'true' }),
+    ).toMatchObject({ hookEventName: 'PreToolUse', permissionDecision: 'allow' });
     expect(runGuard(bash('wafflebase docs delete x')).permissionDecision).toBe('ask');
   });
 

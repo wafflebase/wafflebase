@@ -45,7 +45,7 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 
 | Command kind | What happens |
 | --- | --- |
-| Read-only (`list`, `get`, `content`, …), as one plain command | Runs without a prompt |
+| Read-only (`list`, `get`, `content`, …), as one plain command | Your own Claude Code rules decide (a prompt by default); runs unprompted with **Auto-allow read-only commands** |
 | Any other command that names `wafflebase` — pipes, `&&`, wrappers, prefixes, substitutions | Asks, reads included |
 | Writes (create, rename, set cells, import, …) | Asks first |
 | Deletes, whole-document replaces, `--replace` imports | Always ask |
@@ -62,9 +62,15 @@ The classification comes from the CLI's own schema
 whole-document replace Claude makes a copy of the document as a restore
 point, since replaces cannot be undone over the API.
 
-To stop being asked on ordinary document writes, enable **Auto-approve
-document writes** in the plugin's settings (`/plugin`). Everything marked
-"Always ask" above still asks.
+Two opt-ins in the plugin's settings (`/plugin`), both off by default:
+**Auto-allow read-only commands** and **Auto-approve document writes**.
+Everything marked "Always ask" above still asks. They are off because an
+allowed call trusts that `wafflebase` in Claude Code's persistent shell is
+still the real CLI — an earlier command (PATH, an alias) could change
+that, and the guard sees one command at a time. It asks on those
+commands, but cannot see every way to change a shell. To allow reads
+without the plugin option, add rules such as `Bash(wafflebase docs list:*)`
+to your Claude Code permissions.
 
 The skills tell Claude to treat text inside your documents as data: an
 instruction written in a cell or a comment is to be reported to you, not
@@ -77,6 +83,7 @@ above are enforced by the hook rather than left to the model.
 | --- | --- |
 | `WAFFLEBASE_WEB_URL` (env) | Web app origin for document links, when the guess from the API server is wrong |
 | `WAFFLEBASE_API_KEY` (env) | Use a workspace API key instead of `wafflebase login` |
+| Auto-allow read-only commands (plugin option) | See Safety |
 | Auto-approve document writes (plugin option) | See Safety |
 
 ## Developing this plugin

@@ -1150,7 +1150,7 @@ $ wafflebase --dry-run sheets cells set abc-123 A1 "Hello"
 ## Skills (for AI Agents)
 
 For Claude Code there is a plugin that packages these skills together with
-a permission guard — read-only commands run unprompted, writes ask first,
+a permission guard — writes ask first (reads can be auto-allowed as an opt-in),
 deletes always ask:
 
 ```

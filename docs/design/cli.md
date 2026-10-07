@@ -1816,7 +1816,7 @@ is the agent interface. This approach has key advantages:
 For Claude Code specifically, the `wafflebase` plugin
 ([claude-plugin.md](claude-plugin.md)) packages this flow: the skill
 files as plugin skills, and the `safety` field as a `PreToolUse` guard
-that auto-allows plain read-only commands and asks before every write.
+that asks before every write and, as an opt-in, auto-allows plain read-only commands.
 Its command table is generated from this registry and the commander tree
 (`pnpm cli build:plugin`), so a new command must be classified here
 before the plugin will run it unprompted.

@@ -277,3 +277,17 @@ that change meaning, too.
 **Lesson — verify a rebuttal against the mechanism that runs, not the
 one next to it.** CI's inert list and verify:self's package filter are
 two different gates; I checked one and cited it for the other.
+
+### Decision — allowing becomes opt-in (2026-10-08)
+
+The sixth pass's remaining class (persistent shell state redirecting a
+later allowed call) cannot be closed by a guard that sees one command at
+a time. Explained it to the user with the attack chain; proceeded with
+the recommended option: reads get no automatic `allow` by default (the
+user's own rules decide), with a plugin option *Auto-allow read-only
+commands* beside the existing write opt-in. The guard's default job is
+now only to ask — which removes the class instead of narrowing it.
+
+**Lesson — when the residual risk lives in what you grant, stop granting
+by default.** Every pass after the strict rule was about the `allow`,
+never the `ask`.
