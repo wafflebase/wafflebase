@@ -1,4 +1,5 @@
 ---
+name: setup
 description: Check and walk through Wafflebase CLI installation, login and workspace selection
 disable-model-invocation: true
 ---

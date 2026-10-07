@@ -6,46 +6,46 @@
 // context line rather than an error: a hook must never block the session.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { accessSync, constants, readFileSync } from 'node:fs';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildContext, resolveOnPath } from './session-lib.mjs';
 
 const TIMEOUT_MS = 4000;
 
-// On Windows `npm i -g` installs a `wafflebase.cmd` shim, which Node only
-// spawns through cmd.exe — and cmd.exe looks in the current directory
-// before PATH, so a repository that ships its own `wafflebase.cmd` would run
-// at session start. Resolve the shim on PATH ourselves (never the cwd) and
-// spawn it by absolute path. The arguments are constants.
+// The CLI is resolved from PATH by this hook, never by the OS: a relative
+// PATH entry (or, on Windows, cmd.exe's own current-directory lookup) would
+// otherwise let the open repository ship a `wafflebase` that runs here,
+// before any permission prompt. On Windows `npm i -g` installs a
+// `wafflebase.cmd` shim, which Node only runs through cmd.exe, so it is
+// spawned by absolute path with a shell; the arguments are constants.
 const WINDOWS = process.platform === 'win32';
 
-function resolveOnWindowsPath() {
-  return resolveOnPath(process.env.PATH, delimiter, isAbsolute, (dir, name) => {
-    const candidate = join(dir, name);
-    return existsSync(candidate) ? candidate : null;
+function resolveCli() {
+  return resolveOnPath(process.env.PATH, delimiter, isAbsolute, (dir) => {
+    const candidate = join(dir, WINDOWS ? 'wafflebase.cmd' : 'wafflebase');
+    try {
+      accessSync(candidate, WINDOWS ? constants.F_OK : constants.X_OK);
+      return candidate;
+    } catch {
+      return null;
+    }
   });
 }
 
 /** @returns {string | null | undefined} undefined: not installed; null: failed. */
 function run(args) {
-  let program = 'wafflebase';
-  if (WINDOWS) {
-    const resolved = resolveOnWindowsPath();
-    if (!resolved) return undefined;
-    program = `"${resolved}"`;
-  }
+  const resolved = resolveCli();
+  if (!resolved) return undefined;
   try {
-    return execFileSync(program, args, {
+    return execFileSync(WINDOWS ? `"${resolved}"` : resolved, args, {
       encoding: 'utf8',
       timeout: TIMEOUT_MS,
       stdio: ['ignore', 'pipe', 'ignore'],
       shell: WINDOWS,
       windowsHide: true,
     }).trim();
-  } catch (e) {
-    // ENOENT: not installed. Anything else: installed but failing.
-    if (e && e.code === 'ENOENT') return undefined;
+  } catch {
     return null;
   }
 }

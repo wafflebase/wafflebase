@@ -85,19 +85,21 @@ function linkLine(server, webUrlOverride) {
 }
 
 /**
- * Absolute path of `name` on a PATH-style list, skipping relative entries
- * (`.`, `bin`) so the current directory is never searched — cmd.exe would
- * otherwise run a `wafflebase.cmd` shipped by whatever repository is open.
+ * Absolute path of the CLI on a PATH-style list, skipping empty and
+ * relative entries (`.`, `bin`, `::`), so the open repository's directory
+ * is never searched: a repository could otherwise ship its own
+ * `wafflebase` (or, on Windows, `wafflebase.cmd`) and have it run at
+ * session start, before any prompt.
  *
  * @param {string | undefined} pathValue  PATH
  * @param {string} delimiter
  * @param {(dir: string) => boolean} isAbsolute
- * @param {(dir: string, name: string) => string | null} find  existing file or null
+ * @param {(dir: string) => string | null} find  the executable in dir, or null
  */
 export function resolveOnPath(pathValue, delimiter, isAbsolute, find) {
   for (const dir of (pathValue ?? '').split(delimiter)) {
     if (!dir || !isAbsolute(dir)) continue;
-    const hit = find(dir, 'wafflebase.cmd');
+    const hit = find(dir);
     if (hit) return hit;
   }
   return null;

@@ -1,4 +1,5 @@
 ---
+name: publish
 description: Publish a local file to Wafflebase as the matching document type and return its link
 argument-hint: <file> [title]
 disable-model-invocation: true

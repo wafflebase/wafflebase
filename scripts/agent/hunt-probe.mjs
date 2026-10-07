@@ -191,9 +191,11 @@ function newestMtime(dir) {
  * any schema.
  *
  * A floor, not the whole rule, and the reason is specific: the CLI's own
- * `src/schema/registry.ts` is hand-maintained with no drift guard against
- * commander — and its wrongness is one of the things this pipeline HUNTS (it
- * annotates `docs.export`/`sheets.export` as `read-only` while they write files).
+ * `src/schema/registry.ts` is hand-maintained. Its *coverage* is now guarded
+ * (`packages/cli/test/plugin.test.ts` fails on a commander leaf with no
+ * entry) but its *labels* are not — and their wrongness is one of the things
+ * this pipeline HUNTS (it annotates `docs.export`/`sheets.export` as
+ * `read-only` while they write files).
  * A guard that trusted the schema alone would be trusting a known-unreliable
  * source about whether it is safe to destroy something.
  */

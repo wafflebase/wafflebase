@@ -194,3 +194,28 @@ worst of them, since any spelling can offset another. Make the strong
 promise only where an allow-list backs it (never auto-allow what you
 cannot read exactly), make the other promise best-effort *in writing*,
 and prefer rules with nothing to balance (opaque form + mention → ask).
+
+### PR review — panel third pass on #1097 (`86ca4899`, 2026-10-07)
+
+6 blocking; 5 fixed with tests, 1 rebutted:
+- argv text (an unknown subcommand, a `--server` value, file paths) went
+  into the prompt verbatim — an injected command could forge "SAFE:
+  approved" lines in the very text the user approves. All command-line
+  text is now control/bidi-stripped and capped.
+- A recognized call with `LD_PRELOAD=` / `NODE_OPTIONS=` / `PATH=` was
+  silent; any `VAR=` prefix now asks.
+- `env <x> sh -c '…'` hid the call; prefix skipping is now one shared
+  function for both the program and inner-shell paths, and the recursion
+  cap asks instead of going silent.
+- POSIX SessionStart resolved `wafflebase` through a relative PATH entry;
+  the cwd-planting fix made for Windows now applies on every platform.
+- The recursion-cap test asserted silence; it now asserts an ask.
+- **Rebutted:** "no CI lane runs cli:check on a frontend-only change" —
+  `packages/frontend/**` is not in `harness.config.json`'s inert
+  allow-list, so a frontend change forces the full run, `cli:check`
+  included.
+
+**Lesson — the prompt is part of the attack surface.** The guard's
+reason string is what the user reads to decide; any byte of it that came
+from the command is attacker-authored. Sanitize it like any other output
+that crosses a trust boundary.

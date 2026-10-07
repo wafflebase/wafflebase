@@ -87,6 +87,8 @@ export const NEVER_AUTO_APPROVE: ReadonlySet<string> = new Set([
   'ctx.switch',
   'api-keys.create',
   'templates.publish',
+  // `--into <workspace>` writes the new document into another workspace.
+  'templates.use',
 ]);
 
 function optionNames(opt: Option): string[] {

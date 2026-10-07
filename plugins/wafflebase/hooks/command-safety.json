@@ -976,7 +976,8 @@
               "--into"
             ],
             "safety": "write",
-            "description": "Start a new document from a template"
+            "description": "Start a new document from a template",
+            "neverAutoApprove": true
           }
         }
       }

@@ -160,13 +160,6 @@ export function splitCommand(command) {
 }
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
-/**
- * Environment variables that change where the CLI connects or which
- * credential it uses — the env spelling of `--server` / `--api-key` /
- * `--profile` (`resolveConfig` in packages/cli/src/config/config.ts).
- * `HOME` moves the config and session directory.
- */
-const CONNECTION_ENV = /^(WAFFLEBASE_[A-Z_]+|HOME)=/;
 
 /**
  * Commands that run the next word as a program. A wrapped `wafflebase` is
@@ -181,6 +174,46 @@ const WRAPPERS = new Set([
 ]);
 /** Two-word launchers: `pnpm exec wafflebase`, `npm exec …`, `pnpm dlx …`. */
 const LAUNCHERS = new Set(['pnpm exec', 'pnpm dlx', 'npm exec', 'yarn dlx', 'yarn exec']);
+
+/**
+ * Index of the first word past `VAR=value` prefixes, wrappers (with their
+ * options and option values) and two-word launchers. A non-option word is
+ * consumed only right after an option (its value) or when it is a number
+ * (`timeout 30`), so `xargs grep wafflebase f` stops at `grep` rather than
+ * mistaking the data for the program.
+ *
+ * @param {string[]} texts
+ */
+function skipPrefix(texts) {
+  let i = 0;
+  while (i < texts.length) {
+    const w = texts[i];
+    if (ENV_ASSIGNMENT.test(w)) {
+      i++;
+    } else if (WRAPPERS.has(w)) {
+      i++;
+      while (i < texts.length) {
+        const t = texts[i];
+        const afterOption = texts[i - 1].startsWith('-');
+        if (
+          t.startsWith('-') ||
+          /^\d+[a-z]?$/.test(t) ||
+          (afterOption && !isWafflebase(t) && !ENV_ASSIGNMENT.test(t) &&
+            !WRAPPERS.has(t) && !SHELLS.has(t))
+        ) {
+          i++;
+        } else {
+          break;
+        }
+      }
+    } else if (i + 1 < texts.length && LAUNCHERS.has(`${w} ${texts[i + 1]}`)) {
+      i += 2;
+    } else {
+      break;
+    }
+  }
+  return i;
+}
 
 /** True when `word` names the wafflebase binary (bare, by path, or its npm package). */
 function isWafflebase(word) {
@@ -201,48 +234,20 @@ function isWafflebase(word) {
  *   wrapper: a path, `PATH=…` or a launcher could run some other program.
  */
 export function wafflebaseArgs(words) {
-  let i = 0;
-  let wrapped = false;
-  const connectionEnv = [];
-  while (i < words.length) {
-    const w = words[i].text;
-    if (ENV_ASSIGNMENT.test(w)) {
-      wrapped = true;
-      if (CONNECTION_ENV.test(w)) connectionEnv.push(w.slice(0, w.indexOf('=')));
-      i++;
-    } else if (WRAPPERS.has(w)) {
-      wrapped = true;
-      i++;
-      // Wrapper options and their values: `nice -n 5`, `sudo -u bob`,
-      // `timeout -s KILL 30`, `xargs -a ids.txt`. A non-option word is
-      // consumed only right after an option (its value) or when it is a
-      // number (`timeout 30`), so `xargs grep wafflebase f` stops at `grep`
-      // rather than mistaking the data for the program.
-      while (i < words.length) {
-        const t = words[i].text;
-        const afterOption = words[i - 1].text.startsWith('-');
-        if (
-          t.startsWith('-') ||
-          /^\d+[a-z]?$/.test(t) ||
-          (afterOption && !isWafflebase(t) && !ENV_ASSIGNMENT.test(t) && !WRAPPERS.has(t))
-        ) {
-          i++;
-        } else {
-          break;
-        }
-      }
-    } else if (i + 1 < words.length && LAUNCHERS.has(`${w} ${words[i + 1].text}`)) {
-      wrapped = true;
-      i += 2;
-    } else {
-      break;
-    }
-  }
-  if (i >= words.length || !isWafflebase(words[i].text)) return null;
+  const texts = words.map((w) => w.text);
+  const i = skipPrefix(texts);
+  if (i >= words.length || !isWafflebase(texts[i])) return null;
+  // Every `VAR=` before the call. Any of them can change what runs or
+  // where it connects (`PATH=`, `NODE_OPTIONS=`, `LD_PRELOAD=`,
+  // `WAFFLEBASE_SERVER=`), so each one makes the call ask.
+  const env = texts
+    .slice(0, i)
+    .filter((t) => ENV_ASSIGNMENT.test(t))
+    .map((t) => t.slice(0, t.indexOf('=')));
   return {
     args: words.slice(i + 1),
-    plain: !wrapped && words[i].text === 'wafflebase' && words[i].exact,
-    connectionEnv,
+    plain: i === 0 && texts[i] === 'wafflebase' && words[i].exact,
+    env,
   };
 }
 
@@ -279,29 +284,10 @@ function connectionOptions(words) {
  *
  * @param {Word[]} words
  */
-export function classify(words, table) {
-  const result = classifyPath(words, table);
-  result.connection = connectionOptions(words);
-  return result;
-}
-
-/**
- * The command-path walk behind `classify`.
- *
- * There is deliberately no shortcut for `--help` / `--version`: a help flag
- * the guard sees may be one the shell never passes (`delete x # --help`),
- * so a command is judged by its path, never by a flag claiming it is
- * harmless. `wafflebase docs delete --help` asks; that is the price.
- *
- * @param {Word[]} words
- * @returns {{
- *   known: boolean, path: string, why?: string, level?: string,
- *   description?: string, notes: string[], localWrites?: string[]
- * }}
- */
-function classifyPath(allWords, table) {
+export function classify(allWords, table) {
   // Redirects are the shell's, not the CLI's: take them and their targets
-  // out of the arguments, and remember what they read and write locally.
+  // out of the arguments, and remember what they read and write locally —
+  // on every outcome, help and usage included.
   const redirectWrites = [];
   const redirectReads = [];
   const words = [];
@@ -319,6 +305,28 @@ function classifyPath(allWords, table) {
     if (w.text.includes('<')) redirectReads.push(where);
     else redirectWrites.push(where);
   }
+  const result = classifyPath(words, table);
+  result.connection = connectionOptions(words);
+  result.localWrites = [...redirectWrites, ...(result.localWrites ?? [])];
+  result.localReads = [...redirectReads, ...(result.localReads ?? [])];
+  return result;
+}
+
+/**
+ * The command-path walk behind `classify`.
+ *
+ * There is deliberately no shortcut for `--help` / `--version`: a help flag
+ * the guard sees may be one the shell never passes (`delete x # --help`),
+ * so a command is judged by its path, never by a flag claiming it is
+ * harmless. `wafflebase docs delete --help` asks; that is the price.
+ *
+ * @param {Word[]} words
+ * @returns {{
+ *   known: boolean, path: string, why?: string, level?: string,
+ *   description?: string, notes: string[], localWrites?: string[]
+ * }}
+ */
+function classifyPath(words, table) {
   const inexact = words.find((w) => !w.exact);
   if (inexact) {
     // The path only: an argument list may carry `--api-key <secret>`.
@@ -433,14 +441,14 @@ function classifyPath(allWords, table) {
     }
   }
   // A write that reads a local file sends it to the server.
-  const localReads = [...redirectReads];
+  const localReads = [];
   if (node.localInputArg !== undefined) {
     const v = positionals[node.localInputArg];
     if (typeof v === 'string' && v !== '-') localReads.push(v);
   }
 
   // A read on the server can still write this machine's disk.
-  const localWrites = [...redirectWrites];
+  const localWrites = [];
   if (level === 'read-only') {
     const outputs = [];
     if (node.localOutputArg !== undefined) {
@@ -493,8 +501,20 @@ function payloadRuledOut(when, data) {
   return !hasNull(value);
 }
 
+/**
+ * Text that came from the command line, made fit for the prompt the user
+ * reads to approve it: no control or bidi characters (no forged new lines
+ * or reordered text), and short.
+ */
+function safe(text) {
+  const clean = String(text)
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '?');
+  return clean.length > 80 ? `${clean.slice(0, 77)}…` : clean;
+}
+
 function commandName(c) {
-  return ['wafflebase', c.path].filter(Boolean).join(' ');
+  return safe(['wafflebase', c.path].filter(Boolean).join(' '));
 }
 
 function describe(c) {
@@ -511,17 +531,14 @@ function describe(c) {
  */
 function innerCommand(words) {
   let texts = words.map((w) => w.text);
-  // Past `VAR=value` prefixes and wrappers (`FOO=1 sh -c …`, `time bash -c …`).
-  let k = 0;
-  while (
-    k < texts.length &&
-    (ENV_ASSIGNMENT.test(texts[k]) ||
-      (WRAPPERS.has(texts[k]) && texts[k] !== 'env') ||
-      (k > 0 && texts[k].startsWith('-') && !SHELLS.has(texts[k - 1])))
-  ) {
-    k++;
+  // `env -S '…'` / `env --split-string …` hands its own string to a shell.
+  const split = texts.findIndex((t) => t === '-S' || t === '--split-string');
+  if (texts.some((t) => t === 'env') && split >= 0 && split + 1 < texts.length) {
+    return texts.slice(split + 1).join(' ');
   }
-  texts = texts.slice(k);
+  // Past `VAR=value` prefixes and wrappers with their options and values
+  // (`FOO=1 sh -c …`, `env -u X sh -c …`, `nice -n 5 bash -c …`).
+  texts = texts.slice(skipPrefix(texts));
   const head = texts[0]?.split('/').pop();
   if (head === 'eval') return texts.slice(1).join(' ');
   if (SHELLS.has(head)) {
@@ -531,10 +548,6 @@ function innerCommand(words) {
     if (c < 0) return null;
     const rest = texts.slice(c + 1).filter((t) => !t.startsWith('-'));
     return rest.length > 0 ? rest[0] : null;
-  }
-  if (head === 'env') {
-    const i = texts.findIndex((t) => t === '-S' || t === '--split-string');
-    if (i >= 0 && i + 1 < texts.length) return texts.slice(i + 1).join(' ');
   }
   return null;
 }
@@ -549,26 +562,32 @@ function innerCommand(words) {
  *   null means "not ours": print nothing and let the user's rules decide.
  */
 export function decide(command, table, options = {}) {
-  const { segments, complex: topComplex, opaque } = splitCommand(command);
+  const { segments, complex: topComplex, opaque: topOpaque } = splitCommand(command);
   let complex = topComplex;
+  let opaque = topOpaque;
+  let tooDeep = false;
   const found = [];
   let plain = true;
   const visit = (segs, depth) => {
     for (const words of segs) {
       const inner = innerCommand(words);
-      if (inner !== null && depth < 3) {
+      if (inner !== null) {
         // `sh -c '…'`, `env -S '…'`, `eval …` run a string the shell has
         // not split yet: split it the same way and never auto-allow it.
         complex = true;
-        visit(splitCommand(inner).segments, depth + 1);
+        if (depth >= 3) {
+          tooDeep = true;
+          continue;
+        }
+        const split = splitCommand(inner);
+        opaque ||= split.opaque;
+        visit(split.segments, depth + 1);
         continue;
       }
       const hit = wafflebaseArgs(words);
       if (hit) {
         const c = classify(hit.args, table);
-        if (hit.connectionEnv.length > 0) {
-          c.connection = [...(c.connection ?? []), ...hit.connectionEnv];
-        }
+        c.env = hit.env;
         found.push(c);
         plain &&= hit.plain;
       }
@@ -580,11 +599,11 @@ export function decide(command, table, options = {}) {
   // segment walk cannot place. When the command has one of those and names
   // wafflebase anywhere, ask — rather than count occurrences, which one
   // spelling can always offset with another.
-  if (opaque && MENTION.test(command)) {
+  if ((opaque || tooDeep) && MENTION.test(command)) {
     return {
       decision: 'ask',
       reason:
-        'This command runs wafflebase inside a substitution, subshell or group, which the Wafflebase plugin cannot classify.',
+        'This command runs wafflebase in a form the Wafflebase plugin cannot classify (a substitution, subshell, group or deeply nested shell).',
     };
   }
   if (found.length === 0) return null;
@@ -599,11 +618,18 @@ export function decide(command, table, options = {}) {
     };
   }
 
+  const prefixed = found.find((c) => c.env?.length > 0);
+  if (prefixed) {
+    return {
+      decision: 'ask',
+      reason: `${describe(prefixed)}. It runs with ${prefixed.env.map((n) => `${safe(n)}=…`).join(', ')} set, which can change what runs or where your Wafflebase credentials go.`,
+    };
+  }
   const redirected = found.find((c) => c.connection?.length > 0);
   if (redirected) {
     return {
       decision: 'ask',
-      reason: `${describe(redirected)}. It is run with ${redirected.connection.join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`,
+      reason: `${describe(redirected)}. It is run with ${redirected.connection.map(safe).join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`,
     };
   }
 
@@ -621,7 +647,7 @@ export function decide(command, table, options = {}) {
   if (local) {
     return {
       decision: 'ask',
-      reason: `${describe(local)}. It writes ${local.localWrites.join(', ')} on this machine.`,
+      reason: `${describe(local)}. It writes ${local.localWrites.map(safe).join(', ')} on this machine.`,
     };
   }
   // Uploading a local file is outside the opt-in for the same reason:
@@ -630,7 +656,7 @@ export function decide(command, table, options = {}) {
   if (upload) {
     return {
       decision: 'ask',
-      reason: `${describe(upload)}. It uploads ${upload.localReads.join(', ')} from this machine.`,
+      reason: `${describe(upload)}. It reads ${upload.localReads.map(safe).join(', ')} from this machine.`,
     };
   }
   if (worst.level === 'write') {

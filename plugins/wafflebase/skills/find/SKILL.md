@@ -1,4 +1,5 @@
 ---
+name: find
 description: Find Wafflebase documents by title or topic and list them with links
 argument-hint: <query>
 disable-model-invocation: true

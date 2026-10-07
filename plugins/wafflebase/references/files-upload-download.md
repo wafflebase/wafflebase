@@ -61,7 +61,7 @@ the download extension come from the filename.
 Response:
 
 ```json
-{ "id": "…", "title": "archive", "type": "file", "fileSize": 20418, "mimeType": "application/octet-stream" }
+{ "id": "…", "title": "archive.zip", "type": "file", "fileSize": 20418, "mimeType": "application/octet-stream" }
 ```
 
 ### Download
