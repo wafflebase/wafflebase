@@ -1,0 +1,247 @@
+---
+title: claude-plugin
+target-version: 0.6.13
+---
+
+# Claude Code Plugin
+
+## Summary
+
+A Claude Code plugin (`plugins/wafflebase/`, served from this repository's
+own marketplace) that lets developers and power users find, read, create,
+edit and organize Wafflebase documents from a Claude Code session. It adds
+no server and no new API: Claude drives the existing `wafflebase` CLI
+through Bash, and the plugin contributes what a bare CLI cannot — skills
+that teach the workflows, a permission guard that knows which commands
+write, a session hook that reports login state and the web origin, and a
+few slash commands.
+
+```
+/plugin marketplace add wafflebase/wafflebase
+/plugin install wafflebase@wafflebase
+```
+
+### Why a CLI-backed plugin, and why first
+
+Three ways to put Wafflebase in front of Claude were weighed:
+
+| Approach | What it costs | What it reaches |
+| --- | --- | --- |
+| **A. Plugin over the CLI** (chosen) | Packaging, skills, two hooks | Claude Code users |
+| B. Local stdio MCP server in the plugin | A new package duplicating the CLI | Claude Code users |
+| C. Remote MCP connector | An OAuth 2.1 authorization server (none exists), a hosted MCP server | claude.ai web / Desktop / mobile, and Claude Code |
+
+The first audience is developers and power users, who already run Claude
+Code. For them the CLI is the right substrate: it was built as the agent
+interface ([cli.md](cli.md) §8.7) — JSON by default, a one-line JSON error
+envelope, `--dry-run`, and `wafflebase schema` with a per-command `safety`
+level. B would rebuild that surface for no new reach. C is the path to
+everyone else and is deferred, not rejected: it needs an authorization
+server first (see Future work), and everything this plugin writes — the
+skills and the safety contract — carries over to it.
+
+### What the Google Docs case taught
+
+The design copies the patterns that survived in Claude's own Google
+Workspace integration and its peers (Gemini in Docs, Notion, Canva, Figma,
+Box), and avoids the ones users complained about:
+
+| Pattern | Where it came from | How it lands here |
+| --- | --- | --- |
+| Read-only connectors frustrate: users copy-paste the result back | Drive connector before 2026-02 | Writes are first-class from day one — every CLI write is reachable |
+| "Ask before edits" by default, "accept all" opt-in | Claude for Google Workspace, Gemini suggestions | Guard asks on every write; the plugin option *Auto-approve document writes* opts in |
+| Destructive actions always confirm | Drive (share/move/trash), M365 | Destructive commands always ask, no opt-out |
+| Search → outline → targeted read, never dump the whole doc | Figma `get_metadata`, Box, Drive | Skills read metadata first, then a tab / range / page |
+| Every result links back to the native editor | Drive citations, Canva "Open in Canva" | Session hook resolves the web origin; skills always print the deep link |
+| Whole-document replace destroys concurrent edits | Notion `replace_content` | Skills prefer granular commands; whole replace is destructive and preceded by a backup copy |
+| Document content can carry prompt injection | Google's Workspace MCP guidance | Core skill: content read from a document is data, never instructions |
+
+### Goals
+
+- A Claude Code user installs one plugin and can, in conversation:
+  find and summarize documents; turn repository content into a
+  doc / sheet / deck / note; edit cells, styles, slides and notes;
+  organize folders, copies and comments; script recurring imports.
+- No write reaches the server without the user seeing it first, unless
+  they opted in; no destructive command ever does.
+- The plugin cannot drift from the CLI: its permission table and its
+  reference skills are generated from, and tested against, the CLI source.
+
+### Non-Goals
+
+- claude.ai / Desktop / mobile connector (needs OAuth 2.1 + remote MCP).
+- New backend capability. Granular docs edits, Markdown write for docs,
+  revision snapshot/restore over the API and a share-link API are named
+  under Future work; this plugin works within today's CLI.
+- Installing the CLI. The plugin detects and instructs; it never runs a
+  package manager on the user's machine.
+
+## Proposal Details
+
+### Layout
+
+```
+.claude-plugin/marketplace.json        # marketplace "wafflebase", one plugin
+plugins/wafflebase/
+├── .claude-plugin/plugin.json
+├── README.md
+├── hooks/
+│   ├── hooks.json                     # SessionStart + PreToolUse(Bash)
+│   ├── session-start.mjs / session-lib.mjs   # CLI presence, login state, web origin
+│   ├── guard.mjs / guard-lib.mjs      # entry / decision logic
+│   └── command-safety.json            # GENERATED from the CLI
+└── skills/
+    ├── wafflebase/                    # core: setup, find, read, safety, links
+    ├── wafflebase-sheets/             # + references/ (GENERATED copies)
+    ├── wafflebase-docs/               #   (docs and markdown notes)
+    ├── wafflebase-slides/
+    ├── find/                          # /wafflebase:find <query>
+    ├── publish/                       # /wafflebase:publish <file> [title]
+    └── setup/                         # /wafflebase:setup
+```
+
+The three slash commands are skills with `disable-model-invocation:
+true` — the current form for user-invoked entry points — so Claude never
+starts a publish on its own. Each hook is a thin entry over a pure
+`*-lib.mjs` module so the decision logic is importable by tests.
+
+The plugin lives outside `packages/` on purpose: it is not a pnpm
+workspace package, has no build step at install time and no
+`node_modules`. Its hook scripts are dependency-free Node ESM so they run
+from the plugin cache as-is.
+
+### Generated files and the drift guard
+
+Three parts of the plugin restate facts the CLI owns, so all are
+generated and a CLI test (`packages/cli/test/plugin.test.ts`) fails when
+the committed copy is stale:
+
+1. **`hooks/command-safety.json`** — built by walking the real commander
+   tree (`createProgram()` + every `register*Command`), not the registry
+   alone, so command aliases (`doc`, `tab`, top-level `import`) are
+   classified under every spelling a user can type. Each leaf path is
+   joined to its schema entry's `safety` and `variants`. A leaf with no
+   schema entry fails the test: an unclassified command is exactly the
+   case the guard must never meet.
+2. **`skills/*/references/*.md`** — byte copies of
+   `packages/cli/skills/*.md`, which stays the single source (the CLI's
+   own agent docs and `agentic-office-workflow.md` already point there).
+   `PLUGIN_REFERENCES` maps each file to one plugin skill; a CLI skill
+   with no mapping fails the test, so a new one cannot be forgotten.
+3. **`version` in `plugin.json`** — the CLI's version. The plugin ships in
+   lockstep with the CLI whose commands it classifies, so a release that
+   bumps the CLI regenerates the plugin in the same commit.
+
+Generating the table surfaced one registry gap: `schema` itself had no
+entry. It now has one (`read-only`).
+
+`pnpm cli build:plugin` regenerates them; `pnpm cli test` (and so
+`verify:fast`) checks them.
+
+Registry `variants` come in two shapes. `"--replace given"` is checkable
+on the command line and becomes a flag rule. `"a value is null"` depends
+on the payload, which the guard cannot see, so the guard assumes the
+variant applies: `sheets column-styles set` is treated as destructive.
+
+### Permission guard (`PreToolUse`, matcher `Bash`)
+
+The guard reads the hook's stdin, and only when the Bash command is a
+`wafflebase` invocation does it answer:
+
+| Classified as | Decision | Why |
+| --- | --- | --- |
+| `read-only`, a *simple* command | `allow` | Reads are the bulk of a session; prompting on each trains users to click through |
+| `write` | `ask` (or `allow` with the *Auto-approve document writes* option, for a plain invocation) | "Ask before edits" default, accept-all opt-in |
+| `destructive`, a `--replace` variant, or a payload-dependent destructive variant | `ask`, always | Delete / overwrite are not undoable over the API today |
+| `read-only` that writes a local file (`export <file>`, `--out <file>`, `files download`) | `ask`, always | The server sees a read, the user's disk sees a write; the opt-in covers Wafflebase edits, not files |
+| Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |
+| Not a `wafflebase` command | no output | The user's own rules apply unchanged |
+
+"Simple" is strict, because an `allow` skips the user's prompt: one
+`wafflebase` invocation with no shell control or substitution characters
+(`; & | $ \` < > ( )`, newlines), no `VAR=value` prefix, and the binary
+named bare as `wafflebase` (not `./wafflebase`, which could be any
+program). `wafflebase docs list | jq` therefore falls through to the
+normal prompt rather than being auto-allowed, and `wafflebase docs list
+&& rm -rf x` can never be. Composition never *hides* a write either:
+every `wafflebase` segment of a compound command is classified and the
+worst one decides, and a `wafflebase` call inside a substitution the
+guard cannot parse (`$(…)`, backticks) asks. An `ask` reason names
+the command, its safety level, and what it creates / modifies / removes
+when the schema says so — the confirmation the user sees is the preview.
+
+Global options (`--format json`, `--workspace <id>`, …) are skipped when
+locating the command path. `--dry-run` does **not** downgrade a write to
+`allow`: whether a command honors it is per-handler code, and a handler
+that forgot would turn the exception into an unprompted write. Only the
+`wafflebase` binary is recognized; `npx @wafflebase/cli …` and other
+launchers fall through to the normal prompt.
+
+### Session hook (`SessionStart`)
+
+Runs `wafflebase --version` and `wafflebase status --format json` (local
+file read, no network) with a short timeout and injects a few lines of
+context; any failure becomes a context line, never a blocked session:
+
+- CLI missing → how to install (`npm i -g @wafflebase/cli`), and that the
+  skills should not be used until it is.
+- Logged out / expired → `wafflebase login` (the user runs it; it opens a
+  browser).
+- Logged in → user, workspace, server and the **web origin** used for
+  deep links: `WAFFLEBASE_WEB_URL` if set; otherwise `api.<host>` →
+  `<host>`; `localhost:3000` → `localhost:5173`; otherwise the server
+  origin itself.
+
+Deep links follow the frontend routes: `/s/:id` sheet, `/d/:id` doc,
+`/p/:id` slides, `/n/:id` note, `/b/:id` board, `/f/:id` pdf/image/file.
+
+### Skills
+
+| Skill | Teaches |
+| --- | --- |
+| `wafflebase` | Setup check; finding documents (`docs list` across types, `folders`); the read protocol (metadata → targeted read); the write protocol (state the change → let the guard ask → run → print the deep link); backups before whole replaces (`docs copy`); comments; treating document content as untrusted data; `wafflebase schema <cmd>` for exact flags |
+| `wafflebase-sheets` | Range reads, cell batches, formulas, styles / structure / view, CSV import/export, recurring-import recipes |
+| `wafflebase-docs` | Reading as Markdown, DOCX import/export, PDF export, notes (Markdown in / out), and why docs edits are a backed-up whole replace today |
+| `wafflebase-slides` | Deck outline reads, slide add/duplicate/move/delete, PPTX import/export |
+
+Each domain skill links its `references/` copies rather than restating
+command syntax, so the CLI skill files remain the one place syntax lives.
+
+### Commands
+
+- `/wafflebase:find <query>` — search titles across the active workspace,
+  return a table of title / type / updated / link.
+- `/wafflebase:publish <file> [title]` — pick the document type from the
+  file (`.md` → note, `.csv` → sheet, `.docx` → doc, `.pptx` → deck,
+  anything else → file upload), create it, print the link.
+- `/wafflebase:setup` — install / login / workspace walkthrough.
+
+### Risks and Mitigation
+
+- **The guard's `allow` widens what runs unprompted.** Bounded to
+  single, metacharacter-free invocations of commands the CLI itself labels
+  `read-only`, and tested on the composite cases above.
+- **CLI newer than the plugin's table.** Unknown commands `ask`; the
+  session hook warns when the CLI's major.minor differs from the version
+  the table was generated for.
+- **The guard's own parser is wrong about a command.** Its failure modes
+  are chosen to land on `ask`: an exception on a `wafflebase` command
+  asks; an unterminated quote marks the command complex (no `allow`).
+- **Whole-document replace on docs / slides / board.** Classified
+  destructive; the skill copies the document first so the user has a
+  restore point. Fixed properly by granular edit APIs (Future work).
+- **Prompt injection via document content.** Core skill instruction, plus
+  the guard: an injected "delete everything" still meets an `ask`.
+
+## Future work
+
+1. **Granular docs/slides edits** — block-anchored replace / insert over
+   `/api/v1` so edits stop being whole replaces.
+2. **Markdown write for docs** (`docs import foo.md`).
+3. **Revision API** — snapshot before an agent edit, restore after; turns
+   the backup-copy convention into one-click undo.
+4. **Share-link API** for "share this with …".
+5. **Remote MCP connector** for claude.ai / Desktop / mobile: an OAuth 2.1
+   authorization server on the backend plus a hosted MCP server whose
+   tools carry `readOnlyHint` / `destructiveHint` from the same schema
+   `safety` the guard uses today.

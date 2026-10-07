@@ -1813,6 +1813,14 @@ is the agent interface. This approach has key advantages:
 - **Safe by default**: safety annotations + dry-run prevent accidental data loss.
 - **Composable**: recipes show agents how to chain commands for complex tasks.
 
+For Claude Code specifically, the `wafflebase` plugin
+([claude-plugin.md](claude-plugin.md)) packages this flow: the skill
+files as plugin skills, and the `safety` field as a `PreToolUse` guard
+that auto-allows plain read-only commands and asks before every write.
+Its command table is generated from this registry and the commander tree
+(`pnpm cli build:plugin`), so a new command must be classified here
+before the plugin will run it unprompted.
+
 ### 9. Output Conventions
 
 - Text results (json/md/text): stdout by default; `--out` redirects to

@@ -1,0 +1,28 @@
+{
+  "name": "wafflebase",
+  "displayName": "Wafflebase",
+  "version": "0.6.12",
+  "description": "Find, read, create, edit and organize Wafflebase sheets, docs, slides and notes from Claude Code, through the wafflebase CLI.",
+  "author": {
+    "name": "Wafflebase",
+    "url": "https://github.com/wafflebase/wafflebase"
+  },
+  "homepage": "https://github.com/wafflebase/wafflebase/tree/main/plugins/wafflebase",
+  "repository": "https://github.com/wafflebase/wafflebase",
+  "license": "Apache-2.0",
+  "keywords": [
+    "wafflebase",
+    "spreadsheet",
+    "documents",
+    "slides",
+    "office"
+  ],
+  "userConfig": {
+    "auto_approve_writes": {
+      "type": "boolean",
+      "title": "Auto-approve document writes",
+      "description": "Run wafflebase commands that edit documents without asking first. Deletes, whole-document replaces and local file writes always ask.",
+      "default": false
+    }
+  }
+}

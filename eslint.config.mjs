@@ -29,9 +29,12 @@
 import js from "@eslint/js";
 import globals from "globals";
 
+// `plugins/**` rides along: the Claude Code plugin's hook scripts are the same
+// kind of dependency-free Node ESM, and one of them decides which Bash commands
+// run without a prompt.
 export default [
   {
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "plugins/**/*.mjs"],
     ...js.configs.recommended,
     languageOptions: {
       ecmaVersion: 2023,

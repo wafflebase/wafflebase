@@ -57,6 +57,15 @@ const registry: CommandSchema[] = [
     response: {},
   },
   {
+    name: 'schema',
+    description: 'Describe command parameters and response shape',
+    safety: 'read-only',
+    parameters: {
+      command: { type: 'string', required: false, description: 'Command name (e.g. docs.list); omit to list every command' },
+    },
+    response: { commands: 'Array<{ name, description, safety }> (no command) | CommandSchema (one command)' },
+  },
+  {
     name: 'status',
     description: 'Show current auth state',
     safety: 'read-only',
