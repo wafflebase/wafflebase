@@ -177,24 +177,33 @@ with its backslash), and brace expansion (`{D,--out=.zshrc}` becomes an
 `--out` after the guard looked). An allow-list closes the class rather
 than the three instances.
 
-The guard makes two promises of different strength, and the difference
-is deliberate:
+The guard sorts every Bash command into one of two cases, and the line
+between them is the whole design:
 
-1. **It never auto-allows anything it cannot read exactly.** `allow` is
-   reserved for one bare, plain, read-only invocation (above). This is
-   the security property, and it rests on the allow-list alone.
-2. **It asks on writes in every form it can parse** — best effort,
-   because a shell can always hide a call (`perl -e`, `base64 -d | sh`,
-   a script file). Covered: every `wafflebase` segment of a compound
-   command (the worst one decides); wrappers and shell keywords (`time`,
-   `env`, `sudo -u x`, `xargs`, `npx @wafflebase/cli`, `pnpm exec`,
-   `if … then`) including their option values; strings handed to
-   another shell (`sh -c`, `bash -lc`, `env -S`, `eval`); and any command
-   with a substitution, subshell or group (`$(…)`, backticks, `( … )`,
-   `{ …; }`) that names `wafflebase` at all — asked outright, not
-   counted, since one spelling can always offset another in a count.
-   A form none of these covers falls to the user's own Claude Code
-   rules, which prompt for Bash unless the user allowed it.
+1. **Exact** — one bare `wafflebase` invocation, no prefix, wrapper,
+   path, composition, redirect, substitution or escape, every character
+   literal. Only here does the per-command judgement run (allow a read,
+   ask a write unless auto-approved, always ask a delete), and only here
+   can anything be allowed.
+2. **Not exact, and names `wafflebase` anywhere** — asks. Reads
+   included, and without enumerating how the shell might hide a call:
+   a composition, a wrapper (known or not), a `VAR=` or `export` prefix,
+   a leading redirect, a substitution, an inner shell, an interpreter's
+   quoted string. When the guard can still classify the call it says
+   what the call is; otherwise the prompt says the command is not exact.
+
+A command that does not name `wafflebase` falls to the user's own rules.
+
+**Why this shape.** The first versions promised "writes always ask" and
+enumerated the ways a shell could hide one. Four review passes each found
+another spelling (`# --help`, `"\--help"`, brace expansion, `--` before a
+subcommand, `env -u X sh -c`, `export X=…;`, `/usr/bin/env`, a leading
+`>`), and a count of occurrences proved worst of all since one spelling
+can offset another. A rule with nothing to enumerate closes the class.
+The cost is prompts the enumerating guard would have skipped:
+`wafflebase docs list | jq …` asks, and so does a commit message that
+contains the bare word — the skills therefore steer Claude to one plain
+invocation per call and `--format`/`--out` over pipes.
 
 Redirects are lifted out of the arguments and treated like `--out`: a
 `> file` is a local write that always asks (`/dev/null` and `2>&1` are

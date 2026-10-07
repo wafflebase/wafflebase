@@ -219,3 +219,24 @@ and prefer rules with nothing to balance (opaque form + mention → ask).
 reason string is what the user reads to decide; any byte of it that came
 from the command is attacker-authored. Sanitize it like any other output
 that crosses a trust boundary.
+
+### PR review — panel fourth pass on #1097 (`7e29328f`, 2026-10-07)
+
+9 blocking. Five were yet more spellings past the enumerating "writes
+always ask" promise (`export X=…;`, a leading `>`, `/usr/bin/env`,
+`@wafflebase/cli` inside `$(…)`). Stopped and asked the user, per the
+bounded-loop rule; **the user chose the strict rule**: anything that is
+not one exact plain invocation and names `wafflebase` asks, reads
+included. That closed all five without naming any of them (each is a
+regression test), plus unknown wrappers (`chronic`) for free.
+
+Also: fail-safe catch tested with a corrupt table; `/.claude-plugin/`
+code-owned. Rebutted with evidence: `/wafflebase:setup` resolves as a
+slash command (ran it via `claude -p --plugin-dir`); `plugins/**` is not
+"outside every lens" — `classifyFile` defaults unmatched paths to `code`,
+reviewed by every lens.
+
+**Lesson — when a reviewer keeps finding instances, change the rule, not
+the list.** Four passes of enumeration bought four passes of new
+spellings. Asking the human to trade some prompts for a rule with
+nothing to enumerate ended it.

@@ -45,7 +45,8 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 
 | Command kind | What happens |
 | --- | --- |
-| Read-only (`list`, `get`, `content`, …), run on its own | Runs without a prompt |
+| Read-only (`list`, `get`, `content`, …), as one plain command | Runs without a prompt |
+| Any other command that names `wafflebase` — pipes, `&&`, wrappers, prefixes, substitutions | Asks, reads included |
 | Writes (create, rename, set cells, import, …) | Asks first |
 | Deletes, whole-document replaces, `--replace` imports | Always ask |
 | Exports / downloads that write a local file (`-` for stdout does not) | Always ask |

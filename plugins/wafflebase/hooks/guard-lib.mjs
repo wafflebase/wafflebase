@@ -38,7 +38,7 @@ const EXPANDS = new Set(['{', '}', '*', '?', '[', ']', '~', '$', '`']);
  * Split a Bash command into top-level segments of words, the way the shell
  * would before running each one.
  *
- * @returns {{ segments: Word[][], complex: boolean, opaque: boolean }}
+ * @returns {{ segments: Word[][], complex: boolean }}
  *   `complex` is true unless the command is a single invocation made only
  *   of literal characters and quoted strings: more than one segment, a
  *   pipe, a redirect, a comment, any expansion, an escape or an
@@ -49,9 +49,6 @@ export function splitCommand(command) {
   let words = [];
   let word = null;
   let complex = false;
-  // A substitution, subshell or group runs words this split cannot see as
-  // a program call: `$(…)`, backticks, `( … )`, `{ …; }`.
-  let opaque = false;
   let quote = null;
 
   const append = (text, exact = true) => {
@@ -92,7 +89,6 @@ export function splitCommand(command) {
         }
       } else if (c === '$' || c === '`') {
         complex = true;
-        if (c === '`' || command[i + 1] === '(') opaque = true;
         append(c, false);
       } else {
         append(c);
@@ -144,19 +140,13 @@ export function splitCommand(command) {
       continue;
     }
     if (!LITERAL.test(c)) complex = true;
-    // `{` opens a group only as a word of its own (`{ cmd; }`); inside a
-    // word it is brace expansion, which the word's inexactness covers.
-    const group = c === '{' && word === null && /\s/.test(command[i + 1] ?? '');
-    if (c === '(' || c === '`' || group || (c === '$' && command[i + 1] === '(')) {
-      opaque = true;
-    }
     append(c, !EXPANDS.has(c));
   }
   endSegment();
   // An unterminated quote is a parse we cannot trust.
   if (quote !== null) complex = true;
   if (segments.length !== 1) complex = true;
-  return { segments, complex, opaque };
+  return { segments, complex };
 }
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -188,9 +178,11 @@ function skipPrefix(texts) {
   let i = 0;
   while (i < texts.length) {
     const w = texts[i];
+    // `/usr/bin/env`, `/usr/bin/time`: a wrapper named by path.
+    const base = w.split('/').pop();
     if (ENV_ASSIGNMENT.test(w)) {
       i++;
-    } else if (WRAPPERS.has(w)) {
+    } else if (WRAPPERS.has(base)) {
       i++;
       while (i < texts.length) {
         const t = texts[i];
@@ -480,7 +472,7 @@ function classifyPath(words, table) {
  * path (`/usr/local/bin/wafflebase`) — but not a directory inside a path
  * (`…/wafflebase/waffledocs`).
  */
-const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])/;
+const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])|@wafflebase\/cli/;
 
 /** True when an inline JSON payload proves a null-condition false. */
 function payloadRuledOut(when, data) {
@@ -562,10 +554,8 @@ function innerCommand(words) {
  *   null means "not ours": print nothing and let the user's rules decide.
  */
 export function decide(command, table, options = {}) {
-  const { segments, complex: topComplex, opaque: topOpaque } = splitCommand(command);
+  const { segments, complex: topComplex } = splitCommand(command);
   let complex = topComplex;
-  let opaque = topOpaque;
-  let tooDeep = false;
   const found = [];
   let plain = true;
   const visit = (segs, depth) => {
@@ -573,15 +563,10 @@ export function decide(command, table, options = {}) {
       const inner = innerCommand(words);
       if (inner !== null) {
         // `sh -c '…'`, `env -S '…'`, `eval …` run a string the shell has
-        // not split yet: split it the same way and never auto-allow it.
+        // not split yet. Splitting it only sharpens the prompt's reason;
+        // the command is not exact either way, so it asks regardless.
         complex = true;
-        if (depth >= 3) {
-          tooDeep = true;
-          continue;
-        }
-        const split = splitCommand(inner);
-        opaque ||= split.opaque;
-        visit(split.segments, depth + 1);
+        if (depth < 3) visit(splitCommand(inner).segments, depth + 1);
         continue;
       }
       const hit = wafflebaseArgs(words);
@@ -595,19 +580,35 @@ export function decide(command, table, options = {}) {
   };
   visit(segments, 0);
 
-  // A wafflebase call inside a substitution, subshell or group is one the
-  // segment walk cannot place. When the command has one of those and names
-  // wafflebase anywhere, ask — rather than count occurrences, which one
-  // spelling can always offset with another.
-  if ((opaque || tooDeep) && MENTION.test(command)) {
+  // The two promises (docs/design/claude-plugin.md § Permission guard):
+  //  - Exact: one bare, plain invocation the guard reads completely. Only
+  //    here is anything allowed, and only here does the per-command
+  //    judgement decide.
+  //  - Everything else that names wafflebase asks. No enumeration of
+  //    shell spellings, no counting: a composition, a wrapper, a prefix,
+  //    a substitution or an inner shell all land here alike.
+  const exact = !complex && plain && found.length === 1;
+  const judged = judge(found, table, options, exact);
+  if (exact) return judged;
+  if (judged) return judged;
+  if (found.length > 0 || MENTION.test(command)) {
+    const why =
+      'is not a single plain wafflebase invocation the Wafflebase plugin can read exactly (a composition, wrapper, prefix, substitution or inner shell), so it asks even for reads';
     return {
       decision: 'ask',
-      reason:
-        'This command runs wafflebase in a form the Wafflebase plugin cannot classify (a substitution, subshell, group or deeply nested shell).',
+      reason: found.length > 0 ? `${describe(found[0])}; the whole command ${why}.` : `This command ${why}.`,
     };
   }
-  if (found.length === 0) return null;
+  return null;
+}
 
+/**
+ * The per-command judgement over what the walk classified. Returns `allow`
+ * only for an exact invocation; for anything else a read-only result is
+ * `null` and the caller decides.
+ */
+function judge(found, table, options, exact) {
+  if (found.length === 0) return null;
   const unknown = found.find((c) => !c.known);
   if (unknown) {
     return {
@@ -667,13 +668,11 @@ export function decide(command, table, options = {}) {
         reason: `${describe(sensitive)}. It changes credentials, sign-in or sharing, which auto-approve never covers.`,
       };
     }
-    if (options.autoApproveWrites && !complex && plain) {
+    if (options.autoApproveWrites && exact) {
       return { decision: 'allow', reason: `${describe(worst)}; writes are auto-approved.` };
     }
     return { decision: 'ask', reason: `${describe(worst)}.` };
   }
-  // Read-only. Only a single plain invocation is auto-allowed: anything
-  // composed with it is the user's normal prompt to answer.
-  if (complex || !plain) return null;
-  return { decision: 'allow', reason: `${describe(worst)}.` };
+  // Read-only: allowed only when exact.
+  return exact ? { decision: 'allow', reason: `${describe(worst)}.` } : null;
 }

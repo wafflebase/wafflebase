@@ -33,6 +33,7 @@
 /scripts/hooks/                         @wafflebase/maintainers
 # The Claude Code plugin's hooks decide which commands run without a prompt.
 /plugins/                               @wafflebase/maintainers
+/.claude-plugin/                        @wafflebase/maintainers
 /.claude/                               @wafflebase/maintainers
 /docs/design/agent-pipeline/harness-engineering.md @wafflebase/maintainers
 

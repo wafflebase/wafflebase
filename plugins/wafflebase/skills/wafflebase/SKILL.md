@@ -43,6 +43,14 @@ wafflebase docs get <id>             # metadata for one document
 yourself. When several documents fit, show the candidates (title, type,
 link) and let the user pick — never act on a guess.
 
+## One plain command per call
+
+Run each `wafflebase` command on its own: no pipes, `&&`, `$(…)`,
+redirects or `VAR=` prefixes. Only a single plain invocation is read
+exactly by this plugin's guard; anything composed asks the user, even
+for reads. Use `--format json|md|text` and `--out <file>` instead of
+piping, and process output in a separate step.
+
 ## Reading: outline first, then only what you need
 
 Never pull a whole large document into context to answer a narrow

