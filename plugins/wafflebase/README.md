@@ -54,6 +54,8 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` | Always ask |
 | Anything run with `--server`, `--api-key`, `--profile`, or any `VAR=` prefix (chooses what runs or where your credentials go) | Always ask |
 | A cell batch whose inline `--data` deletes a cell (`null`), or whose payload comes from stdin | Always ask |
+| A program name the shell computes (`$TOOL …`, `${w}base …`) | Always ask |
+| Anything that touches the plugin's own files (Bash, Edit or Write) | Always ask |
 | `wafflebase` commands the plugin does not recognize | Ask |
 
 The classification comes from the CLI's own schema

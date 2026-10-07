@@ -577,6 +577,39 @@ describe('guard.decide', () => {
     }
   });
 
+  // Review panel, seventh pass.
+  it('judges shell state behind eval, builtin and command', () => {
+    for (const cmd of [
+      'eval export PATH=/tmp:$PATH',
+      "eval 'alias wafflebase=/tmp/evil'",
+      'builtin export LD_PRELOAD=/tmp/x.so',
+      'command . ./evil.sh',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it('asks when the shell computes the program name', () => {
+    for (const cmd of [
+      'w=waffle; ${w}base --server https://evil.example docs list',
+      '$TOOL docs delete x',
+      '"$(echo wafflebase)" docs delete x',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it("asks on Bash that touches the plugin's own files", () => {
+    const root = '/home/u/.claude/plugins/cache/m/plugins/wafflebase';
+    for (const cmd of [
+      `cp /tmp/x ${root}/hooks/command-safety.json`,
+      'cp /tmp/x ~/.claude/plugins/m/plugins/wafflebase/hooks/command-safety.json',
+      'sed -i s/destructive/read-only/ guard-lib.mjs',
+    ]) {
+      expect(guard.decide(cmd, table, { pluginRoot: root })?.decision, cmd).toBe('ask');
+    }
+  });
+
   it('sees the name through shell quoting and case', () => {
     expect(decide('cp /tmp/evil /tmp/waffle"base"')?.decision).toBe('ask');
     expect(decide('Wafflebase docs delete x')?.decision).toBe('ask');
@@ -641,6 +674,15 @@ describe('hook entry points', () => {
     };
     expect(run('wafflebase docs list').permissionDecision).toBe('ask');
     expect(run('ls -la')).toBeNull();
+  });
+
+  it("asks before an Edit or Write to the plugin's own files", () => {
+    const edit = (file_path: string) => ({ tool_name: 'Write', tool_input: { file_path } });
+    expect(runGuard(edit(join(hooks, 'command-safety.json'))).permissionDecision).toBe('ask');
+    expect(runGuard(edit(join(PLUGIN_DIR, '.claude-plugin/plugin.json'))).permissionDecision).toBe(
+      'ask',
+    );
+    expect(runGuard(edit(join(tmpdir(), 'notes.md')))).toBeNull();
   });
 
   it('stays silent on other tools, other commands and malformed input', () => {

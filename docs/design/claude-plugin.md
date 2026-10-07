@@ -214,8 +214,17 @@ names the CLI: setting or exporting a variable that steers it (`PATH`,
 `NODE_*`, `LD_*`, `DYLD_*`, `WAFFLEBASE_*`, `HOME`, `XDG_CONFIG_HOME`,
 `BASH_ENV`, `ENV`; `export`, `declare -x`, `set -a`), `alias` /
 `unalias`, a function named `wafflebase`, `hash`, `enable`, `source` /
-`.`. These are judged on command words, so `find . -name x` and
-`export FOO=bar` stay silent. The name is also matched
+`.`. These are judged on command words — also behind `builtin`,
+`command` and inside `eval` / `sh -c` strings — so `find . -name x` and
+`export FOO=bar` stay silent.
+
+Two more rules close what a literal name check cannot see. A program the
+shell names by expansion (`w=waffle; ${w}base …`, `$TOOL …`) asks: the
+guard cannot read what it is. And the plugin's own files — its guard, its
+command table, its manifest — decide every later answer, so a Bash
+command that names them or the plugin's install path asks, and the hook
+also registers on `Edit|Write|MultiEdit|NotebookEdit` to ask before any
+edit inside the plugin root. The name is also matched
 case-insensitively (APFS and NTFS resolve `Wafflebase` to the same file)
 and after the shell would join it from quoted pieces (`waffle"base"`).
 What remains is state the guard cannot see at all — a profile file read

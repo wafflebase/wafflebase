@@ -495,7 +495,7 @@ const EXPORTERS = new Set(['export', 'declare', 'typeset', 'readonly', 'local'])
  * these must ask now. Judged on command words only — `find . -name x` is
  * not `.`, and `echo alias` is not `alias`.
  */
-function changesShellState(command, segments) {
+function changesShellState(command, segments, depth = 0) {
   // `wafflebase() { … }` / `function wafflebase { … }` define the name.
   if (/(?:^|[\s;&|(])(?:function\s+)?wafflebase\s*(?:\(\s*\)|\{)/i.test(command)) {
     return true;
@@ -510,8 +510,18 @@ function changesShellState(command, segments) {
       if (texts.some((t) => SENSITIVE_VAR.test(varName(t)))) return true;
       continue;
     }
+    // Past assignments and `builtin` / `command` (which run the builtin
+    // that follows in this same shell); `eval` and `sh -c` strings are
+    // split and judged too.
     let k = 0;
-    while (ENV_ASSIGNMENT.test(texts[k])) k++;
+    while (ENV_ASSIGNMENT.test(texts[k]) || texts[k] === 'builtin' || texts[k] === 'command') {
+      k++;
+    }
+    const inner = innerCommand(words);
+    if (inner !== null && depth < 3) {
+      if (changesShellState(inner, splitCommand(inner).segments, depth + 1)) return true;
+      continue;
+    }
     const head = texts[k];
     if (head === undefined) continue;
     if (STATE_BUILTINS.has(head)) return true;
@@ -568,6 +578,15 @@ function describe(c) {
   return `\`${commandName(c)}\` is ${c.level}${what}${notes}`;
 }
 
+/** True when a command refers to the plugin's installed files. */
+export function touchesPlugin(command, pluginRoot) {
+  if (pluginRoot && command.includes(pluginRoot)) return true;
+  // Relative or cache paths: the plugin's hook files by name, or its tree.
+  return /(?:^|[/\s'"])(?:guard-lib\.mjs|guard\.mjs|command-safety\.json|session-lib\.mjs|session-start\.mjs|hooks\.json)(?:[\s'"]|$)|plugins\/wafflebase\/(?:hooks|\.claude-plugin)\//.test(
+    command,
+  );
+}
+
 /**
  * The command string a segment hands to another shell, or null.
  *
@@ -602,7 +621,7 @@ function innerCommand(words) {
  *
  * @param {string} command
  * @param {object} table   parsed command-safety.json
- * @param {{ autoAllowReads?: boolean, autoApproveWrites?: boolean }} [options]
+ * @param {{ autoAllowReads?: boolean, autoApproveWrites?: boolean, pluginRoot?: string }} [options]
  *   Both default off. An `allow` trusts that a bare `wafflebase` in Claude
  *   Code's persistent shell is the real CLI — something earlier commands
  *   can change and the guard cannot see — so it is the user's to opt into.
@@ -649,6 +668,28 @@ export function decide(command, table, options = {}) {
       decision: 'ask',
       reason:
         'This command changes the persistent shell (PATH, NODE_* / LD_* / WAFFLEBASE_* variables, an alias, a function, the command hash, or a sourced file) — which decides what a later `wafflebase` runs, and a later call the Wafflebase plugin or your own rules allow would run whatever it now points at.',
+    };
+  }
+  // A program the shell names by expansion (`w=waffle; ${w}base …`,
+  // `$TOOL docs list`) is one nobody can read off the command line.
+  const computed = segments.some((words) => {
+    const k = skipPrefix(words.map((w) => w.text));
+    return k < words.length && !words[k].exact && !words[k].redirect;
+  });
+  if (computed) {
+    return {
+      decision: 'ask',
+      reason:
+        'This command runs a program whose name the shell computes (a variable or substitution in the command position), so the Wafflebase plugin cannot tell what it is.',
+    };
+  }
+  // The plugin's own files decide every later answer; changing them through
+  // Bash asks, whatever the command.
+  if (touchesPlugin(command, options.pluginRoot)) {
+    return {
+      decision: 'ask',
+      reason:
+        "This command touches the Wafflebase plugin's own files (its guard or command table), which decide what later commands are allowed.",
     };
   }
   // The name, also when the shell will join it from quoted pieces

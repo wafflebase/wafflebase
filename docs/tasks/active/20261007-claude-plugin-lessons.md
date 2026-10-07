@@ -291,3 +291,22 @@ now only to ask — which removes the class instead of narrowing it.
 **Lesson — when the residual risk lives in what you grant, stop granting
 by default.** Every pass after the strict rule was about the `allow`,
 never the `ask`.
+
+### PR review — panel seventh pass on #1097 (`dcc15a03`, 2026-10-08)
+
+4 blocking; 3 fixed with tests, 1 rebutted with a run:
+- `eval` / `builtin` / `command` hid shell-state changes — the check now
+  strips those and recurses into `eval` / `sh -c` strings.
+- `w=waffle; ${w}base …` built the name from an expansion, so no literal
+  check could see it — a computed command word now asks.
+- The guard did not protect itself: `cp … plugins/wafflebase/hooks/
+  command-safety.json` was silent (the mention rule skips `wafflebase/`
+  paths). Bash that names the plugin's files or root asks, and the hook
+  now also guards Edit/Write/MultiEdit/NotebookEdit inside the plugin root.
+- Rebutted: slash commands as skills — `claude -p --plugin-dir …
+  "/wafflebase:find zebra-quarterly-77"` ran the skill with the argument
+  substituted.
+
+**Lesson — a guard is part of what it guards.** Its table and code are
+inputs to every later decision; leaving them writable without a prompt
+is a bypass of all the rules at once.

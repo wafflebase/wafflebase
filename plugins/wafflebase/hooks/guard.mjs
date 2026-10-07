@@ -3,7 +3,7 @@
 // rationale live in guard-lib.mjs.
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decide, safe } from './guard-lib.mjs';
 
@@ -20,11 +20,40 @@ function readStdin() {
   }
 }
 
+const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+function emit(result) {
+  if (!result) return;
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: result.decision,
+        permissionDecisionReason: result.reason,
+      },
+    }),
+  );
+}
+
 function main() {
   let input;
   try {
     input = JSON.parse(readStdin());
   } catch {
+    return;
+  }
+  // The plugin's own files decide every later answer: an edit to them asks.
+  if (FILE_TOOLS.has(input?.tool_name)) {
+    const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
+    if (typeof target !== 'string') return;
+    const rel = relative(PLUGIN_ROOT, resolve(input.cwd ?? process.cwd(), target));
+    if (rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)) {
+      emit({
+        decision: 'ask',
+        reason: `This edits the Wafflebase plugin's own files (${safe(rel)}), which decide what later commands are allowed.`,
+      });
+    }
     return;
   }
   if (input?.tool_name !== 'Bash') return;
@@ -42,6 +71,7 @@ function main() {
       autoApproveWrites: /^(true|1)$/i.test(
         process.env.CLAUDE_PLUGIN_OPTION_AUTO_APPROVE_WRITES ?? '',
       ),
+      pluginRoot: PLUGIN_ROOT,
     });
   } catch (e) {
     // A guard that failed must fail toward the prompt for its own commands.
@@ -51,16 +81,7 @@ function main() {
       reason: `The Wafflebase plugin guard could not classify this command (${safe(e instanceof Error ? e.message : String(e))}).`,
     };
   }
-  if (!result) return;
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: result.decision,
-        permissionDecisionReason: result.reason,
-      },
-    }),
-  );
+  emit(result);
 }
 
 main();
