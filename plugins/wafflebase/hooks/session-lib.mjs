@@ -72,7 +72,8 @@ function majorMinor(v) {
  *   tableVersion: string,           // CLI version the guard table came from
  *   webUrlOverride?: string,
  *   apiKeyInEnv?: boolean,          // WAFFLEBASE_API_KEY is set
- *   envServer?: string,             // WAFFLEBASE_SERVER, for API-key sessions
+ *   envServer?: string,             // WAFFLEBASE_SERVER
+ *   envWorkspace?: string,          // WAFFLEBASE_WORKSPACE
  * }} input
  * @returns {string}
  */
@@ -83,6 +84,7 @@ export function buildContext({
   webUrlOverride,
   apiKeyInEnv,
   envServer,
+  envWorkspace,
 }) {
   const lines = ['Wafflebase plugin:'];
   if (!cliVersion) {
@@ -104,12 +106,17 @@ export function buildContext({
     );
     return lines.join('\n');
   }
-  // `status` reports the browser-login session only; an API key (in the
-  // environment or a config profile) authenticates without one.
-  if (!status.loggedIn && apiKeyInEnv) {
+  // Mirror the CLI's own precedence (`resolveConfig` in
+  // packages/cli/src/config/config.ts): an API key in the environment wins
+  // over a login session, and WAFFLEBASE_SERVER / WAFFLEBASE_WORKSPACE
+  // override the session's server and workspace. `status` reports the
+  // session alone, so reading it naively would name the wrong identity.
+  if (apiKeyInEnv) {
     lines.push(
-      '- Authenticating with WAFFLEBASE_API_KEY (no browser login session).',
+      `- Authenticating with WAFFLEBASE_API_KEY${status.loggedIn ? ', which overrides the saved login session' : ''}.${envWorkspace ? ` Workspace ${envWorkspace}.` : ''}`,
     );
+    // Without the env var the key's server comes from a CLI profile this
+    // hook cannot read; the CLI default is the best guess.
     const link = linkLine(envServer ?? DEFAULT_SERVER, webUrlOverride);
     if (link) lines.push(link);
     return lines.join('\n');
@@ -125,12 +132,15 @@ export function buildContext({
       '- The saved session has expired; the CLI refreshes it on the next call. If a call fails with an auth error, ask the user to run `wafflebase login`.',
     );
   }
-  const ws = status.workspaceName
-    ? `${status.workspaceName} (${status.workspaceId})`
-    : status.workspaceId;
-  lines.push(`- Logged in as ${status.user} on ${status.server}, workspace ${ws}.`);
+  const server = envServer ?? status.server;
+  const ws = envWorkspace
+    ? `${envWorkspace} (from WAFFLEBASE_WORKSPACE)`
+    : status.workspaceName
+      ? `${status.workspaceName} (${status.workspaceId})`
+      : status.workspaceId;
+  lines.push(`- Logged in as ${status.user} on ${server}, workspace ${ws}.`);
 
-  const link = linkLine(status.server, webUrlOverride);
+  const link = linkLine(server, webUrlOverride);
   if (link) lines.push(link);
   return lines.join('\n');
 }

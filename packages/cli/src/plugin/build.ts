@@ -44,7 +44,7 @@ export const PLUGIN_REFERENCES: Record<string, readonly string[]> = {
 };
 
 /** CLI skill files that are not references (the index of the others). */
-export const CLI_SKILLS_INDEX = 'SKILL.md';
+const CLI_SKILLS_INDEX = 'SKILL.md';
 
 export function listCliSkillFiles(): string[] {
   return readdirSync(CLI_SKILLS_DIR)

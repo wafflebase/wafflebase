@@ -13,12 +13,19 @@ import { buildContext } from './session-lib.mjs';
 
 const TIMEOUT_MS = 4000;
 
+// On Windows `npm i -g` installs a `wafflebase.cmd` shim, which Node only
+// spawns through a shell (and execFile does not search PATHEXT). The
+// arguments below are constants, so the shell sees nothing user-supplied.
+const WINDOWS = process.platform === 'win32';
+
 function run(args) {
   try {
-    return execFileSync('wafflebase', args, {
+    return execFileSync(WINDOWS ? 'wafflebase.cmd' : 'wafflebase', args, {
       encoding: 'utf8',
       timeout: TIMEOUT_MS,
       stdio: ['ignore', 'pipe', 'ignore'],
+      shell: WINDOWS,
+      windowsHide: true,
     }).trim();
   } catch (e) {
     // ENOENT: not installed. Anything else: installed but failing.
@@ -62,6 +69,7 @@ process.stdout.write(
         webUrlOverride: process.env.WAFFLEBASE_WEB_URL || undefined,
         apiKeyInEnv: Boolean(process.env.WAFFLEBASE_API_KEY),
         envServer: process.env.WAFFLEBASE_SERVER || undefined,
+        envWorkspace: process.env.WAFFLEBASE_WORKSPACE || undefined,
       }),
     },
   }),

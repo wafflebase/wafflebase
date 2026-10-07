@@ -276,6 +276,35 @@ describe('session context', () => {
     expect(ctx).toContain('https://example.com/<route>/<id>');
   });
 
+  it('follows the CLI: an env API key beats a session, env server/workspace override it', () => {
+    const loggedIn = {
+      loggedIn: true,
+      user: 'ada',
+      server: 'https://api.wafflebase.io',
+      workspaceId: 'ws-1',
+      workspaceName: 'Team',
+      session: 'valid',
+    };
+    const withKey = session.buildContext({
+      cliVersion: '0.6.12',
+      status: loggedIn,
+      tableVersion: '0.6.12',
+      apiKeyInEnv: true,
+    });
+    expect(withKey).toContain('overrides the saved login session');
+    expect(withKey).not.toContain('Logged in as ada');
+
+    const overridden = session.buildContext({
+      cliVersion: '0.6.12',
+      status: loggedIn,
+      tableVersion: '0.6.12',
+      envServer: 'https://api.example.com',
+      envWorkspace: 'ws-9',
+    });
+    expect(overridden).toContain('on https://api.example.com, workspace ws-9');
+    expect(overridden).toContain('https://example.com/<route>/<id>');
+  });
+
   it('warns when the CLI and the guard table disagree on major.minor', () => {
     const ctx = session.buildContext({
       cliVersion: '0.7.0',

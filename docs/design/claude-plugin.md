@@ -194,7 +194,12 @@ launchers fall through to the normal prompt.
 
 Runs `wafflebase --version` and `wafflebase status --format json` (local
 file read, no network) with a short timeout and injects a few lines of
-context; any failure becomes a context line, never a blocked session:
+context; any failure becomes a context line, never a blocked session.
+`status` describes the login session only, so the hook applies the CLI's
+own precedence on top of it: `WAFFLEBASE_API_KEY` wins over a session,
+and `WAFFLEBASE_SERVER` / `WAFFLEBASE_WORKSPACE` override its server and
+workspace — otherwise Claude would be told one identity while every
+command ran as another.
 
 - CLI missing → how to install (`npm i -g @wafflebase/cli`), and that the
   skills should not be used until it is.
@@ -243,6 +248,21 @@ command syntax, so the CLI skill files remain the one place syntax lives.
 - **Whole-document replace on docs / slides / board.** Classified
   destructive; the skill copies the document first so the user has a
   restore point. Fixed properly by granular edit APIs (Future work).
+- **Release cuts.** The plugin's `version` is the CLI's, so a cut that
+  bumps `packages/cli/package.json` must also run `pnpm cli build:plugin`;
+  `pnpm cli test` fails with that instruction until it does. The flip side
+  of lockstep: Claude Code updates an installed plugin when its `version`
+  changes, so a hook or skill fix merged between releases reaches users at
+  the next cut, not on merge.
+- **Installing clones the monorepo.** The marketplace lives at the
+  repository root, so `/plugin marketplace add wafflebase/wafflebase`
+  fetches the whole repository once. Acceptable for a first audience of
+  developers; a slim `wafflebase/claude-plugins` repository (or an npm
+  plugin source) is the move if that becomes a complaint.
+- **Windows.** The session hook spawns `wafflebase.cmd` through a shell,
+  since `npm i -g` installs a `.cmd` shim there that `execFile` will not
+  run; a missing CLI then reads as "status failed" rather than "not
+  installed", which still sends Claude to check before doing anything.
 - **Prompt injection via document content.** Core skill instruction, plus
   the guard: an injected "delete everything" still meets an `ask`.
 
