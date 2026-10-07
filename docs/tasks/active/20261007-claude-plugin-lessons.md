@@ -240,3 +240,19 @@ reviewed by every lens.
 the list.** Four passes of enumeration bought four passes of new
 spellings. Asking the human to trade some prompts for a rule with
 nothing to enumerate ended it.
+
+### PR review — panel fifth pass on #1097 (`574a072f`, 2026-10-07)
+
+Converged: 9 blocking → 1. The one: Claude Code's Bash shell persists,
+so `export PATH=/tmp:$PATH` (or an alias / function named `wafflebase`,
+or `cp … /tmp/waffle"base"`) in one guard-silent call redirects a later
+**allowed** `wafflebase docs list`. Fixed by making every shell-state
+change that decides name resolution ask (PATH, alias, function, hash,
+enable, source/.), matching the name case-insensitively and through
+quote-joining. Suggestions taken: generator deletes only after it
+generated; fail-safe reason sanitized; plugin.json in the edit guard.
+
+**Lesson — an `allow` is a claim about the future, not just this
+string.** In a persistent shell, what a word means is set by earlier
+commands; guarding one command at a time means guarding the commands
+that change meaning, too.

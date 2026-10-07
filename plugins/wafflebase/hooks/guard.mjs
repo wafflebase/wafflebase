@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decide } from './guard-lib.mjs';
+import { decide, safe } from './guard-lib.mjs';
 
 function loadTable() {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -42,10 +42,10 @@ function main() {
     });
   } catch (e) {
     // A guard that failed must fail toward the prompt for its own commands.
-    if (!/\bwafflebase\b/.test(command)) return;
+    if (!/wafflebase/i.test(command)) return;
     result = {
       decision: 'ask',
-      reason: `The Wafflebase plugin guard could not classify this command (${e instanceof Error ? e.message : String(e)}).`,
+      reason: `The Wafflebase plugin guard could not classify this command (${safe(e instanceof Error ? e.message : String(e))}).`,
     };
   }
   if (!result) return;

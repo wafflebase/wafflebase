@@ -192,7 +192,18 @@ between them is the whole design:
    quoted string. When the guard can still classify the call it says
    what the call is; otherwise the prompt says the command is not exact.
 
-A command that does not name `wafflebase` falls to the user's own rules.
+A command that does not name `wafflebase` falls to the user's own rules
+— with one exception. Claude Code's Bash shell persists between calls,
+and the guard sees one command at a time, so an earlier call could
+change what a later, *allowed* `wafflebase docs list` actually runs.
+Anything that changes that resolution therefore asks, whether or not it
+names the CLI: setting `PATH`, `alias` / `unalias`, a function named
+`wafflebase`, `hash`, `enable`, `source` / `.`. The name is also matched
+case-insensitively (APFS and NTFS resolve `Wafflebase` to the same file)
+and after the shell would join it from quoted pieces (`waffle"base"`).
+What remains is state the guard cannot see at all — a profile file read
+by a new shell, a `cd` into a directory a relative PATH entry trusts; the
+latter is the same reason the session hook ignores relative entries.
 
 **Why this shape.** The first versions promised "writes always ask" and
 enumerated the ways a shell could hide one. Four review passes each found

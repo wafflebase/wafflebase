@@ -9,11 +9,14 @@ import {
   generatePluginFiles,
 } from '../src/plugin/build.js';
 
+// Generate first: if it throws, nothing on disk has been touched.
+const files = generatePluginFiles();
+
 // The mirror is rebuilt from scratch, so a removed CLI skill does not
 // linger in the plugin.
 rmSync(join(PLUGIN_DIR, REFERENCES_DIR), { recursive: true, force: true });
 
-for (const [rel, content] of generatePluginFiles()) {
+for (const [rel, content] of files) {
   const path = join(PLUGIN_DIR, rel);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);

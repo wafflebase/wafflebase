@@ -21,11 +21,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REL_PATH="${FILE_PATH#"$REPO_ROOT"/}"
 
 case "$REL_PATH" in
-  plugins/wafflebase/references/*|plugins/wafflebase/hooks/command-safety.json)
+  plugins/wafflebase/references/*|plugins/wafflebase/hooks/command-safety.json|plugins/wafflebase/.claude-plugin/plugin.json)
     echo "BLOCKED: $REL_PATH is generated from packages/cli. Do not edit directly." >&2
     echo "" >&2
     echo "Edit the source instead (packages/cli/skills/, the commander tree or" >&2
-    echo "packages/cli/src/schema/registry.ts), then run: pnpm cli build:plugin" >&2
+    echo "packages/cli/src/schema/registry.ts), then run: pnpm cli build:plugin." >&2
+    echo "(plugin.json: its version is generated; edit other fields, then rerun.)" >&2
     exit 2
     ;;
 esac

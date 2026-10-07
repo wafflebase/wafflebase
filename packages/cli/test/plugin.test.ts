@@ -498,7 +498,8 @@ describe('guard.decide', () => {
     ]) {
       const d = decide(cmd);
       expect(d?.decision, cmd).toBe('ask');
-      expect(d?.reason, cmd).toContain('can change what runs');
+      // PATH= is also a shell-state change, which names itself first.
+      expect(d?.reason, cmd).toMatch(/can change what runs|changes PATH/);
     }
   });
 
@@ -527,6 +528,28 @@ describe('guard.decide', () => {
     ]) {
       expect(decide(cmd)?.decision, cmd).toBe('ask');
     }
+  });
+
+  // Review panel, fifth pass: Claude Code's Bash shell persists, so an
+  // earlier call can change what a later, allowed `wafflebase` runs.
+  it('asks on anything that changes how a later wafflebase resolves', () => {
+    for (const cmd of [
+      'export PATH=/tmp:$PATH',
+      'PATH=/tmp:$PATH',
+      'alias wafflebase=/tmp/evil',
+      'wafflebase() { /tmp/evil; }',
+      'function wafflebase { /tmp/evil; }',
+      'hash -p /tmp/evil wafflebase',
+      'source ./evil.sh',
+      '. ./evil.sh',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it('sees the name through shell quoting and case', () => {
+    expect(decide('cp /tmp/evil /tmp/waffle"base"')?.decision).toBe('ask');
+    expect(decide('Wafflebase docs delete x')?.decision).toBe('ask');
   });
 
   it('leaves other commands to the user — unless they name wafflebase inexactly', () => {

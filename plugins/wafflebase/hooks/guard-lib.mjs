@@ -472,7 +472,17 @@ function classifyPath(words, table) {
  * path (`/usr/local/bin/wafflebase`) — but not a directory inside a path
  * (`…/wafflebase/waffledocs`).
  */
-const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])|@wafflebase\/cli/;
+const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])|@wafflebase\/cli/i;
+
+/**
+ * Commands that change how a later bare `wafflebase` resolves in Claude
+ * Code's persistent shell: PATH, an alias or function by that name, the
+ * command hash, or sourcing a script that could do any of those. The guard sees one command at a time, so a later exact
+ * `wafflebase docs list` — which it allows — could run whatever this set
+ * up. Such a command asks, whatever else it does.
+ */
+const SHELL_STATE =
+  /(?:^|[^\w])PATH\+?=|(?:^|[\s;&|(])(?:alias|unalias|hash|enable|source|\.)(?:\s|$)|(?:^|[\s;&|(])(?:function\s+)?wafflebase\s*\(\s*\)/i;
 
 /** True when an inline JSON payload proves a null-condition false. */
 function payloadRuledOut(when, data) {
@@ -498,7 +508,7 @@ function payloadRuledOut(when, data) {
  * reads to approve it: no control or bidi characters (no forged new lines
  * or reordered text), and short.
  */
-function safe(text) {
+export function safe(text) {
   const clean = String(text)
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '?');
@@ -587,11 +597,24 @@ export function decide(command, table, options = {}) {
   //  - Everything else that names wafflebase asks. No enumeration of
   //    shell spellings, no counting: a composition, a wrapper, a prefix,
   //    a substitution or an inner shell all land here alike.
+  // Shell state that a later exact call would inherit.
+  if (SHELL_STATE.test(command)) {
+    return {
+      decision: 'ask',
+      reason:
+        'This command changes PATH, an alias, a function or the command hash in the persistent shell — which decides what a later `wafflebase` runs, and the Wafflebase plugin auto-allows later read-only calls.',
+    };
+  }
+  // The name, also when the shell will join it from quoted pieces
+  // (`waffle"base"`): test the lexed words as well as the raw text.
+  const lexed = segments.map((ws) => ws.map((w) => w.text).join(' ')).join(' ; ');
+  const mentioned = MENTION.test(command) || MENTION.test(lexed);
+
   const exact = !complex && plain && found.length === 1;
   const judged = judge(found, table, options, exact);
   if (exact) return judged;
   if (judged) return judged;
-  if (found.length > 0 || MENTION.test(command)) {
+  if (found.length > 0 || mentioned) {
     const why =
       'is not a single plain wafflebase invocation the Wafflebase plugin can read exactly (a composition, wrapper, prefix, substitution or inner shell), so it asks even for reads';
     return {
