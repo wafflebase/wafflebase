@@ -592,6 +592,28 @@ function describe(c) {
   return `\`${commandName(c)}\` is ${c.level}${what}${notes}`;
 }
 
+/** The plugin files whose contents decide later answers. */
+const PLUGIN_FILES = [
+  'guard-lib.mjs', 'guard.mjs', 'command-safety.json', 'session-lib.mjs',
+  'session-start.mjs', 'hooks.json', 'plugin.json',
+];
+
+/**
+ * True when a word the shell will glob (`comman*fety.json`) could name one
+ * of the plugin's files — the glob is evaluated against each file name.
+ */
+function globHitsPluginFile(word) {
+  const base = word.split('/').pop() ?? '';
+  if (!/[*?[]/.test(base)) return false;
+  const re = new RegExp(
+    `^${base
+      .replace(/[.+^${}()|\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.')}$`,
+  );
+  return PLUGIN_FILES.some((f) => re.test(f));
+}
+
 /** True when a command refers to the plugin's installed files. */
 export function touchesPlugin(command, pluginRoot) {
   if (pluginRoot && command.includes(pluginRoot)) return true;
@@ -686,22 +708,14 @@ export function decide(command, table, options = {}) {
         'This command changes the persistent shell (PATH, NODE_* / LD_* / WAFFLEBASE_* variables, an alias, a function, the command hash, or a sourced file) — which decides what a later `wafflebase` runs, and a later call the Wafflebase plugin or your own rules allow would run whatever it now points at.',
     };
   }
-  // A program the shell names by expansion (`w=waffle; ${w}base …`,
-  // `$TOOL docs list`) is one nobody can read off the command line.
-  const computed = segments.some((words) => {
-    const k = skipPrefix(words.map((w) => w.text));
-    return k < words.length && !words[k].exact && !words[k].redirect;
-  });
-  if (computed) {
-    return {
-      decision: 'ask',
-      reason:
-        'This command runs a program whose name the shell computes (a variable or substitution in the command position), so the Wafflebase plugin cannot tell what it is.',
-    };
-  }
   // The plugin's own files decide every later answer; changing them through
   // Bash asks, whatever the command.
-  if (touchesPlugin(command, options.pluginRoot)) {
+  const lexedText = segments.map((ws) => ws.map((w) => w.text).join(' ')).join(' ; ');
+  if (
+    touchesPlugin(command, options.pluginRoot) ||
+    touchesPlugin(lexedText, options.pluginRoot) ||
+    segments.some((ws) => ws.some((w) => !w.exact && globHitsPluginFile(w.text)))
+  ) {
     return {
       decision: 'ask',
       reason:
@@ -710,8 +724,7 @@ export function decide(command, table, options = {}) {
   }
   // The name, also when the shell will join it from quoted pieces
   // (`waffle"base"`): test the lexed words as well as the raw text.
-  const lexed = segments.map((ws) => ws.map((w) => w.text).join(' ')).join(' ; ');
-  const mentioned = MENTION.test(command) || MENTION.test(lexed);
+  const mentioned = MENTION.test(command) || MENTION.test(lexedText);
 
   const exact = !complex && plain && found.length === 1;
   const judged = judge(found, table, options, exact);

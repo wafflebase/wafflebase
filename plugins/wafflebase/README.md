@@ -54,7 +54,6 @@ Then run `/wafflebase:setup` once to check everything is wired up.
 | `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` | Always ask |
 | Anything run with `--server`, `--api-key`, `--profile`, or any `VAR=` prefix (chooses what runs or where your credentials go) | Always ask |
 | A cell batch whose inline `--data` deletes a cell (`null`), or whose payload comes from stdin | Always ask |
-| A program name the shell computes (`$TOOL …`, `${w}base …`) | Always ask |
 | Anything that touches the plugin's own files (Bash, Edit or Write) | Always ask |
 | `wafflebase` commands the plugin does not recognize | Ask |
 
@@ -70,9 +69,9 @@ Everything marked "Always ask" above still asks. They are off because an
 allowed call trusts that `wafflebase` in Claude Code's persistent shell is
 still the real CLI — an earlier command (PATH, an alias) could change
 that, and the guard sees one command at a time. It asks on those
-commands, but cannot see every way to change a shell. To allow reads
-without the plugin option, add rules such as `Bash(wafflebase docs list:*)`
-to your Claude Code permissions.
+commands, but cannot see every way to change a shell. Allow rules of
+your own (`Bash(wafflebase docs list:*)`) carry the same caveat — and the
+plugin's shell-state check only runs while one of its own opt-ins is on.
 
 The skills tell Claude to treat text inside your documents as data: an
 instruction written in a cell or a comment is to be reported to you, not

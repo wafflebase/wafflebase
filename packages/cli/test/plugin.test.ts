@@ -590,14 +590,19 @@ describe('guard.decide', () => {
     }
   });
 
-  it('asks when the shell computes the program name', () => {
+  it('leaves computed program names to the user (they are never allowed)', () => {
+    // Ninth pass: asking on every computed program word prompted on
+    // ~/go/bin/tool and "$HOME/.venv/bin/python". Such a call is never
+    // exact, so it can never be allowed; it falls to the user's own rules.
     for (const cmd of [
-      'w=waffle; ${w}base --server https://evil.example docs list',
-      '$TOOL docs delete x',
-      '"$(echo wafflebase)" docs delete x',
+      '~/go/bin/tool run',
+      '"$HOME/.venv/bin/python" script.py',
+      '${NPM} run build',
+      'w=waffle; ${w}base docs delete x',
     ]) {
-      expect(decide(cmd)?.decision, cmd).toBe('ask');
+      expect(decide(cmd)?.decision === 'allow', cmd).toBe(false);
     }
+    expect(decide('~/go/bin/tool run')).toBeNull();
   });
 
   it("asks on Bash that touches the plugin's own files", () => {
@@ -606,6 +611,10 @@ describe('guard.decide', () => {
       `cp /tmp/x ${root}/hooks/command-safety.json`,
       'cp /tmp/x ~/.claude/plugins/m/plugins/wafflebase/hooks/command-safety.json',
       'sed -i s/destructive/read-only/ guard-lib.mjs',
+      // Ninth pass: quote-split and globbed spellings.
+      'cd ~/.cla"ude"/plugins/cache/m/plugins/waffleb"ase"/hooks',
+      'cp /tmp/evil comman"d-safety.json"',
+      'cp /tmp/evil comman*fety.json',
     ]) {
       expect(guard.decide(cmd, table, { pluginRoot: root })?.decision, cmd).toBe('ask');
     }
@@ -637,6 +646,7 @@ describe('guard.decide', () => {
     ]) {
       expect(guard.decide(cmd, table)?.decision, cmd).toBe('ask');
     }
+    expect(guard.decide('ls *.md', table)).toBeNull();
   });
 
   it('sees the name through shell quoting and case', () => {
@@ -712,6 +722,27 @@ describe('hook entry points', () => {
       'ask',
     );
     expect(runGuard(edit(join(tmpdir(), 'notes.md')))).toBeNull();
+    // Every registered file tool, a notebook path, and a relative path
+    // resolved against the session's cwd.
+    expect(
+      runGuard({ tool_name: 'Edit', tool_input: { file_path: join(hooks, 'guard-lib.mjs') } })
+        .permissionDecision,
+    ).toBe('ask');
+    expect(
+      runGuard({ tool_name: 'MultiEdit', tool_input: { file_path: join(hooks, 'guard.mjs') } })
+        .permissionDecision,
+    ).toBe('ask');
+    expect(
+      runGuard({ tool_name: 'NotebookEdit', tool_input: { notebook_path: join(hooks, 'x.ipynb') } })
+        .permissionDecision,
+    ).toBe('ask');
+    expect(
+      runGuard({ tool_name: 'Write', cwd: hooks, tool_input: { file_path: 'command-safety.json' } })
+        .permissionDecision,
+    ).toBe('ask');
+    expect(
+      runGuard({ tool_name: 'Write', cwd: tmpdir(), tool_input: { file_path: 'command-safety.json' } }),
+    ).toBeNull();
     // Through a symlinked directory the real target is still the plugin.
     const link = join(mkdtempSync(join(tmpdir(), 'wb-link-')), 'h');
     symlinkSync(hooks, link);

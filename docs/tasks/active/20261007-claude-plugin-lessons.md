@@ -327,3 +327,23 @@ is a bypass of all the rules at once.
 **Lesson — a rule earns its prompts only where it protects something.**
 The shell-state rule exists to protect an `allow`; with allowing off it
 was pure friction on unrelated work.
+
+### PR review — panel ninth pass on #1097 (`e54f6593`, 2026-10-08)
+
+3 blocking, all addressed with tests:
+- The computed-program-name rule asked on `~/go/bin/tool`,
+  `"$HOME/.venv/bin/python"` — any expansion in command position.
+  **Removed**: a computed name is never exact, so it can never be
+  allowed; it already falls to the user's rules. The design doc now says
+  the name check is literal and why.
+- Self-protection was raw-string only: `waffleb"ase"`, `comman"d-…"`,
+  `comman*fety.json` slipped it. Now also checked on lexed words and by
+  matching globs against the plugin's file names.
+- Edit-branch tests now cover `cwd`-relative paths, `notebook_path`,
+  `MultiEdit` and `NotebookEdit`.
+- Also: the README no longer recommends user allow rules as the
+  alternative to the opt-in without the same shell-state caveat.
+
+**Lesson — a rule that protects nothing is just a prompt.** The computed
+name rule guarded an `allow` that could not happen; check what a rule
+protects before adding it, the same lesson as the eighth pass.
