@@ -347,3 +347,16 @@ was pure friction on unrelated work.
 **Lesson — a rule that protects nothing is just a prompt.** The computed
 name rule guarded an `allow` that could not happen; check what a rule
 protects before adding it, the same lesson as the eighth pass.
+
+### Stopping the loop (2026-10-08)
+
+Blocking per panel pass: 6, 6, 6, 9, 1, 5, 4, 3, 3. Stopped after pass 9
+with the maintainer: in the default configuration the guard grants
+nothing, so a miss falls to the user's own rules; the last passes were
+about the opt-in modes and about prompts my own rules added. Pass 9's
+remaining suggestions are listed as known limitations in the PR body.
+
+**Lesson — know what the loop is buying.** Once every finding is about a
+guarantee the default no longer depends on, and fixes start producing
+the next findings, more rounds add complexity faster than they remove
+risk. Stop, document the residue, and let a human merge.

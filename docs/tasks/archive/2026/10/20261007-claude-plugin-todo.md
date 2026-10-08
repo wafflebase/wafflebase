@@ -25,7 +25,7 @@ CLI (approach A). One PR.
 - [x] 9. Plugin README + docs-site / cli.md pointer
 - [x] 10. `pnpm verify:fast` green; `claude plugin validate` passes
 - [x] 11. Self-review (max 3 rounds), log in lessons
-- [ ] 12. Rebase, open PR
+- [x] 12. Rebase, open PR (#1097); review loop stopped after panel pass 9 (see lessons)
 
 ## Review
 
