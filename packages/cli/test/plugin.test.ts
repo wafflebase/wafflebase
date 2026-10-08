@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -610,6 +611,34 @@ describe('guard.decide', () => {
     }
   });
 
+  // Review panel, eighth pass.
+  it('leaves ordinary shell setup alone while nothing can be allowed', () => {
+    const off = (cmd: string) => guard.decide(cmd, table) as Decision;
+    expect(off('. ./venv/bin/activate')).toBeNull();
+    expect(off('export PATH="$HOME/bin:$PATH"')).toBeNull();
+    expect(decide('. ./venv/bin/activate')?.decision).toBe('ask');
+  });
+
+  it('catches += , redirected assignments, DEBUG traps and allexport', () => {
+    for (const cmd of [
+      'PATH=/tmp/evil:$PATH 2>/dev/null',
+      'NODE_OPTIONS+=" --require /tmp/x.js"',
+      'trap "x" DEBUG',
+      'set -o allexport',
+    ]) {
+      expect(decide(cmd)?.decision, cmd).toBe('ask');
+    }
+  });
+
+  it('reaches the plugin by a symlink-making or cache path too', () => {
+    for (const cmd of [
+      'ln -s ~/.claude/plugins/cache/m/plugins/wafflebase/hooks /tmp/h',
+      'ls ~/.claude/plugins',
+    ]) {
+      expect(guard.decide(cmd, table)?.decision, cmd).toBe('ask');
+    }
+  });
+
   it('sees the name through shell quoting and case', () => {
     expect(decide('cp /tmp/evil /tmp/waffle"base"')?.decision).toBe('ask');
     expect(decide('Wafflebase docs delete x')?.decision).toBe('ask');
@@ -683,6 +712,10 @@ describe('hook entry points', () => {
       'ask',
     );
     expect(runGuard(edit(join(tmpdir(), 'notes.md')))).toBeNull();
+    // Through a symlinked directory the real target is still the plugin.
+    const link = join(mkdtempSync(join(tmpdir(), 'wb-link-')), 'h');
+    symlinkSync(hooks, link);
+    expect(runGuard(edit(join(link, 'command-safety.json'))).permissionDecision).toBe('ask');
   });
 
   it('stays silent on other tools, other commands and malformed input', () => {

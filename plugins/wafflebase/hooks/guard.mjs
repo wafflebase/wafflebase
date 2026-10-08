@@ -2,8 +2,8 @@
 // Entry point for the PreToolUse(Bash) hook; the decision logic and its
 // rationale live in guard-lib.mjs.
 
-import { readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
+import { readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decide, safe } from './guard-lib.mjs';
 
@@ -20,7 +20,27 @@ function readStdin() {
   }
 }
 
-const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+/**
+ * A path with symlinks resolved, also for a file that does not exist yet:
+ * the nearest existing ancestor is resolved and the rest re-appended, so a
+ * symlinked directory cannot carry an edit into the plugin unnoticed.
+ */
+function realPath(p) {
+  let head = p;
+  const tail = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail.reverse());
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return p;
+      tail.push(basename(head));
+      head = parent;
+    }
+  }
+}
+
+const PLUGIN_ROOT = realPath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 function emit(result) {
@@ -47,7 +67,7 @@ function main() {
   if (FILE_TOOLS.has(input?.tool_name)) {
     const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
     if (typeof target !== 'string') return;
-    const rel = relative(PLUGIN_ROOT, resolve(input.cwd ?? process.cwd(), target));
+    const rel = relative(PLUGIN_ROOT, realPath(resolve(input.cwd ?? process.cwd(), target)));
     if (rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)) {
       emit({
         decision: 'ask',

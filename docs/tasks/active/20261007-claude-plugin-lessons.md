@@ -310,3 +310,20 @@ never the `ask`.
 **Lesson — a guard is part of what it guards.** Its table and code are
 inputs to every later decision; leaving them writable without a prompt
 is a bypass of all the rules at once.
+
+### PR review — panel eighth pass on #1097 (`d8ebaeec`, 2026-10-08)
+
+3 blocking, all fixed with tests:
+- The shell-state rule asked on `. ./venv/bin/activate` even with both
+  opt-ins off, when no `allow` exists to protect — now gated on the
+  opt-ins.
+- `VAR+=…`, an assignment with a redirect, `trap … DEBUG` and
+  `set -o allexport` slipped the state rule.
+- Plugin self-protection compared path strings: a symlinked directory or
+  a `~/.claude/plugins` path reached the table. Edit/Write targets are
+  now realpath-resolved (nearest existing ancestor), and the Bash rule
+  matches the plugin tree and cache without a trailing separator.
+
+**Lesson — a rule earns its prompts only where it protects something.**
+The shell-state rule exists to protect an `allow`; with allowing off it
+was pure friction on unrelated work.

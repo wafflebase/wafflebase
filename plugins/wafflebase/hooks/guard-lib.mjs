@@ -150,7 +150,7 @@ export function splitCommand(command) {
   return { segments, complex };
 }
 
-const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 
 /**
  * Commands that run the next word as a program. A wrapped `wafflebase` is
@@ -484,7 +484,7 @@ const MENTION = /(?:^|[^\w.-])wafflebase(?![\w/-])|@wafflebase\/cli/i;
 const SENSITIVE_VAR =
   /^(PATH|NODE_[A-Z_]*|LD_[A-Z_]*|DYLD_[A-Z_]*|WAFFLEBASE_[A-Z_]*|HOME|XDG_CONFIG_HOME|BASH_ENV|ENV)$/;
 /** Builtins that change name resolution or run a file in this shell. */
-const STATE_BUILTINS = new Set(['alias', 'unalias', 'hash', 'enable', 'source', '.']);
+const STATE_BUILTINS = new Set(['alias', 'unalias', 'hash', 'enable', 'source', '.', 'trap']);
 /** Builtins that export or declare variables. */
 const EXPORTERS = new Set(['export', 'declare', 'typeset', 'readonly', 'local']);
 
@@ -501,7 +501,16 @@ function changesShellState(command, segments, depth = 0) {
     return true;
   }
   for (const words of segments) {
-    const texts = words.map((w) => w.text);
+    // Redirects ride along without changing what the segment is:
+    // `PATH=/tmp 2>/dev/null` is still an assignment-only command.
+    const texts = [];
+    for (let i = 0; i < words.length; i++) {
+      if (words[i].redirect) {
+        if (!words[i].dup && words[i + 1] && !words[i + 1].redirect) i++;
+        continue;
+      }
+      texts.push(words[i].text);
+    }
     const varName = (t) => t.slice(0, t.indexOf('=')).replace(/\+$/, '');
     // A segment of only assignments sets shell variables that persist
     // (`PATH=/tmp`); assignments before a command are that command's
@@ -525,7 +534,12 @@ function changesShellState(command, segments, depth = 0) {
     const head = texts[k];
     if (head === undefined) continue;
     if (STATE_BUILTINS.has(head)) return true;
-    if (head === 'set' && texts.slice(k + 1).some((t) => /^-[a-z]*a/.test(t))) return true;
+    if (
+      head === 'set' &&
+      (texts.slice(k + 1).some((t) => /^-[a-z]*a/.test(t)) || texts.includes('allexport'))
+    ) {
+      return true;
+    }
     if (EXPORTERS.has(head)) {
       for (const t of texts.slice(k + 1)) {
         if (t.startsWith('-')) continue;
@@ -582,7 +596,7 @@ function describe(c) {
 export function touchesPlugin(command, pluginRoot) {
   if (pluginRoot && command.includes(pluginRoot)) return true;
   // Relative or cache paths: the plugin's hook files by name, or its tree.
-  return /(?:^|[/\s'"])(?:guard-lib\.mjs|guard\.mjs|command-safety\.json|session-lib\.mjs|session-start\.mjs|hooks\.json)(?:[\s'"]|$)|plugins\/wafflebase\/(?:hooks|\.claude-plugin)\//.test(
+  return /(?:^|[/\s'"])(?:guard-lib\.mjs|guard\.mjs|command-safety\.json|session-lib\.mjs|session-start\.mjs|hooks\.json)(?:[\s'"]|$)|plugins\/wafflebase(?:\/(?:hooks|\.claude-plugin))?(?:[/\s'"]|$)|\.claude\/plugins(?:[/\s'"]|$)/.test(
     command,
   );
 }
@@ -663,7 +677,9 @@ export function decide(command, table, options = {}) {
   //    shell spellings, no counting: a composition, a wrapper, a prefix,
   //    a substitution or an inner shell all land here alike.
   // Shell state that a later exact call would inherit.
-  if (changesShellState(command, segments)) {
+  // Only an allow can be subverted by earlier shell state; with both
+  // opt-ins off the guard grants nothing, so this would only cost prompts.
+  if ((options.autoAllowReads || options.autoApproveWrites) && changesShellState(command, segments)) {
     return {
       decision: 'ask',
       reason:
