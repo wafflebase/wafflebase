@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:plugin": "tsx scripts/build-plugin.ts",
     "dev": "tsx src/bin.ts",
     "test": "vitest --run",
     "test:watch": "vitest",

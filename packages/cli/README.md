@@ -252,6 +252,11 @@ the YAML frontmatter for safety + tool list, and `wafflebase schema
 <command>` for parameter shapes. See [`skills/SKILL.md`](skills/SKILL.md)
 for the index.
 
+The [Claude Code plugin](../../plugins/wafflebase/README.md) carries
+copies of these files as references. After changing a skill, a command,
+or the package version, run `pnpm cli build:plugin`; `pnpm cli test`
+fails until the copies match.
+
 ## Design
 
 Full design in [`/docs/design/rest-api.md`](../../docs/design/rest-api.md)

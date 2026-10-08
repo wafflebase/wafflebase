@@ -1,6 +1,7 @@
 #!/bin/sh
 # Claude Code hook: PreToolUse(Edit|Write)
-# Blocks direct editing of ANTLR-generated files.
+# Blocks direct editing of generated files: ANTLR output and the Claude
+# Code plugin's mirror of packages/cli.
 # Formula.g4 is allowed (it's the grammar source).
 #
 # Exit 0 = allow, Exit 2 = block (STDERR fed to Claude as context)
@@ -18,6 +19,17 @@ FILE_PATH=$(echo "$INPUT" | node -e "
 # Normalize to relative path from repo root
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REL_PATH="${FILE_PATH#"$REPO_ROOT"/}"
+
+case "$REL_PATH" in
+  plugins/wafflebase/references/*|plugins/wafflebase/hooks/command-safety.json|plugins/wafflebase/.claude-plugin/plugin.json)
+    echo "BLOCKED: $REL_PATH is generated from packages/cli. Do not edit directly." >&2
+    echo "" >&2
+    echo "Edit the source instead (packages/cli/skills/, the commander tree or" >&2
+    echo "packages/cli/src/schema/registry.ts), then run: pnpm cli build:plugin." >&2
+    echo "(plugin.json: its version is generated; edit other fields, then rerun.)" >&2
+    exit 2
+    ;;
+esac
 
 # Check if file is under packages/sheets/antlr/ but NOT a .g4 file
 case "$REL_PATH" in

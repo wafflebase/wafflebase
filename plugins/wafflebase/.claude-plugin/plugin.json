@@ -1,0 +1,34 @@
+{
+  "name": "wafflebase",
+  "displayName": "Wafflebase",
+  "version": "0.6.12",
+  "description": "Find, read, create, edit and organize Wafflebase sheets, docs, slides and notes from Claude Code, through the wafflebase CLI.",
+  "author": {
+    "name": "Wafflebase",
+    "url": "https://github.com/wafflebase/wafflebase"
+  },
+  "homepage": "https://github.com/wafflebase/wafflebase/tree/main/plugins/wafflebase",
+  "repository": "https://github.com/wafflebase/wafflebase",
+  "license": "Apache-2.0",
+  "keywords": [
+    "wafflebase",
+    "spreadsheet",
+    "documents",
+    "slides",
+    "office"
+  ],
+  "userConfig": {
+    "auto_allow_reads": {
+      "type": "boolean",
+      "title": "Auto-allow read-only commands",
+      "description": "Run a single plain read-only wafflebase command (list, get, content, …) without asking. Off by default: an allowed call trusts that `wafflebase` in the persistent shell is still the real CLI, which an earlier command could have changed.",
+      "default": false
+    },
+    "auto_approve_writes": {
+      "type": "boolean",
+      "title": "Auto-approve document writes",
+      "description": "Run wafflebase commands that edit documents without asking first. Deletes, whole-document replaces, local file reads and writes, credential and sharing changes, and --server/--api-key overrides always ask.",
+      "default": false
+    }
+  }
+}

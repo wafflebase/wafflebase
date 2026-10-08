@@ -57,6 +57,15 @@ const registry: CommandSchema[] = [
     response: {},
   },
   {
+    name: 'schema',
+    description: 'Describe command parameters and response shape',
+    safety: 'read-only',
+    parameters: {
+      command: { type: 'string', required: false, description: 'Command name (e.g. docs.list); omit to list every command' },
+    },
+    response: { commands: 'Array<{ name, description, safety }> (no command) | CommandSchema (one command)' },
+  },
+  {
     name: 'status',
     description: 'Show current auth state',
     safety: 'read-only',
@@ -915,6 +924,12 @@ const registry: CommandSchema[] = [
       '--data': { type: 'string', required: false, description: 'JSON data (or pipe from stdin)' },
     },
     response: { updated: 'number' },
+    // A `null` entry deletes that cell — the same effect `cells delete`
+    // (destructive) has, so a batch carrying one is destructive too.
+    variants: [
+      { when: 'default', safety: 'write', modifies: 'the given cells' },
+      { when: 'a value is null', safety: 'destructive', removes: 'that cell' },
+    ],
     aliases: ['cell.batch', 'cells.batch', 'sheet.cells.batch', 'sheet.cell.batch', 'sheets.cell.batch'],
   },
   {
