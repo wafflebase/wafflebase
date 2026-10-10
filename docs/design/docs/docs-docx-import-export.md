@@ -160,7 +160,7 @@ MinIO is part of the default `docker-compose.yaml` stack:
 
 ```yaml
 minio:
-  image: quay.io/minio/minio
+  image: pgsty/minio
   ports:
     - "9000:9000"
     - "9001:9001"   # Console

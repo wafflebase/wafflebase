@@ -78,13 +78,13 @@ to the analytics services, so everything else starts unconditionally:
 |---------|-------|-------|---------|
 | `postgres` | `postgres:16` | `5432` | User accounts, document metadata, share links, API keys |
 | `yorkie` | `yorkieteam/yorkie:latest` | `8080`, `8081` | CRDT sync (`8080` RPC, `8081` profiling — started with `--pprof-enabled`) |
-| `minio` | `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` | `9000`, `9001` | S3-compatible blob storage (`9000` API, `9001` console) |
+| `minio` | `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` | `9000`, `9001` | S3-compatible blob storage (`9000` API, `9001` console) |
 | `azurite` | `mcr.microsoft.com/azure-storage/azurite:3.35.0` | `10000` | Azure Blob emulator, used only by the lakehouse connector-parity test suite |
 
-`minio` is the one image pulled from **quay.io** rather than Docker Hub, where
-MinIO withdrew the `minio/minio` repository — an unqualified pull is denied
-outright. The image is the same release either way. One consequence worth
-knowing: a registry mirror configured only for Docker Hub will miss on it.
+`minio` is not MinIO's own image. MinIO withdrew its public images from Docker
+Hub and then from quay.io, so a pull of either is denied. `pgsty/minio` is a
+community-maintained build of the same server, published on Docker Hub for amd64
+and arm64. `docker-compose.yaml` pins it by digest.
 
 `azurite` exists for `RUN_LAKEHOUSE_INTEGRATION_TESTS`; it is inert if you never
 run those tests. Start a subset if you would rather not run it:

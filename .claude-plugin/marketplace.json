@@ -1,0 +1,17 @@
+{
+  "name": "wafflebase",
+  "owner": {
+    "name": "Wafflebase",
+    "url": "https://github.com/wafflebase/wafflebase"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for Wafflebase, the collaborative office suite."
+  },
+  "plugins": [
+    {
+      "name": "wafflebase",
+      "source": "./plugins/wafflebase",
+      "description": "Manage Wafflebase sheets, docs, slides and notes from Claude Code through the wafflebase CLI."
+    }
+  ]
+}

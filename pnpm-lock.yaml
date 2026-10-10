@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@xhmikosr/decompress@<10.2.1': 10.2.1
+  '@xhmikosr/decompress@<10.2.2': 10.2.2
   minimatch@<3.1.4: 3.1.4
   minimatch@>=5.0.0 <5.1.8: 5.1.8
   minimatch@>=9.0.0 <9.0.7: 9.0.7
@@ -42,8 +42,8 @@ overrides:
   body-parser@<1.20.6: 1.20.6
   body-parser@>=2.0.0 <2.3.0: 2.3.0
   vite@>=5.0.0 <6.4.3: 6.4.3
-  shell-quote@<1.9.0: 1.9.0
-  piscina@<4.9.3: 4.9.3
+  shell-quote@<1.11.0: 1.11.0
+  piscina@<4.9.4: 4.9.4
   form-data@>=4.0.0 <4.0.6: 4.0.6
   '@babel/core@<7.29.6': 7.29.6
   react-router@<7.18.2: 7.18.2
@@ -51,6 +51,7 @@ overrides:
   browserslist@<4.28.7: 4.28.7
   nanoid@<3.3.18: 3.3.18
   '@humanfs/node@<0.16.8': 0.16.8
+  proxy-addr@<2.0.8: 2.0.8
 
 importers:
 
@@ -129,8 +130,8 @@ importers:
         specifier: workspace:*
         version: link:../slides
       '@yorkie-js/sdk':
-        specifier: 0.7.23
-        version: 0.7.23
+        specifier: 0.7.24
+        version: 0.7.24
       body-parser:
         specifier: 1.20.6
         version: 1.20.6
@@ -726,8 +727,8 @@ importers:
         specifier: workspace:*
         version: link:../slides
       '@yorkie-js/react':
-        specifier: 0.7.23
-        version: 0.7.23(react@19.1.0)
+        specifier: 0.7.24
+        version: 0.7.24(react@19.1.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -820,8 +821,8 @@ importers:
         specifier: 0.9.12
         version: 0.9.12
       '@yorkie-js/sdk':
-        specifier: 0.7.23
-        version: 0.7.23
+        specifier: 0.7.24
+        version: 0.7.24
       eslint:
         specifier: ^9.21.0
         version: 9.24.0(jiti@2.6.1)
@@ -892,8 +893,8 @@ importers:
         specifier: ^1.1.1
         version: 1.1.2
       '@yorkie-js/sdk':
-        specifier: 0.7.23
-        version: 0.7.23
+        specifier: 0.7.24
+        version: 0.7.24
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
@@ -5862,8 +5863,8 @@ packages:
     resolution: {integrity: sha512-oqTYAcObqTlg8owulxFTqiaJkfv2SHsxxxz9Wg4krJAHVzGWlZsU8tAB30R6ow+aHrfv4Kub6WQ8u04NWVPUpA==}
     engines: {node: '>=18'}
 
-  '@xhmikosr/decompress@10.2.1':
-    resolution: {integrity: sha512-ceGT3K2JR73Usj5o+HM2RRZw0XPUes4rhb7uVTY9PefUQQMpuj8x+V29XVG09JnS7EOj9SIBhHn3K4bFNNb7hA==}
+  '@xhmikosr/decompress@10.2.2':
+    resolution: {integrity: sha512-naYc2D/KCUDBx5VkohXp++TQB0IxLlUh8lbPX8DBTXB3HsDOsrp4pWP4V0cxBNEIhXEeN+Xma1hr9nuEGGW4TQ==}
     engines: {node: '>=18'}
 
   '@xhmikosr/downloader@15.0.1':
@@ -5884,16 +5885,16 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
-  '@yorkie-js/react@0.7.23':
-    resolution: {integrity: sha512-2XZdI5hbi0YngvDEmZAeZZNWFbzdU+YtS0asS+vUAk/jWnewiHIusRFh2QgVvHd9BthKVrFqKRMU4M3I3pfIrw==}
+  '@yorkie-js/react@0.7.24':
+    resolution: {integrity: sha512-lk9MjIVnVR9vE5186MvRNU0tG9O4z6mkcnR3bfq5Vr6EhRtNCXnmlUrN399fHxVEXRDps9qsN2YatR5qyAedhQ==}
     peerDependencies:
       react: ^18 || ^19
 
-  '@yorkie-js/schema@0.7.23':
-    resolution: {integrity: sha512-07oTIa/gfl1vB5xjPBy/LF5OOaRYfCoXns6XxOsKHLXOoRhrbgNrVkY3lTHX8hDDbpyoexErfTwWoJp0/zkMrQ==}
+  '@yorkie-js/schema@0.7.24':
+    resolution: {integrity: sha512-VYP2na5Nz/55vtFv9ff8ebau3/bXFTSeYILdM3Ctff73icGs28jQYOX1UuBdXQkMnJ/b2kkd8O4kI9P2BwyBVw==}
 
-  '@yorkie-js/sdk@0.7.23':
-    resolution: {integrity: sha512-z+m00o57yHwKCCA7SO+rboOiBM2vI/CPnLJ1Fm7e9gvrAvtkUhlMStN46K+jVejBnm2XVKiNRSJI1AH1ZwnHVg==}
+  '@yorkie-js/sdk@0.7.24':
+    resolution: {integrity: sha512-+MpgpKDq95UNfG5WtWX2tpBXT7cOUJiDYvgJ8NptDlysEnjnn8RWY+oWbYpRF5CIQixTmGIMJd3ITe6NGLod2Q==}
     engines: {node: ^20.19.0 || >=22.12.0, npm: '>=7.1.0', pnpm: '>=9.6.0'}
 
   accepts@2.0.0:
@@ -8815,8 +8816,8 @@ packages:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
 
-  piscina@4.9.3:
-    resolution: {integrity: sha512-3e3ka9QCE8RJ5I9uszdAADZnkcYi21cqmF3gxox3u884N72qpFHCsIVhHt8cEQ9t3Auq/NqoiCEuhxlxxQuDWA==}
+  piscina@4.9.4:
+    resolution: {integrity: sha512-RyBDr2VheQ8ZfH3N8SzQZHztqVyOtadTwLnUYof6gdj5161/eu2wNhCbGl5GHnNKDpnkicJYpKtL2J+y/gk6XA==}
 
   pixelmatch@7.2.0:
     resolution: {integrity: sha512-xhcb4yHu9sM/G7foGzoLtXYcC0zHEaOXXjRKhGup0fw78Nf2Tkiapv4EQyMzrbcmQPsllAI7DbFY2UT7PlI9Pg==}
@@ -8961,8 +8962,8 @@ packages:
   property-information@7.1.0:
     resolution: {integrity: sha512-TwEZ+X+yCJmYfL7TPUOcvBZ4QfoT5YenQiJuX//0th53DE6w0xxLEtfK3iyryQFddXuvkIk51EEgrJQ0WJkOmQ==}
 
-  proxy-addr@2.0.7:
-    resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
+  proxy-addr@2.0.8:
+    resolution: {integrity: sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==}
     engines: {node: '>= 0.10'}
 
   proxy-from-env@1.1.0:
@@ -9362,8 +9363,8 @@ packages:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
 
-  shell-quote@1.9.0:
-    resolution: {integrity: sha512-Iov+JwFv/2HcTpcwNMKd8+IWNb8tboQJNQTkAY/LLVK7gGH9jy+LGkVqPxfekHl+yMmiqXszdGWXgkfml7hjqA==}
+  shell-quote@1.11.0:
+    resolution: {integrity: sha512-JdxDPD0DBTyu08pq0kPC0xSNet/qsU07qT6IsX1AS8oO2ICNRY4ldNa8OAI6PuwAH8tG3lxEhbqmyp4Dw4036g==}
     engines: {node: '>= 0.4'}
 
   shiki@2.5.0:
@@ -14667,7 +14668,7 @@ snapshots:
       commander: 8.3.0
       fast-glob: 3.3.3
       minimatch: 9.0.7
-      piscina: 4.9.3
+      piscina: 4.9.4
       semver: 7.7.1
       slash: 3.0.0
       source-map: 0.7.4
@@ -15702,7 +15703,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@xhmikosr/decompress@10.2.1':
+  '@xhmikosr/decompress@10.2.2':
     dependencies:
       '@xhmikosr/decompress-tar': 8.1.0
       '@xhmikosr/decompress-tarbz2': 8.1.0
@@ -15716,7 +15717,7 @@ snapshots:
   '@xhmikosr/downloader@15.0.1':
     dependencies:
       '@xhmikosr/archive-type': 7.0.0
-      '@xhmikosr/decompress': 10.2.1
+      '@xhmikosr/decompress': 10.2.2
       content-disposition: 0.5.4
       defaults: 3.0.0
       ext-name: 5.0.0
@@ -15737,19 +15738,19 @@ snapshots:
 
   '@xtuc/long@4.2.2': {}
 
-  '@yorkie-js/react@0.7.23(react@19.1.0)':
+  '@yorkie-js/react@0.7.24(react@19.1.0)':
     dependencies:
-      '@yorkie-js/sdk': 0.7.23
+      '@yorkie-js/sdk': 0.7.24
       react: 19.1.0
 
-  '@yorkie-js/schema@0.7.23': {}
+  '@yorkie-js/schema@0.7.24': {}
 
-  '@yorkie-js/sdk@0.7.23':
+  '@yorkie-js/sdk@0.7.24':
     dependencies:
       '@bufbuild/protobuf': 2.11.0
       '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)
       '@connectrpc/connect-web': 2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
-      '@yorkie-js/schema': 0.7.23
+      '@yorkie-js/schema': 0.7.24
 
   accepts@2.0.0:
     dependencies:
@@ -16291,7 +16292,7 @@ snapshots:
     dependencies:
       chalk: 4.1.2
       rxjs: 7.8.2
-      shell-quote: 1.9.0
+      shell-quote: 1.11.0
       supports-color: 8.1.1
       tree-kill: 1.2.2
       yargs: 17.7.2
@@ -17085,7 +17086,7 @@ snapshots:
       on-finished: 2.4.1
       once: 1.4.0
       parseurl: 1.3.3
-      proxy-addr: 2.0.7
+      proxy-addr: 2.0.8
       qs: 6.16.0
       range-parser: 1.2.1
       router: 2.2.0
@@ -18999,7 +19000,7 @@ snapshots:
 
   pirates@4.0.7: {}
 
-  piscina@4.9.3:
+  piscina@4.9.4:
     optionalDependencies:
       '@napi-rs/nice': 1.0.1
 
@@ -19123,7 +19124,7 @@ snapshots:
 
   property-information@7.1.0: {}
 
-  proxy-addr@2.0.7:
+  proxy-addr@2.0.8:
     dependencies:
       forwarded: 0.2.0
       ipaddr.js: 1.9.1
@@ -19554,7 +19555,7 @@ snapshots:
 
   shebang-regex@3.0.0: {}
 
-  shell-quote@1.9.0: {}
+  shell-quote@1.11.0: {}
 
   shiki@2.5.0:
     dependencies:

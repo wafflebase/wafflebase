@@ -6,15 +6,22 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 621
+Total archived tasks: 623
 
-## 2026/09 (46 tasks)
+## 2026/10 (1 tasks)
+
+| Task | Todo | Lessons |
+|---|---|---|
+| claude plugin (2026-10-07) | [20261007-claude-plugin-todo.md](./2026/10/20261007-claude-plugin-todo.md) | [20261007-claude-plugin-lessons.md](./2026/10/20261007-claude-plugin-lessons.md) |
+
+## 2026/09 (47 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | agent pipeline docs (2026-09-19) | [20260919-agent-pipeline-docs-todo.md](./2026/09/20260919-agent-pipeline-docs-todo.md) | [20260919-agent-pipeline-docs-lessons.md](./2026/09/20260919-agent-pipeline-docs-lessons.md) |
 | chunk load recovery (2026-09-19) | [20260919-chunk-load-recovery-todo.md](./2026/09/20260919-chunk-load-recovery-todo.md) | [20260919-chunk-load-recovery-lessons.md](./2026/09/20260919-chunk-load-recovery-lessons.md) |
 | find replace active anchor (2026-09-19) | [20260919-find-replace-active-anchor-todo.md](./2026/09/20260919-find-replace-active-anchor-todo.md) | [20260919-find-replace-active-anchor-lessons.md](./2026/09/20260919-find-replace-active-anchor-lessons.md) |
+| pptx root relative targets (2026-09-19) | [20260919-pptx-root-relative-targets-todo.md](./2026/09/20260919-pptx-root-relative-targets-todo.md) | [20260919-pptx-root-relative-targets-lessons.md](./2026/09/20260919-pptx-root-relative-targets-lessons.md) |
 | self review loop (2026-09-17) | [20260917-self-review-loop-todo.md](./2026/09/20260917-self-review-loop-todo.md) | [20260917-self-review-loop-lessons.md](./2026/09/20260917-self-review-loop-lessons.md) |
 | sentry error tracking (2026-09-17) | [20260917-sentry-error-tracking-todo.md](./2026/09/20260917-sentry-error-tracking-todo.md) | [20260917-sentry-error-tracking-lessons.md](./2026/09/20260917-sentry-error-tracking-lessons.md) |
 | sheets cell link spans (2026-09-17) | [20260917-sheets-cell-link-spans-todo.md](./2026/09/20260917-sheets-cell-link-spans-todo.md) | [20260917-sheets-cell-link-spans-lessons.md](./2026/09/20260917-sheets-cell-link-spans-lessons.md) |

@@ -173,7 +173,7 @@ Hook scripts live in `scripts/hooks/`.
 
 | Hook | Event | Purpose |
 |---|---|---|
-| `scripts/hooks/guard-generated-files.sh` | PreToolUse(Edit\|Write) | Blocks editing ANTLR-generated files in `packages/sheets/antlr/` (`.g4` allowed) |
+| `scripts/hooks/guard-generated-files.sh` | PreToolUse(Edit\|Write) | Blocks editing generated files: ANTLR output in `packages/sheets/antlr/` (`.g4` allowed) and the Claude Code plugin's mirror of `packages/cli` (`plugins/wafflebase/references/`, `hooks/command-safety.json`) |
 | `scripts/hooks/check-arch-boundary.sh` | PostToolUse(Write) | Runs arch lint after new files in frontend/backend (informational) |
 
 ### Adding New Hooks
@@ -1773,7 +1773,8 @@ Components:
     The reviewed artifact was `git diff origin/main...HEAD`, recomputed every
     round, so an 8-round PR reads round-1 code eight times. Both endpoints of
     `...` also move: a human `git merge main` changed the artifact with no
-    semantic change to the branch and flipped a lens verdict.
+    semantic change to the branch and flipped a lens verdict. Phase 33 carries the
+    approval across such a merge when the PR's own diff is unchanged.
 
     Each lens's **`external_id`** carries what it last reviewed —
     `{"v":1,"reviewed":…,"base":…,"since":…,"mode":…}`. Every candidate location
@@ -1817,7 +1818,8 @@ Components:
     `full` on any doubt**, reporting which: `no-prior-state`, `lens-state-gap`,
     `lens-state-divergence`, `no-new-commits`, `git-facts-unavailable`,
     `force-push-or-rewrite`, `merge-in-range`, `periodic-rebaseline`,
-    `delta-too-large`, `invalid-input`, or `ok`. Correctness hazards are checked
+    `delta-too-large`, `invalid-input`, `review-requested`, `carry-cap`, or `ok`;
+    `carry` and `reuse` (Phase 33) run no lens at all. Correctness hazards are checked
     before policy caps so the reported reason names a real problem when one
     exists. Reviewing code twice costs tokens; reviewing it zero times ships a
     bug — there is no case where "probably fine" resolves to `incremental`.
@@ -2895,7 +2897,9 @@ straight through green CI: no test exercises that page, so the guard would have
 thrown a `ReferenceError` exactly when it was supposed to latch a PR. The review
 panel caught it, which is the expensive way to catch a typo.
 
-`eslint.config.mjs` at the repo root, scoped to `scripts/**/*.mjs`, wired into
+`eslint.config.mjs` at the repo root, scoped to `scripts/**/*.mjs` (and, since
+the Claude Code plugin, `plugins/**/*.mjs` — its hooks are the same kind of
+dependency-free Node ESM; see `docs/design/claude-plugin.md`), wired into
 `verify:fast` so it fails in about a second rather than after the build chain.
 Three notes on the shape:
 
@@ -3630,6 +3634,116 @@ that had just been wired — including a drafting endpoint that could never have
 succeeded, which its own unit tests could not see because they tested the
 implementation rather than the wiring. Still to come: SP1.5 auto-detection and the SP2
 deployed mailbox.
+
+### Phase 33: The review loop converges on what it already judged
+
+The panel is a sample, not an oracle. On yorkie-js-sdk#1426 it approved a head,
+then re-reviewed a merge of main that left the PR's own diff unchanged and turned
+blocking, and with the fix budget spent the PR went from `agent:ready` to
+`agent:blocked` on code nobody had touched. A later rerun re-reviewed an identical
+head for about $10, and two fix rounds that died on the API were paged as "the
+fixer agent failed". The incremental-review notes above already name the first
+defect here (a human `git merge main` flipped a verdict) without solving it. The
+fixes were built and measured in yorkie-js-sdk (#1428, #1432) and ported here; the
+task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
+
+- **Carry.** Every review stamps a PR-diff fingerprint (`git patch-id
+  --verbatim` of the unfiltered diff, taken in the panel's "Fingerprint the PR
+  diff" step) into each lens's check-run state. A new head that fingerprints the
+  same as a head every lens approved has that approval re-stamped on it by
+  `scripts/agent/carry-verdicts.mjs`, and no lens runs. Carries are capped at 2 in
+  a row, and promote still needs green CI on the new head. A merge that touched
+  the PR's hunks or their context changes the fingerprint and is reviewed.
+  `resolveReviewMode` checks the fingerprint before the git facts, so a merge in
+  range or a clean rebase no longer forces `merge-in-range` when the diff is the
+  same artifact. A rebase rewrites every commit, so the approved head is no
+  longer in the PR's commit list. It is found through the PR's force-push
+  events instead: GraphQL `beforeCommit`, because the REST event names only the
+  new head. Check runs on the replaced head stay readable. A replaced head is
+  used only when it holds the newest verdicts, and only to carry.
+- **Reuse.** A rerun on a commit that already has verdicts re-stamps them, so a
+  blocking verdict goes straight to the fixer. `@claude rerun review` asks for a
+  fresh sample; only a trusted commenter's latest rerun speaks, and only when it
+  is newer than the newest lens run's start. Comments that cannot be read force
+  a review.
+- **Probe before dispatch.** The fixer's credential is proven with a one-word
+  query before the round is recorded (`pick-fix-credential.mjs --probe`). The
+  refusal vocabulary is `auth-smoke.mjs`'s, through its narrow `classifyRefusal`:
+  only a closed usage window or a rejected credential counts, so a transient 429
+  or overload proceeds instead of latching the PR. The probe holds every pool
+  secret, so it runs before the App token, the branch checkout and the install,
+  and each probe child sees one token and a throwaway HOME. A pool known to be dead
+  skips the App token, checkout and install and goes straight to its page.
+- **Honest infra pages.** A fixer that failed on an API error with nothing pushed
+  is paged with its cause and the next step (`scripts/agent/fix-outcome.mjs`),
+  not as "the fixer failed", and `stalled` stands down for it. There is no refund:
+  the page latches the PR, only `@claude rerun` lifts the latch, and a rerun
+  restarts the budget anyway.
+- **Evidence beside claims.** When a fix round's own commits delete, rename out of
+  a runner's reach, or disable tests, a trusted job records it
+  (`scripts/agent/test-removals.mjs`). "Own commits" means commits in a push the
+  fixer's App credential made after the round started (read from the repository
+  activity log, which names the authenticated pusher), that are in the PR's commit
+  list and are not merges. Main's changes and a human's later push are not blamed
+  on the fixer. A node:test option counts wherever Prettier wrapped it. The next round's adjudicator sees the record ahead of the
+  author's fence, for every claim and dispute it adjudicates. A focus (`.only`,
+  `fit`, `fdescribe`) and a node:test `{ todo }`/`{ skip }` option count as
+  disablements: Jest here has no CI guard against focus. It only sees
+  COMMITTED tests — yorkie-js-sdk#1426's fixer never committed the test it
+  deleted — so both fixer prompts say to keep a reproducing test running
+  (`it.fails` in Vitest, `test.failing` in the backend's Jest, `{ todo }` in
+  node:test) and report the finding skipped.
+- **No spec, no scope verdict.** Without a human-filed `agent:candidate` issue,
+  design-fit is told it has no spec, and scope findings are `minor` at most. An
+  issue that failed to load is not reported as no spec.
+- **Both directions are observed.** The effort summary counts clean→blocking
+  escalations beside blocking→clean flips.
+
+**Where the new post-fixer work runs.** yorkie-js-sdk runs every step after the
+agent in a separate job, because the agent's shell can write `$GITHUB_ENV`,
+`~/.gitconfig` and `.git/config` for the rest of its own job. This pipeline still
+runs its existing reporting steps inside `fix`, after the agent. The infra page and
+the removal record do not join them: they run in a new `fix-evidence` job (one in
+each fixer workflow) on a fresh runner, from trusted main, reading the branch head
+through the API. Moving the existing steps is a separate change. `fix-evidence`
+failing on its own does not page — it is evidence plus one page, and a failed
+fixer it did not page still reaches `stalled`.
+
+**Measured choices.** The carry key is `--verbatim`, not `--stable`: `--stable`
+discards whitespace, so an indentation-only change that alters behaviour carried
+an approval (`scripts/agent/fingerprint.test.mjs` runs the workflow's exact command
+on real repositories, in both directions). Only an approval carries; carrying a
+blocking verdict would dispatch a fixer on findings read against another commit.
+Credentials are probed before the round rather than retried after it, because a
+probe spends no round at all. Test removals are evidence for the adjudicator, not
+a gate, because removing a test can be legitimate.
+
+**Dropped, with the measurement that dropped them** (all in yorkie-js-sdk):
+
+| Alternative | Why not |
+|---|---|
+| Refuse to carry when main changed a file the PR touches | #1426's own merge touched two of the PR's files, so the rule blocked the carry it was built for; CI covers the same risk |
+| Refund fix rounds lost to infra failures | The page latches the PR and only a rerun lifts it, which restarts the budget; the refund could never change a decision |
+| Keep earlier demotions across rounds by finding identity | On #1426 the finding that flipped was raised against different files from the one demoted, so identity matching would not have held it; carry removes the re-review that caused the flip |
+| Retry the fixer on another credential after it fails | A retry after the agent would run on the agent's runner; the probe settles it before any round is spent |
+
+| Risk | Mitigation |
+|---|---|
+| Main changes what an unchanged diff MEANS, and a carry hides it | CI must pass on the carried head before promote, and the third carry in a row is a full review |
+| A fixer forges an execution log to look like an infra failure | The worst it can choose is which page a human reads; the PR is latched either way |
+| `review-state.mjs`, `review-scope.mjs` and `carry-verdicts.mjs` drift from the js-sdk copies | They are byte-identical today (the `#1426` in them is js-sdk's); diff against `yorkie-js-sdk/scripts/agent/` before changing them |
+
+**The removal record races the next round.** The fixer's push starts CI, the
+panel workflow starts on CI's `requested` event, and that run supersedes this one;
+it reads fix reports after its gate, `deps`, checkout and the steps up to "Read
+fix-agent reports", about 1–3 minutes after the push. A record posted later is
+never used. Whether a `fix` job cancelled by that supersede still publishes the
+outputs `fix-evidence` reads is unverified here and in yorkie-js-sdk.
+
+Not yet run on a real wafflebase PR: the structural tests (`carry-wiring`,
+`infra-wiring`, `evidence-wiring`) pin step order and conditions, and the probe was
+run against the real SDK with a bogus token (classified `auth`, `available=false`),
+but no PR here has gone through a carry, a reuse, a live probe or an infra page.
 
 ## Harness Policy
 

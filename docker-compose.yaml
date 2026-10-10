@@ -18,9 +18,10 @@ services:
       - "8081:8081"
 
   minio:
-    # quay.io, not Docker Hub: MinIO withdrew the `minio/minio` repository
-    # there, so an unqualified pull is denied. Do not "normalize" this back.
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # MinIO withdrew its public images from Docker Hub and then quay.io (a
+    # pull of either is denied), so this is the community-maintained build of
+    # the same server, pinned by digest. Do not "normalize" it back.
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
     restart: always
     ports:
       - "9000:9000"

@@ -10,7 +10,7 @@
     "build": "pnpm core build && concurrently \"pnpm --filter @wafflebase/docs build\" \"pnpm sheets build\" && pnpm slides build && concurrently \"pnpm frontend build\" \"pnpm backend build\" \"pnpm cli build\"",
     "test": "concurrently \"pnpm sheets test\" \"pnpm slides test\" \"pnpm frontend test\" \"pnpm backend test\" \"pnpm cli test\" \"pnpm --filter @wafflebase/docs test\" \"pnpm --filter @wafflebase/notes test\" \"pnpm --filter @wafflebase/debug-report test\"",
     "verify:architecture": "pnpm frontend lint:arch && pnpm backend lint:arch",
-    "lint:scripts": "eslint scripts",
+    "lint:scripts": "eslint scripts plugins",
     "verify:fast": "pnpm lint:scripts && pnpm verify:doc-index && pnpm verify:doc-links && pnpm core build && pnpm core test && pnpm verify:architecture && pnpm frontend lint && pnpm frontend test && pnpm backend test && pnpm sheets typecheck && pnpm sheets test && pnpm slides typecheck && pnpm slides test && pnpm cli typecheck && pnpm cli test && pnpm --filter @wafflebase/docs typecheck && pnpm --filter @wafflebase/docs test && pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes test && pnpm --filter @wafflebase/board typecheck && pnpm --filter @wafflebase/board test && pnpm --filter @wafflebase/debug-report typecheck && pnpm --filter @wafflebase/debug-report test && pnpm --filter @wafflebase/design-editor build && pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test && pnpm --filter @wafflebase/design-sandbox typecheck && pnpm --filter @wafflebase/design-sandbox test",
     "verify:frontend:chunks": "node ./scripts/verify-frontend-chunks.mjs",
     "verify:frontend:visual": "pnpm frontend test:visual:browser",
@@ -52,7 +52,7 @@
   "packageManager": "pnpm@10.5.2",
   "pnpm": {
     "overrides": {
-      "@xhmikosr/decompress@<10.2.1": "10.2.1",
+      "@xhmikosr/decompress@<10.2.2": "10.2.2",
       "minimatch@<3.1.4": "3.1.4",
       "minimatch@>=5.0.0 <5.1.8": "5.1.8",
       "minimatch@>=9.0.0 <9.0.7": "9.0.7",
@@ -89,15 +89,16 @@
       "body-parser@<1.20.6": "1.20.6",
       "body-parser@>=2.0.0 <2.3.0": "2.3.0",
       "vite@>=5.0.0 <6.4.3": "6.4.3",
-      "shell-quote@<1.9.0": "1.9.0",
-      "piscina@<4.9.3": "4.9.3",
+      "shell-quote@<1.11.0": "1.11.0",
+      "piscina@<4.9.4": "4.9.4",
       "form-data@>=4.0.0 <4.0.6": "4.0.6",
       "@babel/core@<7.29.6": "7.29.6",
       "react-router@<7.18.2": "7.18.2",
       "react-router-dom@<7.18.2": "7.18.2",
       "browserslist@<4.28.7": "4.28.7",
       "nanoid@<3.3.18": "3.3.18",
-      "@humanfs/node@<0.16.8": "0.16.8"
+      "@humanfs/node@<0.16.8": "0.16.8",
+      "proxy-addr@<2.0.8": "2.0.8"
     }
   },
   "devDependencies": {

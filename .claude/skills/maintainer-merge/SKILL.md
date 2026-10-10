@@ -100,6 +100,20 @@ non-interactive tool call. Have the human run it, then continue.
    is **not** sufficient. `mergeable=MERGEABLE state=BLOCKED` almost always means
    the required *review* is missing, not a check.
 
+   **On an `agent:managed` PR the new head re-runs the panel**, and the panel
+   is a sample. A merge of main that leaves the PR's own diff unchanged (same
+   `git patch-id --verbatim`) carries the approval instead: the lens checks on
+   the new head read "carried from <sha>" and the PR returns to `agent:ready`
+   once CI is green (it reads `agent:reviewing` meanwhile). A merge
+   that touched the PR's hunks or their context, such as the conflict
+   resolution in step 2, is a full review again. With the fix budget spent,
+   that review can move a ready PR to `agent:blocked` on code nobody changed —
+   yorkie-js-sdk#1426 went that way before carry existed. So check the panel's
+   verdict on the new head, not only CI, before you merge.
+
+   `@claude rerun` on a head that already has verdicts reuses them. To ask for
+   a fresh review, use `@claude rerun review`.
+
 5. **Assemble the squash message.** Subject ≤70 chars, ends with `(#N)`; body
    explains WHY, folding all commits into one coherent narrative (see the repo's
    commit-message rules in `CLAUDE.md`). Append the effort block — below.
