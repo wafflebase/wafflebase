@@ -48,12 +48,16 @@ export function checkContrast(
     const xs = [ink.x + ink.w * 0.1, ink.x + ink.w / 2, ink.x + ink.w * 0.9];
 
     let worst: { ratio: number; need: number; fg: Rgba; bg: Rgba; pt: number } | undefined;
-    for (const run of textRuns(tl)) {
+    for (const run of textRuns(tl, p.scale)) {
       const fg = textColor(run.color, theme);
       if (!fg) continue;
       const need = run.pt >= 18 || (run.bold && run.pt >= 14) ? 3 : 4.5;
       for (const x of xs) {
-        const backdrops = backdropAt(p, placed, x, ys, slide, ctx, theme);
+        // An inline highlight is the run's own backdrop.
+        const hl = run.highlight != null ? textColor(run.highlight, theme) : undefined;
+        const under = backdropAt(p, placed, x, ys, slide, ctx, theme);
+        const backdrops =
+          hl && hl.a >= 1 ? [hl] : hl && under ? under.map((u) => over(hl, u)) : under;
         if (!backdrops) continue;
         for (const bg of backdrops) {
           const ratio = contrastRatio(fg.a < 1 ? over(fg, bg) : fg, bg);
@@ -82,6 +86,7 @@ export function checkContrast(
 
 /** Mirrors the canvas `makeColorResolver`: unset or the docs default black means the theme text color. */
 function textColor(c: unknown, theme: Theme): Rgba | undefined {
+  // (A highlight never reaches the unset branch: callers pass it only when set.)
   if (c == null) return parseCssColor(theme.colors.text);
   if (typeof c === 'string') {
     return parseCssColor(c.toLowerCase() === '#000000' ? theme.colors.text : c);
@@ -167,10 +172,12 @@ function slideBackground(slide: Slide, ctx: DeckContext, theme: Theme): Rgba[] |
   const doc = ctx.doc;
   const full: SlidesDocument | undefined =
     doc.layouts && doc.masters ? (doc as SlidesDocument) : undefined;
-  if (full ? resolveBackgroundImage(slide, full) : slide.background.image) return undefined;
+  // Agent-written JSON may omit `background`; treat it as inherit.
+  const s: Slide = slide.background ? slide : { ...slide, background: {} };
+  if (full ? resolveBackgroundImage(s, full) : s.background.image) return undefined;
   const fill = full
-    ? resolveBackgroundFill(slide, full)
-    : (slide.background.fill ?? { kind: 'role', role: 'background' });
+    ? resolveBackgroundFill(s, full)
+    : (s.background.fill ?? { kind: 'role', role: 'background' });
   const colors = fillColors(fill, theme);
   // Whatever shows through a translucent background is the canvas white.
   return colors?.map((c) => (c.a < 1 ? over(c, { r: 255, g: 255, b: 255, a: 1 }) : c));

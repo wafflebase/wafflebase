@@ -6,6 +6,7 @@ import {
   type TextMeasurer,
 } from '@wafflebase/docs';
 import { applyAllowlist, lintSlides } from '../../src/lint/index';
+import { layoutReport } from '../../src/lint/layout-report';
 import { contrastRatio, parseCssColor } from '../../src/lint/color';
 import type { AutofitMode, Element } from '../../src/model/element';
 import type { Slide, SlidesDocument } from '../../src/model/presentation';
@@ -321,5 +322,64 @@ describe('color', () => {
   it('computes the WCAG contrast ratio', () => {
     expect(contrastRatio(parseCssColor('#000')!, parseCssColor('#fff')!)).toBeCloseTo(21);
     expect(parseCssColor('rgba(255, 0, 0, 0.5)')).toEqual({ r: 255, g: 0, b: 0, a: 0.5 });
+  });
+});
+
+describe('renderer parity (review fixes)', () => {
+  const group = (f: ReturnType<typeof frame>, children: Element[], extra: object = {}) =>
+    ({ id: 'g', type: 'group', frame: f, data: { children, ...extra } }) as unknown as Element;
+
+  it('lays shape text inside the preset text rectangle (ellipse)', () => {
+    // An ellipse's preset text rect is ~0.15 in from each side, so the same
+    // text wraps into more lines than in a rect of the same frame.
+    const shape = (kind: string) =>
+      ({
+        id: kind,
+        type: 'shape',
+        frame: frame(100, 100, 300, 300),
+        data: { kind, text: { blocks: [para('aaaa bbbb cccc dddd eeee ffff ggg')] } },
+      }) as unknown as Element;
+    const lines = (kind: string) =>
+      layoutReport(deck([[shape(kind)]]), { measurer })[0].elements[0].text!.lines;
+    expect(lines('rect')).toBe(3);
+    expect(lines('ellipse')).toBe(4);
+  });
+
+  it('falls back to the bounding box for a child of a rotated group', () => {
+    const g = { ...group(frame(600, 400, 400, 100), [text('t', frame(0, 0, 400, 100), 'Hi')]) };
+    (g as { frame: { rotation: number } }).frame.rotation = Math.PI / 2;
+    const [slide] = layoutReport(deck([[g]]), { measurer });
+    const child = slide.elements.find((e) => e.elementId === 't')!;
+    expect(child.box.w).toBeCloseTo(100, 0);
+    expect(rules(deck([[g]]), 'edge-margin')).toEqual([]);
+  });
+
+  it('sizes text in a scaled group by its painted size', () => {
+    // refSize 800×200 shown at 200×50: 30pt text paints at a quarter size.
+    const g = group(frame(200, 200, 200, 50), [text('t', frame(0, 0, 800, 200), [para('small', 30)])], {
+      refSize: { w: 800, h: 200 },
+    });
+    expect(rules(deck([[g]]), 'min-font')).toEqual([
+      expect.objectContaining({ elementId: 't', severity: 'error' }),
+    ]);
+  });
+
+  it('judges a highlighted run against its highlight', () => {
+    const b = para('chip', 24, '#ffffff');
+    b.inlines[0].style.backgroundColor = '#111111';
+    expect(rules(deck([[text('t', frame(200, 200, 600, 100), [b])]]), 'contrast')).toEqual([]);
+  });
+
+  it('does not crash on a slide without a background', () => {
+    const d = deck([[text('t', frame(200, 200, 600, 100), 'x')]]);
+    delete (d.slides[0] as { background?: unknown }).background;
+    expect(() => lint(d)).not.toThrow();
+  });
+
+  it('matches allowlist text longer than the 40-character finding text', () => {
+    const long = 'A subtitle that is much longer than forty characters in total';
+    const d = deck([[text('t', frame(200, 200, 1500, 100), [para(long, 24, '#cccccc')])]]);
+    const f = rules(d, 'contrast');
+    expect(applyAllowlist(f, [{ rule: 'contrast', slideId: 's1', text: long, reason: 'x' }]).open).toEqual([]);
   });
 });

@@ -381,6 +381,11 @@ export function registerSlidesCommand(program: Command) {
         if (!opts.quiet && result.allowed.length > 0) {
           process.stderr.write(`${result.allowed.length} finding(s) accepted by the allowlist\n`);
         }
+        if (!opts.quiet && result.unused.length > 0) {
+          process.stderr.write(
+            `${result.unused.length} allowlist entr${result.unused.length === 1 ? 'y' : 'ies'} matched nothing (stale?)\n`,
+          );
+        }
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
         outputError(e, this);

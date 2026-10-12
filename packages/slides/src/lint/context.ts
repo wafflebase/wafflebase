@@ -15,11 +15,13 @@ import { computeAutofitScale, scaleBlocks } from '../model/autofit';
 import {
   isBlocksEmpty,
   type Element,
+  type Frame,
   type TextBody,
   type TextInset,
 } from '../model/element';
 import { boundingBox } from '../model/frame';
 import { buildElementWorldLookup } from '../model/group';
+import { GENERATED_SHAPE_TEXT_RECTS } from '../view/canvas/shapes/shape-text-rects.generated';
 import {
   deckFontScale,
   deckSlideHeight,
@@ -103,6 +105,14 @@ export type PlacedElement = {
   z: number;
   /** True for an element nested in a group (its frame is group-local). */
   nested: boolean;
+  /** The element's world frame (group transforms composed). */
+  world: Frame;
+  /**
+   * Vertical scale from the element's own frame to the world: 1 at top
+   * level, the composed group scale for a group child. Painted text sizes
+   * scale with it.
+   */
+  scale: number;
 };
 
 /**
@@ -117,12 +127,13 @@ export function placeElements(slide: Slide, ctx: DeckContext): PlacedElement[] {
   const world = buildElementWorldLookup(slide.elements);
   slide.elements.forEach((el, z) => {
     if (el.type === 'connector' || ignore.has(el.id)) return;
-    out.push({ el, box: boundingBox(el.frame), z, nested: false });
+    out.push({ el, box: boundingBox(el.frame), z, nested: false, world: el.frame, scale: 1 });
     if (el.type === 'group') {
       for (const child of descendants(el)) {
         if (child.type === 'connector' || ignore.has(child.id)) continue;
-        const w = world.get(child.id) ?? child;
-        out.push({ el: child, box: boundingBox(w.frame), z, nested: true });
+        const w = (world.get(child.id) ?? child).frame;
+        const scale = child.frame.h > 0 ? w.h / child.frame.h : 1;
+        out.push({ el: child, box: boundingBox(w), z, nested: true, world: w, scale });
       }
     }
   });
@@ -141,7 +152,7 @@ export function textTarget(el: Element): TextTarget | undefined {
     return { body: el.data, inset: el.data.inset ?? ZERO_INSET };
   }
   if (el.type === 'shape' && el.data.text) {
-    return { body: el.data.text, inset: el.data.text.inset ?? SHAPE_PAD };
+    return { body: el.data.text, inset: shapeInset(el, el.data.text.inset ?? SHAPE_PAD) };
   }
   return undefined;
 }
@@ -154,6 +165,23 @@ export function elementText(el: Element): string {
     .map((b) => (b.inlines ?? []).map((i) => i.text).join(''))
     .join(' ')
     .trim();
+}
+
+/**
+ * Mirrors the canvas `shapeTextInset`: a preset shape (ellipse, callouts,
+ * round rect, …) lays its text out inside the OOXML preset text rectangle,
+ * then inside the padding.
+ */
+function shapeInset(el: Extract<Element, { type: 'shape' }>, pad: TextInset): TextInset {
+  const rect = GENERATED_SHAPE_TEXT_RECTS[el.data.kind];
+  if (!rect) return { ...pad };
+  const { w, h } = el.frame;
+  return {
+    left: rect.l * w + pad.left,
+    top: rect.t * h + pad.top,
+    right: (1 - rect.r) * w + pad.right,
+    bottom: (1 - rect.b) * h + pad.bottom,
+  };
 }
 
 export function hasText(el: Element): boolean {
@@ -276,6 +304,8 @@ export type TextRun = {
   pt: number;
   bold: boolean;
   color: unknown;
+  /** Inline highlight (`backgroundColor`), painted behind the run. */
+  highlight: unknown;
 };
 
 /**
@@ -289,7 +319,8 @@ export function slidePtFromStoredPt(pt: number): number {
   return (pt * DOCS_PX_PER_PT) / SLIDE_PX_PER_PT;
 }
 
-export function textRuns(tl: TextLayout): TextRun[] {
+/** Runs as painted; `scale` is the element's group scale ({@link PlacedElement.scale}). */
+export function textRuns(tl: TextLayout, scale = 1): TextRun[] {
   const out: TextRun[] = [];
   for (const lb of tl.layout.blocks) {
     for (const line of lb.lines) {
@@ -298,9 +329,10 @@ export function textRuns(tl: TextLayout): TextRun[] {
         const style = run.inline.style ?? {};
         out.push({
           text: run.text,
-          pt: slidePtFromStoredPt(style.fontSize ?? 11),
+          pt: slidePtFromStoredPt(style.fontSize ?? 11) * scale,
           bold: !!style.bold,
           color: style.color,
+          highlight: style.backgroundColor,
         });
       }
     }
@@ -311,14 +343,15 @@ export function textRuns(tl: TextLayout): TextRun[] {
 /** World box of the painted text (falls back to the frame). */
 export function inkBox(placed: PlacedElement, tl: TextLayout | undefined): Box {
   const f = placed.el.frame;
-  if (!tl?.ink || f.rotation || f.w <= 0 || f.h <= 0) return placed.box;
-  // `placed.box` is the world box; a group child's local frame maps onto it
-  // by a scale, so the local ink maps the same way.
-  const sx = placed.box.w / f.w;
-  const sy = placed.box.h / f.h;
+  const w = placed.world;
+  // A rotated element — or a child of a rotated group — has no axis-aligned
+  // mapping from local ink to world: judge it by its bounding box.
+  if (!tl?.ink || w.rotation || f.w <= 0 || f.h <= 0) return placed.box;
+  const sx = w.w / f.w;
+  const sy = w.h / f.h;
   return {
-    x: placed.box.x + tl.ink.x * sx,
-    y: placed.box.y + tl.ink.y * sy,
+    x: w.x + tl.ink.x * sx,
+    y: w.y + tl.ink.y * sy,
     w: tl.ink.w * sx,
     h: tl.ink.h * sy,
   };

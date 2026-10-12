@@ -77,6 +77,9 @@ from the layout itself:
 - Placement follows the canvas `computeVerticalOriginY`: text taller than
   its box overflows down (top anchor), both ways (middle) or up (bottom).
 - A text element that paints a fill or border covers its frame too.
+- Shape text lays out inside the OOXML preset text rectangle (an
+  ellipse's is ~15% in from each side), as the canvas `shapeTextInset`
+  does; group children are sized by the group's scale.
 
 ### The rules
 
@@ -148,9 +151,11 @@ rule candidate. The deck-author skill update is a separate change.
   deck's fonts) pass it as `measurer`.
 - **Image pixels are unknown.** Contrast skips text over images; overlap
   ignores text beside an image. The PNG render is the check for both.
-- **Not covered yet:** text in table cells (contrast, min-font); rotated
-  elements are judged by their axis-aligned box; text in a scaled group is
-  sized by its local font size.
+- **Not covered yet:** text in table cells (contrast, min-font). Rotated
+  elements — and children of a rotated group — are judged by their
+  axis-aligned box. Contrast samples three points across the whole text,
+  so a run sitting only on a small chip is also judged against the
+  backdrop beside it.
 - **Thresholds** (15% overlap, 0.5 in margin, 12 pt) are defaults, each an
   option, chosen on the decks above. Tune them only with a deck that shows
   why.

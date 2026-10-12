@@ -80,6 +80,7 @@ export function layoutRows(doc: SlidesDocument, slide?: number) {
 export function parseRules(raw: string | undefined): LintRuleId[] | undefined {
   if (raw === undefined) return undefined;
   const rules = raw.split(',').map((r) => r.trim()).filter(Boolean);
+  if (rules.length === 0) throw new Error('--rules needs at least one rule');
   const unknown = rules.filter((r) => !LINT_RULES.includes(r as LintRuleId));
   if (unknown.length > 0) {
     throw new Error(`unknown rule(s): ${unknown.join(', ')} (known: ${LINT_RULES.join(', ')})`);
@@ -89,7 +90,7 @@ export function parseRules(raw: string | undefined): LintRuleId[] | undefined {
 
 export function parseFailOn(raw: string | undefined): LintSeverity | 'never' {
   const v = raw ?? 'never';
-  if (v === 'never' || v in SEVERITY_RANK) return v as LintSeverity | 'never';
+  if (v === 'never' || Object.hasOwn(SEVERITY_RANK, v)) return v as LintSeverity | 'never';
   throw new Error(`--fail-on must be one of error, warning, info, never (got "${raw}")`);
 }
 
@@ -119,6 +120,8 @@ export interface LintRunResult {
     message: string;
   }>;
   allowed: Finding[];
+  /** Allowlist entries that matched nothing — stale, or describing a fixed problem. */
+  unused: AllowlistEntry[];
   /** Exit code under `--fail-on`: 1 when an open finding reaches it. */
   exitCode: number;
 }
@@ -135,7 +138,7 @@ export function runLint(
   const findings = lintSlides(doc, { rules: opts.rules }).filter(
     (f) => opts.slide === undefined || f.slideIndex === opts.slide - 1,
   );
-  const { open, allowed } = applyAllowlist(findings, opts.allowlist ?? []);
+  const { open, allowed, unused } = applyAllowlist(findings, opts.allowlist ?? []);
   const fails =
     opts.failOn !== 'never' &&
     open.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[opts.failOn as LintSeverity]);
@@ -149,6 +152,7 @@ export function runLint(
       message: f.message,
     })),
     allowed,
+    unused,
     exitCode: fails ? 1 : 0,
   };
 }

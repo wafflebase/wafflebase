@@ -83,7 +83,8 @@ export type AllowlistEntry = {
 function matches(a: AllowlistEntry, f: Finding): boolean {
   if (a.rule !== f.rule || a.slideId !== f.slideId) return false;
   if (a.elementId !== undefined) return a.elementId === f.elementId;
-  if (a.text !== undefined) return (f.text ?? '').startsWith(a.text);
+  // `f.text` is cut to 40 characters; compare within that window.
+  if (a.text !== undefined) return (f.text ?? '').startsWith(a.text.slice(0, 40));
   return true;
 }
 

@@ -55,6 +55,27 @@ Same findings as iteration 2 (32: seeds 2 contrast warnings; deck 7 overlap,
 3 contrast errors, 20 edge-margin info), no new false positive or miss on the
 PNGs. Stopped.
 
+## Iteration 5 — independent agent review
+
+Two agents checked the work independently: one against the PNGs, one
+reviewing the code against the renderer.
+- Visual audit: 12/12 error/warning findings real, no misses, no false
+  positives. Text baked into screenshots (2026 s4/s6/s7) is invisible to
+  any model-level rule (noted, not a lint miss).
+- Code review, three confirmed bugs, each reproduced and fixed with a test:
+  shape text ignored the preset text rectangle (an ellipse laid out ~48%
+  wider than the renderer); a rotated group's child got a sliver ink box;
+  a scaled group's text was judged at its unscaled size. Also fixed:
+  inline highlight as the run's contrast backdrop, a slide without
+  `background` crashing the run, allowlist text longer than 40 chars never
+  matching, the CLI hiding stale allowlist entries, the seed gate
+  de-duplicating identical findings, `--fail-on constructor` accepted,
+  `--rules ""` running nothing.
+- A dead-code fix in the estimate (`i`/`l` narrow) made it under-count lines
+  on the stress set (8 cases) — reverted to punctuation-only; under-counting
+  is the unsafe direction.
+Finding counts unchanged (32); measurement still 346/346 on real decks.
+
 ## Classification of what remains
 
 - Real, seed defects (baselined as such): product-launch-plan cover subtitle

@@ -32,10 +32,10 @@ function charEm(ch: string): number {
   const cp = ch.codePointAt(0) ?? 0;
   if (isWide(cp)) return 0.95;
   if (ch === ' ') return 0.28;
+  if (/[.,:;'!|()[\]]/.test(ch)) return 0.3;
   if (ch >= 'a' && ch <= 'z') return 0.5;
   if (ch >= 'A' && ch <= 'Z') return 0.68;
   if (ch >= '0' && ch <= '9') return 0.56;
-  if (/[.,:;'!|ilI()[\]]/.test(ch)) return 0.3;
   return 0.6;
 }
 function isWide(cp: number): boolean {

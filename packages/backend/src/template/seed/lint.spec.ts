@@ -40,8 +40,17 @@ describe('seed slide templates pass the slide linter', () => {
   });
 
   it('has no findings beyond the baseline', () => {
-    const known = new Set(entries.map(key));
-    expect(found.filter((k) => !known.has(k))).toEqual([]);
+    // A multiset: one baseline entry accepts one finding, so a second
+    // element with the same text on the same slide is still caught.
+    const remaining = new Map<string, number>();
+    for (const k of entries.map(key)) remaining.set(k, (remaining.get(k) ?? 0) + 1);
+    const extra = found.filter((k) => {
+      const n = remaining.get(k) ?? 0;
+      if (n === 0) return true;
+      remaining.set(k, n - 1);
+      return false;
+    });
+    expect(extra).toEqual([]);
   });
 
   it('has no stale baseline entries', () => {

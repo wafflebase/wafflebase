@@ -31,7 +31,7 @@ export function checkMinFont(
     const tl = layoutText(p.el, ctx);
     if (!tl) continue;
     const min = isFooterLike(p, ctx) ? ctx.opts.minFooterFontPt : ctx.opts.minFontPt;
-    const smallest = Math.min(...textRuns(tl).map((r) => r.pt));
+    const smallest = Math.min(...textRuns(tl, p.scale).map((r) => r.pt));
     if (!Number.isFinite(smallest) || smallest >= min) continue;
     findings.push({
       rule: 'min-font',
