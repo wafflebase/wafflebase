@@ -903,6 +903,15 @@
             "safety": "write",
             "description": "Rename a slide deck"
           },
+          "render": {
+            "valueOptions": [
+              "--frontend",
+              "--out",
+              "--slide"
+            ],
+            "safety": "read-only",
+            "description": "Render slides to full-resolution PNGs via a headless browser running the real editor renderer (needs Playwright + login session)"
+          },
           "set-content": {
             "valueOptions": [
               "--data"
