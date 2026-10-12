@@ -1,5 +1,9 @@
 import yorkie, { Document as YorkieDocument } from '@yorkie-js/sdk';
-import { readSlidesRoot, SlidesYorkieRoot, writeSlidesRoot } from './slides-tree';
+import {
+  readSlidesRoot,
+  SlidesYorkieRoot,
+  writeSlidesRoot,
+} from './slides-tree';
 import type { SlidesDocument } from './yorkie.types';
 
 function makeDeck(): SlidesDocument {
@@ -25,7 +29,9 @@ function makeDeck(): SlidesDocument {
   const master = {
     id: 'default',
     name: 'Default',
-    background: { fill: { kind: 'role' as const, role: 'background' as const } },
+    background: {
+      fill: { kind: 'role' as const, role: 'background' as const },
+    },
     placeholderStyles: {},
   };
   return {
@@ -102,7 +108,11 @@ describe('slides-tree', () => {
     doc.update((root) => writeSlidesRoot(root, makeDeck()));
     const second: SlidesDocument = {
       ...makeDeck(),
-      meta: { title: 'Replaced', themeId: 'default-light', masterId: 'default' },
+      meta: {
+        title: 'Replaced',
+        themeId: 'default-light',
+        masterId: 'default',
+      },
       slides: [
         {
           id: 'only-slide',
@@ -120,6 +130,44 @@ describe('slides-tree', () => {
     expect(result.meta.title).toBe('Replaced');
     expect(result.slides).toHaveLength(1);
     expect(result.slides[0].id).toBe('only-slide');
+  });
+
+  it('preserves the PPTX-import meta fields (pxPerPt, slideHeight, unit, recentColors)', () => {
+    const original: SlidesDocument = {
+      ...makeDeck(),
+      meta: {
+        title: '4:3 import',
+        themeId: 'default-light',
+        masterId: 'default',
+        pxPerPt: 2.667,
+        slideHeight: 1440,
+        unit: 'cm',
+        recentColors: ['#ff0000'],
+      },
+    };
+
+    doc.update((root) => writeSlidesRoot(root, original));
+    const result = readSlidesRoot(doc.getRoot());
+
+    expect(result.meta).toEqual(original.meta);
+  });
+
+  it('drops invalid optional meta values instead of storing them', () => {
+    const original = makeDeck();
+    doc.update((root) =>
+      writeSlidesRoot(root, {
+        ...original,
+        meta: {
+          ...original.meta,
+          pxPerPt: Number.NaN,
+          slideHeight: -1,
+        },
+      }),
+    );
+    const result = readSlidesRoot(doc.getRoot());
+
+    expect(result.meta).not.toHaveProperty('pxPerPt');
+    expect(result.meta).not.toHaveProperty('slideHeight');
   });
 
   it('returns sensible defaults when reading an empty root', () => {

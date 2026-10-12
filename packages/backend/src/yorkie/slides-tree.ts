@@ -18,12 +18,9 @@
  * fields overwrite whatever is on the root, and `meta` is rewritten as a
  * fresh object so stale theme/master ids cannot leak from a prior write.
  */
-import type { Guide, Master, Theme } from '@wafflebase/slides';
-import type {
-  SlidesDocument,
-  SlidesLayout,
-  SlidesSlide,
-} from './yorkie.types';
+import { migrateMeta } from '@wafflebase/slides';
+import type { Guide, Master, Meta, Theme } from '@wafflebase/slides';
+import type { SlidesDocument, SlidesLayout, SlidesSlide } from './yorkie.types';
 import { unwrapJson } from './yorkie-json';
 
 /**
@@ -33,7 +30,10 @@ import { unwrapJson } from './yorkie-json';
  * representable.
  */
 export interface SlidesYorkieRoot extends Record<string, unknown> {
-  meta?: { title: string; themeId?: string; masterId?: string };
+  meta?: { title: string; themeId?: string; masterId?: string } & Pick<
+    Meta,
+    'unit' | 'pxPerPt' | 'slideHeight' | 'recentColors'
+  >;
   themes?: Theme[];
   masters?: Master[];
   layouts?: SlidesLayout[];
@@ -56,11 +56,7 @@ export function readSlidesRoot(root: SlidesYorkieRoot): SlidesDocument {
   // front gives a plain JS object that round-trips through
   // JSON.stringify without double-encoding — same shape as the docs
   // reader's `readPageSetup`.
-  const metaSrc = unwrapJson<{
-    title: string;
-    themeId?: string;
-    masterId?: string;
-  }>(root.meta);
+  const metaSrc = unwrapJson<SlidesYorkieRoot['meta']>(root.meta);
   const themes = unwrapJson<Theme[]>(root.themes) ?? [];
   const masters = unwrapJson<Master[]>(root.masters) ?? [];
   const layouts = unwrapJson<SlidesLayout[]>(root.layouts) ?? [];
@@ -69,8 +65,9 @@ export function readSlidesRoot(root: SlidesYorkieRoot): SlidesDocument {
   return {
     meta: {
       title: metaSrc?.title ?? 'Untitled presentation',
-      themeId: metaSrc?.themeId ?? (themes[0]?.id ?? 'default-light'),
-      masterId: metaSrc?.masterId ?? (masters[0]?.id ?? 'default'),
+      themeId: metaSrc?.themeId ?? themes[0]?.id ?? 'default-light',
+      masterId: metaSrc?.masterId ?? masters[0]?.id ?? 'default',
+      ...optionalMeta(metaSrc),
     },
     themes,
     masters,
@@ -98,6 +95,7 @@ export function writeSlidesRoot(
     title: document.meta.title,
     themeId: document.meta.themeId,
     masterId: document.meta.masterId,
+    ...optionalMeta(document.meta),
   };
   root.themes = document.themes;
   root.masters = document.masters;
@@ -107,4 +105,25 @@ export function writeSlidesRoot(
   // pass a document without a `guides` field. Normalize to an empty
   // array on write so `readSlidesRoot` always returns the same shape.
   root.guides = document.guides ?? [];
+}
+
+/**
+ * The optional `meta` fields that change how a deck renders or edits:
+ * `pxPerPt` (font scale) and `slideHeight` (4:3 and other non-16:9
+ * aspect ratios) — both set by the PPTX importer — plus `unit` and
+ * `recentColors`. Dropping them on a read/write round trip renders a
+ * PPTX-imported deck with the wrong font size and stretched into a
+ * 16:9 canvas. Validated by the same `migrateMeta` the frontend reads
+ * through, and returned only when present: Yorkie stores no `undefined`.
+ */
+function optionalMeta(
+  src: unknown,
+): Pick<Meta, 'unit' | 'pxPerPt' | 'slideHeight' | 'recentColors'> {
+  const { unit, pxPerPt, slideHeight, recentColors } = migrateMeta(src);
+  return {
+    ...(unit !== undefined && { unit }),
+    ...(pxPerPt !== undefined && { pxPerPt }),
+    ...(slideHeight !== undefined && { slideHeight }),
+    ...(recentColors !== undefined && { recentColors }),
+  };
 }
