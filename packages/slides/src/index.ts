@@ -298,3 +298,9 @@ export type {
   LintableDeck,
   LintLayoutOptions,
 } from './layout-lint';
+
+// Slide layout report — per-element line count / text height / overflow /
+// visibility, computed with the docs layout engine. Pure, Node-safe.
+export { layoutReport } from './lint/layout-report';
+export type { ElementLayout, SlideLayout } from './lint/layout-report';
+export { estimateMeasurer } from './lint/estimate-measurer';

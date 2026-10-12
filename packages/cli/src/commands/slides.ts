@@ -21,6 +21,8 @@ import { writeBinary } from '../output/binary.js';
 import { createImageFetcher } from '../docs/image-fetcher.js';
 import { exportPptxCli } from '../slides/pptx-export.js';
 import { parseSlideNumber, renderSlides } from '../slides/render.js';
+import { layoutRows, readDeckFile } from '../slides/lint.js';
+import type { SlidesDocument } from '@wafflebase/slides/node';
 import { registerSlidesSetContentCommand } from './content-write.js';
 import { registerSlidesEditCommand } from './slides-edit.js';
 
@@ -281,6 +283,53 @@ export function registerSlidesCommand(program: Command) {
           config: getConfig(opts),
           quiet: opts.quiet,
         });
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  /**
+   * The deck `layout-report` reads: a local `--file` (.pptx or .json), or
+   * the deck `<doc-id>` names on the server. Exactly one of the two.
+   */
+  async function loadDeck(
+    cmd: Command,
+    docId: string | undefined,
+    file: string | undefined,
+  ): Promise<SlidesDocument | undefined> {
+    if ((docId === undefined) === (file === undefined)) {
+      throw new Error('pass exactly one of <doc-id> or --file <path>');
+    }
+    if (file !== undefined) return readDeckFile(file);
+    const opts = getGlobalOpts(cmd);
+    if (opts.dryRun) {
+      printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId!)}/content`);
+      return undefined;
+    }
+    const res = await getClient(opts).getSlidesContent(docId!);
+    if (!res.ok) {
+      forwardUpstreamError(res, cmd);
+      return undefined;
+    }
+    return res.data as SlidesDocument;
+  }
+
+  slides
+    .command('layout-report [doc-id]')
+    .description(
+      'Report each element as laid out (line count, text height, overflow, on-slide fraction) without rendering',
+    )
+    .option('--file <path>', 'Read a local .pptx or .json deck instead of <doc-id>')
+    .option('--slide <n>', 'Only slide N (1-based)')
+    .action(async function (this: Command, docId: string | undefined) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{ file?: string; slide?: string }>();
+      try {
+        const fmt = parseOutputFormat(opts.format);
+        const slide = parseSlideNumber(local.slide);
+        const doc = await loadDeck(this, docId, local.file);
+        if (!doc) return;
+        output(layoutRows(doc, slide), fmt);
       } catch (e) {
         outputError(e, this);
       }

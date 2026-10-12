@@ -523,7 +523,10 @@ wafflebase
   │     ├── import <file>
   │     │     [--title <title>]               (default: file basename)
   │     │     [--replace <doc-id> --yes]      (destructive; required together)
-  │     └── set-content <doc-id>             [--data <json>] (replaces the whole deck)
+  │     ├── set-content <doc-id>             [--data <json>] (replaces the whole deck)
+  │     └── layout-report [doc-id]           Per-element layout in Node (lines, heights, overflow)
+  │           [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
+  │           [--slide N]
   │
   ├── notes (alias: note)
   │     ├── list                             List notes (type: note)
@@ -1710,6 +1713,7 @@ Schema entries by command (canonical plural names):
 | `slides.export`          | read-only     | file write is local; PPTX only                         |
 | `slides.import`          | write         | `safety` becomes `destructive` with `--replace`        |
 | `slides.set-content`     | destructive   | whole-deck replace                                     |
+| `slides.layout-report`   | read-only     | `--file` reads a local deck; no network                |
 | `notes.list`             | read-only     | filtered to `type: note`                               |
 | `notes.create`           | write         |                                                        |
 | `notes.get`              | read-only     | metadata only                                          |

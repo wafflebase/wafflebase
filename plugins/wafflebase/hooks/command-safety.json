@@ -888,6 +888,14 @@
             },
             "localInputArg": 0
           },
+          "layout-report": {
+            "valueOptions": [
+              "--file",
+              "--slide"
+            ],
+            "safety": "read-only",
+            "description": "Report each element as laid out (line count, text height, overflow, on-slide fraction) in Node, without rendering"
+          },
           "layouts": {
             "aliases": [
               "layout"

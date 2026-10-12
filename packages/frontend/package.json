@@ -16,6 +16,7 @@
     "test:integration": "tsx --test \"tests/**/*.integration.ts\"",
     "test:watch": "vitest",
     "test:visual:browser": "node ./scripts/verify-visual-browser.mjs",
+    "render:slides": "node ./scripts/render-slides.mjs",
     "test:visual:browser:update": "UPDATE_VISUAL_BROWSER_BASELINE=true node ./scripts/verify-visual-browser.mjs",
     "test:interaction": "node ./scripts/verify-interaction-browser.mjs",
     "test:hunt-oracles": "node ./scripts/verify-hunt-oracles.mjs",

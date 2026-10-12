@@ -192,3 +192,9 @@ export { ImportReport } from './import/pptx/report';
 // PPTX export — DOM-free; safe for Node consumers without a polyfill.
 export { exportPptx } from './export/pptx/index.js';
 export type { ExportPptxOptions } from './export/pptx/index.js';
+
+// Slide layout report — per-element line count / text height / overflow /
+// visibility, computed with the docs layout engine. Pure, Node-safe.
+export { layoutReport } from './lint/layout-report';
+export type { ElementLayout, SlideLayout } from './lint/layout-report';
+export { estimateMeasurer } from './lint/estimate-measurer';

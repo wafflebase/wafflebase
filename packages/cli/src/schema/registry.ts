@@ -351,6 +351,19 @@ const registry: CommandSchema[] = [
     aliases: ['slide.render', 'deck.render', 'decks.render'],
   },
   {
+    name: 'slides.layout-report',
+    description:
+      'Report each element as laid out (line count, text height, overflow, on-slide fraction) in Node, without rendering',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: false, description: 'Document ID (or pass --file)' },
+      '--file': { type: 'string', required: false, description: 'Local .pptx or .json deck instead of a document' },
+      '--slide': { type: 'number', required: false, description: 'Only slide N (1-based)' },
+    },
+    response: { type: 'array', description: 'One row per element: slide, element, type, box, visible, autofit, lines, textHeight, boxHeight, shrink, overflows' },
+    aliases: ['slide.layout-report', 'deck.layout-report', 'decks.layout-report'],
+  },
+  {
     name: 'slides.set-content',
     description: 'Replace deck content from JSON (stdin or --data)',
     safety: 'destructive',
