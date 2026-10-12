@@ -524,9 +524,14 @@ wafflebase
   │     │     [--title <title>]               (default: file basename)
   │     │     [--replace <doc-id> --yes]      (destructive; required together)
   │     ├── set-content <doc-id>             [--data <json>] (replaces the whole deck)
-  │     └── layout-report [doc-id]           Per-element layout in Node (lines, heights, overflow)
+  │     ├── layout-report [doc-id]           Per-element layout in Node (lines, heights, overflow)
+  │     │     [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
+  │     │     [--slide N]
+  │     └── lint [doc-id]                    Flag broken-looking slides (slides-lint.md)
   │           [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
-  │           [--slide N]
+  │           [--slide N] [--rules a,b]
+  │           [--allowlist <file>]            (intentional findings, each with a reason)
+  │           [--fail-on error|warning|info|never] (default: never — advisory)
   │
   ├── notes (alias: note)
   │     ├── list                             List notes (type: note)
@@ -1714,6 +1719,7 @@ Schema entries by command (canonical plural names):
 | `slides.import`          | write         | `safety` becomes `destructive` with `--replace`        |
 | `slides.set-content`     | destructive   | whole-deck replace                                     |
 | `slides.layout-report`   | read-only     | `--file` reads a local deck; no network                |
+| `slides.lint`            | read-only     | `--file` reads a local deck; exit 1 only with `--fail-on` |
 | `notes.list`             | read-only     | filtered to `type: note`                               |
 | `notes.create`           | write         |                                                        |
 | `notes.get`              | read-only     | metadata only                                          |

@@ -903,6 +903,20 @@
             "safety": "read-only",
             "description": "List the layout ids this deck's slides can be built from"
           },
+          "lint": {
+            "valueOptions": [
+              "--allowlist",
+              "--fail-on",
+              "--file",
+              "--rules",
+              "--slide"
+            ],
+            "safety": "read-only",
+            "description": "Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default",
+            "localOutputOptions": [
+              "--allowlist"
+            ]
+          },
           "list": {
             "safety": "read-only",
             "description": "List slide decks in workspace"

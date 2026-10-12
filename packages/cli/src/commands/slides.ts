@@ -21,7 +21,14 @@ import { writeBinary } from '../output/binary.js';
 import { createImageFetcher } from '../docs/image-fetcher.js';
 import { exportPptxCli } from '../slides/pptx-export.js';
 import { parseSlideNumber, renderSlides } from '../slides/render.js';
-import { layoutRows, readDeckFile } from '../slides/lint.js';
+import {
+  layoutRows,
+  parseFailOn,
+  parseRules,
+  readAllowlist,
+  readDeckFile,
+  runLint,
+} from '../slides/lint.js';
 import type { SlidesDocument } from '@wafflebase/slides/node';
 import { registerSlidesSetContentCommand } from './content-write.js';
 import { registerSlidesEditCommand } from './slides-edit.js';
@@ -289,7 +296,7 @@ export function registerSlidesCommand(program: Command) {
     });
 
   /**
-   * The deck `layout-report` reads: a local `--file` (.pptx or .json), or
+   * The deck `layout-report` / `lint` read: a local `--file` (.pptx or .json), or
    * the deck `<doc-id>` names on the server. Exactly one of the two.
    */
   async function loadDeck(
@@ -330,6 +337,51 @@ export function registerSlidesCommand(program: Command) {
         const doc = await loadDeck(this, docId, local.file);
         if (!doc) return;
         output(layoutRows(doc, slide), fmt);
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  slides
+    .command('lint [doc-id]')
+    .description(
+      'Flag slides that look broken: overflow, out-of-bounds, overlap, contrast, min-font, edge-margin (advisory)',
+    )
+    .option('--file <path>', 'Read a local .pptx or .json deck instead of <doc-id>')
+    .option('--slide <n>', 'Only slide N (1-based)')
+    .option('--rules <list>', 'Comma-separated rules to run (default: all)')
+    .option(
+      '--allowlist <file>',
+      'JSON array of intentional findings: [{ rule, slideId, elementId? | text?, reason }]',
+    )
+    .option(
+      '--fail-on <severity>',
+      'Exit 1 when an open finding is at least this severe: error, warning, info, never',
+      'never',
+    )
+    .action(async function (this: Command, docId: string | undefined) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{
+        file?: string;
+        slide?: string;
+        rules?: string;
+        allowlist?: string;
+        failOn?: string;
+      }>();
+      try {
+        const fmt = parseOutputFormat(opts.format);
+        const slide = parseSlideNumber(local.slide);
+        const rules = parseRules(local.rules);
+        const failOn = parseFailOn(local.failOn);
+        const allowlist = local.allowlist ? readAllowlist(local.allowlist) : undefined;
+        const doc = await loadDeck(this, docId, local.file);
+        if (!doc) return;
+        const result = runLint(doc, { rules, allowlist, failOn, slide });
+        output(result.rows, fmt);
+        if (!opts.quiet && result.allowed.length > 0) {
+          process.stderr.write(`${result.allowed.length} finding(s) accepted by the allowlist\n`);
+        }
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
         outputError(e, this);
       }

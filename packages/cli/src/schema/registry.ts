@@ -364,6 +364,22 @@ const registry: CommandSchema[] = [
     aliases: ['slide.layout-report', 'deck.layout-report', 'decks.layout-report'],
   },
   {
+    name: 'slides.lint',
+    description:
+      'Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: false, description: 'Document ID (or pass --file)' },
+      '--file': { type: 'string', required: false, description: 'Local .pptx or .json deck instead of a document' },
+      '--slide': { type: 'number', required: false, description: 'Only slide N (1-based)' },
+      '--rules': { type: 'string', required: false, description: 'Comma-separated rules to run (default: all)' },
+      '--allowlist': { type: 'string', required: false, description: 'JSON file of intentional findings, each with a reason' },
+      '--fail-on': { type: 'string', required: false, description: 'Exit 1 at this severity or above: error|warning|info|never', default: 'never' },
+    },
+    response: { type: 'array', description: 'Open findings: slide, rule, severity, element, text, message' },
+    aliases: ['slide.lint', 'deck.lint', 'decks.lint'],
+  },
+  {
     name: 'slides.set-content',
     description: 'Replace deck content from JSON (stdin or --data)',
     safety: 'destructive',

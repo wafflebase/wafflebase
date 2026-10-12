@@ -3,7 +3,14 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultLight, type SlidesDocument } from '@wafflebase/slides/node';
-import { layoutRows, readDeckFile } from '../src/slides/lint.js';
+import {
+  layoutRows,
+  parseFailOn,
+  parseRules,
+  readAllowlist,
+  readDeckFile,
+  runLint,
+} from '../src/slides/lint.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'wfb-lint-'));
 
@@ -41,7 +48,7 @@ function deck(): SlidesDocument {
   } as unknown as SlidesDocument;
 }
 
-describe('slides layout-report', () => {
+describe('slides lint / layout-report', () => {
   it('reads a .json deck, bare or wrapped as { document }', async () => {
     const dir = tmp();
     writeFileSync(join(dir, 'bare.json'), JSON.stringify(deck()));
@@ -59,7 +66,35 @@ describe('slides layout-report', () => {
     expect(layoutRows(deck(), 2)).toEqual([]);
   });
 
+  it('validates --rules and --fail-on', () => {
+    expect(parseRules(undefined)).toBeUndefined();
+    expect(parseRules('contrast, overlap')).toEqual(['contrast', 'overlap']);
+    expect(() => parseRules('contrast,nope')).toThrow(/unknown rule/);
+    expect(parseFailOn(undefined)).toBe('never');
+    expect(parseFailOn('warning')).toBe('warning');
+    expect(() => parseFailOn('fatal')).toThrow(/--fail-on/);
+  });
 
+  it('reports findings with the element text and stays advisory by default', () => {
+    const r = runLint(deck(), { failOn: 'never' });
+    expect(r.rows).toEqual([
+      expect.objectContaining({ slide: 1, rule: 'contrast', severity: 'error', element: 'pale', text: 'Pale' }),
+    ]);
+    expect(r.exitCode).toBe(0);
+    expect(runLint(deck(), { failOn: 'error' }).exitCode).toBe(1);
+  });
 
+  it('moves allowlisted findings out of the open rows', () => {
+    const allowlist = [{ rule: 'contrast' as const, slideId: 's1', text: 'Pale', reason: 'decorative' }];
+    const r = runLint(deck(), { failOn: 'error', allowlist });
+    expect(r.rows).toEqual([]);
+    expect(r.allowed).toHaveLength(1);
+    expect(r.exitCode).toBe(0);
+  });
 
+  it('requires a reason on every allowlist entry', () => {
+    const dir = tmp();
+    writeFileSync(join(dir, 'a.json'), JSON.stringify([{ rule: 'contrast', slideId: 's1' }]));
+    expect(() => readAllowlist(join(dir, 'a.json'))).toThrow(/non-empty reason/);
+  });
 });

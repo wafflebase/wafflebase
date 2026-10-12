@@ -193,8 +193,18 @@ export { ImportReport } from './import/pptx/report';
 export { exportPptx } from './export/pptx/index.js';
 export type { ExportPptxOptions } from './export/pptx/index.js';
 
-// Slide layout report — per-element line count / text height / overflow /
-// visibility, computed with the docs layout engine. Pure, Node-safe.
+// Slide layout report + deterministic linter (contrast / out-of-bounds /
+// overlap / edge-margin / min-font / overflow) — pure, Node-safe.
+// Design: docs/design/slides/slides-lint.md.
 export { layoutReport } from './lint/layout-report';
 export type { ElementLayout, SlideLayout } from './lint/layout-report';
 export { estimateMeasurer } from './lint/estimate-measurer';
+export { applyAllowlist, lintSlides } from './lint/index';
+export type {
+  AllowlistEntry,
+  Finding,
+  LintableDeck,
+  LintOptions,
+  LintRuleId,
+  LintSeverity,
+} from './lint/index';
