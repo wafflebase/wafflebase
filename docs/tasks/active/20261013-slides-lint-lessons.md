@@ -76,6 +76,16 @@ reviewing the code against the renderer.
   is the unsafe direction.
 Finding counts unchanged (32); measurement still 346/346 on real decks.
 
+## Iteration 6 — building a real deck with it
+
+Authored the 2026 OSSCA deck from scratch (~/2026-ossca-deck/agent-build,
+log in its iterations.md). One miss surfaced that no seed or import deck
+had: two-line labels in 60 px chips spill past the chip's drawn edge while
+no whole line leaves the box, so `overflow` said nothing. New check in
+`overflow`: text spilling past the edge of a filled or bordered box.
+Also found (outside lint): the PPTX exporter writes 96-DPI in-app font
+sizes verbatim, so builder/in-app decks open 1.5× too large in PowerPoint.
+
 ## Classification of what remains
 
 - Real, seed defects (baselined as such): product-launch-plan cover subtitle

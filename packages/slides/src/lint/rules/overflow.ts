@@ -10,6 +10,10 @@
  *   end up with text running into the next element. `warning`. A box merely
  *   shorter than its one line's line-height (tight PPTX labels) is fine and
  *   not reported.
+ * - a filled or bordered box (a chip, a card) whose text spills past the
+ *   box's visible edge, even by part of a line: the edge is drawn, so the
+ *   spill shows. `warning`. (Found building a real deck: two-line labels
+ *   in 60 px chips, where no whole line left the box.)
  * - `grow` (the default): the box grows with its text, so nothing to report
  *   here; text grown past the slide edge is `out-of-bounds`' to report.
  *
@@ -17,7 +21,16 @@
  * measures text by its ink rather than its frame.
  */
 import type { Slide } from '../../model/presentation';
-import { fmt, hasText, layoutText, textTarget, type DeckContext, type PlacedElement } from '../context';
+import {
+  fmt,
+  hasText,
+  inkBox,
+  layoutText,
+  paintsBox,
+  textTarget,
+  type DeckContext,
+  type PlacedElement,
+} from '../context';
 import type { Finding } from '../types';
 
 export function checkOverflow(
@@ -43,6 +56,15 @@ export function checkOverflow(
         elementId: p.el.id,
         message: `text height ${fmt(tl.textHeight)}px exceeds box ${fmt(tl.innerH)}px even at shrink scale ${fmt(tl.shrinkScale)}`,
       });
+    } else if (tl.linesOutside === 0 && paintsBox(p.el) && spill(p, tl) > tol) {
+      findings.push({
+        rule: 'overflow',
+        severity: 'warning',
+        slideId: slide.id,
+        slideIndex,
+        elementId: p.el.id,
+        message: `text spills ${fmt(spill(p, tl))}px past the edge of its filled box (autofit none)`,
+      });
     } else if (tl.linesOutside > 0) {
       findings.push({
         rule: 'overflow',
@@ -57,4 +79,10 @@ export function checkOverflow(
     }
   }
   return findings;
+}
+
+/** How far the painted glyphs reach past the element's frame, top or bottom. */
+function spill(p: PlacedElement, tl: NonNullable<ReturnType<typeof layoutText>>): number {
+  const ink = inkBox(p, tl);
+  return Math.max(p.box.y - ink.y, ink.y + ink.h - (p.box.y + p.box.h), 0);
 }

@@ -296,6 +296,24 @@ describe('overflow', () => {
     expect(rules(d, 'overflow')).toEqual([]);
   });
 
+  it('reports text spilling past the edge of a filled chip, even by part of a line', () => {
+    const chip = {
+      id: 'chip',
+      type: 'shape',
+      frame: frame(100, 100, 300, 40),
+      data: {
+        kind: 'roundRect',
+        fill: { kind: 'srgb', value: '#334155' },
+        text: {
+          blocks: [para('two lines of chip text here', 24)],
+          autofit: 'none',
+          inset: { left: 8, top: 2, right: 8, bottom: 2 },
+        },
+      },
+    } as unknown as Element;
+    expect(rules(deck([[chip]]), 'overflow')[0].message).toMatch(/spills .*past the edge/);
+  });
+
   it('leaves grow text to grow', () => {
     const d = deck([[text('t', frame(100, 100, 300, 40), [para(long)])]]);
     expect(rules(d, 'overflow')).toEqual([]);
