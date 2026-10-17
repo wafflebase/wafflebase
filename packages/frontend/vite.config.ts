@@ -4,9 +4,9 @@ import {
   existsSync,
   readFileSync,
   statSync,
-} from "fs";
-import { createRequire } from "module";
-import path from "path";
+} from 'fs';
+import { createRequire } from 'module';
+import path from 'path';
 // Imported by relative path, not as `@wafflebase/debug-report/plugin`, and
 // that is load-bearing. Vite's config bundler externalizes every bare
 // specifier — it resolves the id to an absolute path and marks it external —
@@ -22,15 +22,19 @@ import react from "@vitejs/plugin-react";
 import { loadEnv, type Plugin, type Connect } from "vite";
 import { defineConfig } from "vitest/config";
 
-const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
-const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
+const utilShimPath = path.resolve(__dirname, './src/lib/util-shim.js');
+const assertShimPath = path.resolve(__dirname, './src/lib/assert-shim.cjs');
 
 // Root package.json is the single source of truth for the version
 // surfaced on the homepage. Read at config-eval time and inject as a
 // build-time constant so the hero eyebrow and demo footer always
 // match the shipped package.
+const frontendPkg = JSON.parse(
+  readFileSync(path.resolve(__dirname, './package.json'), 'utf-8'),
+) as { dependencies: Record<string, string> };
+
 const rootPkg = JSON.parse(
-  readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"),
+  readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'),
 ) as { version: string };
 
 /**
@@ -64,11 +68,11 @@ const sentryUpload = {
  * stripped so no script tag is emitted and no requests are made.
  */
 function gaSnippet(): Plugin {
-  let snippet = "";
+  let snippet = '';
   return {
-    name: "ga-snippet",
+    name: 'ga-snippet',
     config(_config, { mode }) {
-      const env = loadEnv(mode, process.cwd(), "VITE_");
+      const env = loadEnv(mode, process.cwd(), 'VITE_');
       const id = env.VITE_GA_ID;
       if (!id) return;
       snippet =
@@ -81,7 +85,7 @@ function gaSnippet(): Plugin {
         `    </script>`;
     },
     transformIndexHtml(html) {
-      return html.replace("<!--GA_SNIPPET-->", snippet);
+      return html.replace('<!--GA_SNIPPET-->', snippet);
     },
   };
 }
@@ -94,12 +98,12 @@ function gaSnippet(): Plugin {
  */
 function antlr4tsAssertShim(): Plugin {
   return {
-    name: "antlr4ts-assert-shim",
-    enforce: "pre",
+    name: 'antlr4ts-assert-shim',
+    enforce: 'pre',
     resolveId(source, importer) {
       // When antlr4ts (or its submodules) tries to resolve "assert",
       // redirect to our shim instead of the assert@2.x CJS polyfill.
-      if (source === "assert" && importer && importer.includes("antlr4ts")) {
+      if (source === 'assert' && importer && importer.includes('antlr4ts')) {
         return assertShimPath;
       }
     },
@@ -116,25 +120,29 @@ function antlr4tsAssertShim(): Plugin {
  * match the pinned version (no committed binaries).
  */
 function pdfjsAssets(): Plugin {
-  const require = createRequire(path.join(__dirname, "vite.config.ts"));
-  const pdfjsDir = path.dirname(require.resolve("pdfjs-dist/package.json"));
+  const require = createRequire(path.join(__dirname, 'vite.config.ts'));
+  const pdfjsDir = path.dirname(require.resolve('pdfjs-dist/package.json'));
   const mounts: Array<{ prefix: string; dir: string; out: string }> = [
-    { prefix: "/pdfjs/cmaps/", dir: path.join(pdfjsDir, "cmaps"), out: "pdfjs/cmaps" },
     {
-      prefix: "/pdfjs/standard_fonts/",
-      dir: path.join(pdfjsDir, "standard_fonts"),
-      out: "pdfjs/standard_fonts",
+      prefix: '/pdfjs/cmaps/',
+      dir: path.join(pdfjsDir, 'cmaps'),
+      out: 'pdfjs/cmaps',
+    },
+    {
+      prefix: '/pdfjs/standard_fonts/',
+      dir: path.join(pdfjsDir, 'standard_fonts'),
+      out: 'pdfjs/standard_fonts',
     },
   ];
-  let outDir = path.resolve(__dirname, "dist");
+  let outDir = path.resolve(__dirname, 'dist');
   return {
-    name: "pdfjs-assets",
+    name: 'pdfjs-assets',
     configResolved(config) {
       outDir = path.resolve(config.root, config.build.outDir);
     },
     configureServer(server) {
       server.middlewares.use(((req, res, next) => {
-        const url = (req.url ?? "").split("?")[0];
+        const url = (req.url ?? '').split('?')[0];
         const mount = mounts.find((m) => url.startsWith(m.prefix));
         if (!mount) return next();
         const file = path.join(mount.dir, url.slice(mount.prefix.length));
@@ -153,10 +161,10 @@ function pdfjsAssets(): Plugin {
           res.end();
           return;
         }
-        res.setHeader("Content-Type", "application/octet-stream");
-        res.setHeader("Content-Length", String(stat.size));
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Length', String(stat.size));
         const stream = createReadStream(file);
-        stream.on("error", () => {
+        stream.on('error', () => {
           res.statusCode = 500;
           res.end();
         });
@@ -172,14 +180,14 @@ function pdfjsAssets(): Plugin {
 }
 
 function manualChunks(id: string): string | undefined {
-  const normalizedId = id.replace(/\\/g, "/");
+  const normalizedId = id.replace(/\\/g, '/');
 
   if (
-    normalizedId.includes("node_modules/react") ||
-    normalizedId.includes("node_modules/react-dom") ||
-    normalizedId.includes("node_modules/scheduler")
+    normalizedId.includes('node_modules/react') ||
+    normalizedId.includes('node_modules/react-dom') ||
+    normalizedId.includes('node_modules/scheduler')
   ) {
-    return "vendor-react";
+    return 'vendor-react';
   }
 
   // Split BEFORE the `vendor-ui` catch-all below. `alert-dialog` and
@@ -193,60 +201,60 @@ function manualChunks(id: string): string | undefined {
   // Measured: with the panel lazy but this split absent, `vendor-ui` was
   // byte-identical to the statically-imported build.
   if (
-    normalizedId.includes("node_modules/@radix-ui/react-alert-dialog") ||
-    normalizedId.includes("node_modules/@radix-ui/react-scroll-area")
+    normalizedId.includes('node_modules/@radix-ui/react-alert-dialog') ||
+    normalizedId.includes('node_modules/@radix-ui/react-scroll-area')
   ) {
-    return "vendor-ui-history";
+    return 'vendor-ui-history';
   }
 
   if (
-    normalizedId.includes("node_modules/@radix-ui") ||
-    normalizedId.includes("node_modules/lucide-react") ||
-    normalizedId.includes("node_modules/sonner") ||
-    normalizedId.includes("node_modules/vaul")
+    normalizedId.includes('node_modules/@radix-ui') ||
+    normalizedId.includes('node_modules/lucide-react') ||
+    normalizedId.includes('node_modules/sonner') ||
+    normalizedId.includes('node_modules/vaul')
   ) {
-    return "vendor-ui";
+    return 'vendor-ui';
   }
 
   if (
-    normalizedId.includes("node_modules/@tanstack") ||
-    normalizedId.includes("node_modules/react-router")
+    normalizedId.includes('node_modules/@tanstack') ||
+    normalizedId.includes('node_modules/react-router')
   ) {
-    return "vendor-app";
+    return 'vendor-app';
   }
 
-  if (normalizedId.includes("node_modules/@yorkie-js")) {
-    return "vendor-yorkie";
+  if (normalizedId.includes('node_modules/@yorkie-js')) {
+    return 'vendor-yorkie';
   }
 
   // Parquet decoding is only reachable from the lazy sheet import surface.
   // Keep its reader and codecs in the existing sheet core chunk instead of
   // emitting one chunk per dynamic import.
   if (
-    normalizedId.includes("node_modules/hyparquet") ||
-    normalizedId.includes("node_modules/fzstd") ||
-    normalizedId.includes("node_modules/hysnappy")
+    normalizedId.includes('node_modules/hyparquet') ||
+    normalizedId.includes('node_modules/fzstd') ||
+    normalizedId.includes('node_modules/hysnappy')
   ) {
-    return "sheet-core";
+    return 'sheet-core';
   }
 
   if (
-    normalizedId.includes("node_modules/antlr4ts") ||
-    normalizedId.includes("/packages/sheets/antlr/")
+    normalizedId.includes('node_modules/antlr4ts') ||
+    normalizedId.includes('/packages/sheets/antlr/')
   ) {
-    return "sheet-formula-parser";
+    return 'sheet-formula-parser';
   }
 
-  if (normalizedId.includes("/packages/sheets/src/formula/")) {
-    return "sheet-formula-eval";
+  if (normalizedId.includes('/packages/sheets/src/formula/')) {
+    return 'sheet-formula-eval';
   }
 
   if (
-    normalizedId.includes("/packages/sheets/src/view/") ||
-    normalizedId.includes("/packages/sheets/src/model/") ||
-    normalizedId.includes("/packages/sheets/src/store/")
+    normalizedId.includes('/packages/sheets/src/view/') ||
+    normalizedId.includes('/packages/sheets/src/model/') ||
+    normalizedId.includes('/packages/sheets/src/store/')
   ) {
-    return "sheet-core";
+    return 'sheet-core';
   }
 
   // The revision-history preview surface (`revision-preview.tsx`) mounts
@@ -276,8 +284,8 @@ function manualChunks(id: string): string | undefined {
   //   `view/editor/` also holds `hit-test-elements.ts`,
   //   `snap-candidates.ts`, `text-box-editor.ts` and more, all
   //   barrel-exported alongside it.
-  if (normalizedId.endsWith("/packages/slides/src/view/editor/editor.ts")) {
-    return "slides-editor-engine";
+  if (normalizedId.endsWith('/packages/slides/src/view/editor/editor.ts')) {
+    return 'slides-editor-engine';
   }
 
   // - The notes editor (`@wafflebase/notes` `view/editor.ts`: CodeMirror +
@@ -286,8 +294,8 @@ function manualChunks(id: string): string | undefined {
   //   1400 kB-overridden). It now hoists into its own shared chunk the
   //   same way — `notes-view-*.js` itself shrank from ~1.3 MB to ~8 kB as
   //   a result. Named for the same reason as the slides editor above.
-  if (normalizedId.endsWith("/packages/notes/src/view/editor.ts")) {
-    return "notes-editor-engine";
+  if (normalizedId.endsWith('/packages/notes/src/view/editor.ts')) {
+    return 'notes-editor-engine';
   }
 
   // NOTE: the landing page's chrome (`nav-bar` / `footer` / `marketing-page` /
@@ -317,11 +325,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
     {
-      name: "docs-trailing-slash",
+      name: 'docs-trailing-slash',
       configureServer(server) {
         server.middlewares.use(((req, res, next) => {
-          if (req.url === "/docs") {
-            res.writeHead(302, { Location: "/docs/" });
+          if (req.url === '/docs') {
+            res.writeHead(302, { Location: '/docs/' });
             res.end();
             return;
           }
@@ -361,8 +369,8 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      "/docs": {
-        target: "http://localhost:5174",
+      '/docs': {
+        target: 'http://localhost:5174',
         changeOrigin: true,
         ws: true,
       },
@@ -370,39 +378,50 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@wafflebase/sheets": path.resolve(__dirname, "../sheets/src/index.ts"),
-      "@wafflebase/docs": path.resolve(__dirname, "../docs/src/index.ts"),
-      "@wafflebase/notes": path.resolve(__dirname, "../notes/src/index.ts"),
-      "@wafflebase/slides": path.resolve(__dirname, "../slides/src/index.ts"),
-      "@wafflebase/board": path.resolve(__dirname, "../board/src/index.ts"),
+      '@': path.resolve(__dirname, './src'),
+      '@wafflebase/sheets': path.resolve(__dirname, '../sheets/src/index.ts'),
+      '@wafflebase/docs': path.resolve(__dirname, '../docs/src/index.ts'),
+      '@wafflebase/notes': path.resolve(__dirname, '../notes/src/index.ts'),
+      '@wafflebase/slides': path.resolve(__dirname, '../slides/src/index.ts'),
+      '@wafflebase/board': path.resolve(__dirname, '../board/src/index.ts'),
       // The `/react` alias comes FIRST: Vite matches these in order, so the
       // bare-name entry would otherwise swallow the subpath.
-      "@wafflebase/debug-report/testing": path.resolve(
+      '@wafflebase/debug-report/testing': path.resolve(
         __dirname,
-        "../debug-report/src/testing/index.ts",
+        '../debug-report/src/testing/index.ts',
       ),
-      "@wafflebase/debug-report/react": path.resolve(
+      '@wafflebase/debug-report/react': path.resolve(
         __dirname,
-        "../debug-report/src/ui/index.ts",
+        '../debug-report/src/ui/index.ts',
       ),
-      "@wafflebase/debug-report": path.resolve(
+      '@wafflebase/debug-report': path.resolve(
         __dirname,
-        "../debug-report/src/index.ts",
+        '../debug-report/src/index.ts',
       ),
       util: utilShimPath,
       assert: assertShimPath,
     },
   },
   define: {
-    "process.env": {},
+    'process.env': {},
     __APP_VERSION__: JSON.stringify(rootPkg.version),
+    // Which `@yorkie-js/react` this build is pinned to. Offline persistence
+    // needs a version whose `YorkieProvider` forwards a client key — before
+    // one, the durable path would mount a store under a key the SDK minted at
+    // random, write to a scope that never resumes, and let the chip promise a
+    // durability that does not survive a reload. Read from the pin rather
+    // than hardcoded, so bumping the dependency is the only action needed.
+    __YORKIE_REACT_VERSION__: JSON.stringify(
+      (frontendPkg.dependencies as Record<string, string>)[
+        '@yorkie-js/react'
+      ] ?? '0.0.0',
+    ),
   },
   optimizeDeps: {
     esbuildOptions: {
       plugins: [
         {
-          name: "node-shims",
+          name: 'node-shims',
           setup(build) {
             // Intercept Node.js built-in imports during dep
             // pre-bundling so antlr4ts gets our lightweight shims.
@@ -436,14 +455,14 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "jsdom",
+    environment: 'jsdom',
     include: [
-      "tests/**/*.test.ts",
-      "tests/**/*.test.tsx",
-      "src/**/*.test.ts",
-      "src/**/*.test.tsx",
+      'tests/**/*.test.ts',
+      'tests/**/*.test.tsx',
+      'src/**/*.test.ts',
+      'src/**/*.test.tsx',
     ],
-    setupFiles: ["tests/setup.ts"],
+    setupFiles: ['tests/setup.ts'],
     globals: false,
   },
 });
