@@ -47,3 +47,41 @@
   environment, so re-running it would produce the same infra failure rather
   than a second lens. A human reviewer should treat this branch as
   **unreviewed by the panel**.
+- **Round 2 — the panel did run** (blast-radius, test-adequacy, security), and
+  found that the guard had been applied to the surfaces the first draft
+  happened to look at rather than to every surface that outranks the overlay.
+  Acted on, all blocking:
+  - The **keyboard twin** of the header toggle (`Cmd/Ctrl+Alt+Shift+M`,
+    bound on `window` by `SheetView`) still flipped `commentsPanelOpen` from
+    under a preview — the exact state write `EditingChrome` had just been
+    added to prevent. Guarded in the handler.
+  - `MobileEditPanel` is `fixed inset-x-0 z-50`: `fixed` leaves the surface
+    box entirely, so covering never applied to it, and its commit writes the
+    live sheet. Withheld.
+  - The `linkHover` card, recorded above as a known limitation, was widened
+    into the change after all — it is one term, and "read-only so it cannot
+    write" does not excuse painting a live-grid link over a banner that says
+    the user is looking at an old version.
+  - **Docs had the same hole in two more places**: its comment popover and
+    its insert-comment dialog are both `fixed … z-50`, so withholding only
+    the *panel* left every live-write control reachable. `DocsView` now takes
+    the same `previewing` prop and withholds both, plus its own comment
+    shortcut.
+  - The test-adequacy lens was right that source greps cannot see what the
+    DOM ends up with (a portal renders into `document.body` either way).
+    Added behavioural tests that mount the **real** `CommentPopover` and
+    `CommentSidePanel` through `EditingChrome` and query the whole document
+    for Reply / Resolve / Edit / Delete / Jump. Mounting `SheetView` itself
+    is still out of reach in jsdom (Yorkie document + Canvas engine +
+    router), so the wiring tests remain the link between the editors and the
+    mechanism.
+  - The "leaves the sheet panel toggle untouched" test was a negative regex
+    that could not see the regression it claimed to guard — a `useEffect`
+    keyed on `previewing` calling `setCommentsPanelOpen(false)` spans lines
+    the regex never matches. Replaced with a structural scan of every
+    `useEffect` in the file.
+- The lesson underneath all of it: `z-30` was not the rule. The rule is
+  **anything that is not painted below the overlay**, which includes every
+  `fixed` descendant regardless of its `z-index`, because `fixed` escapes the
+  positioned ancestor the overlay is sized to. Enumerating by `z-index` alone
+  missed three surfaces across two editors.

@@ -136,6 +136,20 @@ interface DocsViewProps {
    * one 401s and that 401 ejects the visitor to `/login` (issue #1037).
    */
   uploadImage?: DocsImageUpload;
+  /**
+   * True while a revision preview is open over this mount.
+   *
+   * The overlay is `absolute inset-0 z-20` inside the same `PreviewSurface`
+   * that holds this view, so it contains everything painted below it — but
+   * not the comment popover (`fixed z-50`) or the insert-comment dialog
+   * (`fixed … z-50`), which escape the surface box and outrank the overlay.
+   * Both stayed clickable under a banner reading "Viewing a version", and
+   * their Reply / Resolve / Edit / Delete / Comment controls are every one a
+   * `doc.update()` on the LIVE document. Covering cannot contain them, so
+   * they are withheld, exactly as the host already withholds the panel.
+   * Hosts with no version history (the share-link view) omit it.
+   */
+  previewing?: boolean;
 }
 
 /**
@@ -154,6 +168,7 @@ export function DocsView({
   documentId,
   workspaceId,
   uploadImage,
+  previewing = false,
 }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // State-mirrored handle on the same DOM node, so effects that depend
@@ -611,6 +626,12 @@ export function DocsView({
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || !e.altKey) return;
+      // Both arms reach a surface a preview withholds — the panel the host
+      // closes with `commentsPanelOpen && !previewing`, and the compose
+      // dialog above. Bound on `window`, so the preview's capture-phase
+      // suppressor only covers them once that lazy chunk has mounted;
+      // refuse here too rather than flip state nothing will render.
+      if (previewing) return;
       if (e.key === "M" || e.key === "m") {
         if (e.shiftKey) {
           e.preventDefault();
@@ -622,7 +643,7 @@ export function DocsView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [comments]);
+  }, [comments, previewing]);
 
   // Cmd/Ctrl+/ opens the shortcuts help modal. The docs text-editor
   // doesn't bind "/" so the event bubbles to window unhindered. Open-only
@@ -704,7 +725,7 @@ export function DocsView({
           comments.beginCompose();
         }}
       />
-      {comments.active && (
+      {comments.active && !previewing && (
         <DocsCommentPopover
           thread={comments.active.thread}
           anchorRect={comments.active.anchorRect}
@@ -722,7 +743,7 @@ export function DocsView({
           onDismiss={comments.dismissPopover}
         />
       )}
-      {comments.composeOpen && (
+      {comments.composeOpen && !previewing && (
         <div
           role="dialog"
           aria-label="Insert comment"

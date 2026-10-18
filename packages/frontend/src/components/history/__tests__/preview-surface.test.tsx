@@ -3,7 +3,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { CommentPopover } from '@/app/spreadsheet/components/comments/CommentPopover';
+import { CommentSidePanel } from '@/components/comments/components/CommentSidePanel';
+import type { SheetCellAnchor, Thread } from '@/types/comments';
 
 import { EditingChrome, PreviewSurface } from '../preview-surface';
 
@@ -106,6 +110,135 @@ describe('EditingChrome', () => {
   });
 });
 
+/**
+ * The comment surfaces, rendered for real through the containment component
+ * the editors withhold them with.
+ *
+ * The source assertions further down pin the *wiring* — which expression
+ * gates which render site — and they cannot see what the DOM ends up with:
+ * a grep passes just as well if the surface escapes through a portal, since
+ * a portal still renders its children into `document.body`. So these mount
+ * the real `CommentPopover` and the real `CommentSidePanel` and ask the
+ * document itself, by role and by text, whether any control that writes the
+ * live CRDT survived.
+ *
+ * Mounting `SheetView` or `DocsView` around them is not reachable here —
+ * each needs a Yorkie document, a Canvas engine and a router — so the
+ * assertion is placed on the mechanism plus the real comment UI, and the
+ * wiring tests keep the editors attached to it.
+ */
+const commentAuthor = { userId: 'u1', username: 'alice' };
+
+function sheetThread(): Thread<SheetCellAnchor> {
+  return {
+    id: 't1',
+    anchor: { kind: 'sheet-cell', tabId: 'tab1', rowId: 'r1', colId: 'c1' },
+    comments: [
+      {
+        id: 'c1',
+        author: commentAuthor,
+        body: 'the comment body',
+        createdAt: 1_700_000_000_000,
+      },
+    ],
+    resolved: false,
+    createdAt: 1_700_000_000_000,
+  };
+}
+
+const popoverHandlers = () => ({
+  onAddThread: vi.fn().mockResolvedValue(undefined),
+  onReply: vi.fn().mockResolvedValue(undefined),
+  onResolve: vi.fn().mockResolvedValue(undefined),
+  onEditComment: vi.fn().mockResolvedValue(undefined),
+  onDeleteComment: vi.fn().mockResolvedValue(undefined),
+  onClose: vi.fn(),
+});
+
+describe('withholding the comment surfaces from a preview', () => {
+  it('leaves no sheet comment popover control in the document', () => {
+    render(
+      <EditingChrome previewing>
+        <CommentPopover
+          threads={[sheetThread()]}
+          currentUser={commentAuthor}
+          {...popoverHandlers()}
+        />
+      </EditingChrome>,
+    );
+
+    // Every control here is a `doc.update()` on the LIVE document behind the
+    // preview: the reply box, Resolve, and the menu holding Edit / Delete.
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resolve thread' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    // Asked of the whole document, not of a subtree: a surface that escaped
+    // through a portal would still land in `document.body`.
+    expect(document.body.textContent).not.toContain('the comment body');
+  });
+
+  it('restores every one of them when no preview is open', () => {
+    render(
+      <EditingChrome previewing={false}>
+        <CommentPopover
+          threads={[sheetThread()]}
+          currentUser={commentAuthor}
+          {...popoverHandlers()}
+        />
+      </EditingChrome>,
+    );
+
+    // The other half of the promise: withholding is for the duration of the
+    // preview only, so none of this is lost.
+    expect(screen.getByRole('textbox')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Resolve thread' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'More actions' })).toBeTruthy();
+    expect(document.body.textContent).toContain('the comment body');
+  });
+
+  it('leaves no comments panel row in the document', () => {
+    render(
+      <EditingChrome previewing>
+        <CommentSidePanel<SheetCellAnchor>
+          threads={[sheetThread()]}
+          onJumpTo={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </EditingChrome>,
+    );
+
+    // Jump-to-comment is the panel's live-document control: it moves the
+    // real grid behind the preview and opens the live popover over it.
+    expect(
+      screen.queryByRole('button', { name: 'Jump to comment by alice' }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Close comments panel' }),
+    ).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Comments' })).toBeNull();
+    expect(document.body.textContent).not.toContain('the comment body');
+  });
+
+  it('restores the comments panel when no preview is open', () => {
+    render(
+      <EditingChrome previewing={false}>
+        <CommentSidePanel<SheetCellAnchor>
+          threads={[sheetThread()]}
+          onJumpTo={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </EditingChrome>,
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Jump to comment by alice' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Close comments panel' }),
+    ).toBeTruthy();
+  });
+});
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(here, '../../../app');
 
@@ -161,6 +294,25 @@ const WIRED_EDITORS: Array<{
   },
   { file: 'board/board-detail.tsx', covered: ['<BoardView'], removed: [] },
 ];
+
+/** Every `useEffect(...)` call in `source`, sliced on balanced parentheses. */
+function effectBodies(source: string): string[] {
+  const bodies: string[] = [];
+  for (
+    let at = source.indexOf('useEffect(');
+    at > -1;
+    at = source.indexOf('useEffect(', at + 1)
+  ) {
+    let depth = 0;
+    let i = at + 'useEffect'.length;
+    for (; i < source.length; i++) {
+      if (source[i] === '(') depth++;
+      else if (source[i] === ')' && --depth === 0) break;
+    }
+    bodies.push(source.slice(at, i + 1));
+  }
+  return bodies;
+}
 
 /** Index of `tag`, asserted to fall strictly between `open` and `close`. */
 function assertBetween(
@@ -257,17 +409,77 @@ describe('the preview containment of every wired editor', () => {
 
   // The panel's own toggle state is never written from the preview: a preview
   // is a view, not a preference, so closing it has to give the panel back.
-  //
-  // This one is a forward guard, not coverage of the fix — the identifier it
-  // forbids does not exist before the fix, so it also passes on the unfixed
-  // file. It is here to stop the obvious "repair" of the next bug reported
-  // against this area, which is to close the panel on preview instead.
-  it('leaves the sheet panel toggle untouched so a closed preview restores it', () => {
+  it('writes the sheet panel toggle only from a user action, never from a preview', () => {
     const source = readFileSync(
       path.join(appDir, 'documents/document-detail.tsx'),
       'utf8',
     );
+    // The literal shape: the preview flag read straight into the setter.
     expect(source).not.toMatch(/setCommentsPanelOpen\([^)]*previewing/);
+    // And the shape that regex cannot see, which is the one a "repair" of the
+    // next bug reported against this area would actually take: an effect
+    // keyed on `previewing` that closes the panel. The regex above misses it
+    // because the setter call and the flag sit on different lines. So the
+    // rule is asserted structurally instead — the panel's state is written
+    // only by a click or a shortcut, never by a render-time reaction.
+    for (const body of effectBodies(source)) {
+      expect(
+        body.includes('setCommentsPanelOpen'),
+        'an effect writes commentsPanelOpen, so a preview could close the ' +
+          'panel for good instead of withholding it',
+      ).toBe(false);
+    }
+  });
+
+  // The keyboard twin of the header toggle `EditingChrome` withholds. It is
+  // bound on `window` by `SheetView` itself, so the preview's capture-phase
+  // suppressor only covers it once that lazy chunk has mounted — and flipping
+  // `commentsPanelOpen` from under a preview is exactly the state write the
+  // wrapper exists to prevent.
+  it('sheet-view refuses the comments-panel shortcut while previewing', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    const handler = source.indexOf('const handleKeyDown');
+    const toggle = source.indexOf('onToggleCommentsPanel?.()');
+    expect(handler).toBeGreaterThan(-1);
+    expect(toggle).toBeGreaterThan(handler);
+    expect(source.slice(handler, toggle)).toContain('if (previewing) return;');
+  });
+
+  // The other two sheet surfaces that outrank the overlay. The mobile cell
+  // editor is the worst of them: `fixed inset-x-0 z-50` leaves the surface
+  // box entirely, and its commit is a write to the live sheet.
+  it('sheet-view withholds every surface that paints above the overlay', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    expect(source).toContain('{isMobile && mobileEditState && !previewing && (');
+    expect(source).toContain('{linkHover && !previewing && (');
+  });
+
+  // Docs has the same hole in two more places: its comment popover and its
+  // insert-comment dialog are both `fixed … z-50`, so the host withholding
+  // the *panel* alone left the live-write controls reachable.
+  it('docs-view withholds its comment popover and compose dialog', () => {
+    const source = readFileSync(path.join(appDir, 'docs/docs-view.tsx'), 'utf8');
+    expect(source).toContain('previewing = false');
+    expect(source).toContain('{comments.active && !previewing && (');
+    expect(source).toContain('{comments.composeOpen && !previewing && (');
+    // And the shortcut that opens either of them, for the same reason the
+    // sheet's is guarded.
+    const handler = source.indexOf('// Keyboard shortcuts for comments.');
+    const toggle = source.indexOf('comments.togglePanel()', handler);
+    expect(handler).toBeGreaterThan(-1);
+    expect(toggle).toBeGreaterThan(handler);
+    expect(source.slice(handler, toggle)).toContain('if (previewing) return;');
+  });
+
+  it('docs-detail hands docs-view the same previewing flag', () => {
+    const source = readFileSync(path.join(appDir, 'docs/docs-detail.tsx'), 'utf8');
+    expect(source).toMatch(/previewing=\{previewing\}/);
   });
 
   // The sheet popover is the one editing control a preview covers in the DOM

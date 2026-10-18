@@ -957,12 +957,20 @@ export function SheetView({
         e.key.toLowerCase() === "m"
       ) {
         e.preventDefault();
+        // The keyboard twin of the header toggle, which the host withholds
+        // inside `EditingChrome` while a preview is open — because flipping
+        // `commentsPanelOpen` there would mean closing the preview no longer
+        // gives the panel back. A shortcut that writes the same state is the
+        // same bug, and it is bound on `window`, so the preview's own
+        // capture-phase suppressor only covers it once that lazy chunk has
+        // mounted. Refuse here too.
+        if (previewing) return;
         onToggleCommentsPanel?.();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [openCommentComposerForActiveCell, onToggleCommentsPanel]);
+  }, [openCommentComposerForActiveCell, onToggleCommentsPanel, previewing]);
 
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
@@ -1909,7 +1917,13 @@ export function SheetView({
             />
           </ChunkBoundary>
         )}
-        {isMobile && mobileEditState && (
+        {/* `fixed inset-x-0 z-50` — it escapes this surface's box entirely
+            and outranks the overlay's `z-20`, so a cell editor opened on a
+            touch device before the preview opened would stay on screen above
+            it, and its commit is a write to the LIVE sheet. Covering cannot
+            contain it either; withhold it with the rest. `mobileEditState`
+            is untouched, so closing the preview returns the draft. */}
+        {isMobile && mobileEditState && !previewing && (
           <MobileEditPanel
             cellRef={mobileEditState.cellRef}
             initialValue={mobileEditState.value}
@@ -1948,7 +1962,11 @@ export function SheetView({
             />
           </div>
         )}
-        {linkHover && (
+        {/* Also `absolute z-30` against the overlay's `z-20`, so a hover card
+            left open when the preview opened paints above it — a link read
+            off the live grid, offered for opening, on top of a banner saying
+            the user is looking at an old version. */}
+        {linkHover && !previewing && (
           <div
             ref={linkPopoverWrapperRef}
             className="absolute z-30"

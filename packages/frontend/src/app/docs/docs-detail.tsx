@@ -299,6 +299,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 // reachable. The user's choice survives — `commentsPanelOpen`
                 // is untouched, so closing the preview restores the panel.
                 commentsPanelOpen={commentsPanelOpen && !previewing}
+                // The panel is not the only comment surface that outranks the
+                // overlay: the popover and the insert-comment dialog are both
+                // `fixed … z-50`, so they escape the surface box entirely.
+                // `DocsView` withholds them on this flag — the same one the
+                // overlay is driven by.
+                previewing={previewing}
                 onCommentsPanelOpenChange={setCommentsPanelOpen}
               />
             </PreviewSurface>
