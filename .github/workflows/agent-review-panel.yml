@@ -2388,6 +2388,7 @@ jobs:
           ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
           CI_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          REVIEWED: ${{ github.event.workflow_run.head_sha }}
         run: |
           AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
           # Only trust a "re-triggered" conclusion when BOTH remote heads
@@ -2398,6 +2399,17 @@ jobs:
           # and page rather than assume the fix pushed.
           if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
             echo "Fixer pushed a new commit ($AFTER) — CI + a fresh panel will re-trigger."
+          elif [ -n "$AFTER" ] && [ "$AFTER" != "$REVIEWED" ]; then
+            # SOMEBODY ELSE PUSHED. The head left the commit this round reviewed,
+            # but not during the fix — it moved before `before-fix` read it, so
+            # BEFORE already equals AFTER and the check above cannot tell. That
+            # push starts its own CI and its own panel round (whose run is what
+            # usually cancels us, through the `active` concurrency group), so a
+            # fresher round owns this PR. Paging here would latch
+            # `<!-- agent-review-paged -->` and freeze that round instead (#1099:
+            # a local self-review push landed just before the fixer started, and
+            # the fixer was paged as timed out 25 seconds into its run).
+            echo "Branch head moved off the reviewed commit ($REVIEWED → $AFTER) by another push — a fresher round owns this PR. Not paging."
           else
             # A CI RE-RUN IS THE ONE SUPERSEDE THAT LEAVES THE HEAD UNCHANGED, so
             # the check above cannot see it — and a page written through it is worse
