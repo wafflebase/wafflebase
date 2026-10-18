@@ -208,6 +208,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     staleTime: 5 * 60 * 1000,
   });
 
+  // One flag for every surface a preview has to contain, as in `docs-detail`:
+  // wired to two conditions that could disagree, the overlay could paint while
+  // a control it is meant to replace was never withheld.
+  const previewing = Boolean(previewRevisionId && currentUser);
+
   useEffect(() => {
     document.title = documentData?.title
       ? `${documentData.title} — Wafflebase`
@@ -729,7 +734,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           <PreviewSurface
             className="flex-col"
             preview={
-              previewRevisionId && currentUser ? (
+              previewing && previewRevisionId && currentUser ? (
                 <ChunkBoundary fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}
@@ -768,6 +773,10 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                       addPivotTab={addPivotTab}
                       workspaceId={documentData?.workspaceId}
                       documentId={documentId}
+                      // The popover is `z-30` inside this surface and the
+                      // overlay is `z-20`, so covering does not contain it.
+                      // `SheetView` withholds it instead.
+                      previewing={previewing}
                       onToggleCommentsPanel={() => setCommentsPanelOpen((v) => !v)}
                     />
                   )}
@@ -786,7 +795,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               />
             )}
           </PreviewSurface>
-          {commentsPanelOpen && (
+          {/* The panel is a sibling of the surface, so a preview never covers
+              it, and its Jump-to-comment moves the LIVE grid behind the
+              preview and opens the live popover over it — every control of
+              which is a `doc.update()` on the current document. Withholding it
+              applies `preview-surface.tsx`'s rule instead: while a preview is
+              open, no editing control is both rendered and reachable. The
+              user's choice survives — `commentsPanelOpen` is untouched, so
+              closing the preview restores the panel. Same fix docs made. */}
+          {commentsPanelOpen && !previewing && (
             <CommentSidePanel<SheetCellAnchor>
               threads={allThreads}
               onJumpTo={(t) => handleJumpToCell(t.anchor)}

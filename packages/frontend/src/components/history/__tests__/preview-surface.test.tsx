@@ -223,6 +223,76 @@ describe('the preview containment of every wired editor', () => {
     },
   );
 
+  /**
+   * The comment surfaces are the third case, and neither mechanism above
+   * reaches them.
+   *
+   * Containment by covering only works for children that paint *below* the
+   * overlay, and both comment surfaces are z-indexed above its `z-20`: the
+   * panel is `z-40` and lives outside the surface entirely (sheets), and the
+   * sheet comment popover is `absolute z-30` inside it. Both stayed clickable
+   * under a banner reading "Viewing a version", and every control on them —
+   * Reply, Resolve, Edit, Delete — is a `doc.update()` on the LIVE document.
+   * So they are withheld, like `EditingChrome`'s toolbars.
+   *
+   * Asserted on the source because mounting either editor means mounting a
+   * Yorkie document, a canvas engine and a router; the conditional is the
+   * whole fix, and it is one line in each file.
+   */
+  it.each(['docs/docs-detail.tsx', 'documents/document-detail.tsx'])(
+    '%s withholds its comments panel while a preview is open',
+    (file) => {
+      const source = readFileSync(path.join(appDir, file), 'utf8');
+      expect(source).toContain('commentsPanelOpen && !previewing');
+      // And the flag is the same one the overlay is driven by, so the panel
+      // cannot be withheld with no preview painted, or left live under one.
+      expect(source).toContain('const previewing = Boolean(');
+      expect(source).toMatch(/preview=\{\s*previewing &&/);
+    },
+  );
+
+  // The panel's own toggle state is never written here: a preview is a view,
+  // not a preference, so closing it has to give the panel back.
+  it('leaves the sheet panel toggle untouched so a closed preview restores it', () => {
+    const source = readFileSync(
+      path.join(appDir, 'documents/document-detail.tsx'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/setCommentsPanelOpen\([^)]*previewing/);
+  });
+
+  // The sheet popover is the one editing control a preview covers in the DOM
+  // tree but not on screen.
+  it('sheet-view withholds the comment popover while a preview is open', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    expect(source).toContain('previewing = false');
+    expect(source).toContain(
+      'const commentPopoverVisible = commentPopoverOpen && !previewing;',
+    );
+    // Every popover surface keys off that one value: the element itself, and
+    // the two effects that place it — a placement effect still running off
+    // `commentPopoverOpen` would measure against a grid behind the preview.
+    expect(source).not.toMatch(/\{commentPopoverOpen &&/);
+    expect(source).toMatch(/\{commentPopoverVisible && activeCellForComment &&/);
+    expect(source).toContain('if (!commentPopoverVisible) setCommentPopoverPos(null);');
+    expect(source).toContain(
+      'if (!commentPopoverVisible || !activeCellForComment) return;',
+    );
+  });
+
+  // The host has to actually pass it; the prop defaults to `false`, so a
+  // missing one fails open — the exact bug, silently.
+  it('document-detail hands sheet-view the same previewing flag', () => {
+    const source = readFileSync(
+      path.join(appDir, 'documents/document-detail.tsx'),
+      'utf8',
+    );
+    expect(source).toMatch(/previewing=\{previewing\}/);
+  });
+
   // The two mechanisms must be driven by one expression. Wired to two
   // conditions that could disagree, a preview could paint over a toolbar
   // that was never removed — the original bug — or remove the toolbar with

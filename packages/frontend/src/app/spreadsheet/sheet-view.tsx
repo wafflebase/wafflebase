@@ -144,6 +144,7 @@ export function SheetView({
   addPivotTab,
   workspaceId,
   documentId,
+  previewing = false,
   onToggleCommentsPanel,
 }: {
   tabId: string;
@@ -180,6 +181,19 @@ export function SheetView({
    * view) simply means no reports.
    */
   documentId?: string;
+  /**
+   * True while a revision preview is open over this mount.
+   *
+   * The preview overlay covers this view, which contains every control
+   * painted inside the grid — but not the comment popover, which is
+   * `absolute z-30` against the overlay's `z-20` and so paints *above* it,
+   * fully clickable, with Reply / Resolve / Edit / Delete all writing to the
+   * live document behind the preview. Covering cannot contain it, so this
+   * withholds it: while a preview is open, no editing control is both
+   * rendered and reachable (`preview-surface.tsx`). Hosts with no version
+   * history (the share-link view) omit it.
+   */
+  previewing?: boolean;
   onToggleCommentsPanel?: () => void;
 }) {
   const { resolvedTheme: theme } = useTheme();
@@ -206,6 +220,13 @@ export function SheetView({
   // (including remote-change repaints), so comparing axis IDs lets us tell
   // "user moved to a new cell" apart from "remote tick on the same cell".
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
+  // A revision preview withholds the popover rather than covering it (see
+  // `previewing`). Every popover surface — the element and both of its
+  // placement effects — keys off this one value, so a popover left open when
+  // the preview opened disappears and re-measures its position when the
+  // preview closes, instead of reappearing at coordinates measured against a
+  // grid that may have moved underneath it.
+  const commentPopoverVisible = commentPopoverOpen && !previewing;
   const [activeCellForComment, setActiveCellForComment] = useState<Ref | null>(null);
   const commentPopoverOpenRef = useRef(false);
   const popoverAnchorRef = useRef<{ rowId: string; colId: string } | null>(null);
@@ -1587,11 +1608,11 @@ export function SheetView({
   // Reset position whenever the popover closes so the next open re-measures
   // before paint (avoids flashing at the previous cell's coords).
   useEffect(() => {
-    if (!commentPopoverOpen) setCommentPopoverPos(null);
-  }, [commentPopoverOpen]);
+    if (!commentPopoverVisible) setCommentPopoverPos(null);
+  }, [commentPopoverVisible]);
 
   useLayoutEffect(() => {
-    if (!commentPopoverOpen || !activeCellForComment) return;
+    if (!commentPopoverVisible || !activeCellForComment) return;
     const wrapper = commentPopoverWrapperRef.current;
     const sheet = sheetRef.current;
     if (!wrapper || !sheet) return;
@@ -1659,7 +1680,7 @@ export function SheetView({
       prev && prev.left === left && prev.top === top ? prev : { left, top },
     );
   }, [
-    commentPopoverOpen,
+    commentPopoverVisible,
     activeCellForComment,
     activeCellThreads.length,
     sheetRenderVersion,
@@ -1891,7 +1912,7 @@ export function SheetView({
             onValueChange={handleMobileEditValueChange}
           />
         )}
-        {commentPopoverOpen && activeCellForComment && (
+        {commentPopoverVisible && activeCellForComment && (
           <div
             ref={commentPopoverWrapperRef}
             className="absolute z-30"
