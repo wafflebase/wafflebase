@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, ciRunToAwait, definesCi, CHECK_PRODUCER_APP_SLUG, CI_DEFINING_PATHS, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
@@ -400,6 +402,66 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
     "stalled must keep `!cancelled()` — a superseded panel must not page");
   assert.ok(!/needs\.fix\.result == 'cancelled'/.test(stalledIf),
     "a cancelled fix job is the no-commit page's case; claiming it here double-pages");
+});
+
+// The no-commit page is a shell script, and every supersede it must stay quiet
+// for is a branch in that script — so run it. `git`, `gh` and `node` are stubs on
+// PATH; the outcome is whether the `<!-- agent-review-paged -->` latch was posted.
+// #1099 is the row that motivated this: a push landed between the panel and the
+// fixer, so BEFORE == AFTER, and the concurrency cancel read as a timed-out fixer.
+test("the no-commit page stays quiet for every supersede, and pages otherwise", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-review-panel.yml"), "utf8");
+  const at = yml.indexOf("- name: Page if the fix produced no commit\n");
+  assert.ok(at > 0, "no no-commit page step");
+  const rest = yml.slice(at);
+  const step = rest.slice(0, rest.slice(1).search(/\n {6}- (name|uses):/) + 1);
+  const body = step.slice(step.indexOf("run: |\n") + "run: |\n".length);
+  const script = body.split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
+
+  const dir = mkdtempSync(path.join(tmpdir(), "page-step-"));
+  try {
+    const bin = path.join(dir, "bin");
+    mkdirSync(bin);
+    const stub = (name, sh) => {
+      writeFileSync(path.join(bin, name), `#!/bin/sh\n${sh}\n`);
+      chmodSync(path.join(bin, name), 0o755);
+    };
+    const log = path.join(dir, "calls");
+    stub("git", `printf '%s\\trefs/heads/b\\n' "$STUB_AFTER"`);
+    stub("gh", `case "$*" in api*) printf '%s\\n' "$STUB_NOW_ATTEMPT";; *) echo "gh $*" >> "${log}"; cat >> "${log}";; esac`);
+    stub("node", `echo "node $*" >> "${log}"`);
+
+    const run = ({ before, after, reviewed, outcome, ciAttempt = "1", nowAttempt = "1" }) => {
+      writeFileSync(log, "");
+      const r = spawnSync("bash", ["-e", "-c", script], {
+        env: {
+          PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: dir,
+          PR: "1", BRANCH: "b", BEFORE: before, REVIEWED: reviewed, FIXER_OUTCOME: outcome,
+          CI_RUN_ID: "9", CI_ATTEMPT: ciAttempt, STUB_AFTER: after, STUB_NOW_ATTEMPT: nowAttempt,
+          GITHUB_SERVER_URL: "https://github.com", GITHUB_REPOSITORY: "o/r", GITHUB_RUN_ID: "7",
+        },
+        encoding: "utf8",
+      });
+      assert.equal(r.status, 0, r.stderr);
+      return readFileSync(log, "utf8").includes("<!-- agent-review-paged -->");
+    };
+
+    for (const [why, args, pages] of [
+      ["the fixer pushed", { before: "aaa", after: "bbb", reviewed: "aaa", outcome: "success" }, false],
+      ["the fixer pushed, then hit the wall", { before: "aaa", after: "bbb", reviewed: "aaa", outcome: "cancelled" }, false],
+      ["another push landed before the fixer started (#1099)", { before: "bbb", after: "bbb", reviewed: "aaa", outcome: "cancelled" }, false],
+      ["another push landed, fixer gave up", { before: "bbb", after: "bbb", reviewed: "aaa", outcome: "success" }, false],
+      ["a CI re-run superseded the round", { before: "aaa", after: "aaa", reviewed: "aaa", outcome: "cancelled", nowAttempt: "2" }, false],
+      ["the fixer produced nothing", { before: "aaa", after: "aaa", reviewed: "aaa", outcome: "success" }, true],
+      ["the fixer hit the wall with nothing pushed", { before: "aaa", after: "aaa", reviewed: "aaa", outcome: "cancelled" }, true],
+      ["the head could not be read", { before: "aaa", after: "", reviewed: "aaa", outcome: "cancelled" }, true],
+    ]) {
+      assert.equal(run(args), pages, `${why}: expected ${pages ? "a page" : "no page"}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // --- "@claude fix": routing, gate order, and reporting ----------------------
