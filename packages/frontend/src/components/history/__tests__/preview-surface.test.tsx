@@ -314,6 +314,24 @@ function effectBodies(source: string): string[] {
   return bodies;
 }
 
+/**
+ * The attribute block of the self-closing `<Tag … />` element in `source`.
+ *
+ * Asserting on the whole file instead is a fail-open: every host in this
+ * suite also renders `<EditingChrome previewing={previewing}>`, so a
+ * file-wide `/previewing=\{previewing\}/` matches with the prop missing from
+ * the editor it is supposed to be on.
+ */
+function jsxElement(source: string, tag: string): string {
+  // `[\s/>]` after the name, so `<UserPresenceType["activeCell"]>` — a type
+  // cast earlier in the same file — is not mistaken for the element.
+  const open = source.search(new RegExp(`<${tag}[\\s/>]`));
+  expect(open, `renders no <${tag}`).toBeGreaterThan(-1);
+  const close = source.indexOf('/>', open);
+  expect(close, `<${tag} is not self-closing`).toBeGreaterThan(-1);
+  return source.slice(open, close + 2);
+}
+
 /** Index of `tag`, asserted to fall strictly between `open` and `close`. */
 function assertBetween(
   source: string,
@@ -526,7 +544,7 @@ describe('the preview containment of every wired editor', () => {
 
   it('docs-detail hands docs-view the same previewing flag', () => {
     const source = readFileSync(path.join(appDir, 'docs/docs-detail.tsx'), 'utf8');
-    expect(source).toMatch(/previewing=\{previewing\}/);
+    expect(jsxElement(source, 'DocsView')).toMatch(/previewing=\{previewing\}/);
   });
 
   // The sheet popover is the one editing control a preview covers in the DOM
@@ -588,7 +606,42 @@ describe('the preview containment of every wired editor', () => {
       path.join(appDir, 'documents/document-detail.tsx'),
       'utf8',
     );
-    expect(source).toMatch(/previewing=\{previewing\}/);
+    expect(jsxElement(source, 'SheetView')).toMatch(/previewing=\{previewing\}/);
+  });
+
+  // `UserPresence` sits in the header, OUTSIDE `EditingChrome`, so neither
+  // half of the containment reaches it — and its peer jump moves the LIVE
+  // grid/editor behind the preview and republishes this user's selection
+  // there, the same live `doc.update()` the comments panel was withheld for.
+  // The avatars are read-only and stay; the two callbacks that make one
+  // clickable are what a preview withholds (`UserPresence` disables the
+  // trigger and drops the jump hint without them).
+  it.each([
+    { file: 'documents/document-detail.tsx' },
+    { file: 'docs/docs-detail.tsx' },
+  ])('$file withholds the peer jump while previewing', ({ file }) => {
+    const element = jsxElement(readFileSync(path.join(appDir, file), 'utf8'), 'UserPresence');
+    expect(element).toContain('onSelectPeer={previewing ? undefined : handleSelectPeer}');
+    expect(element).toContain('getJumpHint={previewing ? undefined : getJumpHint}');
+  });
+
+  // Belt to the host's braces: a jump staged in the instant before the
+  // preview opened would otherwise land under the banner.
+  it('sheet-view defers a staged peer jump while previewing', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    const effect = effectBodies(source).find((b) =>
+      b.includes('lastHandledPeerJumpRequestIdRef.current ='),
+    );
+    expect(effect, 'no effect applies the peer jump').toBeTruthy();
+    expect(effect!).toContain('if (previewing) return;');
+    // Before the request id is consumed, so closing the preview still jumps.
+    expect(effect!.indexOf('if (previewing) return;')).toBeLessThan(
+      effect!.indexOf('lastHandledPeerJumpRequestIdRef.current ='),
+    );
+    expect(effect!).toContain('previewing, sheetRenderVersion');
   });
 
   // The two mechanisms must be driven by one expression. Wired to two

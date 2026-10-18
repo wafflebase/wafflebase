@@ -1515,6 +1515,12 @@ export function SheetView({
 
   useEffect(() => {
     if (!peerJumpTarget) return;
+    // The hosts stop handing us new targets while a preview is open, but one
+    // staged just before it opened would otherwise land under the banner —
+    // `focusCell` moves the live selection and publishes it as presence.
+    // Deliberately not consuming the request id: the jump is deferred until
+    // the preview closes, not dropped.
+    if (previewing) return;
     if (peerJumpTarget.targetTabId && peerJumpTarget.targetTabId !== tabId) {
       return;
     }
@@ -1536,7 +1542,7 @@ export function SheetView({
     } catch {
       // Ignore malformed presence values from remote peers.
     }
-  }, [peerJumpTarget, sheetRenderVersion, tabId]);
+  }, [peerJumpTarget, previewing, sheetRenderVersion, tabId]);
 
   useEffect(() => {
     if (

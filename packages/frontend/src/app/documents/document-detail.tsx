@@ -728,7 +728,18 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               <IconHistory size={16} />
             </button>
             <ShareDialog documentId={documentId} />
-            <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
+            {/* Who is here is read-only, so the avatars stay. The *jump* is
+                not: it moves the LIVE grid behind the preview and publishes
+                this user's selection from a document they are not looking
+                at — the same live `doc.update()` the comments panel was
+                withheld for. Omitting the two callbacks is what
+                `UserPresence` documents as "non-clickable" (it disables the
+                trigger and drops the "Click to jump to…" hint), so the
+                control is not reachable rather than merely inert. */}
+            <UserPresence
+              onSelectPeer={previewing ? undefined : handleSelectPeer}
+              getJumpHint={previewing ? undefined : getJumpHint}
+            />
           </div>
         </SiteHeader>
         <div className="flex flex-1 overflow-hidden">

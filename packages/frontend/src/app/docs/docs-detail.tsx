@@ -248,9 +248,13 @@ function DocsLayout({ documentId }: { documentId: string }) {
               title={documentData?.title ?? "document"}
             />
             <ShareDialog documentId={documentId} />
+            {/* Same as the sheet host: the avatars are read-only and stay,
+                but the jump moves the LIVE editor behind the preview and
+                republishes this user's caret there. Omitting the callbacks
+                disables the trigger and drops the jump hint. */}
             <UserPresence
-              onSelectPeer={handleSelectPeer}
-              getJumpHint={getJumpHint}
+              onSelectPeer={previewing ? undefined : handleSelectPeer}
+              getJumpHint={previewing ? undefined : getJumpHint}
             />
           </div>
         </SiteHeader>
