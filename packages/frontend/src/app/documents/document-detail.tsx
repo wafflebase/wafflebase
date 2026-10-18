@@ -72,7 +72,10 @@ import { CommentSidePanel } from "@/components/comments/components/CommentSidePa
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { PreviewSurface } from "@/components/history/preview-surface";
+import {
+  EditingChrome,
+  PreviewSurface,
+} from "@/components/history/preview-surface";
 
 const SheetView = lazyWithRetry(() => import("@/app/spreadsheet/sheet-view"));
 // Lazy: `revision-preview.tsx` statically imports all three of
@@ -694,17 +697,25 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
-                commentsPanelOpen ? "bg-muted" : ""
-              }`}
-              aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
-              aria-pressed={commentsPanelOpen}
-              onClick={() => setCommentsPanelOpen((v) => !v)}
-            >
-              <IconMessage size={16} />
-            </button>
+            {/* The toggle goes with the panel, as it does in docs. Left
+                rendered it would still report `aria-pressed` for a panel that
+                is not there, and clicking it would flip `commentsPanelOpen`
+                to false with nothing on screen to show for it — so closing
+                the preview would NOT give the panel back, which is the whole
+                promise of withholding it rather than closing it. */}
+            <EditingChrome previewing={previewing}>
+              <button
+                type="button"
+                className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
+                  commentsPanelOpen ? "bg-muted" : ""
+                }`}
+                aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
+                aria-pressed={commentsPanelOpen}
+                onClick={() => setCommentsPanelOpen((v) => !v)}
+              >
+                <IconMessage size={16} />
+              </button>
+            </EditingChrome>
             <button
               type="button"
               className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${

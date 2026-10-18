@@ -903,6 +903,12 @@ export function SheetView({
   // axis IDs for the active cell so addThread has a stable anchor.
   const openCommentComposerForActiveCell = useCallback(() => {
     if (readOnly) return;
+    // `ensureAxisOrder` below is a `doc.update()` on the LIVE root, and the
+    // shortcut that reaches here is normally stopped by `RevisionPreview`'s
+    // capture-phase suppressor — which only exists once that lazy chunk has
+    // mounted. Between opening a preview and the chunk resolving nothing is
+    // painted and nothing is suppressed, so refuse here too.
+    if (previewing) return;
     const sheet = sheetRef.current;
     const activeCell = sheet?.getActiveCell();
     if (activeCell) {
@@ -920,7 +926,7 @@ export function SheetView({
       }
     }
     setCommentPopoverOpen(true);
-  }, [readOnly, doc, tabId]);
+  }, [readOnly, previewing, doc, tabId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -153,7 +153,11 @@ const WIRED_EDITORS: Array<{
   {
     file: 'documents/document-detail.tsx',
     covered: ['<SheetView', '<TabBar'],
-    removed: [],
+    // The comments toggle, by its icon — the one tag in the header button
+    // that is unique to it. It goes with the panel it owns: left rendered,
+    // it reports `aria-pressed` for a panel that is not there, and clicking
+    // it flips the toggle off so closing the preview gives nothing back.
+    removed: ['<IconMessage'],
   },
   { file: 'board/board-detail.tsx', covered: ['<BoardView'], removed: [] },
 ];
@@ -251,8 +255,13 @@ describe('the preview containment of every wired editor', () => {
     },
   );
 
-  // The panel's own toggle state is never written here: a preview is a view,
-  // not a preference, so closing it has to give the panel back.
+  // The panel's own toggle state is never written from the preview: a preview
+  // is a view, not a preference, so closing it has to give the panel back.
+  //
+  // This one is a forward guard, not coverage of the fix — the identifier it
+  // forbids does not exist before the fix, so it also passes on the unfixed
+  // file. It is here to stop the obvious "repair" of the next bug reported
+  // against this area, which is to close the panel on preview instead.
   it('leaves the sheet panel toggle untouched so a closed preview restores it', () => {
     const source = readFileSync(
       path.join(appDir, 'documents/document-detail.tsx'),
@@ -272,15 +281,45 @@ describe('the preview containment of every wired editor', () => {
     expect(source).toContain(
       'const commentPopoverVisible = commentPopoverOpen && !previewing;',
     );
-    // Every popover surface keys off that one value: the element itself, and
-    // the two effects that place it — a placement effect still running off
-    // `commentPopoverOpen` would measure against a grid behind the preview.
+    // The three surfaces that put the popover on screen key off that one
+    // value: the element itself and the two effects that place it. A
+    // placement effect still running off `commentPopoverOpen` would measure
+    // against a grid behind the preview.
+    //
+    // The `commentPopoverOpenRef` sync effect deliberately still reads
+    // `commentPopoverOpen`, and must: the pinned anchor is what lets the
+    // selection-change handler tell a remote repaint from a real move, so
+    // dropping it during a preview would make the popover reopen on the
+    // wrong cell. Only the three placement/render surfaces are gated.
+    //
+    // Narrow by construction — this catches the literal revert, not a
+    // ternary or a newly added reader.
     expect(source).not.toMatch(/\{commentPopoverOpen &&/);
     expect(source).toMatch(/\{commentPopoverVisible && activeCellForComment &&/);
     expect(source).toContain('if (!commentPopoverVisible) setCommentPopoverPos(null);');
     expect(source).toContain(
       'if (!commentPopoverVisible || !activeCellForComment) return;',
     );
+  });
+
+  // The keyboard path to the composer writes axis IDs to the live root before
+  // anything is typed, and the capture-phase suppressor that normally stops it
+  // only exists once the lazily-loaded overlay has mounted. So the composer
+  // refuses on its own as well, which also covers the window in between.
+  it('sheet-view refuses the comment composer shortcut while previewing', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    const open = source.indexOf('const openCommentComposerForActiveCell');
+    expect(open).toBeGreaterThan(-1);
+    // Up to the first live write in the callback, so the guard has to come
+    // before it rather than merely somewhere in the function.
+    const body = source.slice(
+      open,
+      source.indexOf('storeRef.current?.ensureAxisOrder', open),
+    );
+    expect(body).toContain('if (previewing) return;');
   });
 
   // The host has to actually pass it; the prop defaults to `false`, so a
