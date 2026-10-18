@@ -141,12 +141,19 @@ interface DocsViewProps {
    *
    * The overlay is `absolute inset-0 z-20` inside the same `PreviewSurface`
    * that holds this view, so it contains everything painted below it — but
-   * not the comment popover (`fixed z-50`) or the insert-comment dialog
-   * (`fixed … z-50`), which escape the surface box and outrank the overlay.
-   * Both stayed clickable under a banner reading "Viewing a version", and
-   * their Reply / Resolve / Edit / Delete / Comment controls are every one a
-   * `doc.update()` on the LIVE document. Covering cannot contain them, so
-   * they are withheld, exactly as the host already withholds the panel.
+   * not a `fixed` descendant, which escapes the surface box regardless of its
+   * `z-index`. This view has six of them, and every one carries controls that
+   * are a write to the LIVE document: the comment popover (Reply / Resolve /
+   * Edit / Delete), the insert-comment dialog, the find bar (Replace /
+   * Replace All, which drive `FindReplaceState` straight at the store and so
+   * never pass through the editor's read-only neutralization), the link
+   * popover (Edit / Remove link, which deliberately stays open when the caret
+   * moves away and has no outside-click dismissal), and the two context
+   * menus (spell corrections, paste, insert link, table row/column ops). All
+   * stayed clickable under a banner reading "Viewing a version", with no
+   * visible feedback because the canvas that would have shown the change is
+   * behind the preview. Covering cannot contain them, so they are withheld,
+   * exactly as the host already withholds the panel.
    * Hosts with no version history (the share-link view) omit it.
    */
   previewing?: boolean;
@@ -645,6 +652,27 @@ export function DocsView({
     return () => window.removeEventListener("keydown", onKey);
   }, [comments, previewing]);
 
+  // Withholding the find bar unmounts it, and its query lives in its own
+  // component state — so the highlights it already pushed onto the editor
+  // (`setSearchMatches`) would outlive the bar that explains them, painted on
+  // the live document with nothing left to clear them. Its own Close does
+  // both; do the same here, which also drops any link-edit request that was
+  // staged but never handed to the withheld popover, so closing the preview
+  // cannot reopen it at coordinates measured before it opened.
+  //
+  // Deliberately not applied to the comments panel: that toggle is a
+  // preference the user set, and a preview must give it back. The find bar's
+  // transient state is lost to the unmount either way.
+  useEffect(() => {
+    if (!previewing) return;
+    setFindBarOpen(false);
+    setLinkInputRequest(null);
+    // Without `moveCursorToActive`, unlike the bar's own Close: moving the
+    // caret to the last match would publish presence from a document the
+    // user is no longer looking at.
+    editorRef.current?.clearSearchMatches();
+  }, [previewing]);
+
   // Cmd/Ctrl+/ opens the shortcuts help modal. The docs text-editor
   // doesn't bind "/" so the event bubbles to window unhindered. Open-only
   // (Esc closes via Radix) matches the Slides binding for cross-app
@@ -691,14 +719,16 @@ export function DocsView({
         open={shortcutsHelpOpen}
         onOpenChange={setShortcutsHelpOpen}
       />
-      <DocsLinkPopover
-        editor={mountedEditor}
-        containerRef={containerRef}
-        editRequest={linkInputRequest}
-        onEditRequestHandled={() => setLinkInputRequest(null)}
-        readOnly={readOnly}
-      />
-      {findBarOpen && (
+      {!previewing && (
+        <DocsLinkPopover
+          editor={mountedEditor}
+          containerRef={containerRef}
+          editRequest={linkInputRequest}
+          onEditRequestHandled={() => setLinkInputRequest(null)}
+          readOnly={readOnly}
+        />
+      )}
+      {findBarOpen && !previewing && (
         <DocsFindBar
           editor={mountedEditor}
           showReplace={findBarShowReplace}
@@ -707,24 +737,28 @@ export function DocsView({
           readOnly={readOnly}
         />
       )}
-      <DocsTableContextMenu
-        editor={mountedEditor}
-        containerRef={containerRef}
-        readOnly={readOnly}
-        canComment={comments.canComment}
-        onInsertComment={() => {
-          comments.beginCompose();
-        }}
-      />
-      <DocsContextMenu
-        editor={mountedEditor}
-        containerRef={containerRef}
-        readOnly={readOnly}
-        canComment={comments.canComment}
-        onInsertComment={() => {
-          comments.beginCompose();
-        }}
-      />
+      {!previewing && (
+        <DocsTableContextMenu
+          editor={mountedEditor}
+          containerRef={containerRef}
+          readOnly={readOnly}
+          canComment={comments.canComment}
+          onInsertComment={() => {
+            comments.beginCompose();
+          }}
+        />
+      )}
+      {!previewing && (
+        <DocsContextMenu
+          editor={mountedEditor}
+          containerRef={containerRef}
+          readOnly={readOnly}
+          canComment={comments.canComment}
+          onInsertComment={() => {
+            comments.beginCompose();
+          }}
+        />
+      )}
       {comments.active && !previewing && (
         <DocsCommentPopover
           thread={comments.active.thread}

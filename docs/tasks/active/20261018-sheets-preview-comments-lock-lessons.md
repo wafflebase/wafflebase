@@ -85,3 +85,45 @@
   `fixed` descendant regardless of its `z-index`, because `fixed` escapes the
   positioned ancestor the overlay is sized to. Enumerating by `z-index` alone
   missed three surfaces across two editors.
+
+## Review round (panel, 2026-10-18)
+
+Four lenses converged on the same blocking finding, and it is the lesson
+above repeating itself one more time: having stated the rule as "every
+`fixed` descendant", the change then enumerated only the *comment*
+surfaces of `DocsView` and stopped. Four more were left rendered under a
+preview, each `fixed z-50`, two of them through a `document.body` portal:
+
+- `DocsFindBar` — Replace / Replace All drive `FindReplaceState` at the
+  store directly, which is why the bar carries its own `readOnly` gate:
+  they never pass through the editor's `MUTATING_METHODS` neutralization.
+  The worst of the four.
+- `DocsLinkPopover` — Edit / Remove link, and it deliberately *does not*
+  dismiss when the caret moves and has no outside-click handler, so it is
+  the one most likely to still be open when a preview opens.
+- `DocsContextMenu` / `DocsTableContextMenu` — spell corrections, paste,
+  insert link, table row/column ops.
+
+All four are now `!previewing`-gated. None of them could be *opened*
+under a preview (the overlay takes the pointer before the container's
+listener), but all four survive into one that opens while they are up —
+which is what clicking the version-history entry does.
+
+Two side effects of withholding by unmounting, which the comment surfaces
+did not have:
+
+- The find bar's query is its own component state, but its highlights are
+  pushed onto the **editor** (`setSearchMatches`). Unmounting the bar
+  would leave them painted on the live document with nothing left to
+  clear them, so the view clears them when the preview opens — without
+  `moveCursorToActive`, unlike the bar's own Close, because moving the
+  caret publishes presence from a document the user is no longer reading.
+- A staged `linkInputRequest` is handed back by the popover's
+  `onEditRequestHandled`; withheld, nothing consumes it, so closing the
+  preview would reopen the editor at coordinates measured before it. It
+  is dropped in the same effect.
+
+This is deliberately *not* done to the comments panel: that toggle is a
+preference the user set and a preview has to give it back, which the
+earlier round already pinned with a structural test. The find bar's
+transient state is lost to the unmount either way.

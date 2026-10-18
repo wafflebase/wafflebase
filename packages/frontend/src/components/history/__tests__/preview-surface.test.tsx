@@ -477,6 +477,53 @@ describe('the preview containment of every wired editor', () => {
     expect(source.slice(handler, toggle)).toContain('if (previewing) return;');
   });
 
+  /**
+   * The comment surfaces were not the only `fixed` descendants of this view,
+   * and the rule the gate states — withhold every surface that escapes the
+   * surface box, regardless of its `z-index` — applies verbatim to four more.
+   * Each is `fixed z-50`, two of them through a `document.body` portal, and
+   * each carries a control that writes the LIVE document: the find bar's
+   * Replace / Replace All (which drive `FindReplaceState` at the store
+   * directly, bypassing the editor's read-only neutralization), the link
+   * popover's Edit / Remove link, and the two context menus' spell
+   * corrections, paste, insert link and table row/column operations.
+   *
+   * None of them is reachable by *opening* one under a preview — the overlay
+   * takes the pointer — but every one survives into the preview if it was
+   * already open when it opened, which is what a pointer-driven "open the
+   * version panel" does.
+   */
+  it.each([
+    ['DocsLinkPopover', '{!previewing && (\n        <DocsLinkPopover'],
+    ['DocsFindBar', '{findBarOpen && !previewing && (\n        <DocsFindBar'],
+    [
+      'DocsTableContextMenu',
+      '{!previewing && (\n        <DocsTableContextMenu',
+    ],
+    ['DocsContextMenu', '{!previewing && (\n        <DocsContextMenu'],
+  ])('docs-view withholds %s while a preview is open', (_name, guard) => {
+    const source = readFileSync(path.join(appDir, 'docs/docs-view.tsx'), 'utf8');
+    expect(source).toContain(guard);
+  });
+
+  // Withholding the find bar unmounts it, and its query is its own component
+  // state — so the highlights it pushed onto the editor would outlive the bar
+  // that explains them unless the view clears them, and a staged link-edit
+  // request would reopen the popover at pre-preview coordinates.
+  it('docs-view clears the find highlights it withholds the bar for', () => {
+    const source = readFileSync(path.join(appDir, 'docs/docs-view.tsx'), 'utf8');
+    const reset = effectBodies(source).find((b) =>
+      b.includes('clearSearchMatches'),
+    );
+    expect(reset, 'no effect clears the search highlights').toBeTruthy();
+    expect(reset!).toContain('if (!previewing) return;');
+    expect(reset!).toContain('setFindBarOpen(false)');
+    expect(reset!).toContain('setLinkInputRequest(null)');
+    // Not `clearSearchMatches(true)`: moving the caret to the last match
+    // publishes presence from a document the user is no longer looking at.
+    expect(reset!).not.toContain('clearSearchMatches(true)');
+  });
+
   it('docs-detail hands docs-view the same previewing flag', () => {
     const source = readFileSync(path.join(appDir, 'docs/docs-detail.tsx'), 'utf8');
     expect(source).toMatch(/previewing=\{previewing\}/);
