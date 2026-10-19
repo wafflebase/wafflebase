@@ -6,15 +6,18 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 623
+Total archived tasks: 627
 
-## 2026/10 (1 tasks)
+## 2026/10 (4 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| history preview loading state (2026-10-19) | [20261019-history-preview-loading-state-todo.md](./2026/10/20261019-history-preview-loading-state-todo.md) | [20261019-history-preview-loading-state-lessons.md](./2026/10/20261019-history-preview-loading-state-lessons.md) |
+| history revision paging (2026-10-19) | [20261019-history-revision-paging-todo.md](./2026/10/20261019-history-revision-paging-todo.md) | [20261019-history-revision-paging-lessons.md](./2026/10/20261019-history-revision-paging-lessons.md) |
+| sheets preview comments lock (2026-10-18) | [20261018-sheets-preview-comments-lock-todo.md](./2026/10/20261018-sheets-preview-comments-lock-todo.md) | [20261018-sheets-preview-comments-lock-lessons.md](./2026/10/20261018-sheets-preview-comments-lock-lessons.md) |
 | claude plugin (2026-10-07) | [20261007-claude-plugin-todo.md](./2026/10/20261007-claude-plugin-todo.md) | [20261007-claude-plugin-lessons.md](./2026/10/20261007-claude-plugin-lessons.md) |
 
-## 2026/09 (47 tasks)
+## 2026/09 (48 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -22,6 +25,7 @@ Total archived tasks: 623
 | chunk load recovery (2026-09-19) | [20260919-chunk-load-recovery-todo.md](./2026/09/20260919-chunk-load-recovery-todo.md) | [20260919-chunk-load-recovery-lessons.md](./2026/09/20260919-chunk-load-recovery-lessons.md) |
 | find replace active anchor (2026-09-19) | [20260919-find-replace-active-anchor-todo.md](./2026/09/20260919-find-replace-active-anchor-todo.md) | [20260919-find-replace-active-anchor-lessons.md](./2026/09/20260919-find-replace-active-anchor-lessons.md) |
 | pptx root relative targets (2026-09-19) | [20260919-pptx-root-relative-targets-todo.md](./2026/09/20260919-pptx-root-relative-targets-todo.md) | [20260919-pptx-root-relative-targets-lessons.md](./2026/09/20260919-pptx-root-relative-targets-lessons.md) |
+| release v0.6.12 (2026-09-18) | [20260918-release-v0.6.12-todo.md](./2026/09/20260918-release-v0.6.12-todo.md) | - |
 | self review loop (2026-09-17) | [20260917-self-review-loop-todo.md](./2026/09/20260917-self-review-loop-todo.md) | [20260917-self-review-loop-lessons.md](./2026/09/20260917-self-review-loop-lessons.md) |
 | sentry error tracking (2026-09-17) | [20260917-sentry-error-tracking-todo.md](./2026/09/20260917-sentry-error-tracking-todo.md) | [20260917-sentry-error-tracking-lessons.md](./2026/09/20260917-sentry-error-tracking-lessons.md) |
 | sheets cell link spans (2026-09-17) | [20260917-sheets-cell-link-spans-todo.md](./2026/09/20260917-sheets-cell-link-spans-todo.md) | [20260917-sheets-cell-link-spans-lessons.md](./2026/09/20260917-sheets-cell-link-spans-lessons.md) |

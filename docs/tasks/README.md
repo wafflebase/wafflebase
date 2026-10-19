@@ -18,8 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.13 (2026-10-19) | [20261019-release-v0.6.13-todo.md](./active/20261019-release-v0.6.13-todo.md) | - |
 | harness convergence port (2026-10-01) | [20261001-harness-convergence-port-todo.md](./active/20261001-harness-convergence-port-todo.md) | [20261001-harness-convergence-port-lessons.md](./active/20261001-harness-convergence-port-lessons.md) |
-| release v0.6.12 (2026-09-18) | [20260918-release-v0.6.12-todo.md](./active/20260918-release-v0.6.12-todo.md) | - |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
 | class b backend endpoints (2026-09-04) | [20260904-class-b-backend-endpoints-todo.md](./active/20260904-class-b-backend-endpoints-todo.md) | [20260904-class-b-backend-endpoints-lessons.md](./active/20260904-class-b-backend-endpoints-lessons.md) |
 | docs typography rhythm (2026-09-04) | [20260904-docs-typography-rhythm-todo.md](./active/20260904-docs-typography-rhythm-todo.md) | - |
@@ -47,7 +47,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 623
+- Archived task count: 627
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: harness convergence port (2026-10-01)
+Latest active task: release v0.6.13 (2026-10-19)
