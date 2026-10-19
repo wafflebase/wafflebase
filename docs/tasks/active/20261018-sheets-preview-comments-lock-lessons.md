@@ -202,3 +202,32 @@ one at a time.
   guard it covers — all fail without the fix. The one trap worth recording:
   an `async initialize()` that resolves with a catch-all `Proxy` hangs
   forever, because the synthesized `then` makes the double a thenable.
+
+## Fix round (panel after the find-bar/context-menu round)
+
+**Withholding a surface does not cancel the work it already started.**
+The blast-radius lens traced the find bar's own debounce cleanup and found
+it only clears a timer that has not fired. A search already dispatched is
+an `await this.sheet.findCells(...)` inside the engine, and when it
+resolves it calls `focusCell()` — a move of the *live* selection, which
+republishes presence — and then `setSearchHighlights()`, re-arming exactly
+what the new `previewing` effect's `clearFind()` had just dropped. The
+unmount is invisible to it.
+
+Guards on the React side cannot reach that: the call is already past them.
+So the cancellation lives where the work does — `Spreadsheet` now carries a
+`searchEpoch` that every search entry point bumps and every post-`await`
+publish re-checks, so a scan whose epoch moved publishes nothing. The same
+one line also fixes a pre-existing race nobody had named: two overlapping
+queries from fast typing could land out of order and leave the older one's
+results on screen under the newer one's query.
+
+The React-side half is now only about this component's own state — a
+`disposedRef` so a resolution arriving after unmount reports no count and
+steals no focus back.
+
+Tests: `packages/sheets/test/view/spreadsheet-find-abandon.test.ts`, four
+cases against a hand-built context (the `spreadsheet-undo-selection.test.ts`
+technique) with `findCells`/`focusCell` promises released by hand so the
+abandonment window is a real one. Three of the four fail with the engine
+guard reverted.
