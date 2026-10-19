@@ -84,8 +84,17 @@ export function HistoryPanel({
   onRestored,
   refreshKey,
 }: Props) {
-  const { days, isLoading, error, refresh, nameCurrentVersion, restore } =
-    useRevisionHistory({ enabled: true, userId, onRestored });
+  const {
+    days,
+    hasMore,
+    isLoading,
+    isLoadingMore,
+    error,
+    refresh,
+    loadMore,
+    nameCurrentVersion,
+    restore,
+  } = useRevisionHistory({ enabled: true, userId, onRestored });
 
   const [label, setLabel] = useState("");
   const [isNaming, setIsNaming] = useState(false);
@@ -93,6 +102,7 @@ export function HistoryPanel({
   const [isRestoringHere, setIsRestoringHere] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   // A restore is two RPCs — a safety revision, then the restore itself — and
   // two of those sequences can interleave. The loser's `restoreRevision`
@@ -142,6 +152,20 @@ export function HistoryPanel({
       );
     } finally {
       setIsNaming(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    setLoadMoreError(null);
+    try {
+      await loadMore();
+    } catch (err) {
+      // The pages already on screen stay: only the attempt to extend them
+      // failed, and the hook deliberately leaves the timeline alone so this
+      // cannot be mistaken for "the history is gone".
+      setLoadMoreError(
+        err instanceof Error ? err.message : "Older versions were not loaded.",
+      );
     }
   };
 
@@ -258,6 +282,28 @@ export function HistoryPanel({
               </ul>
             </section>
           ))}
+
+        {!error && !isLoading && hasMore && (
+          <div className="flex flex-col gap-2 px-4 py-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-full text-xs"
+              disabled={isLoadingMore}
+              onClick={() => {
+                void handleLoadMore();
+              }}
+            >
+              {isLoadingMore ? "Loading…" : "Load older versions"}
+            </Button>
+            {loadMoreError && (
+              <p role="alert" className="text-xs text-destructive">
+                Couldn't load older versions: {loadMoreError}
+              </p>
+            )}
+          </div>
+        )}
       </ScrollArea>
 
       <AlertDialog
