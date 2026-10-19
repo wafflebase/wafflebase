@@ -204,13 +204,31 @@ the current `DocumentProvider`. What we add is list state and the grouping
 in §1. CodePair's `useYorkieRevisions` predates that hook and hand-rolls the
 same thing against `client` + `doc`; we should not copy it.
 
-**There is no paging.** The hook asks `listRevisions` for the most recent
-50 (`REVISION_LIST_LIMIT`) and stops there: no offset, no `loadMore`, and no
-"more exist" signal, so on a document with more revisions than that the
-panel silently shows the newest 50 and the older ones cannot be reached from
-the UI at all. That is a real limitation, not a phrasing of one — and given
-storage is unbounded (see Risks), it is the truncation that most needs
-saying out loud. Paging is follow-up work (§7 PR 5).
+**The list is paged** (`REVISION_PAGE_SIZE`, 50). The hook keeps the flat
+`RevisionSummary[]` and derives the day grouping from it, so `loadMore()`
+can fetch `listRevisions({ offset: loaded.length })` and append; the panel
+renders "Load older versions" at the end of the timeline while more exist.
+Three details are load-bearing:
+
+- **The `pageSize + 1` probe.** `listRevisions` reports neither a total nor
+  a "more exist" flag, so the hook asks for one entry beyond the page and
+  reads its presence as the signal, then drops it. One extra row beats a
+  second round trip, and beats offering a button that turns out to load
+  nothing.
+- **Dedupe by revision id.** Offsets resolve against the server's list as it
+  stands when the request lands, so a revision created between two page
+  loads shifts every later offset and the boundary entry comes back twice —
+  which would both duplicate a timeline row and collide on its React key. A
+  page may therefore contribute fewer than 50 new entries without meaning
+  the history ended.
+- **`refresh()` resets to the first page**, because the list under every
+  offset the user paged past may have moved; re-reading from 0 is the only
+  answer certainly consistent with itself. A failed `loadMore` **rejects**
+  instead of setting `error` (which hides the whole timeline) — the pages
+  already loaded are still good, so the panel reports it beside the button,
+  the way it reports a failed name or restore.
+
+What is still unbounded is *storage*, not the panel's reach (see Risks).
 
 The panel occupies the existing right slot (the one ThemePanel, Format
 options and the comments side panel share), and is opened from the
@@ -481,7 +499,8 @@ RPCs hits this.
 | 2 | wafflebase | Preview for sheets, slides, board and notes |
 | 3 | yorkie | `YSON.parse` tokenizer (upstream ask 4) — **shipped in 0.7.19** |
 | 4 | wafflebase | Bump to 0.7.19; docs preview: move the tree read path into `@wafflebase/docs` (`docsTreeToDocument`, shared with the backend's `readDocsRoot`), normalize the snapshot node dialect, mount it |
-| 5 | wafflebase | Retention handling and polish |
+| 5 | wafflebase | Paging: `loadMore` at an offset + "Load older versions" (issue #1092) — **shipped** |
+| 6 | wafflebase | Retention handling and polish |
 | — | wafflebase | Remove `VITE_WB_REVISION_HISTORY`: the flag's premise (RPCs ungateable without upstream) was false, and it never protected share-link viewers either (structural, §2). The deployment gate (registration + enforcement) is now the only gate — see §2 |
 
 There is no longer a blocking PR 0. Registering `ListRevisions` /
@@ -498,8 +517,11 @@ and PR 2 are independent of each other's engines and of every upstream ask.
   despite their `r` verb — with a workspace member and a share-link editor
   still allowed on both, and an ordinary `r` on `PushPull` still open to the
   viewer.
-- **Frontend unit**: `use-revision-history` grouping and the restore
-  ordering; `revision-meta` parse/write round-trip including malformed
+- **Frontend unit**: `use-revision-history` grouping, the restore ordering,
+  and paging — the probe entry never reaching the timeline, the offset the
+  second page is read at, a shifted page deduped by id, an append a refresh
+  superseded being dropped, and a failed append leaving the loaded pages
+  alone; `revision-meta` parse/write round-trip including malformed
   descriptions; one snapshot→model adapter test per engine against a fixture
   in that engine's real wire format — for sheets, asserted *through*
   `MemStore.load`, since an A1-keyed fixture parses fine and then loads zero
@@ -562,10 +584,11 @@ edited document could accumulate gigabytes. *Mitigation*: all partial until
 upstream ask 3 lands — raise `snapshotInterval` for the project (at a sync
 cost) and measure real growth with the `getDocSize()` instrumentation
 already used for import sizing. This should be measured on a real workspace
-before the feature is enabled broadly. The panel's 50-revision cap (§3)
-bounds only what the *panel reads*, not what is stored — and it is what
-makes older versions unreachable, so it is a symptom of this risk rather
-than a mitigation of it.
+before the feature is enabled broadly. The panel's 50-revision page (§3)
+bounds only what the *panel reads per request*, not what is stored, and
+since paging landed it no longer makes older versions unreachable either —
+so it is neither a mitigation of this risk nor, any longer, a second
+symptom of it.
 
 **The snapshot format's parser was regex-based, and every preview depends
 on it.** Through 0.7.18 `YSON.parse` could not read a snapshot of any docs
