@@ -102,7 +102,9 @@ describe('restore serialization across entry points', () => {
   it('refuses a panel restore while the preview banner has one in flight', async () => {
     renderBoth();
     await waitFor(() => expect(rowRestoreButtons()).toHaveLength(2));
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
 
     await userEvent.click(bannerRestoreButton());
     await act(async () => {
@@ -132,7 +134,9 @@ describe('restore serialization across entry points', () => {
   it('refuses a preview restore while a panel row has one in flight', async () => {
     renderBoth();
     await waitFor(() => expect(rowRestoreButtons()).toHaveLength(2));
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
 
     await userEvent.click(rowRestoreButtons()[1]);
     await userEvent.click(

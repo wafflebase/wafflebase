@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistoryPanel } from '../history-panel';
+import { setPreviewLoadingId } from '../preview-loading';
 
 const restore = vi.fn();
 const nameCurrentVersion = vi.fn();
@@ -55,6 +56,8 @@ beforeEach(() => {
   // one test would leak into the next.
   restore.mockResolvedValue(undefined);
   nameCurrentVersion.mockResolvedValue(undefined);
+  // Module state, so it outlives a render — see `preview-loading.ts`.
+  setPreviewLoadingId(null);
 });
 
 describe('HistoryPanel', () => {
@@ -217,5 +220,29 @@ describe('HistoryPanel', () => {
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleName(/preview.*not available/i);
     }
+  });
+
+  // A `getRevision` on a large snapshot takes seconds, and the overlay that
+  // runs it is a sibling of this panel — so without this the row the user
+  // clicked looked untouched and the click looked lost (#1093).
+  it('marks the row whose snapshot the preview is fetching', () => {
+    hookState = { ...baseState };
+    renderPanel();
+
+    act(() => setPreviewLoadingId('n1'));
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveAttribute('aria-busy', 'true');
+    expect(rows[1]).not.toHaveAttribute('aria-busy');
+
+    const previewButtons = () =>
+      screen.getAllByRole('button', { name: /preview/i });
+    expect(previewButtons()[0]).toBeDisabled();
+    // The other rows stay clickable: picking the wrong version and switching
+    // mid-load is the normal way to use this list.
+    expect(previewButtons()[1]).toBeEnabled();
+
+    act(() => setPreviewLoadingId(null));
+    expect(previewButtons()[0]).toBeEnabled();
+    expect(screen.getAllByRole('listitem')[0]).not.toHaveAttribute('aria-busy');
   });
 });

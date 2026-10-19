@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useRevisions, type RevisionSummary } from '@yorkie-js/react';
 import {
   initialize as initializeSheet,
@@ -25,6 +26,7 @@ import {
 } from '@wafflebase/docs';
 
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useTheme } from '@/components/theme-provider';
 
 import {
@@ -36,6 +38,7 @@ import {
 } from './snapshot-adapters';
 import { boardPreviewViewport } from './board-preview-viewport';
 import { firstWorksheetTabId } from './first-worksheet-tab';
+import { setPreviewLoadingId } from './preview-loading';
 import { readRevisionMeta } from './revision-meta';
 import { useRestoreInProgress } from './restore-lock';
 import { useRevisionHistory } from './use-revision-history';
@@ -117,6 +120,31 @@ function MountErrorOverlay({ what, error }: { what: string; error: unknown }) {
   );
 }
 
+/**
+ * Stands in for the document while its snapshot is being fetched.
+ *
+ * Deliberately generic rather than per-type: the five engines paint a grid, a
+ * deck, an unbounded plane, a page and prose, and a skeleton that guessed
+ * wrong would be a worse lie than one that guesses nothing. Its job is only
+ * to say "content is coming here" — the banner above it is what actually
+ * announces the load, which is why this carries `aria-hidden` and adds
+ * nothing for a screen reader to read out.
+ */
+function PreviewSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex h-full w-full flex-col gap-3 p-6"
+      data-testid="revision-preview-skeleton"
+    >
+      <Skeleton className="h-6 w-1/3" />
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-4 w-1/2" />
+      <Skeleton className="min-h-0 flex-1 w-full" />
+    </div>
+  );
+}
+
 function formatRevisionTime(date: Date): string {
   return date.toLocaleString(undefined, {
     weekday: 'short',
@@ -157,6 +185,10 @@ export function RevisionPreview({
   const [slideIndex, setSlideIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const slideCount = content?.kind === 'slides' ? content.doc.slides.length : 0;
+  // The fetch is in flight. Keyed on `error` as well as `meta` so a
+  // `getRevision` that rejects — which sets `error` and never sets `meta` —
+  // leaves the banner reporting the failure rather than spinning forever.
+  const isLoading = !meta && !error;
 
   // The overlay is a sibling of the live editor, which stays mounted and
   // fully wired, and both engines bind their primary keyboard handler on
@@ -200,6 +232,10 @@ export function RevisionPreview({
     setContent(null);
     setError(null);
     setSlideIndex(0);
+    // Published for the `HistoryPanel` beside this overlay, which is where
+    // the user clicked but has no other way to learn that the fetch is still
+    // running — see `preview-loading.ts`.
+    setPreviewLoadingId(revisionId);
 
     getRevision(revisionId)
       .then((revision: RevisionSummary) => {
@@ -225,10 +261,16 @@ export function RevisionPreview({
         setError(
           err instanceof Error ? err.message : 'This version could not be loaded.',
         );
+      })
+      .finally(() => {
+        // Not when `cancelled`: the cleanup below has already cleared it and
+        // the next effect run may have published its own id by now.
+        if (!cancelled) setPreviewLoadingId(null);
       });
 
     return () => {
       cancelled = true;
+      setPreviewLoadingId(null);
     };
   }, [getRevision, revisionId, type]);
 
@@ -241,61 +283,79 @@ export function RevisionPreview({
       aria-label="Version preview"
       className="absolute inset-0 z-20 flex flex-col bg-background outline-none"
     >
-      {meta && (
-        <div
-          role="status"
-          className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2 text-sm"
-        >
-          <span>
-            Viewing {meta.title} from {formatRevisionTime(meta.createdAt)}
-          </span>
-          <div className="flex items-center gap-2">
-            {slideCount > 1 && (
-              <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  aria-label="Previous slide"
-                  disabled={slideIndex === 0}
-                  onClick={() => setSlideIndex((i) => Math.max(0, i - 1))}
-                >
-                  ‹
-                </Button>
-                <span
-                  className="min-w-14 text-center tabular-nums text-muted-foreground"
-                  aria-label="Slide position"
-                >
-                  {slideIndex + 1} / {slideCount}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  aria-label="Next slide"
-                  disabled={slideIndex >= slideCount - 1}
-                  onClick={() =>
-                    setSlideIndex((i) => Math.min(slideCount - 1, i + 1))
-                  }
-                >
-                  ›
-                </Button>
-              </div>
-            )}
-            <Button type="button" variant="outline" size="sm" onClick={onBack}>
-              Back to current version
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={onRestore}
-              disabled={isRestoring}
-            >
-              {isRestoring ? 'Restoring…' : 'Restore this version'}
-            </Button>
-          </div>
+      {/* Unconditional, where this was once gated on `meta`. A snapshot
+          grows with the document, so on the documents history matters most
+          for, the gate meant seconds of blank `bg-background` with no
+          spinner and — worse — no "Back to current version", which is the
+          only exit a preview has. See issue #1093. */}
+      <div
+        role="status"
+        aria-busy={isLoading || undefined}
+        className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2 text-sm"
+      >
+        <span className="flex items-center gap-2">
+          {meta ? (
+            `Viewing ${meta.title} from ${formatRevisionTime(meta.createdAt)}`
+          ) : isLoading ? (
+            <>
+              <Loader2
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin text-muted-foreground"
+              />
+              Loading version…
+            </>
+          ) : null}
+        </span>
+        <div className="flex items-center gap-2">
+          {slideCount > 1 && (
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Previous slide"
+                disabled={slideIndex === 0}
+                onClick={() => setSlideIndex((i) => Math.max(0, i - 1))}
+              >
+                ‹
+              </Button>
+              <span
+                className="min-w-14 text-center tabular-nums text-muted-foreground"
+                aria-label="Slide position"
+              >
+                {slideIndex + 1} / {slideCount}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Next slide"
+                disabled={slideIndex >= slideCount - 1}
+                onClick={() =>
+                  setSlideIndex((i) => Math.min(slideCount - 1, i + 1))
+                }
+              >
+                ›
+              </Button>
+            </div>
+          )}
+          <Button type="button" variant="outline" size="sm" onClick={onBack}>
+            Back to current version
+          </Button>
+          {/* Disabled only while the fetch is in flight — there is nothing
+              to restore *to* yet. A snapshot that arrived but this build
+              cannot parse keeps it enabled, as it always did: the restore is
+              performed server-side and does not depend on our parser. */}
+          <Button
+            type="button"
+            size="sm"
+            onClick={onRestore}
+            disabled={isRestoring || isLoading}
+          >
+            {isRestoring ? 'Restoring…' : 'Restore this version'}
+          </Button>
         </div>
-      )}
+      </div>
       {restoreError && (
         <p
           role="alert"
@@ -310,6 +370,7 @@ export function RevisionPreview({
         </p>
       )}
       <div className="relative min-h-0 flex-1">
+        {isLoading && <PreviewSkeleton />}
         {error && (
           <div
             role="alert"

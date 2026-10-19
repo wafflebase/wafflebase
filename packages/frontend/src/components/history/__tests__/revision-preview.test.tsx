@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RevisionPreview, RevisionPreviewOverlay } from '../revision-preview';
 import { firstWorksheetTabId } from '../first-worksheet-tab';
+import { usePreviewLoadingId } from '../preview-loading';
 
 const getRevision = vi.fn();
 const listRevisions = vi.fn().mockResolvedValue([]);
@@ -99,6 +100,12 @@ const ONE_SLIDE_SNAPSHOT = JSON.stringify({
   slides: [{ id: 's1', layoutId: 'l', elements: [] }],
 });
 
+/** Stands in for the `HistoryPanel` that reads the same module store. */
+function LoadingProbe() {
+  const id = usePreviewLoadingId();
+  return <span data-testid="loading-probe">{id ?? 'none'}</span>;
+}
+
 function resolveWith(snapshot: string) {
   getRevision.mockResolvedValue({
     id: 'r1',
@@ -122,9 +129,116 @@ describe('RevisionPreview', () => {
     render(
       <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
     expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument();
+  });
+
+  // The banner used to render under `{meta && …}`, so until `getRevision`
+  // resolved the overlay was an empty rectangle over the editor: no spinner,
+  // and no "Back to current version", which is the only exit a preview has.
+  // Snapshots grow with the document, so the gap was longest on exactly the
+  // documents history matters most for (#1093).
+  it('shows a loading banner with a working exit before the snapshot arrives', async () => {
+    let settle: (revision: unknown) => void = () => {};
+    getRevision.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    render(
+      <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent(/Loading version…/);
+    expect(banner).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('revision-preview-skeleton')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /back to current version/i }),
+    ).toBeEnabled();
+    // Nothing to restore *to* until the fetch lands.
+    expect(
+      screen.getByRole('button', { name: /restore this version/i }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      settle({
+        id: 'r1',
+        label: 'v1',
+        description: '',
+        createdAt: new Date('2026-09-02T10:00:00Z'),
+        snapshot: EXTERNAL_ONLY_SNAPSHOT,
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
+    expect(screen.getByRole('status')).not.toHaveAttribute('aria-busy');
+    expect(
+      screen.queryByTestId('revision-preview-skeleton'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /restore this version/i }),
+    ).toBeEnabled();
+  });
+
+  // The `HistoryPanel` is a sibling of this overlay, so the row the user
+  // clicked learns about the fetch only through the module store.
+  it('publishes the fetching revision to the history panel, and clears it', async () => {
+    let settle: (revision: unknown) => void = () => {};
+    getRevision.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    render(
+      <>
+        <LoadingProbe />
+        <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />
+      </>,
+    );
+
+    expect(screen.getByTestId('loading-probe')).toHaveTextContent('r1');
+
+    await act(async () => {
+      settle({
+        id: 'r1',
+        label: 'v1',
+        description: '',
+        createdAt: new Date('2026-09-02T10:00:00Z'),
+        snapshot: EXTERNAL_ONLY_SNAPSHOT,
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading-probe')).toHaveTextContent('none'),
+    );
+  });
+
+  // The loading state is "no metadata *and* no error", so a rejected fetch
+  // has to end it — a spinner that never stops is the same blank screen with
+  // extra steps.
+  it('reports a failed fetch instead of spinning forever', async () => {
+    getRevision.mockRejectedValue(new Error('network down'));
+    render(
+      <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/network down/i),
+    );
+    expect(screen.getByRole('status')).not.toHaveAttribute('aria-busy');
+    expect(screen.getByRole('status')).not.toHaveTextContent(/Loading version/);
+    expect(
+      screen.queryByTestId('revision-preview-skeleton'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /back to current version/i }),
+    ).toBeEnabled();
   });
 
   // A snapshot this build cannot parse must say so. Rendering an empty
@@ -196,7 +310,9 @@ describe('RevisionPreview slide navigation', () => {
     render(
       <RevisionPreview revisionId="r1" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
 
     expect(screen.getByLabelText('Slide position')).toHaveTextContent('1 / 3');
     expect(screen.getByRole('button', { name: 'Previous slide' })).toBeDisabled();
@@ -217,7 +333,9 @@ describe('RevisionPreview slide navigation', () => {
     render(
       <RevisionPreview revisionId="r1" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
     expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
   });
 
@@ -227,7 +345,9 @@ describe('RevisionPreview slide navigation', () => {
     render(
       <RevisionPreview revisionId="r1" type="board" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
     expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
   });
 
@@ -237,7 +357,9 @@ describe('RevisionPreview slide navigation', () => {
     const { rerender } = render(
       <RevisionPreview revisionId="r1" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Next slide' }));
     expect(screen.getByLabelText('Slide position')).toHaveTextContent('2 / 3');
 
@@ -271,7 +393,9 @@ describe('RevisionPreview keyboard containment', () => {
       render(
         <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
       );
-      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+      );
 
       // Nothing focused inside the overlay...
       fireEvent.keyDown(document.body, { key: 'z', metaKey: true });
@@ -294,7 +418,9 @@ describe('RevisionPreview keyboard containment', () => {
     const { container } = render(
       <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
     expect(document.activeElement).toBe(container.firstChild);
   });
 
@@ -308,7 +434,9 @@ describe('RevisionPreview keyboard containment', () => {
       render(
         <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
       );
-      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+      );
       fireEvent.keyDown(document.body, { key: 'Escape' });
       expect(bubble).toHaveBeenCalled();
     } finally {
@@ -324,7 +452,9 @@ describe('RevisionPreview keyboard containment', () => {
       const { unmount } = render(
         <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
       );
-      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+      );
       unmount();
       fireEvent.keyDown(document.body, { key: 'z', metaKey: true });
       expect(bubble).toHaveBeenCalledTimes(1);
@@ -347,7 +477,9 @@ describe('RevisionPreviewOverlay', () => {
         onClose={onClose}
       />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
 
     await userEvent.click(
       screen.getByRole('button', { name: /restore this version/i }),
@@ -372,7 +504,9 @@ describe('RevisionPreviewOverlay', () => {
         onClose={onClose}
       />,
     );
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
     await userEvent.click(
       screen.getByRole('button', { name: /restore this version/i }),
     );

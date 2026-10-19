@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Loader } from "@/components/loader";
 
+import { usePreviewLoadingId } from "./preview-loading";
 import { useRestoreInProgress } from "./restore-lock";
 import { useRevisionHistory } from "./use-revision-history";
 import type { TimelineEntry } from "./group-revisions";
@@ -110,6 +112,11 @@ export function HistoryPanel({
   // that refusal reaches these controls before a user can trigger it.
   const isRestoringElsewhere = useRestoreInProgress();
   const isRestoring = isRestoringHere || isRestoringElsewhere;
+
+  // Which row the user clicked Preview on and is still waiting for. The
+  // overlay beside this panel owns that fetch and is a sibling, not a child,
+  // so it reports through a module store — see `preview-loading.ts`.
+  const previewLoadingId = usePreviewLoadingId();
 
   // Skip the initial value: the hook already fetches on mount, and a second
   // request for the same list would just be waste.
@@ -251,6 +258,7 @@ export function HistoryPanel({
                     entry={entry}
                     userId={userId}
                     onPreview={onPreview}
+                    isPreviewLoading={previewLoadingId === entry.id}
                     isRestoring={isRestoring}
                     onRestoreRequested={() => setPendingRestoreId(entry.id)}
                   />
@@ -296,21 +304,34 @@ function HistoryEntryRow({
   entry,
   userId,
   onPreview,
+  isPreviewLoading,
   isRestoring,
   onRestoreRequested,
 }: {
   entry: TimelineEntry;
   userId: number;
   onPreview?: (revisionId: string) => void;
+  /**
+   * True while *this* row's snapshot is being fetched for the preview
+   * overlay. Scoped to the one row on purpose: the other rows stay clickable
+   * so a user who picked the wrong version can switch mid-load.
+   */
+  isPreviewLoading: boolean;
   /** True while any row's restore is in flight; every row is disabled then. */
   isRestoring: boolean;
   onRestoreRequested: () => void;
 }) {
   const isAutomatic = entry.meta.kind === "automatic";
   const previewUnavailableReason = "not available for this document type yet";
+  let previewTitle: string | undefined;
+  if (!onPreview) previewTitle = previewUnavailableReason;
+  else if (isPreviewLoading) previewTitle = "Loading version…";
 
   return (
-    <li className="flex flex-col gap-1 border-b px-4 py-3 last:border-0">
+    <li
+      aria-busy={isPreviewLoading || undefined}
+      className="flex flex-col gap-1 border-b px-4 py-3 last:border-0"
+    >
       <div className="flex items-center gap-2">
         <span className="text-xs font-medium">
           {isAutomatic ? "Automatic" : entry.label}
@@ -328,11 +349,14 @@ function HistoryEntryRow({
           variant="outline"
           size="sm"
           className="h-7 text-xs"
-          disabled={!onPreview}
-          title={onPreview ? undefined : previewUnavailableReason}
+          disabled={!onPreview || isPreviewLoading}
+          title={previewTitle}
           aria-label={onPreview ? undefined : `Preview: ${previewUnavailableReason}`}
           onClick={onPreview ? () => onPreview(entry.id) : undefined}
         >
+          {isPreviewLoading && (
+            <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+          )}
           Preview
         </Button>
         <Button
