@@ -150,3 +150,21 @@ been surfacing one more preview-escaping control rather than converging.
 - The containment rule had grown a third mechanism (call-site withholding
   for `fixed`/portalled surfaces, window shortcuts and the header) that
   `revision-history.md` §4 did not record; it does now.
+
+## Fix round (panel after the maintainer takeover)
+
+The peer jump got both halves of the containment; its two siblings into
+the same live grid got neither. The lesson is that the channel, not the
+caller, is the unit: a jump target is state that outlives a remount, so
+withholding whatever stages it is never the whole fix.
+
+- **`commentJumpTarget`** — the panel that stages it is withheld under a
+  preview, but a target staged in the instant before survived, and
+  survived the restore too. Its `sref` is resolved from the row/column
+  order the restore replaced, so replaying it names an unrelated cell.
+  Dropped in `handleHistoryRestored` and refused in the effect.
+- **`undoJumpTarget`** — cleared on restore already, but its effect had
+  no `previewing` arm, so it still called `focusUndoSelection` behind the
+  banner. Same drop-don't-defer shape as the peer jump.
+- The structural test is now table-driven over all three channels, which
+  is what would have caught the two that were left behind.

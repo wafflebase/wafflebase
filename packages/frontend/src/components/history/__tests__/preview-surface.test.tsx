@@ -647,6 +647,36 @@ describe('the preview containment of every wired editor', () => {
     expect(effect!).toContain('previewing, sheetRenderVersion');
   });
 
+  // The same belt for the other two jump channels into the live grid: both
+  // also call into the mounted engine's selection, so both have to be dropped
+  // rather than merely un-stageable.
+  it.each([
+    {
+      channel: 'comment jump',
+      call: 'sheet.focusCell(parseRef(commentJumpTarget.sref))',
+      ref: 'lastHandledCommentJumpRequestIdRef',
+      target: 'commentJumpTarget',
+    },
+    {
+      channel: 'undo jump',
+      call: 'sheet.focusUndoSelection(undoJumpTarget.selection)',
+      ref: 'lastHandledUndoJumpRequestIdRef',
+      target: 'undoJumpTarget',
+    },
+  ])('sheet-view drops a staged $channel while previewing', ({ call, ref, target }) => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    const effect = effectBodies(source).find((b) => b.includes(call));
+    expect(effect, `no effect applies the ${target}`).toBeTruthy();
+    expect(effect!).toMatch(
+      new RegExp(`previewing\\) \\{\\s*${ref}\\.current = ${target}\\.requestId;\\s*return;`),
+    );
+    expect(effect!.indexOf('previewing)')).toBeLessThan(effect!.indexOf(call));
+    expect(effect!).toContain('previewing, sheetRenderVersion');
+  });
+
   // A restore remounts `SheetView` (`key={historyResetToken}`), which resets
   // the mount-local ref that remembers a jump was handled — so a peer jump
   // target that survives the restore is replayed onto the restored document.
@@ -660,6 +690,7 @@ describe('the preview containment of every wired editor', () => {
     const body = source.slice(start, source.indexOf('}, [doc]);', start));
     expect(body).toContain('setUndoJumpTarget(null);');
     expect(body).toContain('setPeerJumpTarget(null);');
+    expect(body).toContain('setCommentJumpTarget(null);');
     expect(body).toContain('setHistoryResetToken(');
   });
 

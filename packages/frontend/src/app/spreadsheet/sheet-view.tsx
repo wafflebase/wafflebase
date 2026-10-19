@@ -1549,6 +1549,14 @@ export function SheetView({
   }, [peerJumpTarget, previewing, sheetRenderVersion, tabId]);
 
   useEffect(() => {
+    // Same containment as the peer jump above: `focusUndoSelection` moves the
+    // live selection behind the preview banner, so a target staged just before
+    // the preview opened is dropped rather than deferred — the undo step it
+    // names may no longer exist by the time the preview closes.
+    if (undoJumpTarget && previewing) {
+      lastHandledUndoJumpRequestIdRef.current = undoJumpTarget.requestId;
+      return;
+    }
     if (
       !shouldApplyUndoJump(
         undoJumpTarget,
@@ -1566,10 +1574,19 @@ export function SheetView({
 
     lastHandledUndoJumpRequestIdRef.current = undoJumpTarget.requestId;
     sheet.focusUndoSelection(undoJumpTarget.selection);
-  }, [undoJumpTarget, sheetRenderVersion, tabId]);
+  }, [undoJumpTarget, previewing, sheetRenderVersion, tabId]);
 
   useEffect(() => {
     if (!commentJumpTarget) return;
+    // The panel that stages these is withheld while a preview is open, but one
+    // staged just before it opened would still move the live selection — and
+    // publish it as presence — under the banner. Consuming the request id also
+    // keeps it from firing whenever the preview closes, by which time the
+    // thread may have been resolved or its anchor moved.
+    if (previewing) {
+      lastHandledCommentJumpRequestIdRef.current = commentJumpTarget.requestId;
+      return;
+    }
     if (commentJumpTarget.requestId === lastHandledCommentJumpRequestIdRef.current) {
       return;
     }
@@ -1588,7 +1605,7 @@ export function SheetView({
     } catch {
       // Ignore malformed sref values.
     }
-  }, [commentJumpTarget, sheetRenderVersion]);
+  }, [commentJumpTarget, previewing, sheetRenderVersion]);
 
   const paintFormatSourceIndicator = (() => {
     if (!paintFormatSourceIndicatorVisible || !paintFormatSourceRef) {

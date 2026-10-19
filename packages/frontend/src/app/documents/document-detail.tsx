@@ -190,6 +190,9 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     // A peer jump is the same shape: the remount forgets it was handled, and
     // the cell it names comes from presence that predates the restore.
     setPeerJumpTarget(null);
+    // So is a comment jump: its `sref` was resolved from the row/column order
+    // the restore just replaced, so it may now name an unrelated cell.
+    setCommentJumpTarget(null);
     setHistoryResetToken((t) => t + 1);
   }, [doc]);
 
