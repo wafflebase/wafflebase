@@ -189,6 +189,12 @@ export function RevisionPreview({
   // `getRevision` that rejects — which sets `error` and never sets `meta` —
   // leaves the banner reporting the failure rather than spinning forever.
   const isLoading = !meta && !error;
+  // The fetch itself failed, so no revision ever arrived. Distinct from the
+  // *parse* failure above, which sets `error` with `meta` already in hand:
+  // there the version exists and was identified in the banner, here there is
+  // nothing but the error. `meta` is therefore the honest test for "a
+  // revision was actually fetched".
+  const loadFailed = !meta && error !== null;
 
   // The overlay is a sibling of the live editor, which stays mounted and
   // fully wired, and both engines bind their primary keyboard handler on
@@ -304,6 +310,12 @@ export function RevisionPreview({
               />
               Loading version…
             </>
+          ) : loadFailed ? (
+            // Without this the banner is an empty bar on the one path where
+            // it has the most to say: the fetch failed, so there is no
+            // version title or time to show, and a silent banner over an
+            // error body reads as a UI that lost track of itself.
+            'This version could not be loaded'
           ) : null}
         </span>
         <div className="flex items-center gap-2">
@@ -342,15 +354,22 @@ export function RevisionPreview({
           <Button type="button" variant="outline" size="sm" onClick={onBack}>
             Back to current version
           </Button>
-          {/* Disabled only while the fetch is in flight — there is nothing
-              to restore *to* yet. A snapshot that arrived but this build
-              cannot parse keeps it enabled, as it always did: the restore is
-              performed server-side and does not depend on our parser. */}
+          {/* Gated on `meta` — "a revision actually came back" — not on the
+              spinner. While the fetch is in flight there is nothing to
+              restore *to* yet, and a fetch that *failed* is the same
+              absence: the preview is the confirmation here (there is no
+              second confirm dialog), so restoring a version the user was
+              never shown would be a blind write to their document.
+
+              A snapshot that arrived but this build cannot parse keeps it
+              enabled, as it always did: the version was identified in the
+              banner, and the restore is performed server-side and does not
+              depend on our parser. */}
           <Button
             type="button"
             size="sm"
             onClick={onRestore}
-            disabled={isRestoring || isLoading}
+            disabled={isRestoring || !meta}
           >
             {isRestoring ? 'Restoring…' : 'Restore this version'}
           </Button>

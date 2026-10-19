@@ -323,6 +323,40 @@ describe('RevisionPreview', () => {
       screen.getByRole('button', { name: /back to current version/i }),
     ).toBeEnabled();
     expect(screen.getByTestId('loading-probe')).toHaveTextContent('none');
+    // Ending the spinner must not hand the user a Restore button. The
+    // preview *is* the confirmation (there is no second confirm dialog), and
+    // a failed fetch showed them nothing — so restoring from here would be a
+    // blind write to their document. Gating the button on `isLoading` alone
+    // enabled it exactly here, since a rejection clears the spinner without
+    // ever producing a revision.
+    expect(
+      screen.getByRole('button', { name: /restore this version/i }),
+    ).toBeDisabled();
+    // And the banner says which state it is in rather than sitting empty.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /could not be loaded/i,
+    );
+  });
+
+  // The other side of that gate: a snapshot that *arrived* but this build
+  // cannot parse keeps Restore enabled. The version was identified in the
+  // banner and the restore runs server-side, so our parser's opinion of the
+  // bytes is not a reason to refuse it.
+  it('keeps Restore enabled when the snapshot arrived but would not parse', async () => {
+    getRevision.mockResolvedValue({
+      id: 'r2', label: 'v2', description: '', createdAt: new Date('2026-09-02T10:00:00Z'),
+      snapshot: '{"content":Tree({"type":"doc"})}',
+    });
+    render(
+      <RevisionPreview revisionId="r2" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Viewing/),
+    );
+    expect(
+      screen.getByRole('button', { name: /restore this version/i }),
+    ).toBeEnabled();
   });
 
   // A snapshot this build cannot parse must say so. Rendering an empty
