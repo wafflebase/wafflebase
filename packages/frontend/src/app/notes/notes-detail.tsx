@@ -258,11 +258,15 @@ function NotesLayout({ documentId }: { documentId: string }) {
         onWorkspaceChange={handleWorkspaceChange}
       />
       <SidebarInset>
+        {/* Withheld while previewing for the same reason as the sheet host's:
+            committing the title input is a `PATCH /documents/:id` on the LIVE
+            document, and neither `PreviewSurface` nor `EditingChrome` reaches
+            this half of the header. */}
         <SiteHeader
           title={documentData?.title ?? "Loading…"}
-          editable
+          editable={!previewing}
           syncStatus
-          onRename={handleRenameDocument}
+          onRename={previewing ? undefined : handleRenameDocument}
         >
           <div className="flex items-center gap-2">
             <Tooltip>

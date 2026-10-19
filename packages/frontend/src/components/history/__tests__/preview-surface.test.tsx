@@ -721,9 +721,18 @@ describe('the preview containment of every wired editor', () => {
   // neutralizes an input that was already open when the preview opened.
   // `SiteHeader`'s own behaviour is driven in
   // `components/__tests__/site-header.test.tsx`.
+  // Every preview-wired host, not just the two the guard was written for:
+  // the header is the same component in all five, so a host left out keeps a
+  // live rename reachable from under a "Viewing a version" banner.
+  // `slides-detail.tsx` mounts two — this reads the first, the desktop
+  // layout's; `MobileSlidesLayout`'s wires no history panel, so no preview
+  // can be open behind it.
   it.each([
     { file: 'documents/document-detail.tsx' },
     { file: 'docs/docs-detail.tsx' },
+    { file: 'slides/slides-detail.tsx' },
+    { file: 'notes/notes-detail.tsx' },
+    { file: 'board/board-detail.tsx' },
   ])('$file withholds the title rename while previewing', ({ file }) => {
     const tag = jsxOpenTag(
       readFileSync(path.join(appDir, file), 'utf8'),

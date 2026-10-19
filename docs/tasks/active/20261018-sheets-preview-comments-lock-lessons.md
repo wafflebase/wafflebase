@@ -264,3 +264,20 @@ guard reverted.
 - `Spreadsheet.cleanup()` bumping `searchEpoch` — raised again this round —
   had already landed in round 9 (`spreadsheet.ts:1011`), with the teardown
   case in `spreadsheet-find-abandon.test.ts`.
+
+## Panel round 11 (two of five)
+
+- **"Both wired hosts" was wrong by three.** Round 10 applied the rename
+  guard where the previous findings had pointed — the sheet and docs hosts —
+  but the same `SiteHeader` is mounted by five preview-wired hosts, so
+  slides, notes and board kept a live `PATCH /documents/:id` reachable from
+  under a "Viewing a version" banner. The conformance test enumerated the
+  same two files, so nothing caught the gap: an allowlist written from the
+  finding rather than from the call sites certifies exactly the code that
+  prompted it. The `it.each` now lists all five, and `WIRED_EDITORS` above
+  it is the list to read when adding a host.
+- Board had no `previewing` binding at all — it inlined
+  `previewRevisionId && currentUser` into `PreviewSurface`. It now names the
+  expression once, like the other four, so the header and the surface cannot
+  disagree. `MobileSlidesLayout`'s header is deliberately left alone: it
+  wires no history panel, so no preview can be open behind it.
