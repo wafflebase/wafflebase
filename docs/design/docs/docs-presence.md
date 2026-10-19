@@ -470,7 +470,11 @@ const getJumpHint = useCallback((clientID: string) => {
   }
 }, [doc]);
 
-<UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
+// Withheld while a revision preview is open — a jump moves the live editor.
+<UserPresence
+  onSelectPeer={previewing ? undefined : handleSelectPeer}
+  getJumpHint={previewing ? undefined : getJumpHint}
+/>
 <DocsView
   onEditorReady={setEditor}
   onJumpHandleReady={setJumpHandle}

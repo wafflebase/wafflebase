@@ -347,6 +347,28 @@ The version-history panel deliberately stays outside both, so a user can
 still reach the next version rather than being left with only "Back to
 current version".
 
+Neither form reaches a control that **escapes** the covered box or lives
+outside both: a `fixed`/portalled popover or dialog stacked above the
+overlay's `z-20` (sheet and docs comment popovers, both find bars, docs'
+link popover, the mobile cell editor, the sheet grid's context menu), a
+keyboard shortcut bound to `window`, or the header's `UserPresence` peer
+jump. Those are withheld at the call site
+instead — rendered under `&& !previewing`, a handler that returns early on
+`previewing`, or the host passing `onSelectPeer`/`getJumpHint` as
+`undefined` (which `UserPresence` treats as "no jump"). A peer jump already
+staged when a preview opens is dropped, not deferred, and a restore clears
+any pending jump target, since the remount it triggers forgets which jump
+was handled. Hiding a surface is not always enough on its own: the sheet's find bar
+leaves match highlights on the engine and the mobile cell editor leaves a
+pending draft whose commit is a live write, so withholding either also
+neutralizes what it left behind (`clearFind()`; holding the draft instead
+of committing it on the next selection change). The grid context menu is
+the one surface that cannot be unmounted — its wrapper holds the canvas
+container — so its trigger is disabled in place. Each such site is pinned
+in `preview-surface.test.tsx`, and the editors are mounted against a
+stubbed engine in `sheet-view-preview.test.tsx` / `docs-view-preview.test.tsx`;
+a new escaping surface needs the same guard and an entry there.
+
 **A read-only mount has no navigation of its own, so the preview supplies
 it.** `readOnly: true` skips `attachInteractions()` and the overlay's
 capture-phase keyboard suppressor blocks the arrow keys, and the surfaces

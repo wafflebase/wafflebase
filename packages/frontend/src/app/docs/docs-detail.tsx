@@ -195,11 +195,14 @@ function DocsLayout({ documentId }: { documentId: string }) {
         onWorkspaceChange={handleWorkspaceChange}
       />
       <SidebarInset>
+        {/* Withheld while previewing for the same reason as the sheet host's:
+            committing the title input is a `PATCH /documents/:id` on the LIVE
+            document, and nothing covers or removes this half of the header. */}
         <SiteHeader
           title={documentData?.title ?? "Loading…"}
-          editable
+          editable={!previewing}
           syncStatus
-          onRename={handleRenameDocument}
+          onRename={previewing ? undefined : handleRenameDocument}
         >
           <div className="flex items-center gap-2">
             {/* The comments toggle is editing chrome, so a preview removes it
@@ -248,9 +251,13 @@ function DocsLayout({ documentId }: { documentId: string }) {
               title={documentData?.title ?? "document"}
             />
             <ShareDialog documentId={documentId} />
+            {/* Same as the sheet host: the avatars are read-only and stay,
+                but the jump moves the LIVE editor behind the preview and
+                republishes this user's caret there. Omitting the callbacks
+                disables the trigger and drops the jump hint. */}
             <UserPresence
-              onSelectPeer={handleSelectPeer}
-              getJumpHint={getJumpHint}
+              onSelectPeer={previewing ? undefined : handleSelectPeer}
+              getJumpHint={previewing ? undefined : getJumpHint}
             />
           </div>
         </SiteHeader>
@@ -299,6 +306,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 // reachable. The user's choice survives — `commentsPanelOpen`
                 // is untouched, so closing the preview restores the panel.
                 commentsPanelOpen={commentsPanelOpen && !previewing}
+                // The panel is not the only comment surface that outranks the
+                // overlay: the popover and the insert-comment dialog are both
+                // `fixed … z-50`, so they escape the surface box entirely.
+                // `DocsView` withholds them on this flag — the same one the
+                // overlay is driven by.
+                previewing={previewing}
                 onCommentsPanelOpenChange={setCommentsPanelOpen}
               />
             </PreviewSurface>

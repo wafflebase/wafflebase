@@ -144,6 +144,7 @@ export function SheetView({
   addPivotTab,
   workspaceId,
   documentId,
+  previewing = false,
   onToggleCommentsPanel,
 }: {
   tabId: string;
@@ -180,6 +181,19 @@ export function SheetView({
    * view) simply means no reports.
    */
   documentId?: string;
+  /**
+   * True while a revision preview is open over this mount.
+   *
+   * The preview overlay covers this view, which contains every control
+   * painted inside the grid — but not the comment popover, which is
+   * `absolute z-30` against the overlay's `z-20` and so paints *above* it,
+   * fully clickable, with Reply / Resolve / Edit / Delete all writing to the
+   * live document behind the preview. Covering cannot contain it, so this
+   * withholds it: while a preview is open, no editing control is both
+   * rendered and reachable (`preview-surface.tsx`). Hosts with no version
+   * history (the share-link view) omit it.
+   */
+  previewing?: boolean;
   onToggleCommentsPanel?: () => void;
 }) {
   const { resolvedTheme: theme } = useTheme();
@@ -206,6 +220,13 @@ export function SheetView({
   // (including remote-change repaints), so comparing axis IDs lets us tell
   // "user moved to a new cell" apart from "remote tick on the same cell".
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
+  // A revision preview withholds the popover rather than covering it (see
+  // `previewing`). Every popover surface — the element and both of its
+  // placement effects — keys off this one value, so a popover left open when
+  // the preview opened disappears and re-measures its position when the
+  // preview closes, instead of reappearing at coordinates measured against a
+  // grid that may have moved underneath it.
+  const commentPopoverVisible = commentPopoverOpen && !previewing;
   const [activeCellForComment, setActiveCellForComment] = useState<Ref | null>(null);
   const commentPopoverOpenRef = useRef(false);
   const popoverAnchorRef = useRef<{ rowId: string; colId: string } | null>(null);
@@ -276,6 +297,11 @@ export function SheetView({
   // whole sheet whenever the host re-renders.
   const onUndoJumpRef = useRef(onUndoJump);
   onUndoJumpRef.current = onUndoJump;
+  // Same reason: the engine subscriptions below are registered once, in the
+  // mount effect, and have to read today's value rather than the one that
+  // was current when the sheet was built.
+  const previewingRef = useRef(previewing);
+  previewingRef.current = previewing;
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
   const hasImagesRef = useRef(false);
@@ -882,6 +908,12 @@ export function SheetView({
   // axis IDs for the active cell so addThread has a stable anchor.
   const openCommentComposerForActiveCell = useCallback(() => {
     if (readOnly) return;
+    // `ensureAxisOrder` below is a `doc.update()` on the LIVE root, and the
+    // shortcut that reaches here is normally stopped by `RevisionPreview`'s
+    // capture-phase suppressor — which only exists once that lazy chunk has
+    // mounted. Between opening a preview and the chunk resolving nothing is
+    // painted and nothing is suppressed, so refuse here too.
+    if (previewing) return;
     const sheet = sheetRef.current;
     const activeCell = sheet?.getActiveCell();
     if (activeCell) {
@@ -899,12 +931,19 @@ export function SheetView({
       }
     }
     setCommentPopoverOpen(true);
-  }, [readOnly, doc, tabId]);
+  }, [readOnly, previewing, doc, tabId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
+        // The bar is withheld below while a preview is open, and Replace /
+        // Replace All on it write the LIVE sheet while find/findNext move
+        // the live selection and republish presence. Bound on `window`, so
+        // the preview's capture-phase suppressor only covers it once that
+        // lazy chunk has mounted; refuse here too rather than flip state
+        // nothing will render.
+        if (previewing) return;
         setFindBarOpen(true);
       }
       // Open-only (Esc closes via Radix) matches the Slides binding;
@@ -930,16 +969,37 @@ export function SheetView({
         e.key.toLowerCase() === "m"
       ) {
         e.preventDefault();
+        // The keyboard twin of the header toggle, which the host withholds
+        // inside `EditingChrome` while a preview is open — because flipping
+        // `commentsPanelOpen` there would mean closing the preview no longer
+        // gives the panel back. A shortcut that writes the same state is the
+        // same bug, and it is bound on `window`, so the preview's own
+        // capture-phase suppressor only covers it once that lazy chunk has
+        // mounted. Refuse here too.
+        if (previewing) return;
         onToggleCommentsPanel?.();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [openCommentComposerForActiveCell, onToggleCommentsPanel]);
+  }, [openCommentComposerForActiveCell, onToggleCommentsPanel, previewing]);
 
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
   }, []);
+
+  // Withholding the find bar unmounts it, and its query lives in its own
+  // component state — so the match highlights it already pushed onto the
+  // engine (`setSearchHighlights`) would outlive the bar that explains them,
+  // painted on the live grid with nothing left to clear them. Its own Close
+  // does both; do the same here. `clearFind` only drops the highlight list
+  // and repaints the overlay — it moves no selection, so nothing is
+  // published from a document the user is no longer looking at.
+  useEffect(() => {
+    if (!previewing) return;
+    setFindBarOpen(false);
+    sheetRef.current?.clearFind();
+  }, [previewing]);
 
   // Comment action handlers — delegate to YorkieStore via storeRef.
   // Throw on guard-failure so the composer keeps the user's draft visible
@@ -1182,6 +1242,12 @@ export function SheetView({
         s.onSelectionChange(() => {
           setMobileEditState((prev) => {
             if (!prev) return null;
+            // Withholding `MobileEditPanel` hides the draft; it does not
+            // neutralize it. This fires on every render tick — remote-change
+            // repaints keep arriving during a preview — and `commitExternalEdit`
+            // is a write to the LIVE sheet. Hold the draft untouched instead,
+            // so closing the preview gives the panel back exactly as it was.
+            if (previewingRef.current) return prev;
             // Guard against synthesized mouse events that iOS browsers
             // fire after touchend despite preventDefault().  These cause
             // a selectStart → selectionChange that would immediately
@@ -1480,6 +1546,16 @@ export function SheetView({
 
   useEffect(() => {
     if (!peerJumpTarget) return;
+    // The hosts stop handing us new targets while a preview is open, but one
+    // staged just before it opened would otherwise land under the banner —
+    // `focusCell` moves the live selection and publishes it as presence.
+    // Dropped, not deferred: consuming the request id keeps it from firing
+    // whenever the preview closes, possibly much later, to wherever the peer
+    // was at an unrelated moment.
+    if (previewing) {
+      lastHandledPeerJumpRequestIdRef.current = peerJumpTarget.requestId;
+      return;
+    }
     if (peerJumpTarget.targetTabId && peerJumpTarget.targetTabId !== tabId) {
       return;
     }
@@ -1501,9 +1577,17 @@ export function SheetView({
     } catch {
       // Ignore malformed presence values from remote peers.
     }
-  }, [peerJumpTarget, sheetRenderVersion, tabId]);
+  }, [peerJumpTarget, previewing, sheetRenderVersion, tabId]);
 
   useEffect(() => {
+    // Same containment as the peer jump above: `focusUndoSelection` moves the
+    // live selection behind the preview banner, so a target staged just before
+    // the preview opened is dropped rather than deferred — the undo step it
+    // names may no longer exist by the time the preview closes.
+    if (undoJumpTarget && previewing) {
+      lastHandledUndoJumpRequestIdRef.current = undoJumpTarget.requestId;
+      return;
+    }
     if (
       !shouldApplyUndoJump(
         undoJumpTarget,
@@ -1521,10 +1605,19 @@ export function SheetView({
 
     lastHandledUndoJumpRequestIdRef.current = undoJumpTarget.requestId;
     sheet.focusUndoSelection(undoJumpTarget.selection);
-  }, [undoJumpTarget, sheetRenderVersion, tabId]);
+  }, [undoJumpTarget, previewing, sheetRenderVersion, tabId]);
 
   useEffect(() => {
     if (!commentJumpTarget) return;
+    // The panel that stages these is withheld while a preview is open, but one
+    // staged just before it opened would still move the live selection — and
+    // publish it as presence — under the banner. Consuming the request id also
+    // keeps it from firing whenever the preview closes, by which time the
+    // thread may have been resolved or its anchor moved.
+    if (previewing) {
+      lastHandledCommentJumpRequestIdRef.current = commentJumpTarget.requestId;
+      return;
+    }
     if (commentJumpTarget.requestId === lastHandledCommentJumpRequestIdRef.current) {
       return;
     }
@@ -1543,7 +1636,7 @@ export function SheetView({
     } catch {
       // Ignore malformed sref values.
     }
-  }, [commentJumpTarget, sheetRenderVersion]);
+  }, [commentJumpTarget, previewing, sheetRenderVersion]);
 
   const paintFormatSourceIndicator = (() => {
     if (!paintFormatSourceIndicatorVisible || !paintFormatSourceRef) {
@@ -1587,11 +1680,11 @@ export function SheetView({
   // Reset position whenever the popover closes so the next open re-measures
   // before paint (avoids flashing at the previous cell's coords).
   useEffect(() => {
-    if (!commentPopoverOpen) setCommentPopoverPos(null);
-  }, [commentPopoverOpen]);
+    if (!commentPopoverVisible) setCommentPopoverPos(null);
+  }, [commentPopoverVisible]);
 
   useLayoutEffect(() => {
-    if (!commentPopoverOpen || !activeCellForComment) return;
+    if (!commentPopoverVisible || !activeCellForComment) return;
     const wrapper = commentPopoverWrapperRef.current;
     const sheet = sheetRef.current;
     if (!wrapper || !sheet) return;
@@ -1659,7 +1752,7 @@ export function SheetView({
       prev && prev.left === left && prev.top === top ? prev : { left, top },
     );
   }, [
-    commentPopoverOpen,
+    commentPopoverVisible,
     activeCellForComment,
     activeCellThreads.length,
     sheetRenderVersion,
@@ -1751,6 +1844,12 @@ export function SheetView({
         <SheetContextMenu
           spreadsheet={sheetRef.current}
           readOnly={readOnly}
+          // Its content is a `document.body` portal at `z-50`, so it leaves
+          // this surface box entirely and outranks the overlay — Cut, Paste,
+          // Insert, Delete and Insert comment all write the LIVE sheet. The
+          // wrapper cannot be dropped (that would remount the canvas
+          // container it wraps), so the trigger is disabled in place.
+          disabled={previewing}
           onCopy={handleContextMenuCopy}
           onCut={handleContextMenuCut}
           onPaste={handleContextMenuPaste}
@@ -1795,7 +1894,13 @@ export function SheetView({
             )}
           </div>
         </SheetContextMenu>
-        {findBarOpen && (
+        {/* Covering does not contain this one either. The overlay takes the
+            pointer, but not the focus the bar's input already holds — so a
+            bar left open when the preview opened still answers Enter with
+            `findNext`, which moves the LIVE selection and republishes
+            presence, and its Replace / Replace All write the live sheet.
+            Withhold it; the effect above clears the highlights it leaves. */}
+        {findBarOpen && !previewing && (
           <FindBar
             spreadsheet={sheetRef.current}
             onClose={handleFindBarClose}
@@ -1882,7 +1987,13 @@ export function SheetView({
             />
           </ChunkBoundary>
         )}
-        {isMobile && mobileEditState && (
+        {/* `fixed inset-x-0 z-50` — it escapes this surface's box entirely
+            and outranks the overlay's `z-20`, so a cell editor opened on a
+            touch device before the preview opened would stay on screen above
+            it, and its commit is a write to the LIVE sheet. Covering cannot
+            contain it either; withhold it with the rest. `mobileEditState`
+            is untouched, so closing the preview returns the draft. */}
+        {isMobile && mobileEditState && !previewing && (
           <MobileEditPanel
             cellRef={mobileEditState.cellRef}
             initialValue={mobileEditState.value}
@@ -1891,7 +2002,7 @@ export function SheetView({
             onValueChange={handleMobileEditValueChange}
           />
         )}
-        {commentPopoverOpen && activeCellForComment && (
+        {commentPopoverVisible && activeCellForComment && (
           <div
             ref={commentPopoverWrapperRef}
             className="absolute z-30"
@@ -1921,7 +2032,11 @@ export function SheetView({
             />
           </div>
         )}
-        {linkHover && (
+        {/* Also `absolute z-30` against the overlay's `z-20`, so a hover card
+            left open when the preview opened paints above it — a link read
+            off the live grid, offered for opening, on top of a banner saying
+            the user is looking at an old version. */}
+        {linkHover && !previewing && (
           <div
             ref={linkPopoverWrapperRef}
             className="absolute z-30"

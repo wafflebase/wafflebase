@@ -36,6 +36,17 @@ interface SheetContextMenuProps {
   children: React.ReactNode;
   spreadsheet: Spreadsheet | undefined;
   readOnly?: boolean;
+  /**
+   * Withholds the menu without unmounting the grid it wraps.
+   *
+   * The content is a `document.body` portal at `z-50`, so it escapes the
+   * surface box a revision preview covers and would paint above the overlay
+   * with Cut / Paste / Insert / Delete all writing the LIVE sheet. Dropping
+   * the wrapper instead would remount `children` — the canvas container —
+   * so the trigger is disabled in place, and the selection side effects of
+   * opening it are refused with it.
+   */
+  disabled?: boolean;
   onCopy: () => void;
   onCut: () => void;
   onPaste: () => void;
@@ -54,6 +65,7 @@ export function SheetContextMenu({
   children,
   spreadsheet,
   readOnly = false,
+  disabled = false,
   onCopy,
   onCut,
   onPaste,
@@ -131,9 +143,14 @@ export function SheetContextMenu({
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       if (!spreadsheet) return;
+      // Radix leaves our own `onContextMenu` wired on a disabled trigger (it
+      // only drops its own, to let the native menu through), and this one
+      // moves the LIVE selection — which republishes presence from a
+      // document the user is no longer looking at.
+      if (disabled) return;
       updateMenuState(e.clientX, e.clientY);
     },
-    [spreadsheet, updateMenuState],
+    [spreadsheet, disabled, updateMenuState],
   );
 
   const handleHideRowCol = useCallback(async () => {
@@ -183,7 +200,11 @@ export function SheetContextMenu({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild onContextMenu={handleContextMenu}>
+      <ContextMenuTrigger
+        asChild
+        disabled={disabled}
+        onContextMenu={handleContextMenu}
+      >
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent>

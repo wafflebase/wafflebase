@@ -72,7 +72,10 @@ import { CommentSidePanel } from "@/components/comments/components/CommentSidePa
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { PreviewSurface } from "@/components/history/preview-surface";
+import {
+  EditingChrome,
+  PreviewSurface,
+} from "@/components/history/preview-surface";
 
 const SheetView = lazyWithRetry(() => import("@/app/spreadsheet/sheet-view"));
 // Lazy: `revision-preview.tsx` statically imports all three of
@@ -184,6 +187,12 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     // which resets the mount-local ref that remembers the request was already
     // handled.
     setUndoJumpTarget(null);
+    // A peer jump is the same shape: the remount forgets it was handled, and
+    // the cell it names comes from presence that predates the restore.
+    setPeerJumpTarget(null);
+    // So is a comment jump: its `sref` was resolved from the row/column order
+    // the restore just replaced, so it may now name an unrelated cell.
+    setCommentJumpTarget(null);
     setHistoryResetToken((t) => t + 1);
   }, [doc]);
 
@@ -207,6 +216,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     retry: false,
     staleTime: 5 * 60 * 1000,
   });
+
+  // One flag for every surface a preview has to contain, as in `docs-detail`:
+  // wired to two conditions that could disagree, the overlay could paint while
+  // a control it is meant to replace was never withheld.
+  const previewing = Boolean(previewRevisionId && currentUser);
 
   useEffect(() => {
     document.title = documentData?.title
@@ -682,24 +696,41 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         onWorkspaceChange={handleWorkspaceChange}
       />
       <SidebarInset>
+        {/* The title is the last editing control in this header: clicking it
+            opens an input whose commit is a `PATCH /documents/:id` on the
+            LIVE document — renaming the thing the user is looking at a past
+            version of, with no visible feedback. Neither containment
+            mechanism reaches the header's left half, so the rename is
+            withheld the way the peer jump below is: `editable={false}` drops
+            the button role, the pointer affordance and the keyboard entry,
+            and the missing `onRename` neutralizes an input that was already
+            open when the preview opened. */}
         <SiteHeader
           title={documentData?.title ?? "Loading…"}
-          editable
+          editable={!previewing}
           syncStatus
-          onRename={handleRenameDocument}
+          onRename={previewing ? undefined : handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
-                commentsPanelOpen ? "bg-muted" : ""
-              }`}
-              aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
-              aria-pressed={commentsPanelOpen}
-              onClick={() => setCommentsPanelOpen((v) => !v)}
-            >
-              <IconMessage size={16} />
-            </button>
+            {/* The toggle goes with the panel, as it does in docs. Left
+                rendered it would still report `aria-pressed` for a panel that
+                is not there, and clicking it would flip `commentsPanelOpen`
+                to false with nothing on screen to show for it — so closing
+                the preview would NOT give the panel back, which is the whole
+                promise of withholding it rather than closing it. */}
+            <EditingChrome previewing={previewing}>
+              <button
+                type="button"
+                className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
+                  commentsPanelOpen ? "bg-muted" : ""
+                }`}
+                aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
+                aria-pressed={commentsPanelOpen}
+                onClick={() => setCommentsPanelOpen((v) => !v)}
+              >
+                <IconMessage size={16} />
+              </button>
+            </EditingChrome>
             <button
               type="button"
               className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
@@ -712,7 +743,18 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               <IconHistory size={16} />
             </button>
             <ShareDialog documentId={documentId} />
-            <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
+            {/* Who is here is read-only, so the avatars stay. The *jump* is
+                not: it moves the LIVE grid behind the preview and publishes
+                this user's selection from a document they are not looking
+                at — the same live `doc.update()` the comments panel was
+                withheld for. Omitting the two callbacks is what
+                `UserPresence` documents as "non-clickable" (it disables the
+                trigger and drops the "Click to jump to…" hint), so the
+                control is not reachable rather than merely inert. */}
+            <UserPresence
+              onSelectPeer={previewing ? undefined : handleSelectPeer}
+              getJumpHint={previewing ? undefined : getJumpHint}
+            />
           </div>
         </SiteHeader>
         <div className="flex flex-1 overflow-hidden">
@@ -729,7 +771,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           <PreviewSurface
             className="flex-col"
             preview={
-              previewRevisionId && currentUser ? (
+              previewing && previewRevisionId && currentUser ? (
                 <ChunkBoundary fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}
@@ -768,6 +810,10 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                       addPivotTab={addPivotTab}
                       workspaceId={documentData?.workspaceId}
                       documentId={documentId}
+                      // The popover is `z-30` inside this surface and the
+                      // overlay is `z-20`, so covering does not contain it.
+                      // `SheetView` withholds it instead.
+                      previewing={previewing}
                       onToggleCommentsPanel={() => setCommentsPanelOpen((v) => !v)}
                     />
                   )}
@@ -786,7 +832,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               />
             )}
           </PreviewSurface>
-          {commentsPanelOpen && (
+          {/* The panel is a sibling of the surface, so a preview never covers
+              it, and its Jump-to-comment moves the LIVE grid behind the
+              preview and opens the live popover over it — every control of
+              which is a `doc.update()` on the current document. Withholding it
+              applies `preview-surface.tsx`'s rule instead: while a preview is
+              open, no editing control is both rendered and reachable. The
+              user's choice survives — `commentsPanelOpen` is untouched, so
+              closing the preview restores the panel. Same fix docs made. */}
+          {commentsPanelOpen && !previewing && (
             <CommentSidePanel<SheetCellAnchor>
               threads={allThreads}
               onJumpTo={(t) => handleJumpToCell(t.anchor)}

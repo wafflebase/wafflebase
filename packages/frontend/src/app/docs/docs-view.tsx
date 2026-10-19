@@ -136,6 +136,27 @@ interface DocsViewProps {
    * one 401s and that 401 ejects the visitor to `/login` (issue #1037).
    */
   uploadImage?: DocsImageUpload;
+  /**
+   * True while a revision preview is open over this mount.
+   *
+   * The overlay is `absolute inset-0 z-20` inside the same `PreviewSurface`
+   * that holds this view, so it contains everything painted below it — but
+   * not a `fixed` descendant, which escapes the surface box regardless of its
+   * `z-index`. This view has six of them, and every one carries controls that
+   * are a write to the LIVE document: the comment popover (Reply / Resolve /
+   * Edit / Delete), the insert-comment dialog, the find bar (Replace /
+   * Replace All, which drive `FindReplaceState` straight at the store and so
+   * never pass through the editor's read-only neutralization), the link
+   * popover (Edit / Remove link, which deliberately stays open when the caret
+   * moves away and has no outside-click dismissal), and the two context
+   * menus (spell corrections, paste, insert link, table row/column ops). All
+   * stayed clickable under a banner reading "Viewing a version", with no
+   * visible feedback because the canvas that would have shown the change is
+   * behind the preview. Covering cannot contain them, so they are withheld,
+   * exactly as the host already withholds the panel.
+   * Hosts with no version history (the share-link view) omit it.
+   */
+  previewing?: boolean;
 }
 
 /**
@@ -154,6 +175,7 @@ export function DocsView({
   documentId,
   workspaceId,
   uploadImage,
+  previewing = false,
 }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // State-mirrored handle on the same DOM node, so effects that depend
@@ -611,6 +633,12 @@ export function DocsView({
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || !e.altKey) return;
+      // Both arms reach a surface a preview withholds — the panel the host
+      // closes with `commentsPanelOpen && !previewing`, and the compose
+      // dialog above. Bound on `window`, so the preview's capture-phase
+      // suppressor only covers them once that lazy chunk has mounted;
+      // refuse here too rather than flip state nothing will render.
+      if (previewing) return;
       if (e.key === "M" || e.key === "m") {
         if (e.shiftKey) {
           e.preventDefault();
@@ -622,7 +650,28 @@ export function DocsView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [comments]);
+  }, [comments, previewing]);
+
+  // Withholding the find bar unmounts it, and its query lives in its own
+  // component state — so the highlights it already pushed onto the editor
+  // (`setSearchMatches`) would outlive the bar that explains them, painted on
+  // the live document with nothing left to clear them. Its own Close does
+  // both; do the same here, which also drops any link-edit request that was
+  // staged but never handed to the withheld popover, so closing the preview
+  // cannot reopen it at coordinates measured before it opened.
+  //
+  // Deliberately not applied to the comments panel: that toggle is a
+  // preference the user set, and a preview must give it back. The find bar's
+  // transient state is lost to the unmount either way.
+  useEffect(() => {
+    if (!previewing) return;
+    setFindBarOpen(false);
+    setLinkInputRequest(null);
+    // Without `moveCursorToActive`, unlike the bar's own Close: moving the
+    // caret to the last match would publish presence from a document the
+    // user is no longer looking at.
+    editorRef.current?.clearSearchMatches();
+  }, [previewing]);
 
   // Cmd/Ctrl+/ opens the shortcuts help modal. The docs text-editor
   // doesn't bind "/" so the event bubbles to window unhindered. Open-only
@@ -670,14 +719,16 @@ export function DocsView({
         open={shortcutsHelpOpen}
         onOpenChange={setShortcutsHelpOpen}
       />
-      <DocsLinkPopover
-        editor={mountedEditor}
-        containerRef={containerRef}
-        editRequest={linkInputRequest}
-        onEditRequestHandled={() => setLinkInputRequest(null)}
-        readOnly={readOnly}
-      />
-      {findBarOpen && (
+      {!previewing && (
+        <DocsLinkPopover
+          editor={mountedEditor}
+          containerRef={containerRef}
+          editRequest={linkInputRequest}
+          onEditRequestHandled={() => setLinkInputRequest(null)}
+          readOnly={readOnly}
+        />
+      )}
+      {findBarOpen && !previewing && (
         <DocsFindBar
           editor={mountedEditor}
           showReplace={findBarShowReplace}
@@ -686,25 +737,29 @@ export function DocsView({
           readOnly={readOnly}
         />
       )}
-      <DocsTableContextMenu
-        editor={mountedEditor}
-        containerRef={containerRef}
-        readOnly={readOnly}
-        canComment={comments.canComment}
-        onInsertComment={() => {
-          comments.beginCompose();
-        }}
-      />
-      <DocsContextMenu
-        editor={mountedEditor}
-        containerRef={containerRef}
-        readOnly={readOnly}
-        canComment={comments.canComment}
-        onInsertComment={() => {
-          comments.beginCompose();
-        }}
-      />
-      {comments.active && (
+      {!previewing && (
+        <DocsTableContextMenu
+          editor={mountedEditor}
+          containerRef={containerRef}
+          readOnly={readOnly}
+          canComment={comments.canComment}
+          onInsertComment={() => {
+            comments.beginCompose();
+          }}
+        />
+      )}
+      {!previewing && (
+        <DocsContextMenu
+          editor={mountedEditor}
+          containerRef={containerRef}
+          readOnly={readOnly}
+          canComment={comments.canComment}
+          onInsertComment={() => {
+            comments.beginCompose();
+          }}
+        />
+      )}
+      {comments.active && !previewing && (
         <DocsCommentPopover
           thread={comments.active.thread}
           anchorRect={comments.active.anchorRect}
@@ -722,7 +777,7 @@ export function DocsView({
           onDismiss={comments.dismissPopover}
         />
       )}
-      {comments.composeOpen && (
+      {comments.composeOpen && !previewing && (
         <div
           role="dialog"
           aria-label="Insert comment"

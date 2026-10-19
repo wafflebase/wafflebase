@@ -18,20 +18,29 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
   const [total, setTotal] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // `find` / `findNext` / `findPrevious` are async scans of the grid, so one
+  // can still be running when this bar is withheld — a revision preview
+  // opening unmounts it mid-search. Clearing the debounce timer only stops a
+  // search that has not started. The engine refuses to publish an abandoned
+  // one's results (`Spreadsheet.clearFind` bumps a search epoch); this stops
+  // its resolution from reporting counts or stealing focus back here.
+  const disposedRef = useRef(false);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const updateSearchState = useCallback(() => {
-    if (!spreadsheet) return;
+    if (!spreadsheet || disposedRef.current) return;
     const state = spreadsheet.getSearchState();
     setTotal(state.total);
     setCurrentIndex(state.currentIndex);
   }, [spreadsheet]);
 
   const refocusInput = useCallback(() => {
+    if (disposedRef.current) return;
     requestAnimationFrame(() => {
+      if (disposedRef.current) return;
       inputRef.current?.focus();
     });
   }, []);
@@ -93,6 +102,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
 
   useEffect(() => {
     return () => {
+      disposedRef.current = true;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
