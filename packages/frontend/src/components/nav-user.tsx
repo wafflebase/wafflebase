@@ -1,6 +1,14 @@
-import { IconDotsVertical, IconLogout, IconSun, IconMoon } from "@tabler/icons-react";
+import { useState } from "react";
+import {
+  IconDotsVertical,
+  IconLogout,
+  IconSettings,
+  IconSun,
+  IconMoon,
+} from "@tabler/icons-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SettingsDialog } from "@/components/settings-dialog";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -37,6 +45,9 @@ export function NavUser({ user }: { user: User }) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const initials = getInitials(user.username);
+  // Held here rather than inside the dialog: the menu unmounts on select and
+  // takes focus with it, which closes a dialog whose open state it owns.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const handleLogout = async () => {
     await logout();
   };
@@ -84,6 +95,19 @@ export function NavUser({ user }: { user: User }) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {/* This device's settings — appearance, dates, offline saving.
+                The sidebar's Settings is the workspace's, a different page
+                about a different thing; the two are told apart by which
+                surface they hang off rather than by their names. Before the
+                split there was one entry for both, and which one it reached
+                depended on whether the route had resolved a workspace. */}
+            <DropdownMenuItem
+              onClick={() => setSettingsOpen(true)}
+              className="cursor-pointer"
+            >
+              <IconSettings />
+              Settings
+            </DropdownMenuItem>
             <DropdownMenuCheckboxItem
               checked={isDark}
               onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
@@ -99,6 +123,8 @@ export function NavUser({ user }: { user: User }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* Outside the menu, which has unmounted by the time this is open. */}
+        <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </SidebarMenuItem>
     </SidebarMenu>
   );

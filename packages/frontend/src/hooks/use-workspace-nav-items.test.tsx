@@ -54,6 +54,10 @@ describe("useWorkspaceNavItems", () => {
     });
     await settled(false);
 
+    // The sidebar's Settings is the workspace's, and now only ever that: the
+    // device's own are reached from the user menu instead. While this entry
+    // could mean either, it silently meant whichever one the current route had
+    // resolved a workspace slug for.
     expect(titles(result.current)).toEqual([
       "Documents",
       "Templates",
@@ -92,9 +96,9 @@ describe("useWorkspaceNavItems", () => {
   });
 
   it("falls back to the workspace-less routes before a slug resolves", async () => {
-    // Enabled on purpose: the fallback must stay three entries even when the
-    // warehouse exists, because `/templates` and `/analytics` are routed only
-    // under `/w/:workspaceId`.
+    // Enabled on purpose: the fallback must stay to the workspace-less routes
+    // even when the warehouse exists, because `/templates` and `/analytics`
+    // are routed only under `/w/:workspaceId`.
     vi.mocked(fetchAnalyticsEnabled).mockResolvedValue(true);
     const { wrapper, settled } = makeWrapper();
 
@@ -106,7 +110,23 @@ describe("useWorkspaceNavItems", () => {
     expect(result.current.main.map((i) => i.url)).toEqual([
       "/documents",
       "/datasources",
-      "/settings",
     ]);
+  });
+
+  it("leaves the device's own settings out of the sidebar entirely", async () => {
+    // They are reached from the user menu, on every shell including the
+    // editors. Kept here it was a second entry called Settings that pointed
+    // somewhere else than the one beside it — the confusion this split exists
+    // to end.
+    vi.mocked(fetchAnalyticsEnabled).mockResolvedValue(false);
+    const { wrapper, settled } = makeWrapper();
+
+    for (const slug of ["acme", undefined]) {
+      const { result } = renderHook(() => useWorkspaceNavItems(slug), {
+        wrapper,
+      });
+      await settled(false);
+      expect(result.current.main.map((i) => i.url)).not.toContain("/settings");
+    }
   });
 });

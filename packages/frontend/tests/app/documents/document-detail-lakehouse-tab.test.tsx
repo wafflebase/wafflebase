@@ -24,6 +24,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@yorkie-js/react', () => ({
   DocumentProvider: ({ children }: { children: ReactNode }) => children,
+  // `CollabDocumentProvider` nests one of these for a durable document. It
+  // never does in this suite — the preference is off — but the import has to
+  // resolve.
+  YorkieProvider: ({ children }: { children: ReactNode }) => children,
   useDocument: () => ({
     doc: mocks.doc,
     root: mocks.doc?.getRoot(),
@@ -34,6 +38,11 @@ vi.mock('@yorkie-js/react', () => ({
 
 vi.mock('@/api/auth', () => ({
   fetchMe: mocks.fetchMe,
+  // `CollabDocumentProvider` asks the optional question instead, because it
+  // also renders on the anonymous share route where `fetchMe`'s 401 arm would
+  // log the visitor out.
+  fetchMeOptional: mocks.fetchMe,
+  fetchYorkieToken: vi.fn(),
   isAuthExpiredError: () => false,
 }));
 
