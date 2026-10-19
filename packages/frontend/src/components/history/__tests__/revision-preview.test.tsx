@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RevisionPreview, RevisionPreviewOverlay } from '../revision-preview';
 import { firstWorksheetTabId } from '../first-worksheet-tab';
-import { usePreviewLoadingId } from '../preview-loading';
+import { setPreviewLoadingId, usePreviewLoadingId } from '../preview-loading';
 
 const getRevision = vi.fn();
 const listRevisions = vi.fn().mockResolvedValue([]);
@@ -106,6 +106,52 @@ function LoadingProbe() {
   return <span data-testid="loading-probe">{id ?? 'none'}</span>;
 }
 
+/**
+ * The probe has to outlive the overlay, because the behavior under test is
+ * what the *panel* sees after the preview is gone — so it cannot be a child
+ * of the tree the unmount tears down. Toggling `open` on a shared parent is
+ * what gives the overlay its own mount lifetime with the probe still up.
+ */
+function PreviewHarness({
+  open,
+  revisionId = 'r1',
+}: {
+  open: boolean;
+  revisionId?: string;
+}) {
+  return (
+    <>
+      <LoadingProbe />
+      {open && (
+        <RevisionPreview
+          revisionId={revisionId}
+          type="sheet"
+          onRestore={vi.fn()}
+          onBack={vi.fn()}
+        />
+      )}
+    </>
+  );
+}
+
+/** A `getRevision` that stays in flight until the returned settler is called. */
+function pendingRevision() {
+  let settle: (revision: unknown) => void = () => {};
+  getRevision.mockReturnValue(
+    new Promise((resolve) => {
+      settle = resolve;
+    }),
+  );
+  return (snapshot: string) =>
+    settle({
+      id: 'r1',
+      label: 'v1',
+      description: '',
+      createdAt: new Date('2026-09-02T10:00:00Z'),
+      snapshot,
+    });
+}
+
 function resolveWith(snapshot: string) {
   getRevision.mockResolvedValue({
     id: 'r1',
@@ -117,6 +163,11 @@ function resolveWith(snapshot: string) {
 }
 
 afterEach(() => {
+  // `preview-loading.ts` is a module global shared by every test in this
+  // file. Without this reset, a test that asserts the id *is* published is
+  // only non-vacuous by accident of ordering, and a leaked id from one test
+  // silently satisfies the next.
+  setPreviewLoadingId(null);
   vi.clearAllMocks();
   listRevisions.mockResolvedValue([]);
   createRevision.mockResolvedValue({ id: 'safety' });
@@ -189,29 +240,13 @@ describe('RevisionPreview', () => {
   // The `HistoryPanel` is a sibling of this overlay, so the row the user
   // clicked learns about the fetch only through the module store.
   it('publishes the fetching revision to the history panel, and clears it', async () => {
-    let settle: (revision: unknown) => void = () => {};
-    getRevision.mockReturnValue(
-      new Promise((resolve) => {
-        settle = resolve;
-      }),
-    );
-    render(
-      <>
-        <LoadingProbe />
-        <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />
-      </>,
-    );
+    const settle = pendingRevision();
+    render(<PreviewHarness open />);
 
     expect(screen.getByTestId('loading-probe')).toHaveTextContent('r1');
 
     await act(async () => {
-      settle({
-        id: 'r1',
-        label: 'v1',
-        description: '',
-        createdAt: new Date('2026-09-02T10:00:00Z'),
-        snapshot: EXTERNAL_ONLY_SNAPSHOT,
-      });
+      settle(EXTERNAL_ONLY_SNAPSHOT);
     });
 
     await waitFor(() =>
@@ -219,14 +254,62 @@ describe('RevisionPreview', () => {
     );
   });
 
+  // The other half of the same contract, and the one with no second chance:
+  // the fetch is still running when the overlay goes away, so nothing later
+  // in its own lifecycle will clear the id. Only the load effect's cleanup
+  // does — and without it the row the user clicked is left permanently
+  // `aria-busy` with its Preview button disabled, i.e. a version they can no
+  // longer open, for as long as the page lives.
+  it('clears the loading id when the overlay unmounts mid-fetch', async () => {
+    const settle = pendingRevision();
+    const { rerender } = render(<PreviewHarness open />);
+
+    expect(screen.getByTestId('loading-probe')).toHaveTextContent('r1');
+
+    rerender(<PreviewHarness open={false} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading-probe')).toHaveTextContent('none'),
+    );
+
+    // The in-flight fetch still lands afterwards; it must not resurrect the
+    // spinner on a panel whose preview is already gone.
+    await act(async () => {
+      settle(EXTERNAL_ONLY_SNAPSHOT);
+    });
+    expect(screen.getByTestId('loading-probe')).toHaveTextContent('none');
+  });
+
+  // The `if (!cancelled)` guard on the shared `.finally()`. A fetch that
+  // settles after the preview has moved on to another revision must not
+  // clear the id the *current* load published, or the panel stops spinning
+  // the row that is actually still loading.
+  it('lets a stale fetch settle without clearing the current load', async () => {
+    const settleFirst = pendingRevision();
+    const { rerender } = render(<PreviewHarness open revisionId="r1" />);
+    expect(screen.getByTestId('loading-probe')).toHaveTextContent('r1');
+
+    pendingRevision();
+    rerender(<PreviewHarness open revisionId="r2" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('loading-probe')).toHaveTextContent('r2'),
+    );
+
+    await act(async () => {
+      settleFirst(EXTERNAL_ONLY_SNAPSHOT);
+    });
+    expect(screen.getByTestId('loading-probe')).toHaveTextContent('r2');
+  });
+
   // The loading state is "no metadata *and* no error", so a rejected fetch
   // has to end it — a spinner that never stops is the same blank screen with
-  // extra steps.
+  // extra steps. The *panel* beside the overlay learns that only through the
+  // shared module store, so the rejection path has to clear that too: a row
+  // left `aria-busy` with its Preview button disabled is a version the user
+  // can no longer open.
   it('reports a failed fetch instead of spinning forever', async () => {
     getRevision.mockRejectedValue(new Error('network down'));
-    render(
-      <RevisionPreview revisionId="r1" type="sheet" onRestore={vi.fn()} onBack={vi.fn()} />,
-    );
+    render(<PreviewHarness open />);
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(/network down/i),
@@ -239,6 +322,7 @@ describe('RevisionPreview', () => {
     expect(
       screen.getByRole('button', { name: /back to current version/i }),
     ).toBeEnabled();
+    expect(screen.getByTestId('loading-probe')).toHaveTextContent('none');
   });
 
   // A snapshot this build cannot parse must say so. Rendering an empty
