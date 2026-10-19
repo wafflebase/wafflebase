@@ -627,21 +627,40 @@ describe('the preview containment of every wired editor', () => {
 
   // Belt to the host's braces: a jump staged in the instant before the
   // preview opened would otherwise land under the banner.
-  it('sheet-view defers a staged peer jump while previewing', () => {
+  it('sheet-view drops a staged peer jump while previewing', () => {
     const source = readFileSync(
       path.join(appDir, 'spreadsheet/sheet-view.tsx'),
       'utf8',
     );
     const effect = effectBodies(source).find((b) =>
-      b.includes('lastHandledPeerJumpRequestIdRef.current ='),
+      b.includes('sheet.focusCell(parseRef(peerJumpTarget.activeCell))'),
     );
     expect(effect, 'no effect applies the peer jump').toBeTruthy();
-    expect(effect!).toContain('if (previewing) return;');
-    // Before the request id is consumed, so closing the preview still jumps.
-    expect(effect!.indexOf('if (previewing) return;')).toBeLessThan(
-      effect!.indexOf('lastHandledPeerJumpRequestIdRef.current ='),
+    // Consumed, not deferred: a jump left pending fires when the preview
+    // closes, to wherever the peer was at an unrelated moment.
+    expect(effect!).toMatch(
+      /if \(previewing\) \{\s*lastHandledPeerJumpRequestIdRef\.current = peerJumpTarget\.requestId;\s*return;/,
+    );
+    expect(effect!.indexOf('if (previewing)')).toBeLessThan(
+      effect!.indexOf('sheet.focusCell('),
     );
     expect(effect!).toContain('previewing, sheetRenderVersion');
+  });
+
+  // A restore remounts `SheetView` (`key={historyResetToken}`), which resets
+  // the mount-local ref that remembers a jump was handled — so a peer jump
+  // target that survives the restore is replayed onto the restored document.
+  it('document-detail drops jump targets on restore', () => {
+    const source = readFileSync(
+      path.join(appDir, 'documents/document-detail.tsx'),
+      'utf8',
+    );
+    const start = source.indexOf('const handleHistoryRestored = useCallback(');
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf('}, [doc]);', start));
+    expect(body).toContain('setUndoJumpTarget(null);');
+    expect(body).toContain('setPeerJumpTarget(null);');
+    expect(body).toContain('setHistoryResetToken(');
   });
 
   // The two mechanisms must be driven by one expression. Wired to two

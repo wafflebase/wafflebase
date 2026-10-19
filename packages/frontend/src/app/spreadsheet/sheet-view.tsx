@@ -1518,9 +1518,13 @@ export function SheetView({
     // The hosts stop handing us new targets while a preview is open, but one
     // staged just before it opened would otherwise land under the banner —
     // `focusCell` moves the live selection and publishes it as presence.
-    // Deliberately not consuming the request id: the jump is deferred until
-    // the preview closes, not dropped.
-    if (previewing) return;
+    // Dropped, not deferred: consuming the request id keeps it from firing
+    // whenever the preview closes, possibly much later, to wherever the peer
+    // was at an unrelated moment.
+    if (previewing) {
+      lastHandledPeerJumpRequestIdRef.current = peerJumpTarget.requestId;
+      return;
+    }
     if (peerJumpTarget.targetTabId && peerJumpTarget.targetTabId !== tabId) {
       return;
     }

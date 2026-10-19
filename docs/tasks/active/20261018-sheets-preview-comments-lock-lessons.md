@@ -127,3 +127,26 @@ This is deliberately *not* done to the comments panel: that toggle is a
 preference the user set and a preview has to give it back, which the
 earlier round already pinned with a structural test. The find bar's
 transient state is lost to the unmount either way.
+
+## Maintainer takeover (after fix round 3 of 3)
+
+The loop paged after round 5 with two blockers left; a maintainer closed
+them locally rather than buying three more rounds, because each round had
+been surfacing one more preview-escaping control rather than converging.
+
+- **A staged peer jump replayed onto a restored document.** Restore
+  remounts `SheetView` (`key={historyResetToken}`), which resets the
+  mount-local "already handled" ref, and `handleHistoryRestored` cleared
+  `undoJumpTarget` but not `peerJumpTarget`. Any target that outlives a
+  remount replays — not only one deferred by the preview guard. Cleared on
+  restore, and the guard now *drops* a staged jump instead of deferring it,
+  so closing a preview never jumps to where a peer was at an unrelated
+  moment.
+- **A contract the fix leaned on had only a grep.** The hosts withhold
+  `onSelectPeer`/`getJumpHint`; that `UserPresence` then offers no jump was
+  asserted nowhere. Now rendered and clicked, overflow menu included, and
+  mutation-checked: dropping the `disabled` flag or the overflow item's
+  early return each fails a test.
+- The containment rule had grown a third mechanism (call-site withholding
+  for `fixed`/portalled surfaces, window shortcuts and the header) that
+  `revision-history.md` §4 did not record; it does now.

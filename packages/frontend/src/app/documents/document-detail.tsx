@@ -187,6 +187,9 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     // which resets the mount-local ref that remembers the request was already
     // handled.
     setUndoJumpTarget(null);
+    // A peer jump is the same shape: the remount forgets it was handled, and
+    // the cell it names comes from presence that predates the restore.
+    setPeerJumpTarget(null);
     setHistoryResetToken((t) => t + 1);
   }, [doc]);
 
