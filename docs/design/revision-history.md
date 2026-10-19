@@ -191,6 +191,7 @@ components/history/
   history-panel.tsx        # right-slot panel: list, "Name current version", per-entry actions
   snapshot-adapters.ts     # YSON snapshot → engine document model, per type
   revision-preview.tsx     # per-type read-only render of a snapshot
+  preview-loading.ts       # which revision's snapshot is in flight, shared panel ↔ overlay
 ```
 
 The hook is named `use-revision-history` rather than `use-revisions` so it
@@ -401,6 +402,30 @@ element at `x: -240`) rendered an empty canvas the user could not pan to.
 A multi-tab *sheet* preview still shows only its first tab — the panel that
 opens the preview is document-level, not tab-scoped — which remains a
 known gap.
+
+**The banner is unconditional, because it holds the only exit.** It was
+originally rendered under `{meta && …}`, so until `getRevision` resolved the
+overlay was an empty `bg-background` rectangle over the editor: no spinner,
+no "Back to current version". Snapshots grow with the document, so that gap
+was longest on exactly the documents version history matters most for, and a
+blank screen with no exit reads as "this version is empty" or "the app
+froze". The banner now renders immediately, showing `Loading version…` with
+a spinner and `aria-busy`, with Back enabled and Restore disabled; the body
+carries a generic `Skeleton` (deliberately not per-engine — a skeleton that
+guessed a grid where a page was coming would be a worse lie than one that
+guesses nothing). The loading state is `!meta && !error`, which is what keeps
+a rejected fetch from spinning forever: it falls through to the existing
+`role="alert"` branch, unchanged.
+
+The clicked row in the panel is marked loading too, which needs the overlay's
+in-flight fetch to reach a component that is its *sibling* — each editor
+mounts the panel on `historyOpen` and the overlay on `previewRevisionId`,
+with no common owner below the editor. That is the same shape as the restore
+lock, so it takes the same answer: a module-level store
+(`preview-loading.ts`, `useSyncExternalStore`), with the same
+one-document-per-page caveat `restore-lock.ts` documents. Only the loading
+row's Preview button is disabled — switching versions mid-load is normal use
+of the list.
 
 ### 5. Restore
 
