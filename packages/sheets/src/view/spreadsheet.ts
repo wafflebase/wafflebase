@@ -77,13 +77,16 @@ export class Spreadsheet {
   private selectionChangeCallbacks: SelectionChangeCallback[] = [];
   private searchResults: Ref[] = [];
   private searchCurrentIndex: number = -1;
-  // Bumped by every search entry point. `find` scans the grid asynchronously,
-  // so a `clearFind()` — the host calls it when a revision preview opens and
-  // withholds the find bar — can land while one is still in flight. Without
-  // this the stale call resumes afterwards and re-arms what was just cleared,
-  // moving the LIVE selection through `focusCell`. It also orders two
-  // overlapping queries: a slow earlier scan can no longer overwrite a newer
-  // one's results.
+  // Bumped by whatever abandons a search: a new `find`, `clearFind()` (the
+  // host calls it when a revision preview opens and withholds the find bar),
+  // and `cleanup()`. `find` scans the grid asynchronously, so any of them can
+  // land while one is in flight; without this the stale call resumes and
+  // re-arms what was just cleared, moving the LIVE selection through
+  // `focusCell` — or, after `cleanup()`, throws on a worksheet that has
+  // dropped its sheet. It also orders two overlapping queries: a slow earlier
+  // scan can no longer overwrite a newer one's results. `findNext` /
+  // `findPrevious` only read it: stepping through the current results must
+  // not cancel the scan for a query the user just typed.
   private searchEpoch: number = 0;
 
   /**
@@ -963,7 +966,7 @@ export class Spreadsheet {
    */
   public async findNext(): Promise<void> {
     if (this.searchResults.length === 0) return;
-    const epoch = ++this.searchEpoch;
+    const epoch = this.searchEpoch;
     this.searchCurrentIndex = (this.searchCurrentIndex + 1) % this.searchResults.length;
     await this.focusCell(this.searchResults[this.searchCurrentIndex]);
     if (epoch !== this.searchEpoch) return;
@@ -976,7 +979,7 @@ export class Spreadsheet {
    */
   public async findPrevious(): Promise<void> {
     if (this.searchResults.length === 0) return;
-    const epoch = ++this.searchEpoch;
+    const epoch = this.searchEpoch;
     this.searchCurrentIndex = (this.searchCurrentIndex - 1 + this.searchResults.length) % this.searchResults.length;
     await this.focusCell(this.searchResults[this.searchCurrentIndex]);
     if (epoch !== this.searchEpoch) return;
@@ -1006,6 +1009,8 @@ export class Spreadsheet {
   }
 
   public cleanup() {
+    // Abandon any in-flight `find` before the worksheet drops its sheet.
+    this.searchEpoch++;
     this.worksheet.cleanup();
     this.selectionChangeCallbacks = [];
   }

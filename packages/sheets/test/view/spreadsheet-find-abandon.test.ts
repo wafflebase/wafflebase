@@ -27,7 +27,9 @@ type FindContext = {
   worksheet: {
     setSearchHighlights: ReturnType<typeof vi.fn>;
     renderOverlay: ReturnType<typeof vi.fn>;
+    cleanup: ReturnType<typeof vi.fn>;
   };
+  selectionChangeCallbacks: unknown[];
   focusCell: ReturnType<typeof vi.fn>;
   searchResults: Ref[];
   searchCurrentIndex: number;
@@ -38,6 +40,7 @@ const prototype = Spreadsheet.prototype as unknown as {
   find: (query: string) => Promise<number>;
   findNext: () => Promise<void>;
   clearFind: () => void;
+  cleanup: () => void;
   getSearchState: () => { total: number; currentIndex: number };
 };
 
@@ -46,7 +49,12 @@ const createContext = (
   results: Ref[] = [],
 ): FindContext => ({
   sheet: { findCells, getActiveCell: () => ({ r: 1, c: 1 }) },
-  worksheet: { setSearchHighlights: vi.fn(), renderOverlay: vi.fn() },
+  worksheet: {
+    setSearchHighlights: vi.fn(),
+    renderOverlay: vi.fn(),
+    cleanup: vi.fn(),
+  },
+  selectionChangeCallbacks: [],
   focusCell: vi.fn().mockResolvedValue(undefined),
   searchResults: results,
   searchCurrentIndex: results.length > 0 ? 0 : -1,
@@ -149,5 +157,46 @@ describe('Spreadsheet.find abandonment', () => {
     await pending;
 
     expect(ctx.worksheet.setSearchHighlights).not.toHaveBeenCalled();
+  });
+
+  // Teardown is the other way a scan is abandoned: a tab switch or a
+  // `SheetView` unmount calls `cleanup()` while the find bar's debounced scan
+  // is still awaiting. `Worksheet.cleanup()` drops its sheet, so a resumed
+  // scan's `focusCell` would throw in a promise nobody catches.
+  it('publishes nothing when cleanup lands while the scan is running', async () => {
+    const { findCells, release } = deferredFindCells();
+    const ctx = createContext(findCells);
+
+    const pending = prototype.find.call(ctx, 'waffle');
+    prototype.cleanup.call(ctx);
+
+    release([{ r: 4, c: 2 }]);
+    await expect(pending).resolves.toBe(0);
+
+    expect(ctx.focusCell).not.toHaveBeenCalled();
+    expect(ctx.worksheet.setSearchHighlights).not.toHaveBeenCalled();
+    expect(ctx.worksheet.renderOverlay).not.toHaveBeenCalled();
+  });
+
+  // Enter in the bar steps through the results it already has. That must not
+  // cancel the scan for a query the user just typed — the new results would
+  // then never be published, leaving the bar on the previous query's matches.
+  it('lets a findNext step without cancelling an in-flight find', async () => {
+    const { findCells, release } = deferredFindCells();
+    const ctx = createContext(findCells, [
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ]);
+
+    const pending = prototype.find.call(ctx, 'waffle');
+    await prototype.findNext.call(ctx);
+
+    release([{ r: 9, c: 9 }]);
+    await expect(pending).resolves.toBe(1);
+    expect(ctx.searchResults).toEqual([{ r: 9, c: 9 }]);
+    expect(ctx.worksheet.setSearchHighlights).toHaveBeenLastCalledWith(
+      [{ r: 9, c: 9 }],
+      0,
+    );
   });
 });

@@ -231,3 +231,16 @@ cases against a hand-built context (the `spreadsheet-undo-selection.test.ts`
 technique) with `findCells`/`focusCell` promises released by hand so the
 abandonment window is a real one. Three of the four fail with the engine
 guard reverted.
+
+## Maintainer takeover 2 (round 9)
+
+- **A cancellation token needs every abandonment path, not just the one the
+  change was about.** `searchEpoch` was bumped by `find` and `clearFind()`
+  but not `cleanup()`, so a tab switch or unmount mid-scan let the scan
+  resume into a worksheet that had dropped its sheet — an uncaught
+  TypeError. Teardown now bumps it.
+- **Readers of a token must not also bump it.** `findNext`/`findPrevious`
+  claimed a new epoch, so pressing Enter while a freshly typed query was
+  still scanning cancelled that scan and left the bar on the old results.
+  They now capture the current epoch: cancelled by a new query, a clear or a
+  teardown, but never the thing doing the cancelling.
