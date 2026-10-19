@@ -334,6 +334,21 @@ function jsxElement(source: string, tag: string): string {
   return source.slice(open, close + 2);
 }
 
+/**
+ * The attribute block of the *opening* `<Tag …>` of an element with children.
+ *
+ * `jsxElement` above slices to the next `/>`, which for an element with
+ * children is some unrelated self-closing descendant — so a prop asserted on
+ * `<SiteHeader>` would be looked for across its whole subtree.
+ */
+function jsxOpenTag(source: string, tag: string): string {
+  const open = source.search(new RegExp(`<${tag}[\\s>]`));
+  expect(open, `renders no <${tag}`).toBeGreaterThan(-1);
+  const close = source.indexOf('>', open);
+  expect(close, `<${tag} has no opening tag`).toBeGreaterThan(-1);
+  return source.slice(open, close + 1);
+}
+
 /** Index of `tag`, asserted to fall strictly between `open` and `close`. */
 function assertBetween(
   source: string,
@@ -696,6 +711,28 @@ describe('the preview containment of every wired editor', () => {
     const element = jsxElement(readFileSync(path.join(appDir, file), 'utf8'), 'UserPresence');
     expect(element).toContain('onSelectPeer={previewing ? undefined : handleSelectPeer}');
     expect(element).toContain('getJumpHint={previewing ? undefined : getJumpHint}');
+  });
+
+  // The other control in the same unaudited header half. Clicking the title
+  // opens an input whose commit is a `PATCH /documents/:id` on the LIVE
+  // document — renaming the thing the user is looking at a past version of,
+  // with no visible feedback. `editable={false}` drops the button role, the
+  // pointer affordance and the keyboard entry; the missing `onRename`
+  // neutralizes an input that was already open when the preview opened.
+  // `SiteHeader`'s own behaviour is driven in
+  // `components/__tests__/site-header.test.tsx`.
+  it.each([
+    { file: 'documents/document-detail.tsx' },
+    { file: 'docs/docs-detail.tsx' },
+  ])('$file withholds the title rename while previewing', ({ file }) => {
+    const tag = jsxOpenTag(
+      readFileSync(path.join(appDir, file), 'utf8'),
+      'SiteHeader',
+    );
+    expect(tag).toContain('editable={!previewing}');
+    expect(tag).toContain(
+      'onRename={previewing ? undefined : handleRenameDocument}',
+    );
   });
 
   // Belt to the host's braces: a jump staged in the instant before the

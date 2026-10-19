@@ -244,3 +244,23 @@ guard reverted.
   still scanning cancelled that scan and left the bar on the old results.
   They now capture the current epoch: cancelled by a new query, a clear or a
   teardown, but never the thing doing the cancelling.
+
+## Panel round 10 (blast radius + test adequacy)
+
+- **A containment sweep has to cover the whole header, not the controls the
+  last finding named.** Rounds 7–9 withheld the comments toggle and the peer
+  jump out of the editor headers and left the one beside them: the title.
+  Clicking it opens an input whose commit is a `PATCH /documents/:id` on the
+  live document, so `SiteHeader` now takes `editable={!previewing}` and a
+  `previewing ? undefined : handleRenameDocument` in both wired hosts.
+  Revoking `editable` also closes an input that was *already* open — the
+  prop alone only stops new entries, and an open input is exactly what the
+  host meant to remove.
+- **Source greps that name a surface read as coverage for it.** The comment
+  popover, the comment-composer shortcut and the comments-panel shortcut
+  were pinned only by `expect(source).toContain(...)`. They are now driven
+  through the mounted `SheetView` harness; all three fail with their guard
+  reverted (checked by hand).
+- `Spreadsheet.cleanup()` bumping `searchEpoch` — raised again this round —
+  had already landed in round 9 (`spreadsheet.ts:1011`), with the teardown
+  case in `spreadsheet-find-abandon.test.ts`.

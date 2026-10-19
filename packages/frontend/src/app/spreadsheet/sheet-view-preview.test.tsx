@@ -24,13 +24,23 @@ vi.mock('@/components/theme-provider', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
 }));
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => true }));
-vi.mock('@/api/auth', () => ({ fetchMeOptional: async () => null }));
+// A signed-in author, so the comment popover renders its composer — the
+// write affordance a preview must not leave reachable — instead of the
+// anonymous read-only placeholder.
+vi.mock('@/api/auth', () => ({
+  fetchMeOptional: async () => ({ id: 7, username: 'alice', photo: null }),
+}));
 vi.mock('@/components/formatting-toolbar', () => ({
   FormattingToolbar: () => null,
 }));
 vi.mock('@/app/spreadsheet/yorkie-store', () => ({
   YorkieStore: class {
-    ensureAxisOrder(): void {}
+    // `ensureAxisOrder` is a `doc.update()` on the LIVE root — the write the
+    // comment-composer shortcut makes before anything is typed — so the
+    // tests below need to see whether it happened.
+    ensureAxisOrder(r: number, c: number): void {
+      ensureAxisOrderCalls.push([r, c]);
+    }
   },
 }));
 vi.mock('@wafflebase/sheets', async (importOriginal) => ({
@@ -69,6 +79,8 @@ const fakeDoc = {
 /** Callbacks `SheetView` hands the engine, captured so tests can fire them. */
 let selectionChangeHandlers: Array<() => void> = [];
 let mobileEditCallback: ((cellRef: string, value: string) => void) | undefined;
+/** Every `ensureAxisOrder` the view made on the live root. */
+let ensureAxisOrderCalls: Array<[number, number]> = [];
 
 /**
  * Everything `SheetView` calls on the engine. Unknown members resolve to a
@@ -118,35 +130,27 @@ function makeFakeSheet(): Record<string, unknown> {
   });
 }
 
-function renderSheet(previewing: boolean) {
+/** Extra props a test needs on the view; defaulted so the rest ignore them. */
+type Extras = { onToggleCommentsPanel?: () => void };
+
+function tree(previewing: boolean, extras: Extras) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  return (
     <QueryClientProvider client={client}>
       <TooltipProvider>
-        <SheetView tabId={TAB_ID} previewing={previewing} />
+        <SheetView tabId={TAB_ID} previewing={previewing} {...extras} />
       </TooltipProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
 }
 
 /** Mount and wait for the async `initialize` to have wired the engine up. */
-async function mountSheet(previewing = false) {
-  const view = renderSheet(previewing);
+async function mountSheet(previewing = false, extras: Extras = {}) {
+  const view = render(tree(previewing, extras));
   await waitFor(() => expect(selectionChangeHandlers.length).toBeGreaterThan(0));
-  const rerender = (next: boolean) => {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    view.rerender(
-      <QueryClientProvider client={client}>
-        <TooltipProvider>
-          <SheetView tabId={TAB_ID} previewing={next} />
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
-  };
+  const rerender = (next: boolean) => view.rerender(tree(next, extras));
   return { ...view, rerender };
 }
 
@@ -158,9 +162,50 @@ function pressFind() {
   });
 }
 
+/** Ctrl+Alt+M — open the comment composer on the active cell. */
+function pressCommentComposer() {
+  act(() => {
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'm',
+        ctrlKey: true,
+        altKey: true,
+        bubbles: true,
+      }),
+    );
+  });
+}
+
+/** Ctrl+Alt+Shift+M — the keyboard twin of the header comments toggle. */
+function pressCommentsPanelToggle() {
+  act(() => {
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'm',
+        ctrlKey: true,
+        altKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
+    );
+  });
+}
+
+/**
+ * The comment popover, read off the document rather than through a role
+ * query: it is positioned by a layout effect that measures a zero-size
+ * wrapper in jsdom, so it renders `visibility: hidden` until a real browser
+ * gives it dimensions — which would hide it from the accessibility tree the
+ * role queries filter on, and this suite is asking whether it is *rendered*.
+ */
+function commentPopover(): HTMLElement | null {
+  return document.body.querySelector('[role="dialog"][aria-label="Comments"]');
+}
+
 beforeEach(() => {
   selectionChangeHandlers = [];
   mobileEditCallback = undefined;
+  ensureAxisOrderCalls = [];
   fakeSheet = makeFakeSheet();
 });
 
@@ -272,5 +317,78 @@ describe('SheetView under a revision preview', () => {
     // `onContextMenu` wired on a disabled trigger.
     expect(fakeSheet.selectStart).not.toHaveBeenCalled();
     expect(fakeSheet.headerHitTest).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The sheet comment popover: the headline withheld surface, and the one
+   * editing control a preview covers in the DOM tree but not on screen —
+   * it is `absolute z-30` against the overlay's `z-20`. Every control on it
+   * (the composer below, Reply, Resolve, Edit, Delete) is a `doc.update()`
+   * on the LIVE document behind the banner.
+   */
+  it('opens the comment popover on Cmd/Ctrl+Alt+M when nothing is previewed', async () => {
+    fakeSheet.getActiveCell = vi.fn(() => ({ r: 1, c: 1 }));
+    await mountSheet(false);
+
+    pressCommentComposer();
+
+    await waitFor(() => expect(commentPopover()).not.toBeNull());
+    // The write affordance itself, not merely the box around it.
+    expect(commentPopover()!.querySelector('textarea')).not.toBeNull();
+    expect(ensureAxisOrderCalls).toEqual([[1, 1]]);
+  });
+
+  it('refuses the comment composer shortcut while a preview is open', async () => {
+    fakeSheet.getActiveCell = vi.fn(() => ({ r: 1, c: 1 }));
+    await mountSheet(true);
+
+    pressCommentComposer();
+
+    expect(commentPopover()).toBeNull();
+    // The shortcut writes axis IDs to the live root before anything is
+    // typed, so refusing has to come before that, not after.
+    expect(ensureAxisOrderCalls).toEqual([]);
+  });
+
+  // The popover the user opened a moment before reaching for the version
+  // panel. Gating only the *shortcut* would leave this one painted above the
+  // overlay, fully live.
+  it('withholds an already-open comment popover and gives it back after', async () => {
+    fakeSheet.getActiveCell = vi.fn(() => ({ r: 1, c: 1 }));
+    const view = await mountSheet(false);
+    pressCommentComposer();
+    await waitFor(() => expect(commentPopover()).not.toBeNull());
+
+    act(() => view.rerender(true));
+    expect(commentPopover()).toBeNull();
+
+    // Withholding is for the duration of the preview only — the popover's
+    // own open state survives it, so closing the preview restores it.
+    act(() => view.rerender(false));
+    expect(commentPopover()).not.toBeNull();
+  });
+
+  /**
+   * The keyboard twin of the header comments toggle, which the host removes
+   * inside `EditingChrome`. Flipping `commentsPanelOpen` from under a preview
+   * means closing the preview no longer gives the panel back — the exact
+   * thing withholding rather than closing was for.
+   */
+  it('toggles the comments panel on Cmd/Ctrl+Alt+Shift+M when not previewing', async () => {
+    const onToggleCommentsPanel = vi.fn();
+    await mountSheet(false, { onToggleCommentsPanel });
+
+    pressCommentsPanelToggle();
+
+    expect(onToggleCommentsPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the comments-panel shortcut while a preview is open', async () => {
+    const onToggleCommentsPanel = vi.fn();
+    await mountSheet(true, { onToggleCommentsPanel });
+
+    pressCommentsPanelToggle();
+
+    expect(onToggleCommentsPanel).not.toHaveBeenCalled();
   });
 });

@@ -696,11 +696,20 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         onWorkspaceChange={handleWorkspaceChange}
       />
       <SidebarInset>
+        {/* The title is the last editing control in this header: clicking it
+            opens an input whose commit is a `PATCH /documents/:id` on the
+            LIVE document — renaming the thing the user is looking at a past
+            version of, with no visible feedback. Neither containment
+            mechanism reaches the header's left half, so the rename is
+            withheld the way the peer jump below is: `editable={false}` drops
+            the button role, the pointer affordance and the keyboard entry,
+            and the missing `onRename` neutralizes an input that was already
+            open when the preview opened. */}
         <SiteHeader
           title={documentData?.title ?? "Loading…"}
-          editable
+          editable={!previewing}
           syncStatus
-          onRename={handleRenameDocument}
+          onRename={previewing ? undefined : handleRenameDocument}
         >
           <div className="flex items-center gap-2">
             {/* The toggle goes with the panel, as it does in docs. Left
