@@ -33,5 +33,25 @@
 
 ### Round 1 — correctness / tests
 
-Run via the `/code-review` skill over the branch diff; see the PR comment
-beginning `<!-- agent-self-review -->` for the outcome.
+The independent reviewer **could not run** in this environment:
+`node ./scripts/agent/spec-to-pr.mjs review` first failed on a missing
+`@anthropic-ai/claude-agent-sdk` (fixed with `npm ci` in `scripts/agent/`),
+then on `PANEL_INFRA_ERROR: [NO_RESPONSE] no response from the API` — so all
+six lenses reported `failure (infra)`, not a verdict. A skipped review is not
+a passing review; this is recorded as such on the PR rather than as a clean
+round.
+
+What the fallback read of the diff did surface, and what was done:
+
+1. **Blocking (fixed).** The panel row's spinner was `h-3 w-3`, which
+   `buttonVariants` silently overrides: its
+   `[&_svg:not([class*='size-'])]:size-4` compound selector outranks a bare
+   `h-3 w-3`, so the icon would have rendered at 4 rather than 3. Changed to
+   `size-3`, which the `:not()` excludes.
+2. **Deferred (known limitation, in the PR body).** `RevisionPreviewOverlay`
+   is lazy and in a *different* chunk from `history-panel.tsx` (it pulls
+   three engine packages), behind `ChunkBoundary fallback={null}`. So on the
+   first Preview click of a session there is still a gap before anything
+   publishes a loading id — the chunk's own download. Closing it means
+   changing the fallback in five editors, which is wider than this issue.
+   Reported rather than widened.

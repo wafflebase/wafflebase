@@ -355,7 +355,11 @@ function HistoryEntryRow({
           onClick={onPreview ? () => onPreview(entry.id) : undefined}
         >
           {isPreviewLoading && (
-            <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+            // `size-3`, not `h-3 w-3`: `buttonVariants` forces `size-4` on
+            // any descendant svg whose class does not already match
+            // `[class*='size-']`, and that compound selector outruns a bare
+            // `h-3 w-3`.
+            <Loader2 aria-hidden="true" className="size-3 animate-spin" />
           )}
           Preview
         </Button>
