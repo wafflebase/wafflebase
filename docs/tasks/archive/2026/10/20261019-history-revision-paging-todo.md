@@ -25,22 +25,26 @@ in `docs/design/revision-history.md` §3 / Risks.
 
 ## Checklist
 
-- [ ] `use-revision-history.ts`: flat revision state, `hasMore`,
+- [x] `use-revision-history.ts`: flat revision state, `hasMore`,
       `isLoadingMore`, `loadMore()`; `refresh()` resets to the first page.
-- [ ] Generation guard covers `loadMore` too — a refresh that lands first
+- [x] Generation guard covers `loadMore` too — a refresh that lands first
       must invalidate an append computed against the old list.
-- [ ] A second `loadMore` while one is in flight is refused (same offset
+- [x] A second `loadMore` while one is in flight is refused (same offset
       twice would duplicate work).
-- [ ] `loadMore` rejects on failure and leaves `days` / `error` alone; the
+- [x] `loadMore` rejects on failure and leaves `days` / `error` alone; the
       panel reports it beside the button, the way it already reports naming
       and restore failures.
-- [ ] `history-panel.tsx`: "Load older versions" button + its error line.
-- [ ] Unit tests: probe entry dropped, offset paging, dedupe, stale append
+- [x] `history-panel.tsx`: "Load older versions" button + its error line.
+- [x] Unit tests: probe entry dropped, offset paging, dedupe, stale append
       ignored, concurrent clicks, failure reported.
-- [ ] `docs/design/revision-history.md`: §3 "There is no paging" paragraph,
+- [x] `docs/design/revision-history.md`: §3 "There is no paging" paragraph,
       §7 rollout row, and the Risks note that calls the cap a symptom.
 
 ## Non-goals
 
 Retention/deletion of revisions (unbounded storage is a separate risk),
 infinite scroll, and changing the page size.
+
+## Review (ticked at archive, 2026-10-19)
+
+Shipped in #1101 (merged 2026-10-19). Each box was checked against `main`, not assumed from the merge.

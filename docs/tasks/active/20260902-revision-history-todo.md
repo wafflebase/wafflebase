@@ -168,13 +168,12 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
 
 - [ ] Measure real revision growth on a workspace with `getDocSize()`
       instrumentation before enabling broadly. Not done.
-- [ ] Paging, so the cap stops hiding versions; consider raising
-      `snapshotInterval` for the project (at a sync cost). Not done. The
-      panel lists **at most the 50 most recent** revisions
-      (`REVISION_LIST_LIMIT` in `use-revision-history.ts`) and silently
-      truncates beyond that — there is no offset, no "load more", and no
-      indication that older versions exist. Storage itself is untouched and
-      still unbounded.
+- [x] Paging, so the cap stops hiding versions; consider raising
+      `snapshotInterval` for the project (at a sync cost). **Paging shipped
+      in #1101** (issue #1092): `loadMore()` asks for the next page at an
+      offset and the panel renders "Load older versions" while more exist.
+      Ticked 2026-10-19. `snapshotInterval` was not changed, and storage is
+      still unbounded — that half lives in the measurement box above.
 
 ## Tests
 

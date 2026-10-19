@@ -19,17 +19,17 @@ panel with `commentsPanelOpen && !previewing` (#1017). Sheets never did.
 
 ## Plan
 
-- [ ] `document-detail.tsx`: derive a single `previewing` flag
+- [x] `document-detail.tsx`: derive a single `previewing` flag
       (`Boolean(previewRevisionId && currentUser)`) and drive the overlay from
       it, matching `docs-detail.tsx`.
-- [ ] Withhold the side panel with `commentsPanelOpen && !previewing`. The
+- [x] Withhold the side panel with `commentsPanelOpen && !previewing`. The
       user's toggle state is untouched, so closing the preview restores it.
-- [ ] Pass `previewing` into `SheetView` and gate the popover on it: the
+- [x] Pass `previewing` into `SheetView` and gate the popover on it: the
       popover and its two position effects key off one
       `commentPopoverVisible = commentPopoverOpen && !previewing` value, so a
       popover already open when the preview opens disappears and re-measures
       its position when the preview closes.
-- [ ] Tests: extend `components/history/__tests__/preview-surface.test.tsx`
+- [x] Tests: extend `components/history/__tests__/preview-surface.test.tsx`
       with the source-level containment assertions for the comment surfaces
       (panel withheld in both docs and sheets, popover gated in `sheet-view`),
       plus a rendering test for the `SheetView` popover gate if it can be
@@ -45,3 +45,7 @@ panel with `commentsPanelOpen && !previewing` (#1017). Sheets never did.
 - Neither the comments panel nor the comment popover renders while a preview
   is open.
 - The panel comes back when the preview closes.
+
+## Review (ticked at archive, 2026-10-19)
+
+Shipped in #1099 (merged 2026-10-19). Each box was checked against `main`, not assumed from the merge.
