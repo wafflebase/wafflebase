@@ -297,6 +297,11 @@ export function SheetView({
   // whole sheet whenever the host re-renders.
   const onUndoJumpRef = useRef(onUndoJump);
   onUndoJumpRef.current = onUndoJump;
+  // Same reason: the engine subscriptions below are registered once, in the
+  // mount effect, and have to read today's value rather than the one that
+  // was current when the sheet was built.
+  const previewingRef = useRef(previewing);
+  previewingRef.current = previewing;
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
   const hasImagesRef = useRef(false);
@@ -932,6 +937,13 @@ export function SheetView({
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
+        // The bar is withheld below while a preview is open, and Replace /
+        // Replace All on it write the LIVE sheet while find/findNext move
+        // the live selection and republish presence. Bound on `window`, so
+        // the preview's capture-phase suppressor only covers it once that
+        // lazy chunk has mounted; refuse here too rather than flip state
+        // nothing will render.
+        if (previewing) return;
         setFindBarOpen(true);
       }
       // Open-only (Esc closes via Radix) matches the Slides binding;
@@ -975,6 +987,19 @@ export function SheetView({
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
   }, []);
+
+  // Withholding the find bar unmounts it, and its query lives in its own
+  // component state — so the match highlights it already pushed onto the
+  // engine (`setSearchHighlights`) would outlive the bar that explains them,
+  // painted on the live grid with nothing left to clear them. Its own Close
+  // does both; do the same here. `clearFind` only drops the highlight list
+  // and repaints the overlay — it moves no selection, so nothing is
+  // published from a document the user is no longer looking at.
+  useEffect(() => {
+    if (!previewing) return;
+    setFindBarOpen(false);
+    sheetRef.current?.clearFind();
+  }, [previewing]);
 
   // Comment action handlers — delegate to YorkieStore via storeRef.
   // Throw on guard-failure so the composer keeps the user's draft visible
@@ -1217,6 +1242,12 @@ export function SheetView({
         s.onSelectionChange(() => {
           setMobileEditState((prev) => {
             if (!prev) return null;
+            // Withholding `MobileEditPanel` hides the draft; it does not
+            // neutralize it. This fires on every render tick — remote-change
+            // repaints keep arriving during a preview — and `commitExternalEdit`
+            // is a write to the LIVE sheet. Hold the draft untouched instead,
+            // so closing the preview gives the panel back exactly as it was.
+            if (previewingRef.current) return prev;
             // Guard against synthesized mouse events that iOS browsers
             // fire after touchend despite preventDefault().  These cause
             // a selectStart → selectionChange that would immediately
@@ -1813,6 +1844,12 @@ export function SheetView({
         <SheetContextMenu
           spreadsheet={sheetRef.current}
           readOnly={readOnly}
+          // Its content is a `document.body` portal at `z-50`, so it leaves
+          // this surface box entirely and outranks the overlay — Cut, Paste,
+          // Insert, Delete and Insert comment all write the LIVE sheet. The
+          // wrapper cannot be dropped (that would remount the canvas
+          // container it wraps), so the trigger is disabled in place.
+          disabled={previewing}
           onCopy={handleContextMenuCopy}
           onCut={handleContextMenuCut}
           onPaste={handleContextMenuPaste}
@@ -1857,7 +1894,13 @@ export function SheetView({
             )}
           </div>
         </SheetContextMenu>
-        {findBarOpen && (
+        {/* Covering does not contain this one either. The overlay takes the
+            pointer, but not the focus the bar's input already holds — so a
+            bar left open when the preview opened still answers Enter with
+            `findNext`, which moves the LIVE selection and republishes
+            presence, and its Replace / Replace All write the live sheet.
+            Withhold it; the effect above clears the highlights it leaves. */}
+        {findBarOpen && !previewing && (
           <FindBar
             spreadsheet={sheetRef.current}
             onClose={handleFindBarClose}

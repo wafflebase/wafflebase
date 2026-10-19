@@ -168,3 +168,37 @@ withholding whatever stages it is never the whole fix.
   banner. Same drop-don't-defer shape as the peer jump.
 - The structural test is now table-driven over all three channels, which
   is what would have caught the two that were left behind.
+
+## Fix round (panel after the jump-channel round)
+
+The same lesson one layer out: the *surface inventory* is the unit. Each
+round had withheld the surfaces that round's reviewer happened to name, so
+docs got its find bar and both context menus while sheets — the same file,
+the same `previewing` prop — kept both. Sweeping a view for every surface
+that escapes its box, in one pass, is cheaper than being told about them
+one at a time.
+
+- **Sheet `FindBar` and grid context menu.** Neither was withheld, and the
+  Cmd+F arm sat in the very keydown handler the previous round added two
+  `if (previewing) return;` guards to. The context menu is the one surface
+  that cannot be unmounted — its wrapper holds the canvas container, so
+  dropping it remounts the grid — which is why `SheetContextMenu` grew a
+  `disabled` prop that also refuses the selection write Radix leaves wired
+  on a disabled trigger.
+- **Hiding a surface ≠ neutralizing it.** Withholding `MobileEditPanel`
+  left the engine's selection-change subscriber free to commit the draft to
+  the live sheet (it fires on remote-change repaints, which keep arriving
+  during a preview) and then discard it. Read through a ref, because the
+  subscriber is registered once in the mount effect. The find bar had the
+  mirror-image residue: unmounting it orphaned its match highlights on the
+  engine, so the withholding effect calls `clearFind()` the way docs calls
+  `clearSearchMatches()`.
+- **Source-text tests cannot tell a guard that works from one that is
+  present.** Every behavioural assertion in this branch had been
+  `readFileSync` + substring. Both editors are now mounted for real against
+  a stubbed engine (`sheet-view-preview.test.tsx`,
+  `docs-view-preview.test.tsx`): ~14 tests driving the actual shortcuts,
+  engine callbacks and render conditions. Each was checked by reverting the
+  guard it covers — all fail without the fix. The one trap worth recording:
+  an `async initialize()` that resolves with a catch-all `Proxy` hangs
+  forever, because the synthesized `then` makes the double a thenable.

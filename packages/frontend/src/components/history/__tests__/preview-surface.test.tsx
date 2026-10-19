@@ -122,10 +122,12 @@ describe('EditingChrome', () => {
  * document itself, by role and by text, whether any control that writes the
  * live CRDT survived.
  *
- * Mounting `SheetView` or `DocsView` around them is not reachable here —
- * each needs a Yorkie document, a Canvas engine and a router — so the
- * assertion is placed on the mechanism plus the real comment UI, and the
- * wiring tests keep the editors attached to it.
+ * These mount the containment mechanism, not the editors. The editors
+ * themselves are mounted — against a stubbed engine, since each owns a
+ * Canvas jsdom does not implement — in `app/spreadsheet/sheet-view-preview.test.tsx`
+ * and `app/docs/docs-view-preview.test.tsx`, which drive the real shortcuts,
+ * the real engine callbacks and the real gating expressions. The source
+ * assertions further down pin the wiring those two do not reach.
  */
 const commentAuthor = { userId: 'u1', username: 'alice' };
 
@@ -409,9 +411,11 @@ describe('the preview containment of every wired editor', () => {
    * Reply, Resolve, Edit, Delete — is a `doc.update()` on the LIVE document.
    * So they are withheld, like `EditingChrome`'s toolbars.
    *
-   * Asserted on the source because mounting either editor means mounting a
-   * Yorkie document, a canvas engine and a router; the conditional is the
-   * whole fix, and it is one line in each file.
+   * Asserted on the source: the panel is withheld by the *host* detail
+   * views, which mount a router and the whole editor beneath them. The
+   * surfaces the editors own are driven for real in
+   * `app/spreadsheet/sheet-view-preview.test.tsx` and
+   * `app/docs/docs-view-preview.test.tsx`.
    */
   it.each(['docs/docs-detail.tsx', 'documents/document-detail.tsx'])(
     '%s withholds its comments panel while a preview is open',
@@ -466,9 +470,15 @@ describe('the preview containment of every wired editor', () => {
     expect(source.slice(handler, toggle)).toContain('if (previewing) return;');
   });
 
-  // The other two sheet surfaces that outrank the overlay. The mobile cell
+  // The other sheet surfaces that outrank the overlay. The mobile cell
   // editor is the worst of them: `fixed inset-x-0 z-50` leaves the surface
   // box entirely, and its commit is a write to the live sheet.
+  //
+  // These assertions read the source, which can only tell that a guard is
+  // *present*. That the guards actually hold is driven through the mounted
+  // component in `app/spreadsheet/sheet-view-preview.test.tsx`, which fires
+  // the real shortcut, the real engine subscribers and the real context
+  // menu against a stubbed engine.
   it('sheet-view withholds every surface that paints above the overlay', () => {
     const source = readFileSync(
       path.join(appDir, 'spreadsheet/sheet-view.tsx'),
@@ -476,6 +486,69 @@ describe('the preview containment of every wired editor', () => {
     );
     expect(source).toContain('{isMobile && mobileEditState && !previewing && (');
     expect(source).toContain('{linkHover && !previewing && (');
+    expect(source).toContain('{findBarOpen && !previewing && (');
+    // The grid context menu cannot be dropped — the wrapper holds the canvas
+    // container — so its trigger is disabled in place instead.
+    expect(jsxElement(source, 'SheetContextMenu')).toContain(
+      'disabled={previewing}',
+    );
+  });
+
+  // Withholding the find bar unmounts it, and its query is its own component
+  // state — so the match highlights it pushed onto the engine would outlive
+  // the bar that explains them, painted on the live grid. Same reset docs
+  // does with `clearSearchMatches`.
+  it('sheet-view clears the find highlights it withholds the bar for', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    const reset = effectBodies(source).find((b) => b.includes('clearFind()'));
+    expect(reset, 'no effect clears the find highlights').toBeTruthy();
+    expect(reset!).toContain('if (!previewing) return;');
+    expect(reset!).toContain('setFindBarOpen(false)');
+  });
+
+  // The keyboard twin of the bar, bound on `window` like the two comment
+  // shortcuts beside it — so the preview's capture-phase suppressor only
+  // covers it once that lazy chunk has mounted.
+  it('sheet-view refuses the find shortcut while previewing', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    const handler = source.indexOf('const handleKeyDown');
+    const open = source.indexOf('setFindBarOpen(true)', handler);
+    expect(handler).toBeGreaterThan(-1);
+    expect(open).toBeGreaterThan(handler);
+    expect(source.slice(handler, open)).toContain('if (previewing) return;');
+  });
+
+  /**
+   * Withholding `MobileEditPanel` hides the draft; it does not neutralize it.
+   * The engine's selection-change subscriber fires on every render tick —
+   * remote-change repaints keep arriving during a preview — and
+   * `commitExternalEdit` is a write to the LIVE sheet.
+   *
+   * Read from a ref, not the prop: the subscriber is registered once, in the
+   * mount effect, so the prop it closed over would be the one current when
+   * the engine was built.
+   */
+  it('sheet-view neutralizes the pending mobile edit, not just its panel', () => {
+    const source = readFileSync(
+      path.join(appDir, 'spreadsheet/sheet-view.tsx'),
+      'utf8',
+    );
+    expect(source).toContain('previewingRef.current = previewing;');
+    const handler = source.indexOf('setMobileEditState((prev) => {');
+    const commit = source.indexOf('commitExternalEdit(currentValue)', handler);
+    expect(handler).toBeGreaterThan(-1);
+    expect(commit).toBeGreaterThan(handler);
+    // Holds the draft (`return prev`) rather than clearing it, so closing the
+    // preview gives the panel back exactly as it was.
+    expect(source.slice(handler, commit)).toContain(
+      'if (previewingRef.current) return prev;',
+    );
   });
 
   // Docs has the same hole in two more places: its comment popover and its
