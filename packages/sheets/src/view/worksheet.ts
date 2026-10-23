@@ -44,7 +44,7 @@ import {
 import { buildOpenThreadKeySet } from './render-comments';
 import {
   cellDragMoveDestination,
-  exceedsCellDragMoveThreshold,
+  exceedsCellDragThreshold,
 } from './cell-drag-move';
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
@@ -4189,7 +4189,7 @@ export class Worksheet {
       return;
     }
 
-    if (this.detectAutofillHandle(e.offsetX, e.offsetY)) {
+    if (e.button === 0 && this.detectAutofillHandle(e.offsetX, e.offsetY)) {
       e.preventDefault();
       await this.finishEditing();
       this.startAutofillDrag(e);
@@ -4331,10 +4331,18 @@ export class Worksheet {
 
   /**
    * `startAutofillDrag` begins drag-fill from the current selection handle.
+   *
+   * The handle's hit area reaches into the neighbouring cells, so the fill
+   * only engages once the pointer passes `CellDragThreshold`; a click on
+   * the handle fills nothing.
    */
   private startAutofillDrag(startEvent: MouseEvent): void {
-    let lastClientX = startEvent.clientX;
-    let lastClientY = startEvent.clientY;
+    const startClientX = startEvent.clientX;
+    const startClientY = startEvent.clientY;
+    let dragging = false;
+
+    let lastClientX = startClientX;
+    let lastClientY = startClientY;
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
@@ -4397,6 +4405,19 @@ export class Worksheet {
     const onMove = (e: MouseEvent) => {
       lastClientX = e.clientX;
       lastClientY = e.clientY;
+      if (!dragging) {
+        if (
+          !exceedsCellDragThreshold(
+            startClientX,
+            startClientY,
+            lastClientX,
+            lastClientY,
+          )
+        ) {
+          return;
+        }
+        dragging = true;
+      }
       updatePreview();
 
       const port = this.viewport;
@@ -4418,10 +4439,10 @@ export class Worksheet {
     };
 
     this.beginNativeSelectionBlock();
-    updatePreview();
     this.startMouseDragSession({
       onMove,
       onComplete: () => {
+        if (!dragging) return;
         const { x, y } = this.clampClientPointToViewport(
           lastClientX,
           lastClientY,
@@ -4454,7 +4475,7 @@ export class Worksheet {
    * `startCellDragMove` begins a drag-to-move operation for the selected cell range.
    * Dragging from the edge of a cell selection moves the cell data to the drop location.
    *
-   * The move only engages once the pointer passes `CellDragMoveThreshold`;
+   * The move only engages once the pointer passes `CellDragThreshold`;
    * a press released before that is a click on the cell under it.
    */
   private startCellDragMove(startEvent: MouseEvent): void {
@@ -4550,7 +4571,7 @@ export class Worksheet {
       lastClientY = e.clientY;
       if (!dragging) {
         if (
-          !exceedsCellDragMoveThreshold(
+          !exceedsCellDragThreshold(
             startClientX,
             startClientY,
             lastClientX,
@@ -4597,6 +4618,7 @@ export class Worksheet {
             sheet.selectStart(anchor);
           }
           this.render();
+          this.primeCellInputForSelection();
           return;
         }
 

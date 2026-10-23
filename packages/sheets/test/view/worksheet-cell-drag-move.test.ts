@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Worksheet } from '../../src/view/worksheet';
 import {
-  CellDragMoveThreshold,
+  CellDragThreshold,
   cellDragMoveDestination,
-  exceedsCellDragMoveThreshold,
+  exceedsCellDragThreshold,
 } from '../../src/view/cell-drag-move';
 import type { Range, Ref } from '../../src/model/core/types';
 
@@ -44,23 +44,23 @@ describe('cellDragMoveDestination', () => {
   });
 });
 
-describe('exceedsCellDragMoveThreshold', () => {
+describe('exceedsCellDragThreshold', () => {
   it('needs the pointer to travel the threshold distance', () => {
-    expect(exceedsCellDragMoveThreshold(10, 10, 10, 10)).toBe(false);
+    expect(exceedsCellDragThreshold(10, 10, 10, 10)).toBe(false);
     expect(
-      exceedsCellDragMoveThreshold(10, 10, 10 + CellDragMoveThreshold - 1, 10),
+      exceedsCellDragThreshold(10, 10, 10 + CellDragThreshold - 1, 10),
     ).toBe(false);
     expect(
-      exceedsCellDragMoveThreshold(10, 10, 10, 10 + CellDragMoveThreshold),
+      exceedsCellDragThreshold(10, 10, 10, 10 + CellDragThreshold),
     ).toBe(true);
   });
 });
 
-const startCellDragMove = (
+const { startCellDragMove, startAutofillDrag } =
   Worksheet.prototype as unknown as {
     startCellDragMove(e: MouseEvent): void;
-  }
-).startCellDragMove;
+    startAutofillDrag(e: MouseEvent): void;
+  };
 
 type Session = {
   onMove: (e: MouseEvent) => void;
@@ -75,7 +75,10 @@ const ColWidth = 100;
  * A worksheet stand-in with a fixed grid of 100×20 cells starting at (0, 0),
  * so client coordinates map to refs without scrolling or headers.
  */
-function createContext(selection: Range) {
+function createContext(
+  selection: Range,
+  start: (e: MouseEvent) => void = startCellDragMove,
+) {
   let session: Session | undefined;
   const sheet = {
     getRangeOrActiveCell: vi.fn(() => selection),
@@ -83,6 +86,11 @@ function createContext(selection: Range) {
     selectStart: vi.fn(),
     selectEnd: vi.fn(),
     addSelection: vi.fn(),
+    autofill: vi.fn(async () => true),
+    getAutofillPreviewRange: vi.fn((target: Ref): Range => [
+      selection[0],
+      target,
+    ]),
   };
   const ctx = {
     sheet,
@@ -92,6 +100,7 @@ function createContext(selection: Range) {
     },
     viewport: { left: 0, top: 0, width: 1000, height: 1000 },
     cellDragMovePreview: undefined as Range | undefined,
+    autofillPreview: undefined as Range | undefined,
     clampClientPointToViewport: (x: number, y: number) => ({ x, y }),
     toRefFromMouse: (x: number, y: number): Ref => ({
       r: Math.floor(y / RowHeight) + 1,
@@ -102,13 +111,14 @@ function createContext(selection: Range) {
     endNativeSelectionBlock: vi.fn(),
     renderOverlay: vi.fn(),
     render: vi.fn(),
+    primeCellInputForSelection: vi.fn(),
     startMouseDragSession: (config: Session) => {
       session = config;
       return () => {};
     },
   };
   const press = (x: number, y: number, init: Partial<MouseEvent> = {}) => {
-    startCellDragMove.call(ctx, { clientX: x, clientY: y, ...init } as MouseEvent);
+    start.call(ctx, { clientX: x, clientY: y, ...init } as MouseEvent);
   };
   const move = (x: number, y: number) =>
     session!.onMove({ clientX: x, clientY: y } as MouseEvent);
@@ -125,12 +135,14 @@ describe('Worksheet cell drag-move gesture', () => {
   const b2: Range = [{ r: 2, c: 2 }, { r: 2, c: 2 }];
 
   it('treats a press and release on the bottom border as a click', () => {
-    const { sheet, press, release } = createContext(b2);
+    const { ctx, sheet, press, release } = createContext(b2);
     press(150, 41);
     release();
 
     expect(sheet.moveRangeTo).not.toHaveBeenCalled();
     expect(sheet.selectStart).toHaveBeenCalledWith({ r: 3, c: 2 });
+    // Same tail as a plain click, so typing afterwards edits the new cell.
+    expect(ctx.primeCellInputForSelection).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the click modifiers when the press never became a drag', () => {
@@ -176,5 +188,44 @@ describe('Worksheet cell drag-move gesture', () => {
     release();
 
     expect(sheet.moveRangeTo).toHaveBeenCalledWith(range, { r: 2, c: 1 });
+  });
+});
+
+describe('Worksheet autofill gesture', () => {
+  // B2's fill handle straddles its bottom-right corner (200, 40), so the
+  // lower half of the handle lies in B3.
+  const b2: Range = [{ r: 2, c: 2 }, { r: 2, c: 2 }];
+
+  it('fills nothing when the handle is clicked without dragging', () => {
+    const { ctx, sheet, press, release } = createContext(b2, startAutofillDrag);
+    press(199, 43);
+    release();
+
+    expect(sheet.autofill).not.toHaveBeenCalled();
+    expect(ctx.autofillPreview).toBeUndefined();
+  });
+
+  it('ignores a jitter below the drag threshold', () => {
+    const { sheet, press, move, release } = createContext(
+      b2,
+      startAutofillDrag,
+    );
+    press(199, 43);
+    move(200, 45);
+    release();
+
+    expect(sheet.autofill).not.toHaveBeenCalled();
+  });
+
+  it('fills to the cell under the pointer once dragged', () => {
+    const { sheet, press, move, release } = createContext(
+      b2,
+      startAutofillDrag,
+    );
+    press(199, 43);
+    move(150, 85); // B5
+    release();
+
+    expect(sheet.autofill).toHaveBeenCalledWith({ r: 5, c: 2 });
   });
 });

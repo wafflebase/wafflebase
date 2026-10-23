@@ -24,13 +24,15 @@ pointer travels past a small drag threshold. A click is therefore a no-op.
 
 - [x] `cellDragMoveDestination(source, anchor, pointer)` — source top-left
       shifted by `pointer - anchor`, clamped to row/column 1
-- [x] Drag threshold (`CellDragMoveThreshold`, 4 CSS px) before the move
-      cursor, preview and commit engage
+- [x] Drag threshold (`CellDragThreshold`, 4 CSS px) before the move
+      preview and commit engage
 - [x] Below the threshold, a release is an ordinary click: select the cell
       under the press
 - [x] Primary button only — a right-click on the border goes to the
       context-menu path instead of starting a move
-- [x] Unit tests for the destination math and the click/drag gesture
-- [ ] `pnpm verify:fast`
+- [x] Same threshold for the fill handle — its hit area reaches 8px into the
+      neighbouring cells, so a click on its lower half filled one row
+- [x] Unit tests for the destination math and the click/drag gestures
+- [x] `pnpm verify:fast`
 - [ ] Self review
 - [ ] PR

@@ -2,10 +2,10 @@ import { Range, Ref } from '../model/core/types';
 
 /**
  * How far, in CSS pixels, the pointer must travel after pressing the
- * selection border before the press becomes a drag-move. Below it the
- * gesture is a click.
+ * selection border or the fill handle before the press becomes a drag.
+ * Below it the gesture is a click.
  */
-export const CellDragMoveThreshold = 4;
+export const CellDragThreshold = 4;
 
 /**
  * `cellDragMoveDestination` returns the top-left of where a drag-moved range
@@ -31,14 +31,14 @@ export function cellDragMoveDestination(
 }
 
 /**
- * `exceedsCellDragMoveThreshold` reports whether the pointer has travelled
- * far enough from the press to start a drag-move.
+ * `exceedsCellDragThreshold` reports whether the pointer has travelled
+ * far enough from the press to start a drag-move or a drag-fill.
  */
-export function exceedsCellDragMoveThreshold(
+export function exceedsCellDragThreshold(
   startX: number,
   startY: number,
   x: number,
   y: number,
 ): boolean {
-  return Math.hypot(x - startX, y - startY) >= CellDragMoveThreshold;
+  return Math.hypot(x - startX, y - startY) >= CellDragThreshold;
 }
