@@ -22,10 +22,12 @@ the border is therefore a no-op (Excel leaves the selection alone too).
 
 ## Plan
 
-- [x] Grab offset in pixels (`cellDragGrabOffset`, from the top-left cell's
-      centre), destination = cell under `pointer - offset`, clamped to
-      row/column 1. An index delta was tried first and sent a drag into
-      filter-hidden rows or across the freeze gap
+- [x] Carry a point of the selection by the pointer's travel in sheet pixels
+      (`carryPoint`): the top-left cell's centre for a move, a point inset
+      from the bottom-right corner for a fill. Two models were tried first:
+      an index delta from the press cell (sent a drag into filter-hidden rows
+      and across the freeze gap) and a viewport-pixel grab offset (a top-left
+      cell scrolled out of view mapped to row 1 under freeze panes)
 - [x] Drag threshold (`CellDragThreshold`, 4 CSS px) before the move
       preview and commit engage
 - [x] Below the threshold, a release changes nothing — not the sheet, not the
@@ -35,8 +37,9 @@ the border is therefore a no-op (Excel leaves the selection alone too).
 - [x] Primary button only — a right-click on the border or fill handle keeps
       the selection, in both `handleMouseDown` and the frontend context menu
       (`Spreadsheet.isOnSelectionEdge`)
-- [x] Same threshold for the fill handle — its hit area reaches 8px into the
-      neighbouring cells, so a click on its lower half filled one row
+- [x] Same threshold and carry for the fill handle — its hit area reaches 8px
+      into the neighbouring cells, so a click or twitch on its lower half
+      filled one row; `detectAutofillHandle` honours `hideAutofillHandle`
 - [x] Unit tests for the destination math and the click/drag gestures
 - [x] `pnpm verify:fast`
 - [x] Self review

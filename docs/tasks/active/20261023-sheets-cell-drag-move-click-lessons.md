@@ -44,3 +44,15 @@
 - Lesson: an index-space shortcut is only valid when indices and pixels are
   monotonic together. Hidden rows and freeze panes break that, and a stand-in
   grid with uniform rows cannot show it — test with a grid that has both.
+- Round 4 (`--force`): correctness — the viewport-pixel carry mapped a
+  top-left cell scrolled out of view to row 1 under freeze panes (the point
+  fell in the frozen branch of `toRefWithFreeze`); the fill handle still used
+  the raw pointer cell, so a 4px twitch filled a neighbour. blast-radius —
+  `detectAutofillHandle` ignored `hideAutofillHandle`, so the new
+  `isOnSelectionEdge` claimed right-clicks over an undrawn handle on mobile.
+  Fixed all three by carrying in sheet space (`carryPoint` over
+  `DimensionIndex`) for both gestures, insetting the fill's carried corner by
+  the handle's hit reach, and honouring `hideAutofillHandle` in the hit test.
+- Lesson: three coordinate spaces are in play (viewport CSS px, unzoomed
+  viewport, sheet). Freeze panes make viewport → ref non-monotonic, so a
+  carried point must be resolved in sheet space, where only `findIndex` runs.

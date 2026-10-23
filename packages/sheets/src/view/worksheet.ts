@@ -43,7 +43,10 @@ import {
 } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
 import {
-  cellDragGrabOffset,
+  Point,
+  carryPoint,
+  cellCentre,
+  cellCornerInset,
   exceedsCellDragThreshold,
 } from './cell-drag-move';
 
@@ -3285,7 +3288,9 @@ export class Worksheet {
    * `detectAutofillHandle` returns true when the pointer is over the fill handle.
    */
   private detectAutofillHandle(x: number, y: number): boolean {
-    if (this.readOnly) {
+    // A handle that is not drawn (`shouldShowAutofillHandle`) is not there to
+    // press, and must not claim right-clicks for the selection either.
+    if (this.readOnly || this.hideAutofillHandle) {
       return false;
     }
     if (!this.sheet || this.sheet.getSelectionType() !== 'cell') {
@@ -4342,6 +4347,17 @@ export class Worksheet {
   private startAutofillDrag(startEvent: MouseEvent): void {
     const startClientX = startEvent.clientX;
     const startClientY = startEvent.clientY;
+    const travelFrom = this.beginSheetTravel(startClientX, startClientY);
+    const sourceRange = this.sheet!.getRangeOrActiveCell();
+    const carried = cellCornerInset(
+      {
+        r: Math.max(sourceRange[0].r, sourceRange[1].r),
+        c: Math.max(sourceRange[0].c, sourceRange[1].c),
+      },
+      AutofillHandleSize / 2 + AutofillHandleHitPadding,
+      this.rowDim,
+      this.colDim,
+    );
     let dragging = false;
 
     let lastClientX = startClientX;
@@ -4349,12 +4365,17 @@ export class Worksheet {
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
-    const updatePreview = () => {
-      const { x, y } = this.clampClientPointToViewport(
-        lastClientX,
-        lastClientY,
+    // Where the handle's corner has been carried (see `carryPoint`).
+    const fillTarget = (): Ref =>
+      carryPoint(
+        carried,
+        travelFrom(lastClientX, lastClientY),
+        this.rowDim,
+        this.colDim,
       );
-      const target = this.toRefFromMouse(x, y);
+
+    const updatePreview = () => {
+      const target = fillTarget();
       this.autofillPreview = this.sheet!.getAutofillPreviewRange(target);
       this.renderOverlay();
     };
@@ -4446,11 +4467,7 @@ export class Worksheet {
       onMove,
       onComplete: () => {
         if (!dragging) return;
-        const { x, y } = this.clampClientPointToViewport(
-          lastClientX,
-          lastClientY,
-        );
-        const target = this.toRefFromMouse(x, y);
+        const target = fillTarget();
         const sheet = this.sheet!;
         void (async () => {
           const changed = await sheet.autofill(target);
@@ -4475,6 +4492,27 @@ export class Worksheet {
   }
 
   /**
+   * `beginSheetTravel` returns a function measuring how far the pointer has
+   * moved since a press at (`clientX`, `clientY`), in sheet pixels: the
+   * viewport-clamped CSS travel divided by zoom, plus the scroll since, so an
+   * auto-scrolling drag carries its point along with the grid.
+   */
+  private beginSheetTravel(
+    clientX: number,
+    clientY: number,
+  ): (clientX: number, clientY: number) => Point {
+    const start = this.clampClientPointToViewport(clientX, clientY);
+    const scroll = { ...this.scroll };
+    return (x, y) => {
+      const now = this.clampClientPointToViewport(x, y);
+      return {
+        x: (now.x - start.x) / this.zoom + this.scroll.left - scroll.left,
+        y: (now.y - start.y) / this.zoom + this.scroll.top - scroll.top,
+      };
+    };
+  }
+
+  /**
    * `startCellDragMove` begins a drag-to-move operation for the selected cell range.
    * Dragging from the edge of a cell selection moves the cell data to the drop location.
    *
@@ -4491,13 +4529,14 @@ export class Worksheet {
 
     const startClientX = startEvent.clientX;
     const startClientY = startEvent.clientY;
-    const start = this.clampClientPointToViewport(startClientX, startClientY);
-    const grab = cellDragGrabOffset(
-      start,
-      this.getCellRect({
+    const travelFrom = this.beginSheetTravel(startClientX, startClientY);
+    const carried = cellCentre(
+      {
         r: Math.min(sourceRange[0].r, sourceRange[1].r),
         c: Math.min(sourceRange[0].c, sourceRange[1].c),
-      }),
+      },
+      this.rowDim,
+      this.colDim,
     );
     let dragging = false;
 
@@ -4506,15 +4545,14 @@ export class Worksheet {
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
-    // The cell under the carried top-left centre (see `cellDragGrabOffset`).
-    const destination = (): Ref => {
-      const { x, y } = this.clampClientPointToViewport(
-        lastClientX,
-        lastClientY,
+    // Where the top-left cell's centre has been carried (see `carryPoint`).
+    const destination = (): Ref =>
+      carryPoint(
+        carried,
+        travelFrom(lastClientX, lastClientY),
+        this.rowDim,
+        this.colDim,
       );
-      const ref = this.toRefFromMouse(x - grab.x, y - grab.y);
-      return { r: Math.max(1, ref.r), c: Math.max(1, ref.c) };
-    };
 
     const updatePreview = () => {
       const target = destination();
