@@ -109,7 +109,13 @@ export function SheetContextMenu({
       } else {
         const ref = spreadsheet.cellRefFromPoint(clientX, clientY);
         const currentRange = spreadsheet.getSelectionRangeOrActiveCell();
-        if (!currentRange || !inRange(ref, currentRange)) {
+        // The selection border reaches into the neighbouring cell, so a
+        // right-click on it keeps the selection rather than moving to `ref`.
+        if (
+          !currentRange ||
+          (!inRange(ref, currentRange) &&
+            !spreadsheet.isOnSelectionEdge(clientX, clientY))
+        ) {
           spreadsheet.selectStart(ref);
         }
       }

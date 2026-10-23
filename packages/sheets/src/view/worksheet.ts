@@ -43,7 +43,7 @@ import {
 } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
 import {
-  cellDragMoveDestination,
+  cellDragGrabOffset,
   exceedsCellDragThreshold,
 } from './cell-drag-move';
 
@@ -4211,13 +4211,9 @@ export class Worksheet {
     if (e.button === 2) {
       const clickedRef = this.toRefFromMouse(e.offsetX, e.offsetY);
       const currentRange = this.sheet!.getRangeOrActiveCell();
-      // The selection border and fill handle reach into the neighbouring
-      // cells, so a right-click on them is aimed at the selection even when
-      // the cell under the pointer lies outside it.
       if (
         inRange(clickedRef, currentRange) ||
-        this.detectCellEdge(e.offsetX, e.offsetY) ||
-        this.detectAutofillHandle(e.offsetX, e.offsetY)
+        this.isOverSelectionEdge(e.offsetX, e.offsetY)
       ) {
         return;
       }
@@ -4483,7 +4479,7 @@ export class Worksheet {
    * Dragging from the edge of a cell selection moves the cell data to the drop location.
    *
    * The move only engages once the pointer passes `CellDragThreshold`;
-   * a press released before that is a click on the cell under it.
+   * a press released before that changes nothing.
    */
   private startCellDragMove(startEvent: MouseEvent): void {
     const scrollContainer = this.gridContainer.getScrollContainer();
@@ -4496,7 +4492,13 @@ export class Worksheet {
     const startClientX = startEvent.clientX;
     const startClientY = startEvent.clientY;
     const start = this.clampClientPointToViewport(startClientX, startClientY);
-    const anchor = this.toRefFromMouse(start.x, start.y);
+    const grab = cellDragGrabOffset(
+      start,
+      this.getCellRect({
+        r: Math.min(sourceRange[0].r, sourceRange[1].r),
+        c: Math.min(sourceRange[0].c, sourceRange[1].c),
+      }),
+    );
     let dragging = false;
 
     let lastClientX = startClientX;
@@ -4504,16 +4506,14 @@ export class Worksheet {
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
+    // The cell under the carried top-left centre (see `cellDragGrabOffset`).
     const destination = (): Ref => {
       const { x, y } = this.clampClientPointToViewport(
         lastClientX,
         lastClientY,
       );
-      return cellDragMoveDestination(
-        sourceRange,
-        anchor,
-        this.toRefFromMouse(x, y),
-      );
+      const ref = this.toRefFromMouse(x - grab.x, y - grab.y);
+      return { r: Math.max(1, ref.r), c: Math.max(1, ref.c) };
     };
 
     const updatePreview = () => {
@@ -4613,27 +4613,14 @@ export class Worksheet {
     this.startMouseDragSession({
       onMove,
       onComplete: () => {
-        const sheet = this.sheet!;
-        if (!dragging) {
-          // A press released without travelling is a click on the cell
-          // under it, modifiers included, ending the way the plain-click
-          // path in `handleMouseDown` does for each.
-          if (startEvent.shiftKey) {
-            sheet.selectEnd(anchor);
-            this.render();
-            return;
-          }
-          if (startEvent.ctrlKey || startEvent.metaKey) {
-            sheet.addSelection(anchor);
-          } else {
-            sheet.selectStart(anchor);
-          }
-          this.render();
-          this.primeCellInputForSelection();
-          return;
-        }
+        // A press released before the threshold moves nothing and leaves
+        // the selection alone, as in Excel: the border is a grab handle (the
+        // `move` cursor says so), and the cell under its outer half is not
+        // the one the user was aiming at.
+        if (!dragging) return;
 
         const target = destination();
+        const sheet = this.sheet!;
 
         // No-op if dropped back on itself
         const sr = sourceRange;
@@ -5638,6 +5625,23 @@ export class Worksheet {
       width: rect.width * zoom,
       height: rect.height * zoom,
     };
+  }
+
+  /**
+   * `isOnSelectionEdge` reports whether client (screen) coordinates fall on
+   * the cell selection's border or fill handle. Both reach into the
+   * neighbouring cells, so a right-click there is aimed at the selection even
+   * when `cellRefFromPoint` names a cell outside it.
+   */
+  public isOnSelectionEdge(clientX: number, clientY: number): boolean {
+    return this.isOverSelectionEdge(
+      clientX - this.viewport.left,
+      clientY - this.viewport.top,
+    );
+  }
+
+  private isOverSelectionEdge(x: number, y: number): boolean {
+    return this.detectCellEdge(x, y) || this.detectAutofillHandle(x, y);
   }
 
   /**

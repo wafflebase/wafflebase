@@ -16,23 +16,28 @@ border, right for the right one, and so on).
 
 ## How Excel / Google Sheets avoid it
 
-The range moves by the number of cells the pointer has crossed since it
-grabbed the border (grab offset preserved), and the move only starts once the
-pointer travels past a small drag threshold. A click is therefore a no-op.
+The range travels with the pointer, keeping the grab offset, and the move
+only starts once the pointer travels past a small drag threshold. A click on
+the border is therefore a no-op (Excel leaves the selection alone too).
 
 ## Plan
 
-- [x] `cellDragMoveDestination(source, anchor, pointer)` — source top-left
-      shifted by `pointer - anchor`, clamped to row/column 1
+- [x] Grab offset in pixels (`cellDragGrabOffset`, from the top-left cell's
+      centre), destination = cell under `pointer - offset`, clamped to
+      row/column 1. An index delta was tried first and sent a drag into
+      filter-hidden rows or across the freeze gap
 - [x] Drag threshold (`CellDragThreshold`, 4 CSS px) before the move
       preview and commit engage
-- [x] Below the threshold, a release is an ordinary click: select the cell
-      under the press
-- [x] Primary button only — a right-click on the border goes to the
-      context-menu path instead of starting a move
+- [x] Below the threshold, a release changes nothing — not the sheet, not the
+      selection (first done as "select the cell under the press", which
+      collapsed the selection to the neighbouring cell and contradicted the
+      right-click rule)
+- [x] Primary button only — a right-click on the border or fill handle keeps
+      the selection, in both `handleMouseDown` and the frontend context menu
+      (`Spreadsheet.isOnSelectionEdge`)
 - [x] Same threshold for the fill handle — its hit area reaches 8px into the
       neighbouring cells, so a click on its lower half filled one row
 - [x] Unit tests for the destination math and the click/drag gestures
 - [x] `pnpm verify:fast`
-- [ ] Self review
+- [x] Self review
 - [ ] PR

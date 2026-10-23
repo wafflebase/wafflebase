@@ -1,4 +1,4 @@
-import { Range, Ref } from '../model/core/types';
+import { BoundingRect } from './layout';
 
 /**
  * How far, in CSS pixels, the pointer must travel after pressing the
@@ -7,26 +7,28 @@ import { Range, Ref } from '../model/core/types';
  */
 export const CellDragThreshold = 4;
 
+export type Point = { x: number; y: number };
+
 /**
- * `cellDragMoveDestination` returns the top-left of where a drag-moved range
- * lands: the source shifted by the cells the pointer has crossed since it
- * grabbed the border.
+ * `cellDragGrabOffset` returns where the pointer pressed, relative to the
+ * centre of the source range's top-left cell. During a drag-move,
+ * `pointer - offset` is where that centre has been carried to, so the cell
+ * under that point is the destination's top-left — the grab offset Excel and
+ * Google Sheets preserve.
  *
- * The destination is relative to the grab point, not the cell under the
- * pointer. The border hit band straddles the edge, so the press itself often
- * lands in the neighbouring cell; taking that cell as the destination moved
- * the range before the pointer did, and a click on the border committed it.
+ * The offset is in pixels, not cells. The border hit band straddles the edge,
+ * so the press often lands in a neighbouring cell, and in index space that
+ * cell can be far away: past rows a filter hid, or across the freeze gap,
+ * which maps to the first unscrolled row. Pixels carry none of that, and
+ * aiming at the cell's centre keeps the carried point off the gridlines.
  */
-export function cellDragMoveDestination(
-  source: Range,
-  anchor: Ref,
-  pointer: Ref,
-): Ref {
-  const minR = Math.min(source[0].r, source[1].r);
-  const minC = Math.min(source[0].c, source[1].c);
+export function cellDragGrabOffset(
+  press: Point,
+  topLeftCell: BoundingRect,
+): Point {
   return {
-    r: Math.max(1, minR + pointer.r - anchor.r),
-    c: Math.max(1, minC + pointer.c - anchor.c),
+    x: press.x - (topLeftCell.left + topLeftCell.width / 2),
+    y: press.y - (topLeftCell.top + topLeftCell.height / 2),
   };
 }
 

@@ -261,16 +261,21 @@ all cell, selection, and navigation operations.
   would fall under frozen panes.
 - **Cell drag-move** — hovering near the edges of a selected cell or range
   (excluding the bottom-right autofill handle corner) shows a `move` cursor.
-  Dragging from the edge moves the entire selection by the cells the pointer
-  crosses after grabbing it (`cellDragMoveDestination`, the grab offset
-  Excel and Google Sheets preserve), not to the cell under the pointer: the
-  ±2px edge band straddles the border, so its outer half already lies in the
-  neighbouring cell, and reading the destination from the pointer moved the
-  range before the pointer did. The move engages only once the pointer
-  travels `CellDragThreshold` (4px); a press released before that is a plain
-  click on the cell under it, and a right-click on the border keeps the
-  selection for the context menu. Unlike copy-paste, formula text is preserved as-is (e.g. `=SUM(A10:I10)`
-  stays `=SUM(A10:I10)` after the move), matching Google Sheets behavior.
+  Dragging from the edge carries the selection with the pointer, keeping the
+  grab offset Excel and Google Sheets keep: `cellDragGrabOffset` measures the
+  press from the centre of the top-left cell in pixels, and the cell under
+  `pointer − offset` is the destination's top-left. Neither the cell under
+  the pointer nor an index delta from it works, because the ±2px edge band
+  straddles the border — its outer half lies in the neighbouring cell, which
+  in index space can be far away (past filter-hidden rows, or across the
+  freeze gap, which maps to the first unscrolled row). The move engages only
+  once the pointer travels `CellDragThreshold` (4px); a press released before
+  that changes nothing, as in Excel — not even the selection, since the cell
+  under the band's outer half is not the one being aimed at. For the same
+  reason a right-click on the border or fill handle keeps the selection for
+  the context menu (the frontend asks `Spreadsheet.isOnSelectionEdge`). Unlike copy-paste, formula text is
+  preserved as-is (e.g. `=SUM(A10:I10)` stays `=SUM(A10:I10)` after the
+  move), matching Google Sheets behavior.
   Other cells that referenced the moved cells are redirected to the new
   positions. Range styles are translated to the destination and the source
   area is cleared. Merged blocks propagate: a merge fully inside the source

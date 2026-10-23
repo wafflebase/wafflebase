@@ -26,3 +26,21 @@
   modifier path, and the two design-doc passages were updated. Disputed: the
   round-1 autofill finding was carried forward with pre-fix evidence; 3780bed5a
   fixed it (rebuttal cites the `dragging` gate and its tests).
+- Round 2 code review (`superpowers:requesting-code-review`, independent
+  subagent): the index-delta destination sent a drag into filter-hidden rows
+  (zero-height rows sit between the press cell and the source) and across the
+  freeze gap (it maps to the first unscrolled row — a 5px drag moved B49 to
+  B96). Fixed by measuring the grab offset in pixels from the top-left cell's
+  centre. It also found the right-click fix was undone by the frontend's
+  `contextmenu` handler re-selecting `cellRefFromPoint`; fixed with a public
+  `Spreadsheet.isOnSelectionEdge` used by both.
+- Round 3: rebuttal of the carried-forward autofill finding overturned.
+  correctness — a sub-threshold left-click selected the cell under the press,
+  collapsing the selection to the neighbouring cell, contradicting the
+  right-click rule (fixed: a click on the border is a no-op, Excel parity;
+  the copied click-selection code is gone).
+- Round 3 reviewed the commit before the pixel-offset rework, so a round 4
+  was run with `--force` on the reworked branch.
+- Lesson: an index-space shortcut is only valid when indices and pixels are
+  monotonic together. Hidden rows and freeze panes break that, and a stand-in
+  grid with uniform rows cannot show it — test with a grid that has both.
