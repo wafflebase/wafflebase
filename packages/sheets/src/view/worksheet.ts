@@ -42,6 +42,10 @@ import {
   isValidValueForRule,
 } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
+import {
+  cellDragMoveDestination,
+  exceedsCellDragMoveThreshold,
+} from './cell-drag-move';
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
@@ -4178,7 +4182,7 @@ export class Worksheet {
       return;
     }
 
-    if (this.detectCellEdge(e.offsetX, e.offsetY)) {
+    if (e.button === 0 && this.detectCellEdge(e.offsetX, e.offsetY)) {
       e.preventDefault();
       await this.finishEditing();
       this.startCellDragMove(e);
@@ -4449,6 +4453,9 @@ export class Worksheet {
   /**
    * `startCellDragMove` begins a drag-to-move operation for the selected cell range.
    * Dragging from the edge of a cell selection moves the cell data to the drop location.
+   *
+   * The move only engages once the pointer passes `CellDragMoveThreshold`;
+   * a press released before that is a click on the cell under it.
    */
   private startCellDragMove(startEvent: MouseEvent): void {
     const scrollContainer = this.gridContainer.getScrollContainer();
@@ -4458,17 +4465,31 @@ export class Worksheet {
     const srcRows = Math.abs(sourceRange[1].r - sourceRange[0].r) + 1;
     const srcCols = Math.abs(sourceRange[1].c - sourceRange[0].c) + 1;
 
-    let lastClientX = startEvent.clientX;
-    let lastClientY = startEvent.clientY;
+    const startClientX = startEvent.clientX;
+    const startClientY = startEvent.clientY;
+    const start = this.clampClientPointToViewport(startClientX, startClientY);
+    const anchor = this.toRefFromMouse(start.x, start.y);
+    let dragging = false;
+
+    let lastClientX = startClientX;
+    let lastClientY = startClientY;
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
-    const updatePreview = () => {
+    const destination = (): Ref => {
       const { x, y } = this.clampClientPointToViewport(
         lastClientX,
         lastClientY,
       );
-      const target = this.toRefFromMouse(x, y);
+      return cellDragMoveDestination(
+        sourceRange,
+        anchor,
+        this.toRefFromMouse(x, y),
+      );
+    };
+
+    const updatePreview = () => {
+      const target = destination();
       // The preview range is the destination rectangle with the same dimensions
       const endRef: Ref = {
         r: target.r + srcRows - 1,
@@ -4527,6 +4548,19 @@ export class Worksheet {
     const onMove = (e: MouseEvent) => {
       lastClientX = e.clientX;
       lastClientY = e.clientY;
+      if (!dragging) {
+        if (
+          !exceedsCellDragMoveThreshold(
+            startClientX,
+            startClientY,
+            lastClientX,
+            lastClientY,
+          )
+        ) {
+          return;
+        }
+        dragging = true;
+      }
       updatePreview();
 
       const port = this.viewport;
@@ -4548,16 +4582,25 @@ export class Worksheet {
     };
 
     this.beginNativeSelectionBlock();
-    updatePreview();
     this.startMouseDragSession({
       onMove,
       onComplete: () => {
-        const { x, y } = this.clampClientPointToViewport(
-          lastClientX,
-          lastClientY,
-        );
-        const target = this.toRefFromMouse(x, y);
         const sheet = this.sheet!;
+        if (!dragging) {
+          // A press released without travelling is a click on the cell
+          // under it, modifiers included, as anywhere else in the grid.
+          if (startEvent.shiftKey) {
+            sheet.selectEnd(anchor);
+          } else if (startEvent.ctrlKey || startEvent.metaKey) {
+            sheet.addSelection(anchor);
+          } else {
+            sheet.selectStart(anchor);
+          }
+          this.render();
+          return;
+        }
+
+        const target = destination();
 
         // No-op if dropped back on itself
         const sr = sourceRange;
