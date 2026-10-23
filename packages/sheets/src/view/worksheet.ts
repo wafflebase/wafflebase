@@ -4211,7 +4211,14 @@ export class Worksheet {
     if (e.button === 2) {
       const clickedRef = this.toRefFromMouse(e.offsetX, e.offsetY);
       const currentRange = this.sheet!.getRangeOrActiveCell();
-      if (inRange(clickedRef, currentRange)) {
+      // The selection border and fill handle reach into the neighbouring
+      // cells, so a right-click on them is aimed at the selection even when
+      // the cell under the pointer lies outside it.
+      if (
+        inRange(clickedRef, currentRange) ||
+        this.detectCellEdge(e.offsetX, e.offsetY) ||
+        this.detectAutofillHandle(e.offsetX, e.offsetY)
+      ) {
         return;
       }
     }
@@ -4609,10 +4616,14 @@ export class Worksheet {
         const sheet = this.sheet!;
         if (!dragging) {
           // A press released without travelling is a click on the cell
-          // under it, modifiers included, as anywhere else in the grid.
+          // under it, modifiers included, ending the way the plain-click
+          // path in `handleMouseDown` does for each.
           if (startEvent.shiftKey) {
             sheet.selectEnd(anchor);
-          } else if (startEvent.ctrlKey || startEvent.metaKey) {
+            this.render();
+            return;
+          }
+          if (startEvent.ctrlKey || startEvent.metaKey) {
             sheet.addSelection(anchor);
           } else {
             sheet.selectStart(anchor);

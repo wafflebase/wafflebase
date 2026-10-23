@@ -261,8 +261,15 @@ all cell, selection, and navigation operations.
   would fall under frozen panes.
 - **Cell drag-move** — hovering near the edges of a selected cell or range
   (excluding the bottom-right autofill handle corner) shows a `move` cursor.
-  Dragging from the edge moves the entire selection to the drop position.
-  Unlike copy-paste, formula text is preserved as-is (e.g. `=SUM(A10:I10)`
+  Dragging from the edge moves the entire selection by the cells the pointer
+  crosses after grabbing it (`cellDragMoveDestination`, the grab offset
+  Excel and Google Sheets preserve), not to the cell under the pointer: the
+  ±2px edge band straddles the border, so its outer half already lies in the
+  neighbouring cell, and reading the destination from the pointer moved the
+  range before the pointer did. The move engages only once the pointer
+  travels `CellDragThreshold` (4px); a press released before that is a plain
+  click on the cell under it, and a right-click on the border keeps the
+  selection for the context menu. Unlike copy-paste, formula text is preserved as-is (e.g. `=SUM(A10:I10)`
   stays `=SUM(A10:I10)` after the move), matching Google Sheets behavior.
   Other cells that referenced the moved cells are redirected to the new
   positions. Range styles are translated to the destination and the source
@@ -275,9 +282,9 @@ all cell, selection, and navigation operations.
   `RangeOpRefusal` reason through `Sheet.setOnRefusal`, which the view turns
   into a message on the host's `Spreadsheet.onNotice` channel so the drag
   explains itself instead of looking like a no-op (`autofill`'s refusal to
-  fill across a merged block travels the same path). The overlay
-  renders a dashed preview rectangle at the prospective drop location during
-  the drag.
+  fill across a merged block travels the same path). Once the move has
+  engaged, the overlay renders a dashed preview rectangle at the prospective
+  drop location.
 - **Filtering** — `createFilterFromSelection`, `setColumnFilter`, and
   `clearFilter` persist filter metadata and compute hidden row indices.
   If the selection is header-only (single row), filter creation auto-expands

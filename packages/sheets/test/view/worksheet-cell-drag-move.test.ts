@@ -146,12 +146,19 @@ describe('Worksheet cell drag-move gesture', () => {
   });
 
   it('keeps the click modifiers when the press never became a drag', () => {
-    const { sheet, press, release } = createContext(b2);
-    press(150, 41, { shiftKey: true });
-    release();
+    const shift = createContext(b2);
+    shift.press(150, 41, { shiftKey: true });
+    shift.release();
+    expect(shift.sheet.moveRangeTo).not.toHaveBeenCalled();
+    expect(shift.sheet.selectEnd).toHaveBeenCalledWith({ r: 3, c: 2 });
+    // A shift-click in `handleMouseDown` returns without priming.
+    expect(shift.ctx.primeCellInputForSelection).not.toHaveBeenCalled();
 
-    expect(sheet.moveRangeTo).not.toHaveBeenCalled();
-    expect(sheet.selectEnd).toHaveBeenCalledWith({ r: 3, c: 2 });
+    const ctrl = createContext(b2);
+    ctrl.press(150, 41, { ctrlKey: true });
+    ctrl.release();
+    expect(ctrl.sheet.addSelection).toHaveBeenCalledWith({ r: 3, c: 2 });
+    expect(ctrl.ctx.primeCellInputForSelection).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a jitter below the drag threshold', () => {
@@ -227,5 +234,102 @@ describe('Worksheet autofill gesture', () => {
     release();
 
     expect(sheet.autofill).toHaveBeenCalledWith({ r: 5, c: 2 });
+  });
+});
+
+const handleMouseDown = (
+  Worksheet.prototype as unknown as {
+    handleMouseDown(e: MouseEvent): Promise<void>;
+  }
+).handleMouseDown;
+
+/**
+ * A press on B2's bottom border at (150, 41), which lies in B3. Everything
+ * `handleMouseDown` consults before the border branch reports "nothing here".
+ */
+function mouseDownContext(hit: { edge?: boolean; handle?: boolean }) {
+  const sheet = {
+    getRangeOrActiveCell: vi.fn((): Range => [
+      { r: 2, c: 2 },
+      { r: 2, c: 2 },
+    ]),
+    getDataValidationAt: vi.fn(() => undefined),
+    selectStart: vi.fn(),
+  };
+  return {
+    sheet,
+    readOnly: false,
+    openLinksOnClick: false,
+    zoom: 1,
+    detectFreezeHandle: () => null,
+    detectHiddenIndicator: () => null,
+    detectResizeEdge: () => null,
+    detectFilterButton: () => null,
+    isInsideGrid: () => true,
+    isInFormulaRangeMode: () => false,
+    toRefFromMouse: (x: number, y: number): Ref => ({
+      r: Math.floor(y / RowHeight) + 1,
+      c: Math.floor(x / ColWidth) + 1,
+    }),
+    detectCellEdge: () => hit.edge ?? false,
+    detectAutofillHandle: () => hit.handle ?? false,
+    finishEditing: vi.fn(async () => true),
+    startCellDragMove: vi.fn(),
+    startAutofillDrag: vi.fn(),
+    render: vi.fn(),
+  };
+}
+
+function mouseDownEvent(button: number): MouseEvent {
+  return {
+    button,
+    detail: 1,
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    offsetX: 150,
+    offsetY: 41,
+    clientX: 150,
+    clientY: 41,
+    preventDefault: vi.fn(),
+  } as unknown as MouseEvent;
+}
+
+describe('handleMouseDown on the selection border and fill handle', () => {
+  it('starts a drag-move only for the primary button', async () => {
+    const left = mouseDownContext({ edge: true });
+    await handleMouseDown.call(left, mouseDownEvent(0));
+    expect(left.startCellDragMove).toHaveBeenCalledTimes(1);
+
+    const middle = mouseDownContext({ edge: true });
+    // The middle button falls through to plain selection, which needs a
+    // whole grid; only the drag-move is asserted on.
+    await handleMouseDown.call(middle, mouseDownEvent(1)).catch(() => {});
+    expect(middle.startCellDragMove).not.toHaveBeenCalled();
+  });
+
+  it('starts a drag-fill only for the primary button', async () => {
+    const left = mouseDownContext({ handle: true });
+    await handleMouseDown.call(left, mouseDownEvent(0));
+    expect(left.startAutofillDrag).toHaveBeenCalledTimes(1);
+
+    const middle = mouseDownContext({ handle: true });
+    await handleMouseDown.call(middle, mouseDownEvent(1)).catch(() => {});
+    expect(middle.startAutofillDrag).not.toHaveBeenCalled();
+  });
+
+  it('keeps the selection for a right-click on the border', async () => {
+    // B3 is outside the selection, but the press was aimed at its border.
+    const ctx = mouseDownContext({ edge: true });
+    await handleMouseDown.call(ctx, mouseDownEvent(2));
+    expect(ctx.startCellDragMove).not.toHaveBeenCalled();
+    expect(ctx.sheet.selectStart).not.toHaveBeenCalled();
+  });
+
+  it('keeps the selection for a right-click on the fill handle', async () => {
+    const ctx = mouseDownContext({ handle: true });
+    await handleMouseDown.call(ctx, mouseDownEvent(2));
+    expect(ctx.startAutofillDrag).not.toHaveBeenCalled();
+    expect(ctx.sheet.selectStart).not.toHaveBeenCalled();
   });
 });
