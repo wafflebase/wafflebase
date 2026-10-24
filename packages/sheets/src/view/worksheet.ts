@@ -4349,11 +4349,12 @@ export class Worksheet {
     const startClientY = startEvent.clientY;
     const travelFrom = this.beginSheetTravel(startClientX, startClientY);
     const sourceRange = this.sheet!.getRangeOrActiveCell();
+    const anchor: Ref = {
+      r: Math.max(sourceRange[0].r, sourceRange[1].r),
+      c: Math.max(sourceRange[0].c, sourceRange[1].c),
+    };
     const carried = cellCornerInset(
-      {
-        r: Math.max(sourceRange[0].r, sourceRange[1].r),
-        c: Math.max(sourceRange[0].c, sourceRange[1].c),
-      },
+      anchor,
       AutofillHandleSize / 2 + AutofillHandleHitPadding,
       this.rowDim,
       this.colDim,
@@ -4368,6 +4369,7 @@ export class Worksheet {
     // Where the handle's corner has been carried (see `carryPoint`).
     const fillTarget = (): Ref =>
       carryPoint(
+        anchor,
         carried,
         travelFrom(lastClientX, lastClientY),
         this.rowDim,
@@ -4389,19 +4391,9 @@ export class Worksheet {
     };
 
     const stepAutoScroll = (now: number) => {
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
 
-      if (velocityX === 0 && velocityY === 0) {
+      if (velocity.x === 0 && velocity.y === 0) {
         frameId = null;
         lastFrameTime = null;
         return;
@@ -4413,8 +4405,8 @@ export class Worksheet {
       );
       lastFrameTime = now;
       this.gridContainer.scrollBy(
-        (velocityX * dt) / 1000,
-        (velocityY * dt) / 1000,
+        (velocity.x * dt) / 1000,
+        (velocity.y * dt) / 1000,
       );
       updatePreview();
       frameId = requestAnimationFrame(stepAutoScroll);
@@ -4444,18 +4436,8 @@ export class Worksheet {
       }
       updatePreview();
 
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
-      if (velocityX === 0 && velocityY === 0) {
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
+      if (velocity.x === 0 && velocity.y === 0) {
         stopAutoScroll();
       } else {
         startAutoScroll();
@@ -4527,12 +4509,7 @@ export class Worksheet {
     const zx = x / zoom;
     const zy = y / zoom;
     const freeze = this.freezeState;
-    const inFrozenCols =
-      freeze.frozenCols > 0 &&
-      zx < RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
-    const inFrozenRows =
-      freeze.frozenRows > 0 &&
-      zy < DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
+    const { cols: inFrozenCols, rows: inFrozenRows } = this.inFrozenPanes(x, y);
     return {
       x: inFrozenCols
         ? zx - RowHeaderWidth
@@ -4554,6 +4531,53 @@ export class Worksheet {
   }
 
   /**
+   * `inFrozenPanes` reports, for a viewport-space point, whether it lies in
+   * the frozen column band and whether in the frozen row band. It is the one
+   * quadrant test `toSheetPointFromMouse` and `dragAutoScrollVelocity` share,
+   * so the point a drag is carried to and the scrolling that carries it
+   * cannot disagree about which pane the pointer is in.
+   */
+  private inFrozenPanes(x: number, y: number): { cols: boolean; rows: boolean } {
+    const freeze = this.freezeState;
+    const zoom = this.zoom;
+    return {
+      cols:
+        freeze.frozenCols > 0 &&
+        x / zoom < RowHeaderWidth + freeze.frozenWidth + freeze.gapX,
+      rows:
+        freeze.frozenRows > 0 &&
+        y / zoom < DefaultCellHeight + freeze.frozenHeight + freeze.gapY,
+    };
+  }
+
+  /**
+   * `dragAutoScrollVelocity` returns the auto-scroll velocity for a drag
+   * whose target is carried by `beginSheetTravel`.
+   *
+   * An axis whose clamped pointer sits in a frozen band is held at zero.
+   * Travel there is measured against the frozen pane, which no scroll moves,
+   * so scrolling would never advance the target: the grid would fly past
+   * underneath a preview standing still, for as long as the button was held.
+   */
+  private dragAutoScrollVelocity(clientX: number, clientY: number): Point {
+    const port = this.viewport;
+    const point = this.clampClientPointToViewport(clientX, clientY);
+    const frozen = this.inFrozenPanes(point.x, point.y);
+    return {
+      x: frozen.cols
+        ? 0
+        : this.getAutoScrollVelocity(
+            clientX,
+            port.left,
+            port.left + port.width,
+          ),
+      y: frozen.rows
+        ? 0
+        : this.getAutoScrollVelocity(clientY, port.top, port.top + port.height),
+    };
+  }
+
+  /**
    * `startCellDragMove` begins a drag-to-move operation for the selected cell range.
    * Dragging from the edge of a cell selection moves the cell data to the drop location.
    *
@@ -4571,14 +4595,11 @@ export class Worksheet {
     const startClientX = startEvent.clientX;
     const startClientY = startEvent.clientY;
     const travelFrom = this.beginSheetTravel(startClientX, startClientY);
-    const carried = cellCentre(
-      {
-        r: Math.min(sourceRange[0].r, sourceRange[1].r),
-        c: Math.min(sourceRange[0].c, sourceRange[1].c),
-      },
-      this.rowDim,
-      this.colDim,
-    );
+    const anchor: Ref = {
+      r: Math.min(sourceRange[0].r, sourceRange[1].r),
+      c: Math.min(sourceRange[0].c, sourceRange[1].c),
+    };
+    const carried = cellCentre(anchor, this.rowDim, this.colDim);
     let dragging = false;
 
     let lastClientX = startClientX;
@@ -4589,6 +4610,7 @@ export class Worksheet {
     // Where the top-left cell's centre has been carried (see `carryPoint`).
     const destination = (): Ref =>
       carryPoint(
+        anchor,
         carried,
         travelFrom(lastClientX, lastClientY),
         this.rowDim,
@@ -4615,19 +4637,9 @@ export class Worksheet {
     };
 
     const stepAutoScroll = (now: number) => {
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
 
-      if (velocityX === 0 && velocityY === 0) {
+      if (velocity.x === 0 && velocity.y === 0) {
         frameId = null;
         lastFrameTime = null;
         return;
@@ -4639,8 +4651,8 @@ export class Worksheet {
       );
       lastFrameTime = now;
       this.gridContainer.scrollBy(
-        (velocityX * dt) / 1000,
-        (velocityY * dt) / 1000,
+        (velocity.x * dt) / 1000,
+        (velocity.y * dt) / 1000,
       );
       updatePreview();
       frameId = requestAnimationFrame(stepAutoScroll);
@@ -4670,18 +4682,8 @@ export class Worksheet {
       }
       updatePreview();
 
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
-      if (velocityX === 0 && velocityY === 0) {
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
+      if (velocity.x === 0 && velocity.y === 0) {
         stopAutoScroll();
       } else {
         startAutoScroll();

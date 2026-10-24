@@ -71,3 +71,24 @@
   only pane-free once both of its endpoints went through the same freeze-aware
   mapping; subtracting raw pixels and adding `Δscroll` silently re-introduces
   the scrollable quadrant's assumptions.
+
+## Round 4 — panel fixes (per-pane travel fallout)
+
+- **Auto-scroll assumed travel always carried Δscroll.** The per-pane travel
+  from round 3 broke the two auto-scroll loops: when the pointer is clamped
+  into a frozen band (which is exactly where it lands when auto-scroll
+  engages at the top or left edge of a freeze), the carried target no longer
+  responds to scrolling, so the loop scrolled the grid forever under a
+  preview standing still. `dragAutoScrollVelocity` now holds the axis that is
+  frozen, and `inFrozenPanes` is the one quadrant test the mapping and the
+  scrolling share — the mapping and the thing that feeds it cannot disagree
+  about which pane the pointer is in.
+- **Capping the inset was not enough for a hidden boundary cell.** A
+  zero-size cell has no interior, so no point resolves to it: `findIndex`
+  answers the *next* visible index, and the drag started one cell on — past
+  the drop-in-place no-op guard, onto a neighbour the user never dragged to.
+  Clamping the point can't fix what has no interior; counting indices
+  instead does. `carryPoint` now takes the anchor ref and returns
+  `anchor + (findIndex(point + travel) - findIndex(point))`, which is
+  identical for every cell with an interior and keeps zero travel at the
+  anchor for one without.

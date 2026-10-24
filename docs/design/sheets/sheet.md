@@ -285,10 +285,18 @@ all cell, selection, and navigation operations.
   but only in the quadrant that actually scrolled — a pointer held still
   inside a frozen pane has travelled nothing — and a drag that crosses the
   freeze gap picks up the discontinuity, so it drops where the pointer is
-  rather than a paneful away. The carried point is clamped inside the cell
-  it anchors (`cellCentre`, `cellCornerInset`), so a boundary row or column
-  narrower than the fill handle's own 8px reach cannot anchor the drag to
-  its neighbour and fill backwards at rest. The move engages only once the
+  rather than a paneful away. Because travel is per pane, auto-scroll is
+  held on an axis whose pointer has been clamped into a frozen band
+  (`dragAutoScrollVelocity`): nothing there responds to the scroll, so the
+  grid would otherwise fly past underneath a target standing still. The
+  carried point is clamped inside the cell it anchors (`cellCentre`,
+  `cellCornerInset`), so a boundary row or column narrower than the fill
+  handle's own 8px reach cannot read the handle's reach off its neighbour's
+  edges; and the destination is the anchor plus the indices the point
+  crossed, not the index the point alone resolves to, so a boundary cell a
+  filter hid — which has no interior, and whose pixels belong to the next
+  visible cell — still starts the drag where the user grabbed instead of one
+  cell on. The move engages only once the
   pointer travels `CellDragThreshold` (4px); a press released before that
   changes nothing, as in Excel — not even the selection, since the cell
   under the band's outer half is not the one being aimed at. For the same

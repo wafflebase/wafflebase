@@ -23,15 +23,17 @@ function dims(hiddenRows: number[] = [], narrowCols: number[] = []) {
 }
 
 describe('carryPoint', () => {
+  const b2: Ref = { r: 2, c: 2 };
+
   it('stays in the cell until the carried point leaves it', () => {
     const { rowDim, colDim } = dims();
-    const centre = cellCentre({ r: 2, c: 2 }, rowDim, colDim);
+    const centre = cellCentre(b2, rowDim, colDim);
     expect(centre).toEqual({ x: 150, y: 30 });
-    expect(carryPoint(centre, { x: 0, y: 9 }, rowDim, colDim)).toEqual({
+    expect(carryPoint(b2, centre, { x: 0, y: 9 }, rowDim, colDim)).toEqual({
       r: 2,
       c: 2,
     });
-    expect(carryPoint(centre, { x: 0, y: 10 }, rowDim, colDim)).toEqual({
+    expect(carryPoint(b2, centre, { x: 0, y: 10 }, rowDim, colDim)).toEqual({
       r: 3,
       c: 2,
     });
@@ -39,8 +41,8 @@ describe('carryPoint', () => {
 
   it('skips rows a filter hid', () => {
     const { rowDim, colDim } = dims([3, 4, 5, 6, 7, 8, 9, 10]);
-    const centre = cellCentre({ r: 2, c: 2 }, rowDim, colDim);
-    expect(carryPoint(centre, { x: 0, y: 20 }, rowDim, colDim)).toEqual({
+    const centre = cellCentre(b2, rowDim, colDim);
+    expect(carryPoint(b2, centre, { x: 0, y: 20 }, rowDim, colDim)).toEqual({
       r: 11,
       c: 2,
     });
@@ -48,24 +50,23 @@ describe('carryPoint', () => {
 
   it('never leaves the sheet above row 1 or left of column 1', () => {
     const { rowDim, colDim } = dims();
-    const centre = cellCentre({ r: 2, c: 2 }, rowDim, colDim);
-    expect(carryPoint(centre, { x: -900, y: -900 }, rowDim, colDim)).toEqual({
-      r: 1,
-      c: 1,
-    });
+    const centre = cellCentre(b2, rowDim, colDim);
+    expect(
+      carryPoint(b2, centre, { x: -900, y: -900 }, rowDim, colDim),
+    ).toEqual({ r: 1, c: 1 });
   });
 
   it('carries the fill handle from inside the corner', () => {
     const { rowDim, colDim } = dims();
-    const corner = cellCornerInset({ r: 2, c: 2 }, 8, rowDim, colDim);
+    const corner = cellCornerInset(b2, 8, rowDim, colDim);
     expect(corner).toEqual({ x: 192, y: 32 });
     // The handle's hit area reaches 8px past the corner: the target stays
     // put until the handle has been carried further than that.
-    expect(carryPoint(corner, { x: 0, y: 7 }, rowDim, colDim)).toEqual({
+    expect(carryPoint(b2, corner, { x: 0, y: 7 }, rowDim, colDim)).toEqual({
       r: 2,
       c: 2,
     });
-    expect(carryPoint(corner, { x: 0, y: 8 }, rowDim, colDim)).toEqual({
+    expect(carryPoint(b2, corner, { x: 0, y: 8 }, rowDim, colDim)).toEqual({
       r: 3,
       c: 2,
     });
@@ -75,26 +76,30 @@ describe('carryPoint', () => {
     const { rowDim, colDim } = dims();
     colDim.setSize(2, 5);
     // B spans x 100–105, so a flat 8px inset would land in column A and
-    // fill backwards before the pointer had moved at all.
-    const corner = cellCornerInset({ r: 2, c: 2 }, 8, rowDim, colDim);
+    // read the handle's reach off A's edges instead of B's.
+    const corner = cellCornerInset(b2, 8, rowDim, colDim);
     expect(corner).toEqual({ x: 100, y: 32 });
-    expect(carryPoint(corner, { x: 0, y: 0 }, rowDim, colDim)).toEqual({
+    expect(carryPoint(b2, corner, { x: 0, y: 0 }, rowDim, colDim)).toEqual({
       r: 2,
       c: 2,
     });
   });
 
-  it('resolves a hidden boundary cell to the visible one drawn there', () => {
+  it('stays on a hidden anchor cell until the point has been carried', () => {
     const { rowDim, colDim } = dims([2]);
     // Row 2 is hidden: it has no interior, and the pixels at its offset
-    // belong to row 3, which is what the user sees and grabs.
-    expect(cellCentre({ r: 2, c: 2 }, rowDim, colDim)).toEqual({
-      x: 150,
-      y: 20,
-    });
-    expect(cellCornerInset({ r: 2, c: 2 }, 8, rowDim, colDim).y).toBe(20);
+    // belong to row 3. Resolving the carried point outright would answer
+    // row 3 at rest — a fill or a move onto the neighbour the user never
+    // dragged to. The anchor moves by the indices the point crossed, so a
+    // point that crossed none stays on row 2.
+    expect(cellCentre(b2, rowDim, colDim)).toEqual({ x: 150, y: 20 });
+    expect(cellCornerInset(b2, 8, rowDim, colDim).y).toBe(20);
     expect(
-      carryPoint({ x: 150, y: 20 }, { x: 0, y: 0 }, rowDim, colDim),
+      carryPoint(b2, { x: 150, y: 20 }, { x: 0, y: 0 }, rowDim, colDim),
+    ).toEqual({ r: 2, c: 2 });
+    // One visible row of travel still advances by one index.
+    expect(
+      carryPoint(b2, { x: 150, y: 20 }, { x: 0, y: 20 }, rowDim, colDim),
     ).toEqual({ r: 3, c: 2 });
   });
 });
@@ -122,11 +127,17 @@ const {
   isOverSelectionEdge,
   beginSheetTravel,
   toSheetPointFromMouse,
+  inFrozenPanes,
+  dragAutoScrollVelocity,
+  clampClientPointToViewport,
 } = Worksheet.prototype as unknown as {
   isOnSelectionEdge(clientX: number, clientY: number): boolean;
   isOverSelectionEdge(x: number, y: number): boolean;
   beginSheetTravel(x: number, y: number): unknown;
   toSheetPointFromMouse(x: number, y: number): unknown;
+  inFrozenPanes(x: number, y: number): { cols: boolean; rows: boolean };
+  dragAutoScrollVelocity(x: number, y: number): { x: number; y: number };
+  clampClientPointToViewport(x: number, y: number): { x: number; y: number };
 };
 
 type Session = {
@@ -189,6 +200,8 @@ function createContext(
     clampClientPointToViewport: (x: number, y: number) => ({ x, y }),
     beginSheetTravel,
     toSheetPointFromMouse,
+    inFrozenPanes,
+    dragAutoScrollVelocity,
     getAutoScrollVelocity: () => 0,
     beginNativeSelectionBlock: vi.fn(),
     endNativeSelectionBlock: vi.fn(),
@@ -251,6 +264,25 @@ describe('Worksheet cell drag-move gesture', () => {
 
     expect(sheet.moveRangeTo).not.toHaveBeenCalled();
     expect(sheet.selectStart).not.toHaveBeenCalled();
+  });
+
+  it('does not move a range whose top-left row a filter hid', () => {
+    // B2:B5 with row 2 hidden: its top-left cell has no interior, and the
+    // pixels at its offset belong to row 3. Resolving the carried centre
+    // outright answered row 3 at rest, which slipped past the drop-in-place
+    // guard and moved the range onto the row below.
+    const range: Range = [{ r: 2, c: 2 }, { r: 5, c: 2 }];
+    const { ctx, sheet, press, move, release } = createContext(
+      range,
+      startCellDragMove,
+      { hiddenRows: [2] },
+    );
+    press(150, 81);
+    move(150, 89);
+    expect(ctx.cellDragMovePreview).toEqual(range);
+    release();
+
+    expect(sheet.moveRangeTo).not.toHaveBeenCalled();
   });
 
   it('keeps the grab offset rather than jumping to the pointer', () => {
@@ -397,6 +429,65 @@ describe('Worksheet cell drag-move gesture', () => {
   });
 });
 
+describe('dragAutoScrollVelocity', () => {
+  // The drag loops carry their target by per-pane travel, so an axis whose
+  // pointer sits in a frozen band gains nothing from scrolling: the target
+  // would stand still while the grid flew past under it.
+  function velocityContext(frozen: { rows?: number; cols?: number } = {}) {
+    const { rowDim, colDim } = dims();
+    return {
+      viewport: { left: 0, top: 0, width: 1000, height: 1000 },
+      zoom: 1,
+      freezeState:
+        frozen.rows || frozen.cols
+          ? buildFreezeState(
+              frozen.rows ?? 0,
+              frozen.cols ?? 0,
+              rowDim,
+              colDim,
+            )
+          : NoFreeze,
+      clampClientPointToViewport,
+      inFrozenPanes,
+      // Direction only: -1 before the edge, +1 past it.
+      getAutoScrollVelocity: (pos: number, min: number, max: number) =>
+        pos < min ? -1 : pos > max ? 1 : 0,
+    };
+  }
+
+  it('scrolls both ways with no freeze', () => {
+    const ctx = velocityContext();
+    expect(dragAutoScrollVelocity.call(ctx, -50, -50)).toEqual({
+      x: -1,
+      y: -1,
+    });
+    expect(dragAutoScrollVelocity.call(ctx, 1200, 1200)).toEqual({
+      x: 1,
+      y: 1,
+    });
+  });
+
+  it('holds an axis whose pointer is clamped into a frozen band', () => {
+    const ctx = velocityContext({ rows: 4, cols: 2 });
+    // Clamped to the viewport's top-left, which is the frozen quadrant.
+    expect(dragAutoScrollVelocity.call(ctx, -50, -50)).toEqual({ x: 0, y: 0 });
+    // The far edges are in the scrollable quadrant and still scroll.
+    expect(dragAutoScrollVelocity.call(ctx, 1200, 1200)).toEqual({
+      x: 1,
+      y: 1,
+    });
+  });
+
+  it('holds only the axis that is frozen', () => {
+    const ctx = velocityContext({ rows: 4 });
+    // Above the viewport is the frozen row band; to its left is not.
+    expect(dragAutoScrollVelocity.call(ctx, -50, -50)).toEqual({
+      x: -1,
+      y: 0,
+    });
+  });
+});
+
 describe('Worksheet autofill gesture', () => {
   // B2's fill handle straddles its bottom-right corner (200, 40), so the
   // lower half of the handle lies in B3.
@@ -451,6 +542,23 @@ describe('Worksheet autofill gesture', () => {
     release();
 
     expect(sheet.autofill).toHaveBeenCalledWith({ r: 3, c: 2 });
+  });
+
+  it('does not fill onto the row below a hidden boundary row', () => {
+    // B1:B2 with row 2 hidden: the handle is drawn at row 2's offset, which
+    // belongs to row 3. The carried corner resolved there outright and
+    // filled a row the handle had not been dragged to.
+    const range: Range = [{ r: 1, c: 2 }, { r: 2, c: 2 }];
+    const { sheet, press, move, release } = createContext(
+      range,
+      startAutofillDrag,
+      { hiddenRows: [2] },
+    );
+    press(192, 20);
+    move(197, 20);
+    release();
+
+    expect(sheet.autofill).toHaveBeenCalledWith({ r: 2, c: 2 });
   });
 
   it('fills to where the handle has been carried', () => {
