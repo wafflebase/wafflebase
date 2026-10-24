@@ -522,6 +522,15 @@ export class Spreadsheet {
   }
 
   /**
+   * `isOnSelectionEdge` reports whether client (screen) coordinates fall on
+   * the cell selection's border or fill handle — a press there is aimed at
+   * the selection even when `cellRefFromPoint` names a neighbouring cell.
+   */
+  public isOnSelectionEdge(clientX: number, clientY: number): boolean {
+    return this.worksheet.isOnSelectionEdge(clientX, clientY);
+  }
+
+  /**
    * `cellRefFromPoint` converts client (screen) coordinates to a cell reference.
    */
   public cellRefFromPoint(clientX: number, clientY: number): Ref {
