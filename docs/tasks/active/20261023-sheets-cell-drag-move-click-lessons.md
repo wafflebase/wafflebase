@@ -56,3 +56,18 @@
 - Lesson: three coordinate spaces are in play (viewport CSS px, unzoomed
   viewport, sheet). Freeze panes make viewport → ref non-monotonic, so a
   carried point must be resolved in sheet space, where only `findIndex` runs.
+- Panel round 5 (CI review panel): correctness — `beginSheetTravel` still
+  assumed a single affine screen→sheet mapping (`Δpx / zoom + Δscroll`),
+  which only holds in the scrollable quadrant, so a frozen-pane range drifted
+  with auto-scroll and a drag across the freeze gap missed the
+  discontinuity; and `cellCornerInset` subtracted a flat 8px, putting the
+  anchor in the previous cell when the boundary column was narrower than the
+  handle's reach (or hidden), filling backwards at rest. Fixed by computing
+  travel as the difference of two `toSheetPointFromMouse` points (the same
+  per-pane arithmetic `toRefFromMouse` uses) and capping the inset at the
+  cell's own size.
+- Lesson: "work in sheet space" was the right call but half-applied — the
+  *conversion into* sheet space is itself pane-dependent. A travel vector is
+  only pane-free once both of its endpoints went through the same freeze-aware
+  mapping; subtracting raw pixels and adding `Δscroll` silently re-introduces
+  the scrollable quadrant's assumptions.

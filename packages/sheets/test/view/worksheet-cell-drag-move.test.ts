@@ -8,15 +8,17 @@ import {
   exceedsCellDragThreshold,
 } from '../../src/view/cell-drag-move';
 import { DimensionIndex } from '../../src/model/worksheet/dimensions';
+import { NoFreeze, buildFreezeState } from '../../src/view/layout';
 import type { Range, Ref } from '../../src/model/core/types';
 
 const RowHeight = 20;
 const ColWidth = 100;
 
-function dims(hiddenRows: number[] = []) {
+function dims(hiddenRows: number[] = [], narrowCols: number[] = []) {
   const rowDim = new DimensionIndex(RowHeight);
   const colDim = new DimensionIndex(ColWidth);
   for (const r of hiddenRows) rowDim.setSize(r, 0);
+  for (const c of narrowCols) colDim.setSize(c, 5);
   return { rowDim, colDim };
 }
 
@@ -68,6 +70,33 @@ describe('carryPoint', () => {
       c: 2,
     });
   });
+
+  it('keeps the inset inside a cell narrower than the handle reach', () => {
+    const { rowDim, colDim } = dims();
+    colDim.setSize(2, 5);
+    // B spans x 100–105, so a flat 8px inset would land in column A and
+    // fill backwards before the pointer had moved at all.
+    const corner = cellCornerInset({ r: 2, c: 2 }, 8, rowDim, colDim);
+    expect(corner).toEqual({ x: 100, y: 32 });
+    expect(carryPoint(corner, { x: 0, y: 0 }, rowDim, colDim)).toEqual({
+      r: 2,
+      c: 2,
+    });
+  });
+
+  it('resolves a hidden boundary cell to the visible one drawn there', () => {
+    const { rowDim, colDim } = dims([2]);
+    // Row 2 is hidden: it has no interior, and the pixels at its offset
+    // belong to row 3, which is what the user sees and grabs.
+    expect(cellCentre({ r: 2, c: 2 }, rowDim, colDim)).toEqual({
+      x: 150,
+      y: 20,
+    });
+    expect(cellCornerInset({ r: 2, c: 2 }, 8, rowDim, colDim).y).toBe(20);
+    expect(
+      carryPoint({ x: 150, y: 20 }, { x: 0, y: 0 }, rowDim, colDim),
+    ).toEqual({ r: 3, c: 2 });
+  });
 });
 
 describe('exceedsCellDragThreshold', () => {
@@ -88,12 +117,17 @@ const { startCellDragMove, startAutofillDrag, handleMouseDown } =
     startAutofillDrag(e: MouseEvent): void;
     handleMouseDown(e: MouseEvent): Promise<void>;
   };
-const { isOnSelectionEdge, isOverSelectionEdge, beginSheetTravel } =
-  Worksheet.prototype as unknown as {
-    isOnSelectionEdge(clientX: number, clientY: number): boolean;
-    isOverSelectionEdge(x: number, y: number): boolean;
-    beginSheetTravel(x: number, y: number): unknown;
-  };
+const {
+  isOnSelectionEdge,
+  isOverSelectionEdge,
+  beginSheetTravel,
+  toSheetPointFromMouse,
+} = Worksheet.prototype as unknown as {
+  isOnSelectionEdge(clientX: number, clientY: number): boolean;
+  isOverSelectionEdge(x: number, y: number): boolean;
+  beginSheetTravel(x: number, y: number): unknown;
+  toSheetPointFromMouse(x: number, y: number): unknown;
+};
 
 type Session = {
   onMove: (e: MouseEvent) => void;
@@ -103,8 +137,11 @@ type Session = {
 
 type DragOptions = {
   hiddenRows?: number[];
+  narrowCols?: number[];
   scroll?: { left: number; top: number };
   zoom?: number;
+  frozenRows?: number;
+  frozenCols?: number;
 };
 
 function createContext(
@@ -112,7 +149,16 @@ function createContext(
   start: (e: MouseEvent) => void = startCellDragMove,
   options: DragOptions = {},
 ) {
-  const { rowDim, colDim } = dims(options.hiddenRows);
+  const { rowDim, colDim } = dims(options.hiddenRows, options.narrowCols);
+  const freezeState =
+    options.frozenRows || options.frozenCols
+      ? buildFreezeState(
+          options.frozenRows ?? 0,
+          options.frozenCols ?? 0,
+          rowDim,
+          colDim,
+        )
+      : NoFreeze;
   let session: Session | undefined;
   const sheet = {
     getRangeOrActiveCell: vi.fn(() => selection),
@@ -137,10 +183,12 @@ function createContext(
     autofillPreview: undefined as Range | undefined,
     rowDim,
     colDim,
+    freezeState,
     scroll: options.scroll ?? { left: 0, top: 0 },
     zoom: options.zoom ?? 1,
     clampClientPointToViewport: (x: number, y: number) => ({ x, y }),
     beginSheetTravel,
+    toSheetPointFromMouse,
     getAutoScrollVelocity: () => 0,
     beginNativeSelectionBlock: vi.fn(),
     endNativeSelectionBlock: vi.fn(),
@@ -303,6 +351,42 @@ describe('Worksheet cell drag-move gesture', () => {
     expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 3, c: 2 });
   });
 
+  it('does not carry a frozen-pane range when the scrollable pane scrolls', () => {
+    // Four frozen rows, the scrollable pane scrolled to row 55. B2 lives in
+    // the frozen quadrant, where the scroll moves nothing: a pointer held
+    // still there has travelled nothing however far the grid scrolled.
+    const { ctx, sheet, press, move, release } = createContext(
+      b2,
+      startCellDragMove,
+      { frozenRows: 4, scroll: { left: 0, top: 1000 } },
+    );
+    press(150, 63);
+    move(150, 68);
+    expect(ctx.cellDragMovePreview).toEqual(b2);
+    ctx.scroll = { left: 0, top: 1060 };
+    move(150, 68);
+    release();
+
+    expect(sheet.moveRangeTo).not.toHaveBeenCalled();
+  });
+
+  it('drops where the pointer is after crossing the freeze gap', () => {
+    // Pressed on B2's bottom border inside the frozen quadrant, released
+    // just past the gap, where the scrollable pane starts at row 55. A flat
+    // pixel travel ignored that discontinuity and dropped the range back on
+    // row 2, nowhere near the pointer.
+    const { sheet, press, move, release } = createContext(
+      b2,
+      startCellDragMove,
+      { frozenRows: 4, scroll: { left: 0, top: 1000 } },
+    );
+    press(150, 63);
+    move(150, 110);
+    release();
+
+    expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 54, c: 2 });
+  });
+
   it('never lands above row 1 or left of column 1', () => {
     const { sheet, press, move, release } = createContext(b2);
     press(150, 19);
@@ -352,6 +436,21 @@ describe('Worksheet autofill gesture', () => {
     release();
 
     expect(sheet.autofill).toHaveBeenCalledWith({ r: 2, c: 2 });
+  });
+
+  it('does not fill backwards out of a narrow boundary column', () => {
+    // B is 5px wide, narrower than the handle's own 8px reach: the carried
+    // corner used to sit in column A, so the first drag filled leftwards.
+    const { sheet, press, move, release } = createContext(
+      b2,
+      startAutofillDrag,
+      { narrowCols: [2] },
+    );
+    press(155, 63);
+    move(155, 83);
+    release();
+
+    expect(sheet.autofill).toHaveBeenCalledWith({ r: 3, c: 2 });
   });
 
   it('fills to where the handle has been carried', () => {

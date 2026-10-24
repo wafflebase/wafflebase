@@ -38,6 +38,11 @@ export function carryPoint(
 /**
  * `cellCentre` returns the sheet-space centre of a cell, the point a
  * drag-move carries: aiming at the centre keeps it off the gridlines.
+ *
+ * Half the cell's own size lands inside it however narrow the cell is. A
+ * cell a filter hid has no interior at all (`size === 0`), so the point is
+ * its offset, which `findIndex` resolves to the next *visible* cell — the
+ * one drawn where the user grabbed.
  */
 export function cellCentre(
   ref: Ref,
@@ -56,6 +61,12 @@ export function cellCentre(
  * sits on that corner and its hit area reaches `inset` past it, so with the
  * hit area's reach as the inset, the target leaves the cell only once the
  * handle has been carried further than anywhere it could have been pressed.
+ *
+ * The inset is capped at the cell's own size: a boundary column narrower
+ * than the handle's reach — or one a filter hid — would otherwise put the
+ * point in the *previous* cell and fill backwards before the pointer had
+ * moved at all. A zero-size cell has no interior, so the point is its
+ * offset; see `cellCentre`.
  */
 export function cellCornerInset(
   ref: Ref,
@@ -63,9 +74,11 @@ export function cellCornerInset(
   rowDim: DimensionIndex,
   colDim: DimensionIndex,
 ): Point {
+  const width = colDim.getSize(ref.c);
+  const height = rowDim.getSize(ref.r);
   return {
-    x: colDim.getOffset(ref.c) + colDim.getSize(ref.c) - inset,
-    y: rowDim.getOffset(ref.r) + rowDim.getSize(ref.r) - inset,
+    x: colDim.getOffset(ref.c) + width - Math.min(inset, width),
+    y: rowDim.getOffset(ref.r) + height - Math.min(inset, height),
   };
 }
 

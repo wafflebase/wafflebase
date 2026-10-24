@@ -269,24 +269,31 @@ all cell, selection, and navigation operations.
   (excluding the bottom-right autofill handle corner) shows a `move` cursor.
   Dragging from the edge carries the selection with the pointer, keeping the
   grab offset Excel and Google Sheets keep: the centre of the top-left cell
-  is carried by the pointer's travel in sheet pixels (CSS travel ÷ zoom, plus
-  any auto-scroll), and the cell under it is the destination's top-left
-  (`carryPoint`, `view/cell-drag-move.ts`). Neither the cell under the
-  pointer nor an index delta from it works, because the ±2px edge band
-  straddles the border — its outer half lies in the neighbouring cell, which
-  in index space can be far away (past filter-hidden rows, or across the
-  freeze gap, which maps to the first unscrolled row). Carrying in viewport
-  pixels fails too: a top-left cell scrolled out of view sits above the
-  frozen pane, where every point maps to row 1. Sheet space has no freeze
-  mapping, and `DimensionIndex.findIndex` steps over zero-height rows. The
-  move engages only once the pointer travels `CellDragThreshold` (4px); a
-  press released before that changes nothing, as in Excel — not even the
-  selection, since the cell under the band's outer half is not the one being
-  aimed at. For the same reason a right-click on the border or fill handle
-  keeps the selection for the context menu (the frontend asks
-  `Spreadsheet.isOnSelectionEdge`). Dragging across the freeze boundary is
-  carried in sheet space too, so a range dragged up into a frozen pane lands
-  in the rows scrolled behind it, not in the frozen rows under the pointer.
+  is carried by the pointer's travel in sheet pixels, and the cell under it
+  is the destination's top-left (`carryPoint`, `view/cell-drag-move.ts`).
+  Neither the cell under the pointer nor an index delta from it works,
+  because the ±2px edge band straddles the border — its outer half lies in
+  the neighbouring cell, which in index space can be far away (past
+  filter-hidden rows, or across the freeze gap, which maps to the first
+  unscrolled row). Carrying in viewport pixels fails too: a top-left cell
+  scrolled out of view sits above the frozen pane, where every point maps to
+  row 1. Sheet space is one continuous coordinate system, and
+  `DimensionIndex.findIndex` steps over zero-height rows. The travel is the
+  difference of two sheet points, each resolved through the same per-pane
+  mapping `toRefFromMouse` uses (`toSheetPointFromMouse`): the scroll since
+  the press therefore carries the point along with an auto-scrolling grid,
+  but only in the quadrant that actually scrolled — a pointer held still
+  inside a frozen pane has travelled nothing — and a drag that crosses the
+  freeze gap picks up the discontinuity, so it drops where the pointer is
+  rather than a paneful away. The carried point is clamped inside the cell
+  it anchors (`cellCentre`, `cellCornerInset`), so a boundary row or column
+  narrower than the fill handle's own 8px reach cannot anchor the drag to
+  its neighbour and fill backwards at rest. The move engages only once the
+  pointer travels `CellDragThreshold` (4px); a press released before that
+  changes nothing, as in Excel — not even the selection, since the cell
+  under the band's outer half is not the one being aimed at. For the same
+  reason a right-click on the border or fill handle keeps the selection for
+  the context menu (the frontend asks `Spreadsheet.isOnSelectionEdge`).
   Unlike copy-paste, formula text is preserved as-is (e.g. `=SUM(A10:I10)`
   stays `=SUM(A10:I10)` after the move), matching Google Sheets behavior.
   Other cells that referenced the moved cells are redirected to the new

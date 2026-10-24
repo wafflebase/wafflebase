@@ -4494,21 +4494,62 @@ export class Worksheet {
   /**
    * `beginSheetTravel` returns a function measuring how far the pointer has
    * moved since a press at (`clientX`, `clientY`), in sheet pixels: the
-   * viewport-clamped CSS travel divided by zoom, plus the scroll since, so an
-   * auto-scrolling drag carries its point along with the grid.
+   * difference between the sheet point under the pointer now and the one
+   * under the press. Both go through `toSheetPointFromMouse`, so the travel
+   * carries the scroll since the press (an auto-scrolling drag takes its
+   * point along with the grid) and is measured per pane — a pointer held
+   * still inside a frozen quadrant has travelled nothing however far the
+   * scrollable one has scrolled under it.
    */
   private beginSheetTravel(
     clientX: number,
     clientY: number,
   ): (clientX: number, clientY: number) => Point {
     const start = this.clampClientPointToViewport(clientX, clientY);
-    const scroll = { ...this.scroll };
+    const origin = this.toSheetPointFromMouse(start.x, start.y);
     return (x, y) => {
       const now = this.clampClientPointToViewport(x, y);
-      return {
-        x: (now.x - start.x) / this.zoom + this.scroll.left - scroll.left,
-        y: (now.y - start.y) / this.zoom + this.scroll.top - scroll.top,
-      };
+      const point = this.toSheetPointFromMouse(now.x, now.y);
+      return { x: point.x - origin.x, y: point.y - origin.y };
+    };
+  }
+
+  /**
+   * `toSheetPointFromMouse` converts viewport coordinates to the absolute
+   * sheet-space point under them, with the mapping `toRefFromMouse` resolves
+   * a cell through: a frozen quadrant takes no scroll term, the scrollable
+   * one takes both the scroll and the frozen pane's own extent and gap. With
+   * no freeze every one of those terms is zero and it is the plain
+   * `x / zoom - header + scroll` of `toRef`.
+   */
+  private toSheetPointFromMouse(x: number, y: number): Point {
+    const zoom = this.zoom;
+    const zx = x / zoom;
+    const zy = y / zoom;
+    const freeze = this.freezeState;
+    const inFrozenCols =
+      freeze.frozenCols > 0 &&
+      zx < RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
+    const inFrozenRows =
+      freeze.frozenRows > 0 &&
+      zy < DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
+    return {
+      x: inFrozenCols
+        ? zx - RowHeaderWidth
+        : zx -
+          RowHeaderWidth -
+          freeze.frozenWidth -
+          freeze.gapX +
+          this.colDim.getOffset(freeze.frozenCols + 1) +
+          this.scroll.left,
+      y: inFrozenRows
+        ? zy - DefaultCellHeight
+        : zy -
+          DefaultCellHeight -
+          freeze.frozenHeight -
+          freeze.gapY +
+          this.rowDim.getOffset(freeze.frozenRows + 1) +
+          this.scroll.top,
     };
   }
 
