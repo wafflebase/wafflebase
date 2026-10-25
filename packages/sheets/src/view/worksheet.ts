@@ -45,7 +45,7 @@ import { buildOpenThreadKeySet } from './render-comments';
 import {
   Point,
   carryPoint,
-  cellCentre,
+  carryRange,
   cellCornerInset,
   exceedsCellDragThreshold,
 } from './cell-drag-move';
@@ -4347,7 +4347,10 @@ export class Worksheet {
   private startAutofillDrag(startEvent: MouseEvent): void {
     const startClientX = startEvent.clientX;
     const startClientY = startEvent.clientY;
-    const travelFrom = this.beginSheetTravel(startClientX, startClientY);
+    const { travel: travelFrom } = this.beginSheetTravel(
+      startClientX,
+      startClientY,
+    );
     const sourceRange = this.sheet!.getRangeOrActiveCell();
     const anchor: Ref = {
       r: Math.max(sourceRange[0].r, sourceRange[1].r),
@@ -4474,10 +4477,10 @@ export class Worksheet {
   }
 
   /**
-   * `beginSheetTravel` returns a function measuring how far the pointer has
-   * moved since a press at (`clientX`, `clientY`), in sheet pixels: the
-   * difference between the sheet point under the pointer now and the one
-   * under the press. Both go through `toSheetPointFromMouse`, so the travel
+   * `beginSheetTravel` returns the sheet point under a press at (`clientX`,
+   * `clientY`) and a function measuring how far the pointer has moved since,
+   * in sheet pixels: the difference between the sheet point under the
+   * pointer now and the one under the press. Both go through `toSheetPointFromMouse`, so the travel
    * carries the scroll since the press (an auto-scrolling drag takes its
    * point along with the grid) and is measured per pane — a pointer held
    * still inside a frozen quadrant has travelled nothing however far the
@@ -4486,13 +4489,16 @@ export class Worksheet {
   private beginSheetTravel(
     clientX: number,
     clientY: number,
-  ): (clientX: number, clientY: number) => Point {
+  ): { origin: Point; travel: (clientX: number, clientY: number) => Point } {
     const start = this.clampClientPointToViewport(clientX, clientY);
     const origin = this.toSheetPointFromMouse(start.x, start.y);
-    return (x, y) => {
-      const now = this.clampClientPointToViewport(x, y);
-      const point = this.toSheetPointFromMouse(now.x, now.y);
-      return { x: point.x - origin.x, y: point.y - origin.y };
+    return {
+      origin,
+      travel: (x, y) => {
+        const now = this.clampClientPointToViewport(x, y);
+        const point = this.toSheetPointFromMouse(now.x, now.y);
+        return { x: point.x - origin.x, y: point.y - origin.y };
+      },
     };
   }
 
@@ -4594,12 +4600,10 @@ export class Worksheet {
 
     const startClientX = startEvent.clientX;
     const startClientY = startEvent.clientY;
-    const travelFrom = this.beginSheetTravel(startClientX, startClientY);
-    const anchor: Ref = {
-      r: Math.min(sourceRange[0].r, sourceRange[1].r),
-      c: Math.min(sourceRange[0].c, sourceRange[1].c),
-    };
-    const carried = cellCentre(anchor, this.rowDim, this.colDim);
+    const { origin: grab, travel: travelFrom } = this.beginSheetTravel(
+      startClientX,
+      startClientY,
+    );
     let dragging = false;
 
     let lastClientX = startClientX;
@@ -4607,11 +4611,13 @@ export class Worksheet {
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
-    // Where the top-left cell's centre has been carried (see `carryPoint`).
+    // Where the grabbed point has carried the range (see `carryRange`).
     const destination = (): Ref =>
-      carryPoint(
-        anchor,
-        carried,
+      carryRange(
+        sourceRange,
+        grab,
+        // The hit band is in CSS pixels; the clamp is in sheet pixels.
+        CellEdgeHitThreshold / this.zoom,
         travelFrom(lastClientX, lastClientY),
         this.rowDim,
         this.colDim,
