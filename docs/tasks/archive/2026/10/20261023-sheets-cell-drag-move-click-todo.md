@@ -44,4 +44,5 @@ the border is therefore a no-op (Excel leaves the selection alone too).
 - [x] Unit tests for the destination math and the click/drag gestures
 - [x] `pnpm verify:fast`
 - [x] Self review
-- [ ] PR
+- [x] PR — [#1105](https://github.com/wafflebase/wafflebase/pull/1105),
+      merged 2026-10-25 (`d511b7ce0`)
