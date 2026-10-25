@@ -11,6 +11,70 @@ export const CellDragThreshold = 4;
 export type Point = { x: number; y: number };
 
 /**
+ * `BoundaryProbe` is the sub-pixel step used to read the index on the near
+ * side of a boundary. It is far below any real row height or column width,
+ * and far above the float precision of a sheet-space offset.
+ */
+const BoundaryProbe = 1e-3;
+
+/**
+ * `snapToVisible` returns the nearest index with an interior, searching in
+ * the direction the pointer is travelling. `findIndex` never answers a
+ * zero-size index, so this is only ever reached from the hidden-anchor path
+ * below, which counts indices rather than resolving an offset.
+ */
+function snapToVisible(
+  index: number,
+  dim: DimensionIndex,
+  forward: boolean,
+): number {
+  if (dim.getSize(index) > 0) {
+    return index;
+  }
+
+  const offset = dim.getOffset(index);
+  if (!forward && offset > BoundaryProbe) {
+    return dim.findIndex(offset - BoundaryProbe);
+  }
+  // The offset of a hidden index is shared by its whole collapsed run, so
+  // resolving it answers the first visible index after the run.
+  return dim.findIndex(offset);
+}
+
+/**
+ * `carryAxis` returns where `anchor` lands on one axis once its sheet-space
+ * `point` has been carried by `travel`.
+ */
+function carryAxis(
+  anchor: number,
+  point: number,
+  travel: number,
+  dim: DimensionIndex,
+): number {
+  if (travel === 0) {
+    return anchor;
+  }
+  const forward = travel > 0;
+
+  // A cell with an interior holds its own point, so the point resolves to the
+  // anchor and the carried point resolves outright. A hidden (zero-size)
+  // anchor has none: its point is a boundary belonging both to the end of the
+  // previous visible cell and to the start of the next, and `findIndex`
+  // answers the latter. Read the base on the side the pointer is heading for,
+  // so the first pixel of travel costs one index in either direction instead
+  // of the whole collapsed run — which backwards would have jumped the
+  // destination past every hidden cell at once, and for a run reaching the
+  // top of the sheet all the way to row 1.
+  const base =
+    dim.getSize(anchor) > 0
+      ? anchor
+      : dim.findIndex(forward ? point : point - BoundaryProbe);
+
+  const carried = Math.max(1, anchor + dim.findIndex(point + travel) - base);
+  return carried === anchor ? carried : snapToVisible(carried, dim, forward);
+}
+
+/**
  * `carryPoint` returns where `anchor` lands once its sheet-space `point` has
  * been carried by `travel` — the distance the pointer has moved since the
  * press, in sheet pixels (CSS travel divided by zoom, plus any scroll since).
@@ -28,7 +92,11 @@ export type Point = { x: number; y: number };
  * with an interior, and they are what keeps zero travel at the anchor when it
  * has none: a cell a filter hid resolves to the *next* visible one, which as
  * a bare target would defeat the drop-in-place no-op guard and move the range
- * onto its neighbour before the pointer had moved at all.
+ * onto its neighbour before the pointer had moved at all. Counting from a
+ * hidden anchor can land on another hidden index, which resolving an offset
+ * never does, so any destination other than the anchor itself is snapped back
+ * onto a cell that is actually drawn: `moveRangeTo` and `autofill` take the
+ * ref as given, and a filter-hidden one would drop the range out of sight.
  */
 export function carryPoint(
   anchor: Ref,
@@ -38,14 +106,8 @@ export function carryPoint(
   colDim: DimensionIndex,
 ): Ref {
   return {
-    r: Math.max(
-      1,
-      anchor.r + rowDim.findIndex(point.y + travel.y) - rowDim.findIndex(point.y),
-    ),
-    c: Math.max(
-      1,
-      anchor.c + colDim.findIndex(point.x + travel.x) - colDim.findIndex(point.x),
-    ),
+    r: carryAxis(anchor.r, point.y, travel.y, rowDim),
+    c: carryAxis(anchor.c, point.x, travel.x, colDim),
   };
 }
 

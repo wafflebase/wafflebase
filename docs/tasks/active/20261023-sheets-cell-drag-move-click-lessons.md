@@ -92,3 +92,20 @@
   `anchor + (findIndex(point + travel) - findIndex(point))`, which is
   identical for every cell with an interior and keeps zero travel at the
   anchor for one without.
+
+## Round 5 — panel fixes (index counting, both directions)
+
+- **A collapsed run is a boundary, and a boundary has two sides.** Round 4's
+  `anchor + (findIndex(point + travel) - findIndex(point))` fixed the
+  forward direction and broke the backward one: for a hidden anchor the base
+  term resolves *past* the whole run, so the first pixel of upward travel
+  subtracted the run's length at once — a drag-move that overwrites row 1
+  from a 4px nudge. The base now reads the side the pointer is heading for
+  (`point - BoundaryProbe` going back), which is the only reading under
+  which the function is continuous at zero travel in both directions.
+- **Counting indices gives up an invariant resolving an offset provided for
+  free.** `DimensionIndex.findIndex` can never answer a zero-size index, so
+  until round 4 every destination handed to `moveRangeTo`/`autofill` — which
+  validate nothing — was a cell the user could see. A count off a hidden
+  anchor can land inside the run, so the result is snapped back onto a drawn
+  cell. The anchor itself is exempt: that *is* the drop-in-place no-op.

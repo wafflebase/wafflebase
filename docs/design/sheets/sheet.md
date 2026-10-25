@@ -296,7 +296,16 @@ all cell, selection, and navigation operations.
   crossed, not the index the point alone resolves to, so a boundary cell a
   filter hid — which has no interior, and whose pixels belong to the next
   visible cell — still starts the drag where the user grabbed instead of one
-  cell on. The move engages only once the
+  cell on. Counting indices costs two things a bare resolve gave for free,
+  and `carryAxis` pays both. A hidden anchor's point is a boundary shared by
+  the cell before the collapsed run and the cell after it, so the base is
+  read on the side the pointer is heading for: otherwise the first pixel of
+  travel *backwards* jumps the whole run at once, and for a run reaching the
+  top of the sheet it lands on row 1 — an overwriting move from a 4px nudge.
+  And a count can land inside the run itself, which resolving an offset never
+  does, so any destination other than the anchor is snapped onto a cell that
+  is actually drawn; `moveRangeTo` and `autofill` take the ref as given.
+  The move engages only once the
   pointer travels `CellDragThreshold` (4px); a press released before that
   changes nothing, as in Excel — not even the selection, since the cell
   under the band's outer half is not the one being aimed at. For the same

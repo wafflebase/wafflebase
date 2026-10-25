@@ -102,6 +102,53 @@ describe('carryPoint', () => {
       carryPoint(b2, { x: 150, y: 20 }, { x: 0, y: 20 }, rowDim, colDim),
     ).toEqual({ r: 3, c: 2 });
   });
+
+  it('steps one row at a time backwards off a hidden anchor', () => {
+    const { rowDim, colDim } = dims([5, 6, 7, 8, 9]);
+    const anchor: Ref = { r: 5, c: 2 };
+    const centre = cellCentre(anchor, rowDim, colDim);
+    // The hidden run collapses onto one offset, which belongs to row 10
+    // going down and to row 4 coming up. Reading the base on the far side
+    // made the first pixel of upward travel jump the whole run — here, all
+    // the way to row 1.
+    expect(centre.y).toBe(80);
+    expect(carryPoint(anchor, centre, { x: 0, y: -1 }, rowDim, colDim)).toEqual(
+      { r: 5, c: 2 },
+    );
+    expect(
+      carryPoint(anchor, centre, { x: 0, y: -20 }, rowDim, colDim),
+    ).toEqual({ r: 5, c: 2 });
+    expect(
+      carryPoint(anchor, centre, { x: 0, y: -21 }, rowDim, colDim),
+    ).toEqual({ r: 4, c: 2 });
+    expect(
+      carryPoint(anchor, centre, { x: 0, y: -41 }, rowDim, colDim),
+    ).toEqual({ r: 3, c: 2 });
+  });
+
+  it('never carries onto a row a filter hid', () => {
+    const { rowDim, colDim } = dims([3, 4, 5]);
+    const anchor: Ref = { r: 5, c: 2 };
+    const centre = cellCentre(anchor, rowDim, colDim);
+    // Counting indices off a hidden anchor can land inside the run itself;
+    // `moveRangeTo`/`autofill` take the ref as given, so a hidden
+    // destination would drop the range out of sight.
+    const up = carryPoint(anchor, centre, { x: 0, y: -21 }, rowDim, colDim);
+    expect(up).toEqual({ r: 2, c: 2 });
+    expect(rowDim.getSize(up.r)).toBeGreaterThan(0);
+
+    const down = dims([5, 6, 7, 8, 9]);
+    const from = cellCentre(anchor, down.rowDim, down.colDim);
+    const target = carryPoint(
+      anchor,
+      from,
+      { x: 0, y: 20 },
+      down.rowDim,
+      down.colDim,
+    );
+    expect(target).toEqual({ r: 10, c: 2 });
+    expect(down.rowDim.getSize(target.r)).toBeGreaterThan(0);
+  });
 });
 
 describe('exceedsCellDragThreshold', () => {
