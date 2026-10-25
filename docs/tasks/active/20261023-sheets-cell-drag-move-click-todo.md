@@ -23,7 +23,8 @@ the border is therefore a no-op (Excel leaves the selection alone too).
 ## Plan
 
 - [x] Carry a point of the selection by the pointer's travel in sheet pixels
-      (`carryPoint`): the top-left cell's centre for a move, a point inset
+      (`carryPoint`): the top-left cell's centre for a move (since replaced
+      by the grabbed point — see `20261025-sheets-drag-move-grab-point`), a point inset
       from the bottom-right corner for a fill. Two models were tried first:
       an index delta from the press cell (sent a drag into filter-hidden rows
       and across the freeze gap) and a viewport-pixel grab offset (a top-left

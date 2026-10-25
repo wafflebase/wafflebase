@@ -20,8 +20,9 @@ const BoundaryProbe = 1e-3;
 /**
  * `snapToVisible` returns the nearest index with an interior, searching in
  * the direction the pointer is travelling. `findIndex` never answers a
- * zero-size index, so this is only ever reached from the hidden-anchor path
- * below, which counts indices rather than resolving an offset.
+ * zero-size index, so this is only reached where an index is counted rather
+ * than resolved from an offset: off a hidden anchor in `carryAxis`, and in
+ * `carryEdge`, which shifts the top-left by the cells the grabbed one crossed.
  */
 function snapToVisible(
   index: number,
@@ -79,8 +80,9 @@ function carryAxis(
  * been carried by `travel` — the distance the pointer has moved since the
  * press, in sheet pixels (CSS travel divided by zoom, plus any scroll since).
  *
- * Drags off the selection border (through `carryRange`) and the fill handle
- * use this instead of the cell under the pointer. Both hit areas straddle the selection's edge, so the
+ * Drags off the fill handle use this instead of the cell under the pointer,
+ * and drags off the selection border use its per-axis step through
+ * `carryRange`. Both hit areas straddle the selection's edge, so the
  * press often lands in a neighbouring cell, and in index space that cell can
  * be far away: past rows a filter hid, or across the freeze gap, which maps to
  * the first unscrolled row. Carrying a point of the selection itself keeps the

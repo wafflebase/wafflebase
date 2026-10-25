@@ -3,6 +3,7 @@ import { Worksheet } from '../../src/view/worksheet';
 import {
   CellDragThreshold,
   carryPoint,
+  carryRange,
   cellCornerInset,
   exceedsCellDragThreshold,
 } from '../../src/view/cell-drag-move';
@@ -159,6 +160,69 @@ describe('carryPoint', () => {
     );
     expect(target).toEqual({ r: 10, c: 2 });
     expect(down.rowDim.getSize(target.r)).toBeGreaterThan(0);
+  });
+});
+
+describe('carryRange', () => {
+  // B2:B4 spans y 20–80; its bottom border is at y = 80.
+  const range: Range = [{ r: 2, c: 2 }, { r: 4, c: 2 }];
+
+  it('steps as soon as the grabbed edge crosses a gridline', () => {
+    const { rowDim, colDim } = dims();
+    const press = { x: 150, y: 81 };
+    // Clamped to y = 78 in B4: 1px keeps it there, 2px reaches B5.
+    expect(carryRange(range, press, 2, { x: 0, y: 1 }, rowDim, colDim)).toEqual(
+      { r: 2, c: 2 },
+    );
+    expect(carryRange(range, press, 2, { x: 0, y: 2 }, rowDim, colDim)).toEqual(
+      { r: 3, c: 2 },
+    );
+  });
+
+  it('caps the inset at half a span thinner than twice the inset', () => {
+    const { rowDim, colDim } = dims();
+    rowDim.setSize(2, 2);
+    const single: Range = [{ r: 2, c: 2 }, { r: 2, c: 2 }];
+    // Row 2 spans y 20–22. A flat 2px inset from each side would cross over
+    // and clamp the point into row 1; capped, it sits at y = 21 in row 2.
+    expect(
+      carryRange(single, { x: 150, y: 23 }, 2, { x: 0, y: 0 }, rowDim, colDim),
+    ).toEqual({ r: 2, c: 2 });
+    expect(
+      carryRange(single, { x: 150, y: 23 }, 2, { x: 0, y: 1 }, rowDim, colDim),
+    ).toEqual({ r: 3, c: 2 });
+  });
+
+  it('never drops the top-left onto a row a filter hid', () => {
+    // Rows 3–5 hidden: grabbing B7 of B6:B7 and dragging it up one row onto
+    // B6 counts the top-left back to row 5, which is hidden; it snaps to the
+    // drawn row in the direction of travel, row 2.
+    const { rowDim, colDim } = dims([3, 4, 5]);
+    const span: Range = [{ r: 6, c: 2 }, { r: 7, c: 2 }];
+    // Row 6 is y 40–60, row 7 y 60–80.
+    const target = carryRange(
+      span,
+      { x: 150, y: 70 },
+      2,
+      { x: 0, y: -20 },
+      rowDim,
+      colDim,
+    );
+    expect(target).toEqual({ r: 2, c: 2 });
+    expect(rowDim.getSize(target.r)).toBeGreaterThan(0);
+  });
+
+  it('carries a span a filter hid entirely from its offset', () => {
+    const { rowDim, colDim } = dims([3, 4]);
+    const hidden: Range = [{ r: 3, c: 2 }, { r: 4, c: 2 }];
+    // No interior to clamp into: at rest it stays put, and one visible row
+    // of travel steps it onto the next drawn row.
+    expect(
+      carryRange(hidden, { x: 150, y: 40 }, 2, { x: 0, y: 0 }, rowDim, colDim),
+    ).toEqual({ r: 3, c: 2 });
+    expect(
+      carryRange(hidden, { x: 150, y: 40 }, 2, { x: 0, y: 20 }, rowDim, colDim),
+    ).toEqual({ r: 5, c: 2 });
   });
 });
 

@@ -9,3 +9,12 @@
   geometry comment is a hint the coordinates were never absolute.
 
 ## Self-review log
+- Round 1 (correctness/tests): no blocking findings. Fixed minors anyway —
+  clamp inset now divided by zoom (hit band is CSS px, clamp is sheet px);
+  press point reused from `beginSheetTravel` instead of recomputed; stale
+  `snapToVisible`/`carryPoint` comments and two design-doc sentences; added
+  direct `carryRange` tests (edge step, inset cap, hidden-row snap, fully
+  hidden span). Not changed: the "minimum drag always steps one cell"
+  finding is the intended behaviour change (PR body); `finishEditing`
+  resizing the grid before the press is read is consistent — both the grab
+  point and the travel origin are taken after it.

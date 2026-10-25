@@ -14,7 +14,8 @@ travel (five rows on screen) before the range stepped once.
 - [x] Update `docs/design/sheets/sheet.md` § Cell drag-move
 - [x] `pnpm verify:fast`
 - [x] Manual check in `pnpm dev` (by the user)
-- [ ] Self review, PR
+- [ ] Self review
+- [ ] Open PR
 
 ## Review
 
