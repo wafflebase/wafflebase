@@ -134,7 +134,14 @@ React and the `@wafflebase/sheets` engine:
    handle on a cell selection (or merged active cell bounds when no explicit
    range exists) shows a crosshair cursor, previews the expanded fill range
    (constrained to a single axis — vertical or horizontal) with a dashed
-   border, and commits `Sheet.autofill(...)` on mouseup.
+   border, and commits `Sheet.autofill(...)` on mouseup. The handle's hit
+   area reaches into the neighbouring cells, so the target follows the
+   handle's corner rather than the cell under the pointer, and the fill only
+   engages once the pointer travels `CellDragThreshold` (4px,
+   `view/cell-drag-move.ts`); a click on the handle fills nothing. Only the
+   primary button starts it, and a right-click on the border or handle keeps
+   the selection — `SheetContextMenu` asks `Spreadsheet.isOnSelectionEdge`
+   before re-selecting the cell under the pointer.
 6. On mobile viewports, `useMobileSheetGestures` adds one-finger drag panning
    (`spreadsheet.panBy(...)`) and double-tap-to-edit
    (`spreadsheet.handleMobileDoubleTap(...)`) on the canvas container.
