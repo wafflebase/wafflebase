@@ -15,7 +15,7 @@ travel (five rows on screen) before the range stepped once.
 - [x] `pnpm verify:fast`
 - [x] Manual check in `pnpm dev` (by the user)
 - [x] Self review (1 round, clean — see lessons)
-- [ ] Open PR
+- [x] Open PR (#1107)
 
 ## Review
 

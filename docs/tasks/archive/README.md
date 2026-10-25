@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 627
+Total archived tasks: 628
 
-## 2026/10 (4 tasks)
+## 2026/10 (5 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sheets drag move grab point (2026-10-25) | [20261025-sheets-drag-move-grab-point-todo.md](./2026/10/20261025-sheets-drag-move-grab-point-todo.md) | [20261025-sheets-drag-move-grab-point-lessons.md](./2026/10/20261025-sheets-drag-move-grab-point-lessons.md) |
 | history preview loading state (2026-10-19) | [20261019-history-preview-loading-state-todo.md](./2026/10/20261019-history-preview-loading-state-todo.md) | [20261019-history-preview-loading-state-lessons.md](./2026/10/20261019-history-preview-loading-state-lessons.md) |
 | history revision paging (2026-10-19) | [20261019-history-revision-paging-todo.md](./2026/10/20261019-history-revision-paging-todo.md) | [20261019-history-revision-paging-lessons.md](./2026/10/20261019-history-revision-paging-lessons.md) |
 | sheets preview comments lock (2026-10-18) | [20261018-sheets-preview-comments-lock-todo.md](./2026/10/20261018-sheets-preview-comments-lock-todo.md) | [20261018-sheets-preview-comments-lock-lessons.md](./2026/10/20261018-sheets-preview-comments-lock-lessons.md) |
