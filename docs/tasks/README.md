@@ -18,7 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sheets drag move grab point (2026-10-25) | [20261025-sheets-drag-move-grab-point-todo.md](./active/20261025-sheets-drag-move-grab-point-todo.md) | [20261025-sheets-drag-move-grab-point-lessons.md](./active/20261025-sheets-drag-move-grab-point-lessons.md) |
 | dependabot patch (2026-10-24) | [20261024-dependabot-patch-todo.md](./active/20261024-dependabot-patch-todo.md) | [20261024-dependabot-patch-lessons.md](./active/20261024-dependabot-patch-lessons.md) |
+| sheets cell drag move click (2026-10-23) | [20261023-sheets-cell-drag-move-click-todo.md](./active/20261023-sheets-cell-drag-move-click-todo.md) | [20261023-sheets-cell-drag-move-click-lessons.md](./active/20261023-sheets-cell-drag-move-click-lessons.md) |
 | release v0.6.13 (2026-10-19) | [20261019-release-v0.6.13-todo.md](./active/20261019-release-v0.6.13-todo.md) | - |
 | harness convergence port (2026-10-01) | [20261001-harness-convergence-port-todo.md](./active/20261001-harness-convergence-port-todo.md) | [20261001-harness-convergence-port-lessons.md](./active/20261001-harness-convergence-port-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
@@ -51,4 +53,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 627
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: dependabot patch (2026-10-24)
+Latest active task: sheets drag move grab point (2026-10-25)

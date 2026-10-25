@@ -3,12 +3,16 @@ import { Worksheet } from '../../src/view/worksheet';
 import {
   CellDragThreshold,
   carryPoint,
-  cellCentre,
   cellCornerInset,
   exceedsCellDragThreshold,
 } from '../../src/view/cell-drag-move';
 import { DimensionIndex } from '../../src/model/worksheet/dimensions';
-import { NoFreeze, buildFreezeState } from '../../src/view/layout';
+import {
+  DefaultCellHeight,
+  NoFreeze,
+  RowHeaderWidth,
+  buildFreezeState,
+} from '../../src/view/layout';
 import type { Range, Ref } from '../../src/model/core/types';
 
 const RowHeight = 20;
@@ -20,6 +24,13 @@ function dims(hiddenRows: number[] = [], narrowCols: number[] = []) {
   for (const r of hiddenRows) rowDim.setSize(r, 0);
   for (const c of narrowCols) colDim.setSize(c, 5);
   return { rowDim, colDim };
+}
+
+function cellCentre(ref: Ref, rowDim: DimensionIndex, colDim: DimensionIndex) {
+  return {
+    x: colDim.getOffset(ref.c) + colDim.getSize(ref.c) / 2,
+    y: rowDim.getOffset(ref.r) + rowDim.getSize(ref.r) / 2,
+  };
 }
 
 describe('carryPoint', () => {
@@ -259,11 +270,17 @@ function createContext(
       return () => {};
     },
   };
+  // Coordinates are sheet pixels at zoom 1 with nothing scrolled; the
+  // headers are added here, so a test reads in the cell offsets it names.
+  const toClient = (x: number, y: number) => ({
+    clientX: x + RowHeaderWidth,
+    clientY: y + DefaultCellHeight,
+  });
   const press = (x: number, y: number, init: Partial<MouseEvent> = {}) => {
-    start.call(ctx, { clientX: x, clientY: y, ...init } as MouseEvent);
+    start.call(ctx, { ...toClient(x, y), ...init } as MouseEvent);
   };
   const move = (x: number, y: number) =>
-    session!.onMove({ clientX: x, clientY: y } as MouseEvent);
+    session!.onMove(toClient(x, y) as MouseEvent);
   const release = () => {
     session!.onComplete?.();
     session!.onCleanup?.();
@@ -302,10 +319,12 @@ describe('Worksheet cell drag-move gesture', () => {
     expect(sheet.moveRangeTo).not.toHaveBeenCalled();
   });
 
-  it('does not move a range dragged within the grabbed cell', () => {
+  it('does not move a range dragged along the grabbed border', () => {
+    // The press is over B3, but it grabbed B2's border: travel along the
+    // border crosses no gridline, so the range stays where it is.
     const { ctx, sheet, press, move, release } = createContext(b2);
     press(150, 41);
-    move(150, 50);
+    move(190, 41);
     expect(ctx.cellDragMovePreview).toEqual(b2);
     release();
 
@@ -325,7 +344,7 @@ describe('Worksheet cell drag-move gesture', () => {
       { hiddenRows: [2] },
     );
     press(150, 81);
-    move(150, 89);
+    move(158, 81);
     expect(ctx.cellDragMovePreview).toEqual(range);
     release();
 
@@ -379,8 +398,8 @@ describe('Worksheet cell drag-move gesture', () => {
       startCellDragMove,
       { scroll: { left: 0, top: 940 } },
     );
-    press(150, 23);
-    move(150, 28);
+    press(150, 21);
+    move(150, 26);
     expect(ctx.cellDragMovePreview).toEqual(b49);
     release();
 
@@ -408,12 +427,13 @@ describe('Worksheet cell drag-move gesture', () => {
     const { ctx, sheet, press, move, release } = createContext(b2);
     press(150, 41);
     move(150, 46);
+    expect(ctx.cellDragMovePreview?.[0]).toEqual({ r: 3, c: 2 });
     // The drag scrolled the grid three rows while the pointer held still.
     ctx.scroll = { left: 0, top: 60 };
     move(150, 46);
     release();
 
-    expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 5, c: 2 });
+    expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 6, c: 2 });
   });
 
   it('measures travel in sheet pixels when zoomed', () => {
@@ -439,11 +459,11 @@ describe('Worksheet cell drag-move gesture', () => {
       startCellDragMove,
       { frozenRows: 4, scroll: { left: 0, top: 1000 } },
     );
-    press(150, 63);
-    move(150, 68);
+    press(150, 40);
+    move(158, 40);
     expect(ctx.cellDragMovePreview).toEqual(b2);
     ctx.scroll = { left: 0, top: 1060 };
-    move(150, 68);
+    move(158, 40);
     release();
 
     expect(sheet.moveRangeTo).not.toHaveBeenCalled();
@@ -459,11 +479,11 @@ describe('Worksheet cell drag-move gesture', () => {
       startCellDragMove,
       { frozenRows: 4, scroll: { left: 0, top: 1000 } },
     );
-    press(150, 63);
-    move(150, 110);
+    press(150, 40);
+    move(150, 87);
     release();
 
-    expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 54, c: 2 });
+    expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 55, c: 2 });
   });
 
   it('never lands above row 1 or left of column 1', () => {
@@ -473,6 +493,53 @@ describe('Worksheet cell drag-move gesture', () => {
     release();
 
     expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 1, c: 1 });
+  });
+  it('moves a tall cell as soon as its border crosses the short row below', () => {
+    // B2 is 200px tall (y 20–220) and B3 is 20px. Carrying B2's centre
+    // needed 100px of travel — five rows on screen — before the range moved
+    // at all. The point under the press is what travels: dragging the bottom
+    // border into B3 moves the range one row, and into B4 two.
+    const { ctx, sheet, press, move, release } = createContext(b2);
+    ctx.rowDim.setSize(2, 200);
+    press(150, 221);
+    move(150, 231);
+    expect(ctx.cellDragMovePreview).toEqual([
+      { r: 3, c: 2 },
+      { r: 3, c: 2 },
+    ]);
+    move(150, 251);
+    expect(ctx.cellDragMovePreview).toEqual([
+      { r: 4, c: 2 },
+      { r: 4, c: 2 },
+    ]);
+    release();
+
+    expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 4, c: 2 });
+  });
+
+  it('moves a wide cell as soon as its border crosses the narrow column', () => {
+    // B is 600px wide (x 100–700), C is the default 100px.
+    const { ctx, sheet, press, move, release } = createContext(b2);
+    ctx.colDim.setSize(2, 600);
+    press(701, 30);
+    move(711, 30);
+    release();
+
+    expect(sheet.moveRangeTo).toHaveBeenCalledWith(b2, { r: 2, c: 3 });
+  });
+
+  it('carries the cell under the press, not the top-left one', () => {
+    // A1:A3 with A1 300px tall: A3 spans y 340–360. Pressing A3's left
+    // border and dragging one 20px row down moves the range one row; A1's
+    // centre would have needed 150px.
+    const range: Range = [{ r: 1, c: 1 }, { r: 3, c: 1 }];
+    const { ctx, sheet, press, move, release } = createContext(range);
+    ctx.rowDim.setSize(1, 300);
+    press(1, 350);
+    move(1, 370);
+    release();
+
+    expect(sheet.moveRangeTo).toHaveBeenCalledWith(range, { r: 2, c: 1 });
   });
 });
 

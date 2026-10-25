@@ -1,4 +1,4 @@
-import { Ref } from '../model/core/types';
+import { Range, Ref } from '../model/core/types';
 import type { DimensionIndex } from '../model/worksheet/dimensions';
 
 /**
@@ -79,8 +79,8 @@ function carryAxis(
  * been carried by `travel` — the distance the pointer has moved since the
  * press, in sheet pixels (CSS travel divided by zoom, plus any scroll since).
  *
- * Drags off the selection border and the fill handle use this instead of the
- * cell under the pointer. Both hit areas straddle the selection's edge, so the
+ * Drags off the selection border (through `carryRange`) and the fill handle
+ * use this instead of the cell under the pointer. Both hit areas straddle the selection's edge, so the
  * press often lands in a neighbouring cell, and in index space that cell can
  * be far away: past rows a filter hid, or across the freeze gap, which maps to
  * the first unscrolled row. Carrying a point of the selection itself keeps the
@@ -112,23 +112,78 @@ export function carryPoint(
 }
 
 /**
- * `cellCentre` returns the sheet-space centre of a cell, the point a
- * drag-move carries: aiming at the centre keeps it off the gridlines.
+ * `carryEdge` returns where the selection spanning `from`–`to` on one axis
+ * starts once the point under the press has been carried by `travel`.
  *
- * Half the cell's own size lands inside it however narrow the cell is. A
- * cell a filter hid has no interior at all (`size === 0`), so the point is
- * its offset, which belongs to the next *visible* cell — the one drawn where
- * the user grabbed. `carryPoint` counts from there rather than resolving the
- * point outright, so the drag still starts at the anchor.
+ * The press is clamped `inset` pixels inside the selection: the border's hit
+ * band straddles the edge, and its outer half lies over the neighbouring
+ * cell. The cell holding the clamped point is the one that was grabbed, and
+ * the selection moves by however many cells it crosses, so the range steps
+ * as soon as the grabbed edge crosses a gridline, whatever the size of the
+ * cells on either side. Carrying a fixed point of the selection instead (the
+ * centre of its top-left cell) needed half that cell's size of travel before
+ * the first step: for a tall cell over short rows, several rows on screen.
+ *
+ * A span a filter hid entirely has no interior to clamp into, so the
+ * top-left index is carried from its offset; see `carryAxis`.
  */
-export function cellCentre(
-  ref: Ref,
+function carryEdge(
+  from: number,
+  to: number,
+  press: number,
+  inset: number,
+  travel: number,
+  dim: DimensionIndex,
+): number {
+  const start = dim.getOffset(from);
+  const end = dim.getOffset(to + 1);
+  if (end <= start) {
+    return carryAxis(from, start, travel, dim);
+  }
+
+  const pad = Math.min(inset, (end - start) / 2);
+  const point = Math.min(Math.max(press, start + pad), end - pad);
+  const grabbed = dim.findIndex(point);
+  const carried = carryAxis(grabbed, point, travel, dim);
+  if (carried === grabbed) {
+    return from;
+  }
+
+  const moved = Math.max(1, from + carried - grabbed);
+  return moved === from ? from : snapToVisible(moved, dim, travel > 0);
+}
+
+/**
+ * `carryRange` returns the top-left cell a drag-move drops `range` on once
+ * the pointer, pressed at the sheet-space point `press`, has travelled
+ * `travel` sheet pixels. See `carryEdge`.
+ */
+export function carryRange(
+  range: Range,
+  press: Point,
+  inset: number,
+  travel: Point,
   rowDim: DimensionIndex,
   colDim: DimensionIndex,
-): Point {
+): Ref {
+  const [a, b] = range;
   return {
-    x: colDim.getOffset(ref.c) + colDim.getSize(ref.c) / 2,
-    y: rowDim.getOffset(ref.r) + rowDim.getSize(ref.r) / 2,
+    r: carryEdge(
+      Math.min(a.r, b.r),
+      Math.max(a.r, b.r),
+      press.y,
+      inset,
+      travel.y,
+      rowDim,
+    ),
+    c: carryEdge(
+      Math.min(a.c, b.c),
+      Math.max(a.c, b.c),
+      press.x,
+      inset,
+      travel.x,
+      colDim,
+    ),
   };
 }
 
@@ -143,7 +198,7 @@ export function cellCentre(
  * than the handle's reach — or one a filter hid — would otherwise put the
  * point in the *previous* cell, so the fill would read its reach off the
  * wrong cell's edges. A zero-size cell has no interior, so the point is its
- * offset; see `cellCentre`.
+ * offset; see `carryAxis`.
  */
 export function cellCornerInset(
   ref: Ref,

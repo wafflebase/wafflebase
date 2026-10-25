@@ -268,9 +268,14 @@ all cell, selection, and navigation operations.
 - **Cell drag-move** — hovering near the edges of a selected cell or range
   (excluding the bottom-right autofill handle corner) shows a `move` cursor.
   Dragging from the edge carries the selection with the pointer, keeping the
-  grab offset Excel and Google Sheets keep: the centre of the top-left cell
-  is carried by the pointer's travel in sheet pixels, and the cell under it
-  is the destination's top-left (`carryPoint`, `view/cell-drag-move.ts`).
+  grab offset Excel and Google Sheets keep: the press, clamped 2px inside the
+  selection, is carried by the pointer's travel in sheet pixels, and the
+  range moves by however many cells that point crosses (`carryRange`,
+  `view/cell-drag-move.ts`). It is the grabbed point, not a fixed point of
+  the selection, because cell sizes differ: carrying the top-left cell's
+  centre needed half that cell's size of travel before the first step, so a
+  tall cell over short rows (or a wide one beside narrow columns) lagged
+  several rows behind the pointer.
   Neither the cell under the pointer nor an index delta from it works,
   because the ±2px edge band straddles the border — its outer half lies in
   the neighbouring cell, which in index space can be far away (past
@@ -289,7 +294,7 @@ all cell, selection, and navigation operations.
   held on an axis whose pointer has been clamped into a frozen band
   (`dragAutoScrollVelocity`): nothing there responds to the scroll, so the
   grid would otherwise fly past underneath a target standing still. The
-  carried point is clamped inside the cell it anchors (`cellCentre`,
+  carried point is clamped inside the cell it anchors (`carryEdge`,
   `cellCornerInset`), so a boundary row or column narrower than the fill
   handle's own 8px reach cannot read the handle's reach off its neighbour's
   edges; and the destination is the anchor plus the indices the point

@@ -45,7 +45,7 @@ import { buildOpenThreadKeySet } from './render-comments';
 import {
   Point,
   carryPoint,
-  cellCentre,
+  carryRange,
   cellCornerInset,
   exceedsCellDragThreshold,
 } from './cell-drag-move';
@@ -4595,11 +4595,8 @@ export class Worksheet {
     const startClientX = startEvent.clientX;
     const startClientY = startEvent.clientY;
     const travelFrom = this.beginSheetTravel(startClientX, startClientY);
-    const anchor: Ref = {
-      r: Math.min(sourceRange[0].r, sourceRange[1].r),
-      c: Math.min(sourceRange[0].c, sourceRange[1].c),
-    };
-    const carried = cellCentre(anchor, this.rowDim, this.colDim);
+    const start = this.clampClientPointToViewport(startClientX, startClientY);
+    const grab = this.toSheetPointFromMouse(start.x, start.y);
     let dragging = false;
 
     let lastClientX = startClientX;
@@ -4607,11 +4604,12 @@ export class Worksheet {
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
-    // Where the top-left cell's centre has been carried (see `carryPoint`).
+    // Where the grabbed point has carried the range (see `carryRange`).
     const destination = (): Ref =>
-      carryPoint(
-        anchor,
-        carried,
+      carryRange(
+        sourceRange,
+        grab,
+        CellEdgeHitThreshold,
         travelFrom(lastClientX, lastClientY),
         this.rowDim,
         this.colDim,
