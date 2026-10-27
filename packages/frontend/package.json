@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/frontend",
   "private": true,
-  "version": "0.6.12",
+  "version": "0.6.13",
   "type": "module",
   "license": "Apache-2.0",
   "scripts": {
@@ -63,11 +63,11 @@
     "@wafflebase/notes": "workspace:*",
     "@wafflebase/sheets": "workspace:*",
     "@wafflebase/slides": "workspace:*",
-    "@yorkie-js/react": "0.7.24",
+    "@yorkie-js/react": "0.7.25",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "katex": "^0.16.11",
+    "katex": "0.18.10",
     "lucide-react": "^0.503.0",
     "next-themes": "^0.4.6",
     "papaparse": "^5.4.1",
@@ -94,9 +94,9 @@
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.12",
     "@xmldom/xmldom": "0.9.12",
-    "@yorkie-js/sdk": "0.7.24",
+    "@yorkie-js/sdk": "0.7.25",
     "eslint": "^9.21.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.19",
@@ -110,6 +110,6 @@
     "typescript-eslint": "^8.24.1",
     "util": "^0.12.5",
     "vite": "^6.4.2",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   }
 }

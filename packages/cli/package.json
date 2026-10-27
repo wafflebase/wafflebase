@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/cli",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "description": "CLI for Wafflebase spreadsheet API",
   "license": "Apache-2.0",
   "type": "module",
@@ -34,7 +34,7 @@
   "devDependencies": {
     "@types/fontkit": "^2.0.0",
     "@types/node": "^25.4.0",
-    "@vitest/coverage-v8": "4.1.8",
+    "@vitest/coverage-v8": "4.1.12",
     "@wafflebase/core": "workspace:*",
     "@wafflebase/docs": "workspace:*",
     "@wafflebase/slides": "workspace:*",
@@ -43,6 +43,6 @@
     "tsup": "^8.5.1",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   }
 }

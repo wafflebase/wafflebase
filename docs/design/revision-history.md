@@ -191,6 +191,7 @@ components/history/
   history-panel.tsx        # right-slot panel: list, "Name current version", per-entry actions
   snapshot-adapters.ts     # YSON snapshot → engine document model, per type
   revision-preview.tsx     # per-type read-only render of a snapshot
+  preview-loading.ts       # which revision's snapshot is in flight, shared panel ↔ overlay
 ```
 
 The hook is named `use-revision-history` rather than `use-revisions` so it
@@ -203,13 +204,31 @@ the current `DocumentProvider`. What we add is list state and the grouping
 in §1. CodePair's `useYorkieRevisions` predates that hook and hand-rolls the
 same thing against `client` + `doc`; we should not copy it.
 
-**There is no paging.** The hook asks `listRevisions` for the most recent
-50 (`REVISION_LIST_LIMIT`) and stops there: no offset, no `loadMore`, and no
-"more exist" signal, so on a document with more revisions than that the
-panel silently shows the newest 50 and the older ones cannot be reached from
-the UI at all. That is a real limitation, not a phrasing of one — and given
-storage is unbounded (see Risks), it is the truncation that most needs
-saying out loud. Paging is follow-up work (§7 PR 5).
+**The list is paged** (`REVISION_PAGE_SIZE`, 50). The hook keeps the flat
+`RevisionSummary[]` and derives the day grouping from it, so `loadMore()`
+can fetch `listRevisions({ offset: loaded.length })` and append; the panel
+renders "Load older versions" at the end of the timeline while more exist.
+Three details are load-bearing:
+
+- **The `pageSize + 1` probe.** `listRevisions` reports neither a total nor
+  a "more exist" flag, so the hook asks for one entry beyond the page and
+  reads its presence as the signal, then drops it. One extra row beats a
+  second round trip, and beats offering a button that turns out to load
+  nothing.
+- **Dedupe by revision id.** Offsets resolve against the server's list as it
+  stands when the request lands, so a revision created between two page
+  loads shifts every later offset and the boundary entry comes back twice —
+  which would both duplicate a timeline row and collide on its React key. A
+  page may therefore contribute fewer than 50 new entries without meaning
+  the history ended.
+- **`refresh()` resets to the first page**, because the list under every
+  offset the user paged past may have moved; re-reading from 0 is the only
+  answer certainly consistent with itself. A failed `loadMore` **rejects**
+  instead of setting `error` (which hides the whole timeline) — the pages
+  already loaded are still good, so the panel reports it beside the button,
+  the way it reports a failed name or restore.
+
+What is still unbounded is *storage*, not the panel's reach (see Risks).
 
 The panel occupies the existing right slot (the one ThemePanel, Format
 options and the comments side panel share), and is opened from the
@@ -347,6 +366,28 @@ The version-history panel deliberately stays outside both, so a user can
 still reach the next version rather than being left with only "Back to
 current version".
 
+Neither form reaches a control that **escapes** the covered box or lives
+outside both: a `fixed`/portalled popover or dialog stacked above the
+overlay's `z-20` (sheet and docs comment popovers, both find bars, docs'
+link popover, the mobile cell editor, the sheet grid's context menu), a
+keyboard shortcut bound to `window`, or the header's `UserPresence` peer
+jump. Those are withheld at the call site
+instead — rendered under `&& !previewing`, a handler that returns early on
+`previewing`, or the host passing `onSelectPeer`/`getJumpHint` as
+`undefined` (which `UserPresence` treats as "no jump"). A peer jump already
+staged when a preview opens is dropped, not deferred, and a restore clears
+any pending jump target, since the remount it triggers forgets which jump
+was handled. Hiding a surface is not always enough on its own: the sheet's find bar
+leaves match highlights on the engine and the mobile cell editor leaves a
+pending draft whose commit is a live write, so withholding either also
+neutralizes what it left behind (`clearFind()`; holding the draft instead
+of committing it on the next selection change). The grid context menu is
+the one surface that cannot be unmounted — its wrapper holds the canvas
+container — so its trigger is disabled in place. Each such site is pinned
+in `preview-surface.test.tsx`, and the editors are mounted against a
+stubbed engine in `sheet-view-preview.test.tsx` / `docs-view-preview.test.tsx`;
+a new escaping surface needs the same guard and an entry there.
+
 **A read-only mount has no navigation of its own, so the preview supplies
 it.** `readOnly: true` skips `attachInteractions()` and the overlay's
 capture-phase keyboard suppressor blocks the arrow keys, and the surfaces
@@ -361,6 +402,30 @@ element at `x: -240`) rendered an empty canvas the user could not pan to.
 A multi-tab *sheet* preview still shows only its first tab — the panel that
 opens the preview is document-level, not tab-scoped — which remains a
 known gap.
+
+**The banner is unconditional, because it holds the only exit.** It was
+originally rendered under `{meta && …}`, so until `getRevision` resolved the
+overlay was an empty `bg-background` rectangle over the editor: no spinner,
+no "Back to current version". Snapshots grow with the document, so that gap
+was longest on exactly the documents version history matters most for, and a
+blank screen with no exit reads as "this version is empty" or "the app
+froze". The banner now renders immediately, showing `Loading version…` with
+a spinner and `aria-busy`, with Back enabled and Restore disabled; the body
+carries a generic `Skeleton` (deliberately not per-engine — a skeleton that
+guessed a grid where a page was coming would be a worse lie than one that
+guesses nothing). The loading state is `!meta && !error`, which is what keeps
+a rejected fetch from spinning forever: it falls through to the existing
+`role="alert"` branch, unchanged.
+
+The clicked row in the panel is marked loading too, which needs the overlay's
+in-flight fetch to reach a component that is its *sibling* — each editor
+mounts the panel on `historyOpen` and the overlay on `previewRevisionId`,
+with no common owner below the editor. That is the same shape as the restore
+lock, so it takes the same answer: a module-level store
+(`preview-loading.ts`, `useSyncExternalStore`), with the same
+one-document-per-page caveat `restore-lock.ts` documents. Only the loading
+row's Preview button is disabled — switching versions mid-load is normal use
+of the list.
 
 ### 5. Restore
 
@@ -434,7 +499,8 @@ RPCs hits this.
 | 2 | wafflebase | Preview for sheets, slides, board and notes |
 | 3 | yorkie | `YSON.parse` tokenizer (upstream ask 4) — **shipped in 0.7.19** |
 | 4 | wafflebase | Bump to 0.7.19; docs preview: move the tree read path into `@wafflebase/docs` (`docsTreeToDocument`, shared with the backend's `readDocsRoot`), normalize the snapshot node dialect, mount it |
-| 5 | wafflebase | Retention handling and polish |
+| 5 | wafflebase | Paging: `loadMore` at an offset + "Load older versions" (issue #1092) — **shipped** |
+| 6 | wafflebase | Retention handling and polish |
 | — | wafflebase | Remove `VITE_WB_REVISION_HISTORY`: the flag's premise (RPCs ungateable without upstream) was false, and it never protected share-link viewers either (structural, §2). The deployment gate (registration + enforcement) is now the only gate — see §2 |
 
 There is no longer a blocking PR 0. Registering `ListRevisions` /
@@ -451,8 +517,11 @@ and PR 2 are independent of each other's engines and of every upstream ask.
   despite their `r` verb — with a workspace member and a share-link editor
   still allowed on both, and an ordinary `r` on `PushPull` still open to the
   viewer.
-- **Frontend unit**: `use-revision-history` grouping and the restore
-  ordering; `revision-meta` parse/write round-trip including malformed
+- **Frontend unit**: `use-revision-history` grouping, the restore ordering,
+  and paging — the probe entry never reaching the timeline, the offset the
+  second page is read at, a shifted page deduped by id, an append a refresh
+  superseded being dropped, and a failed append leaving the loaded pages
+  alone; `revision-meta` parse/write round-trip including malformed
   descriptions; one snapshot→model adapter test per engine against a fixture
   in that engine's real wire format — for sheets, asserted *through*
   `MemStore.load`, since an A1-keyed fixture parses fine and then loads zero
@@ -515,10 +584,11 @@ edited document could accumulate gigabytes. *Mitigation*: all partial until
 upstream ask 3 lands — raise `snapshotInterval` for the project (at a sync
 cost) and measure real growth with the `getDocSize()` instrumentation
 already used for import sizing. This should be measured on a real workspace
-before the feature is enabled broadly. The panel's 50-revision cap (§3)
-bounds only what the *panel reads*, not what is stored — and it is what
-makes older versions unreachable, so it is a symptom of this risk rather
-than a mitigation of it.
+before the feature is enabled broadly. The panel's 50-revision page (§3)
+bounds only what the *panel reads per request*, not what is stored, and
+since paging landed it no longer makes older versions unreachable either —
+so it is neither a mitigation of this risk nor, any longer, a second
+symptom of it.
 
 **The snapshot format's parser was regex-based, and every preview depends
 on it.** Through 0.7.18 `YSON.parse` could not read a snapshot of any docs

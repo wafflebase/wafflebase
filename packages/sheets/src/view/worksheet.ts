@@ -42,6 +42,13 @@ import {
   isValidValueForRule,
 } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
+import {
+  Point,
+  carryPoint,
+  carryRange,
+  cellCornerInset,
+  exceedsCellDragThreshold,
+} from './cell-drag-move';
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
@@ -3281,7 +3288,9 @@ export class Worksheet {
    * `detectAutofillHandle` returns true when the pointer is over the fill handle.
    */
   private detectAutofillHandle(x: number, y: number): boolean {
-    if (this.readOnly) {
+    // A handle that is not drawn (`shouldShowAutofillHandle`) is not there to
+    // press, and must not claim right-clicks for the selection either.
+    if (this.readOnly || this.hideAutofillHandle) {
       return false;
     }
     if (!this.sheet || this.sheet.getSelectionType() !== 'cell') {
@@ -4178,14 +4187,14 @@ export class Worksheet {
       return;
     }
 
-    if (this.detectCellEdge(e.offsetX, e.offsetY)) {
+    if (e.button === 0 && this.detectCellEdge(e.offsetX, e.offsetY)) {
       e.preventDefault();
       await this.finishEditing();
       this.startCellDragMove(e);
       return;
     }
 
-    if (this.detectAutofillHandle(e.offsetX, e.offsetY)) {
+    if (e.button === 0 && this.detectAutofillHandle(e.offsetX, e.offsetY)) {
       e.preventDefault();
       await this.finishEditing();
       this.startAutofillDrag(e);
@@ -4207,7 +4216,10 @@ export class Worksheet {
     if (e.button === 2) {
       const clickedRef = this.toRefFromMouse(e.offsetX, e.offsetY);
       const currentRange = this.sheet!.getRangeOrActiveCell();
-      if (inRange(clickedRef, currentRange)) {
+      if (
+        inRange(clickedRef, currentRange) ||
+        this.isOverSelectionEdge(e.offsetX, e.offsetY)
+      ) {
         return;
       }
     }
@@ -4327,19 +4339,48 @@ export class Worksheet {
 
   /**
    * `startAutofillDrag` begins drag-fill from the current selection handle.
+   *
+   * The handle's hit area reaches into the neighbouring cells, so the fill
+   * only engages once the pointer passes `CellDragThreshold`; a click on
+   * the handle fills nothing.
    */
   private startAutofillDrag(startEvent: MouseEvent): void {
-    let lastClientX = startEvent.clientX;
-    let lastClientY = startEvent.clientY;
+    const startClientX = startEvent.clientX;
+    const startClientY = startEvent.clientY;
+    const { travel: travelFrom } = this.beginSheetTravel(
+      startClientX,
+      startClientY,
+    );
+    const sourceRange = this.sheet!.getRangeOrActiveCell();
+    const anchor: Ref = {
+      r: Math.max(sourceRange[0].r, sourceRange[1].r),
+      c: Math.max(sourceRange[0].c, sourceRange[1].c),
+    };
+    const carried = cellCornerInset(
+      anchor,
+      AutofillHandleSize / 2 + AutofillHandleHitPadding,
+      this.rowDim,
+      this.colDim,
+    );
+    let dragging = false;
+
+    let lastClientX = startClientX;
+    let lastClientY = startClientY;
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
-    const updatePreview = () => {
-      const { x, y } = this.clampClientPointToViewport(
-        lastClientX,
-        lastClientY,
+    // Where the handle's corner has been carried (see `carryPoint`).
+    const fillTarget = (): Ref =>
+      carryPoint(
+        anchor,
+        carried,
+        travelFrom(lastClientX, lastClientY),
+        this.rowDim,
+        this.colDim,
       );
-      const target = this.toRefFromMouse(x, y);
+
+    const updatePreview = () => {
+      const target = fillTarget();
       this.autofillPreview = this.sheet!.getAutofillPreviewRange(target);
       this.renderOverlay();
     };
@@ -4353,19 +4394,9 @@ export class Worksheet {
     };
 
     const stepAutoScroll = (now: number) => {
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
 
-      if (velocityX === 0 && velocityY === 0) {
+      if (velocity.x === 0 && velocity.y === 0) {
         frameId = null;
         lastFrameTime = null;
         return;
@@ -4377,8 +4408,8 @@ export class Worksheet {
       );
       lastFrameTime = now;
       this.gridContainer.scrollBy(
-        (velocityX * dt) / 1000,
-        (velocityY * dt) / 1000,
+        (velocity.x * dt) / 1000,
+        (velocity.y * dt) / 1000,
       );
       updatePreview();
       frameId = requestAnimationFrame(stepAutoScroll);
@@ -4393,20 +4424,23 @@ export class Worksheet {
     const onMove = (e: MouseEvent) => {
       lastClientX = e.clientX;
       lastClientY = e.clientY;
+      if (!dragging) {
+        if (
+          !exceedsCellDragThreshold(
+            startClientX,
+            startClientY,
+            lastClientX,
+            lastClientY,
+          )
+        ) {
+          return;
+        }
+        dragging = true;
+      }
       updatePreview();
 
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
-      if (velocityX === 0 && velocityY === 0) {
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
+      if (velocity.x === 0 && velocity.y === 0) {
         stopAutoScroll();
       } else {
         startAutoScroll();
@@ -4414,15 +4448,11 @@ export class Worksheet {
     };
 
     this.beginNativeSelectionBlock();
-    updatePreview();
     this.startMouseDragSession({
       onMove,
       onComplete: () => {
-        const { x, y } = this.clampClientPointToViewport(
-          lastClientX,
-          lastClientY,
-        );
-        const target = this.toRefFromMouse(x, y);
+        if (!dragging) return;
+        const target = fillTarget();
         const sheet = this.sheet!;
         void (async () => {
           const changed = await sheet.autofill(target);
@@ -4447,8 +4477,118 @@ export class Worksheet {
   }
 
   /**
+   * `beginSheetTravel` returns the sheet point under a press at (`clientX`,
+   * `clientY`) and a function measuring how far the pointer has moved since,
+   * in sheet pixels: the difference between the sheet point under the
+   * pointer now and the one under the press. Both go through `toSheetPointFromMouse`, so the travel
+   * carries the scroll since the press (an auto-scrolling drag takes its
+   * point along with the grid) and is measured per pane — a pointer held
+   * still inside a frozen quadrant has travelled nothing however far the
+   * scrollable one has scrolled under it.
+   */
+  private beginSheetTravel(
+    clientX: number,
+    clientY: number,
+  ): { origin: Point; travel: (clientX: number, clientY: number) => Point } {
+    const start = this.clampClientPointToViewport(clientX, clientY);
+    const origin = this.toSheetPointFromMouse(start.x, start.y);
+    return {
+      origin,
+      travel: (x, y) => {
+        const now = this.clampClientPointToViewport(x, y);
+        const point = this.toSheetPointFromMouse(now.x, now.y);
+        return { x: point.x - origin.x, y: point.y - origin.y };
+      },
+    };
+  }
+
+  /**
+   * `toSheetPointFromMouse` converts viewport coordinates to the absolute
+   * sheet-space point under them, with the mapping `toRefFromMouse` resolves
+   * a cell through: a frozen quadrant takes no scroll term, the scrollable
+   * one takes both the scroll and the frozen pane's own extent and gap. With
+   * no freeze every one of those terms is zero and it is the plain
+   * `x / zoom - header + scroll` of `toRef`.
+   */
+  private toSheetPointFromMouse(x: number, y: number): Point {
+    const zoom = this.zoom;
+    const zx = x / zoom;
+    const zy = y / zoom;
+    const freeze = this.freezeState;
+    const { cols: inFrozenCols, rows: inFrozenRows } = this.inFrozenPanes(x, y);
+    return {
+      x: inFrozenCols
+        ? zx - RowHeaderWidth
+        : zx -
+          RowHeaderWidth -
+          freeze.frozenWidth -
+          freeze.gapX +
+          this.colDim.getOffset(freeze.frozenCols + 1) +
+          this.scroll.left,
+      y: inFrozenRows
+        ? zy - DefaultCellHeight
+        : zy -
+          DefaultCellHeight -
+          freeze.frozenHeight -
+          freeze.gapY +
+          this.rowDim.getOffset(freeze.frozenRows + 1) +
+          this.scroll.top,
+    };
+  }
+
+  /**
+   * `inFrozenPanes` reports, for a viewport-space point, whether it lies in
+   * the frozen column band and whether in the frozen row band. It is the one
+   * quadrant test `toSheetPointFromMouse` and `dragAutoScrollVelocity` share,
+   * so the point a drag is carried to and the scrolling that carries it
+   * cannot disagree about which pane the pointer is in.
+   */
+  private inFrozenPanes(x: number, y: number): { cols: boolean; rows: boolean } {
+    const freeze = this.freezeState;
+    const zoom = this.zoom;
+    return {
+      cols:
+        freeze.frozenCols > 0 &&
+        x / zoom < RowHeaderWidth + freeze.frozenWidth + freeze.gapX,
+      rows:
+        freeze.frozenRows > 0 &&
+        y / zoom < DefaultCellHeight + freeze.frozenHeight + freeze.gapY,
+    };
+  }
+
+  /**
+   * `dragAutoScrollVelocity` returns the auto-scroll velocity for a drag
+   * whose target is carried by `beginSheetTravel`.
+   *
+   * An axis whose clamped pointer sits in a frozen band is held at zero.
+   * Travel there is measured against the frozen pane, which no scroll moves,
+   * so scrolling would never advance the target: the grid would fly past
+   * underneath a preview standing still, for as long as the button was held.
+   */
+  private dragAutoScrollVelocity(clientX: number, clientY: number): Point {
+    const port = this.viewport;
+    const point = this.clampClientPointToViewport(clientX, clientY);
+    const frozen = this.inFrozenPanes(point.x, point.y);
+    return {
+      x: frozen.cols
+        ? 0
+        : this.getAutoScrollVelocity(
+            clientX,
+            port.left,
+            port.left + port.width,
+          ),
+      y: frozen.rows
+        ? 0
+        : this.getAutoScrollVelocity(clientY, port.top, port.top + port.height),
+    };
+  }
+
+  /**
    * `startCellDragMove` begins a drag-to-move operation for the selected cell range.
    * Dragging from the edge of a cell selection moves the cell data to the drop location.
+   *
+   * The move only engages once the pointer passes `CellDragThreshold`;
+   * a press released before that changes nothing.
    */
   private startCellDragMove(startEvent: MouseEvent): void {
     const scrollContainer = this.gridContainer.getScrollContainer();
@@ -4458,17 +4598,33 @@ export class Worksheet {
     const srcRows = Math.abs(sourceRange[1].r - sourceRange[0].r) + 1;
     const srcCols = Math.abs(sourceRange[1].c - sourceRange[0].c) + 1;
 
-    let lastClientX = startEvent.clientX;
-    let lastClientY = startEvent.clientY;
+    const startClientX = startEvent.clientX;
+    const startClientY = startEvent.clientY;
+    const { origin: grab, travel: travelFrom } = this.beginSheetTravel(
+      startClientX,
+      startClientY,
+    );
+    let dragging = false;
+
+    let lastClientX = startClientX;
+    let lastClientY = startClientY;
     let frameId: number | null = null;
     let lastFrameTime: number | null = null;
 
-    const updatePreview = () => {
-      const { x, y } = this.clampClientPointToViewport(
-        lastClientX,
-        lastClientY,
+    // Where the grabbed point has carried the range (see `carryRange`).
+    const destination = (): Ref =>
+      carryRange(
+        sourceRange,
+        grab,
+        // The hit band is in CSS pixels; the clamp is in sheet pixels.
+        CellEdgeHitThreshold / this.zoom,
+        travelFrom(lastClientX, lastClientY),
+        this.rowDim,
+        this.colDim,
       );
-      const target = this.toRefFromMouse(x, y);
+
+    const updatePreview = () => {
+      const target = destination();
       // The preview range is the destination rectangle with the same dimensions
       const endRef: Ref = {
         r: target.r + srcRows - 1,
@@ -4487,19 +4643,9 @@ export class Worksheet {
     };
 
     const stepAutoScroll = (now: number) => {
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
 
-      if (velocityX === 0 && velocityY === 0) {
+      if (velocity.x === 0 && velocity.y === 0) {
         frameId = null;
         lastFrameTime = null;
         return;
@@ -4511,8 +4657,8 @@ export class Worksheet {
       );
       lastFrameTime = now;
       this.gridContainer.scrollBy(
-        (velocityX * dt) / 1000,
-        (velocityY * dt) / 1000,
+        (velocity.x * dt) / 1000,
+        (velocity.y * dt) / 1000,
       );
       updatePreview();
       frameId = requestAnimationFrame(stepAutoScroll);
@@ -4527,20 +4673,23 @@ export class Worksheet {
     const onMove = (e: MouseEvent) => {
       lastClientX = e.clientX;
       lastClientY = e.clientY;
+      if (!dragging) {
+        if (
+          !exceedsCellDragThreshold(
+            startClientX,
+            startClientY,
+            lastClientX,
+            lastClientY,
+          )
+        ) {
+          return;
+        }
+        dragging = true;
+      }
       updatePreview();
 
-      const port = this.viewport;
-      const velocityX = this.getAutoScrollVelocity(
-        lastClientX,
-        port.left,
-        port.left + port.width,
-      );
-      const velocityY = this.getAutoScrollVelocity(
-        lastClientY,
-        port.top,
-        port.top + port.height,
-      );
-      if (velocityX === 0 && velocityY === 0) {
+      const velocity = this.dragAutoScrollVelocity(lastClientX, lastClientY);
+      if (velocity.x === 0 && velocity.y === 0) {
         stopAutoScroll();
       } else {
         startAutoScroll();
@@ -4548,15 +4697,16 @@ export class Worksheet {
     };
 
     this.beginNativeSelectionBlock();
-    updatePreview();
     this.startMouseDragSession({
       onMove,
       onComplete: () => {
-        const { x, y } = this.clampClientPointToViewport(
-          lastClientX,
-          lastClientY,
-        );
-        const target = this.toRefFromMouse(x, y);
+        // A press released before the threshold moves nothing and leaves
+        // the selection alone, as in Excel: the border is a grab handle (the
+        // `move` cursor says so), and the cell under its outer half is not
+        // the one the user was aiming at.
+        if (!dragging) return;
+
+        const target = destination();
         const sheet = this.sheet!;
 
         // No-op if dropped back on itself
@@ -5562,6 +5712,23 @@ export class Worksheet {
       width: rect.width * zoom,
       height: rect.height * zoom,
     };
+  }
+
+  /**
+   * `isOnSelectionEdge` reports whether client (screen) coordinates fall on
+   * the cell selection's border or fill handle. Both reach into the
+   * neighbouring cells, so a right-click there is aimed at the selection even
+   * when `cellRefFromPoint` names a cell outside it.
+   */
+  public isOnSelectionEdge(clientX: number, clientY: number): boolean {
+    return this.isOverSelectionEdge(
+      clientX - this.viewport.left,
+      clientY - this.viewport.top,
+    );
+  }
+
+  private isOverSelectionEdge(x: number, y: number): boolean {
+    return this.detectCellEdge(x, y) || this.detectAutofillHandle(x, y);
   }
 
   /**

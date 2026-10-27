@@ -2,10 +2,12 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistoryPanel } from '../history-panel';
+import { setPreviewLoadingId } from '../preview-loading';
 
 const restore = vi.fn();
 const nameCurrentVersion = vi.fn();
 const refresh = vi.fn();
+const loadMore = vi.fn();
 let hookState: Record<string, unknown>;
 
 vi.mock('../use-revision-history', () => ({
@@ -14,8 +16,11 @@ vi.mock('../use-revision-history', () => ({
 
 const baseState = {
   isLoading: false,
+  isLoadingMore: false,
+  hasMore: false,
   error: null,
   refresh,
+  loadMore,
   nameCurrentVersion,
   restore,
   days: [
@@ -55,6 +60,9 @@ beforeEach(() => {
   // one test would leak into the next.
   restore.mockResolvedValue(undefined);
   nameCurrentVersion.mockResolvedValue(undefined);
+  loadMore.mockResolvedValue(undefined);
+  // Module state, so it outlives a render — see `preview-loading.ts`.
+  setPreviewLoadingId(null);
 });
 
 describe('HistoryPanel', () => {
@@ -121,6 +129,41 @@ describe('HistoryPanel', () => {
     await waitFor(() =>
       expect(rowButtons()[0]).not.toBeDisabled(),
     );
+  });
+
+  // Without this the 50th entry is the end of the document's history as far
+  // as anyone looking at the panel can tell.
+  it('offers "Load older versions" only while more exist', async () => {
+    hookState = { ...baseState };
+    const { unmount } = renderPanel();
+    expect(
+      screen.queryByRole('button', { name: /load older versions/i }),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    hookState = { ...baseState, hasMore: true };
+    renderPanel();
+    await userEvent.click(
+      screen.getByRole('button', { name: /load older versions/i }),
+    );
+    expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  // The pages already on screen are still good; only the attempt to extend
+  // them failed, so the timeline must survive the message.
+  it('reports a failed "Load older versions" and keeps the loaded pages', async () => {
+    hookState = { ...baseState, hasMore: true };
+    loadMore.mockRejectedValue(new Error('denied'));
+    renderPanel();
+    await userEvent.click(
+      screen.getByRole('button', { name: /load older versions/i }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText(/couldn't load older versions: denied/i),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText('Launch copy')).toBeInTheDocument();
   });
 
   it('renders a load failure as an error, not as an empty timeline', () => {
@@ -217,5 +260,29 @@ describe('HistoryPanel', () => {
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleName(/preview.*not available/i);
     }
+  });
+
+  // A `getRevision` on a large snapshot takes seconds, and the overlay that
+  // runs it is a sibling of this panel — so without this the row the user
+  // clicked looked untouched and the click looked lost (#1093).
+  it('marks the row whose snapshot the preview is fetching', () => {
+    hookState = { ...baseState };
+    renderPanel();
+
+    act(() => setPreviewLoadingId('n1'));
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveAttribute('aria-busy', 'true');
+    expect(rows[1]).not.toHaveAttribute('aria-busy');
+
+    const previewButtons = () =>
+      screen.getAllByRole('button', { name: /preview/i });
+    expect(previewButtons()[0]).toBeDisabled();
+    // The other rows stay clickable: picking the wrong version and switching
+    // mid-load is the normal way to use this list.
+    expect(previewButtons()[1]).toBeEnabled();
+
+    act(() => setPreviewLoadingId(null));
+    expect(previewButtons()[0]).toBeEnabled();
+    expect(screen.getAllByRole('listitem')[0]).not.toHaveAttribute('aria-busy');
   });
 });

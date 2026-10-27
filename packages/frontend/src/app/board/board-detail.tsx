@@ -148,6 +148,11 @@ function BoardLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
+  // The single source of truth for "a preview is covering the canvas". Board
+  // needs no `EditingChrome` (see below), so unlike the other hosts this is
+  // read by `PreviewSurface` and the header alone.
+  const previewing = Boolean(previewRevisionId && currentUser);
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -158,11 +163,15 @@ function BoardLayout({ documentId }: { documentId: string }) {
         onWorkspaceChange={handleWorkspaceChange}
       />
       <SidebarInset>
+        {/* Withheld while previewing for the same reason as the sheet host's:
+            committing the title input is a `PATCH /documents/:id` on the LIVE
+            document, and `PreviewSurface` covers the canvas only — it never
+            reaches the header. */}
         <SiteHeader
           title={documentData?.title ?? "Loading…"}
-          editable
+          editable={!previewing}
           syncStatus
-          onRename={handleRenameDocument}
+          onRename={previewing ? undefined : handleRenameDocument}
         >
           <div className="flex items-center gap-2">
             <Tooltip>
@@ -194,7 +203,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
               sibling this surface must not narrow. */}
           <PreviewSurface
             preview={
-              previewRevisionId && currentUser ? (
+              previewing && previewRevisionId && currentUser ? (
                 <ChunkBoundary fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}

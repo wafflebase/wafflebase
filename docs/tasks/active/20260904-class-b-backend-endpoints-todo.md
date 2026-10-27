@@ -31,12 +31,13 @@ attaches to.
 > inline); step 1 is **un**ticked and step 9 stays open, because the design-doc
 > status note both of them promise does not exist.
 
-- [ ] Plan (this file) + design-doc status note. The plan half is done — this
-      file. The status-note half is not, and it is the same artifact step 9
-      asks for, so this box cannot be ticked until step 9 is:
-      `docs/design/agent-pipeline/agentic-office-workflow.md:215` still states in the present
-      tense that there is "No comment controller under `/api/v1`", which has
-      been false since #1022 merged.
+- [x] Plan (this file) + design-doc status note. The plan half is this
+      file. The status note now exists: every class-B row in
+      `docs/design/agent-pipeline/agentic-office-workflow.md` (§ "B — not in
+      the backend either", :215–:219) strikes its old evidence and reads
+      "**closed by #1022**" with the controller and line it landed at
+      (landed in #1065). Ticked 2026-10-25. Step 9 stays open for the four
+      reference docs, which still do not list the new routes or commands.
 - [x] `yorkie/comment-ops.ts` (pure) + `api/v1/comments.controller.ts` —
       sheet (`sheets[tab].comments`), doc and pdf (`root.comments`) storage.
       Author resolved from the authenticated caller; timestamps written

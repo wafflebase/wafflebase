@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/board",
   "private": true,
-  "version": "0.6.12",
+  "version": "0.6.13",
   "license": "Apache-2.0",
   "description": "Infinite canvas engine for Wafflebase",
   "type": "module",
@@ -34,6 +34,6 @@
     "prettier": "^3.3.2",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   }
 }

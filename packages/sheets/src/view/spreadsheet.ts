@@ -77,6 +77,17 @@ export class Spreadsheet {
   private selectionChangeCallbacks: SelectionChangeCallback[] = [];
   private searchResults: Ref[] = [];
   private searchCurrentIndex: number = -1;
+  // Bumped by whatever abandons a search: a new `find`, `clearFind()` (the
+  // host calls it when a revision preview opens and withholds the find bar),
+  // and `cleanup()`. `find` scans the grid asynchronously, so any of them can
+  // land while one is in flight; without this the stale call resumes and
+  // re-arms what was just cleared, moving the LIVE selection through
+  // `focusCell` — or, after `cleanup()`, throws on a worksheet that has
+  // dropped its sheet. It also orders two overlapping queries: a slow earlier
+  // scan can no longer overwrite a newer one's results. `findNext` /
+  // `findPrevious` only read it: stepping through the current results must
+  // not cancel the scan for a query the user just typed.
+  private searchEpoch: number = 0;
 
   /**
    * `constructor` initializes the spreadsheet with the given grid.
@@ -511,6 +522,15 @@ export class Spreadsheet {
   }
 
   /**
+   * `isOnSelectionEdge` reports whether client (screen) coordinates fall on
+   * the cell selection's border or fill handle — a press there is aimed at
+   * the selection even when `cellRefFromPoint` names a neighbouring cell.
+   */
+  public isOnSelectionEdge(clientX: number, clientY: number): boolean {
+    return this.worksheet.isOnSelectionEdge(clientX, clientY);
+  }
+
+  /**
    * `cellRefFromPoint` converts client (screen) coordinates to a cell reference.
    */
   public cellRefFromPoint(clientX: number, clientY: number): Ref {
@@ -925,7 +945,13 @@ export class Spreadsheet {
       this.clearFind();
       return 0;
     }
-    this.searchResults = await this.sheet.findCells(query, options);
+    const epoch = ++this.searchEpoch;
+    const results = await this.sheet.findCells(query, options);
+    // Abandoned while the scan ran — a `clearFind()` or a newer query. Publish
+    // nothing: no highlights, and above all no `focusCell`, which would move
+    // the live selection on behalf of a bar that is already gone.
+    if (epoch !== this.searchEpoch) return 0;
+    this.searchResults = results;
     if (this.searchResults.length > 0) {
       // Find the first match after the current active cell
       const active = this.sheet.getActiveCell();
@@ -935,6 +961,7 @@ export class Spreadsheet {
       if (idx === -1) idx = 0;
       this.searchCurrentIndex = idx;
       await this.focusCell(this.searchResults[idx]);
+      if (epoch !== this.searchEpoch) return 0;
     } else {
       this.searchCurrentIndex = -1;
     }
@@ -948,8 +975,10 @@ export class Spreadsheet {
    */
   public async findNext(): Promise<void> {
     if (this.searchResults.length === 0) return;
+    const epoch = this.searchEpoch;
     this.searchCurrentIndex = (this.searchCurrentIndex + 1) % this.searchResults.length;
     await this.focusCell(this.searchResults[this.searchCurrentIndex]);
+    if (epoch !== this.searchEpoch) return;
     this.worksheet.setSearchHighlights(this.searchResults, this.searchCurrentIndex);
     this.worksheet.renderOverlay();
   }
@@ -959,8 +988,10 @@ export class Spreadsheet {
    */
   public async findPrevious(): Promise<void> {
     if (this.searchResults.length === 0) return;
+    const epoch = this.searchEpoch;
     this.searchCurrentIndex = (this.searchCurrentIndex - 1 + this.searchResults.length) % this.searchResults.length;
     await this.focusCell(this.searchResults[this.searchCurrentIndex]);
+    if (epoch !== this.searchEpoch) return;
     this.worksheet.setSearchHighlights(this.searchResults, this.searchCurrentIndex);
     this.worksheet.renderOverlay();
   }
@@ -969,6 +1000,7 @@ export class Spreadsheet {
    * `clearFind` clears search state and highlights.
    */
   public clearFind(): void {
+    this.searchEpoch++;
     this.searchResults = [];
     this.searchCurrentIndex = -1;
     this.worksheet.setSearchHighlights([], -1);
@@ -986,6 +1018,8 @@ export class Spreadsheet {
   }
 
   public cleanup() {
+    // Abandon any in-flight `find` before the worksheet drops its sheet.
+    this.searchEpoch++;
     this.worksheet.cleanup();
     this.selectionChangeCallbacks = [];
   }

@@ -1,7 +1,7 @@
 {
   "name": "wafflebase",
   "displayName": "Wafflebase",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "description": "Find, read, create, edit and organize Wafflebase sheets, docs, slides and notes from Claude Code, through the wafflebase CLI.",
   "author": {
     "name": "Wafflebase",

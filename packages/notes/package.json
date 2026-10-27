@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/notes",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "private": true,
   "license": "Apache-2.0",
   "description": "CodeMirror-based collaborative markdown note editor for Wafflebase",
@@ -42,12 +42,12 @@
   "devDependencies": {
     "@types/katex": "^0.16.7",
     "@types/markdown-it": "^14.1.2",
-    "@vitest/coverage-v8": "4.1.8",
+    "@vitest/coverage-v8": "4.1.12",
     "jsdom": "^28.0.0",
     "prettier": "^3.3.2",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "@codemirror/commands": "^6.1.2",
@@ -59,14 +59,14 @@
     "@uiw/codemirror-theme-xcode": "^4.25.4",
     "@vscode/markdown-it-katex": "^1.1.1",
     "codemirror": "^6.0.2",
-    "dompurify": "^3.4.14",
+    "dompurify": "^3.4.17",
     "highlight.js": "^11.10.0",
-    "katex": "^0.16.11",
-    "markdown-it": "^14.1.0",
+    "katex": "0.18.10",
+    "markdown-it": "^14.3.3",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.17.2"
   },
   "peerDependencies": {
-    "@yorkie-js/sdk": "0.7.24"
+    "@yorkie-js/sdk": "0.7.25"
   }
 }

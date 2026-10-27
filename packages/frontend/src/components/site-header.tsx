@@ -39,6 +39,15 @@ export function SiteHeader({
     setEditValue(title);
   }, [title]);
 
+  // A host revokes `editable` to withhold the rename — a revision preview
+  // does it, because committing the input is a write to the live document.
+  // Leaving an already-open input mounted would leave the one control the
+  // host meant to remove on screen, so revoking closes it, discarding the
+  // uncommitted draft rather than saving it.
+  useEffect(() => {
+    if (!editable) setEditing(false);
+  }, [editable]);
+
   useEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus();

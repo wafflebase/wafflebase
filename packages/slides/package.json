@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/slides",
   "private": true,
-  "version": "0.6.12",
+  "version": "0.6.13",
   "license": "Apache-2.0",
   "description": "Presentation engine for Wafflebase",
   "type": "module",
@@ -44,12 +44,12 @@
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.12",
     "fast-check": "^3",
     "jsdom": "^28.0.0",
     "prettier": "^3.3.2",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   }
 }

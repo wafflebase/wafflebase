@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/design-editor",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "type": "module",
   "description": "Dev-only Vite plugin that renders a project's real routes and writes edits back into its JSX and token source.",
   "exports": {
@@ -45,7 +45,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.24.1",
     "vite": "^6.4.2",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "peerDependencies": {
     "@wafflebase/debug-report": "workspace:*",
