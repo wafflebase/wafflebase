@@ -4,6 +4,7 @@ import {
   SlidesYorkieRoot,
   writeSlidesRoot,
 } from './slides-tree';
+import { MAX_DECK_SLIDE_HEIGHT } from '@wafflebase/slides';
 import type { SlidesDocument } from './yorkie.types';
 
 function makeDeck(): SlidesDocument {
@@ -164,10 +165,42 @@ describe('slides-tree', () => {
         },
       }),
     );
-    const result = readSlidesRoot(doc.getRoot());
+    // Inspect the stored root, not just the read: the read filters through
+    // `migrateMeta` as well, so it alone would hide a writer that stored them.
+    const stored = doc.getRoot().toJS().meta;
+    expect(stored).not.toHaveProperty('pxPerPt');
+    expect(stored).not.toHaveProperty('slideHeight');
+  });
 
-    expect(result.meta).not.toHaveProperty('pxPerPt');
-    expect(result.meta).not.toHaveProperty('slideHeight');
+  it('normalizes unit and recentColors on write', () => {
+    const original = makeDeck();
+    doc.update((root) =>
+      writeSlidesRoot(root, {
+        ...original,
+        meta: {
+          ...original.meta,
+          unit: 'px' as unknown as 'cm',
+          recentColors: ['#FF0000', '#ff0000', 7 as unknown as string],
+        },
+      }),
+    );
+    const stored = doc.getRoot().toJS().meta;
+    expect(stored).not.toHaveProperty('unit');
+    expect(stored?.recentColors).toEqual(['#ff0000']);
+  });
+
+  it('clamps an out-of-range slideHeight to MAX_DECK_SLIDE_HEIGHT on write', () => {
+    const original = makeDeck();
+    doc.update((root) =>
+      writeSlidesRoot(root, {
+        ...original,
+        meta: { ...original.meta, slideHeight: 1e12 },
+      }),
+    );
+    expect(doc.getRoot().toJS().meta?.slideHeight).toBe(MAX_DECK_SLIDE_HEIGHT);
+    expect(readSlidesRoot(doc.getRoot()).meta.slideHeight).toBe(
+      MAX_DECK_SLIDE_HEIGHT,
+    );
   });
 
   it('returns sensible defaults when reading an empty root', () => {

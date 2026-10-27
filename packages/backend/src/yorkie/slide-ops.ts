@@ -25,11 +25,6 @@ import type { Layout, Slide, SlidesDocument } from '@wafflebase/slides';
  * in-place reorder) on the live CRDT array instead, so an edit to any *other*
  * slide, and to the edited slide's untouched siblings, survives.
  *
- * A read → mutate → `writeSlidesRoot` round trip is avoided for a second
- * reason too: `readSlidesRoot` narrows `meta` to `{ title, themeId, masterId }`,
- * so it would silently drop `unit`, `pxPerPt`, `slideHeight` and
- * `recentColors` from a deck that had them.
- *
  * Indices on the wire are **1-based**, matching the row/column endpoints; the
  * store's own are 0-based, and the conversion happens here.
  */

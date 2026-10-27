@@ -203,9 +203,11 @@ export class ApiV1DocsContentController {
       );
     }
     // Echo the request body back so the CLI sees "what they sent" rather
-    // than a re-read of stored state. Both writers are identity on the
-    // JSON shape for valid input, so this is equivalent to a re-read for
-    // well-formed payloads — and avoids a second Yorkie attach.
+    // than a re-read of stored state. The docs, note and board writers are
+    // identity on the JSON shape for valid input, so this is equivalent to a
+    // re-read for well-formed payloads — and avoids a second Yorkie attach.
+    // The slides writer is not: it validates and clamps the optional `meta`
+    // fields, so that arm re-reads inside the same attach instead.
     if (type === 'doc') {
       await this.yorkieService.withDocument<void, DocsYorkieRoot>(
         documentId,
@@ -242,16 +244,16 @@ export class ApiV1DocsContentController {
       );
       return body as BoardDocument;
     }
-    await this.yorkieService.withDocument<void, SlidesYorkieRoot>(
+    return this.yorkieService.withDocument<SlidesDocument, SlidesYorkieRoot>(
       documentId,
       (doc) => {
         doc.update((root) => {
           writeSlidesRoot(root as SlidesYorkieRoot, body as SlidesDocument);
         });
+        return readSlidesRoot(doc.getRoot());
       },
       { docKeyPrefix: SLIDES_KEY_PREFIX },
     );
-    return body as SlidesDocument;
   }
 }
 

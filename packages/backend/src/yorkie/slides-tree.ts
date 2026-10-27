@@ -18,7 +18,7 @@
  * fields overwrite whatever is on the root, and `meta` is rewritten as a
  * fresh object so stale theme/master ids cannot leak from a prior write.
  */
-import { migrateMeta } from '@wafflebase/slides';
+import { MAX_DECK_SLIDE_HEIGHT, migrateMeta } from '@wafflebase/slides';
 import type { Guide, Master, Meta, Theme } from '@wafflebase/slides';
 import type { SlidesDocument, SlidesLayout, SlidesSlide } from './yorkie.types';
 import { unwrapJson } from './yorkie-json';
@@ -115,6 +115,12 @@ export function writeSlidesRoot(
  * PPTX-imported deck with the wrong font size and stretched into a
  * 16:9 canvas. Validated by the same `migrateMeta` the frontend reads
  * through, and returned only when present: Yorkie stores no `undefined`.
+ *
+ * `slideHeight` is also clamped to `MAX_DECK_SLIDE_HEIGHT` — the tallest
+ * deck OOXML can express — because `migrateMeta` keeps any finite positive
+ * value and `PUT .../content` is an untrusted writer. `deckSlideHeight`
+ * clamps on every render too; clamping here keeps the stored value and the
+ * API response honest rather than relying on each reader alone.
  */
 function optionalMeta(
   src: unknown,
@@ -123,7 +129,9 @@ function optionalMeta(
   return {
     ...(unit !== undefined && { unit }),
     ...(pxPerPt !== undefined && { pxPerPt }),
-    ...(slideHeight !== undefined && { slideHeight }),
+    ...(slideHeight !== undefined && {
+      slideHeight: Math.min(MAX_DECK_SLIDE_HEIGHT, slideHeight),
+    }),
     ...(recentColors !== undefined && { recentColors }),
   };
 }

@@ -274,12 +274,29 @@ export const SLIDE_WIDTH = 1920;
 export const SLIDE_HEIGHT = 1080;
 
 /**
+ * Largest {@link deckSlideHeight} any reader will honour.
+ *
+ * Same reasoning as {@link MAX_DECK_FONT_SCALE}: `meta` lives on the Yorkie
+ * root with no codec, `migrateMeta` keeps any finite positive
+ * `slideHeight`, and every renderer sizes canvases and DOM boxes from it — a
+ * peer's (or a `PUT .../content` caller's) `slideHeight: 1e12` would make
+ * every viewer allocate a thumbnail canvas of that height. The one producer
+ * is the PPTX importer's `round(SLIDE_WIDTH × cy/cx)`, and OOXML bounds both
+ * sides of `ST_SlideSizeCoordinate` to 914400‥51206400 EMU (1″‥56″), so the
+ * tallest importable deck is `SLIDE_WIDTH × 56`. The ceiling sits exactly
+ * there: no legitimate deck is clamped by it.
+ */
+export const MAX_DECK_SLIDE_HEIGHT = SLIDE_WIDTH * 56;
+
+/**
  * Logical slide height in px for `meta`'s deck. Absent / invalid
  * `slideHeight` ⇒ {@link SLIDE_HEIGHT}. Mirrors {@link deckFontScale}'s
- * "absent ⇒ default" convention so authored decks stay 16:9.
+ * "absent ⇒ default" convention so authored decks stay 16:9, and its split:
+ * a merely-too-large value is clamped to {@link MAX_DECK_SLIDE_HEIGHT}
+ * rather than discarded, so the deck renders tall rather than wrong.
  */
 export function deckSlideHeight(meta: Pick<Meta, 'slideHeight'>): number {
   const h = meta.slideHeight;
   if (h == null || !Number.isFinite(h) || h <= 0) return SLIDE_HEIGHT;
-  return h;
+  return Math.min(MAX_DECK_SLIDE_HEIGHT, h);
 }
