@@ -26,9 +26,9 @@ import {
 } from './briefs-market-finance';
 
 /**
- * Input schema for every fillable slide template, keyed by the same `slug` as
- * the blank `TemplateSeed`. A fill agent looks a template up here to learn the
- * exact values to collect before it fills the template's placeholders.
+ * Authoring brief for each slides template, keyed by the template's `slug`. An
+ * agent writing a deck from a template looks it up here to learn what to ask
+ * the user for. Nothing at use time reads it — see `brief.ts`.
  */
 export const TEMPLATE_BRIEFS: TemplateBrief[] = [
   sprintRetrospectiveBrief,

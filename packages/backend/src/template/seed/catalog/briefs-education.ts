@@ -1,10 +1,9 @@
 import type { TemplateBrief } from './brief';
 
 /**
- * Input schemas (required values) for the education templates. Each brief's
- * `slug` matches the blank template's slug in `slides-education.ts`; a fill
- * agent collects these values and drops them into the template's placeholder
- * slots.
+ * Authoring briefs for the education templates: what an author should collect
+ * from a user before writing a deck from the template with the same `slug` in
+ * `slides-education.ts`. Guidance only — see `brief.ts`.
  */
 
 export const seminarDeckBrief: TemplateBrief = {
@@ -57,7 +56,7 @@ export const workshopTrainingBrief: TemplateBrief = {
     { key: 'date', label: 'Date', type: 'text', example: 'Sep 22' },
     { key: 'whatYoullLearn', label: "What you'll learn today (skill, who it's for, what you need)", type: 'list', min: 3, max: 3, example: 'The skill you will walk away with' },
     { key: 'agenda', label: 'Agenda', type: 'list', min: 4, max: 4, example: 'Intro and setup' },
-    { key: 'steps', label: 'Hands-on steps (and the expected result to check)', type: 'list', min: 4, max: 4, example: 'Step 1 — install the toolkit' },
+    { key: 'steps', label: 'Steps (hands-on, and the expected result to check)', type: 'list', min: 4, max: 4, example: 'Step 1 — install the toolkit' },
     { key: 'wrapUp', label: 'Wrap-up (what we covered, the habit to keep, how to get help)', type: 'list', min: 3, max: 3, example: 'What we covered' },
     { key: 'resources', label: 'Resources link', type: 'text', example: 'github.com/ssil/workshop' },
   ],

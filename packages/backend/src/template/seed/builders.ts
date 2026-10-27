@@ -1,6 +1,8 @@
 import {
   BUILT_IN_LAYOUTS,
   DEFAULT_MASTER,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
   applyLayoutToSlide,
   defaultLight,
   getBuiltInTheme,
@@ -164,8 +166,8 @@ export type Decor =
   | 'sidebar'
   | 'split';
 
-const SW = 1920;
-const SH = 1080;
+const SW = SLIDE_WIDTH;
+const SH = SLIDE_HEIGHT;
 
 type Fill =
   | { kind: 'role'; role: string }
@@ -205,20 +207,52 @@ function shapeEl(
   };
 }
 
-/** Recolour inlines (of text elements above `maxY`) to a theme role. */
-function recolor(texts: SlidesTextElement[], role: string, maxY = Infinity): void {
+/**
+ * Recolour inlines to a theme role. With `maxY`, only a text whose whole frame
+ * sits above it is recoloured: a box that starts inside a header band and runs
+ * past it would otherwise turn background-coloured where it leaves the band.
+ */
+function recolor(
+  texts: SlidesTextElement[],
+  role: string,
+  maxY = Infinity,
+): void {
   for (const t of texts) {
-    if (t.frame.y > maxY) continue;
+    if (t.frame.y + t.frame.h > maxY) continue;
     for (const b of t.data.blocks) {
       // Inline colour is a theme role ref; cast through `any` because the
       // seed's InlineStyle type does not surface the role-colour shape here.
-      for (const inl of b.inlines as unknown as Array<Record<string, unknown>>) {
+      for (const inl of b.inlines as unknown as Array<
+        Record<string, unknown>
+      >) {
         inl.style = {
           ...((inl.style as Record<string, unknown>) ?? {}),
           color: { kind: 'role', role },
         };
       }
     }
+  }
+}
+
+/**
+ * Move placeholder text off a left colour column into the open area
+ * `[left, right]`. The texts are mapped as one group — shifted, and scaled
+ * down only when their combined span is wider than the open area — so a
+ * two-column layout keeps its columns side by side instead of every box
+ * collapsing onto the same x.
+ */
+function reflowRight(
+  texts: SlidesTextElement[],
+  left: number,
+  right: number,
+): void {
+  if (!texts.some((t) => t.frame.x < left)) return;
+  const minX = Math.min(...texts.map((t) => t.frame.x));
+  const maxX = Math.max(...texts.map((t) => t.frame.x + t.frame.w));
+  const scale = Math.min(1, (right - left) / (maxX - minX));
+  for (const t of texts) {
+    t.frame.x = left + (t.frame.x - minX) * scale;
+    t.frame.w = t.frame.w * scale;
   }
 }
 
@@ -243,13 +277,29 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
     case 'block':
       under.push(
         shapeEl(`${tag}-bg`, 'rect', 0, 0, SW, SH, rf('accent1')),
-        shapeEl(`${tag}-o`, 'ellipse', SW - 520, SH - 420, 1100, 1100, rf('accent2')),
+        shapeEl(
+          `${tag}-o`,
+          'ellipse',
+          SW - 520,
+          SH - 420,
+          1100,
+          1100,
+          rf('accent2'),
+        ),
       );
       recolor(texts, 'background');
       break;
     case 'gradient':
       under.push(
-        shapeEl(`${tag}-bg`, 'rect', 0, 0, SW, SH, grad('accent1', 'accent2', 0.5)),
+        shapeEl(
+          `${tag}-bg`,
+          'rect',
+          0,
+          0,
+          SW,
+          SH,
+          grad('accent1', 'accent2', 0.5),
+        ),
       );
       recolor(texts, 'background');
       break;
@@ -290,17 +340,18 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
       const w = style === 'split' ? 960 : 640;
       under.push(
         shapeEl(`${tag}-side`, 'rect', 0, 0, w, SH, rf('accent1')),
-        shapeEl(`${tag}-so`, 'ellipse', w - 360, SH - 360, 520, 520, rf('accent2')),
+        shapeEl(
+          `${tag}-so`,
+          'ellipse',
+          w - 360,
+          SH - 360,
+          520,
+          520,
+          rf('accent2'),
+        ),
         shapeEl(`${tag}-sl`, 'rect', w - 8, 0, 8, SH, rf('accent3')),
       );
-      // Move the placeholder text off the colour column into the open area.
-      for (const t of texts) {
-        if (t.frame.x < w) {
-          const nx = w + 100;
-          t.frame.x = nx;
-          t.frame.w = Math.max(240, SW - nx - 128);
-        }
-      }
+      reflowRight(texts, w + 100, SW - 128);
       break;
     }
   }
@@ -356,9 +407,16 @@ export function themedDeck(
     const placeholders = s.elements.filter(
       (e): e is SlidesTextElement => e.type === 'text' && !!e.placeholderRef,
     );
+    // Unlike `slide()`, an entry with no placeholder to land in is an error:
+    // these decks are authored against a layout's slot count, so a surplus
+    // entry is a mistake that would otherwise vanish from the template.
+    if (texts.length > placeholders.length) {
+      throw new Error(
+        `Layout ${layoutId} has ${placeholders.length} placeholders, got ${texts.length} text entries`,
+      );
+    }
     texts.forEach((lines, i) => {
       const target = placeholders[i];
-      if (!target) return;
       const seed = target.data.blocks[0];
       target.data.blocks = lines.map((text, li) => ({
         ...seed,

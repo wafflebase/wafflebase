@@ -1,3 +1,13 @@
+---
+name: slides-author
+description: Author a native Wafflebase slide deck on the built-in themes and layouts (CLI or seed catalogue)
+safety: write
+tools:
+  - wafflebase slides create
+  - wafflebase slides set-content
+  - wafflebase slides export
+---
+
 # Skill: authoring native Wafflebase slides
 
 Create a **native** Wafflebase slide deck — one that uses the product's own
@@ -65,11 +75,11 @@ what an unfilled placeholder is — leave it for the user to fill).
 
 1. `wafflebase status` to confirm login + active workspace.
 2. `wafflebase slides create "<title>"` → note the returned document id.
-3. `wafflebase slides set-content <doc-id> --file deck.json` where `deck.json`
-   is a `SlidesDocument` snapshot (see `wafflebase slides set-content --help`
-   and `packages/slides/src/model` for the shape). Author it with the layouts
-   above.
-4. **Visual QA**: `wafflebase slides export tmp.pptx` → render (the built-in
+3. `wafflebase slides set-content <doc-id> < deck.json` (or `--data '<json>'`)
+   where `deck.json` is a `SlidesDocument` snapshot (see `wafflebase slides
+   set-content --help` and `packages/slides/src/model` for the shape). It
+   replaces the whole deck, so confirm first. Author it with the layouts above.
+4. **Visual QA**: `wafflebase slides export <doc-id> tmp.pptx` → render (the built-in
    renderer, or `soffice --headless --convert-to pdf` then `pdftoppm`) → look at
    every slide → fix overflow / misalignment / uneven spacing → repeat until
    clean.

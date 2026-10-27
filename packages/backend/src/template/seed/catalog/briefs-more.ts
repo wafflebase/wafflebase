@@ -1,9 +1,9 @@
 import type { TemplateBrief } from './brief';
 
 /**
- * Input schemas (required values) for the slides-more templates. Each brief's
- * `slug` matches the blank template's slug in `slides-more.ts`; a fill agent
- * collects these values and drops them into the template's placeholder slots.
+ * Authoring briefs for the slides-more templates: what an author should collect
+ * from a user before writing a deck from the template with the same `slug` in
+ * `slides-more.ts`. Guidance only — see `brief.ts`.
  */
 
 export const sprintRetrospectiveBrief: TemplateBrief = {
@@ -13,9 +13,9 @@ export const sprintRetrospectiveBrief: TemplateBrief = {
     { key: 'team', label: 'Team', type: 'text', example: 'Platform Team' },
     { key: 'sprint', label: 'Sprint number', type: 'text', example: '24' },
     { key: 'date', label: 'Date', type: 'text', example: 'Sep 22' },
-    { key: 'wentWell', label: 'What went well', type: 'list', min: 2, max: 4, example: 'Shipped the new auth flow a day early' },
-    { key: 'toImprove', label: 'What to improve', type: 'list', min: 2, max: 4, example: 'Standups ran long — trim to 10 minutes' },
-    { key: 'actions', label: 'Action items', type: 'pairs', pair: ['Action', 'Owner'], min: 2, max: 4, example: 'Split the dashboard epic → Mina' },
+    { key: 'wentWell', label: 'What went well', type: 'list', min: 2, max: 3, example: 'Shipped the new auth flow a day early' },
+    { key: 'toImprove', label: 'What to improve', type: 'list', min: 2, max: 3, example: 'Standups ran long — trim to 10 minutes' },
+    { key: 'actions', label: 'Action items', type: 'pairs', pair: ['Action', 'Owner'], min: 2, max: 3, example: 'Split the dashboard epic → Mina' },
     { key: 'keyChange', label: 'One change next sprint', type: 'line', example: 'Timebox standups to 10 minutes' },
   ],
 };
@@ -26,10 +26,10 @@ export const okrReviewBrief: TemplateBrief = {
   fields: [
     { key: 'team', label: 'Team', type: 'text', example: 'Growth' },
     { key: 'quarter', label: 'Quarter', type: 'text', example: 'Q3 2026' },
-    { key: 'objectives', label: 'Objectives this quarter', type: 'list', min: 2, max: 4 },
-    { key: 'keyResults', label: 'Key results (result → target vs actual)', type: 'pairs', pair: ['Key result', 'Target vs actual'], min: 2, max: 5 },
+    { key: 'objectives', label: 'Objectives this quarter', type: 'list', min: 2, max: 3 },
+    { key: 'keyResults', label: 'Key results (result → target vs actual)', type: 'pairs', pair: ['Key result', 'Target vs actual'], min: 2, max: 4 },
     { key: 'attainment', label: 'Average attainment', type: 'metric', example: '72% · average key-result attainment' },
-    { key: 'learnings', label: 'What we learned', type: 'list', min: 2, max: 4 },
+    { key: 'learnings', label: 'What we learned', type: 'list', min: 2, max: 3 },
     { key: 'nextFocus', label: 'Focus for next quarter', type: 'line' },
   ],
 };
@@ -44,7 +44,7 @@ export const productLaunchPlanBrief: TemplateBrief = {
     { key: 'audience', label: 'Who it is for', type: 'line' },
     { key: 'whyNow', label: 'Why it matters now', type: 'line' },
     { key: 'successCriteria', label: 'What success looks like', type: 'list', min: 2, max: 3 },
-    { key: 'channels', label: 'Channels and messaging', type: 'pairs', pair: ['Channel', 'Message'], min: 2, max: 4 },
+    { key: 'channels', label: 'Channels and messaging', type: 'pairs', pair: ['Channel', 'Message'], min: 2, max: 3 },
     { key: 'timeline', label: 'Timeline', type: 'list', min: 3, max: 4, example: 'T-14 — creative ready' },
     { key: 'goNoGo', label: 'Go / no-go criteria', type: 'line' },
   ],
@@ -59,8 +59,8 @@ export const techTalkBrief: TemplateBrief = {
     { key: 'date', label: 'Date', type: 'text' },
     { key: 'problem', label: 'The problem', type: 'list', min: 2, max: 3 },
     { key: 'keyIdea', label: 'How it works', type: 'list', min: 2, max: 3 },
-    { key: 'strengths', label: 'Strengths', type: 'list', min: 2, max: 3 },
-    { key: 'limitations', label: 'Limitations', type: 'list', min: 2, max: 3 },
+    { key: 'strengths', label: 'Strengths', type: 'list', min: 2, max: 2 },
+    { key: 'limitations', label: 'Limitations', type: 'list', min: 2, max: 2 },
     { key: 'takeaways', label: 'Takeaways', type: 'list', min: 2, max: 3 },
   ],
 };

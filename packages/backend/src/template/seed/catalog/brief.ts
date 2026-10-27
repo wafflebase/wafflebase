@@ -1,10 +1,12 @@
 /**
- * Input schema for a template — the "required values" a fill agent collects
- * from the user before it fills the blank template's placeholders.
+ * Authoring brief for a template — the values an agent should ask a user for
+ * before it writes a deck from that template.
  *
- * The seed catalogue ships each template BLANK (with `<placeholder>` slots).
- * A brief declares, per template, exactly what to ask for and where it goes,
- * so filling is "give me these values" rather than "just make something".
+ * This is guidance for an author, not a slot schema: the template itself stays
+ * static (its `<team>`-style hints are ordinary text), nothing at use time reads
+ * a brief, and there is no substitution pass. See "Briefs are authoring
+ * guidance, not slots" in docs/design/template-gallery.md for why that keeps
+ * clear of the declined parameterized-templates design.
  */
 
 export type FieldType =

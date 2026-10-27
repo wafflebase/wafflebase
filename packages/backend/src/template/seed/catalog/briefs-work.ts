@@ -1,9 +1,9 @@
 import type { TemplateBrief } from './brief';
 
 /**
- * Input schemas (required values) for the slides-work templates. Each brief's
- * `slug` matches the blank template's slug in `slides-work.ts`; a fill agent
- * collects these values and drops them into the template's placeholder slots.
+ * Authoring briefs for the slides-work templates: what an author should collect
+ * from a user before writing a deck from the template with the same `slug` in
+ * `slides-work.ts`. Guidance only — see `brief.ts`.
  */
 
 export const devDesignReviewBrief: TemplateBrief = {

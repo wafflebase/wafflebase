@@ -1,10 +1,9 @@
 import type { TemplateBrief } from './brief';
 
 /**
- * Input schemas (required values) for the market/finance/design templates. Each
- * brief's `slug` matches the blank template's slug in `slides-market-finance.ts`;
- * a fill agent collects these values and drops them into the template's
- * placeholder slots.
+ * Authoring briefs for the market/finance/design templates: what an author
+ * should collect from a user before writing a deck from the template with the
+ * same `slug` in `slides-market-finance.ts`. Guidance only — see `brief.ts`.
  */
 
 export const marketingCampaignBrief: TemplateBrief = {

@@ -26,12 +26,17 @@ None: everything here is original to this repository.
 
 ## Adding one
 
-1. Add a `TemplateSeed` to the file for its document kind (`slides.ts`,
-   `sheets.ts`, `docs.ts`, `note-and-board.ts`), or start a new one.
+1. Add a `TemplateSeed` to the file for its document kind (`slides*.ts`,
+   `sheets.ts`, `docs.ts`, `note-and-board.ts`), or start a new one. Themed
+   slides decks use `themedDeck()` from `../builders`.
 2. Register it in `index.ts`.
-3. `pnpm backend test -- seed` — the catalogue test runs every seed through
+3. For a slides template, add its brief — the values an author should collect
+   — to the matching `briefs-*.ts` and register it in `briefs.ts`. A list or
+   pairs field may not ask for more rows than the slide it fills has.
+4. `pnpm backend test -- seed` — the catalogue test runs every seed through
    the same validators `PUT /documents/:id/content` applies, so a malformed
-   payload fails there rather than half-way through a seed run.
+   payload fails there rather than half-way through a seed run; the brief test
+   checks each brief against its template.
 
 `slug` is the seed's identity and must never change: it is how a re-run finds
 the document it created last time instead of publishing a second copy.
