@@ -137,6 +137,7 @@ export interface YorkieImageElement {
     crop?: { x: number; y: number; w: number; h: number };
     alt?: string;
     opacity?: number;
+    fit?: 'fill' | 'contain' | 'cover';
   };
 }
 

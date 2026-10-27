@@ -48,7 +48,9 @@ live in their own follow-up.
 - **Crop-to-shape / masking** (non-rectangular crop via `ShapeKind`
   outlines). Tracked as P1; requires a new `maskShape` field and a clip
   path in the renderer. See "Future work".
-- **Aspect-ratio presets** (16:9, 1:1, …) and **Fill/Fit** menu. P1.
+- **Aspect-ratio presets** (16:9, 1:1, …) and a **Fill/Fit** menu. P1.
+  The `data.fit` model behind such a menu has shipped (see
+  [Fit modes](#fit-modes-datafit)); only the UI control is deferred.
 - Cropping non-image elements (video, shapes with picture fill).
 - Multi-image crop (crop is single-selection only, matching GS/PPT).
 
@@ -258,6 +260,42 @@ editor crop session (inline in `editor.ts`), `model/image-crop.ts`
 helpers, `drawCropPreview` overlay paint, toolbar enablement, and tests
 (`test/model/image-crop.test.ts`, `test/view/canvas/crop-preview.test.ts`,
 `test/view/editor/image-crop-session.test.ts`).
+
+### Fit modes (`data.fit`)
+
+The non-proportional Fill/Fit model deferred above ships as an optional
+`ImageElement.data.fit: 'fill' | 'contain' | 'cover'`, named after CSS
+`object-fit` (but `'contain'` never upscales, which is CSS `scale-down`). **Absent ⇒ `'fill'`** (the historical stretch), so existing
+decks and PPTX imports render unchanged and nothing migrates. `crop` wins:
+with a crop rect present, `fit` is ignored on canvas and in export.
+
+- `'contain'` keeps the aspect ratio, centres, and never upscales past the
+  bitmap's natural size (a low-res image is drawn small, not pixelated).
+- `'cover'` keeps the aspect ratio, fills the frame and centre-crops the
+  overflow.
+
+The geometry lives once in `model/image-fit.ts` (`coverCrop`,
+`containRect`); the canvas renderer and the PPTX exporter both call it.
+OOXML has no `object-fit`, so export bakes the mode into what it renders as:
+`cover` → the centred crop as `<a:srcRect>`, `contain` → the frame shrunk to
+the letterboxed rect (centred, so rotation pivots on the same point). The
+exporter reads the natural size from the fetched bytes'
+header (`export/pptx/image-size.ts`: PNG, JPEG, GIF, WebP — the formats the
+image uploader accepts); an unreadable header exports stretched, as before.
+A JPEG's EXIF Orientation 5–8 swaps the coded size, because browsers report
+`naturalWidth/Height` after applying it and that is the size the canvas
+fits with.
+Re-import therefore yields a crop or a smaller frame instead of `fit`: the
+same picture, a different representation.
+
+The crop session honors `fit` too. Entering crop on an uncropped fitted
+image starts from the geometry it is painted with — `cover` as the centre
+crop over the same frame, `contain` as the letterboxed rect — so the picture
+does not jump (`fitCropSession`). Committing writes that geometry as frame +
+`crop` and clears `fit`, the same baking export does; cancelling writes
+nothing. There is no editor control for
+`fit` yet — it is set by authored JSON (the #1091 deck-authoring
+compositions use `contain` for photo grids).
 
 ## Risks and Mitigation
 

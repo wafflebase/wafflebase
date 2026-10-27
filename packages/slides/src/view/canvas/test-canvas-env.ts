@@ -91,6 +91,8 @@ function makeFakeCanvasCtx(): unknown {
     measureText: (text: string): { width: number } => ({ width: text.length * 8 }),
 
     drawImage: noop,
+    // The crop preview clips to its window once a bitmap is loaded.
+    clip: noop,
 
     // The slides editor calls `isPointInPath` from its click hit-test
     // (`view/editor/element-hit.ts`). Real browser canvases provide it;

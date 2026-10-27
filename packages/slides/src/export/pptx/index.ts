@@ -54,6 +54,7 @@ import { layoutToXml } from './layout.js';
 import { slideToXml, notesSlideToXml } from './slide.js';
 import { presentationToXml } from './presentation.js';
 import type { ElementXmlCtx } from './group.js';
+import { imageNaturalSize } from './image-size.js';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -161,6 +162,8 @@ export async function exportPptx(
   // -------------------------------------------------------------------------
   // src → the relative path under ppt/ (e.g. "media/image1.png")
   const srcToMediaPath = new Map<string, string>();
+  // src → natural pixel size, for baking `data.fit` (null when unreadable)
+  const srcToSize = new Map<string, { w: number; h: number } | null>();
 
   if (allImageSrcs.size > 0) {
     if (!opts.fetchImage) {
@@ -184,6 +187,7 @@ export async function exportPptx(
       const ext = extFromMime(fetched.mime);
       const mediaPath = writer.addMedia(fetched.bytes, ext);
       srcToMediaPath.set(src, mediaPath);
+      srcToSize.set(src, imageNaturalSize(fetched.bytes));
     }
   }
 
@@ -334,6 +338,7 @@ export async function exportPptx(
 
     const ctx: ElementXmlCtx = {
       resolveImageRId,
+      resolveImageSize: (el) => srcToSize.get(el.data.src) ?? null,
       connectorFrame: (el) => computeConnectorFrame(el, worldLookup),
       resolveHyperlinkRId,
     };

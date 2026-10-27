@@ -1,4 +1,5 @@
 import type { Crop, ImageElement } from '../../model/element.js';
+import { containRect, coverCrop } from '../../model/image-fit.js';
 import { xfrmXml } from './shape.js';
 import { effectsToXml } from './effects.js';
 import { attr, escapeXmlAttr } from './xml.js';
@@ -31,9 +32,32 @@ import { attr, escapeXmlAttr } from './xml.js';
  *
  * **Brightness / contrast** (`<a:lum>`): stored as `[-1, 1]`, emitted as
  *   `Math.round(v * 100_000)`. Exact inverse of `bright / 100_000` in importer.
+ *
+ * **Fit** (`data.fit`): OOXML has no `object-fit`, so a fitted image is
+ * baked into what it renders as, given the bitmap's `natural` pixel size:
+ *   - `'cover'` → the centred crop as `<a:srcRect>` (same numbers the canvas
+ *     renderer uses, via `coverCrop`);
+ *   - `'contain'` → the frame shrunk to the letterboxed rect (`containRect`),
+ *     kept centred so a rotation pivots on the same point.
+ * An explicit `crop` wins, as it does on canvas. Without a `natural` size
+ * (unreadable header, SVG) the image exports stretched, as before. Re-import
+ * therefore yields a crop or a smaller frame rather than `fit` — the same
+ * picture, a different representation.
  */
-export function imageToXml(el: ImageElement, embedRId: string): string {
-  const { data, frame } = el;
+export function imageToXml(
+  el: ImageElement,
+  embedRId: string,
+  natural?: { w: number; h: number } | null,
+): string {
+  const { data } = el;
+  let { frame } = el;
+  let crop = data.crop;
+  if (!crop && natural && data.fit === 'cover') {
+    crop = coverCrop(natural.w, natural.h, frame.w, frame.h) ?? undefined;
+  } else if (!crop && natural && data.fit === 'contain') {
+    const r = containRect(natural.w, natural.h, frame.w, frame.h);
+    if (r) frame = { ...frame, x: frame.x + r.x, y: frame.y + r.y, w: r.w, h: r.h };
+  }
 
   // Build <a:blip> children
   const blipChildren: string[] = [];
@@ -67,7 +91,7 @@ export function imageToXml(el: ImageElement, embedRId: string): string {
   }
 
   const blip = `<a:blip r:embed="${embedRId}">${blipChildren.join('')}</a:blip>`;
-  const srcRect = data.crop ? srcRectXml(data.crop) : '';
+  const srcRect = crop ? srcRectXml(crop) : '';
 
   // Non-visual props
   const descrAttr = attr('descr', data.alt);
