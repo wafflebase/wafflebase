@@ -6,7 +6,7 @@
  * call the editor's left rail makes, at the deck's logical size (1920 wide).
  *
  * The opt-in final check of the deck-authoring loop (docs/design/slides/
- * slides-lint.md). `wafflebase slides layout` / `slides lint` are the cheap
+ * slides-lint.md). `wafflebase slides layout-report` / `slides lint` are the cheap
  * first pass; this is the exact one. For a deck that lives on a server, use
  * `wafflebase slides render <doc-id>` instead, which drives the live editor.
  *

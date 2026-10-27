@@ -85,7 +85,7 @@ from the layout itself:
 
 | Rule | Reports | Severity |
 | --- | --- | --- |
-| `overflow` | `shrink` text taller than its box even at the minimum scale; `none` text with at least one whole line outside its box (a box merely shorter than its single line's line-height is fine) | error / warning |
+| `overflow` | `shrink` text taller than its box even at the minimum scale; `none` text with at least one whole line outside its box (a box merely shorter than its single line's line-height is fine); `none` text in a filled or bordered box whose glyphs spill past the drawn edge, even by part of a line | error / warning |
 | `out-of-bounds` | Text, tables or charts past the slide edge (text by ink, so a frame hanging off around centered text is fine and text grown past the bottom is caught). A text-less shape or image only when entirely off the slide | warning (error when entirely off) / info |
 | `overlap` | Two elements, at least one with text, whose painted regions intersect by ≥ 15% of the smaller. Excludes backgrounds (≥ 80% of the slide), thin decoration (≤ 24 px), a text-less shape enclosing the other (cards), elements that paint nothing. An image counts only when the text's center lies within its inner 80%: its frame includes transparent padding we cannot see. Group children are checked at their world position | warning |
 | `contrast` | WCAG 2 AA: 4.5:1, or 3:1 for large text (18 pt, 14 pt bold). Backdrop at three points across the text: own fill, then filled shapes / text boxes beneath (alpha-composited), then the slide background (slide → layout → master). A gradient counts as its worst stop. An image, table, chart or background image underneath makes the point unknown — skipped, never guessed | error below 3:1, else warning |
@@ -135,7 +135,8 @@ alias of `slides layouts` (the deck's layout ids).
 
 author → `layout-report` + `lint` → fix, or record intent in the allowlist
 → PNG render as the final check → any new visual-only problem becomes a
-rule candidate. The deck-author skill update is a separate change.
+rule candidate. The agent-facing form of this loop is the CLI skill
+`packages/cli/skills/deck-author.md`.
 
 ## Risks and Mitigation
 

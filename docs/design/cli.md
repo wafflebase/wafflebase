@@ -1102,6 +1102,7 @@ packages/cli/
     docs-manage.md / docs-read-content.md / docs-export-pdf.md
     docs-export-docx.md / docs-import-docx.md
     slides-manage.md / slides-read-content.md / slides-export-pptx.md / slides-import-pptx.md
+    slides-author.md / deck-author.md
     files-upload-download.md
     recipe-csv-pipeline.md / recipe-data-collect.md
     recipe-docx-to-pdf.md / recipe-doc-to-markdown.md
