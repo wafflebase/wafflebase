@@ -6,13 +6,16 @@ import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
 import type { ImageElement, ImageFit } from '../../../src/model/element';
 
 // The crop session needs the bitmap's natural size, which jsdom never
-// loads; stand in a loaded 200x100 bitmap for every src.
+// loads; stand in a loaded 200x100 bitmap for every src, or none at all.
+const bitmap = vi.hoisted(() => ({ loaded: true }));
 vi.mock('../../../src/view/canvas/image-cache', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/view/canvas/image-cache')>();
   return {
     ...actual,
     getOrLoadImage: () =>
-      ({ complete: true, naturalWidth: 200, naturalHeight: 100 }) as HTMLImageElement,
+      bitmap.loaded
+        ? ({ complete: true, naturalWidth: 200, naturalHeight: 100 }) as HTMLImageElement
+        : null,
   };
 });
 
@@ -43,13 +46,14 @@ function setup(fit: ImageFit | undefined) {
   const read = () =>
     store.read().slides.find((s) => s.id === sid)!
       .elements.find((e) => e.id === id) as ImageElement;
-  return { editor, id, read };
+  return { editor, store, sid, id, read };
 }
 
 describe('image crop session with fit', () => {
   let editor: SlidesEditor | null = null;
   afterEach(() => {
     if (editor) { editor.detach(); editor = null; }
+    bitmap.loaded = true;
   });
 
   it("commits a 'cover' image as the centre crop it was painted with", () => {
@@ -58,7 +62,7 @@ describe('image crop session with fit', () => {
     editor.enterImageCrop(t.id);
     editor.exitImageCrop(true);
     const img = t.read();
-    expect(img.data.fit).toBeUndefined();
+    expect('fit' in img.data).toBe(false);
     expect(img.data.crop?.x).toBeCloseTo(0.25);
     expect(img.data.crop?.w).toBeCloseTo(0.5);
     expect(img.frame).toMatchObject({ x: 200, y: 200, w: 400, h: 400 });
@@ -97,5 +101,32 @@ describe('image crop session with fit', () => {
     const img = t.read();
     expect(img.data.crop).toBeUndefined();
     expect(img.frame).toMatchObject({ x: 200, y: 200, w: 400, h: 400 });
+  });
+
+  it('keeps fit when the bitmap was not loaded and the session stretched', () => {
+    bitmap.loaded = false;
+    const t = setup('contain');
+    editor = t.editor;
+    editor.enterImageCrop(t.id);
+    editor.exitImageCrop(true);
+    const img = t.read();
+    expect(img.data.fit).toBe('contain');
+    expect(img.data.crop).toBeUndefined();
+    expect(img.frame).toMatchObject({ x: 200, y: 200, w: 400, h: 400 });
+  });
+
+  it('resetImageCrop drops a fit the crop was overriding', () => {
+    const t = setup('contain');
+    editor = t.editor;
+    // Authored both: crop wins over fit until the crop is reset.
+    t.store.batch(() => {
+      t.store.updateElementData(t.sid, t.id, { crop: { x: 0.25, y: 0, w: 0.5, h: 1 } });
+    });
+    editor.resetImageCrop(t.id);
+    const img = t.read();
+    expect('fit' in img.data).toBe(false);
+    expect(img.data.crop).toBeUndefined();
+    expect(img.frame.w).toBeCloseTo(800);
+    expect(img.frame.h).toBeCloseTo(400);
   });
 });

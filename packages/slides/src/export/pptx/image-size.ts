@@ -31,8 +31,14 @@ export function imageNaturalSize(
   // WebP: RIFF container, then one of three chunk kinds.
   if (b.length >= 30 && ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP') {
     const kind = ascii(12, 4);
-    if (kind === 'VP8 ') return ok(u16le(26) & 0x3fff, u16le(28) & 0x3fff);
+    // Each payload opens with a fixed signature; check it rather than read
+    // dimensions out of an unexpected layout.
+    if (kind === 'VP8 ') {
+      if (b[23] !== 0x9d || b[24] !== 0x01 || b[25] !== 0x2a) return null;
+      return ok(u16le(26) & 0x3fff, u16le(28) & 0x3fff);
+    }
     if (kind === 'VP8L') {
+      if (b[20] !== 0x2f) return null;
       const bits = b[21] | (b[22] << 8) | (b[23] << 16) | (b[24] << 24);
       return ok((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1);
     }
@@ -54,8 +60,10 @@ export function imageNaturalSize(
         o += 1;
         continue;
       }
-      // Standalone markers (TEM, RST0–7) carry no length.
-      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      // End of image before any frame: nothing to read.
+      if (marker === 0xd9) return null;
+      // Standalone markers (TEM, RST0–7, a stray SOI) carry no length.
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
         o += 2;
         continue;
       }

@@ -958,6 +958,13 @@ class SlidesEditorImpl implements SlidesEditor {
         sin: number;
         full: Rect;
         window: Rect;
+        /**
+         * The session started from the image's `fit` geometry, so the
+         * frame + crop it commits encode the fit and `fit` can be cleared.
+         * `false` when the bitmap was not loaded and the session fell back
+         * to the plain stretch — committing must then keep `fit`.
+         */
+        encodesFit: boolean;
       }
     | null = null;
   /** Capture-phase keydown handler installed while a crop session runs. */
@@ -2516,6 +2523,7 @@ class SlidesEditorImpl implements SlidesEditor {
       sin: basis.sin,
       full,
       window,
+      encodesFit: fitted !== null,
     };
 
     // Modal key handling: Enter commits, Esc cancels, everything else is
@@ -2562,6 +2570,7 @@ class SlidesEditorImpl implements SlidesEditor {
           session.window,
           session,
           crop,
+          session.encodesFit,
         );
       }
     } finally {
@@ -2588,6 +2597,10 @@ class SlidesEditorImpl implements SlidesEditor {
       full,
       frameRotationBasis(frame),
       undefined,
+      // Reset restores the bitmap's own proportions. A `fit` the crop was
+      // overriding would only re-shape it (contain never upscales), so drop
+      // it with the crop.
+      true,
     );
     this.renderer.markDirty();
     this.render();
@@ -2600,9 +2613,10 @@ class SlidesEditorImpl implements SlidesEditor {
    * The frame's `rotation` is left untouched (only `x/y/w/h` change), so
    * a rotated image stays rotated.
    *
-   * `fit` is cleared in the same step: the session started from the fitted
-   * geometry, so the frame + crop written here already encode it, and a
-   * `fit` left behind would come back to life on the next Reset crop.
+   * With `clearFit`, `fit` is cleared in the same step — set when the
+   * frame + crop written here already encode it (a session that started
+   * from the fitted geometry), since a `fit` left behind would come back
+   * to life on the next Reset crop.
    */
   private commitCropFrame(
     slideId: string,
@@ -2610,6 +2624,7 @@ class SlidesEditorImpl implements SlidesEditor {
     window: Rect,
     basis: { center: { x: number; y: number }; cos: number; sin: number },
     crop: Crop | undefined,
+    clearFit: boolean,
   ): void {
     const frame = windowToFrame(window, basis.center, basis.cos, basis.sin);
     this.options.store.batch(() => {
@@ -2619,10 +2634,11 @@ class SlidesEditorImpl implements SlidesEditor {
         w: frame.w,
         h: frame.h,
       });
-      this.options.store.updateElementData(slideId, elementId, {
-        crop,
-        fit: undefined,
-      });
+      this.options.store.updateElementData(
+        slideId,
+        elementId,
+        clearFit ? { crop, fit: undefined } : { crop },
+      );
     });
   }
 

@@ -65,6 +65,19 @@ describe('imageNaturalSize', () => {
     expect(imageNaturalSize(webp)).toEqual({ w: 640, h: 360 });
   });
 
+  it('rejects a WebP payload without its signature', () => {
+    const vp8 = new Uint8Array([
+      ...ascii('RIFF'), 0, 0, 0, 0, ...ascii('WEBP'), ...ascii('VP8 '),
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...le16(640), ...le16(360),
+    ]);
+    expect(imageNaturalSize(vp8)).toBeNull();
+    const vp8l = new Uint8Array([
+      ...ascii('RIFF'), 0, 0, 0, 0, ...ascii('WEBP'), ...ascii('VP8L'),
+      0, 0, 0, 0, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    expect(imageNaturalSize(vp8l)).toBeNull();
+  });
+
   describe('JPEG', () => {
     const sof = [0xff, 0xc0, 0x00, 0x11, 0x08, ...be16(300), ...be16(400), 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     // APP1 EXIF with a single IFD0 entry: Orientation (0x0112, SHORT, 1) = v.
@@ -109,6 +122,8 @@ describe('imageNaturalSize', () => {
       expect(imageNaturalSize(jpeg([0x12, 0x34], sof))).toBeNull();
       // A SOF cut off before its dimensions.
       expect(imageNaturalSize(jpeg(sof.slice(0, 6)))).toBeNull();
+      // End of image before any frame.
+      expect(imageNaturalSize(jpeg([0xff, 0xd9], sof))).toBeNull();
       // A malformed EXIF block is ignored, not trusted.
       expect(imageNaturalSize(jpeg([0xff, 0xe1, 0x00, 0x08, ...ascii('Exif'), 0, 0], sof))).toEqual({ w: 400, h: 300 });
     });
