@@ -77,7 +77,7 @@ space, coloured by **theme roles** so it follows the deck's theme:
 | `kicker(text, {x?, y?, w?, uppercase?, color?})` | an eyebrow/overline label above a title |
 | `calloutCard({title?, body, box?, tail?, fill?, accent?})` | a callout / note card (`tail: false` = plain rounded card) |
 | `codeBlock(code, {x?, y?, w?, fontSize?, panel?, color?})` | a monospace code panel; newlines kept, height sized from the line count |
-| `table(headers, rows, {x?, y?, w?, fontSize?, columnWidths?})` | a native table; ragged rows padded, header-less when `headers` is `[]` |
+| `table(headers, rows, {x?, y?, w?, fontSize?, columnWidths?})` | a native table; ragged rows padded, header-less when `headers` is `[]`; `columnWidths` are slide px (not fractions), each ≥ 2 × `fontSize` |
 | `bigNumberCard(number, label, {box?, accent?})` | a single-metric KPI card (`number` is a string: `"98%"`, `"$4.2M"`) |
 | `footer(text, {right?})` | a footer rule + caption (+ right-aligned label) — the only piece allowed below `FOOTER_TOP` |
 | `diagram(svg, {src?, alt?, box?})` | an SVG figure as a fitted, centred image |

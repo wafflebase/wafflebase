@@ -132,6 +132,24 @@ describe('slide compositions', () => {
     expect(() => table([], [])).toThrow(/at least one column/);
   });
 
+  it('table: refuses columns too narrow to hold text (e.g. fractions)', () => {
+    expect(() =>
+      table(['A', 'B'], [['x', 'y']], { columnWidths: [0.3, 0.7] }),
+    ).toThrow(/slide px/);
+    expect(() =>
+      table(['A', 'B'], [['x', 'y']], {
+        columnWidths: [40, 600],
+        fontSize: 28,
+      }),
+    ).toThrow(/at least 56px/);
+    expect(() =>
+      table(['A', 'B'], [['x', 'y']], {
+        columnWidths: [56, 600],
+        fontSize: 28,
+      }),
+    ).not.toThrow();
+  });
+
   it('table: refuses to run into the footer', () => {
     expect(() => table(['A'], Array(30).fill(['x']))).toThrow(/safe area/);
   });

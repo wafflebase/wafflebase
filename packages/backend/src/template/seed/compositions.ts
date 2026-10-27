@@ -343,7 +343,10 @@ export type TableOptions = Common & {
   y?: number;
   w?: number;
   fontSize?: number;
-  /** Explicit column widths (must sum to ≤ the content measure). */
+  /**
+   * Explicit column widths in slide px — not fractions — summing to ≤ the
+   * content measure; each at least `2 × fontSize`.
+   */
   columnWidths?: number[];
 };
 
@@ -377,6 +380,15 @@ export function table(
       );
   if (colW.some((c) => !(c > 0)))
     throw new Error('table: every column needs a positive width');
+  // Widths are slide px. A column narrower than two glyphs wraps every cell
+  // one character per line and the renderer grows the table off the slide —
+  // which the linter cannot see, since it judges the declared frame. Fractions
+  // (`[0.3, 0.7]`) are the usual way to get here.
+  const minCol = fontSize * 2;
+  if (colW.some((c) => c < minCol))
+    throw new Error(
+      `table: columnWidths are slide px; every column needs at least ${minCol}px at fontSize ${fontSize} (got ${colW.join(', ')})`,
+    );
   const w = colW.reduce((a, b) => a + b, 0);
   const hasHeader = headers.length > 0;
   const h = rowH * (rows.length + (hasHeader ? 1 : 0));
