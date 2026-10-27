@@ -1,4 +1,5 @@
 import type { Crop, ImageFit } from './element';
+import { cropToFull, type Rect } from './image-crop';
 
 /**
  * Pure geometry for {@link ImageFit}, shared by the canvas renderer and the
@@ -46,4 +47,35 @@ export function containRect(
   const dw = nw * scale;
   const dh = nh * scale;
   return { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
+}
+
+/**
+ * The crop-session geometry that reproduces what a fitted, uncropped image
+ * paints, so entering crop mode does not jump. `window` is the element's
+ * frame rect (centred-local or world, the math is the same); the result is
+ * the `full` bitmap rect and the visible `window` the session starts from:
+ *   - `'cover'`  — the frame stays the window; `full` extends past it by the
+ *                  centre crop (the same {@link coverCrop} the renderer uses).
+ *   - `'contain'` — the window shrinks to the letterboxed rect, which shows
+ *                  the whole bitmap, so `full` is that same rect.
+ * Returns `null` for `'fill'` / absent / an unknown natural size, where the
+ * plain stretch (`cropToFull(window, undefined)`) already matches the paint.
+ */
+export function fitCropSession(
+  window: Rect,
+  fit: ImageFit | undefined,
+  nw: number,
+  nh: number,
+): { full: Rect; window: Rect } | null {
+  if (fit === 'cover') {
+    const c = coverCrop(nw, nh, window.w, window.h);
+    return c ? { full: cropToFull(window, c), window } : null;
+  }
+  if (fit === 'contain') {
+    const r = containRect(nw, nh, window.w, window.h);
+    if (!r) return null;
+    const shown = { x: window.x + r.x, y: window.y + r.y, w: r.w, h: r.h };
+    return { full: shown, window: shown };
+  }
+  return null;
 }

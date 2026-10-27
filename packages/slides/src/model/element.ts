@@ -315,9 +315,10 @@ export type TextElement = ElementBase & {
 export type ImageRecolor = 'none' | 'grayscale' | 'sepia';
 
 /**
- * How an image bitmap is sized into its element frame. Mirrors the CSS
- * `object-fit` presets. **Absent ⇒ `'fill'`** so existing decks and the
- * PPTX round-trip are unchanged (no migration):
+ * How an image bitmap is sized into its element frame. Named after the CSS
+ * `object-fit` presets, with one difference: `'contain'` never upscales, so
+ * it behaves like CSS `scale-down`. **Absent ⇒ `'fill'`** so existing decks
+ * and the PPTX round-trip are unchanged (no migration):
  * - `'fill'`    — stretch the bitmap to the frame, ignoring aspect ratio
  *                 (the historical behavior).
  * - `'contain'` — preserve aspect ratio, letterbox-fit inside the frame,
@@ -329,7 +330,8 @@ export type ImageRecolor = 'none' | 'grayscale' | 'sepia';
  *                 does NOT apply here (covering the frame requires it).
  *
  * `data.crop` takes precedence: when a crop rect is present it is drawn
- * exactly as before and `fit` is ignored.
+ * exactly as before and `fit` is ignored. The editor's crop session starts
+ * from the fitted geometry and clears `fit` when it commits.
  */
 export type ImageFit = 'fill' | 'contain' | 'cover';
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { containRect, coverCrop } from '../../src/model/image-fit';
+import { containRect, coverCrop, fitCropSession } from '../../src/model/image-fit';
+import { windowToCrop } from '../../src/model/image-crop';
 
 describe('coverCrop', () => {
   it('crops left/right equally when the bitmap is wider than the frame', () => {
@@ -33,5 +34,30 @@ describe('containRect', () => {
 
   it('returns null for an unknown natural size', () => {
     expect(containRect(100, 0, 50, 50)).toBeNull();
+  });
+});
+
+describe('fitCropSession', () => {
+  const frame = { x: -50, y: -50, w: 100, h: 100 };
+
+  it("'cover' keeps the frame as the window over the centre-cropped bitmap", () => {
+    const s = fitCropSession(frame, 'cover', 200, 100)!;
+    expect(s.window).toEqual(frame);
+    expect(s.full).toEqual({ x: -100, y: -50, w: 200, h: 100 });
+    // Committing it unchanged writes exactly the crop the renderer paints.
+    expect(windowToCrop(s.full, s.window)).toEqual(coverCrop(200, 100, 100, 100));
+  });
+
+  it("'contain' starts from the letterboxed rect showing the whole bitmap", () => {
+    const s = fitCropSession(frame, 'contain', 200, 100)!;
+    expect(s.window).toEqual({ x: -50, y: -25, w: 100, h: 50 });
+    expect(s.full).toEqual(s.window);
+  });
+
+  it("is null when the stretch already matches the paint", () => {
+    expect(fitCropSession(frame, undefined, 200, 100)).toBeNull();
+    expect(fitCropSession(frame, 'fill', 200, 100)).toBeNull();
+    expect(fitCropSession(frame, 'cover', 0, 0)).toBeNull();
+    expect(fitCropSession(frame, 'contain', 0, 0)).toBeNull();
   });
 });

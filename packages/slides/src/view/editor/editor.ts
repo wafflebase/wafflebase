@@ -24,6 +24,8 @@ import {
   type Rect,
   type CropHandle,
 } from '../../model/image-crop';
+import { fitCropSession } from '../../model/image-fit';
+import { getOrLoadImage } from '../canvas/image-cache';
 import type { Block } from '@wafflebase/docs';
 import { clearMeasureCache } from '@wafflebase/docs';
 import { shapeTextFrame, type TextInset } from '../canvas/shape-renderer';
@@ -2491,8 +2493,18 @@ class SlidesEditorImpl implements SlidesEditor {
     // in its own rotated space; the math is the same axis-aligned rect
     // math, only the render / handles / pointer apply the rotation.
     const frame = el.frame;
-    const window = frameToLocalWindow(frame);
-    const full = cropToFull(window, el.data.crop);
+    const frameWindow = frameToLocalWindow(frame);
+    // An uncropped image with `fit` is not painted as a stretch, so start
+    // the session from the geometry it IS painted with (cover → the centre
+    // crop, contain → the letterboxed rect); otherwise the picture jumps on
+    // entry and the commit derives a crop from the wrong bitmap mapping.
+    // Not loaded yet ⇒ nothing fitted was painted either, so stretch.
+    const img = el.data.crop ? null : getOrLoadImage(el.data.src, () => {});
+    const fitted = img
+      ? fitCropSession(frameWindow, el.data.fit, img.naturalWidth, img.naturalHeight)
+      : null;
+    const window = fitted?.window ?? frameWindow;
+    const full = fitted?.full ?? cropToFull(frameWindow, el.data.crop);
     const basis = frameRotationBasis(frame);
     this.cropSession = {
       slideId: slide.id,
@@ -2587,6 +2599,10 @@ class SlidesEditorImpl implements SlidesEditor {
    * the frame + crop in one undo step. Shared by crop-commit and reset.
    * The frame's `rotation` is left untouched (only `x/y/w/h` change), so
    * a rotated image stays rotated.
+   *
+   * `fit` is cleared in the same step: the session started from the fitted
+   * geometry, so the frame + crop written here already encode it, and a
+   * `fit` left behind would come back to life on the next Reset crop.
    */
   private commitCropFrame(
     slideId: string,
@@ -2603,7 +2619,10 @@ class SlidesEditorImpl implements SlidesEditor {
         w: frame.w,
         h: frame.h,
       });
-      this.options.store.updateElementData(slideId, elementId, { crop });
+      this.options.store.updateElementData(slideId, elementId, {
+        crop,
+        fit: undefined,
+      });
     });
   }
 
