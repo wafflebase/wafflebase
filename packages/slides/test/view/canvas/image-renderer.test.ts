@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import type { ImageElement } from '../../../src/model/element';
-import { asCtx, createCtxSpy } from '../../../src/view/canvas/ctx-spy';
+import { asCtx, createCtxSpy, type CtxSpy } from '../../../src/view/canvas/ctx-spy';
 import { drawImage } from '../../../src/view/canvas/image-renderer';
 import { clearImageCacheForTests } from '../../../src/view/canvas/image-cache';
 
@@ -198,5 +198,87 @@ describe('drawImage', () => {
     expect(args[6]).toBe(0);    // dy
     expect(args[7]).toBe(200);  // dw
     expect(args[8]).toBe(100);  // dh
+  });
+
+  // FakeImage natural size is 100 x 80 (AR 1.25).
+  describe('fit mode', () => {
+    // Load the image into the cache once, then return a fresh spy whose
+    // next drawImage call hits the loaded entry and paints.
+    const paintLoaded = async (
+      frame: { w: number; h: number },
+      overrides: Partial<ImageElement['data']>,
+    ): Promise<CtxSpy> => {
+      const warm = createCtxSpy();
+      drawImage(asCtx(warm), frame, data(overrides), () => undefined);
+      await flushMicrotasks();
+      const ctx = createCtxSpy();
+      const drawn = drawImage(asCtx(ctx), frame, data(overrides), () => undefined);
+      expect(drawn).toBe(true);
+      expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+      return ctx;
+    };
+
+    it("'contain' preserves aspect ratio and letterboxes centered (downscale)", async () => {
+      // Frame 50x50, natural 100x80 → scale min(0.5, 0.625, 1) = 0.5.
+      const ctx = await paintLoaded({ w: 50, h: 50 }, { fit: 'contain' });
+      const [, dx, dy, dw, dh] = (ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(dw).toBe(50);          // 100 * 0.5
+      expect(dh).toBe(40);          // 80 * 0.5
+      expect(dw / dh).toBeCloseTo(100 / 80, 6); // AR preserved
+      expect(dx).toBe(0);           // (50 - 50) / 2
+      expect(dy).toBe(5);           // (50 - 40) / 2, centered
+    });
+
+    it("'contain' never upscales: larger frame draws at natural size, centered", async () => {
+      // Frame 200x160 is bigger than natural 100x80 → scale clamped to 1.
+      const ctx = await paintLoaded({ w: 200, h: 160 }, { fit: 'contain' });
+      const [, dx, dy, dw, dh] = (ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(dw).toBe(100);         // natural width, not upscaled
+      expect(dh).toBe(80);          // natural height
+      expect(dx).toBe(50);          // (200 - 100) / 2
+      expect(dy).toBe(40);          // (160 - 80) / 2
+    });
+
+    it("'cover' fills the frame via a center-cropped source rect", async () => {
+      // Frame 200x100 (AR 2.0), natural 100x80 (AR 1.25) < frame AR →
+      // crop top/bottom: sw=100, sh=100/2=50, sy=(80-50)/2=15.
+      const ctx = await paintLoaded({ w: 200, h: 100 }, { fit: 'cover' });
+      const args = (ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls[0];
+      // 9-arg form: image, sx, sy, sw, sh, dx, dy, dw, dh.
+      expect(args.length).toBe(9);
+      expect(args[1]).toBe(0);      // sx
+      expect(args[2]).toBe(15);     // sy, centered vertical crop
+      expect(args[3]).toBe(100);    // sw
+      expect(args[4]).toBe(50);     // sh
+      expect(args[3] / args[4]).toBeCloseTo(200 / 100, 6); // source AR = frame AR
+      expect(args[5]).toBe(0);      // dx — fills frame
+      expect(args[6]).toBe(0);      // dy
+      expect(args[7]).toBe(200);    // dw
+      expect(args[8]).toBe(100);    // dh
+    });
+
+    it("absent fit behaves exactly like 'fill' (stretch to frame)", async () => {
+      const ctx = await paintLoaded({ w: 200, h: 100 }, {});
+      const args = (ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(args.length).toBe(5);  // 4-arg stretch form
+      expect(args[1]).toBe(0);
+      expect(args[2]).toBe(0);
+      expect(args[3]).toBe(200);
+      expect(args[4]).toBe(100);
+    });
+
+    it("crop takes precedence over fit (crop rect still drawn)", async () => {
+      const ctx = await paintLoaded(
+        { w: 200, h: 100 },
+        { fit: 'contain', crop: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 } },
+      );
+      const args = (ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls[0];
+      // 9-arg crop form, destination stretched to the full frame.
+      expect(args.length).toBe(9);
+      expect(args[1]).toBe(10);     // sx = 0.1 * 100
+      expect(args[2]).toBe(8);      // sy = 0.1 * 80
+      expect(args[7]).toBe(200);    // dw = frame width (stretched)
+      expect(args[8]).toBe(100);    // dh = frame height
+    });
   });
 });

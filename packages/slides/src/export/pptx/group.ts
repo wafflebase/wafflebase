@@ -36,6 +36,11 @@ export interface ElementXmlCtx {
    * caller opted into surviving that) and the element must be omitted.
    */
   resolveImageRId(el: ImageElement): string | null;
+  /**
+   * The image's natural pixel size, read from its fetched bytes, so
+   * `imageToXml` can bake `data.fit` into OOXML. `null` when unknown.
+   */
+  resolveImageSize?(el: ImageElement): { w: number; h: number } | null;
   /** Compute the bounding frame for a connector (from its start/end endpoints). */
   connectorFrame(el: ConnectorElement): Frame;
   /**
@@ -63,7 +68,7 @@ export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
       // A dropped image is skipped the way an unserializable chart is: the
       // element disappears, the rest of the slide still exports.
       const rId = ctx.resolveImageRId(el);
-      return rId ? imageToXml(el, rId) : '';
+      return rId ? imageToXml(el, rId, ctx.resolveImageSize?.(el)) : '';
     }
     case 'table':
       return tableToXml(el, ctx.resolveHyperlinkRId);

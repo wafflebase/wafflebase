@@ -314,12 +314,37 @@ export type TextElement = ElementBase & {
  */
 export type ImageRecolor = 'none' | 'grayscale' | 'sepia';
 
+/**
+ * How an image bitmap is sized into its element frame. Mirrors the CSS
+ * `object-fit` presets. **Absent ⇒ `'fill'`** so existing decks and the
+ * PPTX round-trip are unchanged (no migration):
+ * - `'fill'`    — stretch the bitmap to the frame, ignoring aspect ratio
+ *                 (the historical behavior).
+ * - `'contain'` — preserve aspect ratio, letterbox-fit inside the frame,
+ *                 centered. Never upscaled past the bitmap's natural
+ *                 pixel size: when the frame is larger than the image,
+ *                 it is drawn centered at natural size.
+ * - `'cover'`   — preserve aspect ratio, fill the frame, center-cropping
+ *                 the overflow via a source rect. The no-upscale rule
+ *                 does NOT apply here (covering the frame requires it).
+ *
+ * `data.crop` takes precedence: when a crop rect is present it is drawn
+ * exactly as before and `fit` is ignored.
+ */
+export type ImageFit = 'fill' | 'contain' | 'cover';
+
 export type ImageElement = ElementBase & {
   type: 'image';
   data: {
     src: string;
     crop?: Crop;
     alt?: string;
+    /**
+     * How the bitmap is sized into the frame. See {@link ImageFit}.
+     * Absent ⇒ `'fill'` (stretch), preserving prior behavior. Ignored
+     * when `crop` is set (crop wins).
+     */
+    fit?: ImageFit;
     /**
      * Pre-multiplied alpha applied at paint time. Range `[0, 1]`.
      * Imported from OOXML `<a:blip><a:alphaModFix amt="..."/>` (PPTX).

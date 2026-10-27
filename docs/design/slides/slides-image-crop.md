@@ -259,6 +259,32 @@ helpers, `drawCropPreview` overlay paint, toolbar enablement, and tests
 (`test/model/image-crop.test.ts`, `test/view/canvas/crop-preview.test.ts`,
 `test/view/editor/image-crop-session.test.ts`).
 
+### Fit modes (`data.fit`)
+
+The non-proportional Fill/Fit deferred above ships as an optional
+`ImageElement.data.fit: 'fill' | 'contain' | 'cover'`, mirroring CSS
+`object-fit`. **Absent ⇒ `'fill'`** (the historical stretch), so existing
+decks and PPTX imports render unchanged and nothing migrates. `crop` wins:
+with a crop rect present, `fit` is ignored on canvas and in export.
+
+- `'contain'` keeps the aspect ratio, centres, and never upscales past the
+  bitmap's natural size (a low-res image is drawn small, not pixelated).
+- `'cover'` keeps the aspect ratio, fills the frame and centre-crops the
+  overflow.
+
+The geometry lives once in `model/image-fit.ts` (`coverCrop`,
+`containRect`); the canvas renderer and the PPTX exporter both call it.
+OOXML has no `object-fit`, so export bakes the mode into what it renders as:
+`cover` → the centred crop as `<a:srcRect>`, `contain` → the frame shrunk to
+the letterboxed rect (centred, so rotation pivots on the same point). The
+exporter reads the natural size from the fetched bytes'
+header (`export/pptx/image-size.ts`: PNG, JPEG, GIF, WebP — the formats the
+image uploader accepts); an unreadable header exports stretched, as before.
+Re-import therefore yields a crop or a smaller frame instead of `fit`: the
+same picture, a different representation. There is no editor control for
+`fit` yet — it is set by authored JSON (the #1091 deck-authoring
+compositions use `contain` for photo grids).
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |

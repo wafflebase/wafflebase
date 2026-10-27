@@ -1,6 +1,7 @@
 // Image placeholder colors are intentionally hard-coded; they represent a
 // system fallback UI (broken/loading image) and don't follow the deck theme.
 import type { ImageElement } from '../../model/element';
+import { containRect, coverCrop } from '../../model/image-fit';
 import { getOrLoadImage, isImageFailed } from './image-cache';
 import type { FrameSize } from './shape-renderer';
 
@@ -35,13 +36,16 @@ export function drawImage(
       if (useFilter) ctx.filter = filter;
     }
     if (data.crop) {
+      // `crop` takes precedence over `fit` (documented on `ImageFit`):
+      // an explicit crop rect is drawn stretched to the frame exactly as
+      // before, so cropping behavior is unchanged when both are set.
       const sx = data.crop.x * img.naturalWidth;
       const sy = data.crop.y * img.naturalHeight;
       const sw = data.crop.w * img.naturalWidth;
       const sh = data.crop.h * img.naturalHeight;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
     } else {
-      ctx.drawImage(img, 0, 0, w, h);
+      drawFitted(ctx, img, w, h, data.fit);
     }
     if (useAlpha || useFilter) ctx.restore();
     return true;
@@ -54,6 +58,47 @@ export function drawImage(
     return true;
   }
   return false;
+}
+
+/**
+ * Paint a loaded bitmap into the `w × h` frame honoring its `fit` mode
+ * (see {@link ImageFit}). Only reached on the non-cropped path.
+ *
+ * - `'fill'` / absent — stretch to the frame (historical behavior), one
+ *   4-arg `drawImage(img, 0, 0, w, h)`.
+ * - `'contain'` — scale by `min(w/nw, h/nh, 1)` (the `1` clamp is the
+ *   no-upscale rule) and center. A bitmap smaller than the frame is drawn
+ *   at natural size rather than upscaled/pixelated.
+ * - `'cover'` — crop a frame-aspect-ratio rect from the center of the
+ *   bitmap (source rect) and stretch it to the frame, so the frame is
+ *   always filled. No-upscale does not apply: covering requires filling.
+ *
+ * Falls back to `'fill'` if natural dimensions are unavailable (0), which
+ * would otherwise divide by zero.
+ */
+function drawFitted(
+  ctx: CanvasRenderingContext2D,
+  img: CanvasImageSource & { naturalWidth: number; naturalHeight: number },
+  w: number,
+  h: number,
+  fit: ImageElement['data']['fit'],
+): void {
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  if (fit === 'contain') {
+    const r = containRect(nw, nh, w, h);
+    if (r) {
+      ctx.drawImage(img, r.x, r.y, r.w, r.h);
+      return;
+    }
+  } else if (fit === 'cover') {
+    const c = coverCrop(nw, nh, w, h);
+    if (c) {
+      ctx.drawImage(img, c.x * nw, c.y * nh, c.w * nw, c.h * nh, 0, 0, w, h);
+      return;
+    }
+  }
+  ctx.drawImage(img, 0, 0, w, h);
 }
 
 /**

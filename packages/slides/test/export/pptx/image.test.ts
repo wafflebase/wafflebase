@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { imageToXml } from '../../../src/export/pptx/image.js';
 import type { ImageElement } from '../../../src/model/element.js';
+import { xfrmXml } from '../../../src/export/pptx/shape.js';
 
 const base: ImageElement = {
   id: 'i',
@@ -136,5 +137,39 @@ describe('imageToXml', () => {
     );
     expect(xml).toContain('<a:effectLst>');
     expect(xml).toContain('<a:outerShdw');
+  });
+
+  describe('fit', () => {
+    // Natural 200x100 (AR 2) into the 100x100 base frame.
+    const natural = { w: 200, h: 100 };
+    const fitted = (fit: 'fill' | 'contain' | 'cover', extra = {}) =>
+      ({ ...base, data: { ...base.data, fit, ...extra } }) as ImageElement;
+
+    it("'cover' bakes the centred crop into srcRect", () => {
+      const xml = imageToXml(fitted('cover'), 'rId1', natural);
+      // Keep the middle half horizontally: l = r = 25%, t = b = 0.
+      expect(xml).toContain('<a:srcRect l="25000" t="0" r="25000" b="0"/>');
+      expect(xml).toContain(xfrmXml(base.frame));
+    });
+
+    it("'contain' shrinks the frame to the letterboxed rect, centred", () => {
+      const xml = imageToXml(fitted('contain'), 'rId1', natural);
+      expect(xml).not.toContain('<a:srcRect');
+      expect(xml).toContain(xfrmXml({ x: 0, y: 25, w: 100, h: 50, rotation: 0 }));
+    });
+
+    it('an explicit crop wins over fit', () => {
+      const crop = { x: 0.1, y: 0.2, w: 0.7, h: 0.6 };
+      const xml = imageToXml(fitted('cover', { crop }), 'rId1', natural);
+      expect(xml).toContain('l="10000"');
+      expect(xml).toContain(xfrmXml(base.frame));
+    });
+
+    it("'fill', absent fit, or an unknown natural size export stretched as before", () => {
+      const before = imageToXml(base, 'rId1');
+      expect(imageToXml(fitted('fill'), 'rId1', natural)).toBe(before);
+      expect(imageToXml(base, 'rId1', natural)).toBe(before);
+      expect(imageToXml({ ...fitted('cover'), data: { ...base.data, fit: 'cover' } }, 'rId1', null)).toBe(before);
+    });
   });
 });
