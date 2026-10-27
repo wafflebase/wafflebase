@@ -912,10 +912,7 @@
               "--slide"
             ],
             "safety": "read-only",
-            "description": "Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default",
-            "localOutputOptions": [
-              "--allowlist"
-            ]
+            "description": "Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default"
           },
           "list": {
             "safety": "read-only",
@@ -932,7 +929,10 @@
               "--slide"
             ],
             "safety": "read-only",
-            "description": "Render slides to full-resolution PNGs via a headless browser running the real editor renderer (needs Playwright + login session)"
+            "description": "Render slides to full-resolution PNGs via a headless browser running the real editor renderer (needs Playwright + login session)",
+            "localOutputOptions": [
+              "--out"
+            ]
           },
           "set-content": {
             "valueOptions": [

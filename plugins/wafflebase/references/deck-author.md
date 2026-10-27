@@ -37,7 +37,8 @@ job, not something the CLI does.
 |------|--------|-------|
 | `slides create`, `images upload` | write | New deck / new workspace image |
 | `slides set-content <id>` | destructive | Replaces the **whole** deck. On a deck you did not just create, make a restore point first (`wafflebase docs copy <id>`) and confirm with the user |
-| `slides layout-report`, `slides lint`, `slides render` | read-only | `--file` reads a local deck; no network |
+| `slides layout-report`, `slides lint` | read-only | `--file` reads a local deck; no network |
+| `slides render` | read-only on the server, **writes local files** | Writes `slide-N.png` under `--out` (`--force` overwrites). Opens the deck in a headless browser signed in with your session: the token is set as a cookie on the web app and API origins. Only pass a `--frontend` you trust — https or loopback is enforced |
 
 ## Inputs: a source-material folder
 

@@ -9,7 +9,7 @@ import {
   parseOutputFormat,
   forwardUpstreamError,
 } from '../output/formatter.js';
-import { printDryRun } from '../client/dry-run.js';
+import { printDryRun, printDryRunUrl } from '../client/dry-run.js';
 import { authorizationHeader } from '../client/http-client.js';
 import { seg } from '../client/url.js';
 import { runSlidesImport } from '../slides/import.js';
@@ -20,7 +20,11 @@ import {
 import { writeBinary } from '../output/binary.js';
 import { createImageFetcher } from '../docs/image-fetcher.js';
 import { exportPptxCli } from '../slides/pptx-export.js';
-import { parseSlideNumber, renderSlides } from '../slides/render.js';
+import {
+  parseSlideNumber,
+  renderSlides,
+  resolveFrontendUrl,
+} from '../slides/render.js';
 import {
   layoutRows,
   parseFailOn,
@@ -274,11 +278,11 @@ export function registerSlidesCommand(program: Command) {
       try {
         const slide = parseSlideNumber(local.slide);
         if (opts.dryRun) {
-          printDryRun(
-            getConfig(opts),
-            'GET',
-            `/documents/${seg(docId)}/content`,
-          );
+          // What the command does: open the deck's editor page in a headless
+          // browser (no v1 API call of its own).
+          const config = getConfig(opts);
+          const frontend = resolveFrontendUrl(local.frontend, config.server);
+          printDryRunUrl(`${frontend}/p/${seg(docId)}`, 'GET');
           return;
         }
         await renderSlides({

@@ -1,5 +1,7 @@
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { CliConfig } from '../config/config.js';
 
 /**
@@ -51,21 +53,40 @@ export interface PlaywrightLike {
   chromium: { launch(opts?: Record<string, unknown>): Promise<PwBrowser> };
 }
 
-/** Lazily import playwright; throws {@link PlaywrightUnavailableError}. */
+/**
+ * Lazily import playwright; throws {@link PlaywrightUnavailableError}.
+ *
+ * Tried from the CLI's own location first, then from `cwd`: with a global
+ * CLI (`npm install -g`) the install hint puts Playwright in the user's
+ * project, which the CLI's own resolution cannot see.
+ */
 export async function loadPlaywright(
   importer: (name: string) => Promise<unknown> = (n) => import(n),
+  fallback: (name: string) => Promise<unknown> = importFrom(process.cwd()),
 ): Promise<PlaywrightLike> {
   let mod: unknown;
   try {
     mod = await importer('playwright');
   } catch (e) {
-    throw new PlaywrightUnavailableError(
-      e instanceof Error ? e.message.split('\n')[0] : undefined,
-    );
+    try {
+      mod = await fallback('playwright');
+    } catch {
+      throw new PlaywrightUnavailableError(
+        e instanceof Error ? e.message.split('\n')[0] : undefined,
+      );
+    }
   }
   const pw = mod as Partial<PlaywrightLike> | undefined;
   if (!pw?.chromium) throw new PlaywrightUnavailableError('no chromium export');
   return pw as PlaywrightLike;
+}
+
+/** An importer that resolves a package as if required from `dir`. */
+export function importFrom(dir: string): (name: string) => Promise<unknown> {
+  return async (name) => {
+    const path = createRequire(join(dir, 'package.json')).resolve(name);
+    return import(pathToFileURL(path).href);
+  };
 }
 
 /** Whether `--slide` was valid: a positive 1-based integer. */
@@ -126,14 +147,55 @@ export function resolveFrontendUrl(
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`--frontend must be http(s): ${url.href}`);
   }
-  // The session token is installed as a cookie on this origin: never over
-  // cleartext to a non-loopback host.
+  assertTokenSafeOrigin(url);
+  return url.origin;
+}
+
+/**
+ * The session token is installed as a cookie on every origin the editor
+ * talks to — never over cleartext to a non-loopback host. Applied to the API
+ * origin as well as the web app: `--server` is user input too.
+ */
+function assertTokenSafeOrigin(url: URL): void {
   if (url.protocol === 'http:' && !isLoopback(url.hostname)) {
     throw new Error(
       `Refusing to send a session token to ${url.origin}: it is neither https nor loopback.`,
     );
   }
-  return url.origin;
+}
+
+/** The backend's session cookie: `__Host-`-prefixed when it mints Secure cookies. */
+const SESSION_COOKIE = 'wafflebase_session';
+
+/**
+ * Cookies that sign the headless browser in on the web app and the API.
+ *
+ * Which name the backend reads is a server setting (`COOKIE_SECURE`, else the
+ * OAuth callback scheme, else `NODE_ENV`; `sessionCookieName()` in the
+ * backend) that the URL does not reveal — an https deployment can run with
+ * `COOKIE_SECURE=false` and read the unprefixed name. So an https origin gets
+ * both names; the backend reads its own and ignores the other. Plain http
+ * (loopback only) can carry only the unprefixed one: browsers refuse a
+ * `__Host-` cookie without `Secure`.
+ */
+export function sessionCookies(
+  origins: readonly string[],
+  token: string,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const origin of new Set(origins)) {
+    const url = new URL(origin);
+    assertTokenSafeOrigin(url);
+    const secure = url.protocol === 'https:';
+    const base = { value: token, url: url.origin, httpOnly: true, sameSite: 'Lax' };
+    if (secure) {
+      out.push({ ...base, name: `__Host-${SESSION_COOKIE}`, secure: true });
+      out.push({ ...base, name: SESSION_COOKIE, secure: true });
+    } else {
+      out.push({ ...base, name: SESSION_COOKIE });
+    }
+  }
+  return out;
 }
 
 function isLoopback(host: string): boolean {
@@ -180,23 +242,11 @@ export async function renderSlides(opts: RenderSlidesOptions): Promise<string[]>
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
     });
-    // Same cookie the OAuth callback writes; `__Host-` on https. Installed
-    // host-only on the web app and on the API origin, since the editor calls
-    // the API with credentials.
+    // Host-only on the web app and on the API origin, since the editor calls
+    // the API with credentials. See `sessionCookies` for the names.
     const api = new URL(config.server);
-    const origins = new Set([frontend, api.origin]);
     await context.addCookies(
-      [...origins].map((origin) => {
-        const secure = origin.startsWith('https:');
-        return {
-          name: secure ? '__Host-wafflebase_session' : 'wafflebase_session',
-          value: config.accessToken,
-          url: origin,
-          httpOnly: true,
-          sameSite: 'Lax',
-          ...(secure ? { secure: true } : {}),
-        };
-      }),
+      sessionCookies([frontend, api.origin], config.accessToken),
     );
 
     const page = await context.newPage();
@@ -212,6 +262,20 @@ export async function renderSlides(opts: RenderSlidesOptions): Promise<string[]>
         { timeout: 60_000 },
       );
     } catch {
+      // A signed-out browser is the likeliest cause and otherwise looks the
+      // same as a wrong id, so ask the API what it thinks of the session.
+      const status = await page
+        .evaluate<number>(
+          `fetch(${JSON.stringify(`${api.origin}/auth/me`)}, { credentials: 'include' })` +
+            '.then((r) => r.status, () => 0)',
+        )
+        .catch(() => 0);
+      if (status === 401 || status === 403) {
+        throw new Error(
+          `The browser is not signed in to ${api.origin} (GET /auth/me → ${status}). ` +
+            'Run `wafflebase login` again, or check --server.',
+        );
+      }
       throw new Error(
         `The deck did not load in the browser within 60s (${frontend}/p/${opts.docId}). ` +
           'Check the document id, that you can open it, and that --frontend points at the web app.',

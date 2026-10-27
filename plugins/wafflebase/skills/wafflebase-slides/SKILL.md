@@ -39,10 +39,12 @@ wafflebase slides export <id> deck.pptx
 ```
 
 Changing text inside existing slides means replacing the deck's whole
-JSON (`slides set-content`) or a PPTX (`slides import … --replace <id>`).
-Both overwrite collaborators' concurrent edits: make a `docs copy <id>`
-restore point first, say which slides change, and only pass `--yes` after
-the user approved the replace. For a one-line wording fix, offer the link
+JSON (`slides set-content <id>`, JSON on stdin or `--data`) or a PPTX
+(`slides import … --replace <id>`). Both overwrite collaborators'
+concurrent edits: make a `docs copy <id>` restore point first, say which
+slides change, and get the user's approval. Preview `set-content` with
+`--dry-run`; it has no `--yes`. Only `slides import --replace` takes
+`--yes`, and only after the user approved the replace. For a one-line wording fix, offer the link
 and the suggested text instead.
 
 To write a new deck from scratch, author it natively on the built-in

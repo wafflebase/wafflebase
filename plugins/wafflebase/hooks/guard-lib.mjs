@@ -13,7 +13,10 @@
 // node_modules.
 
 const RANK = { 'read-only': 0, write: 1, destructive: 2 };
-const CONNECTION_OPTIONS = ['--server', '--api-key', '--profile'];
+// `--frontend` (slides render) belongs here too: it names the origin the
+// session token is installed on as a browser cookie, so it routes the
+// credential exactly as `--server` does.
+const CONNECTION_OPTIONS = ['--server', '--api-key', '--profile', '--frontend'];
 /** Shells that run their `-c` string, and `eval`, which runs its words. */
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']);
 
@@ -267,7 +270,9 @@ function connectionOptions(words) {
     if (!CONNECTION_OPTIONS.includes(name)) continue;
     const value = eq >= 0 ? t.slice(eq + 1) : words[i + 1]?.text;
     // Name the server, never echo a key or profile into the transcript.
-    out.push(name === '--server' && value ? `${name} ${value}` : name);
+    out.push(
+      (name === '--server' || name === '--frontend') && value ? `${name} ${value}` : name,
+    );
   }
   return out;
 }

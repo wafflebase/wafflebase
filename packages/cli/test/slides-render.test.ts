@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { accessSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  accessSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -8,10 +15,12 @@ import type { AddressInfo } from 'node:net';
 import {
   PlaywrightUnavailableError,
   decodePngDataUrl,
+  importFrom,
   loadPlaywright,
   parseSlideNumber,
   renderSlides,
   resolveFrontendUrl,
+  sessionCookies,
   slideFileName,
   slidesToRender,
   type PlaywrightLike,
@@ -65,13 +74,56 @@ describe('slides render: pure parts', () => {
   });
 });
 
+describe('slides render: session cookies', () => {
+  const names = (cs: Array<Record<string, unknown>>) =>
+    cs.map((c) => `${c.url} ${c.name}${c.secure ? ' secure' : ''}`);
+
+  it('sets both cookie names on https, since the URL does not reveal which the server reads', () => {
+    expect(names(sessionCookies(['https://app.example', 'https://api.example'], 't'))).toEqual([
+      'https://app.example __Host-wafflebase_session secure',
+      'https://app.example wafflebase_session secure',
+      'https://api.example __Host-wafflebase_session secure',
+      'https://api.example wafflebase_session secure',
+    ]);
+  });
+
+  it('sets only the unprefixed name on loopback http, once per origin', () => {
+    expect(
+      names(sessionCookies(['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5173'], 't')),
+    ).toEqual([
+      'http://localhost:5173 wafflebase_session',
+      'http://localhost:3000 wafflebase_session',
+    ]);
+  });
+
+  it('refuses a cleartext non-loopback API origin, not only the frontend', () => {
+    expect(() =>
+      sessionCookies(['https://app.example', 'http://api.internal.example'], 't'),
+    ).toThrow(/Refusing to send a session token to http:\/\/api\.internal\.example/);
+  });
+});
+
 describe('slides render: degrade without Playwright', () => {
   it('throws an actionable error when playwright cannot be imported', async () => {
-    const err = await loadPlaywright(async () => {
+    const missing = async () => {
       throw new Error("Cannot find package 'playwright'");
-    }).catch((e) => e);
+    };
+    const err = await loadPlaywright(missing, missing).catch((e) => e);
     expect(err).toBeInstanceOf(PlaywrightUnavailableError);
     expect(err.message).toMatch(/playwright install chromium/);
+  });
+
+  it('falls back to the playwright installed in the working directory', async () => {
+    // A global CLI cannot see a project-local install; the hint creates one.
+    const project = mkdtempSync(join(tmpdir(), 'wb-pw-'));
+    const pkg = join(project, 'node_modules', 'playwright');
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), '{"name":"playwright","main":"index.js"}');
+    writeFileSync(join(pkg, 'index.js'), 'exports.chromium = { launch() {} };');
+    const pw = await loadPlaywright(async () => {
+      throw new Error("Cannot find package 'playwright'");
+    }, importFrom(project));
+    expect(typeof pw.chromium.launch).toBe('function');
   });
 
   it('refuses API-key auth before touching the browser', async () => {
@@ -167,6 +219,19 @@ describe.skipIf(!repoPlaywright)('slides render: browser', () => {
         quiet: true,
       });
       expect(readdirSync(one)).toEqual(['slide-3.png']);
+
+      // An existing PNG is not overwritten without --force.
+      const again = {
+        docId: 'doc-1',
+        outDir: one,
+        slide: 3,
+        frontend: `http://127.0.0.1:${port}`,
+        config,
+        playwright: repoPlaywright!,
+        quiet: true,
+      };
+      await expect(renderSlides(again)).rejects.toThrow(/Pass --force/);
+      await expect(renderSlides({ ...again, force: true })).resolves.toHaveLength(1);
     } finally {
       server.close();
     }
