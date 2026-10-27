@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { MAX_DECK_SLIDE_HEIGHT } from '@wafflebase/slides';
 import {
   ApiV1DocsContentController,
   assertValidSlidesBody,
@@ -243,7 +244,7 @@ describe('ApiV1DocsContentController', () => {
       );
     });
 
-    it('writes a slides body via doc.update and echoes it back', async () => {
+    it('writes a slides body via doc.update and returns the stored deck', async () => {
       const deck = makeSlidesFixture();
       documentService.getDocumentOrThrow.mockResolvedValue({
         id: 'd1',
@@ -267,7 +268,9 @@ describe('ApiV1DocsContentController', () => {
 
       const result = await putContent('ws-1', 'd1', deck);
 
-      expect(result).toEqual(deck);
+      // The writer normalizes a missing `guides` to `[]`, and the response is
+      // the stored deck rather than the request body.
+      expect(result).toEqual({ ...deck, guides: [] });
       // writeSlidesRoot assigns top-level slides fields onto the root.
       expect(capturedRoot.meta).toEqual(deck.meta);
       expect(capturedRoot.slides).toEqual(deck.slides);
@@ -276,6 +279,44 @@ describe('ApiV1DocsContentController', () => {
         expect.any(Function),
         { docKeyPrefix: 'slides-' },
       );
+    });
+
+    it('keeps PPTX meta through PUT and returns the stored, clamped meta', async () => {
+      const base = makeSlidesFixture();
+      const deck = {
+        ...base,
+        meta: { ...base.meta, pxPerPt: 2.667, slideHeight: 1e12 },
+      };
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'slides',
+      });
+      const capturedRoot: Record<string, unknown> = {};
+      type FakeDoc = {
+        update: (fn: (root: Record<string, unknown>) => void) => void;
+        getRoot: () => Record<string, unknown>;
+      };
+      yorkieService.withDocument.mockImplementation(
+        (_id: string, cb: (doc: FakeDoc) => unknown) =>
+          Promise.resolve(
+            cb({
+              update: (fn) => fn(capturedRoot),
+              getRoot: () => capturedRoot,
+            }),
+          ),
+      );
+
+      const result = (await putContent('ws-1', 'd1', deck)) as {
+        meta: Record<string, unknown>;
+      };
+
+      expect(capturedRoot.meta).toMatchObject({
+        pxPerPt: 2.667,
+        slideHeight: MAX_DECK_SLIDE_HEIGHT,
+      });
+      // The response is what was stored, not the request body.
+      expect(result.meta).toEqual(capturedRoot.meta);
     });
 
     it('writes a note body via doc.update and echoes it back', async () => {

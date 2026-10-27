@@ -31,7 +31,11 @@ import type {
 } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, scaleLayoutsByFactor, slotRefsForLayout } from '../model/layout';
-import { deckSlideHeight, pushRecent } from '../model/presentation';
+import {
+  deckSlideHeight,
+  MAX_DECK_SLIDE_HEIGHT,
+  pushRecent,
+} from '../model/presentation';
 import { scaleElementHeight } from '../model/slide-size';
 import { DEFAULT_MASTER } from '../model/master';
 import type { Master } from '../model/master';
@@ -457,6 +461,9 @@ export class MemSlidesStore implements SlidesStore {
     if (!Number.isFinite(height) || height <= 0) {
       throw new Error(`[slides] invalid slide height '${height}'`);
     }
+    // Store no more than `deckSlideHeight` will render, or the deck is
+    // rescaled by one factor and drawn at another.
+    height = Math.min(MAX_DECK_SLIDE_HEIGHT, height);
     const oldH = deckSlideHeight(this.doc.meta);
     if (height === oldH) return;
     const factor = height / oldH;

@@ -1,5 +1,10 @@
 import type { Guide, GuideAxis, SlidesDocument } from './presentation';
-import { MAX_RECENT_COLORS } from './presentation';
+import {
+  DOCS_PX_PER_PT,
+  MAX_DECK_FONT_SCALE,
+  MAX_DECK_SLIDE_HEIGHT,
+  MAX_RECENT_COLORS,
+} from './presentation';
 import type { Fill, GradientFill, ThemeColor } from './theme';
 import { DEFAULT_MASTER } from './master';
 import { generateId } from './element';
@@ -40,8 +45,10 @@ export function migrateMeta(rawMeta: unknown): import('./presentation').Meta {
   // from `<p:sldSz>`; without the migrate-time copy the field is
   // dropped on every Yorkie read and the renderer falls back to the
   // 96-DPI docs default — which is exactly the original bug.
+  // Clamped to the value at which {@link deckFontScale} saturates, so the
+  // stored number never exceeds what any reader would honour.
   if (typeof m?.pxPerPt === 'number' && Number.isFinite(m.pxPerPt) && m.pxPerPt > 0) {
-    meta.pxPerPt = m.pxPerPt;
+    meta.pxPerPt = Math.min(MAX_DECK_FONT_SCALE * DOCS_PX_PER_PT, m.pxPerPt);
   }
   // Preserve the per-deck logical height. Like pxPerPt, non-16:9 decks
   // set this from `<p:sldSz>`; without the migrate-time copy the field is
@@ -52,7 +59,9 @@ export function migrateMeta(rawMeta: unknown): import('./presentation').Meta {
     Number.isFinite(m.slideHeight) &&
     m.slideHeight > 0
   ) {
-    meta.slideHeight = m.slideHeight;
+    // Clamped like {@link deckSlideHeight}: `meta` is written by peers and by
+    // `PUT .../content` with no band of its own.
+    meta.slideHeight = Math.min(MAX_DECK_SLIDE_HEIGHT, m.slideHeight);
   }
   // Preserve recent colors. Re-enforce the same normalization `pushRecent`
   // applies on write (lower-case, de-dupe most-recent-first, cap at

@@ -402,8 +402,11 @@ an inline needs a string `text` and a `style` object; a table cell needs a
   empty shape in*: a missing `inlines` becomes `[]` and a missing inline
   `style` becomes `{}` — semantically identical to the value that was missing,
   and exactly what the readers would otherwise have to assume. The repair
-  happens before the write and the endpoint echoes the repaired body, so what
-  the caller sees is what is stored. A value that is *present but wrong* is
+  happens before the write, and the slides arm answers with a re-read of the
+  stored deck (inside the same attach), so what the caller sees is what is
+  stored — including `meta` after `migrateMeta` has dropped invalid optional
+  fields and clamped `pxPerPt` / `slideHeight` to the ceilings every reader
+  honours, and `guides` normalized to `[]`. A value that is *present but wrong* is
   still a 400: `inlines` must be an array, each entry an object with a string
   `text`, and a present `style` must be an object.
 - The same repair covers every other field a stored deck's readers dereference

@@ -28,6 +28,7 @@ export {
   deckSlideHeight,
   DEFAULT_BACKGROUND,
   MAX_DECK_FONT_SCALE,
+  MAX_DECK_SLIDE_HEIGHT,
   MAX_RECENT_COLORS,
   pushRecent,
   resolveBackgroundFill,

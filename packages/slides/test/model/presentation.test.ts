@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   DOCS_PX_PER_PT,
   MAX_DECK_FONT_SCALE,
+  MAX_DECK_SLIDE_HEIGHT,
   MAX_RECENT_COLORS,
+  SLIDE_HEIGHT,
   SLIDE_WIDTH,
   deckFontScale,
+  deckSlideHeight,
   pushRecent,
 } from '../../src/model/presentation';
 
@@ -54,6 +57,34 @@ describe('deckFontScale', () => {
       MAX_DECK_FONT_SCALE,
       9,
     );
+  });
+});
+
+describe('deckSlideHeight', () => {
+  it('falls back to SLIDE_HEIGHT when absent or invalid', () => {
+    expect(deckSlideHeight({})).toBe(SLIDE_HEIGHT);
+    expect(deckSlideHeight({ slideHeight: 0 })).toBe(SLIDE_HEIGHT);
+    expect(deckSlideHeight({ slideHeight: -1 })).toBe(SLIDE_HEIGHT);
+    expect(deckSlideHeight({ slideHeight: NaN })).toBe(SLIDE_HEIGHT);
+    expect(deckSlideHeight({ slideHeight: Infinity })).toBe(SLIDE_HEIGHT);
+  });
+
+  it('returns a 4:3 deck height unchanged', () => {
+    expect(deckSlideHeight({ slideHeight: 1440 })).toBe(1440);
+  });
+
+  it(`clamps a finite slideHeight at MAX_DECK_SLIDE_HEIGHT (${MAX_DECK_SLIDE_HEIGHT})`, () => {
+    // Every renderer sizes a canvas or DOM box from this height, and
+    // `meta` is writable by a peer and by `PUT .../content` with only a
+    // finite-positive check, so `1e12` must not reach a canvas.
+    expect(deckSlideHeight({ slideHeight: 1e12 })).toBe(MAX_DECK_SLIDE_HEIGHT);
+  });
+
+  it('leaves the tallest deck OOXML can express unclamped', () => {
+    // `ST_SlideSizeCoordinate` spans 1″‥56″, so the tallest aspect the
+    // PPTX importer can compute is 56:1.
+    const tallest = Math.round((SLIDE_WIDTH * 51_206_400) / 914_400);
+    expect(deckSlideHeight({ slideHeight: tallest })).toBe(tallest);
   });
 });
 
