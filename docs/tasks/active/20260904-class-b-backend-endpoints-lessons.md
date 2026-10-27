@@ -13,11 +13,11 @@
   back on read. A backend writer that stores a plain `Date.now()` produces
   threads the editor renders with a wrong date; `toYorkieMs`/`fromYorkieMs`
   in `yorkie/comment-ops.ts` mirror the frontend helpers.
-- **`readSlidesRoot` is lossy.** It returns a `meta` of exactly
-  `{ title, themeId, masterId }`, so a granular slide op implemented as
-  read → mutate → `writeSlidesRoot` would silently drop `unit`, `pxPerPt`,
-  `slideHeight` and `recentColors`. Writing back only `root.slides` keeps the
-  edit narrow and the loss impossible.
+- **`readSlidesRoot` was lossy.** It used to return a `meta` of exactly
+  `{ title, themeId, masterId }`, dropping `unit`, `pxPerPt`, `slideHeight`
+  and `recentColors` (fixed in #1108). Writing back only `root.slides` is
+  still the rule for granular slide ops: a whole-root write is last-write-wins
+  over every collaborator's concurrent edit.
 
 ## Verification gaps
 

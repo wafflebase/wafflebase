@@ -9,6 +9,7 @@ import {
   prstToShapeKind,
   rotEmuToRad,
 } from '../../../src/import/pptx/geometry';
+import { MAX_DECK_SLIDE_HEIGHT } from '../../../src/model/presentation';
 import { parseXml } from '../../../src/import/pptx/xml';
 
 describe('emuScale', () => {
@@ -59,6 +60,17 @@ describe('deckLogicalHeight', () => {
 
   it('gives a 4:3 deck a taller 1440 logical canvas', () => {
     expect(deckLogicalHeight({ cx: 9_144_000, cy: 6_858_000 })).toBe(1440);
+  });
+
+  it('clamps an out-of-spec sldSz at MAX_DECK_SLIDE_HEIGHT', () => {
+    // 1″ wide × 100″ tall exceeds ST_SlideSizeCoordinate's 56″ ceiling.
+    expect(deckLogicalHeight({ cx: EMU_PER_INCH, cy: 100 * EMU_PER_INCH })).toBe(
+      MAX_DECK_SLIDE_HEIGHT,
+    );
+    // The tallest in-spec deck (56:1) is left as computed.
+    expect(deckLogicalHeight({ cx: EMU_PER_INCH, cy: 56 * EMU_PER_INCH })).toBe(
+      MAX_DECK_SLIDE_HEIGHT,
+    );
   });
 
   it('falls back to 1080 for invalid dimensions', () => {

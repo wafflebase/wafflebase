@@ -45,6 +45,7 @@ import {
   buildElementWorldLookup,
   computeConnectorFrame,
   deckSlideHeight,
+  MAX_DECK_SLIDE_HEIGHT,
   defaultDark,
   defaultLight,
   flattenElements,
@@ -1466,6 +1467,9 @@ export class YorkieSlidesStore implements SlidesStore {
     if (!Number.isFinite(height) || height <= 0) {
       throw new Error(`[slides] invalid slide height '${height}'`);
     }
+    // Store no more than `deckSlideHeight` will render, or the deck is
+    // rescaled by one factor and drawn at another.
+    height = Math.min(MAX_DECK_SLIDE_HEIGHT, height);
     this.withUpdate((r) => {
       const oldH = deckSlideHeight(
         r.meta as unknown as { slideHeight?: number },

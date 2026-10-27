@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemSlidesStore } from '../../src/store/memory';
+import { MAX_DECK_SLIDE_HEIGHT } from '../../src/model/presentation';
 import type { GroupElement, TableElement } from '../../src/model/element';
 import type { ConnectorElement } from '../../src/model/connector';
 import { applyGroupTransform } from '../../src/model/group';
@@ -33,6 +34,23 @@ describe('MemSlidesStore.setSlideHeight', () => {
     expect(f.w).toBe(400);
     expect(f.y).toBeCloseTo(400, 6); // 300 * 4/3
     expect(f.h).toBeCloseTo(266.6667, 3); // 200 * 4/3
+  });
+
+  it('clamps a height above MAX_DECK_SLIDE_HEIGHT and scales by the clamped factor', () => {
+    const [store, sid] = seed();
+    let id!: string;
+    store.batch(() => {
+      id = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 108, w: 10, h: 10, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    store.batch(() => store.setSlideHeight(1e12));
+    const doc = store.read();
+    expect(doc.meta.slideHeight).toBe(MAX_DECK_SLIDE_HEIGHT);
+    const f = doc.slides[0].elements.find((e) => e.id === id)!.frame;
+    expect(f.y).toBeCloseTo((108 * MAX_DECK_SLIDE_HEIGHT) / 1080, 6);
   });
 
   it('is a no-op when the height is unchanged', () => {
