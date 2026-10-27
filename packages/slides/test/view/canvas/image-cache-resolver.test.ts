@@ -6,6 +6,7 @@ import {
   setImageUrlResolver,
   evictImageSrcs,
   clearImageCacheForTests,
+  hasPendingImageLoads,
 } from '../../../src/view/canvas/image-cache';
 
 // Captures every constructed image so a test can inspect the URL actually
@@ -83,5 +84,18 @@ describe('setImageUrlResolver', () => {
     evictImageSrcs([LOGICAL]);
     getOrLoadImage(LOGICAL, () => undefined);
     expect(created).toHaveLength(2);
+  });
+});
+
+describe('hasPendingImageLoads', () => {
+  it('is true from the first request until the load settles (here: fails)', async () => {
+    setImageUrlResolver(null);
+    expect(hasPendingImageLoads()).toBe(false);
+    getOrLoadImage('/a.png', () => undefined);
+    expect(hasPendingImageLoads()).toBe(true);
+    // CORS attempt fails, the plain retry fails, then callbacks flush.
+    for (let i = 0; i < 5 && hasPendingImageLoads(); i++) await flush();
+    expect(isImageFailed('/a.png')).toBe(true);
+    expect(hasPendingImageLoads()).toBe(false);
   });
 });

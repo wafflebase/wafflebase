@@ -46,16 +46,18 @@ export function checkContrast(
     const ink = inkBox(p, tl);
     const ys = ink.y + ink.h / 2;
     const xs = [ink.x + ink.w * 0.1, ink.x + ink.w / 2, ink.x + ink.w * 0.9];
+    // The backdrop depends only on the element and the sample point, not on
+    // the run, so it is resolved once per point rather than per run.
+    const unders = xs.map((x) => backdropAt(p, placed, x, ys, slide, ctx, theme));
 
     let worst: { ratio: number; need: number; fg: Rgba; bg: Rgba; pt: number } | undefined;
     for (const run of textRuns(tl, p.scale)) {
       const fg = textColor(run.color, theme);
       if (!fg) continue;
       const need = run.pt >= 18 || (run.bold && run.pt >= 14) ? 3 : 4.5;
-      for (const x of xs) {
-        // An inline highlight is the run's own backdrop.
-        const hl = run.highlight != null ? textColor(run.highlight, theme) : undefined;
-        const under = backdropAt(p, placed, x, ys, slide, ctx, theme);
+      // An inline highlight is the run's own backdrop.
+      const hl = run.highlight != null ? textColor(run.highlight, theme) : undefined;
+      for (const under of unders) {
         const backdrops =
           hl && hl.a >= 1 ? [hl] : hl && under ? under.map((u) => over(hl, u)) : under;
         if (!backdrops) continue;

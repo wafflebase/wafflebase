@@ -45,6 +45,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const doc = JSON.parse(await readFile(path.resolve(args.file), "utf8"));
   const count = doc.slides?.length ?? 0;
+  if (count === 0) throw new Error(`${args.file} has no slides to render`);
   const indices =
     args.slide !== undefined ? [args.slide - 1] : Array.from({ length: count }, (_, i) => i);
   if (indices.some((i) => i >= count)) {
@@ -74,7 +75,10 @@ async function main() {
         [doc, i],
       );
       if (!url) {
+        // Keep going so the other slides are written, but fail the run: an
+        // agent in the authoring loop must not read a missing PNG as success.
         console.error(`slide ${i + 1}: not renderable`);
+        process.exitCode = 1;
         continue;
       }
       const file = path.join(path.resolve(args.out), `slide-${i + 1}.png`);

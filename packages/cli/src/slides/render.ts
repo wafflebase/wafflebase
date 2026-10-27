@@ -297,7 +297,7 @@ export async function renderSlides(opts: RenderSlidesOptions): Promise<string[]>
       );
       if (!dataUrl) {
         throw new Error(
-          `Slide ${n} could not be rendered (empty or a third-party image tainted the canvas).`,
+          `Slide ${n} could not be rendered: a third-party image tainted the canvas, or an image did not finish loading within 20s.`,
         );
       }
       const target = join(outDir, slideFileName(n));

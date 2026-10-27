@@ -186,6 +186,11 @@ describe('slide compositions', () => {
       w: 100,
       h: 50,
     });
+    // Comma-separated and negative-origin viewBoxes; malformed ones fall
+    // through to width/height, or to null.
+    expect(svgIntrinsicSize('<svg viewBox="-10,-10,320,180">')).toEqual({ w: 320, h: 180 });
+    expect(svgIntrinsicSize('<svg viewBox="0 0 x 1">')).toBeNull();
+    expect(svgIntrinsicSize(`<svg viewBox="${'1 '.repeat(50_000)}">`)).toBeNull();
     const els = validate(diagram(SVG, { alt: 'arch' }));
     const img = els[0] as any;
     expect(img.type).toBe('image');
@@ -210,5 +215,9 @@ describe('slide compositions', () => {
     const b = frameOf(call);
     expect(a.x + a.w).toBeLessThanOrEqual(b.x);
     expect(b.y + b.h).toBeLessThanOrEqual(frameOf(ft).y);
+  });
+
+  it('frameOf refuses an empty composition', () => {
+    expect(() => frameOf([])).toThrow(/empty composition/);
   });
 });

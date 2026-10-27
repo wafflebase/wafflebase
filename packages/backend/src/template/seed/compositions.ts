@@ -593,12 +593,12 @@ export type DiagramOptions = Common & {
 export function svgIntrinsicSize(svg: string): { w: number; h: number } | null {
   const tag = /<svg\b[^>]*>/i.exec(svg)?.[0];
   if (!tag) return null;
-  const vb =
-    /\bviewBox\s*=\s*["']\s*[-\d.eE]+[\s,]+[-\d.eE]+[\s,]+([\d.eE]+)[\s,]+([\d.eE]+)\s*["']/i.exec(
-      tag,
-    );
-  if (vb && Number(vb[1]) > 0 && Number(vb[2]) > 0)
-    return { w: Number(vb[1]), h: Number(vb[2]) };
+  // Take the attribute value and split it, rather than matching the four
+  // numbers in one pattern: simpler, and no backtracking on a crafted tag.
+  const vb = /\bviewBox\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1];
+  const parts = vb?.trim().split(/[\s,]+/).map(Number);
+  if (parts?.length === 4 && parts[2] > 0 && parts[3] > 0)
+    return { w: parts[2], h: parts[3] };
   const w = /\swidth\s*=\s*["']([\d.]+)(?:px)?["']/i.exec(tag);
   const h = /\sheight\s*=\s*["']([\d.]+)(?:px)?["']/i.exec(tag);
   if (w && h && Number(w[1]) > 0 && Number(h[1]) > 0)

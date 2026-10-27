@@ -1,10 +1,11 @@
 /**
  * Browser half of `render-slides.mjs`: exposes the editor's own offscreen
  * slide renderer (`renderSlideCanvas`, the call the left rail and the
- * template thumbnail make) to the Playwright driver.
+ * template thumbnail make) to the Playwright driver — through the same
+ * settle-until-images-load capture `wafflebase slides render` uses.
  */
 import type { SlidesDocument } from "@wafflebase/slides";
-import { renderSlideCanvas } from "../src/app/slides/slides-thumbnail";
+import { createSlideRenderHook } from "../src/app/slides/slide-render-hook";
 
 declare global {
   interface Window {
@@ -12,7 +13,4 @@ declare global {
   }
 }
 
-window.__renderSlide = async (doc, index) => {
-  const canvas = await renderSlideCanvas(doc, index);
-  return canvas ? canvas.toDataURL("image/png") : null;
-};
+window.__renderSlide = (doc, index) => createSlideRenderHook(() => doc).render(index);

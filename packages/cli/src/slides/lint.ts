@@ -43,14 +43,15 @@ export async function readDeckFile(file: string): Promise<SlidesDocument> {
   if (extname(file).toLowerCase() === '.pptx') {
     return (await importPptx(new Uint8Array(bytes))).document;
   }
-  const parsed = JSON.parse(bytes.toString('utf8')) as
-    | SlidesDocument
-    | { document: SlidesDocument };
-  const doc = 'document' in parsed ? parsed.document : parsed;
+  const parsed: unknown = JSON.parse(bytes.toString('utf8'));
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new Error(`${file} is not a slides document (not a JSON object)`);
+  }
+  const doc = 'document' in parsed ? (parsed as { document: SlidesDocument }).document : parsed;
   if (!doc || !Array.isArray((doc as SlidesDocument).slides)) {
     throw new Error(`${file} is not a slides document (no "slides" array)`);
   }
-  return doc;
+  return doc as SlidesDocument;
 }
 
 /** `slides layout-report` rows: one per element, flat so `--format table` reads well. */
@@ -138,7 +139,19 @@ export function runLint(
   const findings = lintSlides(doc, { rules: opts.rules }).filter(
     (f) => opts.slide === undefined || f.slideIndex === opts.slide - 1,
   );
-  const { open, allowed, unused } = applyAllowlist(findings, opts.allowlist ?? []);
+  const { open, allowed, unused: unmatched } = applyAllowlist(
+    findings,
+    opts.allowlist ?? [],
+  );
+  // `--slide` / `--rules` narrow the findings, so an entry for another slide
+  // or rule matched nothing because it was never looked at — not stale.
+  const slideId =
+    opts.slide === undefined ? undefined : doc.slides[opts.slide - 1]?.id;
+  const unused = unmatched.filter(
+    (e) =>
+      (slideId === undefined || e.slideId === slideId) &&
+      (opts.rules === undefined || opts.rules.includes(e.rule as LintRuleId)),
+  );
   const fails =
     opts.failOn !== 'never' &&
     open.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[opts.failOn as LintSeverity]);

@@ -223,6 +223,7 @@ export { drawImage } from './view/canvas/image-renderer';
 export { renderThumbnail, ThumbnailScheduler } from './view/canvas/thumbnail';
 export {
   getOrLoadImage,
+  hasPendingImageLoads,
   setImageUrlResolver,
 } from './view/canvas/image-cache';
 export { renderShapeIcon } from './view/canvas/shape-icon';

@@ -89,6 +89,13 @@ describe('lintSlides', () => {
     expect(lint(deck([[text('t', frame(200, 200, 800, 200), 'Hello')]]))).toEqual([]);
   });
 
+  it('treats a slide without `elements` as empty instead of crashing', () => {
+    const d = deck([[]]);
+    delete (d.slides[0] as Partial<Slide>).elements;
+    expect(lint(d)).toEqual([]);
+    expect(layoutReport(d)[0].elements).toEqual([]);
+  });
+
   it('orders findings by slide and carries id, index and text', () => {
     const d = deck([
       [text('a', frame(200, 200, 600, 100), 'pale', {}),],
@@ -114,6 +121,33 @@ describe('contrast', () => {
     const large = deck([[text('t', frame(200, 200, 900, 200), [para('mid', 40, '#949494')])]]);
     expect(rules(small, 'contrast')).toHaveLength(1);
     expect(rules(large, 'contrast')).toEqual([]);
+  });
+
+  it('reads a group child\'s backdrop from its group siblings painted before it', () => {
+    // A card group: dark rect, then white text over it. Fine inside the
+    // group; the same white text on the white slide alone would fail.
+    const group = (children: Element[]) =>
+      ({
+        id: 'g',
+        type: 'group',
+        frame: frame(100, 100, 1000, 400),
+        data: { children, refSize: { w: 1000, h: 400 } },
+      }) as unknown as Element;
+    const card = deck([
+      [
+        group([
+          rect('card', frame(0, 0, 1000, 400), { kind: 'srgb', value: '#202124' }),
+          text('label', frame(100, 100, 600, 100), [para('Label', 24, '#ffffff')]),
+        ]),
+      ],
+    ]);
+    expect(rules(card, 'contrast')).toEqual([]);
+    const bare = deck([
+      [group([text('label', frame(100, 100, 600, 100), [para('Label', 24, '#ffffff')])])],
+    ]);
+    expect(rules(bare, 'contrast')).toEqual([
+      expect.objectContaining({ elementId: 'label', severity: 'error' }),
+    ]);
   });
 
   it('reads the backdrop from a filled shape under the text', () => {

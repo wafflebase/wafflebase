@@ -208,12 +208,11 @@ describe('decorate presets', () => {
   it.each<Decor>(['plain', 'geo', 'dots', 'band', 'diagonal', 'sidebar'])(
     '%s leaves text in its theme colour',
     (decor) => {
+      // Exactly the colours the layout + theme gave it, not merely "not
+      // background": an undecorated build of the same slide is the reference.
+      const reference = placeholders(one('title-slide', [['Title'], ['Subtitle']]));
       const s = one('title-slide', [['Title'], ['Subtitle']], decor);
-      for (const t of placeholders(s)) {
-        for (const c of inlineColors(t)) {
-          expect(c).not.toEqual({ kind: 'role', role: 'background' });
-        }
-      }
+      expect(placeholders(s).map(inlineColors)).toEqual(reference.map(inlineColors));
     },
   );
 

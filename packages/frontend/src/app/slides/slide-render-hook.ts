@@ -1,4 +1,4 @@
-import type { SlidesDocument } from "@wafflebase/slides";
+import { hasPendingImageLoads, type SlidesDocument } from "@wafflebase/slides";
 import { renderSlideCanvas } from "./slides-thumbnail";
 
 /**
@@ -13,7 +13,11 @@ import { renderSlideCanvas } from "./slides-thumbnail";
 export interface SlideRenderHook {
   /** Number of slides in the loaded deck; 0 until the deck has loaded. */
   count(): number;
-  /** Slide `index` (0-based) as a PNG data URL, or null if unrenderable. */
+  /**
+   * Slide `index` (0-based) as a PNG data URL, or null if unrenderable: no
+   * such slide, a third-party image tainted the canvas, or an image was still
+   * loading when the settle timeout ran out.
+   */
   render(index: number): Promise<string | null>;
 }
 
@@ -23,15 +27,55 @@ declare global {
   }
 }
 
+export interface SlideRenderHookDeps {
+  render?: (
+    doc: SlidesDocument,
+    index: number,
+  ) => Promise<{ toDataURL(type: string): string } | null>;
+  pendingImages?: () => boolean;
+  /** Longest a slide may wait for its images before the capture gives up. */
+  settleTimeoutMs?: number;
+  pollMs?: number;
+}
+
+/**
+ * Paint, and repaint until no image is still loading.
+ * `renderSlideCanvas` waits one short window for late assets, which suits a
+ * gallery thumbnail; a capture the user asked for must not encode a slide
+ * whose image has not arrived yet. Past the timeout it reports the slide as
+ * unrenderable rather than returning a PNG with a hole in it.
+ */
+async function renderSettled(
+  doc: SlidesDocument,
+  index: number,
+  deps: Required<SlideRenderHookDeps>,
+) {
+  const deadline = Date.now() + deps.settleTimeoutMs;
+  for (;;) {
+    const canvas = await deps.render(doc, index);
+    if (!canvas || !deps.pendingImages()) return canvas;
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, deps.pollMs));
+  }
+}
+
 export function createSlideRenderHook(
   read: () => SlidesDocument | null,
+  deps: SlideRenderHookDeps = {},
 ): SlideRenderHook {
+  const resolved: Required<SlideRenderHookDeps> = {
+    render: renderSlideCanvas,
+    pendingImages: hasPendingImageLoads,
+    settleTimeoutMs: 20_000,
+    pollMs: 200,
+    ...deps,
+  };
   return {
     count: () => read()?.slides?.length ?? 0,
     async render(index) {
       const doc = read();
       if (!doc) return null;
-      const canvas = await renderSlideCanvas(doc, index);
+      const canvas = await renderSettled(doc, index, resolved);
       if (!canvas) return null;
       try {
         return canvas.toDataURL("image/png");

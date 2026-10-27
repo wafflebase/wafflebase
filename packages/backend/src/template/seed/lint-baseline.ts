@@ -25,14 +25,4 @@ export const LINT_BASELINE: LintBaselineEntry[] = [
       'measures 4.4:1, just under the 4.5:1 a 16pt subtitle needs. A theme color change, ' +
       'left for a template follow-up.',
   },
-  {
-    template: 'marketing-campaign',
-    slide: 1,
-    rule: 'contrast',
-    text: '<campaign> · <period>',
-    reason:
-      'Known defect, not intentional: the block cover paints the white subtitle on the pop ' +
-      'theme #ff2e63 accent at 3.6:1 (16pt needs 4.5:1), the block-preset problem already ' +
-      'fixed for the workshop cover. Left for a template follow-up.',
-  },
 ];

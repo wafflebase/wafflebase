@@ -124,8 +124,12 @@ export type PlacedElement = {
 export function placeElements(slide: Slide, ctx: DeckContext): PlacedElement[] {
   const out: PlacedElement[] = [];
   const ignore = new Set(ctx.opts.ignoreElementIds);
-  const world = buildElementWorldLookup(slide.elements);
-  slide.elements.forEach((el, z) => {
+  // Agent-authored JSON may omit `elements` on an empty slide; treat it as
+  // empty rather than crash, as the background lookup tolerates a missing
+  // `background`.
+  const elements = slide.elements ?? [];
+  const world = buildElementWorldLookup(elements);
+  elements.forEach((el, z) => {
     if (el.type === 'connector' || ignore.has(el.id)) return;
     out.push({ el, box: boundingBox(el.frame), z, nested: false, world: el.frame, scale: 1 });
     if (el.type === 'group') {
