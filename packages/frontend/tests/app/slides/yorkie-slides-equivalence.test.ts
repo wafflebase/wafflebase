@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import {
+  MAX_DECK_SLIDE_HEIGHT,
   MemSlidesStore,
   type SlidesDocument,
   type SlidesStore,
@@ -162,6 +163,24 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
         .placeholders.find((p) => p.placeholder.type === 'subtitle')!.frame.y;
     expect(subY(mem)).toBeCloseTo(800, 3); // 600 * 4/3
     expect(subY(yo)).toBeCloseTo(subY(mem), 3);
+  });
+
+  it('setSlideHeight clamps an oversized height identically across stores', () => {
+    const { mem, yo } = runBoth((store) => {
+      let sid = '';
+      store.batch(() => { sid = store.addSlide('blank'); });
+      store.batch(() => {
+        store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 0, y: 108, w: 10, h: 10, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+      });
+      store.batch(() => store.setSlideHeight(1e12));
+    });
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+    expect(mem.meta.slideHeight).toBe(MAX_DECK_SLIDE_HEIGHT);
+    expect(yo.meta.slideHeight).toBe(MAX_DECK_SLIDE_HEIGHT);
   });
 
   it('setSlideHeight keeps a connector attached to a grouped element in sync', () => {

@@ -1,6 +1,7 @@
 import type { Frame } from '../../model/element';
 import type { ShapeKind } from '../../model/element';
 import { PATH_BUILDERS } from '../../view/canvas/shapes';
+import { MAX_DECK_SLIDE_HEIGHT } from '../../model/presentation';
 import { attr, attrInt, child } from './xml';
 
 /** EMU per inch — fundamental OOXML constant. */
@@ -38,7 +39,9 @@ export function emuScale(slideSizeEmu: { cx: number; cy: number }): EmuScale {
  * Per-deck logical slide height in px. Width is fixed at 1920, so height
  * follows the deck's aspect: `round(1920 × cy/cx)`. A 16:9 deck yields
  * 1080; a 4:3 (10"×7.5") deck yields 1440. Invalid dimensions ⇒ 1080.
- * The importer records this on `meta.slideHeight`.
+ * The importer records this on `meta.slideHeight`. Clamped to
+ * {@link MAX_DECK_SLIDE_HEIGHT}, which only an out-of-spec `<p:sldSz>` can
+ * exceed, so the deck is laid out at the height it will render at.
  */
 export function deckLogicalHeight(slideSizeEmu: { cx: number; cy: number }): number {
   const { cx, cy } = slideSizeEmu;
@@ -48,7 +51,7 @@ export function deckLogicalHeight(slideSizeEmu: { cx: number; cy: number }): num
   ) {
     return 1080;
   }
-  return Math.round((1920 * cy) / cx);
+  return Math.min(MAX_DECK_SLIDE_HEIGHT, Math.round((1920 * cy) / cx));
 }
 
 /** OOXML rotation is in 60000ths of a degree (`rot="5400000"` = 90°). */

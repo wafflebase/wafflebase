@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { migrateDocument, migrateGradientFill } from '../../src/model/migrate';
+import {
+  DOCS_PX_PER_PT,
+  MAX_DECK_FONT_SCALE,
+  MAX_DECK_SLIDE_HEIGHT,
+} from '../../src/model/presentation';
 
 describe('migrateDocument', () => {
   it('adds default themeId/masterId/themes/masters/layouts to legacy doc', () => {
@@ -202,6 +207,19 @@ describe('migrateDocument', () => {
       layouts: [],
     } as any;
     expect(migrateDocument(nanned).meta.pxPerPt).toBeUndefined();
+  });
+
+  it('clamps pxPerPt and slideHeight to the ceilings every reader honours', () => {
+    // `meta` is peer- and PUT-writable with no band of its own; the stored
+    // value must not exceed what `deckFontScale` / `deckSlideHeight` render.
+    const huge = {
+      meta: { title: 't', pxPerPt: 1e9, slideHeight: 1e12 },
+      slides: [],
+      layouts: [],
+    } as any;
+    const meta = migrateDocument(huge).meta;
+    expect(meta.pxPerPt).toBe(MAX_DECK_FONT_SCALE * DOCS_PX_PER_PT);
+    expect(meta.slideHeight).toBe(MAX_DECK_SLIDE_HEIGHT);
   });
 
   it('is idempotent — running twice produces the same result', () => {
