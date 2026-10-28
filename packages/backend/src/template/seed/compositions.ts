@@ -1,4 +1,4 @@
-import type { Element } from '@wafflebase/slides';
+import type { ColorRole, Element } from '@wafflebase/slides';
 import type { SlidesSlide } from '../../yorkie/yorkie.types';
 import { DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
 import type { Block } from '@wafflebase/docs';
@@ -50,7 +50,7 @@ const nextId = (prefix: string, given?: string): string => {
   return `c-${prefix}-${counter}`;
 };
 
-const role = (r: string) => ({ kind: 'role' as const, role: r });
+const role = (r: ColorRole) => ({ kind: 'role' as const, role: r });
 
 function frame(x: number, y: number, w: number, h: number) {
   return { x, y, w, h, rotation: 0 };
@@ -77,7 +77,7 @@ function assertSafe(name: string, b: Box, maxY = FOOTER_TOP): void {
 type TextOpts = {
   fontSize: number;
   bold?: boolean;
-  color?: string; // theme role
+  color?: ColorRole; // theme role
   fontFamily?: string;
   align?: 'left' | 'center' | 'right';
   lineHeight?: number;
@@ -162,7 +162,7 @@ export type KickerOptions = Common & {
   /** Upper-case the label (default true). */
   uppercase?: boolean;
   /** Theme colour role (default accent1). */
-  color?: string;
+  color?: ColorRole;
 };
 
 /**
@@ -203,9 +203,9 @@ export type CalloutCardOptions = Common & {
   /** Draw the speech-bubble tail (default true). false = plain rounded card. */
   tail?: boolean;
   /** Fill theme role (default backgroundAlt). */
-  fill?: string;
+  fill?: ColorRole;
   /** Accent role for the title (default accent1). */
-  accent?: string;
+  accent?: ColorRole;
 };
 
 /**
@@ -269,9 +269,9 @@ export type CodeBlockOptions = Common & {
   w?: number;
   fontSize?: number;
   /** Panel fill role (default `text`, i.e. dark on light themes). */
-  panel?: string;
+  panel?: ColorRole;
   /** Code colour role (default `background`, contrasting the panel). */
-  color?: string;
+  color?: ColorRole;
 };
 
 const CODE_PAD = 36;
@@ -449,7 +449,7 @@ export function table(
 export type BigNumberCardOptions = Common & {
   /** Default 520x320 at the margin, y=260. */
   box?: Partial<Box>;
-  accent?: string;
+  accent?: ColorRole;
 };
 
 /**
@@ -597,7 +597,12 @@ export function svgIntrinsicSize(svg: string): { w: number; h: number } | null {
   // numbers in one pattern: simpler, and no backtracking on a crafted tag.
   const vb = /\bviewBox\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1];
   const parts = vb?.trim().split(/[\s,]+/).map(Number);
-  if (parts?.length === 4 && parts[2] > 0 && parts[3] > 0)
+  if (
+    parts?.length === 4 &&
+    parts.every(Number.isFinite) &&
+    parts[2] > 0 &&
+    parts[3] > 0
+  )
     return { w: parts[2], h: parts[3] };
   const w = /\swidth\s*=\s*["']([\d.]+)(?:px)?["']/i.exec(tag);
   const h = /\sheight\s*=\s*["']([\d.]+)(?:px)?["']/i.exec(tag);

@@ -126,6 +126,32 @@ describe('slides render: degrade without Playwright', () => {
     expect(typeof pw.chromium.launch).toBe('function');
   });
 
+  it('refuses --out - (stdout to the guard, but render writes a directory)', async () => {
+    const config: CliConfig = {
+      server: 'http://localhost:3000',
+      apiKey: '',
+      workspace: 'w',
+      authMode: 'jwt',
+      accessToken: 'tok',
+    };
+    await expect(renderSlides({ docId: 'd', outDir: '-', config })).rejects.toThrow(
+      /--out must be a directory/,
+    );
+  });
+
+  it('unwraps a CommonJS package that only exposes `default`', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'wb-pw-cjs-'));
+    const pkg = join(project, 'node_modules', 'playwright');
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), '{"name":"playwright","main":"index.js"}');
+    // Exports built at runtime are invisible to the ESM loader's static scan.
+    writeFileSync(join(pkg, 'index.js'), 'module.exports = (() => ({ chromium: { launch() {} } }))();');
+    const pw = await loadPlaywright(async () => {
+      throw new Error("Cannot find package 'playwright'");
+    }, importFrom(project));
+    expect(typeof pw.chromium.launch).toBe('function');
+  });
+
   it('refuses API-key auth before touching the browser', async () => {
     const config: CliConfig = {
       server: 'http://localhost:3000',

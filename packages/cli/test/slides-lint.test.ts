@@ -127,6 +127,12 @@ describe('slides lint / layout-report', () => {
     ).toEqual([]);
   });
 
+  it('rejects --slide past the last slide instead of reporting a clean pass', () => {
+    expect(() => runLint(deck(), { failOn: 'warning', slide: 2 })).toThrow(
+      /--slide 2 is out of range: the deck has 1 slide/,
+    );
+  });
+
   it('requires a reason on every allowlist entry', () => {
     const dir = tmp();
     writeFileSync(join(dir, 'a.json'), JSON.stringify([{ rule: 'contrast', slideId: 's1' }]));

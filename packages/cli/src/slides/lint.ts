@@ -136,6 +136,12 @@ export function runLint(
     slide?: number;
   },
 ): LintRunResult {
+  if (opts.slide !== undefined && opts.slide > doc.slides.length) {
+    // Otherwise it would select nothing and report a clean pass.
+    throw new Error(
+      `--slide ${opts.slide} is out of range: the deck has ${doc.slides.length} slide(s).`,
+    );
+  }
   const findings = lintSlides(doc, { rules: opts.rules }).filter(
     (f) => opts.slide === undefined || f.slideIndex === opts.slide - 1,
   );

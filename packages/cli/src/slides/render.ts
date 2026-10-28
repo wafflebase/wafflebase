@@ -85,7 +85,10 @@ export async function loadPlaywright(
 export function importFrom(dir: string): (name: string) => Promise<unknown> {
   return async (name) => {
     const path = createRequire(join(dir, 'package.json')).resolve(name);
-    return import(pathToFileURL(path).href);
+    const mod = (await import(pathToFileURL(path).href)) as Record<string, unknown>;
+    // Resolved through the `require` condition, a CommonJS package whose
+    // exports the ESM loader cannot see statically arrives as `default` only.
+    return 'chromium' in mod || !mod.default ? mod : mod.default;
   };
 }
 
@@ -230,6 +233,11 @@ export async function renderSlides(opts: RenderSlidesOptions): Promise<string[]>
       'slides render opens the deck in a browser and needs a login session. ' +
         'Run `wafflebase login` (API keys cannot sign a browser in).',
     );
+  }
+  // `-` means stdout everywhere else in this CLI (and to the plugin guard,
+  // which therefore does not ask about it); render writes a directory of PNGs.
+  if (opts.outDir.trim() === '-') {
+    throw new Error('--out must be a directory: slides render writes slide-N.png files, not stdout.');
   }
   const frontend = resolveFrontendUrl(opts.frontend, config.server);
   const log = opts.log ?? ((l: string) => console.error(l));

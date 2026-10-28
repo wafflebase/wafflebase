@@ -217,6 +217,13 @@ describe('guard.decide', () => {
     }
   });
 
+  it('names the full --frontend host even when the URL is longer than the prompt cut', () => {
+    const host = `trusted.example.${'a'.repeat(90)}.attacker.test`;
+    const d = decide(`wafflebase slides render d --out shots --frontend https://${host}/x`);
+    expect(d?.decision).toBe('ask');
+    expect(d?.reason).toContain(`--frontend host ${host}`);
+  });
+
   it('asks before a read writes a local file', () => {
     for (const cmd of [
       'wafflebase docs export d out.pdf',

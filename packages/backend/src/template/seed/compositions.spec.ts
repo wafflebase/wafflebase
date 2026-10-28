@@ -190,6 +190,8 @@ describe('slide compositions', () => {
     // through to width/height, or to null.
     expect(svgIntrinsicSize('<svg viewBox="-10,-10,320,180">')).toEqual({ w: 320, h: 180 });
     expect(svgIntrinsicSize('<svg viewBox="0 0 x 1">')).toBeNull();
+    expect(svgIntrinsicSize('<svg viewBox="0 0 Infinity 100">')).toBeNull();
+    expect(svgIntrinsicSize('<svg viewBox="NaN 0 100 100">')).toBeNull();
     expect(svgIntrinsicSize(`<svg viewBox="${'1 '.repeat(50_000)}">`)).toBeNull();
     const els = validate(diagram(SVG, { alt: 'arch' }));
     const img = els[0] as any;
