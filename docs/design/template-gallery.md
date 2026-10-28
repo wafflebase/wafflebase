@@ -1137,7 +1137,13 @@ each slide — colour blocks, gradients, bands, geometric accents, or a
 sidebar/split column that the placeholder text is reflowed off as one group.
 Presets that put text on an accent fill (`block`, `gradient`, and `header` for
 text wholly inside its band) recolour it to the theme's `background` role.
-`builders.spec.ts` covers each preset.
+`block` and `gradient` colour the slide through its own `background.fill`
+rather than a full-bleed rect, so a user of the template recolours it with the
+editor's Background control instead of hunting for a covering shape; every
+other preset leaves the background to inherit from the theme. Decor shapes are
+typed as `ShapeElement`s, and `builders.spec.ts` checks every preset — and
+every seeded slides template — paints only shape kinds in `PATH_BUILDERS` and
+fills naming real theme roles, which the content validators do not.
 
 ## Risks and Mitigation
 

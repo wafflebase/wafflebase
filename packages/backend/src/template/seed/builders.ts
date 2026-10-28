@@ -6,6 +6,9 @@ import {
   applyLayoutToSlide,
   defaultLight,
   getBuiltInTheme,
+  type ColorRole,
+  type Fill,
+  type ShapeKind,
   type Theme,
 } from '@wafflebase/slides';
 import { DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
@@ -13,6 +16,7 @@ import type { Block, BlockType } from '@wafflebase/docs';
 import type { Cell, CellStyle } from '@wafflebase/sheets';
 import type {
   SlidesDocument,
+  SlidesShapeElement,
   SlidesSlide,
   SlidesTextElement,
 } from '../../yorkie/yorkie.types';
@@ -169,17 +173,8 @@ export type Decor =
 const SW = SLIDE_WIDTH;
 const SH = SLIDE_HEIGHT;
 
-type Fill =
-  | { kind: 'role'; role: string }
-  | {
-      kind: 'gradient';
-      type: 'linear';
-      angle: number;
-      stops: Array<{ pos: number; color: { kind: 'role'; role: string } }>;
-    };
-
-const rf = (role: string): Fill => ({ kind: 'role', role });
-const grad = (r1: string, r2: string, angle = 0.5): Fill => ({
+const rf = (role: ColorRole): Fill => ({ kind: 'role', role });
+const grad = (r1: ColorRole, r2: ColorRole, angle = 0.5): Fill => ({
   kind: 'gradient',
   type: 'linear',
   angle,
@@ -191,14 +186,14 @@ const grad = (r1: string, r2: string, angle = 0.5): Fill => ({
 
 function shapeEl(
   idStr: string,
-  kind: string,
+  kind: ShapeKind,
   x: number,
   y: number,
   w: number,
   h: number,
   fill: Fill,
   rotation = 0,
-): unknown {
+): SlidesShapeElement {
   return {
     id: idStr,
     type: 'shape',
@@ -214,21 +209,14 @@ function shapeEl(
  */
 function recolor(
   texts: SlidesTextElement[],
-  role: string,
+  role: ColorRole,
   maxY = Infinity,
 ): void {
   for (const t of texts) {
     if (t.frame.y + t.frame.h > maxY) continue;
     for (const b of t.data.blocks) {
-      // Inline colour is a theme role ref; cast through `any` because the
-      // seed's InlineStyle type does not surface the role-colour shape here.
-      for (const inl of b.inlines as unknown as Array<
-        Record<string, unknown>
-      >) {
-        inl.style = {
-          ...((inl.style as Record<string, unknown>) ?? {}),
-          color: { kind: 'role', role },
-        };
+      for (const inl of b.inlines) {
+        inl.style = { ...inl.style, color: { kind: 'role', role } };
       }
     }
   }
@@ -249,7 +237,9 @@ function reflowRight(
   if (!texts.some((t) => t.frame.x < left)) return;
   const minX = Math.min(...texts.map((t) => t.frame.x));
   const maxX = Math.max(...texts.map((t) => t.frame.x + t.frame.w));
-  const scale = Math.min(1, (right - left) / (maxX - minX));
+  // A zero-width group has nothing to scale; shifting it is enough.
+  const span = maxX - minX;
+  const scale = span > 0 ? Math.min(1, (right - left) / span) : 1;
   for (const t of texts) {
     t.frame.x = left + (t.frame.x - minX) * scale;
     t.frame.w = t.frame.w * scale;
@@ -266,7 +256,7 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
   const texts = slide.elements.filter(
     (e): e is SlidesTextElement => e.type === 'text' && !!e.placeholderRef,
   );
-  const under: unknown[] = [];
+  const under: SlidesShapeElement[] = [];
   switch (style) {
     case 'plain':
       under.push(
@@ -275,8 +265,10 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
       );
       break;
     case 'block':
+      // The colour field is the slide's own background, not a covering
+      // rect, so the editor's Background control recolours it.
+      slide.background = { fill: rf('accent1') };
       under.push(
-        shapeEl(`${tag}-bg`, 'rect', 0, 0, SW, SH, rf('accent1')),
         shapeEl(
           `${tag}-o`,
           'ellipse',
@@ -290,17 +282,7 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
       recolor(texts, 'background');
       break;
     case 'gradient':
-      under.push(
-        shapeEl(
-          `${tag}-bg`,
-          'rect',
-          0,
-          0,
-          SW,
-          SH,
-          grad('accent1', 'accent2', 0.5),
-        ),
-      );
+      slide.background = { fill: grad('accent1', 'accent2', 0.5) };
       recolor(texts, 'background');
       break;
     case 'header':
@@ -354,11 +336,12 @@ function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
       reflowRight(texts, w + 100, SW - 128);
       break;
     }
+    default: {
+      const unknownDecor: never = style;
+      throw new Error(`Unknown decor: ${String(unknownDecor)}`);
+    }
   }
-  slide.elements = [
-    ...(under as unknown as typeof slide.elements),
-    ...slide.elements,
-  ];
+  slide.elements = [...under, ...slide.elements];
 }
 
 /**

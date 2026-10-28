@@ -1,6 +1,17 @@
-import { SLIDE_WIDTH } from '@wafflebase/slides';
+import {
+  PATH_BUILDERS,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  defaultLight,
+  type Fill,
+} from '@wafflebase/slides';
 import { themedDeck, type Decor } from './builders';
-import type { SlidesSlide, SlidesTextElement } from '../../yorkie/yorkie.types';
+import { TEMPLATE_CATALOG } from './catalog';
+import type {
+  SlidesShapeElement,
+  SlidesSlide,
+  SlidesTextElement,
+} from '../../yorkie/yorkie.types';
 
 /**
  * `themedDeck` and the `Decor` presets it applies. `catalog.spec.ts` proves
@@ -14,7 +25,57 @@ const placeholders = (s: SlidesSlide): SlidesTextElement[] =>
     (e): e is SlidesTextElement => e.type === 'text' && !!e.placeholderRef,
   );
 
-const shapes = (s: SlidesSlide) => s.elements.filter((e) => e.type === 'shape');
+const shapes = (s: SlidesSlide): SlidesShapeElement[] =>
+  s.elements.filter((e): e is SlidesShapeElement => e.type === 'shape');
+
+const ALL_DECORS: Decor[] = [
+  'plain',
+  'block',
+  'gradient',
+  'header',
+  'band',
+  'geo',
+  'dots',
+  'diagonal',
+  'sidebar',
+  'split',
+];
+
+const COLOR_ROLES = Object.keys(defaultLight.colors);
+
+/** Every theme role a fill references, gradient stops included. */
+const fillRoles = (fill: Fill | undefined): string[] => {
+  if (!fill) return [];
+  if (fill.kind === 'gradient') {
+    return fill.stops.flatMap((st) =>
+      st.color.kind === 'role' ? [st.color.role] : [],
+    );
+  }
+  return fill.kind === 'role' ? [fill.role] : [];
+};
+
+/**
+ * The payload checks the type system cannot make: the content validators
+ * accept any shape `kind` and `fill`, and a typo would paint nothing.
+ */
+const expectRenderable = (s: SlidesSlide): void => {
+  for (const e of shapes(s)) {
+    expect(PATH_BUILDERS.has(e.data.kind)).toBe(true);
+    expect(e.data.fill).toBeDefined();
+    const roles = fillRoles(e.data.fill);
+    expect(roles.length).toBeGreaterThan(0);
+    for (const r of roles) expect(COLOR_ROLES).toContain(r);
+  }
+  for (const r of fillRoles(s.background.fill)) {
+    expect(COLOR_ROLES).toContain(r);
+  }
+};
+
+const coversSlide = (e: SlidesShapeElement): boolean =>
+  e.frame.x <= 0 &&
+  e.frame.y <= 0 &&
+  e.frame.x + e.frame.w >= SLIDE_WIDTH &&
+  e.frame.y + e.frame.h >= SLIDE_HEIGHT;
 
 const inlineColors = (t: SlidesTextElement): unknown[] =>
   t.data.blocks.flatMap((b) =>
@@ -77,6 +138,51 @@ describe('decorate presets', () => {
     const lastShape = s.elements.map((e) => e.type).lastIndexOf('shape');
     expect(shapes(s).length).toBeGreaterThan(0);
     expect(lastShape).toBeLessThan(firstText);
+  });
+
+  it.each(ALL_DECORS)('%s emits shapes the renderer can paint', (decor) => {
+    expectRenderable(one('title-body', [['T'], ['b']], decor));
+  });
+
+  it('every catalogue slides template paints only renderable shapes', () => {
+    for (const seed of TEMPLATE_CATALOG) {
+      if (seed.content.kind !== 'slides') continue;
+      for (const s of seed.content.document.slides) expectRenderable(s);
+    }
+  });
+
+  it('every catalogue slides template has its own background on some slide', () => {
+    // A guard on the guard: the background fill check above only bites if
+    // the catalogue actually exercises it.
+    const withBg = TEMPLATE_CATALOG.flatMap((seed) =>
+      seed.content.kind === 'slides'
+        ? seed.content.document.slides.filter((s) => s.background.fill)
+        : [],
+    );
+    expect(withBg.length).toBeGreaterThan(0);
+  });
+
+  it.each<[Decor, Fill['kind']]>([
+    ['block', 'role'],
+    ['gradient', 'gradient'],
+  ])('%s colours the slide background, not a covering shape', (decor, kind) => {
+    const s = one('title-slide', [['Title'], ['Subtitle']], decor);
+    expect(s.background.fill?.kind).toBe(kind);
+    expect(shapes(s).some(coversSlide)).toBe(false);
+  });
+
+  it.each(ALL_DECORS.filter((d) => d !== 'block' && d !== 'gradient'))(
+    '%s leaves the background to inherit from the theme',
+    (decor) => {
+      const s = one('title-body', [['T'], ['b']], decor);
+      expect(s.background.fill).toBeUndefined();
+    },
+  );
+
+  it('rejects an unknown decor instead of silently painting nothing', () => {
+    expect(() =>
+      one('title-body', [['T'], ['b']], 'no-such-decor' as Decor),
+    ).toThrow(/Unknown decor/);
   });
 
   it('gives an undecorated slide the plain base treatment', () => {
