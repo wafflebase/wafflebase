@@ -1102,6 +1102,49 @@ opened in its editor either way, which is exactly why Canva — whose medium is
 ours — makes everything editable and parameterizes nothing. Recorded here so
 the option is a decision rather than an oversight.
 
+#### Briefs are authoring guidance, not slots
+
+The seed catalogue's slides templates each carry a `TemplateBrief`
+(`catalog/brief.ts`, `catalog/briefs*.ts`): a list of the values an agent should
+ask a user for — team, quarter, three wins, action/owner pairs — before it
+writes a deck from that template. That looks like the parameterization declined
+above, and it is deliberately not:
+
+- **The template stays static.** The listing still copies verbatim on use, its
+  `<team>`-style hints are ordinary text that a person edits in the editor, and
+  nothing at use time reads a brief. There is no fill-in dialog, no
+  substitution pass per engine, and no placeholder syntax the product parses.
+- **A brief is read by an author, before the copy exists.** An agent driving
+  the CLI (`packages/cli/skills/slides-author.md`) uses it as a checklist of
+  what to collect, then writes the deck the same way a person would — the
+  Canva model, done by an agent instead of a hand. If the brief is wrong the
+  cost is a worse question, not a broken template.
+- **It is kept honest by tests, not by a runtime.** `briefs.spec.ts` ties every
+  brief to a slides template and caps each list/pairs field at the rows the
+  matching slide actually has, so a brief cannot promise a slot the slide
+  drops.
+
+If use-time substitution is ever reconsidered, briefs are the obvious input
+schema for it — but adopting them now commits to nothing beyond data.
+
+#### `themedDeck` and decor presets
+
+`themedDeck(themeId, title, slides)` is the themed sibling of `deck()`: it
+embeds one built-in theme (throwing on an unknown id rather than taking
+`getBuiltInTheme`'s silent `default-light` fallback), fills placeholders like
+`slide()` but throws on surplus text entries, and paints a `Decor` preset under
+each slide — colour blocks, gradients, bands, geometric accents, or a
+sidebar/split column that the placeholder text is reflowed off as one group.
+Presets that put text on an accent fill (`block`, `gradient`, and `header` for
+text wholly inside its band) recolour it to the theme's `background` role.
+`block` and `gradient` colour the slide through its own `background.fill`
+rather than a full-bleed rect, so a user of the template recolours it with the
+editor's Background control instead of hunting for a covering shape; every
+other preset leaves the background to inherit from the theme. Decor shapes are
+typed as `ShapeElement`s, and `builders.spec.ts` checks every preset — and
+every seeded slides template — paints only shape kinds in `PATH_BUILDERS` and
+fills naming real theme roles, which the content validators do not.
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |

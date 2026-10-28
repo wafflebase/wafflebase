@@ -1,14 +1,22 @@
 import {
   BUILT_IN_LAYOUTS,
   DEFAULT_MASTER,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
   applyLayoutToSlide,
   defaultLight,
+  getBuiltInTheme,
+  type ColorRole,
+  type Fill,
+  type ShapeKind,
+  type Theme,
 } from '@wafflebase/slides';
 import { DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
 import type { Block, BlockType } from '@wafflebase/docs';
 import type { Cell, CellStyle } from '@wafflebase/sheets';
 import type {
   SlidesDocument,
+  SlidesShapeElement,
   SlidesSlide,
   SlidesTextElement,
 } from '../../yorkie/yorkie.types';
@@ -139,6 +147,278 @@ export function deck(title: string, slides: SlidesSlide[]): SlidesDocument {
   return {
     meta: { title, themeId: defaultLight.id, masterId: DEFAULT_MASTER.id },
     themes: [defaultLight],
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides,
+  } as SlidesDocument;
+}
+
+/**
+ * Composition presets applied over a slide's placeholder text. A template
+ * mixes these so its slides read as a designed deck (colour blocks, sidebars,
+ * geometric accents) rather than text on a blank background.
+ */
+export type Decor =
+  | 'plain'
+  | 'block'
+  | 'gradient'
+  | 'header'
+  | 'band'
+  | 'geo'
+  | 'dots'
+  | 'diagonal'
+  | 'sidebar'
+  | 'split';
+
+const SW = SLIDE_WIDTH;
+const SH = SLIDE_HEIGHT;
+
+const rf = (role: ColorRole): Fill => ({ kind: 'role', role });
+const grad = (r1: ColorRole, r2: ColorRole, angle = 0.5): Fill => ({
+  kind: 'gradient',
+  type: 'linear',
+  angle,
+  stops: [
+    { pos: 0, color: { kind: 'role', role: r1 } },
+    { pos: 1, color: { kind: 'role', role: r2 } },
+  ],
+});
+
+function shapeEl(
+  idStr: string,
+  kind: ShapeKind,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fill: Fill,
+  rotation = 0,
+): SlidesShapeElement {
+  return {
+    id: idStr,
+    type: 'shape',
+    frame: { x, y, w, h, rotation },
+    data: { kind, fill },
+  };
+}
+
+/**
+ * Recolour inlines to a theme role. With `maxY`, only a text whose whole frame
+ * sits above it is recoloured: a box that starts inside a header band and runs
+ * past it would otherwise turn background-coloured where it leaves the band.
+ */
+function recolor(
+  texts: SlidesTextElement[],
+  role: ColorRole,
+  maxY = Infinity,
+): void {
+  for (const t of texts) {
+    if (t.frame.y + t.frame.h > maxY) continue;
+    for (const b of t.data.blocks) {
+      for (const inl of b.inlines) {
+        inl.style = { ...inl.style, color: { kind: 'role', role } };
+      }
+    }
+  }
+}
+
+/**
+ * Move placeholder text off a left colour column into the open area
+ * `[left, right]`. The texts are mapped as one group — shifted, and scaled
+ * down only when their combined span is wider than the open area — so a
+ * two-column layout keeps its columns side by side instead of every box
+ * collapsing onto the same x.
+ */
+function reflowRight(
+  texts: SlidesTextElement[],
+  left: number,
+  right: number,
+): void {
+  if (!texts.some((t) => t.frame.x < left)) return;
+  const minX = Math.min(...texts.map((t) => t.frame.x));
+  const maxX = Math.max(...texts.map((t) => t.frame.x + t.frame.w));
+  // A zero-width group has nothing to scale; shifting it is enough.
+  const span = maxX - minX;
+  const scale = span > 0 ? Math.min(1, (right - left) / span) : 1;
+  for (const t of texts) {
+    t.frame.x = left + (t.frame.x - minX) * scale;
+    t.frame.w = t.frame.w * scale;
+  }
+}
+
+/**
+ * Paint a composition preset under the slide's placeholder text. Every slide is
+ * decorated — `plain` still gets a light, consistent base treatment (an accent
+ * spine + mark) so the whole deck reads as one designed presentation, not a
+ * designed cover in front of blank content slides.
+ */
+function decorate(slide: SlidesSlide, style: Decor, tag: string): void {
+  const texts = slide.elements.filter(
+    (e): e is SlidesTextElement => e.type === 'text' && !!e.placeholderRef,
+  );
+  const under: SlidesShapeElement[] = [];
+  switch (style) {
+    case 'plain':
+      under.push(
+        shapeEl(`${tag}-spine`, 'rect', 0, 0, 14, SH, rf('accent1')),
+        shapeEl(`${tag}-mark`, 'rect', 64, 64, 72, 12, rf('accent2')),
+      );
+      break;
+    case 'block':
+      // The colour field is the slide's own background, not a covering
+      // rect, so the editor's Background control recolours it.
+      slide.background = { fill: rf('accent1') };
+      under.push(
+        shapeEl(
+          `${tag}-o`,
+          'ellipse',
+          SW - 520,
+          SH - 420,
+          1100,
+          1100,
+          rf('accent2'),
+        ),
+      );
+      recolor(texts, 'background');
+      break;
+    case 'gradient':
+      slide.background = { fill: grad('accent1', 'accent2', 0.5) };
+      recolor(texts, 'background');
+      break;
+    case 'header':
+      under.push(shapeEl(`${tag}-hd`, 'rect', 0, 0, SW, 300, rf('accent1')));
+      recolor(texts, 'background', 300);
+      break;
+    case 'band':
+      under.push(
+        shapeEl(`${tag}-line`, 'rect', 0, 832, SW, 8, rf('accent3')),
+        shapeEl(`${tag}-band`, 'rect', 0, 840, SW, SH - 840, rf('accent1')),
+        shapeEl(`${tag}-dot`, 'ellipse', 150, 748, 200, 200, rf('accent2')),
+      );
+      break;
+    case 'geo':
+      under.push(
+        shapeEl(`${tag}-c1`, 'ellipse', 1360, 640, 900, 900, rf('accent1')),
+        shapeEl(`${tag}-c2`, 'ellipse', 1630, 120, 240, 240, rf('accent2')),
+        shapeEl(`${tag}-d`, 'diamond', 1180, 720, 170, 170, rf('accent3')),
+      );
+      break;
+    case 'dots':
+      under.push(
+        shapeEl(`${tag}-a`, 'ellipse', 1680, 110, 190, 190, rf('accent1')),
+        shapeEl(`${tag}-b`, 'ellipse', 1500, 300, 96, 96, rf('accent2')),
+        shapeEl(`${tag}-c`, 'ellipse', 1770, 410, 64, 64, rf('accent3')),
+        shapeEl(`${tag}-e`, 'ellipse', 1590, 90, 52, 52, rf('accent2')),
+      );
+      break;
+    case 'diagonal':
+      under.push(
+        shapeEl(`${tag}-di`, 'rect', -320, 820, 2700, 460, rf('accent1'), 0.11),
+        shapeEl(`${tag}-do`, 'ellipse', 120, 120, 150, 150, rf('accent2')),
+      );
+      break;
+    case 'sidebar':
+    case 'split': {
+      const w = style === 'split' ? 960 : 640;
+      under.push(
+        shapeEl(`${tag}-side`, 'rect', 0, 0, w, SH, rf('accent1')),
+        shapeEl(
+          `${tag}-so`,
+          'ellipse',
+          w - 360,
+          SH - 360,
+          520,
+          520,
+          rf('accent2'),
+        ),
+        shapeEl(`${tag}-sl`, 'rect', w - 8, 0, 8, SH, rf('accent3')),
+      );
+      reflowRight(texts, w + 100, SW - 128);
+      break;
+    }
+    default: {
+      const unknownDecor: never = style;
+      throw new Error(`Unknown decor: ${String(unknownDecor)}`);
+    }
+  }
+  slide.elements = [...under, ...slide.elements];
+}
+
+/**
+ * A deck on a chosen theme. Slides are `[layoutId, texts]` or
+ * `[layoutId, texts, decor]` tuples: the whole deck shares one theme, and each
+ * slide can carry a composition preset (see {@link Decor}) so a template reads
+ * as a designed deck, not text on a blank background. `themeId`/`themes` embed
+ * the theme so the deck renders with that look even before the picker opens.
+ */
+export function themedDeck(
+  theme: Theme | string,
+  title: string,
+  slideSpecs: Array<[string, string[][]] | [string, string[][], Decor]>,
+): SlidesDocument {
+  // A string is a built-in theme id. `getBuiltInTheme` falls back to
+  // default-light for an unknown id, which would silently strip a template's
+  // look — so verify the resolved id matches and fail the seed on a typo.
+  let resolvedTheme: Theme;
+  if (typeof theme === 'string') {
+    resolvedTheme = getBuiltInTheme(theme);
+    if (resolvedTheme.id !== theme) {
+      throw new Error(`Unknown built-in theme id: ${theme}`);
+    }
+  } else {
+    resolvedTheme = theme;
+  }
+
+  const slides = slideSpecs.map((spec) => {
+    const [layoutId, texts, style] = spec;
+    slideCounter += 1;
+    const layout = BUILT_IN_LAYOUTS.find((l) => l.id === layoutId);
+    if (!layout) throw new Error(`Unknown layout: ${layoutId}`);
+
+    const s: SlidesSlide = {
+      id: id('s', slideCounter),
+      layoutId,
+      background: {},
+      elements: [],
+      notes: [],
+    };
+    applyLayoutToSlide(s, layout, {
+      master: DEFAULT_MASTER,
+      theme: resolvedTheme,
+    });
+
+    const placeholders = s.elements.filter(
+      (e): e is SlidesTextElement => e.type === 'text' && !!e.placeholderRef,
+    );
+    // Unlike `slide()`, an entry with no placeholder to land in is an error:
+    // these decks are authored against a layout's slot count, so a surplus
+    // entry is a mistake that would otherwise vanish from the template.
+    if (texts.length > placeholders.length) {
+      throw new Error(
+        `Layout ${layoutId} has ${placeholders.length} placeholders, got ${texts.length} text entries`,
+      );
+    }
+    texts.forEach((lines, i) => {
+      const target = placeholders[i];
+      const seed = target.data.blocks[0];
+      target.data.blocks = lines.map((text, li) => ({
+        ...seed,
+        id: `${target.id}-p${li}`,
+        inlines: [{ ...seed.inlines[0], text }],
+      }));
+    });
+
+    decorate(s, (style as Decor) ?? 'plain', `d${slideCounter}`);
+    return s;
+  });
+
+  return {
+    meta: {
+      title,
+      themeId: resolvedTheme.id,
+      masterId: DEFAULT_MASTER.id,
+    },
+    themes: [resolvedTheme],
     masters: [DEFAULT_MASTER],
     layouts: BUILT_IN_LAYOUTS,
     slides,

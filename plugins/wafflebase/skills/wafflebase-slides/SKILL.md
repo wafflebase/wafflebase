@@ -45,9 +45,14 @@ restore point first, say which slides change, and only pass `--yes` after
 the user approved the replace. For a one-line wording fix, offer the link
 and the suggested text instead.
 
+To write a new deck from scratch, author it natively on the built-in
+themes and layouts rather than generating a PPTX to import — see
+`references/slides-author.md`.
+
 ## References
 
 - [references/slides-manage.md](../../references/slides-manage.md)
 - [references/slides-read-content.md](../../references/slides-read-content.md)
 - [references/slides-import-pptx.md](../../references/slides-import-pptx.md)
 - [references/slides-export-pptx.md](../../references/slides-export-pptx.md)
+- [references/slides-author.md](../../references/slides-author.md)

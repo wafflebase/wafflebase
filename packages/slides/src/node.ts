@@ -48,7 +48,16 @@ export {
   SLIDE_WIDTH,
 } from './model/presentation';
 
-export type { ColorScheme, FontScheme, Theme, ThemeColor, ThemeFont } from './model/theme';
+export type {
+  ColorRole,
+  ColorScheme,
+  Fill,
+  FontScheme,
+  GradientFill,
+  Theme,
+  ThemeColor,
+  ThemeFont,
+} from './model/theme';
 export type { Master, MasterBackground, MasterBackgroundImage } from './model/master';
 // Default master + placeholder-block seeding — pure data-model helpers
 // (sources import only model types). `YorkieSlidesStore` imports these from
@@ -131,6 +140,10 @@ export {
 export { migrateDocument, migrateMeta } from './model/migrate';
 export { defaultLight } from './themes/default-light';
 export { defaultDark } from './themes/default-dark';
+// The full built-in theme registry, so Node consumers (e.g. the backend
+// template catalogue) can author decks on any of the themes the editor offers,
+// not just the two defaults.
+export { BUILT_IN_THEMES, getBuiltInTheme } from './themes';
 
 export {
   BUILT_IN_LAYOUTS,
