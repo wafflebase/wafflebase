@@ -74,6 +74,15 @@ describe('PPTX export of a native (no pxPerPt) deck', () => {
     expect(inset.bottom).toBeCloseTo(12, 0);
   });
 
+  it('names the font a run without fontFamily is painted in', async () => {
+    const deck = await nativeDeck(24);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await exportPptx(deck));
+    const slide = await zip.file('ppt/slides/slide1.xml')!.async('string');
+    const run = /<a:r><a:rPr[^>]*>(.*?)<\/a:rPr><a:t>Hello<\/a:t>/.exec(slide);
+    expect(run?.[1]).toContain('<a:latin typeface="Arial"/>');
+  });
+
   it('leaves a deck that already runs at the page scale unchanged', async () => {
     const deck = (await importPptx(await buildMinimalPptx())).document;
     expect(deck.meta.pxPerPt).toBeCloseTo(2, 6);

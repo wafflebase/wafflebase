@@ -55,7 +55,7 @@ import { slideToXml, notesSlideToXml } from './slide.js';
 import { presentationToXml } from './presentation.js';
 import type { ElementXmlCtx } from './group.js';
 import { imageNaturalSize } from './image-size.js';
-import { toExportScale } from './physical-scale.js';
+import { toExportScale, withExplicitFonts } from './physical-scale.js';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -144,8 +144,9 @@ export async function exportPptx(
   input: SlidesDocument,
   opts: ExportPptxOptions = {},
 ): Promise<Uint8Array> {
-  // Write the page at its physical scale — see `toExportScale`.
-  const deck = toExportScale(input);
+  // Write the page at its physical scale, naming the font every run is
+  // painted in — see `toExportScale` and `withExplicitFonts`.
+  const deck = toExportScale(withExplicitFonts(input));
   const writer = new PptxWriter();
 
   // -------------------------------------------------------------------------

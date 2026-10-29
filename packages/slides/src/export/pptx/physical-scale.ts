@@ -1,4 +1,4 @@
-import { normalizeBlockStyle, type Block } from '@wafflebase/docs';
+import { DEFAULT_INLINE_STYLE, normalizeBlockStyle, type Block } from '@wafflebase/docs';
 import { scaleBlocks } from '../../model/autofit.js';
 import { DOCS_PX_PER_PT, SLIDE_WIDTH, type SlidesDocument } from '../../model/presentation.js';
 import { pxToEmu } from './units.js';
@@ -68,4 +68,49 @@ export function toExportScale(deck: SlidesDocument): SlidesDocument {
 
 function isBlock(b: unknown): boolean {
   return !!b && typeof b === 'object' && Array.isArray((b as Block).inlines) && !!(b as Block).style;
+}
+
+/**
+ * The deck with every text run naming the font wafflebase paints it in.
+ *
+ * A run without `fontFamily` is painted in the docs default
+ * (`DEFAULT_INLINE_STYLE.fontFamily`), but exported with no `<a:latin>`, so
+ * PowerPoint and Keynote substitute the theme font instead — a different face
+ * — and Keynote also drops the bold of such runs. Writing the family the
+ * renderer used keeps the face and the weight.
+ *
+ * Applies to decks authored in wafflebase (no `meta.pxPerPt`) only.
+ * Returns a copy when anything changes; the input is not modified.
+ */
+export function withExplicitFonts(deck: SlidesDocument): SlidesDocument {
+  const family = DEFAULT_INLINE_STYLE.fontFamily;
+  // Only a deck authored in wafflebase. An imported deck's font-less runs
+  // came from a PPTX that inherited its theme font on purpose; naming a
+  // family there would change the original, not preserve it.
+  if (!family || deck.meta.pxPerPt != null) return deck;
+  let changed = false;
+  const scaled = structuredClone(deck);
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    const o = node as Record<string, unknown>;
+    if (Array.isArray(o.blocks) && o.blocks.every(isBlock)) {
+      for (const b of o.blocks as Block[]) {
+        for (const inl of b.inlines) {
+          if (!inl.style.fontFamily) {
+            inl.style = { ...inl.style, fontFamily: family };
+            changed = true;
+          }
+        }
+      }
+    }
+    for (const [k, v] of Object.entries(o)) {
+      if (k !== 'blocks' && k !== 'notes') walk(v);
+    }
+  };
+  walk(scaled.slides);
+  return changed ? scaled : deck;
 }
