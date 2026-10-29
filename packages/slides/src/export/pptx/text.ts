@@ -4,7 +4,7 @@ import { toRgbHexColor, normalizeListLevel } from '@wafflebase/docs';
 import type { AutofitMode, TextBody, VerticalAnchorMode } from '../../model/element.js';
 import type { ColorRole, ThemeColor } from '../../model/theme.js';
 import { escapeXmlText, escapeXmlAttr } from './xml.js';
-import { ptToHundredths } from './units.js';
+import { pxToEmu, ptToHundredths } from './units.js';
 import { ROLE_TO_SCHEME, colorChildXml, colorFromStringOrTheme } from './color.js';
 
 /**
@@ -34,13 +34,21 @@ export function textBodyToXml(
   const paras = body.blocks
     .map((block) => blockToXml(block, resolveHyperlinkRId))
     .join('');
-  return `<${tag}>${bodyPrXml(body.autofit, body.verticalAnchor)}${paras || '<a:p/>'}</${tag}>`;
+  return `<${tag}>${bodyPrXml(body.autofit, body.verticalAnchor, body.inset)}${paras || '<a:p/>'}</${tag}>`;
 }
 
 function bodyPrXml(
   autofit: AutofitMode | undefined,
   anchor: VerticalAnchorMode | undefined,
+  inset?: TextBody['inset'],
 ): string {
+  // An explicit inset is written on all four sides — the importer reads
+  // `lIns/tIns/rIns/bIns` back into `body.inset`. Without it the box keeps the
+  // receiving app's default insets (OOXML: 0.1in / 0.05in), and the text
+  // re-wraps inside a narrower box than the one wafflebase painted.
+  const insetAttrs = inset
+    ? ` lIns="${pxToEmu(inset.left)}" tIns="${pxToEmu(inset.top)}" rIns="${pxToEmu(inset.right)}" bIns="${pxToEmu(inset.bottom)}"`
+    : '';
   const anchorAttr =
     anchor === 'middle'
       ? ' anchor="ctr"'
@@ -55,7 +63,7 @@ function bodyPrXml(
       : autofit === 'shrink'
         ? '<a:normAutofit/>'
         : '<a:spAutoFit/>';
-  return `<a:bodyPr${anchorAttr}>${fit}</a:bodyPr>`;
+  return `<a:bodyPr${insetAttrs}${anchorAttr}>${fit}</a:bodyPr>`;
 }
 
 /**

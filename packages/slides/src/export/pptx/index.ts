@@ -55,6 +55,7 @@ import { slideToXml, notesSlideToXml } from './slide.js';
 import { presentationToXml } from './presentation.js';
 import type { ElementXmlCtx } from './group.js';
 import { imageNaturalSize } from './image-size.js';
+import { toExportScale } from './physical-scale.js';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -140,9 +141,11 @@ const CT_NOTES =
  * the orchestrator itself is DOM-free).
  */
 export async function exportPptx(
-  deck: SlidesDocument,
+  input: SlidesDocument,
   opts: ExportPptxOptions = {},
 ): Promise<Uint8Array> {
+  // Write the page at its physical scale — see `toExportScale`.
+  const deck = toExportScale(input);
   const writer = new PptxWriter();
 
   // -------------------------------------------------------------------------
