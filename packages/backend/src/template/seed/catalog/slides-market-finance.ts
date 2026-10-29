@@ -19,7 +19,7 @@ export const marketingCampaign: TemplateSeed = {
   content: {
     kind: 'slides',
     document: themedDeck('pop', 'Marketing Campaign', [
-      ['title-slide', [['Marketing Campaign'], ['<campaign> · <period>']], 'block'],
+      ['title-slide', [['Marketing Campaign'], ['<campaign> · <period>']], 'diagonal'],
       [
         'title-body',
         [

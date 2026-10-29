@@ -523,7 +523,19 @@ wafflebase
   │     ├── import <file>
   │     │     [--title <title>]               (default: file basename)
   │     │     [--replace <doc-id> --yes]      (destructive; required together)
-  │     └── set-content <doc-id>             [--data <json>] (replaces the whole deck)
+  │     ├── set-content <doc-id>             [--data <json>] (replaces the whole deck)
+  │     ├── render <doc-id>                  Per-slide PNGs from the real editor, via headless Chromium
+  │     │     --out <dir>                     (writes slide-N.png; needs Playwright + a login session)
+  │     │     [--slide N] [--force]
+  │     │     [--frontend <url>]              (web app; the session cookie is installed there)
+  │     ├── layout-report [doc-id]           Per-element layout in Node (lines, heights, overflow)
+  │     │     [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
+  │     │     [--slide N]
+  │     └── lint [doc-id]                    Flag broken-looking slides (slides-lint.md)
+  │           [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
+  │           [--slide N] [--rules a,b]
+  │           [--allowlist <file>]            (intentional findings, each with a reason)
+  │           [--fail-on error|warning|info|never] (default: never — advisory)
   │
   ├── notes (alias: note)
   │     ├── list                             List notes (type: note)
@@ -1094,6 +1106,7 @@ packages/cli/
     docs-manage.md / docs-read-content.md / docs-export-pdf.md
     docs-export-docx.md / docs-import-docx.md
     slides-manage.md / slides-read-content.md / slides-export-pptx.md / slides-import-pptx.md
+    slides-author.md / deck-author.md
     files-upload-download.md
     recipe-csv-pipeline.md / recipe-data-collect.md
     recipe-docx-to-pdf.md / recipe-doc-to-markdown.md
@@ -1710,6 +1723,9 @@ Schema entries by command (canonical plural names):
 | `slides.export`          | read-only     | file write is local; PPTX only                         |
 | `slides.import`          | write         | `safety` becomes `destructive` with `--replace`        |
 | `slides.set-content`     | destructive   | whole-deck replace                                     |
+| `slides.render`          | read-only     | writes PNGs under `--out` (the plugin guard asks); installs the session as a browser cookie on `--frontend` and the API origin — https or loopback only; `--frontend` asks like `--server` |
+| `slides.layout-report`   | read-only     | `--file` reads a local deck; no network                |
+| `slides.lint`            | read-only     | `--file` reads a local deck; exit 1 only with `--fail-on` |
 | `notes.list`             | read-only     | filtered to `type: note`                               |
 | `notes.create`           | write         |                                                        |
 | `notes.get`              | read-only     | metadata only                                          |

@@ -13,7 +13,10 @@
 // node_modules.
 
 const RANK = { 'read-only': 0, write: 1, destructive: 2 };
-const CONNECTION_OPTIONS = ['--server', '--api-key', '--profile'];
+// `--frontend` (slides render) belongs here too: it names the origin the
+// session token is installed on as a browser cookie, so it routes the
+// credential exactly as `--server` does.
+const CONNECTION_OPTIONS = ['--server', '--api-key', '--profile', '--frontend'];
 /** Shells that run their `-c` string, and `eval`, which runs its words. */
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']);
 
@@ -267,9 +270,26 @@ function connectionOptions(words) {
     if (!CONNECTION_OPTIONS.includes(name)) continue;
     const value = eq >= 0 ? t.slice(eq + 1) : words[i + 1]?.text;
     // Name the server, never echo a key or profile into the transcript.
-    out.push(name === '--server' && value ? `${name} ${value}` : name);
+    if ((name === '--server' || name === '--frontend') && value) {
+      // Name the host the credential goes to in full: `safe()` truncates at 80
+      // characters, and a long URL could push the real host past the cut
+      // (`https://trusted.example.<padding>.attacker.test`).
+      out.push(`${name} ${value}`, ...hostOf(name, value));
+    } else {
+      out.push(name);
+    }
   }
   return out;
+}
+
+/** `["host: <full hostname>"]` for a URL value, `[]` when it does not parse. */
+function hostOf(name, value) {
+  try {
+    const host = new URL(value).host;
+    return host ? [`${name} host ${host}`] : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -575,6 +595,15 @@ function payloadRuledOut(when, data) {
  * reads to approve it: no control or bidi characters (no forged new lines
  * or reordered text), and short.
  */
+/**
+ * `safe()` without the length cap, for a value whose tail is what matters —
+ * the host a credential is sent to. Still strips control and bidi characters.
+ */
+function safeFull(text) {
+  // eslint-disable-next-line no-control-regex
+  return String(text).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '?');
+}
+
 export function safe(text) {
   const clean = String(text)
     // eslint-disable-next-line no-control-regex
@@ -769,7 +798,7 @@ function judge(found, table, options, exact) {
   if (redirected) {
     return {
       decision: 'ask',
-      reason: `${describe(redirected)}. It is run with ${redirected.connection.map(safe).join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`,
+      reason: `${describe(redirected)}. It is run with ${redirected.connection.map((c) => (/^--(server|frontend) host /.test(c) ? safeFull(c) : safe(c))).join(', ')}, which choose the server and credential it connects with — check it sends your Wafflebase credentials only where you trust.`,
     };
   }
 

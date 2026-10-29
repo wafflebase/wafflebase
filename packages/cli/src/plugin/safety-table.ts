@@ -69,12 +69,16 @@ export class UnclassifiedCommandError extends Error {
 }
 
 /**
- * Placeholder names that mean "write the result to this path", whether on a
- * positional argument (`export <doc-id> <file>`) or an option value
- * (`--out <file>`).
+ * Positional placeholder names that mean "this path": a write target on a
+ * read (`export <doc-id> <file>`), an input on a write (`import <file>`).
  */
 const LOCAL_OUTPUT_ARGS = new Set(['file', 'out']);
-const OPTION_VALUE_NAME = /[<[]([a-z-]+)[>\]]\s*$/;
+/**
+ * Options whose value is a local path the command WRITES. Keyed on the flag,
+ * not on its value placeholder: `--allowlist <file>` is only read, and
+ * `--out <dir>` (slides render) writes a directory of files.
+ */
+const LOCAL_OUTPUT_OPTIONS = new Set(['--out']);
 
 /**
  * Writes that are not document edits: they mint credentials, change who is
@@ -158,10 +162,7 @@ function buildNode(cmd: Command, path: string[]): SafetyNode {
       const out = args.findIndex((a) => LOCAL_OUTPUT_ARGS.has(a.name()));
       if (out >= 0) node.localOutputArg = out;
       const outOpts = cmd.options
-        .filter((o) => {
-          const m = OPTION_VALUE_NAME.exec(o.flags);
-          return m !== null && LOCAL_OUTPUT_ARGS.has(m[1]);
-        })
+        .filter((o) => o.long !== undefined && LOCAL_OUTPUT_OPTIONS.has(o.long))
         .flatMap(optionNames)
         .sort();
       if (outOpts.length > 0) node.localOutputOptions = outOpts;

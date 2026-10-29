@@ -15,6 +15,11 @@ describe('template briefs', () => {
     }
   });
 
+  it('every slides template has a brief', () => {
+    const briefed = new Set(TEMPLATE_BRIEFS.map((b) => b.slug));
+    expect([...slideSlugs].filter((s) => !briefed.has(s))).toEqual([]);
+  });
+
   it('brief slugs are unique', () => {
     const slugs = TEMPLATE_BRIEFS.map((b) => b.slug);
     expect(new Set(slugs).size).toBe(slugs.length);

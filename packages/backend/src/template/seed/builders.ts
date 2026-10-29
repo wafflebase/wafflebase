@@ -170,11 +170,14 @@ export type Decor =
   | 'sidebar'
   | 'split';
 
-const SW = SLIDE_WIDTH;
-const SH = SLIDE_HEIGHT;
+export type { Fill };
 
-const rf = (role: ColorRole): Fill => ({ kind: 'role', role });
-const grad = (r1: ColorRole, r2: ColorRole, angle = 0.5): Fill => ({
+/** Slide canvas size in slide-logical px (16:9). */
+export const SW = SLIDE_WIDTH;
+export const SH = SLIDE_HEIGHT;
+
+export const rf = (role: ColorRole): Fill => ({ kind: 'role', role });
+export const grad = (r1: ColorRole, r2: ColorRole, angle = 0.5): Fill => ({
   kind: 'gradient',
   type: 'linear',
   angle,
@@ -184,7 +187,7 @@ const grad = (r1: ColorRole, r2: ColorRole, angle = 0.5): Fill => ({
   ],
 });
 
-function shapeEl(
+export function shapeEl(
   idStr: string,
   kind: ShapeKind,
   x: number,

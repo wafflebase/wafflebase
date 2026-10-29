@@ -39,6 +39,20 @@ export WAFFLEBASE_API_KEY=wfb_…
 export WAFFLEBASE_WORKSPACE=ws-…
 ```
 
+## Rendering slides to PNG
+
+```bash
+wafflebase slides render <doc-id> --out ./shots            # slide-1.png … slide-N.png
+wafflebase slides render <doc-id> --slide 3 --out ./shots  # only slide 3
+```
+
+Writes one 1920-wide PNG per slide using the web app's own renderer, in a
+headless Chromium (not soffice). It needs a login session (`wafflebase login`;
+API keys cannot sign a browser in) and Playwright, which is optional and not
+installed with the CLI: `npm i playwright && npx playwright install chromium`.
+`--frontend <url>` (or `WAFFLEBASE_FRONTEND_URL`) names the web app when it
+cannot be inferred from `--server`; `--force` overwrites existing PNGs.
+
 ## Image fetching
 
 `docs export` / `slides export` fetch the images a document references. An

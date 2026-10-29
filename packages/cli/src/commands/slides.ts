@@ -9,7 +9,7 @@ import {
   parseOutputFormat,
   forwardUpstreamError,
 } from '../output/formatter.js';
-import { printDryRun } from '../client/dry-run.js';
+import { printDryRun, printDryRunUrl } from '../client/dry-run.js';
 import { authorizationHeader } from '../client/http-client.js';
 import { seg } from '../client/url.js';
 import { runSlidesImport } from '../slides/import.js';
@@ -20,6 +20,20 @@ import {
 import { writeBinary } from '../output/binary.js';
 import { createImageFetcher } from '../docs/image-fetcher.js';
 import { exportPptxCli } from '../slides/pptx-export.js';
+import {
+  parseSlideNumber,
+  renderSlides,
+  resolveFrontendUrl,
+} from '../slides/render.js';
+import {
+  layoutRows,
+  parseFailOn,
+  parseRules,
+  readAllowlist,
+  readDeckFile,
+  runLint,
+} from '../slides/lint.js';
+import type { SlidesDocument } from '@wafflebase/slides/node';
 import { registerSlidesSetContentCommand } from './content-write.js';
 import { registerSlidesEditCommand } from './slides-edit.js';
 
@@ -236,6 +250,147 @@ export function registerSlidesCommand(program: Command) {
         });
         const bytes = await exportPptxCli(res.data, { imageFetcher });
         writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  slides
+    .command('render <doc-id>')
+    .description(
+      'Render slides to full-resolution PNGs with the real editor renderer (needs Playwright + a login session)',
+    )
+    .requiredOption('--out <dir>', 'Output directory (slide-1.png, slide-2.png, ...)')
+    .option('--slide <n>', 'Render only slide N (1-based)')
+    .option(
+      '--frontend <url>',
+      'Web app URL (default: inferred from --server, or WAFFLEBASE_FRONTEND_URL)',
+    )
+    .option('--force', 'Overwrite existing PNGs', false)
+    .action(async function (this: Command, docId: string) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{
+        out: string;
+        slide?: string;
+        frontend?: string;
+        force: boolean;
+      }>();
+      try {
+        const slide = parseSlideNumber(local.slide);
+        if (opts.dryRun) {
+          // What the command does: open the deck's editor page in a headless
+          // browser (no v1 API call of its own).
+          const config = getConfig(opts);
+          const frontend = resolveFrontendUrl(local.frontend, config.server);
+          printDryRunUrl(`${frontend}/p/${seg(docId)}`, 'GET');
+          return;
+        }
+        await renderSlides({
+          docId,
+          outDir: local.out,
+          slide,
+          frontend: local.frontend,
+          force: local.force,
+          config: getConfig(opts),
+          quiet: opts.quiet,
+        });
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  /**
+   * The deck `layout-report` / `lint` read: a local `--file` (.pptx or .json), or
+   * the deck `<doc-id>` names on the server. Exactly one of the two.
+   */
+  async function loadDeck(
+    cmd: Command,
+    docId: string | undefined,
+    file: string | undefined,
+  ): Promise<SlidesDocument | undefined> {
+    if ((docId === undefined) === (file === undefined)) {
+      throw new Error('pass exactly one of <doc-id> or --file <path>');
+    }
+    if (file !== undefined) return readDeckFile(file);
+    const opts = getGlobalOpts(cmd);
+    if (opts.dryRun) {
+      printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId!)}/content`);
+      return undefined;
+    }
+    const res = await getClient(opts).getSlidesContent(docId!);
+    if (!res.ok) {
+      forwardUpstreamError(res, cmd);
+      return undefined;
+    }
+    return res.data as SlidesDocument;
+  }
+
+  slides
+    .command('layout-report [doc-id]')
+    .description(
+      'Report each element as laid out (line count, text height, overflow, on-slide fraction) without rendering',
+    )
+    .option('--file <path>', 'Read a local .pptx or .json deck instead of <doc-id>')
+    .option('--slide <n>', 'Only slide N (1-based)')
+    .action(async function (this: Command, docId: string | undefined) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{ file?: string; slide?: string }>();
+      try {
+        const fmt = parseOutputFormat(opts.format);
+        const slide = parseSlideNumber(local.slide);
+        const doc = await loadDeck(this, docId, local.file);
+        if (!doc) return;
+        output(layoutRows(doc, slide), fmt);
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  slides
+    .command('lint [doc-id]')
+    .description(
+      'Flag slides that look broken: overflow, out-of-bounds, overlap, contrast, min-font, edge-margin (advisory)',
+    )
+    .option('--file <path>', 'Read a local .pptx or .json deck instead of <doc-id>')
+    .option('--slide <n>', 'Only slide N (1-based)')
+    .option('--rules <list>', 'Comma-separated rules to run (default: all)')
+    .option(
+      '--allowlist <file>',
+      'JSON array of intentional findings: [{ rule, slideId, elementId? | text?, reason }]',
+    )
+    .option(
+      '--fail-on <severity>',
+      'Exit 1 when an open finding is at least this severe: error, warning, info, never',
+      'never',
+    )
+    .action(async function (this: Command, docId: string | undefined) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{
+        file?: string;
+        slide?: string;
+        rules?: string;
+        allowlist?: string;
+        failOn?: string;
+      }>();
+      try {
+        const fmt = parseOutputFormat(opts.format);
+        const slide = parseSlideNumber(local.slide);
+        const rules = parseRules(local.rules);
+        const failOn = parseFailOn(local.failOn);
+        const allowlist = local.allowlist ? readAllowlist(local.allowlist) : undefined;
+        const doc = await loadDeck(this, docId, local.file);
+        if (!doc) return;
+        const result = runLint(doc, { rules, allowlist, failOn, slide });
+        output(result.rows, fmt);
+        if (!opts.quiet && result.allowed.length > 0) {
+          process.stderr.write(`${result.allowed.length} finding(s) accepted by the allowlist\n`);
+        }
+        if (!opts.quiet && result.unused.length > 0) {
+          process.stderr.write(
+            `${result.unused.length} allowlist entr${result.unused.length === 1 ? 'y' : 'ies'} matched nothing (stale?)\n`,
+          );
+        }
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
         outputError(e, this);
       }

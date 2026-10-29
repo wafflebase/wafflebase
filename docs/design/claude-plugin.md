@@ -158,7 +158,7 @@ The guard reads the hook's stdin, and only when the Bash command is a
 | `read-only` that writes a local file (`export <file>`, `--out <file>`, `files download`; `-` = stdout is exempt) | `ask`, always | The server sees a read, the user's disk sees a write; the opt-in covers Wafflebase edits, not files |
 | A write that uploads a local file (`files upload`, `images upload`, `… import <file>`) | `ask`, always | Sending the user's disk to a possibly shared workspace is not a document edit (`~/.ssh/id_rsa` is one prompt injection away) |
 | `login`, `logout`, `ctx switch`, `api-keys create`, `templates publish`, `templates use` (`--into` another workspace) | `ask`, always | Credentials, sign-in state or a document's audience — not document content |
-| Any command with `--server`, `--api-key`, `--profile` or a `VAR=` prefix | `ask`, always | Chooses where the user's credentials go, or what runs |
+| Any command with `--server`, `--api-key`, `--profile`, `--frontend` or a `VAR=` prefix | `ask`, always | Chooses where the user's credentials go, or what runs |
 | Not classifiable (unknown subcommand, CLI newer than the table) | `ask` | Fail toward the prompt, never toward silence |
 | Not a `wafflebase` command | no output | The user's own rules apply unchanged |
 
@@ -272,7 +272,8 @@ that forgot would turn the exception into an unprompted write.
 Three root options are not skipped: `--server`, `--api-key` and
 `--profile` decide where the CLI connects and with which credential, and
 the CLI sends the saved session (and, on a 401, the refresh token) to
-whatever `--server` names. A read with one of them always asks — this is
+whatever `--server` names. `slides render --frontend <url>` is treated the
+same way: it installs the session token as a browser cookie on that origin. A read with one of them always asks — this is
 the path a prompt-injected "list docs from https://…" would take to
 exfiltrate the user's tokens. Any `VAR=` prefix on a call asks the same
 way — not only the environment spellings of those options

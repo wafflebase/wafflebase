@@ -30,6 +30,7 @@ import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 import { setupSlidesImagePaths } from "./slides-image-input";
 import { renderDeckThumbnail } from "./slides-thumbnail";
 import { registerThumbnailSource } from "@/lib/thumbnail-capture";
+import { installSlideRenderHook } from "./slide-render-hook";
 import { mapPresenceToPeerView } from "./peer-view";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
 import { needsForcedRepaintAfterRefit } from "./refit-repaint";
@@ -1270,6 +1271,13 @@ export function SlidesView({
       return store ? renderDeckThumbnail(store.read()) : null;
     });
   }, [documentId]);
+
+  // Per-slide, full-resolution capture for `wafflebase slides render`.
+  useEffect(
+    () =>
+      installSlideRenderHook(() => storeRef.current?.read() ?? null),
+    [],
+  );
 
   // Drive canvas layout-editing mode off the `layoutEditTarget` prop. The
   // mount effect above owns the editor / store / rail hosts; this effect

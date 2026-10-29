@@ -1,4 +1,5 @@
 import type { TemplateBrief } from './brief';
+import { projectKickoffBrief, weeklyBusinessReviewBrief } from './briefs-core';
 import {
   okrReviewBrief,
   productLaunchPlanBrief,
@@ -31,6 +32,8 @@ import {
  * the user for. Nothing at use time reads it — see `brief.ts`.
  */
 export const TEMPLATE_BRIEFS: TemplateBrief[] = [
+  weeklyBusinessReviewBrief,
+  projectKickoffBrief,
   sprintRetrospectiveBrief,
   okrReviewBrief,
   productLaunchPlanBrief,

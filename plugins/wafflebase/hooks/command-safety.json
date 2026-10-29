@@ -888,12 +888,31 @@
             },
             "localInputArg": 0
           },
+          "layout-report": {
+            "valueOptions": [
+              "--file",
+              "--slide"
+            ],
+            "safety": "read-only",
+            "description": "Report each element as laid out (line count, text height, overflow, on-slide fraction) in Node, without rendering"
+          },
           "layouts": {
             "aliases": [
               "layout"
             ],
             "safety": "read-only",
             "description": "List the layout ids this deck's slides can be built from"
+          },
+          "lint": {
+            "valueOptions": [
+              "--allowlist",
+              "--fail-on",
+              "--file",
+              "--rules",
+              "--slide"
+            ],
+            "safety": "read-only",
+            "description": "Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default"
           },
           "list": {
             "safety": "read-only",
@@ -902,6 +921,18 @@
           "rename": {
             "safety": "write",
             "description": "Rename a slide deck"
+          },
+          "render": {
+            "valueOptions": [
+              "--frontend",
+              "--out",
+              "--slide"
+            ],
+            "safety": "read-only",
+            "description": "Render slides to full-resolution PNGs via a headless browser running the real editor renderer (needs Playwright + login session)",
+            "localOutputOptions": [
+              "--out"
+            ]
           },
           "set-content": {
             "valueOptions": [

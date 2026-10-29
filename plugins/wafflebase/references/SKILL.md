@@ -41,7 +41,8 @@ examples, and safety notes.
 | [slides-read-content.md](slides-read-content.md) | read-only | Read a deck as JSON, Markdown, or plain text |
 | [slides-import-pptx.md](slides-import-pptx.md) | write / destructive | Import a .pptx as a new or replacement deck |
 | [slides-export-pptx.md](slides-export-pptx.md) | read-only | Export a deck to .pptx |
-| [slides-author.md](slides-author.md) | write | Author a native deck on the built-in themes and layouts (CLI or seed catalogue) |
+| [slides-author.md](slides-author.md) | destructive | Author a native deck from built-in themes, layouts and placeholders |
+| [deck-author.md](deck-author.md) | destructive | Source folder → native deck through a lint + render verify loop |
 
 ## Files Skills
 

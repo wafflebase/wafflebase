@@ -1,11 +1,10 @@
 ---
 name: slides-author
-description: Author a native Wafflebase slide deck on the built-in themes and layouts (CLI or seed catalogue)
-safety: write
+description: Author a native Wafflebase slide deck (built-in themes, layouts and placeholders) instead of importing a generated .pptx
+safety: destructive
 tools:
   - wafflebase slides create
   - wafflebase slides set-content
-  - wafflebase slides export
 ---
 
 # Skill: authoring native Wafflebase slides
@@ -75,14 +74,16 @@ what an unfilled placeholder is — leave it for the user to fill).
 
 1. `wafflebase status` to confirm login + active workspace.
 2. `wafflebase slides create "<title>"` → note the returned document id.
-3. `wafflebase slides set-content <doc-id> < deck.json` (or `--data '<json>'`)
-   where `deck.json` is a `SlidesDocument` snapshot (see `wafflebase slides
-   set-content --help` and `packages/slides/src/model` for the shape). It
-   replaces the whole deck, so confirm first. Author it with the layouts above.
-4. **Visual QA**: `wafflebase slides export <doc-id> tmp.pptx` → render (the built-in
-   renderer, or `soffice --headless --convert-to pdf` then `pdftoppm`) → look at
-   every slide → fix overflow / misalignment / uneven spacing → repeat until
-   clean.
+3. `wafflebase slides set-content <doc-id> < deck.json` (JSON on stdin, or
+   inline with `--data`) where `deck.json` is a `SlidesDocument` snapshot (see
+   `wafflebase schema slides.set-content` and `packages/slides/src/model` for
+   the shape). Author it with the layouts above. It replaces the whole deck.
+4. **Visual QA**: `wafflebase slides lint`, then `wafflebase slides render
+   <doc-id> --out ./shots` on the product's own renderer, look at every slide,
+   fix, repeat until clean. The full loop — lint rules, allowlist, render
+   prerequisites — is [deck-author.md](deck-author.md). Do not QA through
+   `soffice`: a substitute renderer reports problems the real one does not
+   have.
 
 ## Seed-catalogue form (shipped gallery)
 

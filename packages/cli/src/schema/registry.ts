@@ -336,6 +336,50 @@ const registry: CommandSchema[] = [
     aliases: ['slide.export', 'deck.export', 'decks.export'],
   },
   {
+    name: 'slides.render',
+    description:
+      'Render slides to full-resolution PNGs via a headless browser running the real editor renderer (needs Playwright + login session)',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--out': { type: 'string', required: true, description: 'Output directory; writes slide-<N>.png per slide' },
+      '--slide': { type: 'number', required: false, description: 'Render only slide N (1-based)' },
+      '--frontend': { type: 'string', required: false, description: 'Web app URL (default: inferred from --server or WAFFLEBASE_FRONTEND_URL)' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing PNGs', default: 'false' },
+    },
+    response: { type: 'files', description: 'One PNG per slide written to --out; paths printed to stderr' },
+    aliases: ['slide.render', 'deck.render', 'decks.render'],
+  },
+  {
+    name: 'slides.layout-report',
+    description:
+      'Report each element as laid out (line count, text height, overflow, on-slide fraction) in Node, without rendering',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: false, description: 'Document ID (or pass --file)' },
+      '--file': { type: 'string', required: false, description: 'Local .pptx or .json deck instead of a document' },
+      '--slide': { type: 'number', required: false, description: 'Only slide N (1-based)' },
+    },
+    response: { type: 'array', description: 'One row per element: slide, element, type, box, visible, autofit, lines, textHeight, boxHeight, shrink, overflows' },
+    aliases: ['slide.layout-report', 'deck.layout-report', 'decks.layout-report'],
+  },
+  {
+    name: 'slides.lint',
+    description:
+      'Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: false, description: 'Document ID (or pass --file)' },
+      '--file': { type: 'string', required: false, description: 'Local .pptx or .json deck instead of a document' },
+      '--slide': { type: 'number', required: false, description: 'Only slide N (1-based)' },
+      '--rules': { type: 'string', required: false, description: 'Comma-separated rules to run (default: all)' },
+      '--allowlist': { type: 'string', required: false, description: 'JSON file of intentional findings, each with a reason' },
+      '--fail-on': { type: 'string', required: false, description: 'Exit 1 at this severity or above: error|warning|info|never', default: 'never' },
+    },
+    response: { type: 'array', description: 'Open findings: slide, rule, severity, element, text, message' },
+    aliases: ['slide.lint', 'deck.lint', 'decks.lint'],
+  },
+  {
     name: 'slides.set-content',
     description: 'Replace deck content from JSON (stdin or --data)',
     safety: 'destructive',

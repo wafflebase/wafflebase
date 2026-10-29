@@ -223,6 +223,7 @@ export { drawImage } from './view/canvas/image-renderer';
 export { renderThumbnail, ThumbnailScheduler } from './view/canvas/thumbnail';
 export {
   getOrLoadImage,
+  hasPendingImageLoads,
   setImageUrlResolver,
 } from './view/canvas/image-cache';
 export { renderShapeIcon } from './view/canvas/shape-icon';
@@ -289,3 +290,20 @@ export {
 // Export — PPTX (DOM-free; works in both browser and Node)
 export { exportPptx } from './export/pptx/index.js';
 export type { ExportPptxOptions } from './export/pptx/index.js';
+
+
+// Slide layout report + deterministic linter (contrast / out-of-bounds /
+// overlap / edge-margin / min-font / overflow) — pure, Node-safe.
+// Design: docs/design/slides/slides-lint.md.
+export { layoutReport } from './lint/layout-report';
+export type { ElementLayout, SlideLayout } from './lint/layout-report';
+export { estimateMeasurer } from './lint/estimate-measurer';
+export { applyAllowlist, lintSlides } from './lint/index';
+export type {
+  AllowlistEntry,
+  Finding,
+  LintableDeck,
+  LintOptions,
+  LintRuleId,
+  LintSeverity,
+} from './lint/index';

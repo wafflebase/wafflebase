@@ -131,6 +131,15 @@ export function evictImageSrcs(srcs: readonly string[]): void {
   }
 }
 
+/**
+ * `true` while any image this cache started loading has neither loaded nor
+ * failed. A one-shot capture (`wafflebase slides render`) waits on this so it
+ * never encodes a slide whose image is still arriving.
+ */
+export function hasPendingImageLoads(): boolean {
+  return pendingCallbacks.size > 0;
+}
+
 /** Test-only: drop every cached image and pending callback. */
 export function clearImageCacheForTests(): void {
   imageCache.clear();
