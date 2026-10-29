@@ -26,6 +26,7 @@ import {
   deckFontScale,
   deckSlideHeight,
   DOCS_PX_PER_PT,
+  SLIDE_PX_PER_PT,
   SLIDE_WIDTH,
   type SlidesDocument,
   type Slide,
@@ -41,8 +42,6 @@ export type Box = { x: number; y: number; w: number; h: number };
  * product treats as a 13.333-inch widescreen slide (`SLIDE_WIDTH / 13.333`).
  */
 export const PX_PER_INCH = SLIDE_WIDTH / (40 / 3);
-/** Slide pixels per point on that 13.333-inch slide (= 2). */
-export const SLIDE_PX_PER_PT = PX_PER_INCH / 72;
 
 // Mirrors SHAPE_TEXT_PADDING in the canvas shape renderer (kept local so
 // this module stays free of view/Canvas imports).

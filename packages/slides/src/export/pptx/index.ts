@@ -49,12 +49,13 @@ import { computeConnectorFrame } from '../../view/canvas/connector-frame.js';
 import { PptxWriter } from './zip.js';
 import { REL_TYPES } from './templates.js';
 import { themeToXml } from './theme.js';
-import { masterToXml } from './master.js';
+import { masterToXml, sldLayoutIdLstXml } from './master.js';
 import { layoutToXml } from './layout.js';
 import { slideToXml, notesSlideToXml } from './slide.js';
 import { presentationToXml } from './presentation.js';
 import type { ElementXmlCtx } from './group.js';
 import { imageNaturalSize } from './image-size.js';
+import { toExportScale, withPaintedDefaults } from './physical-scale.js';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -140,9 +141,12 @@ const CT_NOTES =
  * the orchestrator itself is DOM-free).
  */
 export async function exportPptx(
-  deck: SlidesDocument,
+  input: SlidesDocument,
   opts: ExportPptxOptions = {},
 ): Promise<Uint8Array> {
+  // Write the page at its physical scale, spelling out the font and insets
+  // wafflebase paints with — see `toExportScale` and `withPaintedDefaults`.
+  const deck = toExportScale(withPaintedDefaults(input));
   const writer = new PptxWriter();
 
   // -------------------------------------------------------------------------
@@ -240,12 +244,6 @@ export async function exportPptx(
 
   const masterPath = 'ppt/slideMasters/slideMaster1.xml';
 
-  // Emit master XML.
-  const masterXml = masterObj
-    ? masterToXml(masterObj, 0)
-    : fallbackMasterXml();
-  writer.addPart(masterPath, masterXml, CT_SLIDE_MASTER);
-
   // Emit layout XMLs and build layoutId → layoutPath map.
   const layoutIdToPath = new Map<string, string>();
 
@@ -274,18 +272,29 @@ export async function exportPptx(
     writer.addRel(masterPath, REL_TYPES.theme, '../theme/theme1.xml');
   }
 
-  // master → layout rels
+  // master → layout rels. Their ids go into the master's
+  // `<p:sldLayoutIdLst>`, so the master XML is emitted after them.
+  const layoutRIds: string[] = [];
   if (useFallbackLayout) {
-    writer.addRel(masterPath, REL_TYPES.slideLayout, '../slideLayouts/slideLayout1.xml');
+    layoutRIds.push(
+      writer.addRel(masterPath, REL_TYPES.slideLayout, '../slideLayouts/slideLayout1.xml'),
+    );
   } else {
     for (let i = 0; i < layoutsToEmit.length; i++) {
-      writer.addRel(
-        masterPath,
-        REL_TYPES.slideLayout,
-        `../slideLayouts/slideLayout${i + 1}.xml`,
+      layoutRIds.push(
+        writer.addRel(
+          masterPath,
+          REL_TYPES.slideLayout,
+          `../slideLayouts/slideLayout${i + 1}.xml`,
+        ),
       );
     }
   }
+
+  const masterXml = masterObj
+    ? masterToXml(masterObj, 0, layoutRIds)
+    : fallbackMasterXml(layoutRIds);
+  writer.addPart(masterPath, masterXml, CT_SLIDE_MASTER);
 
   // -------------------------------------------------------------------------
   // Step 5: Slide parts — emit each slide, wire image + layout rels.
@@ -454,7 +463,7 @@ function fallbackLayoutXml(): string {
  * Emit a bare-minimum slide master when the deck has no master records.
  * This avoids a crash while still producing a structurally valid archive.
  */
-function fallbackMasterXml(): string {
+function fallbackMasterXml(layoutRIds: readonly string[]): string {
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<p:sldMaster` +
@@ -470,7 +479,7 @@ function fallbackMasterXml(): string {
     `</p:spTree>` +
     `</p:cSld>` +
     `<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>` +
-    `<p:sldLayoutIdLst/>` +
+    sldLayoutIdLstXml(layoutRIds) +
     `</p:sldMaster>`
   );
 }

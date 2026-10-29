@@ -227,7 +227,12 @@ export function textElementToXml(
     `</p:spPr>`;
 
   const txBody = textBodyToXml(
-    { blocks: data.blocks, autofit: data.autofit, verticalAnchor: data.verticalAnchor },
+    {
+      blocks: data.blocks,
+      autofit: data.autofit,
+      verticalAnchor: data.verticalAnchor,
+      ...(data.inset ? { inset: data.inset } : {}),
+    },
     'p:txBody',
     resolveHyperlinkRId,
   );
