@@ -274,6 +274,14 @@ export const SLIDE_WIDTH = 1920;
 export const SLIDE_HEIGHT = 1080;
 
 /**
+ * Canvas px per point on the physical page. The 1920-px canvas is a
+ * 13.333-inch widescreen slide (144 px/in), so this is 2 — the scale PPTX
+ * import reads a 16:9 deck at, PPTX export writes the page at, and slide
+ * lint measures the size a viewer sees in.
+ */
+export const SLIDE_PX_PER_PT = SLIDE_WIDTH / (40 / 3) / 72;
+
+/**
  * Largest {@link deckSlideHeight} any reader will honour.
  *
  * Same reasoning as {@link MAX_DECK_FONT_SCALE}: `meta` lives on the Yorkie

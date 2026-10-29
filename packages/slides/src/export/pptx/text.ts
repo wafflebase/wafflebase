@@ -37,6 +37,16 @@ export function textBodyToXml(
   return `<${tag}>${bodyPrXml(body.autofit, body.verticalAnchor, body.inset)}${paras || '<a:p/>'}</${tag}>`;
 }
 
+/**
+ * One `<a:bodyPr>` inset side in EMU. `ST_Coordinate32` is a signed 32-bit
+ * integer and an inset is never negative, so a side the model holds as
+ * non-finite or negative is written as 0 rather than as `NaN`, which
+ * PowerPoint rejects.
+ */
+function insetEmu(px: number): number {
+  return Number.isFinite(px) && px > 0 ? Math.min(pxToEmu(px), 2_147_483_647) : 0;
+}
+
 function bodyPrXml(
   autofit: AutofitMode | undefined,
   anchor: VerticalAnchorMode | undefined,
@@ -47,7 +57,7 @@ function bodyPrXml(
   // receiving app's default insets (OOXML: 0.1in / 0.05in), and the text
   // re-wraps inside a narrower box than the one wafflebase painted.
   const insetAttrs = inset
-    ? ` lIns="${pxToEmu(inset.left)}" tIns="${pxToEmu(inset.top)}" rIns="${pxToEmu(inset.right)}" bIns="${pxToEmu(inset.bottom)}"`
+    ? ` lIns="${insetEmu(inset.left)}" tIns="${insetEmu(inset.top)}" rIns="${insetEmu(inset.right)}" bIns="${insetEmu(inset.bottom)}"`
     : '';
   const anchorAttr =
     anchor === 'middle'

@@ -59,6 +59,7 @@ describe('exportPptx', () => {
   it.each([
     ['with the deck layouts', (d: Awaited<ReturnType<typeof importPptx>>['document']) => d],
     ['with the fallback layout', (d: Awaited<ReturnType<typeof importPptx>>['document']) => ({ ...d, layouts: [] })],
+    ['with the fallback master', (d: Awaited<ReturnType<typeof importPptx>>['document']) => ({ ...d, masters: [] })],
   ])('lists every layout relationship in the master %s', async (_label, shape) => {
     const { document: base } = await importPptx(await buildMinimalPptx());
     const zip = await JSZip.loadAsync(await exportPptx(shape(base)));

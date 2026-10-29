@@ -100,6 +100,7 @@ master.ts       Master → ppt/slideMasters/slideMasterN.xml
 layout.ts       Layout → ppt/slideLayouts/slideLayoutN.xml
 presentation.ts ppt/presentation.xml (slide size, slide/master id lists)
 templates.ts    [Content_Types].xml, _rels/.rels boilerplate builders
+physical-scale.ts toExportScale / withPaintedDefaults — native-deck pre-pass (§3)
 ```
 
 Roughly 2,000–3,000 LOC of source plus tests. Module isolation keeps
@@ -180,6 +181,24 @@ expects to resolve them.
   hundredths of a point, color, font family via `<a:latin typeface>`),
   link → `<a:hlinkClick>`. Reuses the docs `Block`/`Inline` types
   already shared with slides.
+  An explicit `TextBody.inset` is written as `lIns/tIns/rIns/bIns`
+  (non-finite or negative sides as `0`).
+- **Physical scale (`physical-scale.ts`)**: the page is written at
+  `SLIDE_PX_PER_PT` (= 2 canvas px/pt, `model/presentation.ts`), but a
+  deck authored in wafflebase has no `meta.pxPerPt` and is painted at the
+  docs canvas's 96 DPI. `toExportScale` therefore rescales every painted
+  text body (slides, layouts, masters; not speaker notes) by
+  `deckFontScale(meta) × DOCS_PX_PER_PT / SLIDE_PX_PER_PT` — font sizes,
+  margins, indents, markers and letter spacing — on a clone. Imported
+  decks already run at 2 and pass through unchanged.
+- **Painted defaults (`withPaintedDefaults`)**: for native decks only, the
+  defaults the canvas paints with are written out, because the receiving
+  app's own defaults differ: a font-less run gets the docs default family
+  as `<a:latin>` (otherwise the theme font substitutes and Keynote drops
+  its bold), and a text element without `inset` gets explicit zero insets
+  (otherwise OOXML's 0.1in/0.05in defaults re-wrap it). This writes the
+  renderer's own value, not invented data; imported decks are left alone
+  so their theme-font and default-inset inheritance survives.
 
 ### 4. Elements
 
@@ -207,7 +226,9 @@ Effects (`effects.ts`) attach an `<a:effectLst>` (`<a:outerShdw>`,
   `toRgbHexColor`, which returns only `[0-9A-F]{6}`, and degrades to `000000`
   when it cannot be expressed — the slot cannot simply be omitted.
 - **Master / Layout**: emit `<p:sldMaster>`/`<p:sldLayout>` with the
-  stored background + placeholder specs. Layout carries `type="…"` in
+  stored background + placeholder specs. The master's `<p:sldLayoutIdLst>`
+  lists every master→layout relationship (ids from 2^31 + 1); Keynote
+  refuses a package whose list is empty. Layout carries `type="…"` in
   `<p:sldLayout matchingName>`/`<p:cSld>` so the importer re-derives the
   same built-in layout id on re-import (round-trip stability — §6).
 - **Animations / transitions (`animation.ts`)**: best-effort. The
