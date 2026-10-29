@@ -24,10 +24,17 @@ const DEFAULT_CLR_MAP_ATTRS =
  *   A gradient master background collapses to its representative
  *   (first-stop) color — full gradient background export is a later task.
  * - Standard `<p:clrMap>` with the OOXML identity mapping.
- * - Empty `<p:sldLayoutIdLst>` — the orchestrator fills in layout rels.
+ * - `<p:sldLayoutIdLst>` lists the master's layout relationships
+ *   (`layoutRIds`, in order). PowerPoint and LibreOffice tolerate an empty
+ *   list, but Keynote refuses to open a package whose master names none of
+ *   the layouts its relationships point at.
  * - No `<p:txStyles>` — placeholder typography overrides are deferred to v1.5.
  */
-export function masterToXml(master: Master, _index: number): string {
+export function masterToXml(
+  master: Master,
+  _index: number,
+  layoutRIds: readonly string[] = [],
+): string {
   const bgFill = solidFillXml(representativeColor(master.background.fill));
 
   return (
@@ -45,8 +52,21 @@ export function masterToXml(master: Master, _index: number): string {
     `</p:spTree>` +
     `</p:cSld>` +
     `<p:clrMap ${DEFAULT_CLR_MAP_ATTRS}/>` +
-    `<p:sldLayoutIdLst/>` +
+    sldLayoutIdLstXml(layoutRIds) +
     `</p:sldMaster>`
   );
+}
+
+/**
+ * `<p:sldLayoutIdLst>` for the given master→layout relationship ids. Layout
+ * ids must be unique across the package and at least 2^31; slide master ids
+ * start at 2^31 too, so the layouts start one above the single master.
+ */
+export function sldLayoutIdLstXml(layoutRIds: readonly string[]): string {
+  if (layoutRIds.length === 0) return `<p:sldLayoutIdLst/>`;
+  const ids = layoutRIds
+    .map((rId, i) => `<p:sldLayoutId id="${2147483649 + i}" r:id="${rId}"/>`)
+    .join('');
+  return `<p:sldLayoutIdLst>${ids}</p:sldLayoutIdLst>`;
 }
 

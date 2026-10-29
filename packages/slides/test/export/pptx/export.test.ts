@@ -54,6 +54,26 @@ describe('exportPptx', () => {
     expect(zip.file('ppt/slideLayouts/slideLayout1.xml')).not.toBeNull();
   });
 
+  // Keynote refuses a package whose master lists none of the layouts its
+  // relationships point at (PowerPoint and LibreOffice tolerate it).
+  it.each([
+    ['with the deck layouts', (d: Awaited<ReturnType<typeof importPptx>>['document']) => d],
+    ['with the fallback layout', (d: Awaited<ReturnType<typeof importPptx>>['document']) => ({ ...d, layouts: [] })],
+  ])('lists every layout relationship in the master %s', async (_label, shape) => {
+    const { document: base } = await importPptx(await buildMinimalPptx());
+    const zip = await JSZip.loadAsync(await exportPptx(shape(base)));
+    const rels = await zip.file('ppt/slideMasters/_rels/slideMaster1.xml.rels')!.async('string');
+    const master = await zip.file('ppt/slideMasters/slideMaster1.xml')!.async('string');
+    const layoutRIds = [...rels.matchAll(/Id="(rId\d+)" Type="[^"]*\/slideLayout"/g)].map((m) => m[1]);
+    const listed = [...master.matchAll(/<p:sldLayoutId id="(\d+)" r:id="(rId\d+)"\/>/g)];
+    expect(layoutRIds.length).toBeGreaterThan(0);
+    expect(listed.map((m) => m[2])).toEqual(layoutRIds);
+    // Ids are unique and above the master's own (2^31).
+    const ids = listed.map((m) => Number(m[1]));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(Math.min(...ids)).toBeGreaterThan(2147483648);
+  });
+
   it('exports a custom master background fill onto inheriting slides', async () => {
     // Theme-builder regression: a slide that inherits its background
     // (no explicit fill) must export the resolved master fill, not the
