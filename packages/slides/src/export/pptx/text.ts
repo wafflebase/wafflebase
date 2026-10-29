@@ -38,13 +38,14 @@ export function textBodyToXml(
 }
 
 /**
- * One `<a:bodyPr>` inset side in EMU. `ST_Coordinate32` is a signed 32-bit
- * integer and an inset is never negative, so a side the model holds as
- * non-finite or negative is written as 0 rather than as `NaN`, which
- * PowerPoint rejects.
+ * One `<a:bodyPr>` inset side in EMU, clamped to `ST_Coordinate32` (a signed
+ * 32-bit integer; OOXML allows a negative inset, and the importer keeps one).
+ * A side the model holds as non-finite is written as 0 rather than as `NaN`,
+ * which PowerPoint rejects.
  */
 function insetEmu(px: number): number {
-  return Number.isFinite(px) && px > 0 ? Math.min(pxToEmu(px), 2_147_483_647) : 0;
+  if (!Number.isFinite(px)) return 0;
+  return Math.max(-2_147_483_648, Math.min(pxToEmu(px), 2_147_483_647));
 }
 
 function bodyPrXml(

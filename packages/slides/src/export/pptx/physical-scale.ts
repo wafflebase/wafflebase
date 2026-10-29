@@ -64,7 +64,8 @@ const ZERO_INSET: TextInset = { left: 0, top: 0, right: 0, bottom: 0 };
  *   OOXML defaults (0.1in / 0.05in) and the text re-wraps inside a narrower
  *   box than the one wafflebase painted.
  *
- * Applies to decks authored in wafflebase (no `meta.pxPerPt`) only. An
+ * Applies to decks authored in wafflebase (no usable `meta.pxPerPt`, read
+ * the way `deckFontScale` reads it) only. An
  * imported deck's font-less runs and inset-less boxes came from a PPTX that
  * inherited the theme font and the default insets on purpose; spelling them
  * out there would change the original, not preserve it.
@@ -72,7 +73,7 @@ const ZERO_INSET: TextInset = { left: 0, top: 0, right: 0, bottom: 0 };
  * Returns a copy when anything changes; the input is not modified.
  */
 export function withPaintedDefaults(deck: SlidesDocument): SlidesDocument {
-  if (deck.meta.pxPerPt != null) return deck;
+  if (hasDeckScale(deck.meta.pxPerPt)) return deck;
   const family = DEFAULT_INLINE_STYLE.fontFamily;
   let changed = false;
   const copy = structuredClone(deck);
@@ -93,6 +94,15 @@ export function withPaintedDefaults(deck: SlidesDocument): SlidesDocument {
     }
   });
   return changed ? copy : deck;
+}
+
+/**
+ * Whether the deck carries a usable `pxPerPt` — the field only the PPTX
+ * importer writes. Mirrors `deckFontScale`'s guard, so a deck the renderer
+ * paints at the docs default is the deck treated as native here.
+ */
+function hasDeckScale(pxPerPt: number | undefined): boolean {
+  return pxPerPt != null && Number.isFinite(pxPerPt) && pxPerPt > 0;
 }
 
 /** A block with a complete style and a style object on every run. */

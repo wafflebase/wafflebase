@@ -182,7 +182,7 @@ expects to resolve them.
   link → `<a:hlinkClick>`. Reuses the docs `Block`/`Inline` types
   already shared with slides.
   An explicit `TextBody.inset` is written as `lIns/tIns/rIns/bIns`
-  (non-finite or negative sides as `0`).
+  (a non-finite side as `0`; negative sides are kept, as OOXML allows).
 - **Physical scale (`physical-scale.ts`)**: the page is written at
   `SLIDE_PX_PER_PT` (= 2 canvas px/pt, `model/presentation.ts`), but a
   deck authored in wafflebase has no `meta.pxPerPt` and is painted at the

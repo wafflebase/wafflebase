@@ -33,7 +33,7 @@ const DEFAULT_CLR_MAP_ATTRS =
 export function masterToXml(
   master: Master,
   _index: number,
-  layoutRIds: readonly string[] = [],
+  layoutRIds: readonly string[],
 ): string {
   const bgFill = solidFillXml(representativeColor(master.background.fill));
 

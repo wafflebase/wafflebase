@@ -111,9 +111,39 @@ describe('PPTX export of a native deck: painted defaults', () => {
     expect(DEFAULT_INLINE_STYLE.fontFamily).toBe(Theme.defaultFontFamily);
   });
 
+  it('keeps a run\'s explicit font family', async () => {
+    const deck = await nativeDeck(24);
+    const el = deck.slides[0].elements[0] as TextElement;
+    el.data.blocks[0].inlines = [
+      { text: 'Named', style: { fontSize: 24, fontFamily: 'Georgia' } },
+      { text: 'Bare', style: { fontSize: 24 } },
+    ];
+    const run = firstText(withPaintedDefaults(deck)).data.blocks[0].inlines;
+    expect(run[0].style.fontFamily).toBe('Georgia');
+    expect(run[1].style.fontFamily).toBe(DEFAULT_INLINE_STYLE.fontFamily);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await exportPptx(deck));
+    const slide = await zip.file('ppt/slides/slide1.xml')!.async('string');
+    const named = /<a:r><a:rPr[^>]*>(.*?)<\/a:rPr><a:t>Named<\/a:t>/.exec(slide);
+    expect(named?.[1]).toContain('<a:latin typeface="Georgia"/>');
+    expect(named?.[1]).not.toContain('typeface="Arial"');
+  });
+
   it('writes zero insets for a text element without one', async () => {
     const bodyPr = await firstBodyPr(await nativeDeck(24));
     expect(bodyPr).toContain('lIns="0" tIns="0" rIns="0" bIns="0"');
+  });
+
+  it('keeps a negative inset side, which OOXML allows', async () => {
+    const deck = await nativeDeck(24);
+    (deck.slides[0].elements[0] as TextElement).data.inset = { left: -10, top: 0, right: 0, bottom: 0 };
+    expect(await firstBodyPr(deck)).toContain('lIns="-63500"');
+  });
+
+  it('spells out defaults when pxPerPt is unusable, as the renderer paints it natively', async () => {
+    const deck = await nativeDeck(24);
+    const out = withPaintedDefaults({ ...deck, meta: { ...deck.meta, pxPerPt: Number.NaN } });
+    expect(firstText(out).data.inset).toEqual({ left: 0, top: 0, right: 0, bottom: 0 });
   });
 
   it('writes a non-finite inset side as 0, not NaN', async () => {
@@ -127,7 +157,7 @@ describe('PPTX export of a native deck: painted defaults', () => {
     const bodyPr = await firstBodyPr(deck);
     expect(bodyPr).not.toContain('NaN');
     expect(bodyPr).toContain('lIns="0"');
-    expect(bodyPr).toContain('rIns="0"');
+    expect(bodyPr).toContain('rIns="-31750"');
     expect(bodyPr).toContain('bIns="0"');
   });
 

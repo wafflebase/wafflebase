@@ -84,7 +84,7 @@ describe('theme/layout', () => {
   });
 
   it('masterToXml emits <p:sldMaster> and starts with XML declaration', () => {
-    const xml = masterToXml(DEFAULT_MASTER, 1);
+    const xml = masterToXml(DEFAULT_MASTER, 1, ['rId1']);
     expect(xml).toMatch(/^<\?xml version="1\.0" encoding="UTF-8" standalone="yes"\?>/);
     expect(xml).toContain('<p:sldMaster');
   });
