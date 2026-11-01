@@ -440,6 +440,49 @@ The `usePresenceUpdater` hook syncs the current user's profile information
 (username, email, photo) into the Yorkie presence when the document or user
 data changes.
 
+#### Live document title
+
+The document title lives in Postgres, not in the CRDT, so a rename reaches no
+peer on its own. `useDocumentRename` (`src/hooks/use-document-rename.ts`)
+is the header's `onRename` in every editor layout (sheets, docs, slides,
+notes, board) and closes that gap over presence: after `PATCH
+/documents/:id` succeeds the renamer refreshes its own cache, then writes a
+fresh `titleRev` into its presence (best-effort; a rename made before attach
+is announced once the document arrives), and each peer that sees a
+`titleRev` it has not recorded for that client refetches `["document", id]`.
+It listens on the `presence` topic, not `others`, because the peers present
+when the watch stream opens — after attach and after every reconnect — arrive
+as one `initialized` event that `others` filters out. "Not recorded" includes
+those and `watched`, so a rename announced while a peer was attaching or
+reconnecting still lands; a
+fresh joiner carries no `titleRev`, so ordinary joins cost nothing. The value
+is peer-written, so refetches are coalesced to one per
+`TITLE_REFETCH_COOLDOWN_MS` (2s).
+
+A rename committed on the way out — blurring the title input by clicking a nav
+link — resolves after the layout and its `DocumentProvider` have unmounted,
+and the provider detaches the document on unmount. A presence write on a
+detached document is a local change nothing will ever sync, so that rename can
+never be *confirmed*: capturing the document handle before the `await` fixes
+the reference, not the detach. So a second field, `titleRevPending`, is
+written **before** the request, while the document is certainly still
+attached, and a peer that sees one without the matching `titleRev` re-reads
+the row after `TITLE_REFETCH_COOLDOWN_MS` — by which point the request has
+landed or been refused. A confirmation that does arrive supersedes that
+waiting pass, so a renamer who stays on the page still updates peers at once
+and costs them one read, not two. Both writes go through the
+`getStatus() === "attached"` check `PresenceIdentityRepair` applies
+(`components/collab-document-provider.tsx`); a detached document is never
+written to. Presence only carries "it changed" —
+Postgres stays the source of truth — and being ephemeral it lands in no
+snapshot, revision, or copy. `SiteHeader` follows its `title` prop only while
+the input is closed, so a peer's rename never replaces a draft being typed.
+Not a root field: that would duplicate Postgres
+(CLI / v1 renames would bypass it) and the notes root is CodePair-compatible.
+Not `broadcast`: in `@yorkie-js/sdk` 0.7.25 it lives on `Channel`, a second
+attachable per editor. Share-link pages need none of this; they re-resolve the
+link on an interval and on focus.
+
 ### Auth Flow
 
 Authentication is handled entirely via the backend (GitHub — and optionally

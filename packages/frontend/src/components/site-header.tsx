@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -17,7 +18,12 @@ export function SiteHeader({
 }: {
   title: string;
   editable?: boolean;
-  onRename?: (newTitle: string) => void;
+  /**
+   * Usually asynchronous — `useDocumentRename` PATCHes the row — so the
+   * returned promise is awaited here rather than discarded; see
+   * `commitRename`.
+   */
+  onRename?: (newTitle: string) => void | Promise<void>;
   /** Optional control rendered left of the title (e.g. a back button). */
   leading?: React.ReactNode;
   /**
@@ -33,10 +39,30 @@ export function SiteHeader({
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(title);
+  // Whether the user has actually typed into the open input. An input that is
+  // merely open holds no draft to protect, and treating it as one is what made
+  // an idle input revert a peer: the stale value it was opened with would be
+  // committed straight back on blur.
+  const [dirty, setDirty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Follow the title while the input is closed, and also while it is open but
+  // untouched. Peers' renames arrive live (`useDocumentRename`), and one
+  // landing mid-edit must not replace what the user is typing — but only an
+  // edited draft is worth keeping; the draft resyncs once the input closes.
   useEffect(() => {
+    if (!editing || !dirty) setEditValue(title);
+  }, [title, editing, dirty]);
+
+  const closeEditing = useCallback(() => {
+    setEditing(false);
+    setDirty(false);
+  }, []);
+
+  const openEditing = useCallback(() => {
     setEditValue(title);
+    setDirty(false);
+    setEditing(true);
   }, [title]);
 
   // A host revokes `editable` to withhold the rename — a revision preview
@@ -45,8 +71,8 @@ export function SiteHeader({
   // host meant to remove on screen, so revoking closes it, discarding the
   // uncommitted draft rather than saving it.
   useEffect(() => {
-    if (!editable) setEditing(false);
-  }, [editable]);
+    if (!editable) closeEditing();
+  }, [editable, closeEditing]);
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -55,13 +81,30 @@ export function SiteHeader({
     }
   }, [editing]);
 
+  // `dirty` and not just `trimmed !== title`: an untouched draft tracks the
+  // title, so the two agree — except for a title that is only whitespace
+  // different, which would otherwise commit a trim nobody asked for.
   const commitRename = useCallback(() => {
     const trimmed = editValue.trim();
-    if (trimmed && trimmed !== title && onRename) {
-      onRename(trimmed);
+    if (dirty && trimmed && trimmed !== title && onRename) {
+      // The input closes immediately, before the rename it started can
+      // resolve. So a refused one (403 on a read-only share link, offline, a
+      // document deleted under us) would otherwise do two silent things:
+      // reject into nobody — an unhandled rejection — and snap the old title
+      // back with nothing said. This header is the only place that knows a
+      // user asked for the rename, so it is where the failure is reported.
+      // The async wrapper catches a synchronous throw as well as a rejection,
+      // and the title itself needs no restoring: it is a prop, and a refused
+      // `PATCH` leaves the row it is read from unchanged.
+      void (async () => onRename(trimmed))().catch((err: unknown) => {
+        const reason = err instanceof Error ? err.message : String(err);
+        toast.error(`Could not rename to "${trimmed}"`, {
+          description: reason,
+        });
+      });
     }
-    setEditing(false);
-  }, [editValue, title, onRename]);
+    closeEditing();
+  }, [dirty, editValue, title, onRename, closeEditing]);
 
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
@@ -79,13 +122,16 @@ export function SiteHeader({
               className="text-base font-medium bg-transparent border-b border-primary px-1 min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
               value={editValue}
               aria-label="Document title"
-              onChange={(e) => setEditValue(e.target.value)}
+              onChange={(e) => {
+                setEditValue(e.target.value);
+                setDirty(true);
+              }}
               onBlur={commitRename}
               onKeyDown={(e) => {
                 if (e.key === "Enter") commitRename();
                 if (e.key === "Escape") {
                   setEditValue(title);
-                  setEditing(false);
+                  closeEditing();
                 }
               }}
             />
@@ -93,12 +139,12 @@ export function SiteHeader({
             <h1
               className={`text-base font-medium truncate min-w-0 ${editable ? "cursor-pointer hover:bg-muted/50 px-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`}
               onClick={() => {
-                if (editable) setEditing(true);
+                if (editable) openEditing();
               }}
               onKeyDown={(e) => {
                 if (editable && (e.key === "Enter" || e.key === " ")) {
                   e.preventDefault();
-                  setEditing(true);
+                  openEditing();
                 }
               }}
               role={editable ? "button" : undefined}

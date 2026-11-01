@@ -1,11 +1,12 @@
 import { createDocumentSelector } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
-import { fetchDocument, renameDocument } from "@/api/documents";
+import { fetchDocument } from "@/api/documents";
+import { useDocumentRename } from "@/hooks/use-document-rename";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -302,7 +303,6 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
     };
   }, []);
 
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   // The not-found / permission redirect lives in `SlidesLayout` (the
@@ -348,14 +348,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
-  const handleRenameDocument = useCallback(
-    async (newTitle: string) => {
-      await renameDocument(documentId, newTitle);
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-    [documentId, queryClient],
-  );
+  const handleRenameDocument = useDocumentRename(documentId);
 
   // The single source of truth for "a preview is covering the canvas", read
   // by both halves of the containment: `EditingChrome` (which removes the
@@ -708,7 +701,6 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
     };
   }, []);
 
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   const { data: documentData } = useQuery({
@@ -740,14 +732,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
-  const handleRenameDocument = useCallback(
-    async (newTitle: string) => {
-      await renameDocument(documentId, newTitle);
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-    [documentId, queryClient],
-  );
+  const handleRenameDocument = useDocumentRename(documentId);
 
   // Image upload pipeline. Mobile toolbar does not surface an Insert
   // Image entry in Phase B-0, but the SlidesToolbar prop signature

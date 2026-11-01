@@ -6,7 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 629
+Total archived tasks: 630
+
+## 2026/11 (1 tasks)
+
+| Task | Todo | Lessons |
+|---|---|---|
+| title live sync (2026-11-01) | [20261101-title-live-sync-todo.md](./2026/11/20261101-title-live-sync-todo.md) | [20261101-title-live-sync-lessons.md](./2026/11/20261101-title-live-sync-lessons.md) |
 
 ## 2026/10 (6 tasks)
 

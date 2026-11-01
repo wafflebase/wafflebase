@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     update: ReturnType<typeof vi.fn>;
     subscribe: ReturnType<typeof vi.fn>;
     getOthersPresences: ReturnType<typeof vi.fn>;
+    getChangeID: () => { getActorID: () => string };
   } | null,
   fetchMe: vi.fn(),
   fetchDocument: vi.fn(),
@@ -30,6 +31,10 @@ vi.mock('@yorkie-js/react', () => ({
     loading: false,
     error: undefined,
   }),
+  createDocumentSelector:
+    () =>
+    <T,>(selector: (s: { doc: unknown }) => T) =>
+      selector({ doc: mocks.doc }),
 }));
 
 vi.mock('@/api/auth', () => ({
@@ -123,6 +128,7 @@ describe('DocumentDetail lakehouse tab creation', () => {
       ),
       subscribe: vi.fn(() => () => undefined),
       getOthersPresences: vi.fn(() => []),
+      getChangeID: () => ({ getActorID: () => 'me' }),
     };
 
     mocks.fetchMe.mockResolvedValue({

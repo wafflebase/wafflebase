@@ -1,11 +1,12 @@
 import { useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
-import { fetchDocument, renameDocument } from "@/api/documents";
+import { fetchDocument } from "@/api/documents";
+import { useDocumentRename } from "@/hooks/use-document-rename";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -112,7 +113,6 @@ function DocsLayout({ documentId }: { documentId: string }) {
     };
   }, []);
 
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   const {
@@ -176,14 +176,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
-  const handleRenameDocument = useCallback(
-    async (newTitle: string) => {
-      await renameDocument(documentId, newTitle);
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-    [documentId, queryClient],
-  );
+  const handleRenameDocument = useDocumentRename(documentId);
 
   return (
     <SidebarProvider>

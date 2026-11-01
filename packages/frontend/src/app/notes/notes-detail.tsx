@@ -1,6 +1,6 @@
 import { createDocumentSelector } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
@@ -18,7 +18,8 @@ import {
   writeShowAuthors,
 } from "./notes-settings";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
-import { fetchDocument, renameDocument } from "@/api/documents";
+import { fetchDocument } from "@/api/documents";
+import { useDocumentRename } from "@/hooks/use-document-rename";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -84,7 +85,6 @@ const useNotesDocSelector = createDocumentSelector<
  * matching the same layout structure as the docs/spreadsheet detail views.
  */
 function NotesLayout({ documentId }: { documentId: string }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const doc = useNotesDocSelector((s) => s.doc);
   const [editor, setEditor] = useState<NoteEditorAPI | null>(null);
@@ -233,14 +233,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
     [workspaceId],
   );
 
-  const handleRenameDocument = useCallback(
-    async (newTitle: string) => {
-      await renameDocument(documentId, newTitle);
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-    [documentId, queryClient],
-  );
+  const handleRenameDocument = useDocumentRename(documentId);
 
   // The single source of truth for "a preview is covering the editor pane",
   // read by both halves of the containment: `EditingChrome` (which removes

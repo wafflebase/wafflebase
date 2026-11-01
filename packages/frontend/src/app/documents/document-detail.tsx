@@ -1,6 +1,6 @@
 import { useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   useState,
   useCallback,
@@ -12,7 +12,8 @@ import {
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
-import { fetchDocument, renameDocument } from "@/api/documents";
+import { fetchDocument } from "@/api/documents";
+import { useDocumentRename } from "@/hooks/use-document-rename";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -132,7 +133,6 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     };
   }, []);
 
-  const queryClient = useQueryClient();
   const { doc, root: docRoot } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showDsSelector, setShowDsSelector] = useState(false);
@@ -289,14 +289,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
-  const handleRenameDocument = useCallback(
-    async (newTitle: string) => {
-      await renameDocument(documentId, newTitle);
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-    [documentId, queryClient],
-  );
+  const handleRenameDocument = useDocumentRename(documentId);
 
   // Aggregate all comment threads across all sheet tabs for the side panel.
   // docRoot is the reactive root from useDocument — it updates on every local
