@@ -35,9 +35,12 @@ export function SiteHeader({
   const [editValue, setEditValue] = useState(title);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Follow the title only while the input is closed. Peers' renames arrive
+  // live (`useDocumentRename`), and one landing mid-edit must not replace
+  // what the user is typing; the draft resyncs once the input closes.
   useEffect(() => {
-    setEditValue(title);
-  }, [title]);
+    if (!editing) setEditValue(title);
+  }, [title, editing]);
 
   // A host revokes `editable` to withhold the rename — a revision preview
   // does it, because committing the input is a write to the live document.

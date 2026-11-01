@@ -450,13 +450,18 @@ notes, board) and closes that gap over presence: after `PATCH
 fresh `titleRev` into its presence (best-effort; a rename made before attach
 is announced once the document arrives), and each peer that sees a
 `titleRev` it has not recorded for that client refetches `["document", id]`.
-"Not recorded" includes presences seen at attach and via `watched`, so a
-rename announced while a peer was attaching or reconnecting still lands; a
+It listens on the `presence` topic, not `others`, because the peers present
+when the watch stream opens — after attach and after every reconnect — arrive
+as one `initialized` event that `others` filters out. "Not recorded" includes
+those and `watched`, so a rename announced while a peer was attaching or
+reconnecting still lands; a
 fresh joiner carries no `titleRev`, so ordinary joins cost nothing. The value
 is peer-written, so refetches are coalesced to one per
 `TITLE_REFETCH_COOLDOWN_MS` (2s). Presence only carries "it changed" —
 Postgres stays the source of truth — and being ephemeral it lands in no
-snapshot, revision, or copy. Not a root field: that would duplicate Postgres
+snapshot, revision, or copy. `SiteHeader` follows its `title` prop only while
+the input is closed, so a peer's rename never replaces a draft being typed.
+Not a root field: that would duplicate Postgres
 (CLI / v1 renames would bypass it) and the notes root is CodePair-compatible.
 Not `broadcast`: in `@yorkie-js/sdk` 0.7.25 it lives on `Channel`, a second
 attachable per editor. Share-link pages need none of this; they re-resolve the

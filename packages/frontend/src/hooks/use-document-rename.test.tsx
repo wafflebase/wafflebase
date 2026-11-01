@@ -15,10 +15,10 @@ import {
  * A fake document exposing only what the hook touches: the `others` stream,
  * the current peers, and `update` for the local presence write.
  */
-type OthersEvent = {
-  type: string;
-  value: { clientID: string; presence: Record<string, unknown> };
-};
+type PeerPresence = { clientID: string; presence: Record<string, unknown> };
+type OthersEvent =
+  | { type: string; value: PeerPresence }
+  | { type: "initialized"; value: PeerPresence[] };
 
 let currentDoc: ReturnType<typeof fakeDoc> | undefined;
 const renameDocument = vi.fn(async () => undefined);
@@ -39,15 +39,16 @@ import {
   useDocumentRename,
 } from "./use-document-rename";
 
-function fakeDoc(others: OthersEvent["value"][] = []) {
+function fakeDoc(others: PeerPresence[] = []) {
   let listener: ((e: OthersEvent) => void) | undefined;
   const written: Record<string, unknown>[] = [];
   return {
     written,
     emit: (e: OthersEvent) => listener?.(e),
     getOthersPresences: () => others,
+    getChangeID: () => ({ getActorID: () => "me" }),
     subscribe: vi.fn((type: string, next: (e: OthersEvent) => void) => {
-      expect(type).toBe("others");
+      expect(type).toBe("presence");
       listener = next;
       return () => {
         listener = undefined;
@@ -262,5 +263,43 @@ describe("useDocumentRename", () => {
       await pending;
     });
     expect(doc.written).toHaveLength(1);
+  });
+
+  it("refetches for a titleRev delivered by the watch initialization", () => {
+    const doc = fakeDoc();
+    const { invalidate } = setup(doc);
+
+    act(() =>
+      doc.emit({
+        type: "initialized",
+        value: [
+          { clientID: "me", presence: { titleRev: "mine" } },
+          { clientID: "peer", presence: { username: "p" } },
+        ],
+      }),
+    );
+    expect(invalidate).not.toHaveBeenCalled();
+
+    act(() =>
+      doc.emit({
+        type: "initialized",
+        value: [{ clientID: "peer", presence: { titleRev: "renamed" } }],
+      }),
+    );
+    expect(invalidatedKeys(invalidate)).toContainEqual(["document", "doc-1"]);
+  });
+
+  it("ignores its own presence changes", () => {
+    const doc = fakeDoc();
+    const { invalidate } = setup(doc);
+
+    act(() =>
+      doc.emit({
+        type: "presence-changed",
+        value: { clientID: "me", presence: { titleRev: "mine" } },
+      }),
+    );
+
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

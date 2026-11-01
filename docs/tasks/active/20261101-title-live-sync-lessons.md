@@ -24,3 +24,11 @@
   Code-review subagent (no blockers) minors also taken: non-secure-context
   rev, file renamed to `use-document-rename.ts`, test typing. Not pruning
   `seen` on `unwatched` — that would reopen the reconnect hole.
+- Round 3 (bound) — panel blocked on correctness: a live remote title reset
+  `SiteHeader`'s draft mid-edit; the attach-time path could not fire because
+  the SDK delivers watch-init presences as `initialized` on the `presence`
+  topic, which `others` drops (verified in `yorkie-js-sdk.es.js`). Fixed both
+  with tests. Loop stopped at the 3-round bound; round 4 not run — the fixes
+  are unreviewed by the panel, flagged in the PR body.
+- Lesson: before choosing an SDK event topic, read the topic's filter in the
+  SDK source — `others` silently excludes `initialized`.

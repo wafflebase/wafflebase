@@ -64,4 +64,26 @@ describe('SiteHeader rename', () => {
     // And the title is still shown — withheld means not editable, not gone.
     expect(screen.getByText('Budget')).toBeInTheDocument();
   });
+
+  // Peers' renames arrive live, so the `title` prop can change while this
+  // user has the input open. Their draft wins until the input closes.
+  it('keeps the draft when a peer renames mid-edit, then follows the new title', async () => {
+    const onRename = vi.fn();
+    const { rerender } = render(
+      <SiteHeader title="Budget" editable onRename={onRename} />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename "Budget"' }));
+    await userEvent.type(screen.getByLabelText('Document title'), ' draft');
+
+    rerender(<SiteHeader title="Peer title" editable onRename={onRename} />);
+    expect(screen.getByLabelText('Document title')).toHaveValue('Budget draft');
+
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Rename "Peer title"' }),
+    );
+    expect(screen.getByLabelText('Document title')).toHaveValue('Peer title');
+    expect(onRename).not.toHaveBeenCalled();
+  });
 });

@@ -43,8 +43,8 @@ function nextTitleRev(): string {
  * single source of truth — presence carries only "it changed", and is
  * ephemeral, so nothing lands in snapshots, revisions, or copies.
  *
- * "Not recorded" deliberately includes the presences present at attach and
- * those delivered by `watched`: a rename announced while this client was
+ * "Not recorded" deliberately includes the presences delivered by
+ * `initialized` and `watched`: a rename announced while this client was
  * attaching or its watch stream was reconnecting arrives exactly that way. A
  * freshly attached peer carries no `titleRev`, so the common join is free.
  *
@@ -114,14 +114,26 @@ export function useDocumentRename(
       scheduleRefetch();
     };
 
+    // The watch stream may have opened before this effect ran, so read what
+    // it already delivered; later deliveries come through the subscription.
     for (const { clientID, presence } of doc.getOthersPresences()) {
       observe(clientID, presence?.titleRev);
     }
-    const unsubscribe = doc.subscribe("others", (event) => {
-      if (event.type !== "watched" && event.type !== "presence-changed") {
-        return;
+    // `presence`, not `others`: the online peers' presences arrive as one
+    // `initialized` event once the watch stream opens — after attach, and
+    // again after every reconnect — and `others` filters that event out.
+    const myClientID = doc.getChangeID().getActorID();
+    const unsubscribe = doc.subscribe("presence", (event) => {
+      if (event.type === "initialized") {
+        for (const { clientID, presence } of event.value) {
+          if (clientID !== myClientID) observe(clientID, presence?.titleRev);
+        }
+      } else if (
+        (event.type === "watched" || event.type === "presence-changed") &&
+        event.value.clientID !== myClientID
+      ) {
+        observe(event.value.clientID, event.value.presence?.titleRev);
       }
-      observe(event.value.clientID, event.value.presence?.titleRev);
     });
     return () => {
       unsubscribe();
