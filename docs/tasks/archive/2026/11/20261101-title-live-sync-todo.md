@@ -46,7 +46,8 @@ Out of scope: share-link pages already re-resolve on an interval
 - [x] Transport check: two real SDK clients against the docker Yorkie server —
       a `titleRev` presence write on A arrives at B as `presence-changed`, with
       A's identity fields intact (partial `set` merges)
-- [ ] Manual two-browser smoke in `pnpm dev` (needs OAuth login; not run here)
+- Manual two-browser smoke in `pnpm dev` — **not run** before merge (needs
+  OAuth login); the maintainer merged on the automated evidence above
 
 ## Review
 
@@ -59,3 +60,8 @@ Out of scope: share-link pages already re-resolve on an interval
   a `createDocumentSelector` stub.
 - Self-review round 1 → the hook now owns the whole rename (PATCH, own-cache
   refresh, then a best-effort announce), so one test covers all six layouts.
+- `@claude loop` fixer (2 rounds): only an *edited* draft is protected in
+  `SiteHeader` (an idle open input used to revert a peer's rename on blur);
+  a `titleRevPending` heads-up goes out before the PATCH so a rename
+  committed while navigating away still reaches peers after detach. Panel
+  approved all six lenses on `502ef89df`. Merged as PR #1113.
