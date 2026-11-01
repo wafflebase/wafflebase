@@ -70,8 +70,15 @@ export function useDocumentRename(
     queryClient.invalidateQueries({ queryKey: ["documents"] });
   }, [documentId, queryClient]);
 
-  const announce = useCallback(() => {
-    const current = docRef.current;
+  // `target` is the document the caller captured when it started its rename.
+  // A rename committed on the way out (blurring the title input by clicking a
+  // nav link) resolves after this hook has unmounted, and by then `docRef` has
+  // been cleared and `pendingAnnounce` belongs to a dead instance that will
+  // never flush it — which is exactly the stale peer title this feature
+  // exists to fix. Announcing on the captured handle instead keeps that write
+  // on the document the rename was made against.
+  const announce = useCallback((target?: typeof doc) => {
+    const current = target ?? docRef.current;
     if (!current) {
       pendingAnnounce.current = true;
       return;
@@ -144,9 +151,14 @@ export function useDocumentRename(
 
   return useCallback(
     async (newTitle: string) => {
+      // Captured before the await, so an unmount in between cannot strand the
+      // announcement. Still `undefined` for a rename made before attach —
+      // `announce` falls back to the ref, which is how that one is flushed
+      // once the document arrives.
+      const target = docRef.current;
       await renameDocument(documentId, newTitle);
       refetchTitle();
-      announce();
+      announce(target);
     },
     [documentId, refetchTitle, announce],
   );

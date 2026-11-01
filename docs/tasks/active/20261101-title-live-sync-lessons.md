@@ -30,5 +30,15 @@
   topic, which `others` drops (verified in `yorkie-js-sdk.es.js`). Fixed both
   with tests. Loop stopped at the 3-round bound; round 4 not run — the fixes
   are unreviewed by the panel, flagged in the PR body.
+- Round 4 (panel fix round) — blocked on correctness: protecting the draft from
+  peer renames protected *every* open input, so an untouched one committed the
+  title it was opened with back over a peer's rename on blur; and a rename
+  whose PATCH resolved after unmount queued its announce on a dead hook, so
+  peers kept the stale title. Fixed: `SiteHeader` tracks a `dirty` flag and
+  only an edited draft resists `title`; the rename handler captures the
+  document before the await and announces on that handle.
 - Lesson: before choosing an SDK event topic, read the topic's filter in the
   SDK source — `others` silently excludes `initialized`.
+- Lesson: "don't clobber the user's draft" and "don't revert a peer" are the
+  same race read from two sides. An open input is not evidence of a draft —
+  only a keystroke is.

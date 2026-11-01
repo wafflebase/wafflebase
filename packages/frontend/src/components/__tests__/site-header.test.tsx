@@ -86,4 +86,39 @@ describe('SiteHeader rename', () => {
     expect(screen.getByLabelText('Document title')).toHaveValue('Peer title');
     expect(onRename).not.toHaveBeenCalled();
   });
+
+  // The other half of the same race: an input that is open but untouched holds
+  // no draft worth protecting, so it must follow a peer's rename rather than
+  // commit the title it happened to be opened with straight back over it.
+  it('follows a peer rename into an open input nobody has typed into', async () => {
+    const onRename = vi.fn();
+    const { rerender } = render(
+      <SiteHeader title="Budget" editable onRename={onRename} />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename "Budget"' }));
+    rerender(<SiteHeader title="Peer title" editable onRename={onRename} />);
+
+    expect(screen.getByLabelText('Document title')).toHaveValue('Peer title');
+
+    // Blur is the commit path a click elsewhere takes; it must revert nothing.
+    await userEvent.tab();
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.getByText('Peer title')).toBeInTheDocument();
+  });
+
+  // Reopening after a peer rename must start from the peer's title, not from
+  // the draft state the previous session left behind.
+  it('commits nothing on Enter when the input was never typed into', async () => {
+    const onRename = vi.fn();
+    const { rerender } = render(
+      <SiteHeader title="Budget" editable onRename={onRename} />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename "Budget"' }));
+    rerender(<SiteHeader title="Peer title" editable onRename={onRename} />);
+    await userEvent.keyboard('{Enter}');
+
+    expect(onRename).not.toHaveBeenCalled();
+  });
 });

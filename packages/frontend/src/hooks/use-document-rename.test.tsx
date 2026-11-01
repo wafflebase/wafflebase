@@ -265,6 +265,32 @@ describe("useDocumentRename", () => {
     expect(doc.written).toHaveLength(1);
   });
 
+  // Committing the title input by clicking a nav link blurs it and navigates
+  // in the same gesture, so the PATCH routinely resolves after this hook is
+  // gone. Peers must still be told, or they keep the stale title — the exact
+  // defect the feature exists to fix.
+  it("announces a rename whose request outlived the unmount", async () => {
+    let resolveRename: () => void = () => {};
+    renameDocument.mockImplementationOnce(
+      () => new Promise<undefined>((r) => (resolveRename = () => r(undefined))),
+    );
+    const doc = fakeDoc();
+    const { hook } = setup(doc);
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = hook.result.current("Leaving");
+    });
+    hook.unmount();
+
+    await act(async () => {
+      resolveRename();
+      await pending;
+    });
+    expect(doc.written).toHaveLength(1);
+    expect(typeof doc.written[0].titleRev).toBe("string");
+  });
+
   it("refetches for a titleRev delivered by the watch initialization", () => {
     const doc = fakeDoc();
     const { invalidate } = setup(doc);
