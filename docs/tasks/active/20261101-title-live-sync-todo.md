@@ -39,7 +39,7 @@ Out of scope: share-link pages already re-resolve on an interval
 
 - [x] Failing test for the title-sync hook (remote rev change → invalidate;
       join / unrelated presence change → no invalidate; announce sets presence)
-- [x] `hooks/use-document-title-sync.ts` via `createDocumentSelector` (no
+- [x] `hooks/use-document-rename.ts` via `createDocumentSelector` (no
       whole-store subscription in layouts)
 - [x] Wire into notes, docs, slides (desktop + mobile), board, sheets layouts
 - [x] `pnpm verify:fast`

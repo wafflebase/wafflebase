@@ -15,3 +15,12 @@
   dropped (`@yorkie-js/react` publishes `doc` only after attach); six copies of
   the handler were untested. Fixed all: `useDocumentRename` owns PATCH →
   refresh → try/catch announce, queues a pre-attach announce, one test file.
+- Round 2 — panel blocked on correctness/security: a handler created before
+  attach kept `doc` undefined in its closure, so a PATCH that resolved after
+  attach was never announced; ignoring `watched` lost renames during a
+  reconnect; a peer looping `titleRev` drove unthrottled refetches. Fixed:
+  handler reads the doc through a ref, any unrecorded `titleRev` (seed,
+  `watched`, `presence-changed`) refetches, 2s leading+trailing coalescing.
+  Code-review subagent (no blockers) minors also taken: non-secure-context
+  rev, file renamed to `use-document-rename.ts`, test typing. Not pruning
+  `seen` on `unwatched` — that would reopen the reconnect hole.

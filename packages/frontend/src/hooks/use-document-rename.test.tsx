@@ -1,7 +1,15 @@
 import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 
 /**
  * A fake document exposing only what the hook touches: the `others` stream,
@@ -26,7 +34,10 @@ vi.mock("@/api/documents", () => ({
   renameDocument: (...args: unknown[]) => renameDocument(...(args as [])),
 }));
 
-import { useDocumentRename } from "./use-document-title-sync";
+import {
+  TITLE_REFETCH_COOLDOWN_MS,
+  useDocumentRename,
+} from "./use-document-rename";
 
 function fakeDoc(others: OthersEvent["value"][] = []) {
   let listener: ((e: OthersEvent) => void) | undefined;
@@ -64,7 +75,9 @@ function setup(doc: ReturnType<typeof fakeDoc> | undefined) {
   return { hook, invalidate };
 }
 
-function invalidatedKeys(invalidate: ReturnType<typeof vi.spyOn>) {
+function invalidatedKeys(
+  invalidate: MockInstance<QueryClient["invalidateQueries"]>,
+) {
   return invalidate.mock.calls.map(
     (call) => (call[0] as { queryKey: unknown[] }).queryKey,
   );
@@ -74,6 +87,10 @@ describe("useDocumentRename", () => {
   beforeEach(() => {
     currentDoc = undefined;
     renameDocument.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("refetches the title when a peer announces a rename", () => {
@@ -94,53 +111,78 @@ describe("useDocumentRename", () => {
   });
 
   it("ignores presence changes that leave titleRev alone", () => {
-    const doc = fakeDoc([{ clientID: "peer", presence: { titleRev: "r1" } }]);
+    const doc = fakeDoc([{ clientID: "peer", presence: { cursor: [0, 0] } }]);
     const { invalidate } = setup(doc);
 
     act(() =>
       doc.emit({
-        type: "presence-changed",
-        value: {
-          clientID: "peer",
-          presence: { titleRev: "r1", cursor: [1, 2] },
-        },
+        type: "watched",
+        value: { clientID: "joiner", presence: { username: "j" } },
       }),
     );
     act(() =>
       doc.emit({
         type: "presence-changed",
-        value: { clientID: "other", presence: { cursor: [3, 4] } },
+        value: { clientID: "peer", presence: { cursor: [1, 2] } },
       }),
     );
 
     expect(invalidate).not.toHaveBeenCalled();
   });
 
-  it("treats a joining peer's titleRev as already-known", () => {
-    const doc = fakeDoc();
+  it("refetches once for a titleRev already present at attach", () => {
+    vi.useFakeTimers();
+    const doc = fakeDoc([{ clientID: "peer", presence: { titleRev: "r1" } }]);
+    const { invalidate } = setup(doc);
+    expect(invalidatedKeys(invalidate)).toContainEqual(["document", "doc-1"]);
+    invalidate.mockClear();
+
+    act(() => {
+      vi.advanceTimersByTime(TITLE_REFETCH_COOLDOWN_MS);
+      doc.emit({
+        type: "presence-changed",
+        value: { clientID: "peer", presence: { titleRev: "r1", cursor: [1, 2] } },
+      });
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("refetches for a rename delivered by watched after a reconnect", () => {
+    const doc = fakeDoc([{ clientID: "peer", presence: {} }]);
     const { invalidate } = setup(doc);
 
     act(() =>
       doc.emit({
         type: "watched",
-        value: { clientID: "late", presence: { titleRev: "old" } },
+        value: { clientID: "peer", presence: { titleRev: "while-away" } },
       }),
     );
-    act(() =>
-      doc.emit({
-        type: "presence-changed",
-        value: { clientID: "late", presence: { titleRev: "old" } },
-      }),
-    );
-    expect(invalidate).not.toHaveBeenCalled();
 
-    act(() =>
-      doc.emit({
-        type: "presence-changed",
-        value: { clientID: "late", presence: { titleRev: "new" } },
-      }),
-    );
-    expect(invalidate).toHaveBeenCalled();
+    expect(invalidatedKeys(invalidate)).toContainEqual(["document", "doc-1"]);
+  });
+
+  it("coalesces a flood of titleRev changes into one refetch per window", () => {
+    vi.useFakeTimers();
+    const doc = fakeDoc();
+    const { invalidate } = setup(doc);
+    const titleRefetches = () =>
+      invalidatedKeys(invalidate).filter((k) => k[0] === "document").length;
+
+    act(() => {
+      for (let i = 0; i < 50; i++) {
+        doc.emit({
+          type: "presence-changed",
+          value: { clientID: "peer", presence: { titleRev: `r${i}` } },
+        });
+      }
+    });
+    expect(titleRefetches()).toBe(1);
+
+    act(() => vi.advanceTimersByTime(TITLE_REFETCH_COOLDOWN_MS));
+    expect(titleRefetches()).toBe(2);
+
+    act(() => vi.advanceTimersByTime(TITLE_REFETCH_COOLDOWN_MS * 5));
+    expect(titleRefetches()).toBe(2);
   });
 
   it("renames, refreshes its own cache, and announces a fresh titleRev", async () => {
@@ -196,5 +238,29 @@ describe("useDocumentRename", () => {
 
     expect(doc.written).toHaveLength(1);
     expect(typeof doc.written[0].titleRev).toBe("string");
+  });
+
+  it("announces a rename whose request outlived the attach", async () => {
+    let resolveRename: () => void = () => {};
+    renameDocument.mockImplementationOnce(
+      () => new Promise<undefined>((r) => (resolveRename = () => r(undefined))),
+    );
+    const { hook } = setup(undefined);
+    const handler = hook.result.current;
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = handler("Racing");
+    });
+    const doc = fakeDoc();
+    currentDoc = doc;
+    hook.rerender();
+    expect(doc.written).toHaveLength(0);
+
+    await act(async () => {
+      resolveRename();
+      await pending;
+    });
+    expect(doc.written).toHaveLength(1);
   });
 });

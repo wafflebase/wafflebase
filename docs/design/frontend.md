@@ -443,16 +443,20 @@ data changes.
 #### Live document title
 
 The document title lives in Postgres, not in the CRDT, so a rename reaches no
-peer on its own. `useDocumentRename` (`src/hooks/use-document-title-sync.ts`)
+peer on its own. `useDocumentRename` (`src/hooks/use-document-rename.ts`)
 is the header's `onRename` in every editor layout (sheets, docs, slides,
 notes, board) and closes that gap over presence: after `PATCH
 /documents/:id` succeeds the renamer refreshes its own cache, then writes a
 fresh `titleRev` into its presence (best-effort; a rename made before attach
 is announced once the document arrives), and each peer that sees a
-client's `titleRev` change refetches `["document", id]`. Presence only carries
-"it changed" — Postgres stays the source of truth — and being ephemeral it
-lands in no snapshot, revision, or copy. A joining peer's `titleRev` is only
-recorded, never acted on. Not a root field: that would duplicate Postgres
+`titleRev` it has not recorded for that client refetches `["document", id]`.
+"Not recorded" includes presences seen at attach and via `watched`, so a
+rename announced while a peer was attaching or reconnecting still lands; a
+fresh joiner carries no `titleRev`, so ordinary joins cost nothing. The value
+is peer-written, so refetches are coalesced to one per
+`TITLE_REFETCH_COOLDOWN_MS` (2s). Presence only carries "it changed" —
+Postgres stays the source of truth — and being ephemeral it lands in no
+snapshot, revision, or copy. Not a root field: that would duplicate Postgres
 (CLI / v1 renames would bypass it) and the notes root is CodePair-compatible.
 Not `broadcast`: in `@yorkie-js/sdk` 0.7.25 it lives on `Channel`, a second
 attachable per editor. Share-link pages need none of this; they re-resolve the

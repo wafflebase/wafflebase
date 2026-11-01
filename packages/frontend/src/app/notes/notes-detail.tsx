@@ -19,7 +19,7 @@ import {
 } from "./notes-settings";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import { fetchDocument } from "@/api/documents";
-import { useDocumentRename } from "@/hooks/use-document-title-sync";
+import { useDocumentRename } from "@/hooks/use-document-rename";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
