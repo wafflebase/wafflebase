@@ -13,6 +13,7 @@ import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
+import { useDocumentTitleSync } from "@/hooks/use-document-title-sync";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -289,13 +290,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
+  const announceTitleChange = useDocumentTitleSync(documentId);
   const handleRenameDocument = useCallback(
     async (newTitle: string) => {
       await renameDocument(documentId, newTitle);
+      announceTitleChange();
       queryClient.invalidateQueries({ queryKey: ["document", documentId] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
-    [documentId, queryClient],
+    [documentId, queryClient, announceTitleChange],
   );
 
   // Aggregate all comment threads across all sheet tabs for the side panel.

@@ -30,6 +30,10 @@ vi.mock('@yorkie-js/react', () => ({
     loading: false,
     error: undefined,
   }),
+  createDocumentSelector:
+    () =>
+    <T,>(selector: (s: { doc: unknown }) => T) =>
+      selector({ doc: mocks.doc }),
 }));
 
 vi.mock('@/api/auth', () => ({

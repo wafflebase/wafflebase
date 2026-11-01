@@ -6,6 +6,7 @@ import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
+import { useDocumentTitleSync } from "@/hooks/use-document-title-sync";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -176,13 +177,15 @@ function DocsLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
+  const announceTitleChange = useDocumentTitleSync(documentId);
   const handleRenameDocument = useCallback(
     async (newTitle: string) => {
       await renameDocument(documentId, newTitle);
+      announceTitleChange();
       queryClient.invalidateQueries({ queryKey: ["document", documentId] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
-    [documentId, queryClient],
+    [documentId, queryClient, announceTitleChange],
   );
 
   return (

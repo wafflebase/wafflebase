@@ -19,6 +19,7 @@ import {
 } from "./notes-settings";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
+import { useDocumentTitleSync } from "@/hooks/use-document-title-sync";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -233,13 +234,15 @@ function NotesLayout({ documentId }: { documentId: string }) {
     [workspaceId],
   );
 
+  const announceTitleChange = useDocumentTitleSync(documentId);
   const handleRenameDocument = useCallback(
     async (newTitle: string) => {
       await renameDocument(documentId, newTitle);
+      announceTitleChange();
       queryClient.invalidateQueries({ queryKey: ["document", documentId] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
-    [documentId, queryClient],
+    [documentId, queryClient, announceTitleChange],
   );
 
   // The single source of truth for "a preview is covering the editor pane",

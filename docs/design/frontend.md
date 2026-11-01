@@ -440,6 +440,22 @@ The `usePresenceUpdater` hook syncs the current user's profile information
 (username, email, photo) into the Yorkie presence when the document or user
 data changes.
 
+#### Live document title
+
+The document title lives in Postgres, not in the CRDT, so a rename reaches no
+peer on its own. `useDocumentTitleSync` (`src/hooks/use-document-title-sync.ts`),
+called by every editor layout (sheets, docs, slides, notes, board), closes
+that gap over presence: after `PATCH /documents/:id` succeeds the renamer
+writes a fresh `titleRev` into its presence, and each peer that sees a
+client's `titleRev` change refetches `["document", id]`. Presence only carries
+"it changed" — Postgres stays the source of truth — and being ephemeral it
+lands in no snapshot, revision, or copy. A joining peer's `titleRev` is only
+recorded, never acted on. Not a root field: that would duplicate Postgres
+(CLI / v1 renames would bypass it) and the notes root is CodePair-compatible.
+Not `broadcast`: in `@yorkie-js/sdk` 0.7.25 it lives on `Channel`, a second
+attachable per editor. Share-link pages need none of this; they re-resolve the
+link on an interval and on focus.
+
 ### Auth Flow
 
 Authentication is handled entirely via the backend (GitHub — and optionally
