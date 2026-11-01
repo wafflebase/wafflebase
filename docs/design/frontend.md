@@ -457,7 +457,23 @@ those and `watched`, so a rename announced while a peer was attaching or
 reconnecting still lands; a
 fresh joiner carries no `titleRev`, so ordinary joins cost nothing. The value
 is peer-written, so refetches are coalesced to one per
-`TITLE_REFETCH_COOLDOWN_MS` (2s). Presence only carries "it changed" —
+`TITLE_REFETCH_COOLDOWN_MS` (2s).
+
+A rename committed on the way out — blurring the title input by clicking a nav
+link — resolves after the layout and its `DocumentProvider` have unmounted,
+and the provider detaches the document on unmount. A presence write on a
+detached document is a local change nothing will ever sync, so that rename can
+never be *confirmed*: capturing the document handle before the `await` fixes
+the reference, not the detach. So a second field, `titleRevPending`, is
+written **before** the request, while the document is certainly still
+attached, and a peer that sees one without the matching `titleRev` re-reads
+the row after `TITLE_REFETCH_COOLDOWN_MS` — by which point the request has
+landed or been refused. A confirmation that does arrive supersedes that
+waiting pass, so a renamer who stays on the page still updates peers at once
+and costs them one read, not two. Both writes go through the
+`getStatus() === "attached"` check `PresenceIdentityRepair` applies
+(`components/collab-document-provider.tsx`); a detached document is never
+written to. Presence only carries "it changed" —
 Postgres stays the source of truth — and being ephemeral it lands in no
 snapshot, revision, or copy. `SiteHeader` follows its `title` prop only while
 the input is closed, so a peer's rename never replaces a draft being typed.

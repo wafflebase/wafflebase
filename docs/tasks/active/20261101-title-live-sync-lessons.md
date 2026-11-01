@@ -37,6 +37,25 @@
   peers kept the stale title. Fixed: `SiteHeader` tracks a `dirty` flag and
   only an edited draft resists `title`; the rename handler captures the
   document before the await and announces on that handle.
+- Round 5 (panel fix round) — blocked on blast-radius + correctness, both on
+  the same point: capturing the document handle before the `await` fixed the
+  *reference*, not the fact that `DocumentProvider`'s unmount cleanup calls
+  `client.detach()`. A presence write on a detached document is a local change
+  nothing syncs, so peers still missed exactly the commit-then-navigate rename
+  the capture was written for — and the fake doc in the test had no
+  `getStatus`, so the assertion passed on a document the real app would have
+  detached. Fixed by moving the write that has to survive to *before* the
+  request: `titleRevPending` is a heads-up sent while the document is
+  certainly attached, and a peer that never sees the matching `titleRev` reads
+  the row once the cooldown has passed. Both writes now go through the
+  `getStatus() === "attached"` check `PresenceIdentityRepair` already applies.
+- Lesson: an async teardown you do not own (here `client.detach()` fired from
+  an ancestor's effect cleanup) cannot be outrun by capturing a handle. The
+  only writes that survive an unmount are the ones issued before it — so send
+  the durable signal first and treat the post-await one as the optimization.
+- Lesson: a fake that omits the method a guard reads turns that guard into a
+  no-op, and the test goes green on behavior the real object forbids. Give
+  stubs the state the production invariant is expressed in.
 - Lesson: before choosing an SDK event topic, read the topic's filter in the
   SDK source — `others` silently excludes `initialized`.
 - Lesson: "don't clobber the user's draft" and "don't revert a peer" are the
