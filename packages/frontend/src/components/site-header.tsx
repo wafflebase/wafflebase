@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -17,7 +18,12 @@ export function SiteHeader({
 }: {
   title: string;
   editable?: boolean;
-  onRename?: (newTitle: string) => void;
+  /**
+   * Usually asynchronous — `useDocumentRename` PATCHes the row — so the
+   * returned promise is awaited here rather than discarded; see
+   * `commitRename`.
+   */
+  onRename?: (newTitle: string) => void | Promise<void>;
   /** Optional control rendered left of the title (e.g. a back button). */
   leading?: React.ReactNode;
   /**
@@ -81,7 +87,21 @@ export function SiteHeader({
   const commitRename = useCallback(() => {
     const trimmed = editValue.trim();
     if (dirty && trimmed && trimmed !== title && onRename) {
-      onRename(trimmed);
+      // The input closes immediately, before the rename it started can
+      // resolve. So a refused one (403 on a read-only share link, offline, a
+      // document deleted under us) would otherwise do two silent things:
+      // reject into nobody — an unhandled rejection — and snap the old title
+      // back with nothing said. This header is the only place that knows a
+      // user asked for the rename, so it is where the failure is reported.
+      // The async wrapper catches a synchronous throw as well as a rejection,
+      // and the title itself needs no restoring: it is a prop, and a refused
+      // `PATCH` leaves the row it is read from unchanged.
+      void (async () => onRename(trimmed))().catch((err: unknown) => {
+        const reason = err instanceof Error ? err.message : String(err);
+        toast.error(`Could not rename to "${trimmed}"`, {
+          description: reason,
+        });
+      });
     }
     closeEditing();
   }, [dirty, editValue, title, onRename, closeEditing]);

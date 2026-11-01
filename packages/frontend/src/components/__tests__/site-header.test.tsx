@@ -18,7 +18,11 @@ vi.mock('@/components/notifications/notification-bell', () => ({
 vi.mock('@/components/sync-status/sync-status-chip', () => ({
   SyncStatusChip: () => null,
 }));
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn() },
+}));
 
+import { toast } from 'sonner';
 import { SiteHeader } from '../site-header';
 
 describe('SiteHeader rename', () => {
@@ -105,6 +109,40 @@ describe('SiteHeader rename', () => {
     await userEvent.tab();
     expect(onRename).not.toHaveBeenCalled();
     expect(screen.getByText('Peer title')).toBeInTheDocument();
+  });
+
+  // `onRename` is asynchronous (`useDocumentRename` PATCHes the row) and the
+  // input closes before it resolves. A refused rename must not reject into
+  // nobody, and must not leave the old title snapping back unexplained.
+  it('reports a refused rename instead of rejecting unhandled', async () => {
+    vi.mocked(toast.error).mockClear();
+    const onRename = vi
+      .fn()
+      .mockRejectedValue(new Error('Failed to rename document'));
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      render(<SiteHeader title="Budget" editable onRename={onRename} />);
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Rename "Budget"' }),
+      );
+      const input = screen.getByLabelText('Document title');
+      await userEvent.clear(input);
+      await userEvent.type(input, 'Renamed{Enter}');
+
+      await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+      expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toContain('Renamed');
+      expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toMatchObject({
+        description: 'Failed to rename document',
+      });
+      // The title is a prop; a refused PATCH leaves the row unchanged.
+      expect(screen.getByText('Budget')).toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 
   // Reopening after a peer rename must start from the peer's title, not from
