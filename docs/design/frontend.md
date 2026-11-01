@@ -443,10 +443,12 @@ data changes.
 #### Live document title
 
 The document title lives in Postgres, not in the CRDT, so a rename reaches no
-peer on its own. `useDocumentTitleSync` (`src/hooks/use-document-title-sync.ts`),
-called by every editor layout (sheets, docs, slides, notes, board), closes
-that gap over presence: after `PATCH /documents/:id` succeeds the renamer
-writes a fresh `titleRev` into its presence, and each peer that sees a
+peer on its own. `useDocumentRename` (`src/hooks/use-document-title-sync.ts`)
+is the header's `onRename` in every editor layout (sheets, docs, slides,
+notes, board) and closes that gap over presence: after `PATCH
+/documents/:id` succeeds the renamer refreshes its own cache, then writes a
+fresh `titleRev` into its presence (best-effort; a rename made before attach
+is announced once the document arrives), and each peer that sees a
 client's `titleRev` change refetches `["document", id]`. Presence only carries
 "it changed" — Postgres stays the source of truth — and being ephemeral it
 lands in no snapshot, revision, or copy. A joining peer's `titleRev` is only

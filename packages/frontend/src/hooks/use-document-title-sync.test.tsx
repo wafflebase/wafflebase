@@ -13,6 +13,7 @@ type OthersEvent = {
 };
 
 let currentDoc: ReturnType<typeof fakeDoc> | undefined;
+const renameDocument = vi.fn(async () => undefined);
 
 vi.mock("@yorkie-js/react", () => ({
   createDocumentSelector:
@@ -21,7 +22,11 @@ vi.mock("@yorkie-js/react", () => ({
       selector({ doc: currentDoc }),
 }));
 
-import { useDocumentTitleSync } from "./use-document-title-sync";
+vi.mock("@/api/documents", () => ({
+  renameDocument: (...args: unknown[]) => renameDocument(...(args as [])),
+}));
+
+import { useDocumentRename } from "./use-document-title-sync";
 
 function fakeDoc(others: OthersEvent["value"][] = []) {
   let listener: ((e: OthersEvent) => void) | undefined;
@@ -38,20 +43,24 @@ function fakeDoc(others: OthersEvent["value"][] = []) {
       };
     }),
     update: vi.fn(
-      (fn: (root: unknown, p: { set: (v: Record<string, unknown>) => void }) => void) =>
-        fn({}, { set: (v) => written.push(v) }),
+      (
+        fn: (
+          root: unknown,
+          p: { set: (v: Record<string, unknown>) => void },
+        ) => void,
+      ) => fn({}, { set: (v) => written.push(v) }),
     ),
   };
 }
 
-function setup(doc: ReturnType<typeof fakeDoc>) {
+function setup(doc: ReturnType<typeof fakeDoc> | undefined) {
   currentDoc = doc;
   const queryClient = new QueryClient();
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  const hook = renderHook(() => useDocumentTitleSync("doc-1"), { wrapper });
+  const hook = renderHook(() => useDocumentRename("doc-1"), { wrapper });
   return { hook, invalidate };
 }
 
@@ -61,9 +70,10 @@ function invalidatedKeys(invalidate: ReturnType<typeof vi.spyOn>) {
   );
 }
 
-describe("useDocumentTitleSync", () => {
+describe("useDocumentRename", () => {
   beforeEach(() => {
     currentDoc = undefined;
+    renameDocument.mockClear();
   });
 
   it("refetches the title when a peer announces a rename", () => {
@@ -90,7 +100,10 @@ describe("useDocumentTitleSync", () => {
     act(() =>
       doc.emit({
         type: "presence-changed",
-        value: { clientID: "peer", presence: { titleRev: "r1", cursor: [1, 2] } },
+        value: {
+          clientID: "peer",
+          presence: { titleRev: "r1", cursor: [1, 2] },
+        },
       }),
     );
     act(() =>
@@ -130,16 +143,58 @@ describe("useDocumentTitleSync", () => {
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("announces a rename by writing a fresh titleRev to presence", () => {
+  it("renames, refreshes its own cache, and announces a fresh titleRev", async () => {
     const doc = fakeDoc();
-    const { hook } = setup(doc);
+    const { hook, invalidate } = setup(doc);
 
-    act(() => hook.result.current());
-    act(() => hook.result.current());
+    await act(() => hook.result.current("First"));
+    await act(() => hook.result.current("Second"));
 
-    expect(doc.written).toHaveLength(2);
+    expect(renameDocument.mock.calls).toEqual([
+      ["doc-1", "First"],
+      ["doc-1", "Second"],
+    ]);
+    expect(invalidatedKeys(invalidate)).toContainEqual(["document", "doc-1"]);
     const [a, b] = doc.written.map((p) => p.titleRev);
     expect(typeof a).toBe("string");
     expect(a).not.toBe(b);
+  });
+
+  it("does not announce when the rename request fails", async () => {
+    const doc = fakeDoc();
+    const { hook } = setup(doc);
+    renameDocument.mockRejectedValueOnce(new Error("403"));
+
+    await expect(
+      act(() => hook.result.current("Nope")),
+    ).rejects.toThrow("403");
+    expect(doc.written).toHaveLength(0);
+  });
+
+  it("still refreshes and resolves when the presence write throws", async () => {
+    const doc = fakeDoc();
+    doc.update.mockImplementation(() => {
+      throw new Error("detached");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { hook, invalidate } = setup(doc);
+
+    await act(() => hook.result.current("Title"));
+
+    expect(invalidatedKeys(invalidate)).toContainEqual(["document", "doc-1"]);
+    warn.mockRestore();
+  });
+
+  it("announces a rename made before attach once the document arrives", async () => {
+    const { hook } = setup(undefined);
+
+    await act(() => hook.result.current("Early"));
+
+    const doc = fakeDoc();
+    currentDoc = doc;
+    hook.rerender();
+
+    expect(doc.written).toHaveLength(1);
+    expect(typeof doc.written[0].titleRev).toBe("string");
   });
 });

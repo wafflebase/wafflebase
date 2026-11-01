@@ -7,3 +7,11 @@
   `Channel`. Presence is the cheapest per-document signal already attached.
 - `verify:fast` CLI typecheck reads `@wafflebase/slides` from its built `dist`;
   after main adds exports, rebuild docs + slides before trusting a red lane.
+
+## Self-review
+
+- Round 1 — blocked on correctness/test-adequacy/blast-radius: announce could
+  throw before the renamer's own cache refresh; a rename before attach was
+  dropped (`@yorkie-js/react` publishes `doc` only after attach); six copies of
+  the handler were untested. Fixed all: `useDocumentRename` owns PATCH →
+  refresh → try/catch announce, queues a pre-attach announce, one test file.

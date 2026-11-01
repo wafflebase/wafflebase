@@ -1,12 +1,12 @@
 import { createDocumentSelector } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { ChunkBoundary } from "@/components/chunk-boundary";
 import { fetchMe } from "@/api/auth";
-import { fetchDocument, renameDocument } from "@/api/documents";
-import { useDocumentTitleSync } from "@/hooks/use-document-title-sync";
+import { fetchDocument } from "@/api/documents";
+import { useDocumentRename } from "@/hooks/use-document-title-sync";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -69,7 +69,6 @@ const useBoardDocSelector = createDocumentSelector<
  * this header — analogous to where NotesToolbar sits under the header.
  */
 function BoardLayout({ documentId }: { documentId: string }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const doc = useBoardDocSelector((s) => s.doc);
 
@@ -140,16 +139,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
-  const announceTitleChange = useDocumentTitleSync(documentId);
-  const handleRenameDocument = useCallback(
-    async (newTitle: string) => {
-      await renameDocument(documentId, newTitle);
-      announceTitleChange();
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-    [documentId, queryClient, announceTitleChange],
-  );
+  const handleRenameDocument = useDocumentRename(documentId);
 
   // The single source of truth for "a preview is covering the canvas". Board
   // needs no `EditingChrome` (see below), so unlike the other hosts this is

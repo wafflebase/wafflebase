@@ -37,7 +37,7 @@ Out of scope: share-link pages already re-resolve on an interval
 
 ## Plan
 
-- [x] Failing test for `useDocumentTitleSync` (remote rev change → invalidate;
+- [x] Failing test for the title-sync hook (remote rev change → invalidate;
       join / unrelated presence change → no invalidate; announce sets presence)
 - [x] `hooks/use-document-title-sync.ts` via `createDocumentSelector` (no
       whole-store subscription in layouts)
@@ -50,10 +50,12 @@ Out of scope: share-link pages already re-resolve on an interval
 
 ## Review
 
-- One shared hook (`useDocumentTitleSync`) wired into all six rename handlers
+- One shared hook (`useDocumentRename`) replaces all six rename handlers
   (sheets, docs, slides desktop + mobile, notes, board), not just notes — every
   type had the same gap.
 - The hook reads `doc` through `createDocumentSelector`, so no layout gains a
   whole-store subscription.
 - `document-detail-lakehouse-tab.test.tsx` mocks `@yorkie-js/react` and needed
   a `createDocumentSelector` stub.
+- Self-review round 1 → the hook now owns the whole rename (PATCH, own-cache
+  refresh, then a best-effort announce), so one test covers all six layouts.
