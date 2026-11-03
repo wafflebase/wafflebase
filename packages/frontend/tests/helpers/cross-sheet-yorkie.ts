@@ -1,4 +1,4 @@
-import yorkie from "@yorkie-js/sdk";
+import yorkie, { SyncMode } from "@yorkie-js/sdk";
 import type { Grid, Cell, Sref, GridResolver } from "@wafflebase/sheets";
 import { parseRef, getWorksheetCell } from "@wafflebase/sheets";
 import { Sheet } from "../../../sheets/src/model/worksheet/sheet.ts";
@@ -17,10 +17,9 @@ type YorkieClient = {
   sync(doc: object): Promise<object[]>;
 };
 
-const { Client, Document, SyncMode } = yorkie as {
+const { Client, Document } = yorkie as {
   Client: new (options?: Record<string, unknown>) => YorkieClient;
   Document: new (key: string) => object;
-  SyncMode: { Manual: unknown };
 };
 
 function createClient(key: string): YorkieClient {
