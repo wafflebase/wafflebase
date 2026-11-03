@@ -24,7 +24,6 @@ type FinishEditingContext = {
     getValue: ReturnType<typeof vi.fn>;
     hide: ReturnType<typeof vi.fn>;
   };
-  autoResizeRow: ReturnType<typeof vi.fn>;
   formulaRanges: Array<unknown>;
   resetFormulaRangeState: ReturnType<typeof vi.fn>;
 };
@@ -58,7 +57,6 @@ const createContext = (readOnly: boolean): FinishEditingContext => ({
     getValue: vi.fn(),
     hide: vi.fn(),
   },
-  autoResizeRow: vi.fn().mockResolvedValue(undefined),
   formulaRanges: [{ before: true }],
   resetFormulaRangeState: vi.fn(),
 });
@@ -70,7 +68,6 @@ describe('Worksheet read-only editing', () => {
     await finishEditing.call(ctx);
 
     expect(ctx.sheet.setData).not.toHaveBeenCalled();
-    expect(ctx.autoResizeRow).not.toHaveBeenCalled();
     expect(ctx.formulaBar.blur).toHaveBeenCalledTimes(1);
     expect(ctx.cellInput.hide).toHaveBeenCalledTimes(1);
     expect(ctx.resetFormulaRangeState).toHaveBeenCalledTimes(1);
@@ -87,7 +84,6 @@ describe('Worksheet read-only editing', () => {
     await finishEditing.call(ctx);
 
     expect(ctx.sheet.setData).not.toHaveBeenCalled();
-    expect(ctx.autoResizeRow).not.toHaveBeenCalled();
     expect(ctx.cellInput.hide).toHaveBeenCalledTimes(1);
     expect(ctx.resetFormulaRangeState).toHaveBeenCalledTimes(1);
     expect(ctx.formulaRanges).toEqual([]);

@@ -163,6 +163,16 @@ export interface Store {
   setDimensionSize(axis: Axis, index: number, size: number): Promise<void>;
 
   /**
+   * `clearDimensionSize` method removes a custom row height or column width,
+   * returning the row or column to its automatic size.
+   *
+   * This is not `setDimensionSize(axis, index, defaultSize)`: an index with no
+   * entry is sized to its content on every render, while an index holding the
+   * default as an explicit value is a size somebody chose and is left alone.
+   */
+  clearDimensionSize(axis: Axis, index: number): Promise<void>;
+
+  /**
    * `getDimensionSizes` method gets all custom row heights or column widths.
    */
   getDimensionSizes(axis: Axis): Promise<Map<number, number>>;

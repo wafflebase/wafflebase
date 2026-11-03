@@ -488,6 +488,11 @@ export class MemStore implements Store {
     map.set(index, size);
   }
 
+  async clearDimensionSize(axis: Axis, index: number): Promise<void> {
+    const map = axis === 'row' ? this.rowHeights : this.colWidths;
+    map.delete(index);
+  }
+
   async getDimensionSizes(axis: Axis): Promise<Map<number, number>> {
     return new Map(axis === 'row' ? this.rowHeights : this.colWidths);
   }

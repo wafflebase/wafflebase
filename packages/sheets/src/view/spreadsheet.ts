@@ -223,7 +223,6 @@ export class Spreadsheet {
     if (!this.sheet || this._readOnly) return;
     const ref = this.sheet.getActiveCell();
     await this.sheet.setData(ref, value);
-    await this.worksheet.autoResizeActiveRow();
     this.worksheet.render();
     this.notifySelectionChange();
   }

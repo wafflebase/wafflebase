@@ -502,6 +502,17 @@ export class Sheet {
   }
 
   /**
+   * `clearRowHeight` drops a row's explicit height, returning it to the
+   * automatic height its content implies.
+   */
+  clearRowHeight(row: number): void {
+    if (this.rowDimensions) {
+      this.rowDimensions.setSize(row, this.rowDimensions.getDefaultSize());
+    }
+    this.store.clearDimensionSize('row', row);
+  }
+
+  /**
    * `setColumnWidth` sets the width of a column.
    */
   setColumnWidth(col: number, width: number): void {

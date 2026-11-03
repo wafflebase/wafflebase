@@ -1,4 +1,5 @@
 import {
+  Grid,
   Range,
   Ref,
   Direction,
@@ -64,7 +65,6 @@ import {
   DefaultCellHeight,
   RowHeaderWidth,
   CellFontSize,
-  CellPaddingY,
   BoundingRect,
   Position,
   Size,
@@ -78,8 +78,8 @@ import {
   expandBoundingRect,
   toRef,
   toRefWithFreeze,
-  getTextBlockHeight,
 } from './layout';
+import { computeAutoRowHeights } from './auto-row-height';
 
 /**
  * `validationRuleDetail` returns the reject-message detail (with trailing
@@ -267,7 +267,12 @@ export class Worksheet {
     dropIndex: number;
   } | null = null;
   private editMode: boolean = false;
-  private manuallyResizedRows: Set<number> = new Set();
+  /**
+   * Rows whose height this view computed from their content. They carry no
+   * explicit height in the document, so the pass that sized them is also the
+   * only thing that can return them to the default when the content shrinks.
+   */
+  private autoSizedRows: Set<number> = new Set();
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
@@ -608,15 +613,6 @@ export class Worksheet {
     this.scrollIntoView();
   }
 
-  /**
-   * `autoResizeActiveRow` auto-resizes the active cell's row to fit content.
-   * Used by external editors (e.g. mobile edit panel) after committing a value.
-   */
-  public async autoResizeActiveRow(): Promise<void> {
-    if (!this.sheet) return;
-    await this.autoResizeRow(this.sheet.getActiveCell().r);
-  }
-
   public cleanup() {
     if (this.pendingRenderFrame !== null) {
       cancelAnimationFrame(this.pendingRenderFrame);
@@ -877,9 +873,6 @@ export class Worksheet {
 
     this.formulaRanges = [];
     this.resetFormulaRangeState();
-    if (didEdit) {
-      await this.autoResizeRow(activeCell.r);
-    }
     return !rejected;
   }
 
@@ -4821,7 +4814,7 @@ export class Worksheet {
           if (axis === 'column') {
             this.sheet!.setColumnWidth(idx, finalSize);
           } else {
-            this.manuallyResizedRows.add(idx);
+            this.autoSizedRows.delete(idx);
             this.sheet!.setRowHeight(idx, finalSize);
           }
         }
@@ -4881,58 +4874,13 @@ export class Worksheet {
       const newWidth = Math.max(MinColumnWidth, Math.ceil(maxWidth));
       this.sheet!.setColumnWidth(index, newWidth);
     } else {
-      // For rows, compute content-based height
-      this.manuallyResizedRows.delete(index);
-      const newHeight = await this.computeContentHeight(index);
-      this.sheet!.setRowHeight(index, newHeight);
+      // Rows are already sized to their content whenever they carry no
+      // explicit height, so fitting one means dropping the height somebody
+      // pinned on it rather than measuring and pinning another.
+      this.sheet!.clearRowHeight(index);
     }
 
     this.render();
-  }
-
-  /**
-   * `computeContentHeight` measures the max number of lines across cells
-   * in the given row (visible columns) and returns the appropriate height.
-   */
-  private async computeContentHeight(row: number): Promise<number> {
-    const [start, end] = this.viewRange;
-    const range: Range = [
-      { r: row, c: start.c },
-      { r: row, c: end.c },
-    ];
-    const grid = await this.sheet!.fetchGrid(range);
-
-    let maxLines = 1;
-    for (const [, cell] of grid) {
-      if (cell.v) {
-        const lines = cell.v.split('\n').length;
-        if (lines > maxLines) maxLines = lines;
-      }
-    }
-
-    if (maxLines <= 1) {
-      return DefaultCellHeight;
-    }
-
-    return Math.max(
-      DefaultCellHeight,
-      Math.ceil(getTextBlockHeight(maxLines) + 2 * CellPaddingY),
-    );
-  }
-
-  /**
-   * `autoResizeRow` auto-resizes a row to fit its content, unless it
-   * has been manually resized by the user.
-   */
-  private async autoResizeRow(row: number): Promise<void> {
-    if (this.manuallyResizedRows.has(row)) return;
-
-    const newHeight = await this.computeContentHeight(row);
-    const currentHeight = this.rowDim.getSize(row);
-    if (newHeight !== currentHeight) {
-      this.sheet!.setRowHeight(row, newHeight);
-      this.render();
-    }
   }
 
   /**
@@ -6445,6 +6393,19 @@ export class Worksheet {
       return;
     }
 
+    // Rows are "fit to data" until somebody pins a height on them, so the
+    // heights have to follow the content rather than the gesture that wrote
+    // it — a value from the API, an import or a peer gets the same row growth
+    // a locally typed one does. Sizing changes the layout the rest of this
+    // pass was computed from, so hand the frame back and paint the next one.
+    if (await this.applyAutoRowHeights(grid, fullRange[1].r)) {
+      this.render();
+      return;
+    }
+    if (sheet !== this.sheet || targetVersion !== this.renderVersion) {
+      return;
+    }
+
     // Build comment marker key set from all open threads
     // Note: In a multi-tab context, the frontend should filter threads by tabId before passing to renderSheet
     const allThreads = await sheet.getStore().listThreads();
@@ -6482,6 +6443,74 @@ export class Worksheet {
     );
 
     this.refreshLinkHoverAfterRender();
+  }
+
+  /**
+   * `applyAutoRowHeights` sizes every fetched row to its content and returns
+   * whether any height changed.
+   *
+   * A row is sized here only while it carries no entry in `rowHeights`: an
+   * entry means somebody chose that height — by dragging the row border or
+   * through the dimensions API — and a chosen height is never overruled. The
+   * computed heights stay in this view's `DimensionIndex` and are never
+   * written back, so an edited row keeps fitting its data instead of looking
+   * manually sized to the next writer.
+   *
+   * `maxRow` bounds the pass to the rows actually fetched. A row that grew
+   * out of the fetched range keeps its height rather than being shrunk back
+   * on evidence that was not read, which would otherwise let the range and
+   * the height chase each other from frame to frame.
+   */
+  private async applyAutoRowHeights(
+    grid: Grid,
+    maxRow: number,
+  ): Promise<boolean> {
+    const sheet = this.sheet;
+    if (!sheet) {
+      return false;
+    }
+
+    const pinned = await sheet.getStore().getDimensionSizes('row');
+
+    // A merged block lays its text out against the block, not its top row,
+    // so growing that row would count the block's height twice.
+    const spanned = new Set<number>();
+    for (const [sref, span] of sheet.getMerges()) {
+      if (span.rs > 1) {
+        spanned.add(parseRef(sref).r);
+      }
+    }
+
+    const heights = computeAutoRowHeights(grid, spanned);
+
+    const candidates = new Set<number>(this.autoSizedRows);
+    for (const row of heights.keys()) {
+      candidates.add(row);
+    }
+
+    let changed = false;
+    for (const row of candidates) {
+      if (pinned.has(row)) {
+        this.autoSizedRows.delete(row);
+        continue;
+      }
+      if (row > maxRow && !heights.has(row)) {
+        continue;
+      }
+
+      const height = heights.get(row) ?? DefaultCellHeight;
+      if (this.rowDim.getSize(row) !== height) {
+        this.rowDim.setSize(row, height);
+        changed = true;
+      }
+      if (height === DefaultCellHeight) {
+        this.autoSizedRows.delete(row);
+      } else {
+        this.autoSizedRows.add(row);
+      }
+    }
+
+    return changed;
   }
 
   /**
