@@ -328,6 +328,7 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `shiftCells(axis, index, count)` | Mutate `rowOrder`/`colOrder` through `packages/sheets/src/model/workbook/worksheet-axis.ts`, then rewrite formulas, indexed metadata, merges, and chart anchors through `packages/sheets/src/model/workbook/worksheet-structure.ts` |
 | `moveCells(axis, src, count, dst)` | Same helper split as `shiftCells`, but with move semantics |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
+| `clearDimensionSize(axis, index)` | Delete the key from `root.rowHeights` or `root.colWidths`, returning the row or column to its automatic size |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
 | `addRangeStyle(patch)` | Append to `root.sheets[tabId].rangeStyles` |
 | `setRangeStyles(patches)` | Replace/delete `root.sheets[tabId].rangeStyles` |

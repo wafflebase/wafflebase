@@ -6399,7 +6399,9 @@ export class Worksheet {
     // it — a value from the API, an import or a peer gets the same row growth
     // a locally typed one does. Sizing changes the layout the rest of this
     // pass was computed from, so hand the frame back and paint the next one.
-    if (await this.applyAutoRowHeights(grid, fullRange[1].r)) {
+    if (
+      await this.applyAutoRowHeights(grid, fullRange[1].r, fullRange[1].c)
+    ) {
       this.render();
       return;
     }
@@ -6461,10 +6463,19 @@ export class Worksheet {
    * out of the fetched range keeps its height rather than being shrunk back
    * on evidence that was not read, which would otherwise let the range and
    * the height chase each other from frame to frame.
+   *
+   * `maxCol` is the right edge of that same fetch, and the row's remaining
+   * columns are read here before anything is measured. A row is as tall as
+   * its tallest cell wherever that cell sits, so measuring only the columns
+   * the painter needed would make a height depend on the horizontal scroll
+   * position: scrolling a tall cell off to the right would shrink its row.
+   * Both stores reach their cells through an index, so the extra read costs
+   * what those columns actually hold rather than the width of the grid.
    */
   private async applyAutoRowHeights(
     grid: Grid,
     maxRow: number,
+    maxCol: number,
   ): Promise<boolean> {
     const sheet = this.sheet;
     if (!sheet) {
@@ -6489,7 +6500,17 @@ export class Worksheet {
       }
     }
 
-    const heights = computeAutoRowHeights(grid, skip);
+    const measured = await this.fetchRowRemainder(
+      sheet,
+      grid,
+      maxRow,
+      maxCol,
+    );
+    if (sheet !== this.sheet) {
+      return false;
+    }
+
+    const heights = computeAutoRowHeights(measured, skip);
 
     const candidates = new Set<number>(this.autoSizedRows);
     for (const row of heights.keys()) {
@@ -6502,12 +6523,19 @@ export class Worksheet {
     }
 
     const pinned = await sheet.getStore().getDimensionSizes('row');
+    if (sheet !== this.sheet) {
+      return false;
+    }
 
+    const frozenRows = this.freezeState.frozenRows;
+    let frozenChanged = false;
     let changed = false;
     for (const row of candidates) {
-      // Stays a candidate: whatever height it is restored to when it is
-      // shown again still has to be checked against its content.
-      if (this.hiddenRows.has(row)) {
+      // Stays a candidate: a hidden row still has to be checked against its
+      // content once it is shown again, and a merge anchor once the merge is
+      // gone. Both were excluded from measurement, so shrinking them here
+      // would collapse them on evidence this pass deliberately did not read.
+      if (skip.has(row)) {
         continue;
       }
       if (pinned.has(row)) {
@@ -6522,6 +6550,9 @@ export class Worksheet {
       if (this.rowDim.getSize(row) !== height) {
         this.rowDim.setSize(row, height);
         changed = true;
+        if (row <= frozenRows) {
+          frozenChanged = true;
+        }
       }
       if (height === DefaultCellHeight) {
         this.autoSizedRows.delete(row);
@@ -6530,7 +6561,45 @@ export class Worksheet {
       }
     }
 
+    // `freezeState` caches the frozen pane's pixel height off `rowDim`, so a
+    // resized row inside the pane leaves every later frame painting the grid
+    // against an offset the row no longer has.
+    if (frozenChanged) {
+      this.updateFreezeState();
+    }
+
     return changed;
+  }
+
+  /**
+   * `fetchRowRemainder` returns `grid` widened to every column of the rows it
+   * covers, reading only the columns past `maxCol` that it does not already
+   * hold.
+   */
+  private async fetchRowRemainder(
+    sheet: Sheet,
+    grid: Grid,
+    maxRow: number,
+    maxCol: number,
+  ): Promise<Grid> {
+    const columns = sheet.getDimension().columns;
+    if (maxCol >= columns) {
+      return grid;
+    }
+
+    const rest = await sheet.fetchGrid([
+      { r: 1, c: maxCol + 1 },
+      { r: maxRow, c: columns },
+    ]);
+    if (rest.size === 0) {
+      return grid;
+    }
+
+    const merged: Grid = new Map(grid);
+    for (const [sref, cell] of rest) {
+      merged.set(sref, cell);
+    }
+    return merged;
   }
 
   /**
