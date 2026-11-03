@@ -5,14 +5,15 @@ import { docsInitialRootForRole, initialDocsRoot } from './docs-document';
 
 describe('initialDocsRoot', () => {
   // A `Tree` is recognized by `instanceof` against the class belonging to
-  // whichever copy of the SDK owns the document, and this module is shared by
-  // two of them: `@yorkie-js/react`'s provider bundles its own SDK, while
-  // `apply-imported-content` drives a plain `@yorkie-js/sdk` client. Whichever
-  // class the seed picked, the other path got a plain `CRDTObject` instead of
-  // a Tree. The seed therefore carries no CRDT value at all — every consumer
-  // creates the Tree in its own realm.
-  it('is a realm mismatch waiting to happen, so it seeds no CRDT value', () => {
-    expect(SdkTree).not.toBe(ReactTree);
+  // whichever copy of the SDK owns the document. Through 0.7.25,
+  // `@yorkie-js/react` bundled its own SDK, so its provider and the plain
+  // `@yorkie-js/sdk` client in `apply-imported-content` held different
+  // classes, and whichever one the seed picked, the other path got a plain
+  // `CRDTObject` instead of a Tree. Since 0.7.26 the React package takes the
+  // SDK as a peer (yorkie-js-sdk#1431) and both paths share one class. The
+  // seed still carries no CRDT value: every consumer creates the Tree itself.
+  it('shares one SDK realm with React, and seeds no CRDT value', () => {
+    expect(SdkTree).toBe(ReactTree);
     expect(initialDocsRoot().content).toBeUndefined();
   });
 
