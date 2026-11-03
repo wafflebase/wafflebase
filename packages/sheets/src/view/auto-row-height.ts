@@ -1,10 +1,6 @@
 import { parseRef } from '../model/core/coordinates';
 import type { Grid } from '../model/core/types';
-import {
-  CellPaddingY,
-  DefaultCellHeight,
-  getTextBlockHeight,
-} from './layout';
+import { CellPaddingY, DefaultCellHeight, getTextBlockHeight } from './layout';
 
 /**
  * `autoRowHeight` returns the height a row needs to show `lineCount` lines.

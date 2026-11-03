@@ -476,6 +476,7 @@ export class Worksheet {
 
   public async initialize(sheet: Sheet) {
     this.sheet = sheet;
+    this.autoSizedRows.clear();
     this.sheet.setOnRefusal((refusal) => {
       this.onNoticeCallback?.(refusalMessage(refusal));
     });
@@ -6470,26 +6471,45 @@ export class Worksheet {
       return false;
     }
 
-    const pinned = await sheet.getStore().getDimensionSizes('row');
+    // A row being dragged by its border has no stored height until mouseup,
+    // so sizing it mid-drag would pull it back to its content on every frame
+    // and the drag would appear to do nothing.
+    if (this.resizeDragging) {
+      return false;
+    }
 
     // A merged block lays its text out against the block, not its top row,
-    // so growing that row would count the block's height twice.
-    const spanned = new Set<number>();
+    // so growing that row would count the block's height twice. Hidden rows
+    // are carried as zero-height rows in `rowDim`, so sizing one to its
+    // content is what un-hides it.
+    const skip = new Set<number>(this.hiddenRows);
     for (const [sref, span] of sheet.getMerges()) {
       if (span.rs > 1) {
-        spanned.add(parseRef(sref).r);
+        skip.add(parseRef(sref).r);
       }
     }
 
-    const heights = computeAutoRowHeights(grid, spanned);
+    const heights = computeAutoRowHeights(grid, skip);
 
     const candidates = new Set<number>(this.autoSizedRows);
     for (const row of heights.keys()) {
       candidates.add(row);
     }
+    // Nothing to size and nothing to shrink back: skip reading the stored
+    // heights, which is the whole cost of this pass on an ordinary sheet.
+    if (candidates.size === 0) {
+      return false;
+    }
+
+    const pinned = await sheet.getStore().getDimensionSizes('row');
 
     let changed = false;
     for (const row of candidates) {
+      // Stays a candidate: whatever height it is restored to when it is
+      // shown again still has to be checked against its content.
+      if (this.hiddenRows.has(row)) {
+        continue;
+      }
       if (pinned.has(row)) {
         this.autoSizedRows.delete(row);
         continue;

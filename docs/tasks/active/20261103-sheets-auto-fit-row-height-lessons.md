@@ -32,6 +32,33 @@ than shrunk back to the default — without that, growing a row at the
 bottom edge would shrink the row that left the range, which would grow the
 range again, and the render loop would oscillate.
 
+## The two states a `DimensionIndex` entry can already mean
+
+Moving auto-fit into the render pass made it collide with two existing uses
+of the same in-memory row sizes, both found in self-review round 1 and both
+blocking:
+
+- **Hidden rows are zero-height rows.** `syncHiddenRowsFromSheet` stores a
+  filter-hidden or user-hidden row as `rowDim.setSize(row, 0)`. Sizing that
+  row to its content is exactly what un-hides it — and `syncHiddenRows…`
+  only zeroes rows on the hidden transition, so it would have stayed
+  un-hidden. The pass now skips `this.hiddenRows` on both sides: they are
+  excluded from the measurement and left as candidates, so a row shown again
+  is re-checked against content that may have changed while it was hidden.
+- **A row-border drag has no stored height until mouseup.** `onMove` writes
+  the preview size straight into `rowDim`; only `onComplete` persists it. The
+  pass would have pulled the row back to its content on every frame of the
+  drag, so the gesture would have looked dead. It now returns early while
+  `resizeDragging`.
+
+The lesson generalizes: a shared in-memory index is not the same thing as
+the document field it was loaded from, and anything that writes to it is
+competing with every other writer. The authority for "did somebody choose
+this height" has to be the stored `rowHeights`, never `rowDim`.
+
 ## Self-review rounds
 
-Round 1 (correctness/tests) — see PR.
+Round 1 (correctness/tests) — two blocking findings above, both fixed with
+regression tests in `test/view/worksheet-auto-row-height.test.ts`. Also
+added: skip the stored-height read entirely when there is nothing to size,
+which is the whole per-frame cost of the pass on an ordinary sheet.
