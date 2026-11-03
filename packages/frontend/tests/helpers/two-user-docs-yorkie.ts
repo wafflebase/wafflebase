@@ -1,4 +1,4 @@
-import yorkie from '@yorkie-js/sdk';
+import yorkie, { SyncMode } from '@yorkie-js/sdk';
 import { YorkieDocStore } from '@/app/docs/yorkie-doc-store.ts';
 import type { YorkieDocsRoot } from '@/types/docs-document.ts';
 import { generateBlockId, DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
@@ -12,10 +12,9 @@ type YorkieClient = {
   sync(doc: object): Promise<object[]>;
 };
 
-const { Client, Document, SyncMode } = yorkie as {
+const { Client, Document } = yorkie as {
   Client: new (options?: Record<string, unknown>) => YorkieClient;
   Document: new (key: string) => object;
-  SyncMode: { Manual: unknown };
 };
 
 function makeBlock(text: string): Block {

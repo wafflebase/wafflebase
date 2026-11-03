@@ -1,4 +1,4 @@
-import yorkie from "@yorkie-js/sdk";
+import yorkie, { SyncMode } from "@yorkie-js/sdk";
 import { YorkieStore } from "@/app/spreadsheet/yorkie-store";
 import { initialSpreadsheetDocument } from "@/types/worksheet";
 
@@ -9,10 +9,9 @@ type YorkieClient = {
   detach(doc: object): Promise<object>;
 };
 
-const { Client, Document, SyncMode } = yorkie as {
+const { Client, Document } = yorkie as {
   Client: new (options?: Record<string, unknown>) => YorkieClient;
   Document: new (key: string) => object;
-  SyncMode: { Manual: unknown };
 };
 
 function cloneInitialDocument() {
