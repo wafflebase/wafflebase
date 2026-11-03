@@ -85,6 +85,7 @@ naturally deduplicates), we write each key at most once.
 | `setSheetStyle()` | Push to ops list |
 | `setFreezePane()` | Push to ops list |
 | `setDimensionSize()` | Push to ops list |
+| `clearDimensionSize()` | Push to ops list |
 
 #### Read methods during batch
 

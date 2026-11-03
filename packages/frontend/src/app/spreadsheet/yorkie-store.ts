@@ -641,6 +641,27 @@ export class YorkieStore implements Store {
     });
   }
 
+  async clearDimensionSize(axis: Axis, index: number): Promise<void> {
+    const tabId = this.tabId;
+    const mutate = (root: SpreadsheetDocument) => {
+      // A worksheet written before the map existed has none, the same case
+      // `getDimensionSizes` guards on reading it back.
+      const map =
+        axis === "row"
+          ? root.sheets[tabId].rowHeights
+          : root.sheets[tabId].colWidths;
+      if (!map) return;
+      delete map[String(index)];
+    };
+
+    if (this.batchOps) {
+      this.batchOps.push(mutate);
+      return;
+    }
+
+    this.doc.update(mutate);
+  }
+
   async getDimensionSizes(axis: Axis): Promise<Map<number, number>> {
     const ws = this.getSheet();
     const obj = axis === "row" ? ws.rowHeights : ws.colWidths;

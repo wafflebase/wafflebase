@@ -213,6 +213,10 @@ export class ReadOnlyStore implements Store {
     // no-op
   }
 
+  async clearDimensionSize(_axis: Axis, _index: number): Promise<void> {
+    // no-op
+  }
+
   async getDimensionSizes(_axis: Axis): Promise<Map<number, number>> {
     return new Map();
   }

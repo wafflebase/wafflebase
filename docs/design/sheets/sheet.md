@@ -378,6 +378,7 @@ interface Store {
 
   // Dimension management
   setDimensionSize(axis: Axis, index: number, size: number): Promise<void>;
+  clearDimensionSize(axis: Axis, index: number): Promise<void>;
   getDimensionSizes(axis: Axis): Promise<Map<number, number>>;
 
   // Row/column insert/delete
@@ -775,6 +776,48 @@ non-default sizes in a `Map<number, number>` and provides:
 - `move(src, count, dst)` — Remaps keys when rows/columns are moved.
 
 Default sizes: **23px** row height, **100px** column width.
+
+#### Row height is fit-to-data unless pinned
+
+A row with **no** `rowHeights` entry is as tall as its content. `Worksheet`
+recomputes those heights in `applyAutoRowHeights()` during `renderSheet()`
+and writes them into the local `DimensionIndex` only — nothing is persisted.
+A row **with** a `rowHeights`
+entry was pinned by an explicit gesture (dragging the row border) or by
+`PUT .../dimensions`, and is never overruled; double-clicking its border
+clears the entry (`Store.clearDimensionSize`) and returns it to fit-to-data.
+
+Auto-fit used to be a one-shot action in the editor's commit path, so it
+covered only values typed locally: a multi-line value written through
+`/api/v1` or the CLI was stored in full but rendered clipped until somebody
+double-clicked the cell (#1115). Making it a rendering rule makes the writer
+irrelevant — API, CLI, import, paste, undo and remote peers all get the same
+growth. Not persisting it is what keeps a `rowHeights` entry meaning
+"somebody chose this height"; persisting the fit would make every edited row
+look pinned and reintroduce the bug one write later, and would have every
+viewer of a shared sheet racing to write the same number.
+
+Only explicit `\n` counts, matching what the painter draws — there is no soft
+wrapping. The anchor row of a merge spanning several rows is skipped, since
+the text there is laid out against the block.
+
+The pass measures a row across **every** column, not just the ones the
+painter fetched. The paint fetch stops at the right edge of the viewport, so
+measuring off it alone would make a height depend on the horizontal scroll
+position — a row whose only multi-line cell sits further right would grow
+when that cell scrolled into view and shrink back when it left. So
+`applyAutoRowHeights()` reads the remaining columns of the fetched rows
+before measuring anything. Both stores reach cells through a `CellIndex`, so
+that read costs what those columns actually hold rather than the 18,278
+columns the grid nominally spans. A row **below** the fetched range is the
+mirror case and is handled the other way: it keeps whatever height it has
+rather than being shrunk on evidence nobody read, which would otherwise let
+the fetched range and the height chase each other from frame to frame.
+
+Rows excluded from measurement — hidden rows, and merge anchors — are
+excluded from the shrink branch too. Sizing a row inside the frozen pane
+rebuilds the cached `FreezeState`, whose `frozenHeight` is a pixel offset
+read off the same `DimensionIndex`.
 
 ### Freeze Panes
 

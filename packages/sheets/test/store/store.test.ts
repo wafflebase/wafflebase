@@ -163,6 +163,18 @@ function runTests(createStore: (key: string) => Promise<Store>) {
     expect(sizes.get(2)).toBe(80);
   });
 
+  it('should clear a dimension size back to automatic', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.setDimensionSize('row', 2, 50);
+    await store.setDimensionSize('row', 3, 80);
+
+    await store.clearDimensionSize('row', 2);
+
+    const sizes = await store.getDimensionSizes('row');
+    expect(sizes.has(2)).toBe(false);
+    expect(sizes.get(3)).toBe(80);
+  });
+
   it('should shift column dimension sizes on column insert', async function ({ task }) {
     const store = await createStore(task.name);
     await store.setDimensionSize('column', 3, 200);
