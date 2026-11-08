@@ -38,6 +38,7 @@ describe('AuthController', () => {
   const userService = {
     user: jest.fn(),
     findOrCreateUser: jest.fn(),
+    claimGithubWorkspaces: jest.fn(),
   } as unknown as UserService;
 
   const configService = {
@@ -483,6 +484,75 @@ describe('AuthController', () => {
 
       expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
       expect(res.cookie).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('githubAuthCallback — workspace claims', () => {
+    const mockUser = {
+      id: 42,
+      authProvider: 'github',
+      username: 'bob',
+      email: 'bob@example.com',
+      photo: null,
+    };
+
+    function signIn(user: Record<string, unknown>) {
+      const { secret, state } = createWebOAuthState();
+      const res = createMockResponse();
+      const req = {
+        user,
+        query: {},
+        cookies: { wafflebase_oauth_state: secret },
+      } as unknown as Request;
+      return controller
+        .githubAuthCallback(req as any, res, state)
+        .then(() => res);
+    }
+
+    beforeEach(() => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (userService.claimGithubWorkspaces as jest.Mock).mockReset();
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+    });
+
+    it('claims the workspaces waiting for the proven GitHub account id', async () => {
+      (userService.claimGithubWorkspaces as jest.Mock).mockResolvedValue(2);
+
+      const res = await signIn({
+        username: 'bob',
+        email: 'bob@example.com',
+        githubId: '12345',
+      });
+
+      expect(userService.claimGithubWorkspaces).toHaveBeenCalledWith(
+        42,
+        '12345',
+      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
+    });
+
+    it('still signs in when claiming fails', async () => {
+      (userService.claimGithubWorkspaces as jest.Mock).mockRejectedValue(
+        new Error('db down'),
+      );
+
+      const res = await signIn({
+        username: 'bob',
+        email: 'bob@example.com',
+        githubId: '12345',
+      });
+
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
+      expect(res.cookie).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not claim without a GitHub account id', async () => {
+      await signIn({ username: 'bob', email: 'bob@example.com' });
+
+      expect(userService.claimGithubWorkspaces).not.toHaveBeenCalled();
     });
   });
 

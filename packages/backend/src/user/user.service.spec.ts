@@ -238,3 +238,130 @@ describe('UserService.findOrCreateUser', () => {
     });
   });
 });
+
+/**
+ * Enough of Prisma for claiming: claim rows guarded by `claimedAt`, members
+ * keyed on (workspace, user), and documents with an optional author. The
+ * `$transaction` hands the same client back, which is all the guard needs —
+ * what is under test is that a claim already taken is not taken again.
+ */
+function makeClaimPrisma(
+  claims: Array<{
+    id: string;
+    workspaceId: string;
+    githubId: string;
+    claimedAt?: Date | null;
+    claimedBy?: number | null;
+  }>,
+  documents: Array<{
+    id: string;
+    workspaceId: string;
+    authorID: number | null;
+  }>,
+) {
+  const members: Array<{ workspaceId: string; userId: number; role: string }> =
+    [];
+  const client = {
+    workspaceClaim: {
+      findMany: ({ where }: { where: { githubId: string; claimedAt: null } }) =>
+        Promise.resolve(
+          claims.filter((c) => c.githubId === where.githubId && !c.claimedAt),
+        ),
+      updateMany: ({
+        where,
+        data,
+      }: {
+        where: { id: string; claimedAt: null };
+        data: { claimedAt: Date; claimedBy: number };
+      }) => {
+        const rows = claims.filter((c) => c.id === where.id && !c.claimedAt);
+        rows.forEach((c) => Object.assign(c, data));
+        return Promise.resolve({ count: rows.length });
+      },
+    },
+    workspaceMember: {
+      upsert: ({
+        where,
+        create,
+        update,
+      }: {
+        where: { workspaceId_userId: { workspaceId: string; userId: number } };
+        create: { workspaceId: string; userId: number; role: string };
+        update: { role: string };
+      }) => {
+        const key = where.workspaceId_userId;
+        const row = members.find(
+          (m) => m.workspaceId === key.workspaceId && m.userId === key.userId,
+        );
+        if (row) Object.assign(row, update);
+        else members.push({ ...create });
+        return Promise.resolve(row ?? create);
+      },
+    },
+    document: {
+      updateMany: ({
+        where,
+        data,
+      }: {
+        where: { workspaceId: string; authorID: null };
+        data: { authorID: number };
+      }) => {
+        const rows = documents.filter(
+          (d) => d.workspaceId === where.workspaceId && d.authorID === null,
+        );
+        rows.forEach((d) => Object.assign(d, data));
+        return Promise.resolve({ count: rows.length });
+      },
+    },
+    $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(client),
+  };
+  return { client: client as unknown as PrismaService, members };
+}
+
+describe('UserService.claimGithubWorkspaces', () => {
+  it('makes the GitHub account the owner of every workspace waiting for it', async () => {
+    const claims = [
+      { id: 'c1', workspaceId: 'w1', githubId: '7' },
+      { id: 'c2', workspaceId: 'w2', githubId: '7' },
+      { id: 'c3', workspaceId: 'w3', githubId: '8' },
+    ];
+    const documents = [
+      { id: 'd1', workspaceId: 'w1', authorID: null },
+      { id: 'd2', workspaceId: 'w1', authorID: 99 },
+      { id: 'd3', workspaceId: 'w3', authorID: null },
+    ];
+    const { client, members } = makeClaimPrisma(claims, documents);
+
+    const claimed = await new UserService(client).claimGithubWorkspaces(5, '7');
+
+    expect(claimed).toBe(2);
+    expect(members).toEqual([
+      { workspaceId: 'w1', userId: 5, role: 'owner' },
+      { workspaceId: 'w2', userId: 5, role: 'owner' },
+    ]);
+    // Only unattributed documents in the claimed workspaces change hands.
+    expect(documents.map((d) => d.authorID)).toEqual([5, 99, null]);
+    expect(claims[0]).toMatchObject({ claimedBy: 5 });
+    expect(claims[2]).not.toHaveProperty('claimedBy');
+  });
+
+  it('does not claim a workspace twice', async () => {
+    const claims = [{ id: 'c1', workspaceId: 'w1', githubId: '7' }];
+    const { client, members } = makeClaimPrisma(claims, []);
+    const service = new UserService(client);
+
+    expect(await service.claimGithubWorkspaces(5, '7')).toBe(1);
+    expect(await service.claimGithubWorkspaces(5, '7')).toBe(0);
+    expect(members).toHaveLength(1);
+  });
+
+  it('upgrades an existing membership to owner', async () => {
+    const claims = [{ id: 'c1', workspaceId: 'w1', githubId: '7' }];
+    const { client, members } = makeClaimPrisma(claims, []);
+    members.push({ workspaceId: 'w1', userId: 5, role: 'member' });
+
+    await new UserService(client).claimGithubWorkspaces(5, '7');
+
+    expect(members).toEqual([{ workspaceId: 'w1', userId: 5, role: 'owner' }]);
+  });
+});
