@@ -217,4 +217,52 @@ export class UserService {
       where,
     });
   }
+
+  /**
+   * Hand the caller every workspace waiting for their GitHub account.
+   *
+   * Called after a GitHub sign-in with the numeric account id the OAuth
+   * exchange just proved, so it can only ever give a workspace to the person
+   * it was set aside for (see `WorkspaceClaim`). Each claim is taken inside
+   * its own transaction behind a `claimedAt: null` guard, so two concurrent
+   * sign-ins of the same person cannot both become owner twice, and one bad
+   * claim does not stop the rest. Documents in the workspace that have no
+   * author are attributed to the new owner, which is what lets them delete
+   * or move what was migrated for them. Returns how many were claimed.
+   */
+  async claimGithubWorkspaces(
+    userId: number,
+    githubId: string,
+  ): Promise<number> {
+    const claims = await this.prisma.workspaceClaim.findMany({
+      where: { githubId, claimedAt: null },
+      select: { id: true, workspaceId: true },
+    });
+
+    let claimed = 0;
+    for (const claim of claims) {
+      const took = await this.prisma.$transaction(async (tx) => {
+        const { count } = await tx.workspaceClaim.updateMany({
+          where: { id: claim.id, claimedAt: null },
+          data: { claimedAt: new Date(), claimedBy: userId },
+        });
+        if (count === 0) return false;
+
+        await tx.workspaceMember.upsert({
+          where: {
+            workspaceId_userId: { workspaceId: claim.workspaceId, userId },
+          },
+          create: { workspaceId: claim.workspaceId, userId, role: 'owner' },
+          update: { role: 'owner' },
+        });
+        await tx.document.updateMany({
+          where: { workspaceId: claim.workspaceId, authorID: null },
+          data: { authorID: userId },
+        });
+        return true;
+      });
+      if (took) claimed++;
+    }
+    return claimed;
+  }
 }

@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Logger,
   Post,
   Query,
   Req,
@@ -51,6 +52,8 @@ const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly userService: UserService,
@@ -277,6 +280,21 @@ export class AuthController {
 
     if (!user) {
       throw new Error('User not found or created');
+    }
+
+    // A failure here must not cost the person their sign-in: the claims stay
+    // unclaimed and the next sign-in tries again.
+    if (authProvider === 'github' && profile.githubId) {
+      try {
+        await this.userService.claimGithubWorkspaces(
+          user.id,
+          String(profile.githubId),
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Claiming workspaces for user ${user.id} failed: ${String(error)}`,
+        );
+      }
     }
     return { user };
   }

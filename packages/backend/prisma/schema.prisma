@@ -184,6 +184,7 @@ model Workspace {
   folders     Folder[]
   notifications Notification[]
   templateListings TemplateListing[]
+  claim       WorkspaceClaim?
 }
 
 model WorkspaceMember {
@@ -197,6 +198,29 @@ model WorkspaceMember {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
+}
+
+/// A workspace waiting for a person who has no Wafflebase account yet.
+///
+/// Migrated CodePair workspaces belong to people we can identify only by
+/// their GitHub account id — CodePair never stored an email, and email is
+/// what a Wafflebase account is keyed on, so no `User` row can be made for
+/// them ahead of time. The workspace is created without an owner and this
+/// row names who it is for; their first GitHub sign-in makes them its owner.
+/// `githubId` is GitHub's numeric account id, which survives a rename of the
+/// login.
+model WorkspaceClaim {
+  id          String    @id @default(uuid())
+  githubId    String
+  source      String    @default("codepair")
+  createdAt   DateTime  @default(now())
+  claimedAt   DateTime?
+  claimedBy   Int?
+
+  workspaceId String    @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([githubId])
 }
 
 model WorkspaceInvite {

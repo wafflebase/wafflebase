@@ -41,6 +41,8 @@ export interface OAuthProfile {
   username?: string;
   email?: string;
   photo?: string;
+  /** GitHub's numeric account id; set by `GitHubStrategy` only. */
+  githubId?: string;
 }
 
 /** The refusal code carried by a strategy result, if it is one. */

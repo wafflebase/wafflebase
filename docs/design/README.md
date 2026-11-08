@@ -115,7 +115,7 @@ Markdown note engine — CodeMirror source editor, single Yorkie `Text` CRDT.
 
 | Document                        | Description                                                                                        |
 | ------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [notes.md](notes/notes.md)      | Notes — markdown note document type (`"note"`) ported from CodePair; CodeMirror 6 source editor + live preview, whole content in one Yorkie `Text` at `root.content` (byte-compatible with CodePair), new `@wafflebase/notes` engine package + `note-<id>` docKey, inherits workspaces/sharing/auth-webhook/presence unchanged; RAG/AI out of scope; P1 editor+type, P2 parity (image/export/revisions/vim), P3 CodePair migration |
+| [notes.md](notes/notes.md)      | Notes — markdown note document type (`"note"`) ported from CodePair; CodeMirror 6 source editor + live preview, whole content in one Yorkie `Text` at `root.content` (byte-compatible with CodePair), new `@wafflebase/notes` engine package + `note-<id>` docKey, inherits workspaces/sharing/auth-webhook/presence unchanged; RAG/AI out of scope; P1 editor+type, P2 parity (image/export/revisions/vim), P3 CodePair migration (operator copy through the CLI; owner-less personal workspaces carry a `WorkspaceClaim` by GitHub account id, claimed on GitHub sign-in) |
 
 ## Files
 

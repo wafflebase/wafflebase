@@ -55,10 +55,8 @@ metadata rows — designed in a later phase (P3).
 - **Phase-1 feature parity extras** — image upload, PDF/HTML/MD export,
   revision history, and vim mode are deferred to P2 (see Later Phases; image
   upload and vim mode have since shipped there).
-- **The actual CodePair data migration** — designed and executed in P3; only
-  its shape is sketched here. (Whether CodePair runs in production with real
-  user data, and whether it shares a Yorkie server/project with Wafflebase, are
-  open questions to investigate before P3.)
+- **The actual CodePair data migration** — designed and executed in P3 (see
+  Later Phases).
 - **Folder / tree organization** — notes join the existing flat
   per-workspace document list, same as every other type.
 
@@ -952,16 +950,65 @@ transaction, so sync, undo, and presence apply unchanged:
 
 ### P3 — CodePair → Wafflebase migration
 
-Because note content lives **only in Yorkie** and the schema is identical:
+The two open questions are answered. CodePair runs in production with real
+data (about 600 workspaces, 3,800 notes, 490 users), and both services run
+on the same Yorkie server in different projects, so a document is copied
+across projects rather than re-keyed.
 
-1. Map CodePair Mongo `Document` rows → Wafflebase Postgres `Document` rows
-   (type `note`), preserving or re-keying the docKey to the `note-` prefix.
-2. Move / copy the Yorkie documents (same project/server re-key, or
-   cross-server copy — TBD, pending the open Yorkie-topology question).
-3. Map `User`, `Workspace`, `UserWorkspace` memberships, and
-   `DocumentSharingToken` → Wafflebase `User` / `Workspace` /
-   `WorkspaceMember` / `ShareLink`.
+Copying turned out to need no new backend code. The operator reads each
+note's root through Yorkie's `AdminService/GetDocuments` with the CodePair
+project's secret key, re-uploads the images it references, and writes it
+back through the existing `wafflebase notes import` path; a closing SQL
+pass restores `createdAt`/`updatedAt` from CodePair and Yorkie. The
+CodePair team workspaces went across this way into folders of existing
+Wafflebase workspaces.
 
-**Open questions to resolve before P3:** does CodePair run in production with
-real user data (migration volume), and do CodePair and Wafflebase share a
-Yorkie server/project (determines re-key vs. copy)?
+What does need code is **who owns a migrated personal workspace**. Most
+CodePair users have never signed in to Wafflebase, and CodePair stored only
+their GitHub account id and a nickname, never an email. A Wafflebase account
+is keyed on email (`findOrCreateUser`), so there is no way to create the
+account for them ahead of time, and inventing one without the person would
+be wrong anyway.
+
+#### Workspace claims
+
+A migrated workspace is created **without an owner**, next to a
+`WorkspaceClaim` row that names the GitHub account it is for:
+
+```prisma
+model WorkspaceClaim {
+  id          String    @id @default(uuid())
+  githubId    String    // GitHub's numeric account id
+  source      String    @default("codepair")
+  createdAt   DateTime  @default(now())
+  claimedAt   DateTime?
+  claimedBy   Int?
+  workspaceId String    @unique  // cascade-deleted with the workspace
+  @@index([githubId])
+}
+```
+
+The GitHub OAuth callback already receives the numeric id from
+`GitHubStrategy`. After `findOrCreateUser` resolves the account,
+`resolveOAuthUser` calls `UserService.claimGithubWorkspaces(userId,
+githubId)`, which for each unclaimed row, in its own transaction:
+
+1. marks the row claimed behind a `claimedAt: null` guard (`updateMany`),
+   so two concurrent sign-ins cannot both take it;
+2. upserts the user as `owner` of the workspace;
+3. attributes the workspace's author-less documents to them, so they can
+   delete and move what was migrated for them (`isDocumentManager`).
+
+Design choices:
+
+| Choice | Why |
+| ------ | --- |
+| Match on the numeric GitHub id, not the login | The OAuth exchange proves the id, and the id survives a rename. A login can be renamed and later taken by someone else. |
+| Claim on every GitHub sign-in, not only the first | Existing Wafflebase users with a CodePair past are covered too, and a claim that failed once is retried. |
+| A claim failure never fails the sign-in | Losing access to Wafflebase because a migration row is bad would be worse than a workspace staying unclaimed until the next sign-in. |
+| No `User.githubId` column | The id is only needed at the moment of sign-in, where the strategy already has it. |
+| Ownerless workspace until claimed | Nothing else can see it. The migration tool is a temporary member while it writes, then leaves. |
+
+Out of scope: Google sign-ins (CodePair was GitHub-only), telling people
+their documents moved (CodePair can show it), and deleting workspaces that
+are never claimed.
