@@ -240,6 +240,22 @@ describe('UserService.findOrCreateUser', () => {
 });
 
 /**
+ * Prisma's `where` semantics for the scalar equality filters these fakes see.
+ * Driven by the `where` the *service* passes rather than hard-coded, so a
+ * dropped clause (`claimedAt: null`, `authorID: null`) widens the fake's
+ * match the same way it would widen the real query — which is what makes the
+ * guard and the authorship assertions below able to fail at all.
+ */
+function matchesWhere(
+  row: Record<string, unknown>,
+  where: Record<string, unknown>,
+): boolean {
+  return Object.entries(where).every(
+    ([field, expected]) => (row[field] ?? null) === (expected ?? null),
+  );
+}
+
+/**
  * Enough of Prisma for claiming: claim rows guarded by `claimedAt`, members
  * keyed on (workspace, user), and documents with an optional author. The
  * `$transaction` hands the same client back, which is all the guard needs —
@@ -263,18 +279,16 @@ function makeClaimPrisma(
     [];
   const client = {
     workspaceClaim: {
-      findMany: ({ where }: { where: { githubId: string; claimedAt: null } }) =>
-        Promise.resolve(
-          claims.filter((c) => c.githubId === where.githubId && !c.claimedAt),
-        ),
+      findMany: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(claims.filter((c) => matchesWhere(c, where))),
       updateMany: ({
         where,
         data,
       }: {
-        where: { id: string; claimedAt: null };
+        where: Record<string, unknown>;
         data: { claimedAt: Date; claimedBy: number };
       }) => {
-        const rows = claims.filter((c) => c.id === where.id && !c.claimedAt);
+        const rows = claims.filter((c) => matchesWhere(c, where));
         rows.forEach((c) => Object.assign(c, data));
         return Promise.resolve({ count: rows.length });
       },
@@ -303,12 +317,10 @@ function makeClaimPrisma(
         where,
         data,
       }: {
-        where: { workspaceId: string; authorID: null };
+        where: Record<string, unknown>;
         data: { authorID: number };
       }) => {
-        const rows = documents.filter(
-          (d) => d.workspaceId === where.workspaceId && d.authorID === null,
-        );
+        const rows = documents.filter((d) => matchesWhere(d, where));
         rows.forEach((d) => Object.assign(d, data));
         return Promise.resolve({ count: rows.length });
       },
@@ -353,6 +365,35 @@ describe('UserService.claimGithubWorkspaces', () => {
     expect(await service.claimGithubWorkspaces(5, '7')).toBe(1);
     expect(await service.claimGithubWorkspaces(5, '7')).toBe(0);
     expect(members).toHaveLength(1);
+  });
+
+  /**
+   * The `claimedAt: null` on the *update* is the guard that matters once two
+   * sign-ins race: both read the claim as unclaimed, so only the conditional
+   * update stops the second from handing the workspace a second owner and
+   * re-attributing documents the winner already took.
+   */
+  it('loses the race for a claim another sign-in already took', async () => {
+    const claims = [{ id: 'c1', workspaceId: 'w1', githubId: '7' }];
+    const documents = [{ id: 'd1', workspaceId: 'w1', authorID: null }];
+    const { client, members } = makeClaimPrisma(claims, documents);
+    const workspaceClaim = (
+      client as unknown as {
+        workspaceClaim: { findMany: (args: unknown) => Promise<unknown> };
+      }
+    ).workspaceClaim;
+    const read = workspaceClaim.findMany;
+    // The other sign-in commits between our read and our update.
+    workspaceClaim.findMany = async (args: unknown) => {
+      const rows = await read(args);
+      Object.assign(claims[0], { claimedAt: new Date(), claimedBy: 9 });
+      return rows;
+    };
+
+    expect(await new UserService(client).claimGithubWorkspaces(5, '7')).toBe(0);
+    expect(members).toEqual([]);
+    expect(claims[0]).toMatchObject({ claimedBy: 9 });
+    expect(documents[0].authorID).toBeNull();
   });
 
   it('upgrades an existing membership to owner', async () => {

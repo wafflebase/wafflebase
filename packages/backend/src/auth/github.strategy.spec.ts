@@ -153,6 +153,22 @@ describe('GitHubStrategy verified email', () => {
     ).toBe(true);
   });
 
+  /**
+   * `AuthController.resolveOAuthUser` gates claiming the migrated workspaces
+   * on `profile.githubId`, and this mapping from the provider's own
+   * `profile.id` is the only place it comes from. The controller spec
+   * hand-builds a profile, so a rename or a dropped field on this side would
+   * silently leave every claim unclaimed with both specs green.
+   */
+  it('carries the GitHub account id through as `githubId`', () => {
+    const user = signedIn([
+      { value: 'ada@example.com', primary: true, verified: true },
+    ]);
+    expect(user.githubId).toBe('42');
+    expect(user.username).toBe('ada');
+    expect(user.photo).toBe('https://avatars.example/ada.png');
+  });
+
   it('signs in under the primary verified address', () => {
     const user = signedIn([
       { value: 'old@example.com', primary: false, verified: true },
