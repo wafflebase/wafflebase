@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| codepair workspace claims (2026-11-08) | [20261108-codepair-workspace-claims-todo.md](./active/20261108-codepair-workspace-claims-todo.md) | [20261108-codepair-workspace-claims-lessons.md](./active/20261108-codepair-workspace-claims-lessons.md) |
 | release v0.6.14 (2026-11-08) | [20261108-release-v0.6.14-todo.md](./active/20261108-release-v0.6.14-todo.md) | [20261108-release-v0.6.14-lessons.md](./active/20261108-release-v0.6.14-lessons.md) |
 | sheets auto fit row height (2026-11-03) | [20261103-sheets-auto-fit-row-height-todo.md](./active/20261103-sheets-auto-fit-row-height-todo.md) | [20261103-sheets-auto-fit-row-height-lessons.md](./active/20261103-sheets-auto-fit-row-height-lessons.md) |
 | dependabot patch (2026-10-24) | [20261024-dependabot-patch-todo.md](./active/20261024-dependabot-patch-todo.md) | [20261024-dependabot-patch-lessons.md](./active/20261024-dependabot-patch-lessons.md) |
@@ -51,7 +50,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 631
+- Archived task count: 632
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: codepair workspace claims (2026-11-08)
+Latest active task: release v0.6.14 (2026-11-08)
