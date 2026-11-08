@@ -19,9 +19,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | codepair workspace claims (2026-11-08) | [20261108-codepair-workspace-claims-todo.md](./active/20261108-codepair-workspace-claims-todo.md) | [20261108-codepair-workspace-claims-lessons.md](./active/20261108-codepair-workspace-claims-lessons.md) |
+| release v0.6.14 (2026-11-08) | [20261108-release-v0.6.14-todo.md](./active/20261108-release-v0.6.14-todo.md) | [20261108-release-v0.6.14-lessons.md](./active/20261108-release-v0.6.14-lessons.md) |
 | sheets auto fit row height (2026-11-03) | [20261103-sheets-auto-fit-row-height-todo.md](./active/20261103-sheets-auto-fit-row-height-todo.md) | [20261103-sheets-auto-fit-row-height-lessons.md](./active/20261103-sheets-auto-fit-row-height-lessons.md) |
 | dependabot patch (2026-10-24) | [20261024-dependabot-patch-todo.md](./active/20261024-dependabot-patch-todo.md) | [20261024-dependabot-patch-lessons.md](./active/20261024-dependabot-patch-lessons.md) |
-| release v0.6.13 (2026-10-19) | [20261019-release-v0.6.13-todo.md](./active/20261019-release-v0.6.13-todo.md) | [20261019-release-v0.6.13-lessons.md](./active/20261019-release-v0.6.13-lessons.md) |
 | slides lint (2026-10-13) | [20261013-slides-lint-todo.md](./active/20261013-slides-lint-todo.md) | [20261013-slides-lint-lessons.md](./active/20261013-slides-lint-lessons.md) |
 | harness convergence port (2026-10-01) | [20261001-harness-convergence-port-todo.md](./active/20261001-harness-convergence-port-todo.md) | [20261001-harness-convergence-port-lessons.md](./active/20261001-harness-convergence-port-lessons.md) |
 | audit followup code defects (2026-09-04) | [20260904-audit-followup-code-defects-todo.md](./active/20260904-audit-followup-code-defects-todo.md) | [20260904-audit-followup-code-defects-lessons.md](./active/20260904-audit-followup-code-defects-lessons.md) |
@@ -51,7 +51,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 630
+- Archived task count: 631
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: codepair workspace claims (2026-11-08)
