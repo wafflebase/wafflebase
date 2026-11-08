@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/cli",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "description": "CLI for Wafflebase spreadsheet API",
   "license": "Apache-2.0",
   "type": "module",

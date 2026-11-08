@@ -6,7 +6,7 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 630
+Total archived tasks: 631
 
 ## 2026/11 (1 tasks)
 
@@ -14,7 +14,7 @@ Total archived tasks: 630
 |---|---|---|
 | title live sync (2026-11-01) | [20261101-title-live-sync-todo.md](./2026/11/20261101-title-live-sync-todo.md) | [20261101-title-live-sync-lessons.md](./2026/11/20261101-title-live-sync-lessons.md) |
 
-## 2026/10 (6 tasks)
+## 2026/10 (7 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -22,6 +22,7 @@ Total archived tasks: 630
 | sheets cell drag move click (2026-10-23) | [20261023-sheets-cell-drag-move-click-todo.md](./2026/10/20261023-sheets-cell-drag-move-click-todo.md) | [20261023-sheets-cell-drag-move-click-lessons.md](./2026/10/20261023-sheets-cell-drag-move-click-lessons.md) |
 | history preview loading state (2026-10-19) | [20261019-history-preview-loading-state-todo.md](./2026/10/20261019-history-preview-loading-state-todo.md) | [20261019-history-preview-loading-state-lessons.md](./2026/10/20261019-history-preview-loading-state-lessons.md) |
 | history revision paging (2026-10-19) | [20261019-history-revision-paging-todo.md](./2026/10/20261019-history-revision-paging-todo.md) | [20261019-history-revision-paging-lessons.md](./2026/10/20261019-history-revision-paging-lessons.md) |
+| release v0.6.13 (2026-10-19) | [20261019-release-v0.6.13-todo.md](./2026/10/20261019-release-v0.6.13-todo.md) | [20261019-release-v0.6.13-lessons.md](./2026/10/20261019-release-v0.6.13-lessons.md) |
 | sheets preview comments lock (2026-10-18) | [20261018-sheets-preview-comments-lock-todo.md](./2026/10/20261018-sheets-preview-comments-lock-todo.md) | [20261018-sheets-preview-comments-lock-lessons.md](./2026/10/20261018-sheets-preview-comments-lock-lessons.md) |
 | claude plugin (2026-10-07) | [20261007-claude-plugin-todo.md](./2026/10/20261007-claude-plugin-todo.md) | [20261007-claude-plugin-lessons.md](./2026/10/20261007-claude-plugin-lessons.md) |
 
