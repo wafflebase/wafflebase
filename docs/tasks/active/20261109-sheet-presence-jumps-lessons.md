@@ -43,3 +43,13 @@
   outside effect has to run on the host's side of that split, where the
   cancellation is known. Publishing is now a public
   `Spreadsheet.publishSelection()` the host calls after its guard.
+- Test-adequacy lens, 1 major: moving the call to the host moved the
+  behavior out from under the engine's unit test, and the frontend's engine
+  double auto-stubs unknown methods — so a `publishSelection()` that was
+  never called could not fail anything. The ordering that motivated the move
+  is a *host* guarantee and needed a host test:
+  `sheet-view-mount-presence.test.tsx` mounts `SheetView` against a deferred
+  `initialize`, asserting the announcement on a surviving mount and silence
+  (plus `cleanup()`) on one unmounted while `initialize` was in flight. Both
+  cases were checked against a mutated `sheet-view.tsx` — call removed, and
+  call moved above the guard — so neither passes vacuously.
