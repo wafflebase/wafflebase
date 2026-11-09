@@ -113,6 +113,15 @@ User clicks cell / drags range
   → Yorkie presence.set({ selection: { activeCell, ranges } })
 ```
 
+A tab switch mounts a fresh `Spreadsheet`, and `YorkieStore`'s constructor
+moves only `activeTabId`. `Spreadsheet.initialize` therefore publishes the new
+tab's selection once (`Sheet.publishSelection`); otherwise peers on that tab
+keep the previous tab's selection until the user next moves — its anchors
+name the other tab's axis IDs, so the cursor vanishes, or with no anchors its
+`activeCell` ref puts the cursor on the other tab's cell. The initial
+selection has no ranges, so this never grows the axis: opening a tab writes
+nothing to the document root.
+
 #### Remote structural edit → Local selection correction
 
 ```text

@@ -116,6 +116,12 @@ export class Spreadsheet {
     this.sheet = new Sheet(store);
     this.worksheet.setOnRender(() => this.notifySelectionChange());
     await this.worksheet.initialize(this.sheet);
+    // A tab switch mounts this engine afresh, and the store only moves
+    // presence's `activeTabId`. Without this, peers on the new tab keep the
+    // previous tab's selection: anchors that name the other tab's axis IDs
+    // (the cursor vanishes) or its cell ref (the cursor sits on the wrong
+    // cell) until the user next moves.
+    this.sheet.publishSelection();
   }
 
   /**

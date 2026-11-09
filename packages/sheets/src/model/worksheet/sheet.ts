@@ -3533,6 +3533,15 @@ export class Sheet {
     this.crossSheetFormulaSrefs = null;
   }
 
+  /**
+   * `publishSelection` announces the current selection to peers without
+   * changing it. A tab's engine calls it once on mount: until then presence
+   * still carries the previous tab's selection.
+   */
+  public publishSelection(): void {
+    this.syncSelectionToPresence();
+  }
+
   private syncSelectionToPresence(): void {
     // Only ranges drive axis-order extension. activeCell alone never
     // extends the axis: Cmd+Down/Right on an empty sheet would otherwise
