@@ -408,6 +408,46 @@ describe('Sheet.Selection', () => {
       { r: 2, c: 2 },
     ]);
   });
+
+  it('should keep the cursor in place when its row is deleted', () => {
+    // Deleting a row from its header selects that row first, so the deleter's
+    // own cursor always loses its anchor, and so does any peer's on that row.
+    // Sending both to A1 made every row delete look like the cursors jumped.
+    const calls: Array<Parameters<MemStore['updateSelection']>> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        ...args: Parameters<MemStore['updateSelection']>
+      ): void {
+        calls.push(args);
+      }
+    }
+    const store = new TrackingStore();
+    store.ensureAxisOrder(10, 3);
+    const sheet = new Sheet(store);
+    sheet.setActiveCell({ r: 5, c: 2 });
+
+    store.rowOrder.splice(4, 1);
+    sheet.resolveAnchorsToRefs();
+
+    expect(sheet.getActiveCell()).toEqual({ r: 5, c: 2 });
+    const [activeCell, , activeCellRef] = calls[calls.length - 1];
+    expect(activeCellRef).toEqual({ r: 5, c: 2 });
+    expect(activeCell).toEqual({ rowId: store.rowOrder[4], colId: 'c1' });
+  });
+
+  it('should keep the cursor in place when its column is deleted', () => {
+    const store = new MaterializingStore();
+    store.ensureAxisOrder(10, 5);
+    const sheet = new Sheet(store);
+    sheet.setActiveCell({ r: 3, c: 4 });
+
+    // A row above the cursor goes too: the surviving row still re-resolves.
+    store.colOrder.splice(3, 1);
+    store.rowOrder.splice(0, 1);
+    sheet.resolveAnchorsToRefs();
+
+    expect(sheet.getActiveCell()).toEqual({ r: 2, c: 4 });
+  });
 });
 
 describe('Sheet.SelectAll', async () => {

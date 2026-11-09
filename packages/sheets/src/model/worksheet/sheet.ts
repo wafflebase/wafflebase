@@ -5715,12 +5715,18 @@ export class Sheet {
     if (newRef) {
       this.activeCell = this.normalizeRefToAnchor(newRef);
     } else {
-      // Axis ID was deleted — snap to {r:1, c:1}
-      this.activeCell = { r: 1, c: 1 };
-      const newAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
-      if (newAnchor) {
-        this.activeCellAnchor = newAnchor;
-      }
+      // The row or column under the cursor was deleted. Keep the cursor where
+      // it was on that axis, as Google Sheets does, instead of sending it to
+      // A1: deleting from a row header selects the row first, so the deleter's
+      // own cursor lands here on every delete. The surviving axis still
+      // follows its ID. `syncSelectionToPresence` below re-derives the anchor,
+      // or publishes none if the position is now past coverage.
+      const r = rowOrder.indexOf(this.activeCellAnchor.rowId);
+      const c = colOrder.indexOf(this.activeCellAnchor.colId);
+      this.activeCell = this.normalizeRefToAnchor({
+        r: r === -1 ? this.activeCell.r : r + 1,
+        c: c === -1 ? this.activeCell.c : c + 1,
+      });
     }
 
     // Re-resolve ranges before syncing so peers get the repaired state

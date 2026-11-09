@@ -140,12 +140,21 @@ Peer presence received
 
 ### Deleted Axis ID Handling
 
-When a remote peer deletes a row/column that the local user has selected:
+When a row/column under the local user's active cell is deleted — by a peer,
+or by the user themselves (deleting from a row header selects the row first,
+so the deleter's own cursor always lands here):
 
 1. `anchorToRef(anchor, rowOrder, colOrder)` returns `null`.
-2. Active cell falls back to `{ r: 1, c: 1 }` and a new anchor is created
-   from that position.
-3. Repaired selection is republished to presence.
+2. On the deleted axis the active cell keeps its previous visual index, as in
+   Google Sheets; the surviving axis still follows its ID. It used to fall
+   back to `{ r: 1, c: 1 }`, which made every row delete look to peers like
+   the cursors jumped to A1 and back.
+3. Repaired selection is republished to presence, with an anchor re-derived
+   from the new position (or none, if it now sits past coverage).
+
+When several rows above the cursor go in the same delete, "previous visual
+index" keeps the cursor lower than Google Sheets would: only the old `Ref` is
+known at resolve time, not where the deleted span began.
 
 For ranges, each endpoint is resolved independently. If one endpoint's axis ID
 is deleted, it snaps to the surviving endpoint. If both endpoints are deleted,
