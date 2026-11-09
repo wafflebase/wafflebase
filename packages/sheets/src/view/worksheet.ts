@@ -654,7 +654,16 @@ export class Worksheet {
     // refusal fired after teardown would toast through a dead host.
     this.sheet?.setOnRefusal(undefined);
     this.sheet = undefined;
-    this.container.innerHTML = '';
+
+    // The container belongs to the host, not to this view: the three nodes
+    // this worksheet put in it (formula bar, grid container, autocomplete)
+    // are removed by their own `cleanup()` above, so there is nothing left
+    // here to clear. Blanking it with `innerHTML = ''` would also take a
+    // *successor* engine's DOM with it — a host that re-mounts on a tab
+    // switch or a theme toggle reuses the same container, and a mount torn
+    // down while its `initialize` was still awaited cleans up after the new
+    // engine has already appended itself (the `cancelled` branch in
+    // `sheet-view.tsx`), leaving a blank grid.
   }
 
   private beginNativeSelectionBlock(): void {

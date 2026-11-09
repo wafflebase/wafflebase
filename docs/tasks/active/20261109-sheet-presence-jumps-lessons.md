@@ -53,3 +53,16 @@
   (plus `cleanup()`) on one unmounted while `initialize` was in flight. Both
   cases were checked against a mutated `sheet-view.tsx` — call removed, and
   call moved above the guard — so neither passes vacuously.
+- Correctness lens, 1 major: the host test reached the `cancelled` branch only
+  through `unmount()`, where the container goes away with the component. The
+  other way in — the fast tab switch / theme toggle the branch's own comment
+  names — keeps the container, and `Worksheet.cleanup()` ended with
+  `container.innerHTML = ''`, so a superseded mount blanked the grid the
+  successor had already appended. The line was pure scorched earth: every
+  sub-view (`formulaBar`, `gridContainer`, `autocomplete`) already removes its
+  own node, and those are the only three the worksheet puts in the container.
+  Deleting it is the fix; `worksheet-cleanup-container.test.ts` constructs two
+  real worksheets over one container and asserts the superseded one's teardown
+  leaves the successor's nodes in place (it fails without the change). The
+  general lesson: a view handed a container it did not create may remove what
+  it appended, never clear what it found.
