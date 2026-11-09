@@ -31,3 +31,15 @@
   `column` after the selected row is deleted (pre-existing); a cross-tab
   jump now briefly announces A1 before its target. Stopped after one round:
   the diff is two small hunks and the round found nothing blocking.
+
+## Review panel
+
+- Blast-radius lens, 1 major: publishing presence inside
+  `Spreadsheet.initialize` landed *before* the host's `cancelled` guard, so a
+  mount torn down mid-initialize still wrote `selection` / `activeCell` for
+  the tab the user had just left — the same stale-presence bug this task set
+  out to fix, only in the other direction. The lesson is that an `await` in
+  an engine method splits the host's lifecycle in two: anything with an
+  outside effect has to run on the host's side of that split, where the
+  cancellation is known. Publishing is now a public
+  `Spreadsheet.publishSelection()` the host calls after its guard.

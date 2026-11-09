@@ -114,13 +114,21 @@ User clicks cell / drags range
 ```
 
 A tab switch mounts a fresh `Spreadsheet`, and `YorkieStore`'s constructor
-moves only `activeTabId`. `Spreadsheet.initialize` therefore publishes the new
-tab's selection once (`Sheet.publishSelection`); otherwise peers on that tab
-keep the previous tab's selection until the user next moves — its anchors
-name the other tab's axis IDs, so the cursor vanishes, or with no anchors its
-`activeCell` ref puts the cursor on the other tab's cell. The initial
-selection has no ranges, so this never grows the axis: opening a tab writes
-nothing to the document root.
+moves only `activeTabId`. The host therefore publishes the new tab's selection
+once on mount (`Spreadsheet.publishSelection` → `Sheet.publishSelection`);
+otherwise peers on that tab keep the previous tab's selection until the user
+next moves — its anchors name the other tab's axis IDs, so the cursor
+vanishes, or with no anchors its `activeCell` ref puts the cursor on the other
+tab's cell. The initial selection has no ranges, so this never grows the axis:
+opening a tab writes nothing to the document root.
+
+It is the **host's** call and not `initialize`'s because `initialize` is
+awaited: the host (`sheet-view.tsx`) only learns whether its mount survived
+once the promise resolves, and a mount torn down while it was in flight — a
+fast tab switch, a theme toggle, any change to the effect's deps — must not
+write presence for the tab the user has already left. So the publish sits
+after that `cancelled` check, beside `cleanup()`. `publishSelection` is a
+no-op on an engine with no sheet, which is what a never-resolved mount is.
 
 #### Remote structural edit → Local selection correction
 
