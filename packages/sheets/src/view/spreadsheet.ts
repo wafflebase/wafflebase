@@ -119,6 +119,23 @@ export class Spreadsheet {
   }
 
   /**
+   * `publishSelection` announces this engine's selection to peers without
+   * changing it. A tab switch mounts the engine afresh and the store moves
+   * only presence's `activeTabId`, so the host calls this once on mount:
+   * otherwise peers on the new tab keep the previous tab's selection —
+   * anchors that name the other tab's axis IDs (the cursor vanishes) or its
+   * cell ref (the cursor sits on the wrong cell) — until the user next moves.
+   *
+   * It is the host's call rather than `initialize`'s because `initialize` is
+   * awaited: a mount the host tore down while it was in flight must not
+   * publish presence for a tab the user has already left. The host makes it
+   * after whatever cancellation check it has.
+   */
+  public publishSelection(): void {
+    this.sheet?.publishSelection();
+  }
+
+  /**
    * `reloadDimensions` reloads dimension sizes from the store and re-renders.
    * Call this when a remote change arrives to sync local DimensionIndex state.
    */

@@ -113,6 +113,23 @@ User clicks cell / drags range
   → Yorkie presence.set({ selection: { activeCell, ranges } })
 ```
 
+A tab switch mounts a fresh `Spreadsheet`, and `YorkieStore`'s constructor
+moves only `activeTabId`. The host therefore publishes the new tab's selection
+once on mount (`Spreadsheet.publishSelection` → `Sheet.publishSelection`);
+otherwise peers on that tab keep the previous tab's selection until the user
+next moves — its anchors name the other tab's axis IDs, so the cursor
+vanishes, or with no anchors its `activeCell` ref puts the cursor on the other
+tab's cell. The initial selection has no ranges, so this never grows the axis:
+opening a tab writes nothing to the document root.
+
+It is the **host's** call and not `initialize`'s because `initialize` is
+awaited: the host (`sheet-view.tsx`) only learns whether its mount survived
+once the promise resolves, and a mount torn down while it was in flight — a
+fast tab switch, a theme toggle, any change to the effect's deps — must not
+write presence for the tab the user has already left. So the publish sits
+after that `cancelled` check, beside `cleanup()`. `publishSelection` is a
+no-op on an engine with no sheet, which is what a never-resolved mount is.
+
 #### Remote structural edit → Local selection correction
 
 ```text
@@ -140,12 +157,23 @@ Peer presence received
 
 ### Deleted Axis ID Handling
 
-When a remote peer deletes a row/column that the local user has selected:
+When a row/column under the local user's active cell is deleted — by a peer,
+or by the user themselves (deleting from a row header selects the row first,
+so the deleter's own cursor always lands here):
 
 1. `anchorToRef(anchor, rowOrder, colOrder)` returns `null`.
-2. Active cell falls back to `{ r: 1, c: 1 }` and a new anchor is created
-   from that position.
-3. Repaired selection is republished to presence.
+2. On the deleted axis the active cell keeps its previous visual index, as in
+   Google Sheets; the surviving axis still follows its ID. It used to fall
+   back to `{ r: 1, c: 1 }`, which made every row delete look to peers like
+   the cursors jumped to A1 and back.
+3. Repaired selection is republished to presence, with an anchor re-derived
+   from the new position (or none, if it now sits past coverage).
+
+When the cursor's row is deleted together with rows above it, "previous
+visual index" keeps the cursor lower than Google Sheets would: only the old
+`Ref` is known at resolve time, not where the deleted span began. The fallback
+also does not skip hidden rows/columns, so with a filter on, the cursor can
+land on a row the filter hides.
 
 For ranges, each endpoint is resolved independently. If one endpoint's axis ID
 is deleted, it snaps to the surviving endpoint. If both endpoints are deleted,

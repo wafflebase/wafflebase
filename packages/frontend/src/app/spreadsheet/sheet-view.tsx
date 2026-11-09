@@ -1149,6 +1149,15 @@ export function SheetView({
       sheetRef.current = s;
       setSheetRenderVersion((v) => v + 1);
 
+      // Announce this tab's selection: a tab switch mounts the engine afresh
+      // and `YorkieStore` moves only `activeTabId`, so until now presence
+      // still carries the previous tab's selection
+      // (docs/design/sheets/axis-id-selection.md). It runs after the
+      // `cancelled` guard above on purpose — a mount torn down mid-initialize
+      // (a fast tab switch, a theme toggle) must not write presence for a tab
+      // the user has already left.
+      s.publishSelection();
+
       // DEV only: let the debug-report overlay turn a point on the grid into
       // `Sheet1!C7`. Nothing outside the engine can answer that — the canvases
       // are `pointer-events: none`, so even hit-testing does not find them.
