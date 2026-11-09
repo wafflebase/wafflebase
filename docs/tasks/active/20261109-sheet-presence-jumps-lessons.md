@@ -21,3 +21,13 @@
   promptly and the server batches at 100 ms, so it is sender-side; the SDK's
   sync loop is a `setTimeout(…, 50)` chain, which a throttled tab runs at
   1 Hz. Not reproduced: the browser automation keeps its tabs visible.
+
+## Self review
+
+- Round 1 (correctness/tests, separate reviewer): no blocking findings.
+  Took the doc wording fix and a past-coverage test (deleting the last
+  covered row publishes no anchor). Left as known limitations: the kept
+  position can sit on a filter-hidden row; `selectionType` stays `row` /
+  `column` after the selected row is deleted (pre-existing); a cross-tab
+  jump now briefly announces A1 before its target. Stopped after one round:
+  the diff is two small hunks and the round found nothing blocking.

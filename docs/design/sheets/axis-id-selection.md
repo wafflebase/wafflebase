@@ -161,9 +161,11 @@ so the deleter's own cursor always lands here):
 3. Repaired selection is republished to presence, with an anchor re-derived
    from the new position (or none, if it now sits past coverage).
 
-When several rows above the cursor go in the same delete, "previous visual
-index" keeps the cursor lower than Google Sheets would: only the old `Ref` is
-known at resolve time, not where the deleted span began.
+When the cursor's row is deleted together with rows above it, "previous
+visual index" keeps the cursor lower than Google Sheets would: only the old
+`Ref` is known at resolve time, not where the deleted span began. The fallback
+also does not skip hidden rows/columns, so with a filter on, the cursor can
+land on a row the filter hides.
 
 For ranges, each endpoint is resolved independently. If one endpoint's axis ID
 is deleted, it snaps to the surviving endpoint. If both endpoints are deleted,

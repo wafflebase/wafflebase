@@ -448,6 +448,30 @@ describe('Sheet.Selection', () => {
 
     expect(sheet.getActiveCell()).toEqual({ r: 2, c: 4 });
   });
+
+  it('should publish no anchor when the cursor falls past coverage', () => {
+    // Deleting the last covered row leaves the kept position with no row ID,
+    // so the cursor goes out as the legacy ref alone, like any other cursor
+    // past coverage.
+    const calls: Array<Parameters<MemStore['updateSelection']>> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        ...args: Parameters<MemStore['updateSelection']>
+      ): void {
+        calls.push(args);
+      }
+    }
+    const store = new TrackingStore();
+    store.ensureAxisOrder(5, 3);
+    const sheet = new Sheet(store);
+    sheet.setActiveCell({ r: 5, c: 1 });
+
+    store.rowOrder.pop();
+    sheet.resolveAnchorsToRefs();
+
+    expect(sheet.getActiveCell()).toEqual({ r: 5, c: 1 });
+    expect(calls[calls.length - 1]).toEqual([null, [], { r: 5, c: 1 }]);
+  });
 });
 
 describe('Sheet.SelectAll', async () => {
