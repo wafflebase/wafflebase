@@ -42,7 +42,8 @@ examples, and safety notes.
 | [slides-import-pptx.md](slides-import-pptx.md) | write / destructive | Import a .pptx as a new or replacement deck |
 | [slides-export-pptx.md](slides-export-pptx.md) | read-only | Export a deck to .pptx |
 | [slides-author.md](slides-author.md) | destructive | Author a native deck from built-in themes, layouts and placeholders |
-| [deck-author.md](deck-author.md) | destructive | Source folder → native deck through a lint + render verify loop |
+| [deck-author.md](deck-author.md) | destructive | Source folder → native deck through a lint + render + critique verify loop |
+| [deck-critic.md](deck-critic.md) | read-only | Independent design critic: judge app + PPTX renders against the talk brief, write findings for `slides critique-check` |
 
 ## Files Skills
 

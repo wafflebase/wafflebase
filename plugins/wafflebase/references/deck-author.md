@@ -9,14 +9,17 @@ tools:
   - wafflebase slides layout-report
   - wafflebase slides lint
   - wafflebase slides render
+  - wafflebase slides export
+  - wafflebase slides critique-check
 ---
 
 # Author a Deck from Source Materials (the verify-gated loop)
 
 Turn a folder of **source materials** (reference docs + images) into a
-finished, native Wafflebase deck: **plan → author → lint → render → fix →
-repeat**, checking the deck deterministically on every pass and on
-wafflebase's *own* renderer before calling it done.
+finished, native Wafflebase deck: **plan → author → lint → render → critique
+→ fix → repeat**, checking the deck deterministically on every pass, on
+wafflebase's *own* renderer, and through an independent design critic before
+calling it done.
 
 This builds on [slides-author.md](slides-author.md): that skill covers *how
 to author one native deck* — the layout vocabulary, the design rules, the
@@ -221,13 +224,48 @@ with no backend or login: `pnpm frontend render:slides deck.json --out
 `SlidesDocument` JSON).
 
 Look at every PNG for what geometry cannot see: font fallback, text over
-images, a slide that is technically clean but reads badly.
+images, a slide that is technically clean but reads badly. Fix what you
+see, then hand the deck to the critic — your own look is not the critique.
 
-### 6. Fix → repeat
+### 6. Critique — an independent critic, bounded rounds
 
-Address each finding (swap the layout, shorten text, re-place a
-composition, or allowlist it with a reason), then rerun 3–5. Stop when
-`slides lint --fail-on warning` exits 0 and the PNGs read clean.
+Once `slides lint --fail-on warning` exits 0, run the design critic in
+[deck-critic.md](deck-critic.md). The author does not critique its own
+deck:
+
+- **Independent context.** Start a separate agent (a subagent, a fresh
+  session) with only `deck-critic.md`, the renders, the talk's brief, the
+  sources and the slide ids. Never pass it your outline, your reasoning or
+  the deck JSON — a critic that knows why a slide looks the way it does
+  starts agreeing with it.
+- **Both renders.** The app PNGs from step 5 *and* the exported PPTX
+  rendered by a PPTX reader (`deck-critic.md` § Inputs has the commands).
+  Some bugs exist only in the PPTX.
+- **The brief, not the outline.** Write `brief.md` from the user's intent
+  (audience, length, what to remember) so the critic can say *cut*, *merge*
+  or *split* when the outline itself is the problem.
+
+Check each round's findings, passing the previous round's file from round
+2 on:
+
+```bash
+wafflebase slides critique-check --file critique/round-2.json --previous critique/round-1.json
+```
+
+Follow its `verdict`. It continues while any finding is `major`, gives one
+polish round once majors reach zero, continues while minor findings keep
+falling, and stops when they stop falling or at `--max-rounds` (3). A stop
+with `escalate: true` means majors are still open after the last round:
+hand the deck and the open findings to the user rather than looping on.
+
+### 7. Fix → repeat
+
+Address each lint finding (swap the layout, shorten text, re-place a
+composition, or allowlist it with a reason) and each critic finding (its
+`fix`, or a one-line reason in your reply for declining it), then rerun
+3–6. A critic round always starts from a fresh render, and a fresh critic
+context. Stop when `slides lint --fail-on warning` exits 0 and
+`critique-check` says `stop`.
 
 ## Checklist
 
@@ -237,3 +275,5 @@ composition, or allowlist it with a reason), then rerun 3–5. Stop when
 - [ ] `slides lint --fail-on warning` exits 0; every allowlist entry has a reason, none stale.
 - [ ] `set-content` accepted the deck.
 - [ ] `slides render` produced a PNG per slide; each one looked at.
+- [ ] An independent critic judged the app render, the PPTX render and the brief; `critique-check` accepted each round's findings.
+- [ ] The loop ended on `critique-check`'s `stop` (at most 3 rounds); an `escalate` was handed to the user with the open findings.

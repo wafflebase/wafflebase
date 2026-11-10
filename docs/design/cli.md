@@ -531,11 +531,15 @@ wafflebase
   │     ├── layout-report [doc-id]           Per-element layout in Node (lines, heights, overflow)
   │     │     [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
   │     │     [--slide N]
-  │     └── lint [doc-id]                    Flag broken-looking slides (slides-lint.md)
-  │           [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
-  │           [--slide N] [--rules a,b]
-  │           [--allowlist <file>]            (intentional findings, each with a reason)
-  │           [--fail-on error|warning|info|never] (default: never — advisory)
+  │     ├── lint [doc-id]                    Flag broken-looking slides (slides-lint.md)
+  │     │     [--file <deck.pptx|deck.json>]  (local deck instead of <doc-id>)
+  │     │     [--slide N] [--rules a,b]
+  │     │     [--allowlist <file>]            (intentional findings, each with a reason)
+  │     │     [--fail-on error|warning|info|never] (default: never — advisory)
+  │     └── critique-check                   Validate design-critic findings + stop rule (deck-critic.md)
+  │           --file <findings.json>          (this round; no network, no model)
+  │           [--previous <findings.json>]    (last round, for the minor-count trend)
+  │           [--round N] [--max-rounds N]    (default max: 3)
   │
   ├── notes (alias: note)
   │     ├── list                             List notes (type: note)
@@ -1106,7 +1110,7 @@ packages/cli/
     docs-manage.md / docs-read-content.md / docs-export-pdf.md
     docs-export-docx.md / docs-import-docx.md
     slides-manage.md / slides-read-content.md / slides-export-pptx.md / slides-import-pptx.md
-    slides-author.md / deck-author.md
+    slides-author.md / deck-author.md / deck-critic.md
     files-upload-download.md
     recipe-csv-pipeline.md / recipe-data-collect.md
     recipe-docx-to-pdf.md / recipe-doc-to-markdown.md
@@ -1726,6 +1730,7 @@ Schema entries by command (canonical plural names):
 | `slides.render`          | read-only     | writes PNGs under `--out` (the plugin guard asks); installs the session as a browser cookie on `--frontend` and the API origin — https or loopback only; `--frontend` asks like `--server` |
 | `slides.layout-report`   | read-only     | `--file` reads a local deck; no network                |
 | `slides.lint`            | read-only     | `--file` reads a local deck; exit 1 only with `--fail-on` |
+| `slides.critique-check`  | read-only     | reads local findings JSON only; exit 1 on an invalid file |
 | `notes.list`             | read-only     | filtered to `type: note`                               |
 | `notes.create`           | write         |                                                        |
 | `notes.get`              | read-only     | metadata only                                          |

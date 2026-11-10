@@ -863,6 +863,16 @@
             "safety": "write",
             "description": "Create a new slide deck"
           },
+          "critique-check": {
+            "valueOptions": [
+              "--file",
+              "--max-rounds",
+              "--previous",
+              "--round"
+            ],
+            "safety": "read-only",
+            "description": "Validate a design-critic findings file, count it by severity and category, and apply the deck-author stop rule; no network, no model"
+          },
           "delete": {
             "safety": "destructive",
             "description": "Delete a slide deck"

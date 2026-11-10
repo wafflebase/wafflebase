@@ -380,6 +380,20 @@ const registry: CommandSchema[] = [
     aliases: ['slide.lint', 'deck.lint', 'decks.lint'],
   },
   {
+    name: 'slides.critique-check',
+    description:
+      'Validate a design-critic findings file, count it by severity and category, and apply the deck-author stop rule; no network, no model',
+    safety: 'read-only',
+    parameters: {
+      '--file': { type: 'string', required: true, description: "This round's findings JSON: { round?, findings: [{ slideId, severity, category, problem, fix }] }" },
+      '--previous': { type: 'string', required: false, description: "The previous round's findings JSON" },
+      '--round': { type: 'number', required: false, description: 'This round number (default: the file\'s round, else previous + 1, else 1)' },
+      '--max-rounds': { type: 'number', required: false, description: 'Stop at this round whatever the findings', default: '3' },
+    },
+    response: { type: 'object', description: 'verdict (continue|stop), reason, escalate, round, maxRounds, major, minor, previousMajor, previousMinor, byCategory' },
+    aliases: ['slide.critique-check', 'deck.critique-check', 'decks.critique-check'],
+  },
+  {
     name: 'slides.set-content',
     description: 'Replace deck content from JSON (stdin or --data)',
     safety: 'destructive',
