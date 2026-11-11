@@ -145,6 +145,27 @@
   after `renderSheet` had already awaited `fetchGrid`, the grid the fit
   measures; it is now taken before the fetch and passed in.
 
+- Round 9 (`@claude review`, 3 blocking). Two accepted:
+  - The generation was bumped only when a reload started, so a reload
+    already running when `renderSheet` took it, and finishing during the
+    fit's awaits, went unseen. The fit then wrote heights measured against
+    the pre-reload `skip`, which could un-hide a row a peer had just hidden
+    and leave it visible for good. The generation is now bumped on the way
+    out too.
+  - `renderSheet` passing the pre-fetch generation had no test; a new suite
+    drives `renderSheet` and fails if the capture moves after the fetch.
+- Not taken from round 9 (low confidence in the panel too): undo and redo
+  share the reload queue, so a store read that never settles would stall
+  undo behind it. The stores in this repository settle locally; a timeout
+  or a per-path queue is recorded as a known limitation in the PR.
+- Local review of that fix (same agent): no blocking findings. Took two
+  suggestions: the render also stamps `rowDim.getRenumberings()` before the
+  fetch, so a local insert, delete or move inside the fit's window makes it
+  stand down like a reload does; and the test for the exit bump runs a real
+  reload through the queue and releases it inside the fit's await — the
+  first version simulated the bump in a stub and passed with the bump
+  removed.
+
 ## Verification
 
 - `pnpm verify:fast` green.

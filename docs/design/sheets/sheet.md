@@ -854,9 +854,12 @@ remote reload would otherwise restore a snapshot taken against a layout the
 reload had already changed. The render path's fit is the third writer of the
 same state and cannot wait behind a reload, so it checks instead: if a reload
 or replay is in flight once its own awaits are done — or one started since the
-render began fetching the grid the fit measures, which a generation counter
-taken before that fetch catches even when it has already finished — it writes
-nothing and asks for another frame, the same way it does
+render began fetching the grid the fit measures. A generation counter bumped
+when each reload starts and again when it ends, taken before that fetch,
+catches both a reload that ran entirely inside the window and one that was
+already running when the render began and finished inside it; the render
+takes `rowDim.getRenumberings()` at the same moment, for a local insert,
+delete or move in that window. In any of these cases the fit writes nothing and asks for another frame, the same way it does
 after resizing a row.
 
 ### Freeze Panes

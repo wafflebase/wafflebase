@@ -23,6 +23,12 @@ const fetchRowRemainder = (
   }
 ).fetchRowRemainder;
 
+const serializeDimensionReload = (
+  Worksheet.prototype as unknown as {
+    serializeDimensionReload: <T>(work: () => Promise<T>) => Promise<T>;
+  }
+).serializeDimensionReload;
+
 const updateFreezeState = (
   Worksheet.prototype as unknown as {
     updateFreezeState: () => void;
@@ -44,6 +50,8 @@ type Context = {
   autoSizedRenumberings: number;
   dimensionReloadsInFlight: number;
   dimensionReloadGeneration: number;
+  dimensionReloadQueue: Promise<unknown>;
+  serializeDimensionReload: <T>(work: () => Promise<T>) => Promise<T>;
   rowDim: DimensionIndex;
   colDim: DimensionIndex;
   freezeState: FreezeState;
@@ -94,6 +102,8 @@ const createContext = (options?: {
     autoSizedRenumberings: 0,
     dimensionReloadsInFlight: 0,
     dimensionReloadGeneration: 0,
+    dimensionReloadQueue: Promise.resolve() as Promise<unknown>,
+    serializeDimensionReload: serializeDimensionReload,
     rowDim,
     colDim,
     freezeState: options?.frozenRows
@@ -114,6 +124,15 @@ const colOf = (sref: string): number => {
   }
   return col;
 };
+
+type MeasuredAgainst = { reloadGeneration: number; renumberings: number };
+const fitAgainst = applyAutoRowHeights as unknown as (
+  this: unknown,
+  grid: Grid,
+  maxRow: number,
+  maxCol: number,
+  measuredAgainst: MeasuredAgainst,
+) => Promise<boolean>;
 
 const multiLineGrid = (...srefs: Array<Sref>): Grid =>
   new Map(srefs.map((sref) => [sref, { v: 'first\nsecond' }]));
@@ -226,9 +245,59 @@ describe('Worksheet.applyAutoRowHeights', () => {
         grid: Grid,
         maxRow: number,
         maxCol: number,
-        reloadGeneration: number,
+        measuredAgainst: MeasuredAgainst,
       ) => Promise<boolean>
-    ).call(ctx, multiLineGrid('A2'), 10, 5, before);
+    ).call(ctx, multiLineGrid('A2'), 10, 5, {
+      reloadGeneration: before,
+      renumberings: ctx.rowDim.getRenumberings(),
+    });
+
+    expect(again).toBe(true);
+    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
+  });
+
+  it('writes nothing if a reload already running when it began finishes while it awaits', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
+    // A real reload through the queue, still running when the render takes
+    // its stamp and released during the fit's await.
+    let release!: () => void;
+    const reload = ctx.serializeDimensionReload(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    await Promise.resolve();
+    const stamp = {
+      reloadGeneration: ctx.dimensionReloadGeneration,
+      renumberings: ctx.rowDim.getRenumberings(),
+    };
+    expect(ctx.dimensionReloadsInFlight).toBe(1);
+    const store = (ctx.sheet as { getStore: () => Record<string, unknown> })
+      .getStore();
+    (ctx.sheet as { getStore: () => unknown }).getStore = () => ({
+      ...store,
+      getDimensionSizes: async () => {
+        release();
+        await reload;
+        return new Map();
+      },
+    });
+
+    const again = await fitAgainst.call(ctx, multiLineGrid('A2'), 10, 5, stamp);
+
+    expect(ctx.dimensionReloadsInFlight).toBe(0);
+    expect(again).toBe(true);
+    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
+    expect(ctx.autoSizedRows.size).toBe(0);
+  });
+
+  it('writes nothing if a local insert renumbered rows while its grid was fetched', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
+    const stamp = {
+      reloadGeneration: ctx.dimensionReloadGeneration,
+      renumberings: ctx.rowDim.getRenumberings(),
+    };
+    ctx.rowDim.shift(1, 1);
+
+    const again = await fitAgainst.call(ctx, multiLineGrid('A2'), 10, 5, stamp);
 
     expect(again).toBe(true);
     expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);

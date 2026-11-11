@@ -279,7 +279,8 @@ describe('Worksheet.runHistoryStep', () => {
     });
     expect(midFlight).toBe(1);
     expect(ctx.dimensionReloadsInFlight).toBe(0);
-    expect(ctx.dimensionReloadGeneration).toBe(2);
+    // Each reload bumps the generation on the way in and on the way out.
+    expect(ctx.dimensionReloadGeneration).toBe(4);
   });
 
   it('stops repairing once the view drops its sheet partway through the reload', async () => {

@@ -294,7 +294,7 @@ export class Worksheet {
    * is non-zero.
    */
   private dimensionReloadsInFlight = 0;
-  /** Bumped each time one of those reloads starts. */
+  /** Bumped each time one of those reloads starts, and again when it ends. */
   private dimensionReloadGeneration = 0;
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
@@ -5623,6 +5623,9 @@ export class Worksheet {
         return await work();
       } finally {
         this.dimensionReloadsInFlight--;
+        // Bumped on the way out too, so a fit that took the generation while
+        // this reload was already running still sees it change on finishing.
+        this.dimensionReloadGeneration++;
       }
     };
     const run = this.dimensionReloadQueue.then(counted, counted);
@@ -6622,8 +6625,12 @@ export class Worksheet {
       { r: viewRange[1].r, c: viewRange[1].c },
     ];
     // Taken before the fetch: the grid is what the fit measures, so a reload
-    // that runs during the fetch must make the fit stand down too.
-    const reloadGeneration = this.dimensionReloadGeneration;
+    // — or a local insert, delete or move — that runs during the fetch must
+    // make the fit stand down too.
+    const measuredAgainst = {
+      reloadGeneration: this.dimensionReloadGeneration,
+      renumberings: this.rowDim.getRenumberings(),
+    };
     const grid = await sheet.fetchGrid(fullRange);
     if (sheet !== this.sheet || targetVersion !== this.renderVersion) {
       return;
@@ -6639,7 +6646,7 @@ export class Worksheet {
         grid,
         fullRange[1].r,
         fullRange[1].c,
-        reloadGeneration,
+        measuredAgainst,
       )
     ) {
       this.render();
@@ -6716,8 +6723,11 @@ export class Worksheet {
     grid: Grid,
     maxRow: number,
     maxCol: number,
-    // Which reload `grid` was read against; see the hold-off below.
-    reloadGeneration: number = this.dimensionReloadGeneration,
+    // The layout `grid` was read against; see the hold-off below.
+    measuredAgainst: { reloadGeneration: number; renumberings: number } = {
+      reloadGeneration: this.dimensionReloadGeneration,
+      renumberings: this.rowDim.getRenumberings(),
+    },
   ): Promise<boolean> {
     const sheet = this.sheet;
     if (!sheet) {
@@ -6779,9 +6789,12 @@ export class Worksheet {
     // interleave with that rebuild, or pair old measurements with the new row
     // order, so write nothing and ask for another frame; the pass after it
     // measures against the rebuilt state.
+    // A local insert, delete or move in the same window renumbered `rowDim`
+    // under the measurements just the same.
     if (
       this.dimensionReloadsInFlight > 0 ||
-      this.dimensionReloadGeneration !== reloadGeneration
+      this.dimensionReloadGeneration !== measuredAgainst.reloadGeneration ||
+      this.rowDim.getRenumberings() !== measuredAgainst.renumberings
     ) {
       return true;
     }
