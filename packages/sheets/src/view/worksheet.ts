@@ -5454,7 +5454,6 @@ export class Worksheet {
           if (this.readOnly) return;
           event.preventDefault();
           if (await this.runHistoryStep(() => this.sheet!.undo())) {
-            this.updateFreezeState();
             this.render();
             this.scrollIntoView();
           }
@@ -5468,7 +5467,6 @@ export class Worksheet {
           if (this.readOnly) return;
           event.preventDefault();
           if (await this.runHistoryStep(() => this.sheet!.redo())) {
-            this.updateFreezeState();
             this.render();
             this.scrollIntoView();
           }
@@ -5586,12 +5584,19 @@ export class Worksheet {
    * DimensionIndex objects. Call this when a remote change arrives.
    */
   public async reloadDimensions() {
+    const sheet = this.sheet;
+    if (!sheet) {
+      return;
+    }
     // Read before the reload: the store already reflects the change, and
     // nothing may run between `loadDimensions` clearing `rowDim` and the
     // fitted heights going back in.
     const fitted = this.takeFittedRows();
-    const pinned = await this.sheet!.getStore().getDimensionSizes('row');
-    await this.sheet!.loadDimensions();
+    const pinned = await sheet.getStore().getDimensionSizes('row');
+    await sheet.loadDimensions();
+    if (sheet !== this.sheet) {
+      return;
+    }
     this.restoreFittedRows(fitted, pinned);
     await this.sheet!.loadStyles();
     await this.sheet!.loadMerges();
@@ -5622,17 +5627,30 @@ export class Worksheet {
   /**
    * `runHistoryStep` runs an undo or a redo (`Sheet.undo` / `Sheet.redo`) and
    * repairs what the replay's own dimension reload drops: rows fitted to
-   * their content, and the zero sizes that hide rows and columns. Returns
-   * whether a step was replayed.
+   * their content, the zero sizes that hide rows and columns, and the frozen
+   * pane's cached offset. Returns whether a step was replayed.
    */
   public async runHistoryStep(step: () => Promise<boolean>): Promise<boolean> {
+    const sheet = this.sheet;
+    if (!sheet) {
+      return step();
+    }
     const fitted = this.takeFittedRows();
     if (!(await step())) {
       return false;
     }
-    const pinned = await this.sheet!.getStore().getDimensionSizes('row');
+    // The view may have been torn down, or moved to another sheet, while the
+    // replay was awaited; there is nothing of this sheet left to repair.
+    if (sheet !== this.sheet) {
+      return true;
+    }
+    const pinned = await sheet.getStore().getDimensionSizes('row');
+    if (sheet !== this.sheet) {
+      return true;
+    }
     this.restoreFittedRows(fitted, pinned);
     this.resyncHiddenAxes();
+    this.updateFreezeState();
     return true;
   }
 
@@ -5685,7 +5703,11 @@ export class Worksheet {
     if (fitted.size === 0) {
       return;
     }
-    const rowOrder = this.sheet!.getStore().getRowOrder();
+    const sheet = this.sheet;
+    if (!sheet) {
+      return;
+    }
+    const rowOrder = sheet.getStore().getRowOrder();
     for (let i = 0; i < rowOrder.length; i++) {
       const height = fitted.get(rowOrder[i]);
       const row = i + 1;
@@ -5704,12 +5726,34 @@ export class Worksheet {
    * that hides them.
    */
   private resyncHiddenAxes(): void {
+    const rowBackup = new Map(this.hiddenRowSizeBackup);
+    const colBackup = new Map(this.hiddenColSizeBackup);
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
     this.hiddenColumns.clear();
     this.hiddenColSizeBackup.clear();
     this.syncHiddenRowsFromSheet();
     this.syncHiddenColumnsFromSheet();
+
+    // A zero size only ever means "hidden", so it is never a size to restore.
+    // It shows up here when a render between the reload and this pass has
+    // already hidden the row again; keep the backup that was there before.
+    for (const [row, size] of this.hiddenRowSizeBackup) {
+      if (size === 0) {
+        this.hiddenRowSizeBackup.set(
+          row,
+          rowBackup.get(row) ?? this.rowDim.getDefaultSize(),
+        );
+      }
+    }
+    for (const [col, size] of this.hiddenColSizeBackup) {
+      if (size === 0) {
+        this.hiddenColSizeBackup.set(
+          col,
+          colBackup.get(col) ?? this.colDim.getDefaultSize(),
+        );
+      }
+    }
   }
 
   /**

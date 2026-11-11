@@ -129,13 +129,17 @@ describe('Worksheet.reloadDimensions', () => {
     expect(ctx.rowDim.getSize(50)).toBe(DefaultCellHeight);
   });
 
-  it('leaves a row with no axis ID to be measured again', async () => {
-    const { ctx, fit } = createContext(ids(3));
-    fit(8, 101);
+  it('does not carry a fitted row it has no axis ID for', () => {
+    const { ctx, fit } = createContext(ids(12));
+    fit(2, 62);
+    // Fitted while the row was past axis coverage: no ID was recorded.
+    ctx.autoSizedRowIds.delete(2);
 
-    await reloadDimensions(ctx);
-
-    expect(ctx.rowDim.getSize(8)).toBe(DefaultCellHeight);
+    const takeFittedRows = proto.takeFittedRows as unknown as () => Map<
+      string,
+      number
+    >;
+    expect(takeFittedRows.call(ctx)).toEqual(new Map());
   });
 
   it('keeps a hidden fitted row hidden, with its fitted height to come back to', async () => {
@@ -150,6 +154,33 @@ describe('Worksheet.reloadDimensions', () => {
     await reloadDimensions(ctx);
 
     expect(ctx.rowDim.getSize(3)).toBe(0);
+    expect(ctx.hiddenRowSizeBackup.get(3)).toBe(62);
+  });
+  it('keeps a hidden column hidden across the reload', async () => {
+    const { ctx, store, sheet } = createContext(ids(12));
+    await store.setHiddenState({ rows: [], columns: [4] });
+    await sheet.loadHiddenState();
+    ctx.hiddenColumns.add(4);
+    ctx.hiddenColSizeBackup.set(4, 140);
+    ctx.colDim.setSize(4, 0);
+
+    await reloadDimensions(ctx);
+
+    expect(ctx.colDim.getSize(4)).toBe(0);
+  });
+
+  it('never keeps a zero size as the backup of a hidden row', async () => {
+    const { ctx, store, sheet } = createContext(ids(12));
+    await store.setHiddenState({ rows: [3], columns: [] });
+    await sheet.loadHiddenState();
+    ctx.hiddenRows.add(3);
+    ctx.hiddenRowSizeBackup.set(3, 62);
+
+    const resyncHiddenAxes = proto.resyncHiddenAxes as unknown as () => void;
+    // A render already re-hid the row after the reload: it is 0 in `rowDim`.
+    ctx.rowDim.setSize(3, 0);
+    resyncHiddenAxes.call(ctx);
+
     expect(ctx.hiddenRowSizeBackup.get(3)).toBe(62);
   });
 });
@@ -183,6 +214,37 @@ describe('Worksheet.runHistoryStep', () => {
     });
 
     expect(ctx.rowDim.getSize(4)).toBe(0);
+  });
+
+  it('keeps a hidden fitted row hidden across an undo, with its height backed up', async () => {
+    const { ctx, fit, store, sheet } = createContext(ids(12));
+    fit(3, 62);
+    await store.setHiddenState({ rows: [3], columns: [] });
+    await sheet.loadHiddenState();
+    ctx.hiddenRows.add(3);
+    ctx.hiddenRowSizeBackup.set(3, 62);
+    ctx.rowDim.setSize(3, 0);
+
+    await runHistoryStep(ctx, async () => {
+      await sheet.loadDimensions();
+      return true;
+    });
+
+    expect(ctx.rowDim.getSize(3)).toBe(0);
+    expect(ctx.hiddenRowSizeBackup.get(3)).toBe(62);
+  });
+
+  it('repairs nothing when the view lost its sheet during the replay', async () => {
+    const { ctx, fit, sheet } = createContext(ids(12));
+    fit(2, 62);
+
+    const replayed = await runHistoryStep(ctx, async () => {
+      await sheet.loadDimensions();
+      (ctx as { sheet: unknown }).sheet = undefined;
+      return true;
+    });
+
+    expect(replayed).toBe(true);
   });
 
   it('touches nothing when there was no step to replay', async () => {

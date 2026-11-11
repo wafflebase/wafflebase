@@ -45,6 +45,31 @@
   them (read from the code — `syncHiddenRowsFromSheet` only re-zeroes rows
   newly hidden — not reproduced by hand).
 
+- Round 2 (`@claude review`, 3 blocking, one duplicate pair, one marked
+  unverified by the panel). Accepted:
+  - `runHistoryStep` dereferenced `this.sheet!` after awaiting the replay;
+    a teardown mid-replay, or a toolbar undo after `cleanup()` (the
+    `Spreadsheet` keeps its own `sheet`), would throw. It and
+    `reloadDimensions` now re-check the sheet after every await, the way
+    `applyAutoRowHeights` already did.
+  - `resyncHiddenAxes` rebuilt hidden-row backups from `rowDim`, so a render
+    that re-hid a row before it ran would leave a 0 backup and the row stuck
+    at 0px once shown. A zero backup is now replaced by the previous one.
+    In practice the awaits involved are microtasks and no render fits
+    between them, but nothing guarantees that.
+  - Took from the suggestions: `runHistoryStep` also refreshes the freeze
+    state, so the toolbar and keyboard undo agree; tests for a hidden column
+    across a reload, a hidden fitted row across an undo, and the
+    no-axis-ID case asserted on `takeFittedRows` directly (the old version
+    passed with the guard removed).
+- Not taken from round 2: reusing the reloaded `rowDim` instead of reading
+  `pinned` again (`rowDim` also holds hidden zeros and cannot tell a stored
+  height from a default one); `anchor-conversion` helpers for the ID map
+  (they resolve single cells, not a whole axis); avoiding the full
+  `getRowOrder()` copy per reload (`renderSheet` already copies it every
+  frame); the no-op on `MemStore` / `ReadonlyStore`, which have no axis IDs
+  and no remote changes, so the bug cannot occur there.
+
 ## Verification
 
 - `pnpm verify:fast` green.

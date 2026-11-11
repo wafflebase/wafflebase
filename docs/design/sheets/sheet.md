@@ -840,7 +840,11 @@ memory store has none), are not carried: they go back to the default and are
 measured when the fit next reads them, which is what a reload always did. A
 hidden fitted row carries the height it had before it was hidden, and both
 paths then re-apply hidden rows and columns from scratch, since the reload
-also resets the zero size that hides them.
+also resets the zero size that hides them. That pass never keeps a zero as a
+hidden row's or column's backup — zero only ever means "hidden" — so a render
+that re-hid a row before it ran cannot leave the row stuck at 0px once it is
+shown again. Both paths re-check that the view still holds the same sheet
+after every await, since the view can be torn down mid-replay.
 
 ### Freeze Panes
 
