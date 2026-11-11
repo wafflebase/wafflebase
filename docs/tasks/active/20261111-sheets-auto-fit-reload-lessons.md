@@ -113,6 +113,17 @@
   handler was stubbed out in every test — it is a spy now. Both new tests
   fail with their fix removed.
 
+- Round 7 (`@claude review`, 1 blocking). Accepted: the renumbering guard
+  added in round 5 was reset by the next fit even though that fit leaves
+  skipped rows (hidden, merge anchors) and rows past the measured range
+  untouched, so their index→ID pairs stayed stale behind a guard that said
+  they were fresh. A fit that follows a renumbering now drops the axis ID of
+  every row it does not re-key; those rows go back to being measured, as
+  before the change. The fix only ever carries less, never a different
+  height.
+- Stopping rule agreed with the author: round 8 is the last review round;
+  anything it still raises goes into the PR as a known limitation.
+
 ## Verification
 
 - `pnpm verify:fast` green.

@@ -147,6 +147,24 @@ describe('Worksheet.applyAutoRowHeights', () => {
     expect(ctx.autoSizedRowIds.has(2)).toBe(false);
   });
 
+  it('drops the axis ID of a skipped row once a local edit renumbered rows', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2', 'r3', 'r4'] });
+    // Row 3 was fitted, then hidden: the pass skips it.
+    ctx.autoSizedRows.add(3);
+    ctx.autoSizedRowIds.set(3, 'r3');
+    ctx.hiddenRows.add(3);
+
+    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
+    expect(ctx.autoSizedRowIds.get(3)).toBe('r3');
+
+    // A local insert renumbers `rowDim`: index 3 no longer names r3.
+    ctx.rowDim.shift(1, 1);
+    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
+
+    expect(ctx.autoSizedRows.has(3)).toBe(true);
+    expect(ctx.autoSizedRowIds.has(3)).toBe(false);
+  });
+
   it('reports no change once the rows already fit', async () => {
     const ctx = createContext();
     await applyAutoRowHeights.call(ctx, multiLineGrid('A1'), 10, 5);

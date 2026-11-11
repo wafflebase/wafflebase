@@ -6718,6 +6718,12 @@ export class Worksheet {
 
     const heights = computeAutoRowHeights(measured, skip);
     this.autoSizedMaxRow = maxRow;
+    // A local insert, delete or move since the last pass left every entry's
+    // index pointing at another row. Rows this pass re-keys below are fine;
+    // the ones it leaves alone (skipped, or past the measured range) must
+    // lose their axis ID, or the next reload would carry a height under it.
+    const renumbered =
+      this.rowDim.getRenumberings() !== this.autoSizedRenumberings;
     this.autoSizedRenumberings = this.rowDim.getRenumberings();
 
     const candidates = new Set<number>(this.autoSizedRows);
@@ -6747,6 +6753,9 @@ export class Worksheet {
       // gone. Both were excluded from measurement, so shrinking them here
       // would collapse them on evidence this pass deliberately did not read.
       if (skip.has(row)) {
+        if (renumbered) {
+          this.autoSizedRowIds.delete(row);
+        }
         continue;
       }
       if (pinned.has(row)) {
@@ -6755,6 +6764,9 @@ export class Worksheet {
         continue;
       }
       if (row > maxRow && !heights.has(row)) {
+        if (renumbered) {
+          this.autoSizedRowIds.delete(row);
+        }
         continue;
       }
 
