@@ -455,6 +455,14 @@ export class Spreadsheet {
   }
 
   /**
+   * `releaseLinkCardHover` tells the engine the host has closed its link card,
+   * so a hover kept for the card is forgotten (see `LinkCardAttribute`).
+   */
+  public releaseLinkCardHover(): void {
+    this.worksheet.releaseLinkCardHover();
+  }
+
+  /**
    * `onLinkHover` registers a callback fired when the pointer rests on a cell
    * containing hyperlinks, and again with `null` when it leaves. Hosts use it
    * to place the link card.

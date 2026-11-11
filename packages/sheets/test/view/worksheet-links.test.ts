@@ -245,6 +245,8 @@ describe('link card handoff', () => {
   type HandoffCtx = HoverCtx & {
     handleScrollContainerMouseLeave(e: { relatedTarget: unknown }): void;
     handleScrollContainerMouseEnter(e: { relatedTarget: unknown }): void;
+    releaseLinkCardHover(): void;
+    refreshLinkHoverAfterRender(): void;
   };
 
   const card = {
@@ -257,6 +259,7 @@ describe('link card handoff', () => {
     const a = link('C5', 'https://example.com');
     const ctx = Object.assign(hoverCtx([a], { C5: [a] }), {
       returningFromLinkCard: false,
+      linkHoverKeptForCard: false,
       hoveredValidationCandidate: null,
       hideValidationTooltip: () => {},
       hoveredPeerClientID: null,
@@ -268,6 +271,8 @@ describe('link card handoff', () => {
       render: () => {},
       handleScrollContainerMouseLeave: proto.handleScrollContainerMouseLeave,
       handleScrollContainerMouseEnter: proto.handleScrollContainerMouseEnter,
+      releaseLinkCardHover: proto.releaseLinkCardHover,
+      refreshLinkHoverAfterRender: proto.refreshLinkHoverAfterRender,
     }) as unknown as HandoffCtx;
     // Open the card on C5.
     ctx.updateLinkHover(120, 105);
@@ -330,6 +335,55 @@ describe('link card handoff', () => {
     ctx.updateLinkHover(600, 600);
 
     expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('lets go of the kept hover once the host has closed the card', () => {
+    const { ctx } = handoffCtx();
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+
+    // Out of the card to the toolbar: the host closes the card and says so.
+    // The pointer never comes back to the grid.
+    ctx.releaseLinkCardHover();
+    expect(ctx.hoveredLinkSref).toBeNull();
+
+    // A peer edits the cell: the repaint must not reopen the card.
+    (ctx.gridCanvas as { linksInCell: (sref: string) => Array<RenderedLink> })
+      .linksInCell = () => [link('C5', 'https://changed.example.com')];
+    ctx.refreshLinkHoverAfterRender();
+    expect(ctx.onLinkHoverCallback).not.toHaveBeenCalled();
+  });
+
+  it('ignores the release when the hover was not kept for the card', () => {
+    const { ctx } = handoffCtx();
+    // The pointer moved on to another link cell, whose card is pending,
+    // when the old card's close fires.
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: elsewhere });
+    ctx.handleScrollContainerMouseEnter({ relatedTarget: elsewhere });
+    ctx.updateLinkHover(120, 105);
+    ctx.onLinkHoverCallback.mockClear();
+
+    ctx.releaseLinkCardHover();
+    vi.advanceTimersByTime(300);
+
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith({
+      sref: 'C5',
+      urls: ['https://example.com'],
+    });
+  });
+
+  it('cancels a pending card when the pointer re-enters from elsewhere', () => {
+    const a = link('C5', 'https://example.com');
+    const ctx = Object.assign(hoverCtx([a], { C5: [a] }), {
+      returningFromLinkCard: false,
+      linkHoverKeptForCard: false,
+      handleScrollContainerMouseEnter: proto.handleScrollContainerMouseEnter,
+    }) as unknown as HandoffCtx;
+    ctx.updateLinkHover(120, 105);
+
+    ctx.handleScrollContainerMouseEnter({ relatedTarget: elsewhere });
+    vi.advanceTimersByTime(300);
+
+    expect(ctx.onLinkHoverCallback).not.toHaveBeenCalled();
   });
 
   it('opens a fresh card after the pointer went out through the card', () => {

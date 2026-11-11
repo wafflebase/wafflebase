@@ -44,6 +44,23 @@
   tests; not exercised by hand). The first version listed that as a known
   limitation.
 
+- Round 2 (`@claude review`, 2 blocking, one duplicate pair). Accepted:
+  keeping the hover across the move into the card left it stale when the
+  pointer then went somewhere other than the grid — nothing else re-enters
+  the grid to clear it — and a peer's edit to that cell made
+  `refreshLinkHoverAfterRender` reopen a card under no pointer. The host now
+  calls `Spreadsheet.releaseLinkCardHover()` whenever its card closes; the
+  engine forgets the hover only while it is being kept for the card, so a
+  card closing while the pointer already waits on another link cell leaves
+  that cell's pending card alone. Also took: §4 of the design doc and the
+  host comment still described the old unconditional reset;
+  `returningFromLinkCard` is now cleared on every leave.
+- Not taken from round 2: replacing the DOM attribute with an element the
+  host hands the engine (a ref would also work, but the attribute needs no
+  lifecycle wiring and the host already renders the wrapper); `instanceof
+  Element` instead of duck-typing `closest` (the duck-typed check is what lets
+  the node-environment unit tests drive the real handlers).
+
 ## Verification
 
 - `pnpm verify:fast` green.
@@ -51,4 +68,6 @@
   5 of 5 times (on wafflebase.io before the fix it closed every time);
   scrolling the grid with the pointer resting in the card closed it; moving
   back onto the cell kept it; leaving to an empty cell closed it; clicking a
-  link in it opened the link in a new tab.
+  link in it opened the link in a new tab. After round 2: moving from the
+  card straight out of the grid closed it, and a peer's edit to the cell
+  afterwards did not reopen it.

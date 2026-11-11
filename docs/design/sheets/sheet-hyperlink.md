@@ -233,8 +233,9 @@ modifier is unconditional, so a link in a result grid is still reachable.
 `handleMouseMove` is bound raw, with no throttle or rAF (`worksheet.ts:3239`),
 but `linkAt` is a synchronous scan over the boxes currently on screen, so it
 needs none of the async staleness dance `updateValidationTooltip` uses. The new
-hover state must be cleared in `handleScrollContainerMouseLeave` (`:3404`)
-alongside the existing flags.
+hover state is cleared in `handleScrollContainerMouseLeave` (`:3404`)
+alongside the existing flags — except when the pointer leaves into the hover
+card itself, which §5 treats as a hand-off.
 
 ### 5. The hover card
 
@@ -269,6 +270,12 @@ across that boundary as a hand-off rather than a leave:
   another cell, the usual close-then-open runs.
 - `mouseenter` from anywhere else forgets a hover left over from a pointer
   that went out through the card, so the cell opens a fresh card.
+- A pointer that leaves the card for somewhere other than the grid never
+  re-enters it, so the host also tells the engine when its card has closed
+  (`Spreadsheet.releaseLinkCardHover`). The engine then forgets a hover it was
+  keeping for the card — otherwise a peer's edit to that cell would reopen a
+  card under no pointer — and ignores the call otherwise, so a card closing
+  while the pointer already waits on another link cell leaves that one alone.
 
 The host keeps no state of its own about where the pointer is; its close is
 still deferred so the pointer can cross the gap into the card.

@@ -1181,9 +1181,10 @@ export function SheetView({
         toast.error(message);
       });
 
-      // Hyperlink hover card. The engine reports `null` as soon as the pointer
-      // leaves the cell — including when it is on its way into the card — so
-      // closing is deferred and the card cancels it on enter.
+      // Hyperlink hover card. The engine reports `null` once the pointer leaves
+      // the cell for anywhere but the card (the wrapper carries
+      // `LinkCardAttribute`), so closing is deferred to let the pointer cross
+      // the gap, and the card cancels it on enter.
       s.onLinkHover((info) => {
         if (info) {
           cancelLinkHoverClose();
@@ -1778,7 +1779,12 @@ export function SheetView({
   } | null>(null);
 
   useEffect(() => {
-    if (!linkHover) setLinkPopoverPos(null);
+    if (linkHover) return;
+    setLinkPopoverPos(null);
+    // The engine keeps its hover while the pointer is in the card; once the
+    // card is gone it has to let go of it, or a repaint of the cell would
+    // reopen a card nobody is pointing at.
+    sheetRef.current?.releaseLinkCardHover();
   }, [linkHover]);
 
   useLayoutEffect(() => {
