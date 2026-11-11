@@ -100,12 +100,13 @@ describe('DimensionIndex layers', () => {
     ]);
   });
 
-  it('counts the renumberings, and nothing else', () => {
+  it('counts what may renumber the indices, and nothing else', () => {
     const dim = new DimensionIndex(Default);
     dim.setFittedSize(2, 60, 'b');
     dim.setSize(1, 40);
     dim.setHidden([4]);
-    dim.clear();
+    dim.clearFitted();
+    dim.setFittedSize(2, 60, 'b');
     dim.realignFitted(['a', 'b']);
     expect(dim.getRenumberings()).toBe(0);
 
@@ -113,7 +114,9 @@ describe('DimensionIndex layers', () => {
     dim.move(1, 1, 4);
     // `b` now sits at 2 in the index, but at 1 in this order.
     dim.realignFitted(['b']);
-    expect(dim.getRenumberings()).toBe(3);
+    // A reload from the store, which may bring in a peer's renumbering.
+    dim.clear();
+    expect(dim.getRenumberings()).toBe(4);
   });
 
   describe('realignFitted', () => {

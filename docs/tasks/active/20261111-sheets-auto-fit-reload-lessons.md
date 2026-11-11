@@ -246,6 +246,13 @@
     fitted layer departs from `axis-id-selection.md`. Not taken: moving
     `axisTranslator` beside the anchor helpers, and an upper bound on
     fitted heights (both predate this change in kind).
+- Local review of those fixes (separate agent): no blocking findings. Took
+  both should-fix items: the cache check missed renumberings that keep the
+  axis length and move no fitted height — undoing a local move, or a reload
+  that renumbers only pinned rows — so every `clear` (each reload) now counts
+  as one; and two tests now cover same-length renumberings, which no test
+  did (dropping the count from the check left the suite green). The fresh
+  copy taken for the merges is reused for the writes.
 - CodeRabbit on the same head: one minor, outside the diff — an async store
   could let an older dimension read land after a newer one. Pre-existing on
   `main`, and both stores read synchronously; not changed.

@@ -136,10 +136,12 @@ export class DimensionIndex {
   }
 
   /**
-   * `getRenumberings` counts the times the indices were renumbered: every
-   * `shift` and `move`, and every `realignFitted` that moved a size. A caller
-   * holding a copy of the axis order can tell from it whether this index
-   * still lines up with that copy, without copying the order again.
+   * `getRenumberings` counts the times the indices may have been renumbered:
+   * every `shift` and `move`, every `realignFitted` that moved a size, and
+   * every `clear` — a reload from the store, which may bring in somebody
+   * else's insert, delete or move. A caller holding a copy of the axis order
+   * can tell from it whether that copy may have gone stale, without copying
+   * the order again.
    */
   getRenumberings(): number {
     return this.renumberings;
@@ -307,6 +309,7 @@ export class DimensionIndex {
    */
   clear(): void {
     this.customSizes.clear();
+    this.renumberings++;
     this.cacheDirty = true;
   }
 

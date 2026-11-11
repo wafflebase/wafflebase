@@ -6477,7 +6477,7 @@ export class Worksheet {
    * whether that moved any.
    *
    * `getRowOrder()` copies the whole axis, so this is the one copy a pass
-   * makes; `rowOrderNow` hands the same copy back for as long as it is
+   * makes; `rowAxisNow` hands the same copy back for as long as it is
    * current.
    */
   private takeRowAxis(sheet: Sheet): RowAxis & { realigned: boolean } {
@@ -6493,27 +6493,28 @@ export class Worksheet {
   }
 
   /**
-   * `rowOrderNow` returns the row order as it is now: `axis.order` itself if
-   * nothing has renumbered rows since it was taken, else a fresh copy.
+   * `rowAxisNow` returns the row order as it is now: `axis` itself if
+   * nothing may have renumbered rows since it was taken, else a fresh copy.
    *
    * A local insert, delete or move goes through `rowDim.shift` / `move`, and
-   * a reload that moves fitted heights realigns `rowDim`; `getRenumberings`
-   * counts all three. A peer's insert or delete also changes the axis
-   * length. What neither catches — a peer's move that touches no fitted row,
-   * landing mid-pass — leaves at worst a height on the index its row had when
-   * measured, under that row's axis ID, so the next pass's `takeRowAxis`
-   * moves it to the row.
+   * a reload from the store — a peer's change, an undo or a redo — through
+   * `rowDim.clear`; `getRenumberings` counts all of them. A peer's insert or
+   * delete also changes the axis length. What neither catches is a change
+   * the store already holds but this view has not reloaded yet, landing
+   * mid-pass; both stores answer reads synchronously, so a pass that awaits
+   * only them cannot see one. The reload that follows it realigns the heights
+   * by axis ID and paints again.
    */
-  private rowOrderNow(sheet: Sheet, axis: RowAxis): Array<string> {
+  private rowAxisNow(sheet: Sheet, axis: RowAxis): RowAxis {
     const store = sheet.getStore();
-    if (
-      this.rowDim.getRenumberings() === axis.renumberings &&
-      store.getAxisCoverage().rows === axis.coverage
-    ) {
-      return axis.order;
+    const coverage = store.getAxisCoverage().rows;
+    const renumberings = this.rowDim.getRenumberings();
+    if (renumberings === axis.renumberings && coverage === axis.coverage) {
+      return axis;
     }
-    return store.getRowOrder();
+    return { order: store.getRowOrder(), renumberings, coverage };
   }
+
 
   /**
    * `applyAutoRowHeights` sizes every fetched row to its content and returns
@@ -6565,7 +6566,8 @@ export class Worksheet {
     // The merges and the remaining columns are read now, an await after
     // `grid` was: rows renumbered in between would put them on other rows'
     // indices. Both are taken in the order of now and brought into `grid`'s.
-    const toGrid = axisTranslator(this.rowOrderNow(sheet, axis), axis.order);
+    const atRead = this.rowAxisNow(sheet, axis);
+    const toGrid = axisTranslator(atRead.order, axis.order);
 
     // A merged block lays its text out against the block, not its top row,
     // so growing that row would count the block's height twice. Hidden rows
@@ -6606,7 +6608,7 @@ export class Worksheet {
     // From here on nothing awaits, so the row order read now holds for every
     // write below. A reload that ran while this pass awaited has already
     // realigned the fitted heights; one that is still to run realigns these.
-    const order = this.rowOrderNow(sheet, axis);
+    const order = this.rowAxisNow(sheet, atRead).order;
     let changed =
       order !== axis.order && this.rowDim.realignFitted(order);
     let frozenChanged = changed;

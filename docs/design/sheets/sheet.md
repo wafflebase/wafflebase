@@ -867,16 +867,19 @@ axis ID the copy gives its row.
 The fit pass awaits, and a reload or a local insert, delete or move can land
 meanwhile. It does not hold off for them; it keeps track of which row each
 index meant. Before it reads the merges and the remaining columns, and again
-after its last await, it asks whether the copy is still current
-(`rowOrderNow`): `DimensionIndex.getRenumberings()` counts every `shift`,
-`move` and realign that moved a height, and the store's O(1) axis length
-catches a peer's insert or delete. Only then does it copy the order again,
-and map the merges, the remaining columns and its writes between the two
-orders by axis ID (`axisTranslator`). A peer's move that touches no fitted
-row and lands mid-pass goes unseen; it leaves at worst a height on the index
-its row had when measured, still under that row's axis ID, and the next
-pass's realign moves it. A row's range check — whether it was inside the
-fetched range — uses the index it had when the grid was read.
+after its last await, it asks whether the copy may have gone stale
+(`rowAxisNow`): `DimensionIndex.getRenumberings()` counts every `shift` and
+`move`, every realign that moved a height, and every `clear` — a reload,
+whether from a peer's change, an undo or a redo — and the store's O(1) axis
+length catches a peer's insert or delete. Only then does it copy the order
+again, and map the merges, the remaining columns and its writes between the
+orders by axis ID (`axisTranslator`). What this cannot see is a change the
+store already holds but the view has not reloaded yet, landing mid-pass. Both
+stores answer reads synchronously, so a pass that awaits only them never
+meets one; with a store that did, a merge or a right-hand cell could be read
+against the wrong row for that pass, and the reload that follows realigns
+the heights and paints again. A row's range check — whether it was inside
+the fetched range — uses the index it had when the grid was read.
 
 Axis IDs reach only as far as the last row ever written, so an index past
 them has no ID: the translation leaves it as it is, which is harmless since

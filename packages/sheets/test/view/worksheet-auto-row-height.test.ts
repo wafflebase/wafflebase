@@ -24,11 +24,11 @@ const fetchRowRemainder = (
   }
 ).fetchRowRemainder;
 
-const rowOrderNow = (
+const rowAxisNow = (
   Worksheet.prototype as unknown as {
-    rowOrderNow: (...args: Array<unknown>) => Array<string>;
+    rowAxisNow: (...args: Array<unknown>) => unknown;
   }
-).rowOrderNow;
+).rowAxisNow;
 
 const updateFreezeState = (
   Worksheet.prototype as unknown as {
@@ -52,7 +52,7 @@ type Context = {
   colDim: DimensionIndex;
   freezeState: FreezeState;
   fetchRowRemainder: typeof fetchRowRemainder;
-  rowOrderNow: typeof rowOrderNow;
+  rowAxisNow: typeof rowAxisNow;
   updateFreezeState: typeof updateFreezeState;
 };
 
@@ -110,7 +110,7 @@ const createContext = (options?: {
       ? buildFreezeState(options.frozenRows, 0, rowDim, colDim)
       : NoFreeze,
     fetchRowRemainder,
-    rowOrderNow,
+    rowAxisNow,
     updateFreezeState,
   };
 };
@@ -484,6 +484,56 @@ describe('Worksheet.applyAutoRowHeights', () => {
       );
 
       expect(ctx.rowDim.hasFittedSizes()).toBe(false);
+    });
+
+    // A move keeps the axis length, so only `rowDim`'s renumbering count
+    // says the copy `renderSheet` took has gone stale.
+    const moveFirstRowToThird = (ctx: { order: Array<string> }) =>
+      ctx.order.splice(2, 0, ...ctx.order.splice(0, 1));
+
+    it('follows a local move, which keeps the axis length', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => {
+          moveFirstRowToThird(ctx);
+          ctx.rowDim.move(1, 1, 4);
+        },
+      });
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx),
+      );
+
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(3)).toBe(autoRowHeight(2));
+      // Under r1's axis ID, so the next pass's realign leaves it there.
+      ctx.rowDim.realignFitted(ctx.order);
+      expect(ctx.rowDim.getSize(3)).toBe(autoRowHeight(2));
+    });
+
+    it('follows a reload that brought in a peer’s move', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => {
+          moveFirstRowToThird(ctx);
+          // What `Sheet.loadDimensions` does to `rowDim`, with no fitted
+          // height yet to realign.
+          ctx.rowDim.clear();
+        },
+      });
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx),
+      );
+
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(3)).toBe(autoRowHeight(2));
     });
 
     it('sizes the row it measured where a peer’s insert moved it', async () => {
