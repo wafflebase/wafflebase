@@ -250,6 +250,17 @@ outside-click or Escape handler of its own: unlike the comment popover it is
 not opened by a click and owns no focus, so pointer-leave is the whole
 lifecycle — with the close deferred so the pointer can cross the gap into it.
 
+The engine cannot tell "the pointer left the cell for the card" from "the
+pointer left": the card sits outside the grid's scroll container, so entering
+it fires the container's `mouseleave`, whose handler resets the hover and
+reports `null`. Pointer events run before the compatibility mouse events, so
+that `null` arrives *after* the card's `pointerenter` has cancelled the
+pending close, and re-arming the close there shut the card under a resting
+pointer — the click meant for one of its links then landed on the cell
+beneath (#1124). The lifecycle lives in `useLinkHoverCard`, which ignores the
+engine's `null` while the pointer is inside the card; the card's own
+`pointerleave` closes it, and teardown dismisses it outright.
+
 It does not reuse `docs-link-popover.tsx`. That component emits
 **client/fixed** coordinates and has no flip or clamp at all; and of its 286
 lines, most are `EditorAPI` caret-based insert/edit/remove, for which Sheets
