@@ -80,9 +80,19 @@
     `forgetLinkHover`; the attribute follows the engine's `data-wb-*` names;
     the design doc no longer cites line numbers that had moved.
 - Not taken from round 3: an element reference instead of the attribute
-  (same reasons as round 2), and a ownership check on the marked element —
+  (same reasons as round 2), and an ownership check on the marked element —
   a page element that claims the attribute only changes when a hover card
   closes, never what a click opens.
+
+- Round 4 (`@claude review`, 2 blocking). Both accepted:
+  - The host test asserted the hold on `pointerenter` but not the cancel of
+    the pending close, which is the half that keeps the card open after a
+    gap move. Added; it fails with the cancel removed.
+  - The way back has the same gap: the first move after re-entering the grid
+    from the card usually lands on it, which used up the "returning" flag
+    with no re-send, so the card closed and reopened 300ms later. The engine
+    now keeps the hand-off until a move reaches a link cell, and a close that
+    fires first releases the hover.
 
 ## Verification
 

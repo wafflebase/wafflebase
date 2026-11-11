@@ -330,14 +330,54 @@ describe('link card handoff', () => {
     expect(ctx.onLinkHoverCallback).toHaveBeenCalledTimes(1);
   });
 
-  it('closes the card when the pointer comes back onto another cell', () => {
+  it('waits out the gap on the way back, then re-sends the card on its cell', () => {
     const { ctx } = handoffCtx();
     ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
     ctx.handleScrollContainerMouseEnter({ relatedTarget: card });
 
+    // The first move back lands in the gap: a cell with no links.
+    const at = ctx as unknown as { toRefFromMouse: () => { r: number; c: number } };
+    at.toRefFromMouse = () => ({ r: 6, c: 3 });
+    ctx.updateLinkHover(120, 130);
+    expect(ctx.onLinkHoverCallback).not.toHaveBeenCalled();
+
+    at.toRefFromMouse = () => ({ r: 5, c: 3 });
+    ctx.updateLinkHover(120, 105);
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith({
+      sref: 'C5',
+      urls: ['https://example.com'],
+    });
+  });
+
+  it('lets the host release the hover when the pointer comes back onto no link', () => {
+    const { ctx } = handoffCtx();
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+    ctx.handleScrollContainerMouseEnter({ relatedTarget: card });
     (ctx as unknown as { toRefFromMouse: () => { r: number; c: number } })
       .toRefFromMouse = () => ({ r: 9, c: 9 });
     ctx.updateLinkHover(600, 600);
+
+    // The card's close fires; the host says so, and the hover goes with it.
+    ctx.releaseLinkCardHover();
+
+    expect(ctx.onLinkHoverCallback).not.toHaveBeenCalled();
+    expect(ctx.hoveredLinkSref).toBeNull();
+  });
+
+  it('closes the card when the pointer comes back onto another link cell', () => {
+    const b = link('D9', 'https://other.example.com', 300);
+    const { ctx } = handoffCtx();
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+    ctx.handleScrollContainerMouseEnter({ relatedTarget: card });
+    (ctx.gridCanvas as unknown as {
+      linkAt: (x: number, y: number) => RenderedLink | null;
+      linksInCell: (sref: string) => Array<RenderedLink>;
+    }).linkAt = (x: number) => (x >= 300 ? b : null);
+    (ctx.gridCanvas as { linksInCell: (sref: string) => Array<RenderedLink> })
+      .linksInCell = (sref: string) =>
+      sref === 'D9' ? [b] : [link('C5', 'https://example.com')];
+
+    ctx.updateLinkHover(320, 105);
 
     expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith(null);
   });

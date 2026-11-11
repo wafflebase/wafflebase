@@ -156,6 +156,19 @@ describe('SheetView link card hand-off', () => {
     expect(fakeSheet.holdLinkCardHover).toHaveBeenCalledExactlyOnceWith(cell);
   });
 
+  it('keeps the card open when the pointer enters it after the engine let go', async () => {
+    const { engineHover } = await mountSheet();
+    act(() => engineHover(cell));
+
+    // A move in the gap between the cell and the card: the engine reports
+    // `null`, and the host schedules the card's close.
+    act(() => engineHover(null));
+    fireEvent.pointerEnter(card()!);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 400)));
+
+    expect(card()).not.toBeNull();
+  });
+
   it('tells the engine once the card has closed', async () => {
     const { engineHover } = await mountSheet();
     act(() => engineHover(cell));

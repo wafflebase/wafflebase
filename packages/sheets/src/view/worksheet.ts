@@ -1057,7 +1057,18 @@ export class Worksheet {
       urls.length === this.hoveredLinkUrls.length &&
       urls.every((url, i) => url === this.hoveredLinkUrls[i]);
     const returningFromCard = this.returningFromLinkCard;
-    this.returningFromLinkCard = false;
+    if (returningFromCard) {
+      if (sref === null) {
+        // On the way back from the card the pointer crosses the gap — and may
+        // wander over cells with no links. Leave the hover, and the close the
+        // card's `pointerleave` scheduled, alone: if a link cell is not reached
+        // the close fires and the host releases the hover
+        // (`releaseLinkCardHover`).
+        return;
+      }
+      this.returningFromLinkCard = false;
+      this.linkHoverKeptForCard = false;
+    }
     if (same) {
       // Back from the card onto the cell it belongs to. Leaving the card has
       // scheduled the host's close, and nothing about the hover changed, so
@@ -3716,7 +3727,8 @@ export class Worksheet {
 
   private handleScrollContainerMouseEnter(e: MouseEvent): void {
     if (isInLinkCard(e.relatedTarget)) {
-      this.linkHoverKeptForCard = false;
+      // The hover stays kept for the card until the pointer reaches a link
+      // cell (`updateLinkHover`), so a close that fires first can release it.
       this.returningFromLinkCard = true;
       return;
     }

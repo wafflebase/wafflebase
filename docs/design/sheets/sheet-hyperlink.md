@@ -265,9 +265,12 @@ across that boundary as a hand-off rather than a leave:
   re-anchoring the card to a cell that has moved — and a peer's edit to the
   cell (`refreshLinkHoverAfterRender`) still close or refresh the card while
   the pointer rests in it.
-- `mouseenter` back from the card onto the same cell re-sends the card on the
-  first move, cancelling the close the card's `pointerleave` scheduled; onto
-  another cell, the usual close-then-open runs.
+- `mouseenter` back from the card hands the hover back to the grid at the
+  first move that lands on a link cell: on the card's own cell it re-sends
+  the card, cancelling the close the card's `pointerleave` scheduled; on
+  another link cell the usual close-then-open runs. Moves before that — the
+  gap again, or cells with no links — change nothing, and if no link cell is
+  reached the close fires and the host releases the hover.
 - `mouseenter` from anywhere else forgets a hover left over from a pointer
   that went out through the card, so the cell opens a fresh card.
 - The card's `pointerenter` hands the card's cell back to the engine
