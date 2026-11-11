@@ -834,9 +834,10 @@ the fetched range and the height chase each other from frame to frame.
 
 Merge anchors, excluded from measurement, are excluded from the shrink branch
 too. Hidden rows are measured like any other: the hidden layer draws them at
-zero whatever their fitted height, which is then ready when they are shown. Sizing a row inside the frozen pane
-rebuilds the cached `FreezeState`, whose `frozenHeight` is a pixel offset
-read off the same `DimensionIndex`.
+zero whatever their fitted height, which is then ready when they are shown.
+Sizing a row inside the frozen pane, or hiding or showing rows, rebuilds the
+cached `FreezeState`, whose `frozenHeight` is a pixel offset read off the
+same `DimensionIndex`.
 
 Because fitted heights exist only in the `DimensionIndex`, a reload from the
 store must not drop them. Every remote change runs `Worksheet.reloadDimensions`
@@ -857,15 +858,18 @@ the row that sits there, so a peer's pin lands on the row they pinned. The
 stored layer is cleared before the store is read, so a height set locally
 while the read is awaited stays in the layer even if the read missed it.
 
-The fit pass awaits too (the remaining columns, then the stored heights), and
-a reload or a local insert, delete or move can land meanwhile. It does not
-hold off for them: `renderSheet()` takes the row order before it fetches the
-grid, and once the pass's last await is done, it realigns the fitted layer
-and writes each measured height to the index its row's axis ID has now
-(`axisTranslator`), so a height never lands on another row. A row's range
-check — whether it was inside the fetched range — uses the index it had when
-the grid was read. With no axis IDs (the memory store has none) indices are
-all there is, and they are used as they are.
+The fit pass awaits too, and a reload or a local insert, delete or move can
+land meanwhile. It does not hold off for them; it keeps track of which row
+each index meant. `renderSheet()` takes the row order before it fetches the
+grid and paints with that order. The merges and the remaining columns are
+read one await later, so the pass takes the order again as it reads them and
+maps them into the grid's numbering by axis ID (`axisTranslator`). Once its
+last await is done, it realigns the fitted layer and writes each measured
+height to the index its row's axis ID has now. Each read is assumed to
+reflect the store as of the moment it is made, which both stores satisfy. A
+row's range check — whether it was inside the fetched range — uses the index
+it had when the grid was read. With no axis IDs (the memory store has none)
+indices are all there is, and they are used as they are.
 
 ### Freeze Panes
 

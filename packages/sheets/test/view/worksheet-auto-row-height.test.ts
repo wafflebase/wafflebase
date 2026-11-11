@@ -318,6 +318,41 @@ describe('Worksheet.applyAutoRowHeights', () => {
   });
 
   describe('when rows are renumbered while it awaits', () => {
+    // `renderSheet` read the grid against `measuredOrder`; a peer's insert at
+    // the top landed during that fetch, so the store now holds `order`.
+    const shifted = () => {
+      const measuredOrder = ids(50);
+      return { measuredOrder, order: ['peer', ...ids(50)] };
+    };
+
+    it('reads the remaining columns in the grid’s row numbering', async () => {
+      const { measuredOrder, order } = shifted();
+      // r1's tall cell, off to the right, read after the insert: at row 2.
+      const ctx = createContext({ order, offscreen: multiLineGrid('Z2') });
+
+      await applyAutoRowHeights.call(ctx, new Map(), 10, 5, measuredOrder);
+
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(2)).toBe(autoRowHeight(2));
+      expect(ctx.rowDim.getSize(3)).toBe(DefaultCellHeight);
+    });
+
+    it('reads the merges in the grid’s row numbering', async () => {
+      const { measuredOrder, order } = shifted();
+      // r1 anchors a two-row merge, read after the insert: at row 2.
+      const ctx = createContext({ order, merges: [['A2', { rs: 2, cs: 1 }]] });
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        measuredOrder,
+      );
+
+      expect(ctx.rowDim.hasFittedSizes()).toBe(false);
+    });
+
     it('sizes the row it measured where a peer’s insert moved it', async () => {
       const ctx = createContext({
         onPinnedRead: () => ctx.order.splice(0, 0, 'peer'),

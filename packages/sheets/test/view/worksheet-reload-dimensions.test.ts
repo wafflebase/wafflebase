@@ -189,12 +189,4 @@ describe('Worksheet.reloadDimensions', () => {
     await reloadDimensions(ctx);
     expect(ctx.colDim.getSize(4)).toBe(140);
   });
-
-  it('rebuilds the cached freeze state once the sizes are back', async () => {
-    const { ctx } = createContext(ids(12));
-
-    await reloadDimensions(ctx);
-
-    expect(ctx.updateFreezeState).toHaveBeenCalledTimes(1);
-  });
 });

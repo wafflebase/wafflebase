@@ -6444,7 +6444,8 @@ export class Worksheet {
       sheet.getHiddenColumns().size > 0 ? sheet.getHiddenColumns() : undefined,
       this.hiddenIndicatorHover,
       this.zoom,
-      sheet.getStore().getRowOrder(),
+      // The order `grid` was read against, which is what it is painted with.
+      measuredOrder,
       sheet.getStore().getColOrder(),
       commentCellKeys,
       sheet.getDataValidations(),
@@ -6501,14 +6502,20 @@ export class Worksheet {
       return false;
     }
 
+    // The merges and the remaining columns are read now, an await after
+    // `grid` was: rows renumbered in between would put them on other rows'
+    // indices. Both are taken in this order and brought into `grid`'s.
+    const toGrid = axisTranslator(sheet.getStore().getRowOrder(), measuredOrder);
+
     // A merged block lays its text out against the block, not its top row,
     // so growing that row would count the block's height twice. Hidden rows
     // are measured like any other: `rowDim` draws them at zero whatever their
     // fitted height, which is then ready for when they are shown again.
     const skip = new Set<number>();
     for (const [sref, span] of sheet.getMerges()) {
-      if (span.rs > 1) {
-        skip.add(parseRef(sref).r);
+      const row = span.rs > 1 ? toGrid(parseRef(sref).r) : undefined;
+      if (row !== undefined) {
+        skip.add(row);
       }
     }
 
@@ -6517,6 +6524,7 @@ export class Worksheet {
       grid,
       maxRow,
       maxCol,
+      toGrid,
     );
     if (sheet !== this.sheet) {
       return false;
@@ -6598,13 +6606,15 @@ export class Worksheet {
   /**
    * `fetchRowRemainder` returns `grid` widened to every column of the rows it
    * covers, reading only the columns past `maxCol` that it does not already
-   * hold.
+   * hold. `toGrid` maps a row read now to its index in `grid`, or to nothing
+   * if `grid` did not have that row.
    */
   private async fetchRowRemainder(
     sheet: Sheet,
     grid: Grid,
     maxRow: number,
     maxCol: number,
+    toGrid: (row: number) => number | undefined = (row) => row,
   ): Promise<Grid> {
     const columns = sheet.getDimension().columns;
     if (maxCol >= columns) {
@@ -6621,7 +6631,11 @@ export class Worksheet {
 
     const merged: Grid = new Map(grid);
     for (const [sref, cell] of rest) {
-      merged.set(sref, cell);
+      const { r, c } = parseRef(sref);
+      const row = toGrid(r);
+      if (row !== undefined) {
+        merged.set(toSref({ r: row, c }), cell);
+      }
     }
     return merged;
   }

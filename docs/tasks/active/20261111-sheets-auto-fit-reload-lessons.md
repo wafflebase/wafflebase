@@ -207,6 +207,22 @@
   the read and the write. Kept `main`'s order — clear, then read — and a
   test with a store whose read answers after the local edit.
 
+- Local review of the redesign (separate agent): no blocking findings.
+  Took two should-fix items and four nits:
+  - The merges and the remaining columns are read one await after the grid,
+    so a renumbering in between put them on other rows' indices for a pass.
+    The fit now takes the row order again as it reads them and maps both into
+    the grid's numbering by axis ID.
+  - Nothing pinned `renderSheet` taking the row order before the fetch, or
+    rebuilding the freeze state when rows are hidden or shown; a stubbed
+    `renderSheet` suite now does, and fails if either moves.
+  - The painter gets the order the grid was read against instead of a fresh
+    copy, which also saves one copy of the axis per frame.
+  - Dropped a reload test that only asserted an unconditional call.
+  - Recorded as limitations in the PR: with no axis IDs, an undone insert
+    leaves fitted heights at the old indices until the next fit; and a pin a
+    peer clears shows the default until the next render fits the row.
+
 ## Verification
 
 - `pnpm verify:fast` green.
