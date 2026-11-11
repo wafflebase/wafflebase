@@ -341,8 +341,8 @@ all cell, selection, and navigation operations.
   range so users can see the table area that filtering applies to.
   Value-checklist filtering is represented as `{ op: 'in', values: [...] }`.
   Hidden
-  rows are rendered as zero-height rows in `Worksheet` while preserving
-  user-defined row heights for restore.
+  rows are drawn at zero height through the `DimensionIndex` hidden layer,
+  which leaves every row's own height in place for when it is shown.
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
 
 **Grid dimensions:** `1,000,000 rows x 18,278 columns` — authoritative
@@ -458,8 +458,9 @@ Filter state is stored as worksheet-level metadata (`FilterState`):
 
 `Sheet.recomputeFilterHiddenRows()` evaluates each data row (`range.startRow +
 1` through `range.endRow`) and persists the result through `Store`. `Worksheet`
-maps hidden rows to zero-height rows in `DimensionIndex` so rendering, hit
-testing, and scrolling all stay consistent without deleting underlying data.
+draws hidden rows at zero height through the `DimensionIndex` hidden layer,
+so rendering, hit testing, and scrolling all stay consistent without deleting
+underlying data.
 
 #### Filter-Range Sorting
 
@@ -762,18 +763,34 @@ draws:
 
 ### DimensionIndex
 
-`DimensionIndex` manages variable row heights or column widths. It stores only
-non-default sizes in a `Map<number, number>` and provides:
+`DimensionIndex` manages variable row heights or column widths. An index's
+size comes from three layers, each holding only non-default entries:
 
-- `getSize(index)` — Returns custom or default size.
+- **stored** — sizes somebody chose, as the document records them. `setSize`
+  and `clear` write it, and `Sheet.loadDimensions` replaces it from the store.
+  Any stored write, the default included, drops the fitted size at that index.
+- **fitted** — row heights the view computed from the content (see below),
+  each with the row axis ID it was fitted for. Never written to the document,
+  so a reload leaves them alone; `realignFitted(order)` moves each to wherever
+  its axis ID now sits and drops the ones whose row is gone.
+- **hidden** — indices drawn at zero (`setHidden`), whatever the other layers
+  hold, so a row or column shown again gets its size back with nothing saved
+  for it.
+
+`getSize` is 0 for a hidden index, else the stored size, else the fitted
+size, else the default. The cache below merges the three layers, so the
+lookups cost the same as with one. It provides:
+
+- `getSize(index)` — Returns the size the layers come to.
 - `getOffset(index)` — Pixel offset of the start of a 1-based row/column.
   Uses cached sorted custom indices plus prefix deltas to resolve in
   `O(log customCount)`.
 - `findIndex(offset)` — Uses cached custom start offsets with binary search to
   find which row/column a pixel offset falls into.
-- `shift(index, count)` — Adjusts keys when rows/columns are inserted or
-  deleted.
-- `move(src, count, dst)` — Remaps keys when rows/columns are moved.
+- `shift(index, count)` — Adjusts every layer's keys when rows/columns are
+  inserted or deleted.
+- `move(src, count, dst)` — Remaps every layer's keys when rows/columns are
+  moved.
 
 Default sizes: **23px** row height, **100px** column width.
 
@@ -781,7 +798,8 @@ Default sizes: **23px** row height, **100px** column width.
 
 A row with **no** `rowHeights` entry is as tall as its content. `Worksheet`
 recomputes those heights in `applyAutoRowHeights()` during `renderSheet()`
-and writes them into the local `DimensionIndex` only — nothing is persisted.
+and writes them into the local `DimensionIndex`'s fitted layer only — nothing
+is persisted.
 A row **with** a `rowHeights`
 entry was pinned by an explicit gesture (dragging the row border) or by
 `PUT .../dimensions`, and is never overruled; double-clicking its border
@@ -814,10 +832,67 @@ mirror case and is handled the other way: it keeps whatever height it has
 rather than being shrunk on evidence nobody read, which would otherwise let
 the fetched range and the height chase each other from frame to frame.
 
-Rows excluded from measurement — hidden rows, and merge anchors — are
-excluded from the shrink branch too. Sizing a row inside the frozen pane
-rebuilds the cached `FreezeState`, whose `frozenHeight` is a pixel offset
-read off the same `DimensionIndex`.
+Merge anchors, excluded from measurement, are excluded from the shrink branch
+too. Hidden rows are measured like any other: the hidden layer draws them at
+zero whatever their fitted height, which is then ready when they are shown.
+Sizing a row inside the frozen pane, or hiding or showing rows, rebuilds the
+cached `FreezeState`, whose `frozenHeight` is a pixel offset read off the
+same `DimensionIndex`.
+
+Because fitted heights exist only in the `DimensionIndex`, a reload from the
+store must not drop them. Every remote change runs `Worksheet.reloadDimensions`
+and every undo or redo replays through `Sheet.loadDimensions`, and the overlay
+can be drawn — on the presence update that comes with a peer's edit — before
+the next `renderSheet()` fits the rows again. A reload that rebuilt the index
+from `rowHeights` alone made that overlay read default heights, and put the
+selection, peer cursors and fill handle below a fitted row as many pixels too
+high as the rows above it had grown (#1123).
+
+That is why the fitted heights are a layer of their own: `loadDimensions`
+replaces only the stored layer. The change being loaded may have inserted,
+deleted or moved rows without `shift` or `move` ever running — a peer's — so
+before the stored sizes go back in, `loadDimensions` realigns the fitted
+layer to the store's row order by axis ID. The order matters: a stored size
+drops the fitted size at its index, which by then must be the fitted size of
+the row that sits there, so a peer's pin lands on the row they pinned. The
+stored layer is cleared before the store is read, so a height set locally
+while the read is awaited stays in the layer even if the read missed it.
+
+Each `renderSheet()` takes one copy of the row order (`takeRowAxis`) — it
+copies the whole axis, so a pass takes no more than the one it always took
+for the painter — and realigns the fitted layer to it. The grid is read and
+painted against that copy, and the fit records each fitted height under the
+axis ID the copy gives its row.
+
+The fit pass awaits, and a reload or a local insert, delete or move can land
+meanwhile. It does not hold off for them; it keeps track of which row each
+index meant. Before it reads the merges and the remaining columns, and again
+after its last await, it asks whether the copy may have gone stale
+(`rowAxisNow`): `DimensionIndex.getRenumberings()` counts every `shift` and
+`move`, every realign that moved a height, and every `clear` — a reload,
+whether from a peer's change, an undo or a redo — and the store's O(1) axis
+length catches a peer's insert or delete. Only then does it copy the order
+again, and map the merges, the remaining columns and its writes between the
+orders by axis ID (`axisTranslator`). What this cannot see is a change the
+store already holds but the view has not reloaded yet, landing mid-pass. Both
+stores answer reads synchronously, so a pass that awaits only them never
+meets one; with a store that did, a merge or a right-hand cell could be read
+against the wrong row for that pass, and the reload that follows realigns
+the heights and paints again. A row's range check — whether it was inside
+the fetched range — uses the index it had when the grid was read.
+
+Axis IDs reach only as far as the last row ever written, so an index past
+them has no ID: the translation leaves it as it is, which is harmless since
+writing a cell gives its row an ID. A store with no axis IDs at all — the
+read-only result sets of data-source and lakehouse views, and the memory
+store — cannot say where a fitted row went, so `loadDimensions` drops the
+fitted layer there and the rows are measured again; a data-source refresh
+loads different rows altogether.
+
+The fitted layer is the one place the view keeps axis IDs of its own, rather
+than converting at the `Store` boundary as `axis-id-selection.md` describes.
+It is a cache of measurements, never written back, and `realignFitted` is the
+conversion.
 
 ### Freeze Panes
 

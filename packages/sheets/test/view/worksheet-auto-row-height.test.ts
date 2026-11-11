@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Worksheet } from '../../src/view/worksheet';
 import { autoRowHeight } from '../../src/view/auto-row-height';
 import { DefaultCellHeight } from '../../src/view/layout';
@@ -13,6 +13,7 @@ const applyAutoRowHeights = (
       grid: Grid,
       maxRow: number,
       maxCol: number,
+      axis: RowAxis,
     ) => Promise<boolean>;
   }
 ).applyAutoRowHeights;
@@ -22,6 +23,12 @@ const fetchRowRemainder = (
     fetchRowRemainder: (...args: Array<unknown>) => Promise<Grid>;
   }
 ).fetchRowRemainder;
+
+const rowAxisNow = (
+  Worksheet.prototype as unknown as {
+    rowAxisNow: (...args: Array<unknown>) => unknown;
+  }
+).rowAxisNow;
 
 const updateFreezeState = (
   Worksheet.prototype as unknown as {
@@ -33,16 +40,19 @@ const updateFreezeState = (
  * The real grid spans every column, so a fake sheet that answers `fetchGrid`
  * from a fixed map is what lets a test put a tall cell to the right of the
  * fetched viewport.
+ *
+ * `order` is the row order the store holds, `r1`, `r2`, … unless a test
+ * changes it; `onPinnedRead` runs inside the pass's last await, which is
+ * where a peer's change or a local edit lands while the pass is suspended.
  */
 type Context = {
   sheet: unknown;
   resizeDragging: boolean;
-  hiddenRows: Set<number>;
-  autoSizedRows: Set<number>;
   rowDim: DimensionIndex;
   colDim: DimensionIndex;
   freezeState: FreezeState;
   fetchRowRemainder: typeof fetchRowRemainder;
+  rowAxisNow: typeof rowAxisNow;
   updateFreezeState: typeof updateFreezeState;
 };
 
@@ -53,15 +63,29 @@ const createContext = (options?: {
   merges?: Array<[Sref, MergeSpan]>;
   offscreen?: Grid;
   frozenRows?: number;
-}): Context => {
+  order?: Array<string>;
+  onPinnedRead?: () => void;
+}): Context & {
+  order: Array<string>;
+  store: { getRowOrder: ReturnType<typeof vi.fn> };
+} => {
   const rowDim = new DimensionIndex(DefaultCellHeight);
   const colDim = new DimensionIndex(100);
   const offscreen = options?.offscreen ?? new Map();
+  const order = options?.order ?? ids(50);
+  const store = {
+    getDimensionSizes: async () => {
+      options?.onPinnedRead?.();
+      return new Map(options?.pinned ?? []);
+    },
+    getRowOrder: vi.fn(() => [...order]),
+    getAxisCoverage: () => ({ rows: order.length, cols: 0 }),
+  };
   return {
+    order,
+    store,
     sheet: {
-      getStore: () => ({
-        getDimensionSizes: async () => new Map(options?.pinned ?? []),
-      }),
+      getStore: () => store,
       getMerges: () => new Map(options?.merges ?? []),
       getDimension: () => ({ rows: 1000000, columns: DefaultColumns }),
       getFreezePane: () => ({
@@ -80,14 +104,13 @@ const createContext = (options?: {
       },
     },
     resizeDragging: false,
-    hiddenRows: new Set<number>(),
-    autoSizedRows: new Set<number>(),
     rowDim,
     colDim,
     freezeState: options?.frozenRows
       ? buildFreezeState(options.frozenRows, 0, rowDim, colDim)
       : NoFreeze,
     fetchRowRemainder,
+    rowAxisNow,
     updateFreezeState,
   };
 };
@@ -101,6 +124,24 @@ const colOf = (sref: string): number => {
   return col;
 };
 
+type RowAxis = { order: Array<string>; renumberings: number; coverage: number };
+
+/**
+ * The row order `renderSheet` would hand the pass: `order` if given (what the
+ * grid was read against, before a change the test lands mid-pass), else what
+ * the store holds now.
+ */
+const axisOf = (
+  ctx: { rowDim: DimensionIndex; order: Array<string> },
+  order: Array<string> = ctx.order,
+): RowAxis => ({
+  order: [...order],
+  renumberings: ctx.rowDim.getRenumberings(),
+  coverage: order.length,
+});
+
+const ids = (n: number) => Array.from({ length: n }, (_, i) => `r${i + 1}`);
+
 const multiLineGrid = (...srefs: Array<Sref>): Grid =>
   new Map(srefs.map((sref) => [sref, { v: 'first\nsecond' }]));
 
@@ -113,38 +154,77 @@ describe('Worksheet.applyAutoRowHeights', () => {
       multiLineGrid('A1'),
       10,
       5,
+      axisOf(ctx),
     );
 
     expect(changed).toBe(true);
     expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
-    expect(ctx.autoSizedRows.has(1)).toBe(true);
+    // Fitted, not stored: a reload from the store replaces only the latter.
+    expect(ctx.rowDim.getFittedSize(1)).toBe(autoRowHeight(2));
+    expect(ctx.rowDim.hasCustomSizes()).toBe(false);
   });
 
   it('reports no change once the rows already fit', async () => {
     const ctx = createContext();
-    await applyAutoRowHeights.call(ctx, multiLineGrid('A1'), 10, 5);
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A1'),
+      10,
+      5,
+      axisOf(ctx),
+    );
 
     expect(
-      await applyAutoRowHeights.call(ctx, multiLineGrid('A1'), 10, 5),
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx),
+      ),
     ).toBe(false);
   });
 
   it('returns a row to the default height when its content shrinks', async () => {
     const ctx = createContext();
-    await applyAutoRowHeights.call(ctx, multiLineGrid('A1'), 10, 5);
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A1'),
+      10,
+      5,
+      axisOf(ctx),
+    );
 
-    const changed = await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
+    const changed = await applyAutoRowHeights.call(
+      ctx,
+      new Map(),
+      10,
+      5,
+      axisOf(ctx),
+    );
 
     expect(changed).toBe(true);
     expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
-    expect(ctx.autoSizedRows.size).toBe(0);
+    expect(ctx.rowDim.hasFittedSizes()).toBe(false);
   });
 
   it('leaves a row that fell out of the fetched range alone', async () => {
     const ctx = createContext();
-    await applyAutoRowHeights.call(ctx, multiLineGrid('A8'), 10, 5);
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A8'),
+      10,
+      5,
+      axisOf(ctx),
+    );
 
-    const changed = await applyAutoRowHeights.call(ctx, new Map(), 5, 5);
+    const changed = await applyAutoRowHeights.call(
+      ctx,
+      new Map(),
+      5,
+      5,
+      axisOf(ctx),
+    );
 
     expect(changed).toBe(false);
     expect(ctx.rowDim.getSize(8)).toBe(autoRowHeight(2));
@@ -159,30 +239,46 @@ describe('Worksheet.applyAutoRowHeights', () => {
       multiLineGrid('A1'),
       10,
       5,
+      axisOf(ctx),
     );
 
     expect(changed).toBe(false);
     expect(ctx.rowDim.getSize(1)).toBe(60);
   });
 
-  it('leaves hidden rows at zero height', async () => {
+  it('measures a hidden row, drawing it at zero until it is shown', async () => {
     const ctx = createContext();
-    // Seed the row as auto-sized so the pass has a candidate to walk: the
-    // hidden-row guard is what has to spare it, not the early return.
-    ctx.autoSizedRows.add(1);
-    ctx.hiddenRows.add(1);
-    ctx.rowDim.setSize(1, 0);
+    ctx.rowDim.setHidden([1]);
 
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A1'),
+      10,
+      5,
+      axisOf(ctx),
+    );
+
+    expect(ctx.rowDim.getSize(1)).toBe(0);
+    ctx.rowDim.setHidden([]);
+    expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
+  });
+
+  it('drops the fitted height of a row somebody pinned', async () => {
+    const ctx = createContext({ pinned: [[1, DefaultCellHeight]] });
+    ctx.rowDim.setFittedSize(1, autoRowHeight(2), 'r1');
+
+    // Pinned to the default, which `rowDim` stores as no entry at all: the
+    // fitted height would otherwise still be what is drawn.
     const changed = await applyAutoRowHeights.call(
       ctx,
       multiLineGrid('A1'),
       10,
       5,
+      axisOf(ctx),
     );
 
-    expect(changed).toBe(false);
-    expect(ctx.rowDim.getSize(1)).toBe(0);
-    expect(ctx.autoSizedRows.has(1)).toBe(true);
+    expect(changed).toBe(true);
+    expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
   });
 
   it('skips the anchor row of a merge spanning several rows', async () => {
@@ -193,6 +289,7 @@ describe('Worksheet.applyAutoRowHeights', () => {
       multiLineGrid('A1'),
       10,
       5,
+      axisOf(ctx),
     );
 
     expect(changed).toBe(false);
@@ -201,20 +298,26 @@ describe('Worksheet.applyAutoRowHeights', () => {
 
   it('keeps an auto-sized row at its height once it becomes a merge anchor', async () => {
     const ctx = createContext();
-    await applyAutoRowHeights.call(ctx, multiLineGrid('A1'), 10, 5);
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A1'),
+      10,
+      5,
+      axisOf(ctx),
+    );
     expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
 
     // The same row, now the anchor of a two-row merge: it is excluded from
     // measurement, so it must not be shrunk by the same pass either.
     const merged = createContext({ merges: [['A1', { rs: 2, cs: 1 }]] });
     merged.rowDim = ctx.rowDim;
-    merged.autoSizedRows = ctx.autoSizedRows;
 
     const changed = await applyAutoRowHeights.call(
       merged,
       multiLineGrid('A1'),
       10,
       5,
+      axisOf(merged),
     );
 
     expect(changed).toBe(false);
@@ -231,6 +334,7 @@ describe('Worksheet.applyAutoRowHeights', () => {
       multiLineGrid('A1'),
       10,
       5,
+      axisOf(ctx),
     );
 
     expect(changed).toBe(false);
@@ -241,7 +345,13 @@ describe('Worksheet.applyAutoRowHeights', () => {
     const ctx = createContext({ offscreen: multiLineGrid('Z1') });
 
     // The painter fetched columns A..E only; the tall cell lives in Z.
-    const changed = await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
+    const changed = await applyAutoRowHeights.call(
+      ctx,
+      new Map(),
+      10,
+      5,
+      axisOf(ctx),
+    );
 
     expect(changed).toBe(true);
     expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
@@ -249,12 +359,24 @@ describe('Worksheet.applyAutoRowHeights', () => {
 
   it('keeps a row at its height when its tall cell scrolls off to the right', async () => {
     const ctx = createContext({ offscreen: multiLineGrid('Z1') });
-    await applyAutoRowHeights.call(ctx, multiLineGrid('Z1'), 10, 26);
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('Z1'),
+      10,
+      26,
+      axisOf(ctx),
+    );
     expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
 
     // Scrolled back left: the painted grid no longer holds Z1, but the row
     // is still as tall as its tallest cell.
-    const changed = await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
+    const changed = await applyAutoRowHeights.call(
+      ctx,
+      new Map(),
+      10,
+      5,
+      axisOf(ctx),
+    );
 
     expect(changed).toBe(false);
     expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
@@ -269,6 +391,7 @@ describe('Worksheet.applyAutoRowHeights', () => {
       multiLineGrid('A1'),
       10,
       5,
+      axisOf(ctx),
     );
 
     expect(changed).toBe(true);
@@ -281,8 +404,238 @@ describe('Worksheet.applyAutoRowHeights', () => {
     const ctx = createContext({ frozenRows: 2 });
     const before = ctx.freezeState;
 
-    await applyAutoRowHeights.call(ctx, multiLineGrid('A5'), 10, 5);
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A5'),
+      10,
+      5,
+      axisOf(ctx),
+    );
 
     expect(ctx.freezeState).toBe(before);
+  });
+
+  it('records the axis ID of each row it fits, so the height can follow the row', async () => {
+    const ctx = createContext();
+    await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A3'),
+      10,
+      5,
+      axisOf(ctx),
+    );
+
+    // A peer inserts a row at the top; the reload realigns `rowDim`.
+    ctx.rowDim.realignFitted(['peer', ...ids(50)]);
+
+    expect(ctx.rowDim.getSize(3)).toBe(DefaultCellHeight);
+    expect(ctx.rowDim.getSize(4)).toBe(autoRowHeight(2));
+  });
+
+  it('copies the row order no more when nothing renumbered rows', async () => {
+    const ctx = createContext({ offscreen: multiLineGrid('Z2') });
+    const axis = axisOf(ctx);
+
+    await applyAutoRowHeights.call(ctx, multiLineGrid('A1'), 10, 5, axis);
+
+    // `renderSheet` took the one copy (`axis`); a copy per frame on top would
+    // cost what the axis is long.
+    expect(ctx.store.getRowOrder).not.toHaveBeenCalled();
+    expect(ctx.rowDim.getSize(2)).toBe(autoRowHeight(2));
+  });
+
+  describe('when rows are renumbered while it awaits', () => {
+    // `renderSheet` read the grid against `measuredOrder`; a peer's insert at
+    // the top landed during that fetch, so the store now holds `order`.
+    const shifted = () => {
+      const measuredOrder = ids(50);
+      return { measuredOrder, order: ['peer', ...ids(50)] };
+    };
+
+    it('reads the remaining columns in the grid’s row numbering', async () => {
+      const { measuredOrder, order } = shifted();
+      // r1's tall cell, off to the right, read after the insert: at row 2.
+      const ctx = createContext({ order, offscreen: multiLineGrid('Z2') });
+
+      await applyAutoRowHeights.call(
+        ctx,
+        new Map(),
+        10,
+        5,
+        axisOf(ctx, measuredOrder),
+      );
+
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(2)).toBe(autoRowHeight(2));
+      expect(ctx.rowDim.getSize(3)).toBe(DefaultCellHeight);
+    });
+
+    it('reads the merges in the grid’s row numbering', async () => {
+      const { measuredOrder, order } = shifted();
+      // r1 anchors a two-row merge, read after the insert: at row 2.
+      const ctx = createContext({ order, merges: [['A2', { rs: 2, cs: 1 }]] });
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx, measuredOrder),
+      );
+
+      expect(ctx.rowDim.hasFittedSizes()).toBe(false);
+    });
+
+    // A move keeps the axis length, so only `rowDim`'s renumbering count
+    // says the copy `renderSheet` took has gone stale.
+    const moveFirstRowToThird = (ctx: { order: Array<string> }) =>
+      ctx.order.splice(2, 0, ...ctx.order.splice(0, 1));
+
+    it('follows a local move, which keeps the axis length', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => {
+          moveFirstRowToThird(ctx);
+          ctx.rowDim.move(1, 1, 4);
+        },
+      });
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx),
+      );
+
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(3)).toBe(autoRowHeight(2));
+      // Under r1's axis ID, so the next pass's realign leaves it there.
+      ctx.rowDim.realignFitted(ctx.order);
+      expect(ctx.rowDim.getSize(3)).toBe(autoRowHeight(2));
+    });
+
+    it('follows a reload that brought in a peer’s move', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => {
+          moveFirstRowToThird(ctx);
+          // What `Sheet.loadDimensions` does to `rowDim`, with no fitted
+          // height yet to realign.
+          ctx.rowDim.clear();
+        },
+      });
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx),
+      );
+
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(3)).toBe(autoRowHeight(2));
+    });
+
+    it('sizes the row it measured where a peer’s insert moved it', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 0, 'peer'),
+      });
+      const measuredOrder = [...ctx.order];
+
+      const changed = await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx, measuredOrder),
+      );
+
+      expect(changed).toBe(true);
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(2)).toBe(autoRowHeight(2));
+    });
+
+    it('sizes nothing for a row a peer deleted', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 1),
+      });
+      const measuredOrder = [...ctx.order];
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        axisOf(ctx, measuredOrder),
+      );
+
+      expect(ctx.rowDim.hasFittedSizes()).toBe(false);
+    });
+
+    it('follows a local insert, which renumbers `rowDim` as well', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => {
+          ctx.order.splice(0, 0, 'new');
+          ctx.rowDim.shift(1, 1);
+        },
+      });
+      ctx.rowDim.setFittedSize(5, autoRowHeight(3), 'r5');
+      const measuredOrder = [...ctx.order];
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1', 'A5'),
+        10,
+        5,
+        axisOf(ctx, measuredOrder),
+      );
+
+      // r1 measured at 1 now sits at 2; r5 shrank to two lines, at 6.
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(2)).toBe(autoRowHeight(2));
+      expect(ctx.rowDim.getSize(5)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(6)).toBe(autoRowHeight(2));
+    });
+
+    it('shrinks a row it measured short back to the default where it now sits', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 0, 'peer'),
+      });
+      ctx.rowDim.setFittedSize(3, autoRowHeight(2), 'r3');
+      const measuredOrder = [...ctx.order];
+
+      // Row 3's tall value is gone; a peer's insert lands mid-pass.
+      const changed = await applyAutoRowHeights.call(
+        ctx,
+        new Map(),
+        10,
+        5,
+        axisOf(ctx, measuredOrder),
+      );
+
+      expect(changed).toBe(true);
+      expect(ctx.rowDim.hasFittedSizes()).toBe(false);
+    });
+
+    it('leaves a fitted row alone that was past the range it measured', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 1),
+      });
+      ctx.rowDim.setFittedSize(11, autoRowHeight(2), 'r11');
+      const measuredOrder = [...ctx.order];
+
+      // Rows 1..10 are measured; a peer's delete of row 1 then pulls r11 up
+      // to 10, inside that range, though its content was never read.
+      await applyAutoRowHeights.call(
+        ctx,
+        new Map(),
+        10,
+        5,
+        axisOf(ctx, measuredOrder),
+      );
+
+      expect(ctx.rowDim.getFittedIndices()).toEqual([10]);
+      expect(ctx.rowDim.getSize(10)).toBe(autoRowHeight(2));
+    });
   });
 });

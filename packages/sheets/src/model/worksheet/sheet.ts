@@ -522,11 +522,32 @@ export class Sheet {
 
   /**
    * `loadDimensions` loads saved dimension sizes from the store into the DimensionIndex.
+   *
+   * Only the stored layer is replaced. Row heights fitted to their content
+   * are not in the store, so they stay, moved to wherever their rows now sit:
+   * the change being loaded may have inserted, deleted or moved rows without
+   * this `DimensionIndex` seeing it (`DimensionIndex.realignFitted`).
    */
   async loadDimensions(): Promise<void> {
     if (this.rowDimensions) {
+      // Cleared before the read: a height set locally while it is awaited
+      // lands in the store and in the layer, and stays even if the read
+      // missed it.
       this.rowDimensions.clear();
       const rowHeights = await this.store.getDimensionSizes('row');
+      // Before the stored sizes go in: each drops the fitted size at its
+      // index, which must by then be the fitted size of the row that is there.
+      if (this.rowDimensions.hasFittedSizes()) {
+        const order = this.store.getRowOrder();
+        if (order.length > 0) {
+          this.rowDimensions.realignFitted(order);
+        } else {
+          // No axis IDs (a read-only result set, the memory store): nothing
+          // says where a fitted row went, and a read-only view reloads to show
+          // different rows altogether. Its rows are measured again.
+          this.rowDimensions.clearFitted();
+        }
+      }
       for (const [index, size] of rowHeights) {
         this.rowDimensions.setSize(index, size);
       }
