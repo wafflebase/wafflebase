@@ -17,12 +17,14 @@ re-arms the close after it was cancelled.
 
 ## Tasks
 
-- [x] Move the card's open/close state out of `sheet-view.tsx` into
-      `useLinkHoverCard`, which ignores the engine's `null` while the pointer
-      is inside the card
-- [x] Reset the "pointer in card" flag whenever the card closes (it unmounts
-      without a `pointerleave`)
-- [x] Tests for the hook, including the `pointerenter` → `null` order
+- [x] `LinkCardAttribute` (`data-sheet-link-card`): the host marks the card's
+      wrapper with it
+- [x] `handleScrollContainerMouseLeave` keeps the hover when the pointer
+      leaves into the card
+- [x] `handleScrollContainerMouseEnter`: back from the card onto the same cell
+      re-sends the card; from anywhere else, forget a stale hover
+- [x] Tests for the hand-off in `worksheet-links.test.ts`
 - [x] Update §5 of `docs/design/sheets/sheet-hyperlink.md`
 - [x] `pnpm verify:fast`
-- [x] Manual check in `pnpm dev`: the card stays open and its link opens
+- [x] Manual check in `pnpm dev`
+

@@ -17,26 +17,38 @@
 
 ## Self review
 
-- Round 1 (correctness and tests, self): no blocking findings.
-  - Considered fixing it in the engine (skip `resetLinkHover` when
-    `relatedTarget` is inside the card). That needs the engine to know
-    about a host DOM node; the host already owns the card and its pointer
-    events, so the fix stays in the frontend.
-  - Considered a remote edit removing the hovered cell's links while the
-    pointer is inside the card. The engine's hover was already reset by
-    the `mouseleave`, so it sends no update and the card keeps listing the
-    old links until the pointer leaves it. Before this change the card had
-    closed anyway, so this is not a regression. Left as a known limitation.
-  - The "pointer in card" flag is cleared on every close path (timer,
-    `dismiss`), because an unmounted card fires no `pointerleave`. Covered
-    by a test.
-  - Stopped after one round: the change is a small hook with tests that
-    fail without it.
+- Round 1 (correctness and tests, self): no blocking findings on the first,
+  host-side version. That review was wrong; see below.
+
+## Review panel
+
+- Round 1 (`@claude review`, 4 blocking, two pairs of duplicates). The first
+  version made the host ignore every engine `null` while the pointer was in
+  the card. Accepted both points:
+  - Too broad: it also swallowed the engine's scroll-time `resetLinkHover`,
+    which exists so the card is not re-anchored to a cell that has moved.
+  - The "pointer in card" flag stuck when the card unmounted without a
+    `pointerleave` (preview opening, loading), disabling auto-close.
+- Checking the panel's scroll case in the browser found more than it said:
+  once the pointer was in the card, `mouseleave` had already reset the
+  engine's hover, so a scroll sent no `null` at all — under the host-side
+  rule *and* under a narrower "ignore only the same-task `null`" rule. The
+  host cannot fix that; the hover state lives in the engine. So the fix moved
+  there: the host marks the card with `LinkCardAttribute`, the engine keeps
+  the hover across a leave into the card and re-sends the card when the
+  pointer comes back onto the cell. The host-side hook was dropped, and
+  `sheet-view.tsx` only gains the attribute.
+- Side effect worth keeping: a peer's edit to the hovered cell now refreshes
+  or closes the card while the pointer rests in it, because the engine still
+  knows the hover (`refreshLinkHoverAfterRender`, covered by its existing
+  tests; not exercised by hand). The first version listed that as a known
+  limitation.
 
 ## Verification
 
 - `pnpm verify:fast` green.
 - `pnpm dev`: moving straight from a link cell into the card kept it open
-  5 of 5 times (on wafflebase.io before the fix it closed every time), and
-  clicking a link in it opened the link in a new tab. Leaving the card, or
-  leaving the cell sideways, still closes it.
+  5 of 5 times (on wafflebase.io before the fix it closed every time);
+  scrolling the grid with the pointer resting in the card closed it; moving
+  back onto the cell kept it; leaving to an empty cell closed it; clicking a
+  link in it opened the link in a new tab.

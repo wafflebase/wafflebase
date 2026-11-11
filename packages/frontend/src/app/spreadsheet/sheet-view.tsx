@@ -14,6 +14,8 @@ import {
   type Thread,
   type CommentAuthor,
   type CommentAnchor,
+  LinkCardAttribute,
+  type LinkHoverInfo,
   type UndoSelection,
 } from "@wafflebase/sheets";
 import {
@@ -58,7 +60,6 @@ import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 import { CommentPopover } from "./components/comments/CommentPopover";
 import { SheetLinkPopover } from "./components/SheetLinkPopover";
-import { useLinkHoverCard } from "./use-link-hover-card";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { copyThread } from "./yorkie-worksheet-comments";
 import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
@@ -268,13 +269,26 @@ export function SheetView({
     isMobileRef.current = isMobile;
   }, [isMobile]);
   // Hyperlink hover card (docs/design/sheets/sheet-hyperlink.md §5).
-  const {
-    linkHover,
-    onEngineLinkHover,
-    onCardPointerEnter: onLinkCardPointerEnter,
-    onCardPointerLeave: onLinkCardPointerLeave,
-    dismiss: dismissLinkHover,
-  } = useLinkHoverCard();
+  const [linkHover, setLinkHover] = useState<LinkHoverInfo | null>(null);
+  const linkHoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const cancelLinkHoverClose = useCallback(() => {
+    if (linkHoverCloseTimerRef.current !== null) {
+      clearTimeout(linkHoverCloseTimerRef.current);
+      linkHoverCloseTimerRef.current = null;
+    }
+  }, []);
+  // Long enough to cross the few pixels between the cell and the card, which
+  // belong to neither and so read to the engine as "the pointer left".
+  const scheduleLinkHoverClose = useCallback(() => {
+    cancelLinkHoverClose();
+    linkHoverCloseTimerRef.current = setTimeout(() => {
+      linkHoverCloseTimerRef.current = null;
+      setLinkHover(null);
+    }, 250);
+  }, [cancelLinkHoverClose]);
+  useEffect(() => cancelLinkHoverClose, [cancelLinkHoverClose]);
 
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const lastHandledCommentJumpRequestIdRef = useRef(0);
@@ -1169,9 +1183,15 @@ export function SheetView({
 
       // Hyperlink hover card. The engine reports `null` as soon as the pointer
       // leaves the cell — including when it is on its way into the card — so
-      // closing is deferred, and ignored while the pointer is in the card
-      // (`useLinkHoverCard`).
-      s.onLinkHover(onEngineLinkHover);
+      // closing is deferred and the card cancels it on enter.
+      s.onLinkHover((info) => {
+        if (info) {
+          cancelLinkHoverClose();
+          setLinkHover(info);
+        } else {
+          scheduleLinkHoverClose();
+        }
+      });
 
       // An undo can replay a step that belongs to another tab — Yorkie's
       // history is per document, this engine is per tab. Without this the
@@ -1479,7 +1499,7 @@ export function SheetView({
       // unmounting SheetView — leaving a card anchored by cell reference to
       // the *new* tab's cell of the same name, still listing the old tab's
       // URLs.
-      dismissLinkHover();
+      setLinkHover(null);
       storeRef.current = undefined;
       if (selectionFrame !== null) {
         cancelAnimationFrame(selectionFrame);
@@ -1496,14 +1516,14 @@ export function SheetView({
       }
     };
   }, [
+    cancelLinkHoverClose,
     clearPaintFormatState,
     didMount,
     containerRef,
-    dismissLinkHover,
     doc,
     tabId,
-    onEngineLinkHover,
     readOnly,
+    scheduleLinkHoverClose,
     theme,
   ]);
 
@@ -2029,6 +2049,10 @@ export function SheetView({
         {linkHover && !previewing && (
           <div
             ref={linkPopoverWrapperRef}
+            // Tells the engine the pointer moving in here has not left the
+            // cell, so it keeps the hover — and can still close the card on a
+            // scroll — while the pointer rests in it.
+            {...{ [LinkCardAttribute]: "" }}
             className="absolute z-30"
             style={{
               left: linkPopoverPos?.left ?? 0,
@@ -2038,8 +2062,8 @@ export function SheetView({
           >
             <SheetLinkPopover
               urls={linkHover.urls}
-              onPointerEnter={onLinkCardPointerEnter}
-              onPointerLeave={onLinkCardPointerLeave}
+              onPointerEnter={cancelLinkHoverClose}
+              onPointerLeave={scheduleLinkHoverClose}
             />
           </div>
         )}

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Worksheet } from '../../src/view/worksheet';
+import { LinkCardAttribute, Worksheet } from '../../src/view/worksheet';
 import { RenderedLink } from '../../src/view/gridcanvas';
 import { parseRef } from '../../src/model/core/coordinates';
 
@@ -223,6 +223,128 @@ describe('updateLinkHover', () => {
         sref: 'C5',
         urls: ['https://example.com'],
       });
+    });
+  });
+});
+
+/**
+ * The host's card floats over the grid but sits outside its scroll container,
+ * so the pointer moving into it fires the container's `mouseleave`. Treating
+ * that as "the pointer left" reset the hover and closed the card under a
+ * resting pointer (#1124). The card is marked with `LinkCardAttribute`; moves
+ * into and back out of it are handed off instead.
+ */
+describe('link card handoff', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  type HandoffCtx = HoverCtx & {
+    handleScrollContainerMouseLeave(e: { relatedTarget: unknown }): void;
+    handleScrollContainerMouseEnter(e: { relatedTarget: unknown }): void;
+  };
+
+  const card = {
+    closest: (selector: string) =>
+      selector === `[${LinkCardAttribute}]` ? card : null,
+  };
+  const elsewhere = { closest: () => null };
+
+  function handoffCtx(): { ctx: HandoffCtx; a: RenderedLink } {
+    const a = link('C5', 'https://example.com');
+    const ctx = Object.assign(hoverCtx([a], { C5: [a] }), {
+      returningFromLinkCard: false,
+      hoveredValidationCandidate: null,
+      hideValidationTooltip: () => {},
+      hoveredPeerClientID: null,
+      gridContainer: { getScrollContainer: () => ({ style: {} }) },
+      filterButtonHoverCol: null,
+      resizeHover: null,
+      freezeHandleHover: null,
+      hiddenIndicatorHover: null,
+      render: () => {},
+      handleScrollContainerMouseLeave: proto.handleScrollContainerMouseLeave,
+      handleScrollContainerMouseEnter: proto.handleScrollContainerMouseEnter,
+    }) as unknown as HandoffCtx;
+    // Open the card on C5.
+    ctx.updateLinkHover(120, 105);
+    vi.advanceTimersByTime(300);
+    ctx.onLinkHoverCallback.mockClear();
+    return { ctx, a };
+  }
+
+  it('keeps the hover when the pointer leaves the grid for the card', () => {
+    const { ctx } = handoffCtx();
+
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+
+    expect(ctx.onLinkHoverCallback).not.toHaveBeenCalled();
+    expect(ctx.hoveredLinkSref).toBe('C5');
+  });
+
+  it('still closes the card when the pointer leaves the grid elsewhere', () => {
+    const { ctx } = handoffCtx();
+
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: elsewhere });
+
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('closes the card on a scroll while the pointer rests in it', () => {
+    const { ctx } = handoffCtx();
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+
+    // The scroll handler's reset: the card must not be re-anchored to a cell
+    // that has moved.
+    ctx.resetLinkHover();
+
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('re-sends the card when the pointer comes back onto its cell', () => {
+    const { ctx } = handoffCtx();
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+
+    ctx.handleScrollContainerMouseEnter({ relatedTarget: card });
+    ctx.updateLinkHover(120, 105);
+
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith({
+      sref: 'C5',
+      urls: ['https://example.com'],
+    });
+    // Only the first move back says it again.
+    ctx.updateLinkHover(121, 105);
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the card when the pointer comes back onto another cell', () => {
+    const { ctx } = handoffCtx();
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+    ctx.handleScrollContainerMouseEnter({ relatedTarget: card });
+
+    (ctx as unknown as { toRefFromMouse: () => { r: number; c: number } })
+      .toRefFromMouse = () => ({ r: 9, c: 9 });
+    ctx.updateLinkHover(600, 600);
+
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('opens a fresh card after the pointer went out through the card', () => {
+    const { ctx } = handoffCtx();
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+
+    // Out of the card to the toolbar — the host closed the card — and back
+    // into the grid from there, straight onto the same cell.
+    ctx.handleScrollContainerMouseEnter({ relatedTarget: elsewhere });
+    ctx.updateLinkHover(120, 105);
+    vi.advanceTimersByTime(300);
+
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith({
+      sref: 'C5',
+      urls: ['https://example.com'],
     });
   });
 });

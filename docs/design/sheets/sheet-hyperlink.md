@@ -250,16 +250,28 @@ outside-click or Escape handler of its own: unlike the comment popover it is
 not opened by a click and owns no focus, so pointer-leave is the whole
 lifecycle — with the close deferred so the pointer can cross the gap into it.
 
-The engine cannot tell "the pointer left the cell for the card" from "the
-pointer left": the card sits outside the grid's scroll container, so entering
-it fires the container's `mouseleave`, whose handler resets the hover and
-reports `null`. Pointer events run before the compatibility mouse events, so
-that `null` arrives *after* the card's `pointerenter` has cancelled the
-pending close, and re-arming the close there shut the card under a resting
-pointer — the click meant for one of its links then landed on the cell
-beneath (#1124). The lifecycle lives in `useLinkHoverCard`, which ignores the
-engine's `null` while the pointer is inside the card; the card's own
-`pointerleave` closes it, and teardown dismisses it outright.
+The card sits outside the grid's scroll container, so the pointer moving
+into it fires the container's `mouseleave`. If that reset the hover, the
+engine would report `null` *after* the card's `pointerenter` had cancelled the
+pending close — pointer events run before the compatibility mouse events — and
+the card would shut under a resting pointer, sending the click meant for one
+of its links to the cell beneath (#1124). So the host marks the card's wrapper
+with `LinkCardAttribute` (`data-sheet-link-card`) and the engine treats moves
+across that boundary as a hand-off rather than a leave:
+
+- `mouseleave` into the card keeps the hover. The engine still knows which
+  cell the card belongs to, so a scroll — whose reset exists to stop the host
+  re-anchoring the card to a cell that has moved — and a peer's edit to the
+  cell (`refreshLinkHoverAfterRender`) still close or refresh the card while
+  the pointer rests in it.
+- `mouseenter` back from the card onto the same cell re-sends the card on the
+  first move, cancelling the close the card's `pointerleave` scheduled; onto
+  another cell, the usual close-then-open runs.
+- `mouseenter` from anywhere else forgets a hover left over from a pointer
+  that went out through the card, so the cell opens a fresh card.
+
+The host keeps no state of its own about where the pointer is; its close is
+still deferred so the pointer can cross the gap into the card.
 
 It does not reuse `docs-link-popover.tsx`. That component emits
 **client/fixed** coordinates and has no flip or clamp at all; and of its 286

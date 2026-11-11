@@ -16,9 +16,10 @@ import { Sheet } from '../model/worksheet/sheet';
 import { Store, UndoSelection } from '../store/store';
 import { MemStore } from '../store/memory';
 import { defaultAlign } from '../model/worksheet/input';
-import { LinkHoverInfo, Worksheet } from './worksheet';
+import { LinkCardAttribute, LinkHoverInfo, Worksheet } from './worksheet';
 
 export type { LinkHoverInfo };
+export { LinkCardAttribute };
 
 export type Theme = 'light' | 'dark';
 
