@@ -819,6 +819,19 @@ excluded from the shrink branch too. Sizing a row inside the frozen pane
 rebuilds the cached `FreezeState`, whose `frozenHeight` is a pixel offset
 read off the same `DimensionIndex`.
 
+Because fitted heights exist only in the `DimensionIndex`, a reload from the
+store must carry them. Every remote change runs `Worksheet.reloadDimensions`,
+and the overlay can be drawn — on the presence update that comes with a
+peer's edit — before the next `renderSheet()` fits the rows again. If the
+reload rebuilt the index from `rowHeights` alone, that overlay would read
+default heights and put the selection, peer cursors and fill handle below a
+fitted row as many pixels too high as the rows above it had grown (#1123). So
+`reloadDimensions` passes the heights of `autoSizedRows` to
+`Sheet.loadDimensions(fittedRows)`, which re-applies each one to a row the
+store has no entry for — a stored entry still wins — and reads both stores
+before it clears either index. Hidden rows are left out; the hidden-row pass
+that follows restores their size.
+
 ### Freeze Panes
 
 Freeze panes lock header rows/columns in place while scrolling. The Sheet class

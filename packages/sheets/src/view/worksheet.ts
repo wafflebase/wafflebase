@@ -5576,7 +5576,18 @@ export class Worksheet {
    * DimensionIndex objects. Call this when a remote change arrives.
    */
   public async reloadDimensions() {
-    await this.sheet!.loadDimensions();
+    // Fitted heights live only in `rowDim` (see `applyAutoRowHeights`), so
+    // hand them to the reload instead of letting it reset every fitted row to
+    // the default until the next render measures it again. A hidden row is
+    // zero-height in `rowDim`: its size comes back through the hidden-row
+    // pass below, not from here.
+    const fitted = new Map<number, number>();
+    for (const row of this.autoSizedRows) {
+      if (!this.hiddenRows.has(row)) {
+        fitted.set(row, this.rowDim.getSize(row));
+      }
+    }
+    await this.sheet!.loadDimensions(fitted);
     await this.sheet!.loadStyles();
     await this.sheet!.loadMerges();
     await this.sheet!.loadFreezePane();

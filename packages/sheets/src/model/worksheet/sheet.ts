@@ -522,18 +522,42 @@ export class Sheet {
 
   /**
    * `loadDimensions` loads saved dimension sizes from the store into the DimensionIndex.
+   *
+   * `fittedRows` carries the heights the view sized to content — rows with no
+   * stored entry (`Worksheet.applyAutoRowHeights`). Those are never persisted,
+   * so rebuilding the index from the store alone would drop them, and every
+   * remote change reloads dimensions: the layout would fall back to default
+   * heights until the next render fitted them again, and anything drawn in
+   * between — the overlay on a presence update — would land rows away from
+   * the grid it sits on. A stored entry still wins over a fitted one; it
+   * means somebody chose that height.
+   *
+   * Both maps are read before either index is touched, so nothing can observe
+   * an index that has been cleared and not yet refilled.
    */
-  async loadDimensions(): Promise<void> {
-    if (this.rowDimensions) {
+  async loadDimensions(
+    fittedRows?: ReadonlyMap<number, number>,
+  ): Promise<void> {
+    const rowHeights = this.rowDimensions
+      ? await this.store.getDimensionSizes('row')
+      : undefined;
+    const colWidths = this.colDimensions
+      ? await this.store.getDimensionSizes('column')
+      : undefined;
+
+    if (this.rowDimensions && rowHeights) {
       this.rowDimensions.clear();
-      const rowHeights = await this.store.getDimensionSizes('row');
       for (const [index, size] of rowHeights) {
         this.rowDimensions.setSize(index, size);
       }
+      for (const [index, size] of fittedRows ?? []) {
+        if (!rowHeights.has(index)) {
+          this.rowDimensions.setSize(index, size);
+        }
+      }
     }
-    if (this.colDimensions) {
+    if (this.colDimensions && colWidths) {
       this.colDimensions.clear();
-      const colWidths = await this.store.getDimensionSizes('column');
       for (const [index, size] of colWidths) {
         this.colDimensions.setSize(index, size);
       }
