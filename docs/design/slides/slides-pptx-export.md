@@ -209,7 +209,7 @@ expects to resolve them.
 | Freeform    | `<p:sp>` + `<a:custGeom>` | normalized path → `<a:pathLst>` with moveTo/lnTo/cubicBezTo/close      |
 | Image       | `<p:pic>`               | `<a:blip r:embed>` + media part; `crop`→`<a:srcRect>`; `opacity`→`<a:alphaModFix>`; `recolor`→`<a:grayscl>`/`<a:duotone>`; brightness/contrast→`<a:lum>` |
 | Table       | `<p:graphicFrame><a:tbl>` | `columnWidths`→`<a:gridCol>`; rows→`<a:tr>`; merges via `gridSpan`/`rowSpan` (and `hMerge`/`vMerge` on covered cells); per-side borders→`<a:lnL/R/T/B>` |
-| Connector   | `<p:cxnSp>`             | endpoint geometry + `<a:prstGeom>` line/elbow/curve; connection sites preserved |
+| Connector   | `<p:cxnSp>`             | endpoint geometry + `<a:prstGeom>` line/elbow/curve; `<a:ext>` is the path's unpadded bounds and `flipH`/`flipV` carry the drawing direction (`connectorExportFrame`). Attachments are **not** written (`<a:stCxn>`/`<a:endCxn>` need shape ids the exporter does not assign), so a glued connector re-imports free at the same corners, and an elbow's routed bends collapse to `bentConnector3`'s default |
 | Group       | `<p:grpSp>`             | `<a:grpSpPr>` with `<a:chOff>/<a:chExt>` so child coords match the importer's group-local read; recurse |
 
 Effects (`effects.ts`) attach an `<a:effectLst>` (`<a:outerShdw>`,

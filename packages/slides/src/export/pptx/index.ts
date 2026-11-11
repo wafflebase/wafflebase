@@ -45,7 +45,7 @@ import { resolveBackgroundFill } from '../../model/presentation.js';
 import { yieldToPaint } from '../yield.js';
 import type { ImageElement } from '../../model/element.js';
 import { flattenElements, buildElementWorldLookup } from '../../model/group.js';
-import { computeConnectorFrame } from '../../view/canvas/connector-frame.js';
+import { connectorExportFrame } from './connector-frame.js';
 import { PptxWriter } from './zip.js';
 import { REL_TYPES } from './templates.js';
 import { themeToXml } from './theme.js';
@@ -348,7 +348,7 @@ export async function exportPptx(
     const ctx: ElementXmlCtx = {
       resolveImageRId,
       resolveImageSize: (el) => srcToSize.get(el.data.src) ?? null,
-      connectorFrame: (el) => computeConnectorFrame(el, worldLookup),
+      connectorFrame: (el) => connectorExportFrame(el, worldLookup),
       resolveHyperlinkRId,
     };
 
