@@ -14,6 +14,7 @@ import {
   type Thread,
   type CommentAuthor,
   type CommentAnchor,
+  LinkCardAttribute,
   type LinkHoverInfo,
   type UndoSelection,
 } from "@wafflebase/sheets";
@@ -1180,9 +1181,10 @@ export function SheetView({
         toast.error(message);
       });
 
-      // Hyperlink hover card. The engine reports `null` as soon as the pointer
-      // leaves the cell — including when it is on its way into the card — so
-      // closing is deferred and the card cancels it on enter.
+      // Hyperlink hover card. The engine reports `null` once the pointer leaves
+      // the cell for anywhere but the card (the wrapper carries
+      // `LinkCardAttribute`), so closing is deferred to let the pointer cross
+      // the gap, and the card cancels it on enter.
       s.onLinkHover((info) => {
         if (info) {
           cancelLinkHoverClose();
@@ -1776,8 +1778,22 @@ export function SheetView({
     top: number;
   } | null>(null);
 
+  // A preview withholds the card (see the render gate below). Close it rather
+  // than just hide it, so the engine is told the card is gone and the card does
+  // not come back, unasked, when the preview closes.
   useEffect(() => {
-    if (!linkHover) setLinkPopoverPos(null);
+    if (!previewing) return;
+    cancelLinkHoverClose();
+    setLinkHover(null);
+  }, [previewing, cancelLinkHoverClose]);
+
+  useEffect(() => {
+    if (linkHover) return;
+    setLinkPopoverPos(null);
+    // The engine keeps its hover while the pointer is in the card; once the
+    // card is gone it has to let go of it, or a repaint of the cell would
+    // reopen a card nobody is pointing at.
+    sheetRef.current?.releaseLinkCardHover();
   }, [linkHover]);
 
   useLayoutEffect(() => {
@@ -2048,6 +2064,10 @@ export function SheetView({
         {linkHover && !previewing && (
           <div
             ref={linkPopoverWrapperRef}
+            // Tells the engine the pointer moving in here has not left the
+            // cell, so it keeps the hover — and can still close the card on a
+            // scroll — while the pointer rests in it.
+            {...{ [LinkCardAttribute]: "true" }}
             className="absolute z-30"
             style={{
               left: linkPopoverPos?.left ?? 0,
@@ -2057,7 +2077,13 @@ export function SheetView({
           >
             <SheetLinkPopover
               urls={linkHover.urls}
-              onPointerEnter={cancelLinkHoverClose}
+              onPointerEnter={() => {
+                cancelLinkHoverClose();
+                // However the pointer got here — straight from the cell, or
+                // through the gap where the engine already let the hover go —
+                // the card's cell is what is hovered now.
+                sheetRef.current?.holdLinkCardHover(linkHover);
+              }}
               onPointerLeave={scheduleLinkHoverClose}
             />
           </div>

@@ -150,6 +150,7 @@ import { findEdgeWithIndex } from './store/find-edge';
 import { ReadOnlyStore, toCell } from './store/readonly';
 import {
   initialize,
+  LinkCardAttribute,
   Spreadsheet,
   type LayoutRect,
   type LinkHoverInfo,
@@ -292,6 +293,7 @@ import type { ImportedTable, TableWriter } from './import/csv-importer';
 
 export {
   initialize,
+  LinkCardAttribute,
   Spreadsheet,
   MemStore,
   CellIndex,

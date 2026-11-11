@@ -33,7 +33,7 @@ const handleMouseMove = (
 
 const handleScrollContainerMouseLeave = (
   Worksheet.prototype as unknown as {
-    handleScrollContainerMouseLeave(): void;
+    handleScrollContainerMouseLeave(e: { relatedTarget: unknown }): void;
   }
 ).handleScrollContainerMouseLeave;
 
@@ -80,7 +80,7 @@ describe('Worksheet mouse hover behavior', () => {
       resetLinkHover: vi.fn(),
     };
 
-    handleScrollContainerMouseLeave.call(ctx);
+    handleScrollContainerMouseLeave.call(ctx, { relatedTarget: null });
 
     expect(scrollContainer.style.cursor).toBe('');
     expect(ctx.filterButtonHoverCol).toBeNull();

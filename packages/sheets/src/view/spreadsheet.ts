@@ -16,9 +16,10 @@ import { Sheet } from '../model/worksheet/sheet';
 import { Store, UndoSelection } from '../store/store';
 import { MemStore } from '../store/memory';
 import { defaultAlign } from '../model/worksheet/input';
-import { LinkHoverInfo, Worksheet } from './worksheet';
+import { LinkCardAttribute, LinkHoverInfo, Worksheet } from './worksheet';
 
 export type { LinkHoverInfo };
+export { LinkCardAttribute };
 
 export type Theme = 'light' | 'dark';
 
@@ -451,6 +452,23 @@ export class Spreadsheet {
    */
   public onNotice(callback: (message: string) => void): void {
     this.worksheet.setOnNotice(callback);
+  }
+
+  /**
+   * `releaseLinkCardHover` tells the engine the host has closed its link card,
+   * so a hover kept for the card is forgotten (see `LinkCardAttribute`).
+   */
+  public releaseLinkCardHover(): void {
+    this.worksheet.releaseLinkCardHover();
+  }
+
+  /**
+   * `holdLinkCardHover` tells the engine the pointer entered the host's link
+   * card for `info`'s cell, so it keeps that cell hovered while the pointer
+   * rests in the card (see `LinkCardAttribute`).
+   */
+  public holdLinkCardHover(info: LinkHoverInfo): void {
+    this.worksheet.holdLinkCardHover(info);
   }
 
   /**
