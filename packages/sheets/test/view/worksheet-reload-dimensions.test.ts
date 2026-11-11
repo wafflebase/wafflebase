@@ -244,7 +244,11 @@ describe('Worksheet.runHistoryStep', () => {
       return true;
     });
 
+    // Without the guard this throws on the dropped sheet. With it, the repair
+    // is skipped: the fitted row is still recorded, at the reloaded height.
     expect(replayed).toBe(true);
+    expect(ctx.autoSizedRows.has(2)).toBe(true);
+    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
   });
 
   it('touches nothing when there was no step to replay', async () => {

@@ -70,6 +70,19 @@
   frame); the no-op on `MemStore` / `ReadonlyStore`, which have no axis IDs
   and no remote changes, so the bug cannot occur there.
 
+- Round 3 (`@claude review`, 1 blocking). Accepted: the only test over
+  `Spreadsheet.undo` / `redo` stubbed `runHistoryStep` as a pass-through, so
+  reverting the delegation would keep the suite green. It is a spy now, and
+  a reverted `undo` fails it. Also took: the "sheet lost mid-replay" test now
+  asserts what the guard leaves behind instead of only that nothing threw.
+- Not taken from round 3: a carried height on a row a peer just merged
+  (`applyAutoRowHeights` already keeps a fitted row's height when it becomes
+  a merge anchor, by design and with a test); overlapping reload and replay
+  (`runRemoteSync` already serializes reloads, and the worst case is the
+  default heights a reload always produced); a `readOnly` check inside
+  `runHistoryStep` (both callers gate it); moving the API to
+  `Worksheet.undo()` / `redo()` (the step stays the model's).
+
 ## Verification
 
 - `pnpm verify:fast` green.
