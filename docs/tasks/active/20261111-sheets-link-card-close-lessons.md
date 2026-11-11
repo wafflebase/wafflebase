@@ -40,8 +40,7 @@
   `sheet-view.tsx` only gains the attribute.
 - Side effect worth keeping: a peer's edit to the hovered cell now refreshes
   or closes the card while the pointer rests in it, because the engine still
-  knows the hover (`refreshLinkHoverAfterRender`, covered by its existing
-  tests; not exercised by hand). The first version listed that as a known
+  knows the hover (`refreshLinkHoverAfterRender`; exercised by hand after round 3). The first version listed that as a known
   limitation.
 
 - Round 2 (`@claude review`, 2 blocking, one duplicate pair). Accepted:
@@ -61,6 +60,30 @@
   Element` instead of duck-typing `closest` (the duck-typed check is what lets
   the node-environment unit tests drive the real handlers).
 
+- Round 3 (`@claude review`, 3 blocking). All accepted, after checking the
+  first one by hand:
+  - The hand-off only engaged when no `mousemove` sampled the 2px gap
+    between the cell and the card. A slow move does sample it, the engine
+    lets the hover go on that no-link cell, and the card then stayed open
+    with nothing behind it: reproduced with two clients — through the gap, a
+    peer's edit left the card listing the old links over the wrong row;
+    straight in, it refreshed. Fixed by having the card's `pointerenter`
+    hand its cell back (`Spreadsheet.holdLinkCardHover`), which also drops
+    another cell's card that was pending on the way.
+  - The host half had no test. `sheet-view-link-card.test.tsx` mounts the
+    view with a recording engine and covers the attribute, the hold on
+    enter, the release on close, and the preview; each case fails with its
+    line removed.
+  - A revision preview hid the card without releasing the hover. The host
+    now closes the card when a preview opens.
+  - Also took: the hover teardown that had grown in three places is one
+    `forgetLinkHover`; the attribute follows the engine's `data-wb-*` names;
+    the design doc no longer cites line numbers that had moved.
+- Not taken from round 3: an element reference instead of the attribute
+  (same reasons as round 2), and a ownership check on the marked element —
+  a page element that claims the attribute only changes when a hover card
+  closes, never what a click opens.
+
 ## Verification
 
 - `pnpm verify:fast` green.
@@ -70,4 +93,5 @@
   back onto the cell kept it; leaving to an empty cell closed it; clicking a
   link in it opened the link in a new tab. After round 2: moving from the
   card straight out of the grid closed it, and a peer's edit to the cell
-  afterwards did not reopen it.
+  afterwards did not reopen it. After round 3: through the gap, a peer's
+  edit to the cell refreshed the card in place.

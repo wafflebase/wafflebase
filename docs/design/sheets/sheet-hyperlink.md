@@ -230,10 +230,10 @@ plain-click rule is an opt-in `Options.openLinksOnClick`, set only by
 `SheetView`, which is also the only mount that wires the hover card. The
 modifier is unconditional, so a link in a result grid is still reachable.
 
-`handleMouseMove` is bound raw, with no throttle or rAF (`worksheet.ts:3239`),
+`handleMouseMove` is bound raw, with no throttle or rAF,
 but `linkAt` is a synchronous scan over the boxes currently on screen, so it
 needs none of the async staleness dance `updateValidationTooltip` uses. The new
-hover state is cleared in `handleScrollContainerMouseLeave` (`:3404`)
+hover state is cleared in `handleScrollContainerMouseLeave`
 alongside the existing flags — except when the pointer leaves into the hover
 card itself, which §5 treats as a hand-off.
 
@@ -257,7 +257,7 @@ engine would report `null` *after* the card's `pointerenter` had cancelled the
 pending close — pointer events run before the compatibility mouse events — and
 the card would shut under a resting pointer, sending the click meant for one
 of its links to the cell beneath (#1124). So the host marks the card's wrapper
-with `LinkCardAttribute` (`data-sheet-link-card`) and the engine treats moves
+with `LinkCardAttribute` (`data-wb-link-card`) and the engine treats moves
 across that boundary as a hand-off rather than a leave:
 
 - `mouseleave` into the card keeps the hover. The engine still knows which
@@ -270,6 +270,12 @@ across that boundary as a hand-off rather than a leave:
   another cell, the usual close-then-open runs.
 - `mouseenter` from anywhere else forgets a hover left over from a pointer
   that went out through the card, so the cell opens a fresh card.
+- The card's `pointerenter` hands the card's cell back to the engine
+  (`Spreadsheet.holdLinkCardHover`). A slow move toward the card samples the
+  2px gap between the cell and the card, which lands on a cell with no links
+  and lets the hover go before the pointer arrives; a move across another
+  link cell on the way starts that cell's card. Either way the hover becomes
+  the card's cell again, so the hand-off holds however the pointer got there.
 - A pointer that leaves the card for somewhere other than the grid never
   re-enters it, so the host also tells the engine when its card has closed
   (`Spreadsheet.releaseLinkCardHover`). The engine then forgets a hover it was
@@ -277,8 +283,11 @@ across that boundary as a hand-off rather than a leave:
   card under no pointer — and ignores the call otherwise, so a card closing
   while the pointer already waits on another link cell leaves that one alone.
 
-The host keeps no state of its own about where the pointer is; its close is
-still deferred so the pointer can cross the gap into the card.
+A revision preview withholds the card; the host closes it then rather than
+only hiding it, so the engine is released and the card does not reappear when
+the preview ends. The host keeps no state of its own about where the pointer
+is; its close is still deferred so the pointer can cross the gap into the
+card.
 
 It does not reuse `docs-link-popover.tsx`. That component emits
 **client/fixed** coordinates and has no flip or clamp at all; and of its 286

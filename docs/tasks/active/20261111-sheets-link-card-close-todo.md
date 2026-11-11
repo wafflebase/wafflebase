@@ -17,13 +17,18 @@ re-arms the close after it was cancelled.
 
 ## Tasks
 
-- [x] `LinkCardAttribute` (`data-sheet-link-card`): the host marks the card's
+- [x] `LinkCardAttribute` (`data-wb-link-card`): the host marks the card's
       wrapper with it
 - [x] `handleScrollContainerMouseLeave` keeps the hover when the pointer
       leaves into the card
 - [x] `handleScrollContainerMouseEnter`: back from the card onto the same cell
       re-sends the card; from anywhere else, forget a stale hover
-- [x] Tests for the hand-off in `worksheet-links.test.ts`
+- [x] `Spreadsheet.holdLinkCardHover` on the card's `pointerenter`, so the
+      hand-off holds after a slow move through the gap, too
+- [x] `Spreadsheet.releaseLinkCardHover` whenever the card closes, including
+      when a revision preview opens
+- [x] Tests for the hand-off in `worksheet-links.test.ts`, and for the host
+      wiring in `sheet-view-link-card.test.tsx`
 - [x] Update §5 of `docs/design/sheets/sheet-hyperlink.md`
 - [x] `pnpm verify:fast`
 - [x] Manual check in `pnpm dev`

@@ -463,6 +463,15 @@ export class Spreadsheet {
   }
 
   /**
+   * `holdLinkCardHover` tells the engine the pointer entered the host's link
+   * card for `info`'s cell, so it keeps that cell hovered while the pointer
+   * rests in the card (see `LinkCardAttribute`).
+   */
+  public holdLinkCardHover(info: LinkHoverInfo): void {
+    this.worksheet.holdLinkCardHover(info);
+  }
+
+  /**
    * `onLinkHover` registers a callback fired when the pointer rests on a cell
    * containing hyperlinks, and again with `null` when it leaves. Hosts use it
    * to place the link card.

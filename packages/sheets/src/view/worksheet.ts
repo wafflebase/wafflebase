@@ -166,7 +166,7 @@ export type LinkHoverInfo = { sref: string; urls: Array<string> };
  * so a scroll or an edit to the cell still reaches the host while the pointer
  * rests in the card, and moving back onto the cell keeps the card.
  */
-export const LinkCardAttribute = 'data-sheet-link-card';
+export const LinkCardAttribute = 'data-wb-link-card';
 
 /**
  * Whether an event target is inside the host's link card. Duck-typed on
@@ -1102,14 +1102,25 @@ export class Worksheet {
    * Dismisses the hover card and forgets which cell it belonged to.
    */
   private resetLinkHover(): void {
-    this.clearLinkHoverTimer();
-    this.linkHoverKeptForCard = false;
-    this.pointerOverLink = false;
-    this.hoveredLinkUrls = [];
-    if (this.hoveredLinkSref !== null) {
-      this.hoveredLinkSref = null;
+    const had = this.hoveredLinkSref !== null;
+    this.forgetLinkHover();
+    if (had) {
       this.onLinkHoverCallback?.(null);
     }
+  }
+
+  /**
+   * Drops every piece of hover state without telling the host — for the
+   * paths where the host already knows the card is gone, or is about to be
+   * told something newer.
+   */
+  private forgetLinkHover(): void {
+    this.clearLinkHoverTimer();
+    this.linkHoverKeptForCard = false;
+    this.returningFromLinkCard = false;
+    this.pointerOverLink = false;
+    this.hoveredLinkSref = null;
+    this.hoveredLinkUrls = [];
   }
 
   /**
@@ -3682,20 +3693,30 @@ export class Worksheet {
    * over another cell leaves that cell's pending card alone.
    */
   public releaseLinkCardHover(): void {
-    if (!this.linkHoverKeptForCard) {
-      return;
+    if (this.linkHoverKeptForCard) {
+      this.forgetLinkHover();
     }
-    this.linkHoverKeptForCard = false;
-    this.returningFromLinkCard = false;
-    this.clearLinkHoverTimer();
-    this.pointerOverLink = false;
-    this.hoveredLinkSref = null;
-    this.hoveredLinkUrls = [];
+  }
+
+  /**
+   * `holdLinkCardHover` is called by the host when the pointer enters its link
+   * card, with the cell the card belongs to. The pointer can reach the card
+   * after the engine has already let the hover go — a mouse move in the gap
+   * between the cell and the card lands on a cell with no links — or while a
+   * different cell's card is pending; either way the hover becomes the card's
+   * cell again, so a scroll or an edit to that cell still closes or refreshes
+   * the card while the pointer rests in it.
+   */
+  public holdLinkCardHover(info: LinkHoverInfo): void {
+    this.forgetLinkHover();
+    this.hoveredLinkSref = info.sref;
+    this.hoveredLinkUrls = [...info.urls];
+    this.linkHoverKeptForCard = true;
   }
 
   private handleScrollContainerMouseEnter(e: MouseEvent): void {
-    this.linkHoverKeptForCard = false;
     if (isInLinkCard(e.relatedTarget)) {
+      this.linkHoverKeptForCard = false;
       this.returningFromLinkCard = true;
       return;
     }
@@ -3703,9 +3724,7 @@ export class Worksheet {
     // and then out of it, the hover it kept is stale: the host has closed that
     // card on the card's own `pointerleave`. Forget it quietly, so the cell
     // opens a fresh card instead of comparing equal to the old one.
-    this.clearLinkHoverTimer();
-    this.hoveredLinkSref = null;
-    this.hoveredLinkUrls = [];
+    this.forgetLinkHover();
   }
 
   private handleScrollContainerMouseLeave(e: MouseEvent): void {
@@ -6724,8 +6743,7 @@ export class Worksheet {
     this.hoveredLinkUrls = urls;
     // The cell lost its links entirely — close rather than show an empty card.
     if (urls.length === 0) {
-      this.clearLinkHoverTimer();
-      this.hoveredLinkSref = null;
+      this.forgetLinkHover();
       this.onLinkHoverCallback?.(null);
       return;
     }

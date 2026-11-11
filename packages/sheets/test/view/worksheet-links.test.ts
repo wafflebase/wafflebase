@@ -66,8 +66,11 @@ function hoverCtx(
     linkAtMouse: proto.linkAtMouse,
     isInsideGrid: proto.isInsideGrid,
     clearLinkHoverTimer: proto.clearLinkHoverTimer,
+    forgetLinkHover: proto.forgetLinkHover,
     updateLinkHover: proto.updateLinkHover,
     resetLinkHover: proto.resetLinkHover,
+    returningFromLinkCard: false,
+    linkHoverKeptForCard: false,
   } as unknown as HoverCtx;
 }
 
@@ -246,6 +249,7 @@ describe('link card handoff', () => {
     handleScrollContainerMouseLeave(e: { relatedTarget: unknown }): void;
     handleScrollContainerMouseEnter(e: { relatedTarget: unknown }): void;
     releaseLinkCardHover(): void;
+    holdLinkCardHover(info: { sref: string; urls: Array<string> }): void;
     refreshLinkHoverAfterRender(): void;
   };
 
@@ -272,6 +276,7 @@ describe('link card handoff', () => {
       handleScrollContainerMouseLeave: proto.handleScrollContainerMouseLeave,
       handleScrollContainerMouseEnter: proto.handleScrollContainerMouseEnter,
       releaseLinkCardHover: proto.releaseLinkCardHover,
+      holdLinkCardHover: proto.holdLinkCardHover,
       refreshLinkHoverAfterRender: proto.refreshLinkHoverAfterRender,
     }) as unknown as HandoffCtx;
     // Open the card on C5.
@@ -335,6 +340,61 @@ describe('link card handoff', () => {
     ctx.updateLinkHover(600, 600);
 
     expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('holds the card’s cell when the gap already let the hover go', () => {
+    const { ctx } = handoffCtx();
+    // A move in the 2px between the cell and the card lands on a cell with no
+    // links: the engine reports `null` and forgets the hover.
+    (ctx as unknown as { toRefFromMouse: () => { r: number; c: number } })
+      .toRefFromMouse = () => ({ r: 6, c: 3 });
+    ctx.updateLinkHover(120, 130);
+    expect(ctx.hoveredLinkSref).toBeNull();
+    ctx.onLinkHoverCallback.mockClear();
+
+    // The pointer reaches the card: the host hands its cell back.
+    ctx.holdLinkCardHover({ sref: 'C5', urls: ['https://example.com'] });
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+
+    // A scroll while the pointer rests in the card still closes it.
+    ctx.resetLinkHover();
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('refreshes the card when a peer edits its cell while the pointer rests in it', () => {
+    const { ctx } = handoffCtx();
+    ctx.holdLinkCardHover({ sref: 'C5', urls: ['https://example.com'] });
+    ctx.handleScrollContainerMouseLeave({ relatedTarget: card });
+
+    (ctx.gridCanvas as { linksInCell: (sref: string) => Array<RenderedLink> })
+      .linksInCell = () => [link('C5', 'https://changed.example.com')];
+    ctx.refreshLinkHoverAfterRender();
+
+    expect(ctx.onLinkHoverCallback).toHaveBeenCalledExactlyOnceWith({
+      sref: 'C5',
+      urls: ['https://changed.example.com'],
+    });
+  });
+
+  it('drops another cell’s pending card when the pointer enters this one', () => {
+    const b = link('D9', 'https://other.example.com', 300);
+    const { ctx } = handoffCtx();
+    (ctx.gridCanvas as unknown as {
+      linkAt: (x: number, y: number) => RenderedLink | null;
+      linksInCell: (sref: string) => Array<RenderedLink>;
+    }).linkAt = (x: number) => (x >= 300 ? b : null);
+    (ctx.gridCanvas as { linksInCell: (sref: string) => Array<RenderedLink> })
+      .linksInCell = (sref: string) =>
+      sref === 'D9' ? [b] : [link('C5', 'https://example.com')];
+    // On the way to C5's card the pointer crosses D9, which starts its timer.
+    ctx.updateLinkHover(320, 105);
+    ctx.onLinkHoverCallback.mockClear();
+
+    ctx.holdLinkCardHover({ sref: 'C5', urls: ['https://example.com'] });
+    vi.advanceTimersByTime(300);
+
+    expect(ctx.onLinkHoverCallback).not.toHaveBeenCalled();
+    expect(ctx.hoveredLinkSref).toBe('C5');
   });
 
   it('lets go of the kept hover once the host has closed the card', () => {
@@ -624,6 +684,11 @@ describe('refreshLinkHoverAfterRender', () => {
       gridCanvas: { linksInCell: () => opts.painted.map((url) => ({ url })) },
       clearLinkHoverTimer() {
         this.linkHoverTimer = null;
+      },
+      forgetLinkHover() {
+        this.linkHoverTimer = null;
+        this.hoveredLinkSref = null;
+        this.hoveredLinkUrls = [];
       },
       onLinkHoverCallback: (info: unknown) => notified.push(info),
     };
