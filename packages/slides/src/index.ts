@@ -170,6 +170,7 @@ export {
   connectionSitesForKind,
   siteWorldPos,
 } from './view/canvas/connection-sites';
+export { GENERATED_SHAPE_TEXT_RECTS as SHAPE_TEXT_RECT_FRACTIONS } from './view/canvas/shapes/shape-text-rects.generated';
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
