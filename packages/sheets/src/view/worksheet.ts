@@ -288,6 +288,12 @@ export class Worksheet {
   private autoSizedRenumberings = 0;
   /** The tail of the reloads `serializeDimensionReload` runs in order. */
   private dimensionReloadQueue: Promise<unknown> = Promise.resolve();
+  /**
+   * How many of those reloads are running. The render path's fit
+   * (`applyAutoRowHeights`) writes the same state, so it holds off while this
+   * is non-zero.
+   */
+  private dimensionReloadsInFlight = 0;
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
@@ -5603,10 +5609,20 @@ export class Worksheet {
    * before it awaits the store and rebuilds `autoSizedRows` afterwards, so two
    * of them interleaved would restore a snapshot taken against a row order the
    * other has already changed. The host only serializes remote reloads among
-   * themselves.
+   * themselves. The render path's fit is the third writer; it checks
+   * `dimensionReloadsInFlight` instead of queueing, since a render must not
+   * wait behind a reload.
    */
   private serializeDimensionReload<T>(work: () => Promise<T>): Promise<T> {
-    const run = this.dimensionReloadQueue.then(work, work);
+    const counted = async () => {
+      this.dimensionReloadsInFlight++;
+      try {
+        return await work();
+      } finally {
+        this.dimensionReloadsInFlight--;
+      }
+    };
+    const run = this.dimensionReloadQueue.then(counted, counted);
     this.dimensionReloadQueue = run.catch(() => undefined);
     return run;
   }
@@ -6717,14 +6733,6 @@ export class Worksheet {
     }
 
     const heights = computeAutoRowHeights(measured, skip);
-    this.autoSizedMaxRow = maxRow;
-    // A local insert, delete or move since the last pass left every entry's
-    // index pointing at another row. Rows this pass re-keys below are fine;
-    // the ones it leaves alone (skipped, or past the measured range) must
-    // lose their axis ID, or the next reload would carry a height under it.
-    const renumbered =
-      this.rowDim.getRenumberings() !== this.autoSizedRenumberings;
-    this.autoSizedRenumberings = this.rowDim.getRenumberings();
 
     const candidates = new Set<number>(this.autoSizedRows);
     for (const row of heights.keys()) {
@@ -6733,6 +6741,10 @@ export class Worksheet {
     // Nothing to size and nothing to shrink back: skip reading the stored
     // heights, which is the whole cost of this pass on an ordinary sheet.
     if (candidates.size === 0) {
+      if (this.dimensionReloadsInFlight === 0) {
+        this.autoSizedMaxRow = maxRow;
+        this.autoSizedRenumberings = this.rowDim.getRenumberings();
+      }
       return false;
     }
 
@@ -6740,6 +6752,23 @@ export class Worksheet {
     if (sheet !== this.sheet) {
       return false;
     }
+    // A reload or an undo is rebuilding `rowDim` and the fit records from the
+    // store (`serializeDimensionReload`), and this pass awaited its way into
+    // the middle of it. Writing now would interleave with that rebuild, so
+    // write nothing and ask for another frame; the reload is short, and the
+    // pass after it measures against the rebuilt state.
+    if (this.dimensionReloadsInFlight > 0) {
+      return true;
+    }
+
+    this.autoSizedMaxRow = maxRow;
+    // A local insert, delete or move since the last pass left every entry's
+    // index pointing at another row. Rows this pass re-keys below are fine;
+    // the ones it leaves alone (skipped, or past the measured range) must
+    // lose their axis ID, or the next reload would carry a height under it.
+    const renumbered =
+      this.rowDim.getRenumberings() !== this.autoSizedRenumberings;
+    this.autoSizedRenumberings = this.rowDim.getRenumberings();
 
     const frozenRows = this.freezeState.frozenRows;
     let frozenChanged = false;

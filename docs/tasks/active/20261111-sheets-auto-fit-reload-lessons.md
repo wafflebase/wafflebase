@@ -124,11 +124,14 @@
 - Round 8 (`@claude review`, 4 blocking). Three were about a line this
   file carried — a note on how many more review rounds would run. That was
   process talk addressed at reviewers and does not belong in the
-  repository; it was removed. The fourth is real and recorded as a known
-  limitation in the PR: the render path's `applyAutoRowHeights` writes the
-  same state as the reload queue and is not in it, so a fit that lands
-  between a reload's awaits can leave `autoSizedRows` out of step with
-  `rowDim` until a later fit.
+  repository; it was removed. The fourth is real: the render path's
+  `applyAutoRowHeights` writes the same state as the reload queue and was
+  not in it, so a fit that landed between a reload's awaits could leave
+  `autoSizedRows` out of step with `rowDim`. The queue now counts the
+  reloads in flight, and a fit that finds one running after its awaits
+  writes nothing and asks for another frame — the path it already takes
+  after resizing a row. It cannot simply join the queue: a render must not
+  wait behind a reload.
 
 ## Verification
 

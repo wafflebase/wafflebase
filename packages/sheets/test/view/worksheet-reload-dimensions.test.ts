@@ -41,6 +41,7 @@ const createContext = (rowOrder: Array<string>) => {
     hiddenColumns: new Set<number>(),
     hiddenColSizeBackup: new Map<number, number>(),
     dimensionReloadQueue: Promise.resolve() as Promise<unknown>,
+    dimensionReloadsInFlight: 0,
     serializeDimensionReload: proto.serializeDimensionReload,
     reloadDimensionsNow: proto.reloadDimensionsNow,
     runHistoryStepNow: proto.runHistoryStepNow,
@@ -257,6 +258,21 @@ describe('Worksheet.runHistoryStep', () => {
     expect(ctx.rowDim.getSize(6)).toBe(101);
   });
 
+  it('counts the reload as in flight for the render path while it runs', async () => {
+    const { ctx, sheet } = createContext(ids(12));
+    const load = sheet.loadDimensions.bind(sheet);
+    let midFlight = -1;
+    sheet.loadDimensions = async () => {
+      await load();
+      midFlight = ctx.dimensionReloadsInFlight;
+    };
+
+    await reloadDimensions(ctx);
+
+    expect(midFlight).toBe(1);
+    expect(ctx.dimensionReloadsInFlight).toBe(0);
+  });
+
   it('keeps running reloads after one of them fails', async () => {
     const { ctx, fit, sheet } = createContext(ids(12));
     fit(2, 62);
@@ -271,6 +287,8 @@ describe('Worksheet.runHistoryStep', () => {
     };
 
     await expect(reloadDimensions(ctx)).rejects.toThrow('store went away');
+    // A failed reload must not leave the render path's fit held off.
+    expect(ctx.dimensionReloadsInFlight).toBe(0);
     const replayed = await runHistoryStep(ctx, async () => true);
 
     expect(replayed).toBe(true);

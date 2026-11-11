@@ -42,6 +42,7 @@ type Context = {
   autoSizedRowIds: Map<number, string>;
   autoSizedMaxRow: number;
   autoSizedRenumberings: number;
+  dimensionReloadsInFlight: number;
   rowDim: DimensionIndex;
   colDim: DimensionIndex;
   freezeState: FreezeState;
@@ -90,6 +91,7 @@ const createContext = (options?: {
     autoSizedRowIds: new Map<number, string>(),
     autoSizedMaxRow: 0,
     autoSizedRenumberings: 0,
+    dimensionReloadsInFlight: 0,
     rowDim,
     colDim,
     freezeState: options?.frozenRows
@@ -179,6 +181,25 @@ describe('Worksheet.applyAutoRowHeights', () => {
 
     expect(ctx.autoSizedRows.has(40)).toBe(true);
     expect(ctx.autoSizedRowIds.has(40)).toBe(false);
+  });
+
+  it('writes nothing while a reload is rebuilding the layout, and asks for another frame', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
+    ctx.autoSizedMaxRow = 7;
+    ctx.dimensionReloadsInFlight = 1;
+
+    const again = await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A2'),
+      10,
+      5,
+    );
+
+    expect(again).toBe(true);
+    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
+    expect(ctx.autoSizedRows.size).toBe(0);
+    expect(ctx.autoSizedRowIds.size).toBe(0);
+    expect(ctx.autoSizedMaxRow).toBe(7);
   });
 
   it('reports no change once the rows already fit', async () => {
