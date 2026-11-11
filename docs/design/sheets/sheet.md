@@ -853,8 +853,11 @@ the store and rebuilds `autoSizedRows` after, so an undo interleaved with a
 remote reload would otherwise restore a snapshot taken against a layout the
 reload had already changed. The render path's fit is the third writer of the
 same state and cannot wait behind a reload, so it checks instead: if a reload
-or replay is in flight once its own awaits are done, it writes nothing and
-asks for another frame, the same way it does after resizing a row.
+or replay is in flight once its own awaits are done — or one started since the
+render began fetching the grid the fit measures, which a generation counter
+taken before that fetch catches even when it has already finished — it writes
+nothing and asks for another frame, the same way it does
+after resizing a row.
 
 ### Freeze Panes
 

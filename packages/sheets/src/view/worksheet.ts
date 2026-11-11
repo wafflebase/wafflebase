@@ -294,6 +294,8 @@ export class Worksheet {
    * is non-zero.
    */
   private dimensionReloadsInFlight = 0;
+  /** Bumped each time one of those reloads starts. */
+  private dimensionReloadGeneration = 0;
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
@@ -5610,11 +5612,12 @@ export class Worksheet {
    * of them interleaved would restore a snapshot taken against a row order the
    * other has already changed. The host only serializes remote reloads among
    * themselves. The render path's fit is the third writer; it checks
-   * `dimensionReloadsInFlight` instead of queueing, since a render must not
-   * wait behind a reload.
+   * `dimensionReloadsInFlight` and `dimensionReloadGeneration` instead of
+   * queueing, since a render must not wait behind a reload.
    */
   private serializeDimensionReload<T>(work: () => Promise<T>): Promise<T> {
     const counted = async () => {
+      this.dimensionReloadGeneration++;
       this.dimensionReloadsInFlight++;
       try {
         return await work();
@@ -5642,15 +5645,22 @@ export class Worksheet {
       return;
     }
     this.restoreFittedRows(fitted, pinned);
-    await this.sheet!.loadStyles();
-    await this.sheet!.loadMerges();
-    await this.sheet!.loadFreezePane();
-    await this.sheet!.loadFilterState();
-    await this.sheet!.loadHiddenState();
-    await this.sheet!.loadPivotDefinition();
+    for (const load of [
+      () => sheet.loadStyles(),
+      () => sheet.loadMerges(),
+      () => sheet.loadFreezePane(),
+      () => sheet.loadFilterState(),
+      () => sheet.loadHiddenState(),
+      () => sheet.loadPivotDefinition(),
+    ]) {
+      await load();
+      if (sheet !== this.sheet) {
+        return;
+      }
+    }
 
     // Re-resolve axis-ID-based selection after structural changes
-    this.sheet!.resolveAnchorsToRefs();
+    sheet.resolveAnchorsToRefs();
 
     // The copy buffer is index-keyed, and a remote insert, delete or reorder
     // renumbers the cells it snapshotted without ever calling `shiftCells` /
@@ -5658,7 +5668,7 @@ export class Worksheet {
     // when its axis IDs no longer sit where it recorded them — a pasted grid
     // would otherwise relocate, and re-create merged blocks, from stale
     // coordinates. A remote edit that renumbers nothing leaves it alone.
-    this.sheet!.revalidateCopyBuffer();
+    sheet.revalidateCopyBuffer();
 
     this.resyncHiddenAxes();
     this.updateFreezeState();
@@ -6611,6 +6621,9 @@ export class Worksheet {
       { r: 1, c: 1 },
       { r: viewRange[1].r, c: viewRange[1].c },
     ];
+    // Taken before the fetch: the grid is what the fit measures, so a reload
+    // that runs during the fetch must make the fit stand down too.
+    const reloadGeneration = this.dimensionReloadGeneration;
     const grid = await sheet.fetchGrid(fullRange);
     if (sheet !== this.sheet || targetVersion !== this.renderVersion) {
       return;
@@ -6622,7 +6635,12 @@ export class Worksheet {
     // a locally typed one does. Sizing changes the layout the rest of this
     // pass was computed from, so hand the frame back and paint the next one.
     if (
-      await this.applyAutoRowHeights(grid, fullRange[1].r, fullRange[1].c)
+      await this.applyAutoRowHeights(
+        grid,
+        fullRange[1].r,
+        fullRange[1].c,
+        reloadGeneration,
+      )
     ) {
       this.render();
       return;
@@ -6698,6 +6716,8 @@ export class Worksheet {
     grid: Grid,
     maxRow: number,
     maxCol: number,
+    // Which reload `grid` was read against; see the hold-off below.
+    reloadGeneration: number = this.dimensionReloadGeneration,
   ): Promise<boolean> {
     const sheet = this.sheet;
     if (!sheet) {
@@ -6741,10 +6761,10 @@ export class Worksheet {
     // Nothing to size and nothing to shrink back: skip reading the stored
     // heights, which is the whole cost of this pass on an ordinary sheet.
     if (candidates.size === 0) {
-      if (this.dimensionReloadsInFlight === 0) {
-        this.autoSizedMaxRow = maxRow;
-        this.autoSizedRenumberings = this.rowDim.getRenumberings();
-      }
+      // No fit records to fall out of step: these two need no hold-off, and a
+      // reload in flight re-derives both when it restores.
+      this.autoSizedMaxRow = maxRow;
+      this.autoSizedRenumberings = this.rowDim.getRenumberings();
       return false;
     }
 
@@ -6754,10 +6774,15 @@ export class Worksheet {
     }
     // A reload or an undo is rebuilding `rowDim` and the fit records from the
     // store (`serializeDimensionReload`), and this pass awaited its way into
-    // the middle of it. Writing now would interleave with that rebuild, so
-    // write nothing and ask for another frame; the reload is short, and the
-    // pass after it measures against the rebuilt state.
-    if (this.dimensionReloadsInFlight > 0) {
+    // the middle of it — or one started and finished while it awaited, so
+    // what it measured belongs to the layout before. Writing now would
+    // interleave with that rebuild, or pair old measurements with the new row
+    // order, so write nothing and ask for another frame; the pass after it
+    // measures against the rebuilt state.
+    if (
+      this.dimensionReloadsInFlight > 0 ||
+      this.dimensionReloadGeneration !== reloadGeneration
+    ) {
       return true;
     }
 

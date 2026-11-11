@@ -42,6 +42,7 @@ const createContext = (rowOrder: Array<string>) => {
     hiddenColSizeBackup: new Map<number, number>(),
     dimensionReloadQueue: Promise.resolve() as Promise<unknown>,
     dimensionReloadsInFlight: 0,
+    dimensionReloadGeneration: 0,
     serializeDimensionReload: proto.serializeDimensionReload,
     reloadDimensionsNow: proto.reloadDimensionsNow,
     runHistoryStepNow: proto.runHistoryStepNow,
@@ -268,9 +269,34 @@ describe('Worksheet.runHistoryStep', () => {
     };
 
     await reloadDimensions(ctx);
-
     expect(midFlight).toBe(1);
     expect(ctx.dimensionReloadsInFlight).toBe(0);
+
+    // The undo path goes through the same queue.
+    await runHistoryStep(ctx, async () => {
+      midFlight = ctx.dimensionReloadsInFlight;
+      return true;
+    });
+    expect(midFlight).toBe(1);
+    expect(ctx.dimensionReloadsInFlight).toBe(0);
+    expect(ctx.dimensionReloadGeneration).toBe(2);
+  });
+
+  it('stops repairing once the view drops its sheet partway through the reload', async () => {
+    const { ctx, sheet } = createContext(ids(12));
+    const loadStyles = sheet.loadStyles.bind(sheet);
+    sheet.loadStyles = async () => {
+      await loadStyles();
+      (ctx as { sheet: unknown }).sheet = undefined;
+    };
+    let mergesLoaded = false;
+    sheet.loadMerges = async () => {
+      mergesLoaded = true;
+    };
+
+    await expect(reloadDimensions(ctx)).resolves.toBeUndefined();
+    // Nothing more is read or repaired for a sheet the view no longer holds.
+    expect(mergesLoaded).toBe(false);
   });
 
   it('keeps running reloads after one of them fails', async () => {

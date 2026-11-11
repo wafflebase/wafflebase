@@ -133,6 +133,18 @@
   after resizing a row. It cannot simply join the queue: a render must not
   wait behind a reload.
 
+- Local review before pushing round 9 (a separate agent, same lenses as the
+  panel): no blocking findings. Took its suggestions: `reloadDimensions` now
+  re-checks the sheet after every load, as the design doc says, not only
+  after the dimension reload; the fit's hold-off also compares a reload
+  generation, so a reload that starts and finishes inside the fit's awaits
+  is caught; the hold-off tests start with nothing in flight and let the
+  reload begin during the fit's await; and a guard that no test could
+  distinguish (the empty-candidates branch) was removed, with the reason in
+  a comment. A second pass over that delta found the generation was taken
+  after `renderSheet` had already awaited `fetchGrid`, the grid the fit
+  measures; it is now taken before the fetch and passed in.
+
 ## Verification
 
 - `pnpm verify:fast` green.

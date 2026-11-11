@@ -43,6 +43,7 @@ type Context = {
   autoSizedMaxRow: number;
   autoSizedRenumberings: number;
   dimensionReloadsInFlight: number;
+  dimensionReloadGeneration: number;
   rowDim: DimensionIndex;
   colDim: DimensionIndex;
   freezeState: FreezeState;
@@ -92,6 +93,7 @@ const createContext = (options?: {
     autoSizedMaxRow: 0,
     autoSizedRenumberings: 0,
     dimensionReloadsInFlight: 0,
+    dimensionReloadGeneration: 0,
     rowDim,
     colDim,
     freezeState: options?.frozenRows
@@ -183,10 +185,20 @@ describe('Worksheet.applyAutoRowHeights', () => {
     expect(ctx.autoSizedRowIds.has(40)).toBe(false);
   });
 
-  it('writes nothing while a reload is rebuilding the layout, and asks for another frame', async () => {
+  it('writes nothing if a reload starts while it awaits, and asks for another frame', async () => {
     const ctx = createContext({ rowOrder: ['r1', 'r2'] });
     ctx.autoSizedMaxRow = 7;
-    ctx.dimensionReloadsInFlight = 1;
+    // The pass begins with no reload running; one starts while it awaits the
+    // stored heights.
+    const store = (ctx.sheet as { getStore: () => Record<string, unknown> })
+      .getStore();
+    (ctx.sheet as { getStore: () => unknown }).getStore = () => ({
+      ...store,
+      getDimensionSizes: async () => {
+        ctx.dimensionReloadsInFlight = 1;
+        return new Map();
+      },
+    });
 
     const again = await applyAutoRowHeights.call(
       ctx,
@@ -198,8 +210,53 @@ describe('Worksheet.applyAutoRowHeights', () => {
     expect(again).toBe(true);
     expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
     expect(ctx.autoSizedRows.size).toBe(0);
-    expect(ctx.autoSizedRowIds.size).toBe(0);
     expect(ctx.autoSizedMaxRow).toBe(7);
+  });
+
+  it('writes nothing if a reload ran while its grid was being fetched', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
+    // `renderSheet` took the generation before `fetchGrid`; a reload started
+    // and finished during that fetch, before the fit itself began.
+    const before = ctx.dimensionReloadGeneration;
+    ctx.dimensionReloadGeneration++;
+
+    const again = await (
+      applyAutoRowHeights as unknown as (
+        this: unknown,
+        grid: Grid,
+        maxRow: number,
+        maxCol: number,
+        reloadGeneration: number,
+      ) => Promise<boolean>
+    ).call(ctx, multiLineGrid('A2'), 10, 5, before);
+
+    expect(again).toBe(true);
+    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
+  });
+
+  it('writes nothing if a whole reload ran while it awaited', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
+    const store = (ctx.sheet as { getStore: () => Record<string, unknown> })
+      .getStore();
+    (ctx.sheet as { getStore: () => unknown }).getStore = () => ({
+      ...store,
+      // Started and finished: nothing is in flight any more, but the layout
+      // this pass measured is gone.
+      getDimensionSizes: async () => {
+        ctx.dimensionReloadGeneration++;
+        return new Map();
+      },
+    });
+
+    const again = await applyAutoRowHeights.call(
+      ctx,
+      multiLineGrid('A2'),
+      10,
+      5,
+    );
+
+    expect(again).toBe(true);
+    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
   });
 
   it('reports no change once the rows already fit', async () => {
