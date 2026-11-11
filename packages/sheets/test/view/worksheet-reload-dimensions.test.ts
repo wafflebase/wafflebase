@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Worksheet } from '../../src/view/worksheet';
 import { Sheet } from '../../src/model/worksheet/sheet';
 import { DimensionIndex } from '../../src/model/worksheet/dimensions';
@@ -49,7 +49,7 @@ const createContext = (rowOrder: Array<string>) => {
     resyncHiddenAxes: proto.resyncHiddenAxes,
     syncHiddenRowsFromSheet: proto.syncHiddenRowsFromSheet,
     syncHiddenColumnsFromSheet: proto.syncHiddenColumnsFromSheet,
-    updateFreezeState: () => {},
+    updateFreezeState: vi.fn(),
     updateCellInputPosition: () => {},
   };
   /** What `applyAutoRowHeights` leaves behind after fitting `row`. */
@@ -100,6 +100,22 @@ describe('Worksheet.reloadDimensions', () => {
     expect(ctx.rowDim.getSize(7)).toBe(101);
     expect([...ctx.autoSizedRows]).toEqual([7]);
     expect(ctx.autoSizedRowIds.get(7)).toBe('r5');
+  });
+
+  it('keeps carrying a fitted row a peer’s insert pushed past the measured range', async () => {
+    const { ctx, fit, store, rowOrder } = createContext(ids(40));
+    fit(30, 101, 30);
+
+    // Two peer inserts in a row, both reloaded before any fit: the first
+    // moves the fitted row to 31, below the last measured row.
+    await store.shiftCells('row', 1, 1);
+    rowOrder.splice(0, 0, 'n1');
+    await reloadDimensions(ctx);
+    await store.shiftCells('row', 1, 1);
+    rowOrder.splice(0, 0, 'n2');
+    await reloadDimensions(ctx);
+
+    expect(ctx.rowDim.getSize(32)).toBe(101);
   });
 
   it('drops a fitted row a peer deleted', async () => {
@@ -266,6 +282,9 @@ describe('Worksheet.runHistoryStep', () => {
 
     expect(replayed).toBe(true);
     expect(ctx.rowDim.getSize(2)).toBe(62);
+    // The frozen pane caches a pixel offset off `rowDim`; the keyboard undo
+    // relies on this call rather than making its own.
+    expect(ctx.updateFreezeState).toHaveBeenCalledTimes(1);
   });
 
   it('re-hides a hidden row the replay reset', async () => {

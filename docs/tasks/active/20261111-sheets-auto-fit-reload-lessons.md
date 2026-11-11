@@ -105,6 +105,14 @@
   passed without the guard (one fitted row pairs with a default height
   either way) and was rewritten with two adjacent fitted rows.
 
+- Round 6 (`@claude review`, 2 blocking). Both accepted: `restoreFittedRows`
+  re-registered rows a peer's insert had pushed below the last measured row
+  without widening `autoSizedMaxRow`, so a second reload before the next fit
+  dropped them — `autoSizedMaxRow` now grows to cover every restored row; and
+  the freeze-state refresh `runHistoryStep` took over from the keyboard
+  handler was stubbed out in every test — it is a spy now. Both new tests
+  fail with their fix removed.
+
 ## Verification
 
 - `pnpm verify:fast` green.

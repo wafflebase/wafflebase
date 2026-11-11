@@ -5761,6 +5761,9 @@ export class Worksheet {
       this.rowDim.setSize(row, height);
       this.autoSizedRows.add(row);
       this.autoSizedRowIds.set(row, rowOrder[i]);
+      // A peer's insert can move a fitted row below the range the last fit
+      // measured; it is still fitted, so the next reload must carry it too.
+      this.autoSizedMaxRow = Math.max(this.autoSizedMaxRow, row);
     }
   }
 
