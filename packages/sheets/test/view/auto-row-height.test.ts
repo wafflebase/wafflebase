@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  autoRowHeight,
-  computeAutoRowHeights,
-} from '../../src/view/auto-row-height';
+import { axisTranslator, autoRowHeight, computeAutoRowHeights } from '../../src/view/auto-row-height';
 import { DefaultCellHeight } from '../../src/view/layout';
 import type { Grid } from '../../src/model/core/types';
 
@@ -68,5 +65,24 @@ describe('computeAutoRowHeights', () => {
     expect(computeAutoRowHeights(grid, new Set([1]))).toEqual(
       new Map([[3, autoRowHeight(2)]]),
     );
+  });
+});
+
+describe('axisTranslator', () => {
+  it('maps an index to where its axis ID went', () => {
+    const toNow = axisTranslator(['a', 'b', 'c'], ['x', 'a', 'c', 'b']);
+
+    expect([toNow(1), toNow(2), toNow(3)]).toEqual([2, 4, 3]);
+  });
+
+  it('maps an index whose ID is gone, or that had none, to nothing', () => {
+    const toNow = axisTranslator(['a', 'b'], ['a']);
+
+    expect([toNow(2), toNow(3)]).toEqual([undefined, undefined]);
+  });
+
+  it('maps every index to itself without IDs to go by', () => {
+    expect(axisTranslator([], ['a', 'b'])(5)).toBe(5);
+    expect(axisTranslator(['a', 'b'], [])(5)).toBe(5);
   });
 });

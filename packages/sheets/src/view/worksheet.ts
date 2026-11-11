@@ -79,7 +79,7 @@ import {
   toRef,
   toRefWithFreeze,
 } from './layout';
-import { computeAutoRowHeights } from './auto-row-height';
+import { axisTranslator, computeAutoRowHeights } from './auto-row-height';
 
 /**
  * `validationRuleDetail` returns the reject-message detail (with trailing
@@ -247,9 +247,7 @@ export class Worksheet {
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
   private hiddenRows: Set<number> = new Set();
-  private hiddenRowSizeBackup: Map<number, number> = new Map();
   private hiddenColumns: Set<number> = new Set();
-  private hiddenColSizeBackup: Map<number, number> = new Map();
 
   private listeners: Array<() => void> = [];
   private interactionCleanups: Set<() => void> = new Set();
@@ -267,35 +265,6 @@ export class Worksheet {
     dropIndex: number;
   } | null = null;
   private editMode: boolean = false;
-  /**
-   * Rows whose height this view computed from their content. They carry no
-   * explicit height in the document, so the pass that sized them is also the
-   * only thing that can return them to the default when the content shrinks.
-   */
-  private autoSizedRows: Set<number> = new Set();
-  /**
-   * The row axis ID each `autoSizedRows` entry had when it was fitted, so a
-   * reload can carry the height to wherever that row went (`takeFittedRows`).
-   */
-  private autoSizedRowIds: Map<number, string> = new Map();
-  /** The last row the most recent fit measured. */
-  private autoSizedMaxRow = 0;
-  /**
-   * `rowDim.getRenumberings()` when `autoSizedRows` was last in step with it.
-   * A local insert, delete or move renumbers `rowDim` but not these
-   * index-keyed records, so until the next fit they name the wrong rows.
-   */
-  private autoSizedRenumberings = 0;
-  /** The tail of the reloads `serializeDimensionReload` runs in order. */
-  private dimensionReloadQueue: Promise<unknown> = Promise.resolve();
-  /**
-   * How many of those reloads are running. The render path's fit
-   * (`applyAutoRowHeights`) writes the same state, so it holds off while this
-   * is non-zero.
-   */
-  private dimensionReloadsInFlight = 0;
-  /** Bumped each time one of those reloads starts, and again when it ends. */
-  private dimensionReloadGeneration = 0;
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
@@ -499,10 +468,8 @@ export class Worksheet {
 
   public async initialize(sheet: Sheet) {
     this.sheet = sheet;
-    this.autoSizedRows.clear();
-    this.autoSizedRowIds.clear();
-    this.autoSizedMaxRow = 0;
-    this.autoSizedRenumberings = this.rowDim.getRenumberings();
+    // Heights fitted to another sheet's rows mean nothing here.
+    this.rowDim.clearFitted();
     this.sheet.setOnRefusal((refusal) => {
       this.onNoticeCallback?.(refusalMessage(refusal));
     });
@@ -514,10 +481,6 @@ export class Worksheet {
     await this.sheet.loadFilterState();
     await this.sheet.loadHiddenState();
     await this.sheet.loadPivotDefinition();
-    this.hiddenRows.clear();
-    this.hiddenRowSizeBackup.clear();
-    this.hiddenColumns.clear();
-    this.hiddenColSizeBackup.clear();
     this.syncHiddenRowsFromSheet();
     this.syncHiddenColumnsFromSheet();
     this.updateFreezeState();
@@ -4850,8 +4813,6 @@ export class Worksheet {
           if (axis === 'column') {
             this.sheet!.setColumnWidth(idx, finalSize);
           } else {
-            this.autoSizedRows.delete(idx);
-            this.autoSizedRowIds.delete(idx);
             this.sheet!.setRowHeight(idx, finalSize);
           }
         }
@@ -5470,7 +5431,8 @@ export class Worksheet {
         run: async (event) => {
           if (this.readOnly) return;
           event.preventDefault();
-          if (await this.runHistoryStep(() => this.sheet!.undo())) {
+          if (await this.sheet!.undo()) {
+            this.updateFreezeState();
             this.render();
             this.scrollIntoView();
           }
@@ -5483,7 +5445,8 @@ export class Worksheet {
         run: async (event) => {
           if (this.readOnly) return;
           event.preventDefault();
-          if (await this.runHistoryStep(() => this.sheet!.redo())) {
+          if (await this.sheet!.redo()) {
+            this.updateFreezeState();
             this.render();
             this.scrollIntoView();
           }
@@ -5600,70 +5563,17 @@ export class Worksheet {
    * `reloadDimensions` reloads dimension sizes from the store into the local
    * DimensionIndex objects. Call this when a remote change arrives.
    */
-  public reloadDimensions(): Promise<void> {
-    return this.serializeDimensionReload(() => this.reloadDimensionsNow());
-  }
-
-  /**
-   * `serializeDimensionReload` runs the reloads that rebuild `rowDim` from the
-   * store — a remote change's `reloadDimensions` and an undo or redo's
-   * `runHistoryStep` — one after another. Each snapshots the fitted heights
-   * before it awaits the store and rebuilds `autoSizedRows` afterwards, so two
-   * of them interleaved would restore a snapshot taken against a row order the
-   * other has already changed. The host only serializes remote reloads among
-   * themselves. The render path's fit is the third writer; it checks
-   * `dimensionReloadsInFlight` and `dimensionReloadGeneration` instead of
-   * queueing, since a render must not wait behind a reload.
-   */
-  private serializeDimensionReload<T>(work: () => Promise<T>): Promise<T> {
-    const counted = async () => {
-      this.dimensionReloadGeneration++;
-      this.dimensionReloadsInFlight++;
-      try {
-        return await work();
-      } finally {
-        this.dimensionReloadsInFlight--;
-        // Bumped on the way out too, so a fit that took the generation while
-        // this reload was already running still sees it change on finishing.
-        this.dimensionReloadGeneration++;
-      }
-    };
-    const run = this.dimensionReloadQueue.then(counted, counted);
-    this.dimensionReloadQueue = run.catch(() => undefined);
-    return run;
-  }
-
-  private async reloadDimensionsNow(): Promise<void> {
-    const sheet = this.sheet;
-    if (!sheet) {
-      return;
-    }
-    // Read before the reload: the store already reflects the change, and
-    // nothing may run between `loadDimensions` clearing `rowDim` and the
-    // fitted heights going back in.
-    const fitted = this.takeFittedRows();
-    const pinned = await sheet.getStore().getDimensionSizes('row');
-    await sheet.loadDimensions();
-    if (sheet !== this.sheet) {
-      return;
-    }
-    this.restoreFittedRows(fitted, pinned);
-    for (const load of [
-      () => sheet.loadStyles(),
-      () => sheet.loadMerges(),
-      () => sheet.loadFreezePane(),
-      () => sheet.loadFilterState(),
-      () => sheet.loadHiddenState(),
-      () => sheet.loadPivotDefinition(),
-    ]) {
-      await load();
-      if (sheet !== this.sheet) {
-        return;
-      }
-    }
+  public async reloadDimensions() {
+    await this.sheet!.loadDimensions();
+    await this.sheet!.loadStyles();
+    await this.sheet!.loadMerges();
+    await this.sheet!.loadFreezePane();
+    await this.sheet!.loadFilterState();
+    await this.sheet!.loadHiddenState();
+    await this.sheet!.loadPivotDefinition();
 
     // Re-resolve axis-ID-based selection after structural changes
-    sheet.resolveAnchorsToRefs();
+    this.sheet!.resolveAnchorsToRefs();
 
     // The copy buffer is index-keyed, and a remote insert, delete or reorder
     // renumbers the cells it snapshotted without ever calling `shiftCells` /
@@ -5671,167 +5581,15 @@ export class Worksheet {
     // when its axis IDs no longer sit where it recorded them — a pasted grid
     // would otherwise relocate, and re-create merged blocks, from stale
     // coordinates. A remote edit that renumbers nothing leaves it alone.
-    sheet.revalidateCopyBuffer();
+    this.sheet!.revalidateCopyBuffer();
 
-    this.resyncHiddenAxes();
+    this.syncHiddenRowsFromSheet();
+    this.syncHiddenColumnsFromSheet();
     this.updateFreezeState();
 
     // Reposition the input cell after structural changes so it follows
     // the active cell to its new visual location.
     this.updateCellInputPosition();
-  }
-
-  /**
-   * `runHistoryStep` runs an undo or a redo (`Sheet.undo` / `Sheet.redo`) and
-   * repairs what the replay's own dimension reload drops: rows fitted to
-   * their content, the zero sizes that hide rows and columns, and the frozen
-   * pane's cached offset. Returns whether a step was replayed.
-   */
-  public runHistoryStep(step: () => Promise<boolean>): Promise<boolean> {
-    return this.serializeDimensionReload(() => this.runHistoryStepNow(step));
-  }
-
-  private async runHistoryStepNow(
-    step: () => Promise<boolean>,
-  ): Promise<boolean> {
-    const sheet = this.sheet;
-    if (!sheet) {
-      return step();
-    }
-    const fitted = this.takeFittedRows();
-    if (!(await step())) {
-      return false;
-    }
-    // The view may have been torn down, or moved to another sheet, while the
-    // replay was awaited; there is nothing of this sheet left to repair.
-    if (sheet !== this.sheet) {
-      return true;
-    }
-    const pinned = await sheet.getStore().getDimensionSizes('row');
-    if (sheet !== this.sheet) {
-      return true;
-    }
-    this.restoreFittedRows(fitted, pinned);
-    this.resyncHiddenAxes();
-    this.updateFreezeState();
-    return true;
-  }
-
-  /**
-   * `takeFittedRows` snapshots the heights of the rows fitted to their content
-   * before a reload from the store drops them, keyed by row axis ID.
-   *
-   * Fitted heights live only in `rowDim` (see `applyAutoRowHeights`), and
-   * every remote change and every undo or redo rebuilds `rowDim` from the
-   * stored heights. Until the next render fitted the rows again, anything
-   * drawn in between — the overlay on the presence update that comes with a
-   * peer's edit — put the selection and peer cursors below a fitted row as
-   * many pixels too high as the rows above it had grown (#1123).
-   *
-   * Keyed by ID because the change being reloaded may have inserted, deleted
-   * or moved rows: an index would carry a height onto whatever row now sits
-   * there. Rows the last fit did not reach are left out, as are rows with no
-   * axis ID: both go back to the default and are measured when the fit next
-   * reads them, which is what a reload always did. A hidden row carries the
-   * height it had before it was hidden, so its backup survives the reload.
-   */
-  private takeFittedRows(): Map<string, number> {
-    const fitted = new Map<string, number>();
-    // A local insert, delete or move since the last fit renumbered `rowDim`
-    // but not `autoSizedRows` / `autoSizedRowIds`, so an index here would pair
-    // one row's height with another row's ID. Carry nothing: the rows go back
-    // to the default and the next fit measures them, as a reload always did.
-    if (this.rowDim.getRenumberings() !== this.autoSizedRenumberings) {
-      return fitted;
-    }
-    for (const row of this.autoSizedRows) {
-      const id = this.autoSizedRowIds.get(row);
-      if (!id || row > this.autoSizedMaxRow) {
-        continue;
-      }
-      const height = this.hiddenRows.has(row)
-        ? this.hiddenRowSizeBackup.get(row)
-        : this.rowDim.getSize(row);
-      // A zero is how a row is hidden, never a height it was fitted to.
-      if (height !== undefined && height > 0) {
-        fitted.set(id, height);
-      }
-    }
-    return fitted;
-  }
-
-  /**
-   * `restoreFittedRows` puts the heights `takeFittedRows` carried back on the
-   * rows that now hold those axis IDs, and rebuilds `autoSizedRows` at those
-   * indices. A row the store now has a height for keeps it: a peer pinned it.
-   */
-  private restoreFittedRows(
-    fitted: Map<string, number>,
-    pinned: Map<number, number>,
-  ): void {
-    this.autoSizedRows.clear();
-    this.autoSizedRowIds.clear();
-    // Rebuilt against the current layout below, so back in step with `rowDim`.
-    this.autoSizedRenumberings = this.rowDim.getRenumberings();
-    if (fitted.size === 0) {
-      return;
-    }
-    const sheet = this.sheet;
-    if (!sheet) {
-      return;
-    }
-    const rowOrder = sheet.getStore().getRowOrder();
-    for (let i = 0; i < rowOrder.length; i++) {
-      const height = fitted.get(rowOrder[i]);
-      const row = i + 1;
-      if (height === undefined || pinned.has(row)) {
-        continue;
-      }
-      this.rowDim.setSize(row, height);
-      this.autoSizedRows.add(row);
-      this.autoSizedRowIds.set(row, rowOrder[i]);
-      // A peer's insert can move a fitted row below the range the last fit
-      // measured; it is still fitted, so the next reload must carry it too.
-      this.autoSizedMaxRow = Math.max(this.autoSizedMaxRow, row);
-    }
-  }
-
-  /**
-   * `resyncHiddenAxes` re-applies the hidden rows and columns from scratch
-   * after a reload reset `rowDim` / `colDim`, which also resets the zero size
-   * that hides them.
-   */
-  private resyncHiddenAxes(): void {
-    const rowBackup = new Map(this.hiddenRowSizeBackup);
-    const colBackup = new Map(this.hiddenColSizeBackup);
-    this.hiddenRows.clear();
-    this.hiddenRowSizeBackup.clear();
-    this.hiddenColumns.clear();
-    this.hiddenColSizeBackup.clear();
-    this.syncHiddenRowsFromSheet();
-    this.syncHiddenColumnsFromSheet();
-
-    // A zero size only ever means "hidden", so it is never a size to restore.
-    // It shows up here when a render between the reload and this pass has
-    // already hidden the row again; keep the backup that was there before.
-    const usable = (size: number | undefined, fallback: number) =>
-      size !== undefined && size > 0 ? size : fallback;
-    for (const [row, size] of this.hiddenRowSizeBackup) {
-      if (size <= 0) {
-        this.hiddenRowSizeBackup.set(
-          row,
-          usable(rowBackup.get(row), this.rowDim.getDefaultSize()),
-        );
-      }
-    }
-    for (const [col, size] of this.hiddenColSizeBackup) {
-      if (size <= 0) {
-        this.hiddenColSizeBackup.set(
-          col,
-          usable(colBackup.get(col), this.colDim.getDefaultSize()),
-        );
-      }
-    }
   }
 
   /**
@@ -6600,8 +6358,12 @@ export class Worksheet {
       return;
     }
 
-    this.syncHiddenRowsFromSheet();
-    this.syncHiddenColumnsFromSheet();
+    // An undo or a remote change may have hidden or shown rows since the last
+    // frame, and `freezeState` caches the frozen pane's size off `rowDim`.
+    const rowsChanged = this.syncHiddenRowsFromSheet();
+    if (this.syncHiddenColumnsFromSheet() || rowsChanged) {
+      this.updateFreezeState();
+    }
 
     const gridSize = this.gridSize;
     const freeze = this.freezeState;
@@ -6624,13 +6386,9 @@ export class Worksheet {
       { r: 1, c: 1 },
       { r: viewRange[1].r, c: viewRange[1].c },
     ];
-    // Taken before the fetch: the grid is what the fit measures, so a reload
-    // — or a local insert, delete or move — that runs during the fetch must
-    // make the fit stand down too.
-    const measuredAgainst = {
-      reloadGeneration: this.dimensionReloadGeneration,
-      renumberings: this.rowDim.getRenumberings(),
-    };
+    // Taken before the fetch, so the fit knows which row each fetched index
+    // was: the row order can change while the fetch is awaited.
+    const measuredOrder = sheet.getStore().getRowOrder();
     const grid = await sheet.fetchGrid(fullRange);
     if (sheet !== this.sheet || targetVersion !== this.renderVersion) {
       return;
@@ -6646,7 +6404,7 @@ export class Worksheet {
         grid,
         fullRange[1].r,
         fullRange[1].c,
-        measuredAgainst,
+        measuredOrder,
       )
     ) {
       this.render();
@@ -6718,16 +6476,18 @@ export class Worksheet {
    * position: scrolling a tall cell off to the right would shrink its row.
    * Both stores reach their cells through an index, so the extra read costs
    * what those columns actually hold rather than the width of the grid.
+   *
+   * `measuredOrder` is the row order `grid` was read against. The pass
+   * awaits, and an insert, delete or move — a peer's reload or a local edit —
+   * may land meanwhile; every write goes through the row's axis ID to where
+   * that row sits now, so a height never lands on another row's index.
    */
   private async applyAutoRowHeights(
     grid: Grid,
     maxRow: number,
     maxCol: number,
-    // The layout `grid` was read against; see the hold-off below.
-    measuredAgainst: { reloadGeneration: number; renumberings: number } = {
-      reloadGeneration: this.dimensionReloadGeneration,
-      renumberings: this.rowDim.getRenumberings(),
-    },
+    measuredOrder: ReadonlyArray<string> = this.sheet?.getStore().getRowOrder() ??
+      [],
   ): Promise<boolean> {
     const sheet = this.sheet;
     if (!sheet) {
@@ -6743,9 +6503,9 @@ export class Worksheet {
 
     // A merged block lays its text out against the block, not its top row,
     // so growing that row would count the block's height twice. Hidden rows
-    // are carried as zero-height rows in `rowDim`, so sizing one to its
-    // content is what un-hides it.
-    const skip = new Set<number>(this.hiddenRows);
+    // are measured like any other: `rowDim` draws them at zero whatever their
+    // fitted height, which is then ready for when they are shown again.
+    const skip = new Set<number>();
     for (const [sref, span] of sheet.getMerges()) {
       if (span.rs > 1) {
         skip.add(parseRef(sref).r);
@@ -6764,17 +6524,9 @@ export class Worksheet {
 
     const heights = computeAutoRowHeights(measured, skip);
 
-    const candidates = new Set<number>(this.autoSizedRows);
-    for (const row of heights.keys()) {
-      candidates.add(row);
-    }
     // Nothing to size and nothing to shrink back: skip reading the stored
     // heights, which is the whole cost of this pass on an ordinary sheet.
-    if (candidates.size === 0) {
-      // No fit records to fall out of step: these two need no hold-off, and a
-      // reload in flight re-derives both when it restores.
-      this.autoSizedMaxRow = maxRow;
-      this.autoSizedRenumberings = this.rowDim.getRenumberings();
+    if (heights.size === 0 && !this.rowDim.hasFittedSizes()) {
       return false;
     }
 
@@ -6782,81 +6534,54 @@ export class Worksheet {
     if (sheet !== this.sheet) {
       return false;
     }
-    // A reload or an undo is rebuilding `rowDim` and the fit records from the
-    // store (`serializeDimensionReload`), and this pass awaited its way into
-    // the middle of it — or one started and finished while it awaited, so
-    // what it measured belongs to the layout before. Writing now would
-    // interleave with that rebuild, or pair old measurements with the new row
-    // order, so write nothing and ask for another frame; the pass after it
-    // measures against the rebuilt state.
-    // A local insert, delete or move in the same window renumbered `rowDim`
-    // under the measurements just the same.
-    if (
-      this.dimensionReloadsInFlight > 0 ||
-      this.dimensionReloadGeneration !== measuredAgainst.reloadGeneration ||
-      this.rowDim.getRenumberings() !== measuredAgainst.renumberings
-    ) {
-      return true;
-    }
 
-    this.autoSizedMaxRow = maxRow;
-    // A local insert, delete or move since the last pass left every entry's
-    // index pointing at another row. Rows this pass re-keys below are fine;
-    // the ones it leaves alone (skipped, or past the measured range) must
-    // lose their axis ID, or the next reload would carry a height under it.
-    const renumbered =
-      this.rowDim.getRenumberings() !== this.autoSizedRenumberings;
-    this.autoSizedRenumberings = this.rowDim.getRenumberings();
-
+    // From here on nothing awaits, so the row order read now holds for every
+    // write below. A reload that ran while this pass awaited has already
+    // realigned the fitted heights; one that is still to run realigns these.
+    const order = sheet.getStore().getRowOrder();
+    let changed = this.rowDim.realignFitted(order);
+    let frozenChanged = changed;
+    const toCurrent = axisTranslator(measuredOrder, order);
+    const toMeasured = axisTranslator(order, measuredOrder);
     const frozenRows = this.freezeState.frozenRows;
-    let frozenChanged = false;
-    let changed = false;
-    // Read once, and only if a row stays fitted: `takeFittedRows` needs each
-    // fitted row's axis ID to follow it across a reload.
-    let rowOrder: Array<string> | undefined;
-    for (const row of candidates) {
-      // Stays a candidate: a hidden row still has to be checked against its
-      // content once it is shown again, and a merge anchor once the merge is
-      // gone. Both were excluded from measurement, so shrinking them here
-      // would collapse them on evidence this pass deliberately did not read.
-      if (skip.has(row)) {
-        if (renumbered) {
-          this.autoSizedRowIds.delete(row);
-        }
-        continue;
-      }
-      if (pinned.has(row)) {
-        this.autoSizedRows.delete(row);
-        this.autoSizedRowIds.delete(row);
-        continue;
-      }
-      if (row > maxRow && !heights.has(row)) {
-        if (renumbered) {
-          this.autoSizedRowIds.delete(row);
-        }
-        continue;
-      }
 
-      const height = heights.get(row) ?? DefaultCellHeight;
-      if (this.rowDim.getSize(row) !== height) {
-        this.rowDim.setSize(row, height);
-        changed = true;
-        if (row <= frozenRows) {
-          frozenChanged = true;
+    const fit = (row: number, height: number) => {
+      if (pinned.has(row)) {
+        // A chosen height is never overruled; a fitted one under it would
+        // only show again if the pin were cleared, and then it is measured.
+        if (this.rowDim.clearFittedSize(row)) {
+          changed = true;
+          frozenChanged ||= row <= frozenRows;
         }
+        return;
       }
-      if (height === DefaultCellHeight) {
-        this.autoSizedRows.delete(row);
-        this.autoSizedRowIds.delete(row);
-      } else {
-        this.autoSizedRows.add(row);
-        rowOrder ??= sheet.getStore().getRowOrder();
-        const id = rowOrder[row - 1];
-        if (id) {
-          this.autoSizedRowIds.set(row, id);
-        } else {
-          this.autoSizedRowIds.delete(row);
-        }
+      if (
+        (this.rowDim.getFittedSize(row) ?? DefaultCellHeight) === height
+      ) {
+        return;
+      }
+      this.rowDim.setFittedSize(row, height, order[row - 1]);
+      changed = true;
+      frozenChanged ||= row <= frozenRows;
+    };
+
+    // Rows still fitted from before but measured at the default now shrink
+    // back. A merge anchor stays as it is: it was excluded from measurement,
+    // so shrinking it would collapse it on evidence this pass did not read.
+    // So does a row past the measured range, which the next pass that reaches
+    // it measures instead — shrinking it here would let the range and the
+    // height chase each other from frame to frame.
+    for (const row of this.rowDim.getFittedIndices()) {
+      const at = toMeasured(row);
+      if (at === undefined || heights.has(at) || skip.has(at) || at > maxRow) {
+        continue;
+      }
+      fit(row, DefaultCellHeight);
+    }
+    for (const [at, height] of heights) {
+      const row = toCurrent(at);
+      if (row !== undefined) {
+        fit(row, height);
       }
     }
 
@@ -6934,35 +6659,19 @@ export class Worksheet {
   }
 
   /**
-   * `syncHiddenRowsFromSheet` applies filter-hidden rows as zero-height rows.
+   * `syncHiddenRowsFromSheet` draws the sheet's hidden rows (filtered out, or
+   * hidden by hand) at zero height. `rowDim` keeps hiding apart from the
+   * sizes, so a shown row gets back whatever height it has without anything
+   * having been saved for it. Returns whether that changed which rows are.
    */
-  private syncHiddenRowsFromSheet(): void {
+  private syncHiddenRowsFromSheet(): boolean {
     const sheet = this.sheet;
-    if (!sheet) return;
+    if (!sheet) return false;
 
-    const nextHiddenRows = sheet.getHiddenRows();
-
-    for (const row of this.hiddenRows) {
-      if (nextHiddenRows.has(row)) continue;
-      const restoreSize =
-        this.hiddenRowSizeBackup.get(row) ?? this.rowDim.getDefaultSize();
-      this.rowDim.setSize(row, restoreSize);
-      this.hiddenRowSizeBackup.delete(row);
-    }
-
-    for (const row of nextHiddenRows) {
-      if (!this.hiddenRows.has(row)) {
-        this.hiddenRowSizeBackup.set(row, this.rowDim.getSize(row));
-        this.rowDim.setSize(row, 0);
-      }
-    }
-
-    this.hiddenRows = nextHiddenRows;
+    this.hiddenRows = sheet.getHiddenRows();
+    return this.rowDim.setHidden(this.hiddenRows);
   }
 
-  /**
-   * `syncHiddenColumnsFromSheet` applies user-hidden columns as zero-width columns.
-   */
   /**
    * `findAdjacentHiddenRows` finds user-hidden rows adjacent to the given range.
    */
@@ -7017,28 +6726,16 @@ export class Worksheet {
     return result;
   }
 
-  private syncHiddenColumnsFromSheet(): void {
+  /**
+   * `syncHiddenColumnsFromSheet` does for columns what
+   * `syncHiddenRowsFromSheet` does for rows.
+   */
+  private syncHiddenColumnsFromSheet(): boolean {
     const sheet = this.sheet;
-    if (!sheet) return;
+    if (!sheet) return false;
 
-    const nextHiddenCols = sheet.getHiddenColumns();
-
-    for (const col of this.hiddenColumns) {
-      if (nextHiddenCols.has(col)) continue;
-      const restoreSize =
-        this.hiddenColSizeBackup.get(col) ?? this.colDim.getDefaultSize();
-      this.colDim.setSize(col, restoreSize);
-      this.hiddenColSizeBackup.delete(col);
-    }
-
-    for (const col of nextHiddenCols) {
-      if (!this.hiddenColumns.has(col)) {
-        this.hiddenColSizeBackup.set(col, this.colDim.getSize(col));
-        this.colDim.setSize(col, 0);
-      }
-    }
-
-    this.hiddenColumns = nextHiddenCols;
+    this.hiddenColumns = sheet.getHiddenColumns();
+    return this.colDim.setHidden(this.hiddenColumns);
   }
 
   private get gridSize(): Size {

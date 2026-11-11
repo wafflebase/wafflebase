@@ -704,8 +704,7 @@ export class Spreadsheet {
    */
   public async undo() {
     if (!this.sheet || this._readOnly) return;
-    const sheet = this.sheet;
-    if (await this.worksheet.runHistoryStep(() => sheet.undo())) {
+    if (await this.sheet.undo()) {
       this.worksheet.render();
       // The selection has moved onto what was undone, which is no use if it
       // is off screen. The keyboard path does the same.
@@ -719,8 +718,7 @@ export class Spreadsheet {
    */
   public async redo() {
     if (!this.sheet || this._readOnly) return;
-    const sheet = this.sheet;
-    if (await this.worksheet.runHistoryStep(() => sheet.redo())) {
+    if (await this.sheet.redo()) {
       this.worksheet.render();
       this.worksheet.revealActiveCell();
       this.notifySelectionChange();

@@ -77,15 +77,50 @@ describe('Sheet row heights', () => {
   });
 });
 
-describe('DimensionIndex.getRenumberings', () => {
-  it('counts shifts and moves, and nothing else', () => {
-    const dim = new DimensionIndex(DefaultCellHeight);
-    dim.setSize(2, 40);
-    dim.clear();
-    expect(dim.getRenumberings()).toBe(0);
+/**
+ * An undo or a redo reloads the dimensions from the store
+ * (`Sheet.replayHistory`), just as a remote change does — and it can be the
+ * replay of an insert, delete or move, which renumbers rows without
+ * `DimensionIndex.shift` ever running. `MemStore` keeps no history, so each
+ * test hands it the step to replay, and a row order to hold axis IDs in.
+ */
+describe('Sheet undo and redo', () => {
+  const createReplay = (step: (store: MemStore, order: string[]) => Promise<void>) => {
+    const { sheet, store } = createSheet();
+    const order = Array.from({ length: 12 }, (_, i) => `r${i + 1}`);
+    Object.assign(store, {
+      getRowOrder: () => [...order],
+      undo: async () => {
+        await step(store, order);
+        return { success: true };
+      },
+    });
+    return { sheet, rowDim: sheet.getRowDimensions()!, order };
+  };
 
-    dim.shift(1, 1);
-    dim.move(1, 1, 4);
-    expect(dim.getRenumberings()).toBe(2);
+  it('keep rows fitted to their content, following them across a replayed insert', async () => {
+    // Undoing a local insert of row 2.
+    const { sheet, rowDim, order } = createReplay(async (store, order) => {
+      await store.shiftCells('row', 2, -1);
+      order.splice(1, 1);
+    });
+    rowDim.setFittedSize(5, 101, order[4]);
+
+    expect(await sheet.undo()).toBe(true);
+
+    expect(rowDim.getSize(4)).toBe(101);
+    expect(rowDim.getSize(5)).toBe(DefaultCellHeight);
+  });
+
+  it('keep hidden rows hidden', async () => {
+    const { sheet, rowDim } = createReplay(async (store) => {
+      await store.setDimensionSize('row', 7, 90);
+    });
+    rowDim.setHidden([3]);
+
+    await sheet.undo();
+
+    expect(rowDim.getSize(3)).toBe(0);
+    expect(rowDim.getSize(7)).toBe(90);
   });
 });

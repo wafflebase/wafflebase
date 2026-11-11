@@ -1,15 +1,34 @@
 import { remapIndex } from './shifting';
 
 /**
+ * A size the view computed from an index's content, with the axis ID the
+ * index had when it was computed.
+ */
+type FittedSize = { size: number; id?: string };
+
+/**
  * `DimensionIndex` manages variable row or column sizes.
- * Stores custom sizes in a Map (1-based index → pixels).
- * Indices without a custom size use the default.
+ *
+ * An index's size comes from three layers, each keyed by 1-based index:
+ *
+ * - stored: sizes somebody chose, as the document records them. `setSize`
+ *   and `clear` write this layer, and a reload from the store replaces it.
+ * - fitted: sizes the view computed from the content (fit to data). They are
+ *   never written to the document, so a reload must not drop them; each
+ *   carries the axis ID it was fitted for, so `realignFitted` can follow the
+ *   row when somebody else's insert, delete or move renumbers it.
+ * - hidden: indices drawn at zero size, whatever the other layers hold, so
+ *   showing them again needs nothing put back.
+ *
+ * `getSize` is 0 for a hidden index, else the stored size, else the fitted
+ * size, else the default.
  */
 export class DimensionIndex {
   private customSizes: Map<number, number>;
+  private fittedSizes: Map<number, FittedSize> = new Map();
+  private hidden: Set<number> = new Set();
   private defaultSize: number;
   private cacheDirty = true;
-  private renumberings = 0;
   private sortedIndices: number[] = [];
   private sortedSizes: number[] = [];
   private prefixDeltas: number[] = [];
@@ -24,11 +43,21 @@ export class DimensionIndex {
    * `getSize` returns the size for the given 1-based index.
    */
   getSize(index: number): number {
-    return this.customSizes.get(index) ?? this.defaultSize;
+    if (this.hidden.has(index)) {
+      return 0;
+    }
+    return (
+      this.customSizes.get(index) ??
+      this.fittedSizes.get(index)?.size ??
+      this.defaultSize
+    );
   }
 
   /**
-   * `setSize` sets a custom size for the given 1-based index.
+   * `setSize` sets a stored size for the given 1-based index, and drops its
+   * fitted size: a chosen size overrules a computed one. That holds for the
+   * default too, which the stored layer keeps no entry for and so could not
+   * otherwise hide a fitted size under it.
    */
   setSize(index: number, size: number): void {
     if (size === this.defaultSize) {
@@ -36,6 +65,7 @@ export class DimensionIndex {
     } else {
       this.customSizes.set(index, size);
     }
+    this.fittedSizes.delete(index);
     this.cacheDirty = true;
   }
 
@@ -47,12 +77,141 @@ export class DimensionIndex {
   }
 
   /**
+   * `getFittedSize` returns the fitted size of the given 1-based index, if it
+   * has one.
+   */
+  getFittedSize(index: number): number | undefined {
+    return this.fittedSizes.get(index)?.size;
+  }
+
+  /**
+   * `setFittedSize` sets the fitted size of the given 1-based index, and the
+   * axis ID the index has now. The default size removes the entry.
+   */
+  setFittedSize(index: number, size: number, id?: string): void {
+    if (size === this.defaultSize) {
+      this.clearFittedSize(index);
+      return;
+    }
+    this.fittedSizes.set(index, id === undefined ? { size } : { size, id });
+    this.cacheDirty = true;
+  }
+
+  /**
+   * `clearFittedSize` removes the fitted size of the given 1-based index.
+   * Returns whether there was one.
+   */
+  clearFittedSize(index: number): boolean {
+    if (!this.fittedSizes.delete(index)) {
+      return false;
+    }
+    this.cacheDirty = true;
+    return true;
+  }
+
+  /**
+   * `getFittedIndices` returns the indices that have a fitted size.
+   */
+  getFittedIndices(): Array<number> {
+    return Array.from(this.fittedSizes.keys());
+  }
+
+  /**
+   * `hasFittedSizes` returns whether any index has a fitted size.
+   */
+  hasFittedSizes(): boolean {
+    return this.fittedSizes.size > 0;
+  }
+
+  /**
+   * `clearFitted` removes every fitted size.
+   */
+  clearFitted(): void {
+    if (this.fittedSizes.size === 0) {
+      return;
+    }
+    this.fittedSizes.clear();
+    this.cacheDirty = true;
+  }
+
+  /**
+   * `realignFitted` moves each fitted size to the index its axis ID has in
+   * `order` (the axis IDs, first index first), and drops the ones whose ID is
+   * gone. An insert, delete or move that reached this view through `shift` or
+   * `move` is already accounted for; this catches the ones that did not — a
+   * peer's, which only a reload from the store brings in.
+   *
+   * A size with no axis ID stays where it is, and so does everything when
+   * `order` is empty: without IDs, the index is all there is to go by.
+   * Returns whether any size moved or was dropped.
+   */
+  realignFitted(order: ReadonlyArray<string>): boolean {
+    if (order.length === 0 || this.fittedSizes.size === 0) {
+      return false;
+    }
+
+    let aligned = true;
+    for (const [index, fitted] of this.fittedSizes) {
+      if (fitted.id !== undefined && order[index - 1] !== fitted.id) {
+        aligned = false;
+        break;
+      }
+    }
+    if (aligned) {
+      return false;
+    }
+
+    const positions = new Map<string, number>();
+    for (let i = 0; i < order.length; i++) {
+      positions.set(order[i], i + 1);
+    }
+    const next = new Map<number, FittedSize>();
+    // Sizes with an ID go in last, so one that moved onto an index wins over
+    // an ID-less size left there.
+    for (const [index, fitted] of this.fittedSizes) {
+      if (fitted.id === undefined) {
+        next.set(index, fitted);
+      }
+    }
+    for (const fitted of this.fittedSizes.values()) {
+      if (fitted.id === undefined) {
+        continue;
+      }
+      const index = positions.get(fitted.id);
+      if (index !== undefined) {
+        next.set(index, fitted);
+      }
+    }
+
+    this.fittedSizes = next;
+    this.cacheDirty = true;
+    return true;
+  }
+
+  /**
+   * `setHidden` makes exactly `indices` the hidden ones. Returns whether that
+   * changed which are.
+   */
+  setHidden(indices: Iterable<number>): boolean {
+    const next = new Set(indices);
+    if (
+      next.size === this.hidden.size &&
+      Array.from(next).every((index) => this.hidden.has(index))
+    ) {
+      return false;
+    }
+    this.hidden = next;
+    this.cacheDirty = true;
+    return true;
+  }
+
+  /**
    * `getOffset` returns the pixel offset of the start of the given 1-based index.
    * For performance, computes as: (index-1) * defaultSize + sum of custom deltas before index.
    */
   getOffset(index: number): number {
     let offset = (index - 1) * this.defaultSize;
-    if (this.customSizes.size === 0) return offset;
+    if (this.isUniform()) return offset;
 
     this.ensureCache();
     const pos = this.lowerBound(this.sortedIndices, index) - 1;
@@ -69,11 +228,14 @@ export class DimensionIndex {
   findIndex(offset: number): number {
     if (offset < 0) return 1;
 
-    if (this.customSizes.size === 0) {
+    if (this.isUniform()) {
       return Math.floor(offset / this.defaultSize) + 1;
     }
 
     this.ensureCache();
+    if (this.sortedIndices.length === 0) {
+      return Math.floor(offset / this.defaultSize) + 1;
+    }
     const firstCustomStart = this.customStarts[0];
     if (offset < firstCustomStart) {
       return Math.floor(offset / this.defaultSize) + 1;
@@ -93,64 +255,42 @@ export class DimensionIndex {
   }
 
   /**
-   * `shift` shifts custom size keys on insert/delete.
+   * `shift` shifts every layer's keys on insert/delete.
    * Integrates with Phase 1 row/column insertion and deletion.
    */
   shift(index: number, count: number): void {
-    const newSizes = new Map<number, number>();
-
-    for (const [i, size] of this.customSizes) {
-      if (count > 0) {
-        // Insert: shift keys at or after index
-        if (i >= index) {
-          newSizes.set(i + count, size);
-        } else {
-          newSizes.set(i, size);
-        }
-      } else {
-        // Delete: count < 0
-        const absCount = Math.abs(count);
-        if (i >= index && i < index + absCount) {
-          // In deleted zone — drop it
-        } else if (i >= index + absCount) {
-          newSizes.set(i + count, size);
-        } else {
-          newSizes.set(i, size);
-        }
+    const remap = (i: number): number | undefined => {
+      if (i < index) {
+        return i;
       }
-    }
+      // Delete: drop what sits in the deleted zone.
+      if (count < 0 && i < index - count) {
+        return undefined;
+      }
+      return i + count;
+    };
 
-    this.customSizes = newSizes;
+    this.customSizes = remapKeys(this.customSizes, remap);
+    this.fittedSizes = remapKeys(this.fittedSizes, remap);
+    this.hidden = remapSet(this.hidden, remap);
     this.cacheDirty = true;
-    this.renumberings++;
   }
 
   /**
-   * `move` remaps custom size keys after moving `count` items from `src` to before `dst`.
+   * `move` remaps every layer's keys after moving `count` items from `src` to before `dst`.
    */
   move(src: number, count: number, dst: number): void {
-    const newSizes = new Map<number, number>();
+    const remap = (i: number) => remapIndex(i, src, count, dst);
 
-    for (const [i, size] of this.customSizes) {
-      newSizes.set(remapIndex(i, src, count, dst), size);
-    }
-
-    this.customSizes = newSizes;
+    this.customSizes = remapKeys(this.customSizes, remap);
+    this.fittedSizes = remapKeys(this.fittedSizes, remap);
+    this.hidden = remapSet(this.hidden, remap);
     this.cacheDirty = true;
-    this.renumberings++;
   }
 
   /**
-   * `getRenumberings` counts the `shift` and `move` calls so far. Anything a
-   * caller keyed by index alongside this index — and did not renumber with it
-   * — is stale once the count has moved on.
-   */
-  getRenumberings(): number {
-    return this.renumberings;
-  }
-
-  /**
-   * `clear` removes all custom sizes.
+   * `clear` removes all stored sizes. Fitted sizes and hidden indices are not
+   * stored, so they stay.
    */
   clear(): void {
     this.customSizes.clear();
@@ -158,10 +298,19 @@ export class DimensionIndex {
   }
 
   /**
-   * `hasCustomSizes` returns whether any custom sizes are set.
+   * `hasCustomSizes` returns whether any stored sizes are set.
    */
   hasCustomSizes(): boolean {
     return this.customSizes.size > 0;
+  }
+
+  /** Whether every index has the default size. */
+  private isUniform(): boolean {
+    return (
+      this.customSizes.size === 0 &&
+      this.fittedSizes.size === 0 &&
+      this.hidden.size === 0
+    );
   }
 
   private ensureCache(): void {
@@ -169,26 +318,28 @@ export class DimensionIndex {
       return;
     }
 
-    if (this.customSizes.size === 0) {
-      this.sortedIndices = [];
-      this.sortedSizes = [];
-      this.prefixDeltas = [];
-      this.customStarts = [];
-      this.cacheDirty = false;
-      return;
-    }
-
-    const sorted = Array.from(this.customSizes.entries()).sort(
-      (a, b) => a[0] - b[0],
-    );
-
     this.sortedIndices = [];
     this.sortedSizes = [];
     this.prefixDeltas = [];
     this.customStarts = [];
 
+    // The layers merged into one size per index; an index whose layers come
+    // to the default contributes nothing, as if it had no entry.
+    const indices = new Set<number>(this.customSizes.keys());
+    for (const index of this.fittedSizes.keys()) {
+      indices.add(index);
+    }
+    for (const index of this.hidden) {
+      indices.add(index);
+    }
+    const sorted = Array.from(indices).sort((a, b) => a - b);
+
     let accumulatedDelta = 0;
-    for (const [index, size] of sorted) {
+    for (const index of sorted) {
+      const size = this.getSize(index);
+      if (size === this.defaultSize) {
+        continue;
+      }
       this.sortedIndices.push(index);
       this.sortedSizes.push(size);
       this.customStarts.push((index - 1) * this.defaultSize + accumulatedDelta);
@@ -226,4 +377,34 @@ export class DimensionIndex {
     }
     return left;
   }
+}
+
+/** `map` with each key passed through `remap`; `undefined` drops the entry. */
+function remapKeys<T>(
+  map: Map<number, T>,
+  remap: (index: number) => number | undefined,
+): Map<number, T> {
+  const next = new Map<number, T>();
+  for (const [index, value] of map) {
+    const to = remap(index);
+    if (to !== undefined) {
+      next.set(to, value);
+    }
+  }
+  return next;
+}
+
+/** `set` with each index passed through `remap`; `undefined` drops it. */
+function remapSet(
+  set: Set<number>,
+  remap: (index: number) => number | undefined,
+): Set<number> {
+  const next = new Set<number>();
+  for (const index of set) {
+    const to = remap(index);
+    if (to !== undefined) {
+      next.add(to);
+    }
+  }
+  return next;
 }

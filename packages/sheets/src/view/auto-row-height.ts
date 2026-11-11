@@ -59,3 +59,37 @@ export function computeAutoRowHeights(
   }
   return heights;
 }
+
+/**
+ * `axisTranslator` maps a 1-based index in the axis order `from` (axis IDs,
+ * first index first) to the index the same axis ID has in `to`, or to
+ * `undefined` when that ID is gone or the index had none.
+ *
+ * With either order empty there are no IDs to go by, and every index maps to
+ * itself. The lookup table is only built once an index has actually moved.
+ */
+export function axisTranslator(
+  from: ReadonlyArray<string>,
+  to: ReadonlyArray<string>,
+): (index: number) => number | undefined {
+  if (from === to || from.length === 0 || to.length === 0) {
+    return (index) => index;
+  }
+  let positions: Map<string, number> | undefined;
+  return (index) => {
+    const id = from[index - 1];
+    if (id === undefined) {
+      return undefined;
+    }
+    if (to[index - 1] === id) {
+      return index;
+    }
+    if (!positions) {
+      positions = new Map();
+      for (let i = 0; i < to.length; i++) {
+        positions.set(to[i], i + 1);
+      }
+    }
+    return positions.get(id);
+  };
+}

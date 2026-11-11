@@ -18,17 +18,21 @@ way through `Sheet.replayHistory`.
 
 ## Tasks
 
-- [x] Record each fitted row's axis ID (`autoSizedRowIds`) and the last
-      fitted range (`autoSizedMaxRow`) in `applyAutoRowHeights`
-- [x] `takeFittedRows` / `restoreFittedRows`: carry fitted heights across a
-      reload by axis ID; a stored height wins; rows past the fitted range or
-      without an ID are not carried
-- [x] Use them in `reloadDimensions` and in a new `runHistoryStep` that the
-      keyboard and toolbar undo/redo go through; both re-apply hidden axes
-      from scratch afterwards (`resyncHiddenAxes`)
-- [x] Tests: reload and undo against a real `Sheet` + `MemStore` with the real
-      hidden-row pass, including a peer's insert and delete; ID recording in
-      `applyAutoRowHeights`
-- [x] Update the fit-to-data section of `docs/design/sheets/sheet.md`
+- [x] Split `DimensionIndex` into stored, fitted and hidden layers; a reload
+      (`clear` + `setSize`) replaces only the stored layer, and any stored
+      write drops the fitted size at its index
+- [x] Fitted sizes carry their row axis ID; `realignFitted(order)` follows
+      rows by ID, run by `Sheet.loadDimensions` (reload, undo, redo) before
+      the stored sizes go back in
+- [x] `applyAutoRowHeights` writes to the fitted layer, through the row's
+      axis ID to its current index (`axisTranslator`), with the order
+      `renderSheet` took before fetching the grid
+- [x] Hidden rows and columns through `setHidden`; no size backups
+- [x] Tests: randomized comparison of `DimensionIndex` against a naive
+      reference; reload against a real `Sheet` + `MemStore`, including a
+      peer's insert, move, delete and pin; undo; the fit with rows
+      renumbered mid-pass
+- [x] Update `docs/design/sheets/sheet.md`
 - [x] `pnpm verify:fast`
 - [x] Manual check with two clients in `pnpm dev`
+

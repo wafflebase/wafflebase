@@ -13,6 +13,7 @@ const applyAutoRowHeights = (
       grid: Grid,
       maxRow: number,
       maxCol: number,
+      measuredOrder?: ReadonlyArray<string>,
     ) => Promise<boolean>;
   }
 ).applyAutoRowHeights;
@@ -22,12 +23,6 @@ const fetchRowRemainder = (
     fetchRowRemainder: (...args: Array<unknown>) => Promise<Grid>;
   }
 ).fetchRowRemainder;
-
-const serializeDimensionReload = (
-  Worksheet.prototype as unknown as {
-    serializeDimensionReload: <T>(work: () => Promise<T>) => Promise<T>;
-  }
-).serializeDimensionReload;
 
 const updateFreezeState = (
   Worksheet.prototype as unknown as {
@@ -39,19 +34,14 @@ const updateFreezeState = (
  * The real grid spans every column, so a fake sheet that answers `fetchGrid`
  * from a fixed map is what lets a test put a tall cell to the right of the
  * fetched viewport.
+ *
+ * `order` is the row order the store holds, `r1`, `r2`, … unless a test
+ * changes it; `onPinnedRead` runs inside the pass's last await, which is
+ * where a peer's change or a local edit lands while the pass is suspended.
  */
 type Context = {
   sheet: unknown;
   resizeDragging: boolean;
-  hiddenRows: Set<number>;
-  autoSizedRows: Set<number>;
-  autoSizedRowIds: Map<number, string>;
-  autoSizedMaxRow: number;
-  autoSizedRenumberings: number;
-  dimensionReloadsInFlight: number;
-  dimensionReloadGeneration: number;
-  dimensionReloadQueue: Promise<unknown>;
-  serializeDimensionReload: <T>(work: () => Promise<T>) => Promise<T>;
   rowDim: DimensionIndex;
   colDim: DimensionIndex;
   freezeState: FreezeState;
@@ -66,16 +56,22 @@ const createContext = (options?: {
   merges?: Array<[Sref, MergeSpan]>;
   offscreen?: Grid;
   frozenRows?: number;
-  rowOrder?: Array<string>;
-}): Context => {
+  order?: Array<string>;
+  onPinnedRead?: () => void;
+}): Context & { order: Array<string> } => {
   const rowDim = new DimensionIndex(DefaultCellHeight);
   const colDim = new DimensionIndex(100);
   const offscreen = options?.offscreen ?? new Map();
+  const order = options?.order ?? ids(50);
   return {
+    order,
     sheet: {
       getStore: () => ({
-        getDimensionSizes: async () => new Map(options?.pinned ?? []),
-        getRowOrder: () => options?.rowOrder ?? [],
+        getDimensionSizes: async () => {
+          options?.onPinnedRead?.();
+          return new Map(options?.pinned ?? []);
+        },
+        getRowOrder: () => [...order],
       }),
       getMerges: () => new Map(options?.merges ?? []),
       getDimension: () => ({ rows: 1000000, columns: DefaultColumns }),
@@ -95,15 +91,6 @@ const createContext = (options?: {
       },
     },
     resizeDragging: false,
-    hiddenRows: new Set<number>(),
-    autoSizedRows: new Set<number>(),
-    autoSizedRowIds: new Map<number, string>(),
-    autoSizedMaxRow: 0,
-    autoSizedRenumberings: 0,
-    dimensionReloadsInFlight: 0,
-    dimensionReloadGeneration: 0,
-    dimensionReloadQueue: Promise.resolve() as Promise<unknown>,
-    serializeDimensionReload: serializeDimensionReload,
     rowDim,
     colDim,
     freezeState: options?.frozenRows
@@ -114,8 +101,6 @@ const createContext = (options?: {
   };
 };
 
-const ids = (n: number) => Array.from({ length: n }, (_, i) => `r${i + 1}`);
-
 const colOf = (sref: string): number => {
   const letters = sref.match(/^[A-Z]+/)![0];
   let col = 0;
@@ -125,14 +110,7 @@ const colOf = (sref: string): number => {
   return col;
 };
 
-type MeasuredAgainst = { reloadGeneration: number; renumberings: number };
-const fitAgainst = applyAutoRowHeights as unknown as (
-  this: unknown,
-  grid: Grid,
-  maxRow: number,
-  maxCol: number,
-  measuredAgainst: MeasuredAgainst,
-) => Promise<boolean>;
+const ids = (n: number) => Array.from({ length: n }, (_, i) => `r${i + 1}`);
 
 const multiLineGrid = (...srefs: Array<Sref>): Grid =>
   new Map(srefs.map((sref) => [sref, { v: 'first\nsecond' }]));
@@ -150,182 +128,9 @@ describe('Worksheet.applyAutoRowHeights', () => {
 
     expect(changed).toBe(true);
     expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
-    expect(ctx.autoSizedRows.has(1)).toBe(true);
-  });
-
-  it('records the axis ID of each fitted row, and the range it measured', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2', 'r3'] });
-
-    await applyAutoRowHeights.call(ctx, multiLineGrid('A2'), 10, 5);
-
-    expect(ctx.autoSizedRowIds).toEqual(new Map([[2, 'r2']]));
-    expect(ctx.autoSizedMaxRow).toBe(10);
-  });
-
-  it('forgets the axis ID of a row that shrinks back to the default', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
-    await applyAutoRowHeights.call(ctx, multiLineGrid('A2'), 10, 5);
-
-    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
-
-    expect(ctx.autoSizedRows.has(2)).toBe(false);
-    expect(ctx.autoSizedRowIds.has(2)).toBe(false);
-  });
-
-  it('drops the axis ID of a skipped row once a local edit renumbered rows', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2', 'r3', 'r4'] });
-    // Row 3 was fitted, then hidden: the pass skips it.
-    ctx.autoSizedRows.add(3);
-    ctx.autoSizedRowIds.set(3, 'r3');
-    ctx.hiddenRows.add(3);
-
-    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
-    expect(ctx.autoSizedRowIds.get(3)).toBe('r3');
-
-    // A local insert renumbers `rowDim`: index 3 no longer names r3.
-    ctx.rowDim.shift(1, 1);
-    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
-
-    expect(ctx.autoSizedRows.has(3)).toBe(true);
-    expect(ctx.autoSizedRowIds.has(3)).toBe(false);
-  });
-
-  it('drops the axis ID of a row past the measured range once rows were renumbered', async () => {
-    const ctx = createContext({ rowOrder: ids(50) });
-    // Row 40 was fitted on an earlier pass and has since scrolled below the
-    // fetched range: this pass leaves it alone.
-    ctx.autoSizedRows.add(40);
-    ctx.autoSizedRowIds.set(40, 'r40');
-
-    ctx.rowDim.shift(1, 1);
-    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
-
-    expect(ctx.autoSizedRows.has(40)).toBe(true);
-    expect(ctx.autoSizedRowIds.has(40)).toBe(false);
-  });
-
-  it('writes nothing if a reload starts while it awaits, and asks for another frame', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
-    ctx.autoSizedMaxRow = 7;
-    // The pass begins with no reload running; one starts while it awaits the
-    // stored heights.
-    const store = (ctx.sheet as { getStore: () => Record<string, unknown> })
-      .getStore();
-    (ctx.sheet as { getStore: () => unknown }).getStore = () => ({
-      ...store,
-      getDimensionSizes: async () => {
-        ctx.dimensionReloadsInFlight = 1;
-        return new Map();
-      },
-    });
-
-    const again = await applyAutoRowHeights.call(
-      ctx,
-      multiLineGrid('A2'),
-      10,
-      5,
-    );
-
-    expect(again).toBe(true);
-    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
-    expect(ctx.autoSizedRows.size).toBe(0);
-    expect(ctx.autoSizedMaxRow).toBe(7);
-  });
-
-  it('writes nothing if a reload ran while its grid was being fetched', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
-    // `renderSheet` took the generation before `fetchGrid`; a reload started
-    // and finished during that fetch, before the fit itself began.
-    const before = ctx.dimensionReloadGeneration;
-    ctx.dimensionReloadGeneration++;
-
-    const again = await (
-      applyAutoRowHeights as unknown as (
-        this: unknown,
-        grid: Grid,
-        maxRow: number,
-        maxCol: number,
-        measuredAgainst: MeasuredAgainst,
-      ) => Promise<boolean>
-    ).call(ctx, multiLineGrid('A2'), 10, 5, {
-      reloadGeneration: before,
-      renumberings: ctx.rowDim.getRenumberings(),
-    });
-
-    expect(again).toBe(true);
-    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
-  });
-
-  it('writes nothing if a reload already running when it began finishes while it awaits', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
-    // A real reload through the queue, still running when the render takes
-    // its stamp and released during the fit's await.
-    let release!: () => void;
-    const reload = ctx.serializeDimensionReload(
-      () => new Promise<void>((resolve) => (release = resolve)),
-    );
-    await Promise.resolve();
-    const stamp = {
-      reloadGeneration: ctx.dimensionReloadGeneration,
-      renumberings: ctx.rowDim.getRenumberings(),
-    };
-    expect(ctx.dimensionReloadsInFlight).toBe(1);
-    const store = (ctx.sheet as { getStore: () => Record<string, unknown> })
-      .getStore();
-    (ctx.sheet as { getStore: () => unknown }).getStore = () => ({
-      ...store,
-      getDimensionSizes: async () => {
-        release();
-        await reload;
-        return new Map();
-      },
-    });
-
-    const again = await fitAgainst.call(ctx, multiLineGrid('A2'), 10, 5, stamp);
-
-    expect(ctx.dimensionReloadsInFlight).toBe(0);
-    expect(again).toBe(true);
-    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
-    expect(ctx.autoSizedRows.size).toBe(0);
-  });
-
-  it('writes nothing if a local insert renumbered rows while its grid was fetched', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
-    const stamp = {
-      reloadGeneration: ctx.dimensionReloadGeneration,
-      renumberings: ctx.rowDim.getRenumberings(),
-    };
-    ctx.rowDim.shift(1, 1);
-
-    const again = await fitAgainst.call(ctx, multiLineGrid('A2'), 10, 5, stamp);
-
-    expect(again).toBe(true);
-    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
-  });
-
-  it('writes nothing if a whole reload ran while it awaited', async () => {
-    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
-    const store = (ctx.sheet as { getStore: () => Record<string, unknown> })
-      .getStore();
-    (ctx.sheet as { getStore: () => unknown }).getStore = () => ({
-      ...store,
-      // Started and finished: nothing is in flight any more, but the layout
-      // this pass measured is gone.
-      getDimensionSizes: async () => {
-        ctx.dimensionReloadGeneration++;
-        return new Map();
-      },
-    });
-
-    const again = await applyAutoRowHeights.call(
-      ctx,
-      multiLineGrid('A2'),
-      10,
-      5,
-    );
-
-    expect(again).toBe(true);
-    expect(ctx.rowDim.getSize(2)).toBe(DefaultCellHeight);
+    // Fitted, not stored: a reload from the store replaces only the latter.
+    expect(ctx.rowDim.getFittedSize(1)).toBe(autoRowHeight(2));
+    expect(ctx.rowDim.hasCustomSizes()).toBe(false);
   });
 
   it('reports no change once the rows already fit', async () => {
@@ -345,7 +150,7 @@ describe('Worksheet.applyAutoRowHeights', () => {
 
     expect(changed).toBe(true);
     expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
-    expect(ctx.autoSizedRows.size).toBe(0);
+    expect(ctx.rowDim.hasFittedSizes()).toBe(false);
   });
 
   it('leaves a row that fell out of the fetched range alone', async () => {
@@ -373,14 +178,23 @@ describe('Worksheet.applyAutoRowHeights', () => {
     expect(ctx.rowDim.getSize(1)).toBe(60);
   });
 
-  it('leaves hidden rows at zero height', async () => {
+  it('measures a hidden row, drawing it at zero until it is shown', async () => {
     const ctx = createContext();
-    // Seed the row as auto-sized so the pass has a candidate to walk: the
-    // hidden-row guard is what has to spare it, not the early return.
-    ctx.autoSizedRows.add(1);
-    ctx.hiddenRows.add(1);
-    ctx.rowDim.setSize(1, 0);
+    ctx.rowDim.setHidden([1]);
 
+    await applyAutoRowHeights.call(ctx, multiLineGrid('A1'), 10, 5);
+
+    expect(ctx.rowDim.getSize(1)).toBe(0);
+    ctx.rowDim.setHidden([]);
+    expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
+  });
+
+  it('drops the fitted height of a row somebody pinned', async () => {
+    const ctx = createContext({ pinned: [[1, DefaultCellHeight]] });
+    ctx.rowDim.setFittedSize(1, autoRowHeight(2), 'r1');
+
+    // Pinned to the default, which `rowDim` stores as no entry at all: the
+    // fitted height would otherwise still be what is drawn.
     const changed = await applyAutoRowHeights.call(
       ctx,
       multiLineGrid('A1'),
@@ -388,9 +202,8 @@ describe('Worksheet.applyAutoRowHeights', () => {
       5,
     );
 
-    expect(changed).toBe(false);
-    expect(ctx.rowDim.getSize(1)).toBe(0);
-    expect(ctx.autoSizedRows.has(1)).toBe(true);
+    expect(changed).toBe(true);
+    expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
   });
 
   it('skips the anchor row of a merge spanning several rows', async () => {
@@ -416,7 +229,6 @@ describe('Worksheet.applyAutoRowHeights', () => {
     // measurement, so it must not be shrunk by the same pass either.
     const merged = createContext({ merges: [['A1', { rs: 2, cs: 1 }]] });
     merged.rowDim = ctx.rowDim;
-    merged.autoSizedRows = ctx.autoSizedRows;
 
     const changed = await applyAutoRowHeights.call(
       merged,
@@ -492,5 +304,114 @@ describe('Worksheet.applyAutoRowHeights', () => {
     await applyAutoRowHeights.call(ctx, multiLineGrid('A5'), 10, 5);
 
     expect(ctx.freezeState).toBe(before);
+  });
+
+  it('records the axis ID of each row it fits, so the height can follow the row', async () => {
+    const ctx = createContext();
+    await applyAutoRowHeights.call(ctx, multiLineGrid('A3'), 10, 5);
+
+    // A peer inserts a row at the top; the reload realigns `rowDim`.
+    ctx.rowDim.realignFitted(['peer', ...ids(50)]);
+
+    expect(ctx.rowDim.getSize(3)).toBe(DefaultCellHeight);
+    expect(ctx.rowDim.getSize(4)).toBe(autoRowHeight(2));
+  });
+
+  describe('when rows are renumbered while it awaits', () => {
+    it('sizes the row it measured where a peer’s insert moved it', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 0, 'peer'),
+      });
+      const measuredOrder = [...ctx.order];
+
+      const changed = await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        measuredOrder,
+      );
+
+      expect(changed).toBe(true);
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(2)).toBe(autoRowHeight(2));
+    });
+
+    it('sizes nothing for a row a peer deleted', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 1),
+      });
+      const measuredOrder = [...ctx.order];
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1'),
+        10,
+        5,
+        measuredOrder,
+      );
+
+      expect(ctx.rowDim.hasFittedSizes()).toBe(false);
+    });
+
+    it('follows a local insert, which renumbers `rowDim` as well', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => {
+          ctx.order.splice(0, 0, 'new');
+          ctx.rowDim.shift(1, 1);
+        },
+      });
+      ctx.rowDim.setFittedSize(5, autoRowHeight(3), 'r5');
+      const measuredOrder = [...ctx.order];
+
+      await applyAutoRowHeights.call(
+        ctx,
+        multiLineGrid('A1', 'A5'),
+        10,
+        5,
+        measuredOrder,
+      );
+
+      // r1 measured at 1 now sits at 2; r5 shrank to two lines, at 6.
+      expect(ctx.rowDim.getSize(1)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(2)).toBe(autoRowHeight(2));
+      expect(ctx.rowDim.getSize(5)).toBe(DefaultCellHeight);
+      expect(ctx.rowDim.getSize(6)).toBe(autoRowHeight(2));
+    });
+
+    it('shrinks a row it measured short back to the default where it now sits', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 0, 'peer'),
+      });
+      ctx.rowDim.setFittedSize(3, autoRowHeight(2), 'r3');
+      const measuredOrder = [...ctx.order];
+
+      // Row 3's tall value is gone; a peer's insert lands mid-pass.
+      const changed = await applyAutoRowHeights.call(
+        ctx,
+        new Map(),
+        10,
+        5,
+        measuredOrder,
+      );
+
+      expect(changed).toBe(true);
+      expect(ctx.rowDim.hasFittedSizes()).toBe(false);
+    });
+
+    it('leaves a fitted row alone that was past the range it measured', async () => {
+      const ctx = createContext({
+        onPinnedRead: () => ctx.order.splice(0, 1),
+      });
+      ctx.rowDim.setFittedSize(11, autoRowHeight(2), 'r11');
+      const measuredOrder = [...ctx.order];
+
+      // Rows 1..10 are measured; a peer's delete of row 1 then pulls r11 up
+      // to 10, inside that range, though its content was never read.
+      await applyAutoRowHeights.call(ctx, new Map(), 10, 5, measuredOrder);
+
+      expect(ctx.rowDim.getFittedIndices()).toEqual([10]);
+      expect(ctx.rowDim.getSize(10)).toBe(autoRowHeight(2));
+    });
   });
 });

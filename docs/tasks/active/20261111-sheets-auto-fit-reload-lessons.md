@@ -166,6 +166,47 @@
   first version simulated the bump in a stub and passed with the bump
   removed.
 
+- Round 10 (`@claude review`, 3 blocking). All three were in the
+  concurrency machinery itself: the fit's hold-off could keep a sheet from
+  painting while a reload was slow; the reload read the pinned heights
+  before `loadDimensions`, so a local resize between the two was reverted;
+  and undo queued behind remote reloads could stall with them.
+
+## Redesign: fitted heights as a layer of `DimensionIndex`
+
+- Every round from 4 on fixed an interleaving between three writers of the
+  same state (remote reload, undo, the render-path fit), and each fix — a
+  queue, a hold-off, a generation counter, a renumbering counter — was the
+  next round's finding. The writers conflicted only because fitted heights
+  shared one map with stored heights and hidden zeros, so a reload had to
+  snapshot and restore them. Splitting that map into stored, fitted and
+  hidden layers removes the conflict instead of serializing it: a reload
+  replaces only the stored layer, hiding no longer overwrites a size, and
+  the fitted layer carries axis IDs so `realignFitted` can follow rows by ID
+  at any time, synchronously and idempotently. The queue, the hold-off, both
+  counters, `runHistoryStep`, the snapshot and restore, and the hidden-size
+  backups are all gone; undo needs nothing of its own.
+- `DimensionIndex` is what every pixel position comes from, so the change
+  kept its lookup algorithm as it was and only merges the layers when the
+  cache is rebuilt. A seeded randomized test drives the real index and a
+  deliberately naive reference (one array per layer, `splice` for shifts and
+  moves, linear sums and scans) through the same operations and compares
+  every size, offset and lookup. Mutating the index — keys not shifted in
+  one layer, the delete zone off by one, hidden layer left out of the cache,
+  realign skipped or dropping ID-less sizes, a stored write not dropping the
+  fitted size — fails between 36 and 155 of the 150 seeds and unit cases.
+  One mutant survives by construction: keeping default-sized entries in the
+  cache adds deltas of zero.
+- Caught while writing it: the stored layer keeps no entry for the default,
+  so a row pinned to exactly the default would have shown its fitted height
+  through the pin. Any stored write now drops the fitted size at its index.
+  `loadDimensions` therefore realigns before writing the stored sizes, or a
+  peer's pin would drop the fitted height of the row that used to sit there.
+- Also caught: reading the store before clearing the stored layer (to avoid
+  an empty layer during the await) loses a local resize that lands between
+  the read and the write. Kept `main`'s order — clear, then read — and a
+  test with a store whose read answers after the local edit.
+
 ## Verification
 
 - `pnpm verify:fast` green.

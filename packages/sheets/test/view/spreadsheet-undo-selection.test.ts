@@ -84,7 +84,6 @@ type ReplayContext = {
   worksheet: {
     render: ReturnType<typeof vi.fn>;
     revealActiveCell: ReturnType<typeof vi.fn>;
-    runHistoryStep: ReturnType<typeof vi.fn>;
   };
   notifySelectionChange: ReturnType<typeof vi.fn>;
 };
@@ -103,11 +102,7 @@ const createReplayContext = (
     undo: vi.fn().mockResolvedValue(changed),
     redo: vi.fn().mockResolvedValue(changed),
   },
-  worksheet: {
-    render: vi.fn(),
-    revealActiveCell: vi.fn(),
-    runHistoryStep: vi.fn((step: () => Promise<boolean>) => step()),
-  },
+  worksheet: { render: vi.fn(), revealActiveCell: vi.fn() },
   notifySelectionChange: vi.fn(),
 });
 
@@ -127,18 +122,6 @@ describe('Spreadsheet undo/redo reveal', () => {
     await prototype.redo.call(ctx);
 
     expect(ctx.worksheet.revealActiveCell).toHaveBeenCalledTimes(1);
-  });
-
-  it('replays through the worksheet, which repairs what the reload drops', async () => {
-    const ctx = createReplayContext(true);
-
-    await prototype.undo.call(ctx);
-    await prototype.redo.call(ctx);
-
-    // Fitted row heights and hidden axes (#1123) are put back only on this path.
-    expect(ctx.worksheet.runHistoryStep).toHaveBeenCalledTimes(2);
-    expect(ctx.sheet!.undo).toHaveBeenCalledTimes(1);
-    expect(ctx.sheet!.redo).toHaveBeenCalledTimes(1);
   });
 
   it('does not scroll when there was nothing to replay', async () => {
