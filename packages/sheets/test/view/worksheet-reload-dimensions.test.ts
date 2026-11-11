@@ -35,6 +35,7 @@ const createContext = (rowOrder: Array<string>) => {
     autoSizedRows: new Set<number>(),
     autoSizedRowIds: new Map<number, string>(),
     autoSizedMaxRow: 0,
+    autoSizedRenumberings: 0,
     hiddenRows: new Set<number>(),
     hiddenRowSizeBackup: new Map<number, number>(),
     hiddenColumns: new Set<number>(),
@@ -111,6 +112,24 @@ describe('Worksheet.reloadDimensions', () => {
 
     expect(ctx.rowDim.getSize(5)).toBe(DefaultCellHeight);
     expect(ctx.autoSizedRows.size).toBe(0);
+  });
+
+  it('carries nothing when a local insert renumbered rows since the last fit', async () => {
+    const { ctx, fit, rowOrder } = createContext(ids(12));
+    fit(5, 101);
+    fit(6, 62);
+
+    // The user inserts a row above: `rowDim` shifts with the model (101 and
+    // 62 now sit on rows 6 and 7), but the view's fit records still name rows
+    // 5 and 6. A reload lands before the next fit.
+    ctx.rowDim.shift(1, 1);
+    rowOrder.splice(0, 0, 'n1');
+    await reloadDimensions(ctx);
+
+    // Read by the stale indices, row 6's 101 would have been filed under r6
+    // and put back on row 7. Nothing is carried; the next fit measures again.
+    expect(ctx.rowDim.getSize(7)).toBe(DefaultCellHeight);
+    expect(ctx.rowDim.getSize(6)).toBe(DefaultCellHeight);
   });
 
   it('applies a height a peer pinned on a fitted row', async () => {

@@ -837,8 +837,11 @@ inserted, deleted or moved rows — an index would carry a height onto whatever
 row now sits there. A row the store now has an entry for keeps it (a peer
 pinned it). Rows below the last fitted range, and rows with no axis ID (the
 memory store has none), are not carried: they go back to the default and are
-measured when the fit next reads them, which is what a reload always did. A
-hidden fitted row carries the height it had before it was hidden, and both
+measured when the fit next reads them, which is what a reload always did. So
+is everything when the user's own insert, delete or move has renumbered
+`rowDim` since the last fit: `autoSizedRows` is index-keyed and only the next
+fit brings it back in step, so `DimensionIndex.getRenumberings()` tells the
+snapshot to carry nothing in that window. A hidden fitted row carries the height it had before it was hidden, and both
 paths then re-apply hidden rows and columns from scratch, since the reload
 also resets the zero size that hides them. That pass never keeps a zero as a
 hidden row's or column's backup — zero only ever means "hidden" — so a render

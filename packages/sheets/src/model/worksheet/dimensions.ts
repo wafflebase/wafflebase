@@ -9,6 +9,7 @@ export class DimensionIndex {
   private customSizes: Map<number, number>;
   private defaultSize: number;
   private cacheDirty = true;
+  private renumberings = 0;
   private sortedIndices: number[] = [];
   private sortedSizes: number[] = [];
   private prefixDeltas: number[] = [];
@@ -121,6 +122,7 @@ export class DimensionIndex {
 
     this.customSizes = newSizes;
     this.cacheDirty = true;
+    this.renumberings++;
   }
 
   /**
@@ -135,6 +137,16 @@ export class DimensionIndex {
 
     this.customSizes = newSizes;
     this.cacheDirty = true;
+    this.renumberings++;
+  }
+
+  /**
+   * `getRenumberings` counts the `shift` and `move` calls so far. Anything a
+   * caller keyed by index alongside this index — and did not renumber with it
+   * — is stale once the count has moved on.
+   */
+  getRenumberings(): number {
+    return this.renumberings;
   }
 
   /**

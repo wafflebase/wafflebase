@@ -76,3 +76,16 @@ describe('Sheet row heights', () => {
     expect((await store.getDimensionSizes('row')).size).toBe(0);
   });
 });
+
+describe('DimensionIndex.getRenumberings', () => {
+  it('counts shifts and moves, and nothing else', () => {
+    const dim = new DimensionIndex(DefaultCellHeight);
+    dim.setSize(2, 40);
+    dim.clear();
+    expect(dim.getRenumberings()).toBe(0);
+
+    dim.shift(1, 1);
+    dim.move(1, 1, 4);
+    expect(dim.getRenumberings()).toBe(2);
+  });
+});

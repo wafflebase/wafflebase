@@ -280,6 +280,12 @@ export class Worksheet {
   private autoSizedRowIds: Map<number, string> = new Map();
   /** The last row the most recent fit measured. */
   private autoSizedMaxRow = 0;
+  /**
+   * `rowDim.getRenumberings()` when `autoSizedRows` was last in step with it.
+   * A local insert, delete or move renumbers `rowDim` but not these
+   * index-keyed records, so until the next fit they name the wrong rows.
+   */
+  private autoSizedRenumberings = 0;
   /** The tail of the reloads `serializeDimensionReload` runs in order. */
   private dimensionReloadQueue: Promise<unknown> = Promise.resolve();
   private formulaRanges: Array<Range> = [];
@@ -488,6 +494,7 @@ export class Worksheet {
     this.autoSizedRows.clear();
     this.autoSizedRowIds.clear();
     this.autoSizedMaxRow = 0;
+    this.autoSizedRenumberings = this.rowDim.getRenumberings();
     this.sheet.setOnRefusal((refusal) => {
       this.onNoticeCallback?.(refusalMessage(refusal));
     });
@@ -5701,6 +5708,13 @@ export class Worksheet {
    */
   private takeFittedRows(): Map<string, number> {
     const fitted = new Map<string, number>();
+    // A local insert, delete or move since the last fit renumbered `rowDim`
+    // but not `autoSizedRows` / `autoSizedRowIds`, so an index here would pair
+    // one row's height with another row's ID. Carry nothing: the rows go back
+    // to the default and the next fit measures them, as a reload always did.
+    if (this.rowDim.getRenumberings() !== this.autoSizedRenumberings) {
+      return fitted;
+    }
     for (const row of this.autoSizedRows) {
       const id = this.autoSizedRowIds.get(row);
       if (!id || row > this.autoSizedMaxRow) {
@@ -5728,6 +5742,8 @@ export class Worksheet {
   ): void {
     this.autoSizedRows.clear();
     this.autoSizedRowIds.clear();
+    // Rebuilt against the current layout below, so back in step with `rowDim`.
+    this.autoSizedRenumberings = this.rowDim.getRenumberings();
     if (fitted.size === 0) {
       return;
     }
@@ -6699,6 +6715,7 @@ export class Worksheet {
 
     const heights = computeAutoRowHeights(measured, skip);
     this.autoSizedMaxRow = maxRow;
+    this.autoSizedRenumberings = this.rowDim.getRenumberings();
 
     const candidates = new Set<number>(this.autoSizedRows);
     for (const row of heights.keys()) {

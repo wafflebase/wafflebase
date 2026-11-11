@@ -96,6 +96,15 @@
     nothing overlapped — and was rewritten with real delays so the undo
     snapshots while the reload is mid-flight; it fails without the queue.
 
+- Round 5 (`@claude review`, 1 blocking, low confidence). Accepted: a
+  local insert, delete or move shifts `rowDim` but not the view's
+  index-keyed `autoSizedRows` / `autoSizedRowIds`, so a reload or undo landing
+  before the next fit could file one row's height under another row's ID.
+  `DimensionIndex` now counts its renumberings; a snapshot taken after one,
+  and before the next fit, carries nothing. The first version of the test
+  passed without the guard (one fitted row pairs with a default height
+  either way) and was rewritten with two adjacent fitted rows.
+
 ## Verification
 
 - `pnpm verify:fast` green.

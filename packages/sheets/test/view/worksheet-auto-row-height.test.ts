@@ -41,6 +41,7 @@ type Context = {
   autoSizedRows: Set<number>;
   autoSizedRowIds: Map<number, string>;
   autoSizedMaxRow: number;
+  autoSizedRenumberings: number;
   rowDim: DimensionIndex;
   colDim: DimensionIndex;
   freezeState: FreezeState;
@@ -88,6 +89,7 @@ const createContext = (options?: {
     autoSizedRows: new Set<number>(),
     autoSizedRowIds: new Map<number, string>(),
     autoSizedMaxRow: 0,
+    autoSizedRenumberings: 0,
     rowDim,
     colDim,
     freezeState: options?.frozenRows
