@@ -84,6 +84,7 @@ type ReplayContext = {
   worksheet: {
     render: ReturnType<typeof vi.fn>;
     revealActiveCell: ReturnType<typeof vi.fn>;
+    runHistoryStep: (step: () => Promise<boolean>) => Promise<boolean>;
   };
   notifySelectionChange: ReturnType<typeof vi.fn>;
 };
@@ -102,7 +103,11 @@ const createReplayContext = (
     undo: vi.fn().mockResolvedValue(changed),
     redo: vi.fn().mockResolvedValue(changed),
   },
-  worksheet: { render: vi.fn(), revealActiveCell: vi.fn() },
+  worksheet: {
+    render: vi.fn(),
+    revealActiveCell: vi.fn(),
+    runHistoryStep: (step) => step(),
+  },
   notifySelectionChange: vi.fn(),
 });
 

@@ -16,23 +16,40 @@
 
 ## Self review
 
-- Round 1 (correctness and tests, self): no blocking findings.
-  - Considered: a peer's row insert or delete above a fitted row. The
-    carried heights are keyed by the old index for the frames before the
-    next fit, so a fitted height can sit one row off until
-    `applyAutoRowHeights` measures again. Before this change both rows were
-    at the default in that window, so this is not a regression. Left as a
-    known limitation.
-  - Considered: hidden rows. They are zero-height in `rowDim`, so they are
-    excluded from the carried map and come back through the hidden-row pass
-    as before. Covered by a test.
-  - Stopped after one round: the change is two small hunks with tests that
-    fail without it.
+- Round 1 (correctness and tests, self): no blocking findings on the first
+  version. That was wrong on the row-renumbering point; see below.
+
+## Review panel
+
+- Round 1 (`@claude review`, 4 blocking, one pair of duplicates). All
+  accepted:
+  - `autoSizedRows` is keyed by index and never renumbered, so after a peer's
+    insert, delete or move the first version carried a fitted height onto
+    whatever row now sat at the old index. Self review had called this a
+    one-frame glitch; it is not, because `applyAutoRowHeights` leaves rows
+    below the fetched range alone, so a wrong height there would persist.
+    Fixed by recording each fitted row's axis ID at fit time and carrying the
+    heights by ID; rows below the last fitted range, and rows with no ID, are
+    not carried, as before the change.
+  - Undo and redo reload dimensions through `Sheet.replayHistory` and were
+    still dropping fitted heights. Both the keyboard and the toolbar paths now
+    go through `Worksheet.runHistoryStep`, which carries them the same way.
+  - The hidden-row test stubbed out the very pass it relied on. The tests now
+    run the real `syncHiddenRowsFromSheet`, which also showed a hidden fitted
+    row's backup reset to the default; the snapshot now carries the backup.
+- Took the design-fit suggestion: the carry lives in the view next to the
+  hidden-row backup it resembles, and `Sheet.loadDimensions` is unchanged.
+- Side effect: `runHistoryStep` re-applies hidden rows and columns after the
+  replay, the way `reloadDimensions` always did. An undo used to leave
+  hidden rows at the size the replay reloaded until something else re-synced
+  them (read from the code — `syncHiddenRowsFromSheet` only re-zeroes rows
+  newly hidden — not reproduced by hand).
 
 ## Verification
 
 - `pnpm verify:fast` green.
-- `pnpm dev` with two clients on a sheet with three fitted rows: 8 remote
-  edits, the local selection below them was drawn 18 times, all at the same
-  `y` (on wafflebase.io before the fix: 8 of 8 edits drew it 117px too
-  high).
+- `pnpm dev` with two clients: 8 remote edits with four fitted rows above the
+  local selection, selection drawn 16 times at one `y`; a peer inserting a
+  row above moved every fitted height down one row with it, and the row they
+  left went back to the default (on wafflebase.io before the fix: 8 of 8
+  edits drew the selection 117px too high).

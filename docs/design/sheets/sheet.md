@@ -820,17 +820,27 @@ rebuilds the cached `FreezeState`, whose `frozenHeight` is a pixel offset
 read off the same `DimensionIndex`.
 
 Because fitted heights exist only in the `DimensionIndex`, a reload from the
-store must carry them. Every remote change runs `Worksheet.reloadDimensions`,
-and the overlay can be drawn — on the presence update that comes with a
-peer's edit — before the next `renderSheet()` fits the rows again. If the
-reload rebuilt the index from `rowHeights` alone, that overlay would read
-default heights and put the selection, peer cursors and fill handle below a
-fitted row as many pixels too high as the rows above it had grown (#1123). So
-`reloadDimensions` passes the heights of `autoSizedRows` to
-`Sheet.loadDimensions(fittedRows)`, which re-applies each one to a row the
-store has no entry for — a stored entry still wins — and reads both stores
-before it clears either index. Hidden rows are left out; the hidden-row pass
-that follows restores their size.
+store must carry them. Every remote change runs `Worksheet.reloadDimensions`
+and every undo or redo replays through `Sheet.loadDimensions`, and the overlay
+can be drawn — on the presence update that comes with a peer's edit — before
+the next `renderSheet()` fits the rows again. If the reload rebuilt the index
+from `rowHeights` alone, that overlay would read default heights and put the
+selection, peer cursors and fill handle below a fitted row as many pixels too
+high as the rows above it had grown (#1123).
+
+So the view snapshots the fitted heights before the reload and puts them back
+after it (`takeFittedRows` / `restoreFittedRows`), around both paths:
+`reloadDimensions` for remote changes and `runHistoryStep` for undo and redo.
+The snapshot is keyed by **row axis ID**, recorded in `autoSizedRowIds` when
+`applyAutoRowHeights` fits a row, because the change being reloaded may have
+inserted, deleted or moved rows — an index would carry a height onto whatever
+row now sits there. A row the store now has an entry for keeps it (a peer
+pinned it). Rows below the last fitted range, and rows with no axis ID (the
+memory store has none), are not carried: they go back to the default and are
+measured when the fit next reads them, which is what a reload always did. A
+hidden fitted row carries the height it had before it was hidden, and both
+paths then re-apply hidden rows and columns from scratch, since the reload
+also resets the zero size that hides them.
 
 ### Freeze Panes
 

@@ -39,6 +39,8 @@ type Context = {
   resizeDragging: boolean;
   hiddenRows: Set<number>;
   autoSizedRows: Set<number>;
+  autoSizedRowIds: Map<number, string>;
+  autoSizedMaxRow: number;
   rowDim: DimensionIndex;
   colDim: DimensionIndex;
   freezeState: FreezeState;
@@ -53,6 +55,7 @@ const createContext = (options?: {
   merges?: Array<[Sref, MergeSpan]>;
   offscreen?: Grid;
   frozenRows?: number;
+  rowOrder?: Array<string>;
 }): Context => {
   const rowDim = new DimensionIndex(DefaultCellHeight);
   const colDim = new DimensionIndex(100);
@@ -61,6 +64,7 @@ const createContext = (options?: {
     sheet: {
       getStore: () => ({
         getDimensionSizes: async () => new Map(options?.pinned ?? []),
+        getRowOrder: () => options?.rowOrder ?? [],
       }),
       getMerges: () => new Map(options?.merges ?? []),
       getDimension: () => ({ rows: 1000000, columns: DefaultColumns }),
@@ -82,6 +86,8 @@ const createContext = (options?: {
     resizeDragging: false,
     hiddenRows: new Set<number>(),
     autoSizedRows: new Set<number>(),
+    autoSizedRowIds: new Map<number, string>(),
+    autoSizedMaxRow: 0,
     rowDim,
     colDim,
     freezeState: options?.frozenRows
@@ -118,6 +124,25 @@ describe('Worksheet.applyAutoRowHeights', () => {
     expect(changed).toBe(true);
     expect(ctx.rowDim.getSize(1)).toBe(autoRowHeight(2));
     expect(ctx.autoSizedRows.has(1)).toBe(true);
+  });
+
+  it('records the axis ID of each fitted row, and the range it measured', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2', 'r3'] });
+
+    await applyAutoRowHeights.call(ctx, multiLineGrid('A2'), 10, 5);
+
+    expect(ctx.autoSizedRowIds).toEqual(new Map([[2, 'r2']]));
+    expect(ctx.autoSizedMaxRow).toBe(10);
+  });
+
+  it('forgets the axis ID of a row that shrinks back to the default', async () => {
+    const ctx = createContext({ rowOrder: ['r1', 'r2'] });
+    await applyAutoRowHeights.call(ctx, multiLineGrid('A2'), 10, 5);
+
+    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
+
+    expect(ctx.autoSizedRows.has(2)).toBe(false);
+    expect(ctx.autoSizedRowIds.has(2)).toBe(false);
   });
 
   it('reports no change once the rows already fit', async () => {
