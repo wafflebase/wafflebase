@@ -280,6 +280,8 @@ export class Worksheet {
   private autoSizedRowIds: Map<number, string> = new Map();
   /** The last row the most recent fit measured. */
   private autoSizedMaxRow = 0;
+  /** The tail of the reloads `serializeDimensionReload` runs in order. */
+  private dimensionReloadQueue: Promise<unknown> = Promise.resolve();
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
@@ -5583,7 +5585,26 @@ export class Worksheet {
    * `reloadDimensions` reloads dimension sizes from the store into the local
    * DimensionIndex objects. Call this when a remote change arrives.
    */
-  public async reloadDimensions() {
+  public reloadDimensions(): Promise<void> {
+    return this.serializeDimensionReload(() => this.reloadDimensionsNow());
+  }
+
+  /**
+   * `serializeDimensionReload` runs the reloads that rebuild `rowDim` from the
+   * store — a remote change's `reloadDimensions` and an undo or redo's
+   * `runHistoryStep` — one after another. Each snapshots the fitted heights
+   * before it awaits the store and rebuilds `autoSizedRows` afterwards, so two
+   * of them interleaved would restore a snapshot taken against a row order the
+   * other has already changed. The host only serializes remote reloads among
+   * themselves.
+   */
+  private serializeDimensionReload<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.dimensionReloadQueue.then(work, work);
+    this.dimensionReloadQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async reloadDimensionsNow(): Promise<void> {
     const sheet = this.sheet;
     if (!sheet) {
       return;
@@ -5630,7 +5651,13 @@ export class Worksheet {
    * their content, the zero sizes that hide rows and columns, and the frozen
    * pane's cached offset. Returns whether a step was replayed.
    */
-  public async runHistoryStep(step: () => Promise<boolean>): Promise<boolean> {
+  public runHistoryStep(step: () => Promise<boolean>): Promise<boolean> {
+    return this.serializeDimensionReload(() => this.runHistoryStepNow(step));
+  }
+
+  private async runHistoryStepNow(
+    step: () => Promise<boolean>,
+  ): Promise<boolean> {
     const sheet = this.sheet;
     if (!sheet) {
       return step();
@@ -5682,7 +5709,8 @@ export class Worksheet {
       const height = this.hiddenRows.has(row)
         ? this.hiddenRowSizeBackup.get(row)
         : this.rowDim.getSize(row);
-      if (height !== undefined) {
+      // A zero is how a row is hidden, never a height it was fitted to.
+      if (height !== undefined && height > 0) {
         fitted.set(id, height);
       }
     }
@@ -5738,19 +5766,21 @@ export class Worksheet {
     // A zero size only ever means "hidden", so it is never a size to restore.
     // It shows up here when a render between the reload and this pass has
     // already hidden the row again; keep the backup that was there before.
+    const usable = (size: number | undefined, fallback: number) =>
+      size !== undefined && size > 0 ? size : fallback;
     for (const [row, size] of this.hiddenRowSizeBackup) {
-      if (size === 0) {
+      if (size <= 0) {
         this.hiddenRowSizeBackup.set(
           row,
-          rowBackup.get(row) ?? this.rowDim.getDefaultSize(),
+          usable(rowBackup.get(row), this.rowDim.getDefaultSize()),
         );
       }
     }
     for (const [col, size] of this.hiddenColSizeBackup) {
-      if (size === 0) {
+      if (size <= 0) {
         this.hiddenColSizeBackup.set(
           col,
-          colBackup.get(col) ?? this.colDim.getDefaultSize(),
+          usable(colBackup.get(col), this.colDim.getDefaultSize()),
         );
       }
     }

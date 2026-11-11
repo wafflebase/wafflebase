@@ -83,6 +83,19 @@
   `runHistoryStep` (both callers gate it); moving the API to
   `Worksheet.undo()` / `redo()` (the step stays the model's).
 
+- Round 4 (`@claude review`, 3 blocking). All accepted:
+  - The zero-backup guard fell back with `??`, which keeps a previous
+    backup that is itself 0. Any non-positive backup now falls back to the
+    default, and `takeFittedRows` never carries a 0.
+  - The keyboard Mod+Z / Mod+Shift+Z path had no test of its delegation;
+    `worksheet-keymap.test.ts` now asserts it.
+  - A remote reload and an undo could interleave; the host serializes
+    remote reloads only among themselves. `reloadDimensions` and
+    `runHistoryStep` now run through one queue. The first test written for
+    this passed without the queue too — `MemStore` resolves in microtasks, so
+    nothing overlapped — and was rewritten with real delays so the undo
+    snapshots while the reload is mid-flight; it fails without the queue.
+
 ## Verification
 
 - `pnpm verify:fast` green.

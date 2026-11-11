@@ -89,6 +89,28 @@ const createEvent = (
 };
 
 describe('Worksheet grid keymap', () => {
+  it('runs Mod+Z and Mod+Shift+Z through the history step', async () => {
+    const ctx = createContext() as GridContext & {
+      runHistoryStep: ReturnType<typeof vi.fn>;
+    };
+    const undo = vi.fn().mockResolvedValue(true);
+    const redo = vi.fn().mockResolvedValue(true);
+    Object.assign(ctx.sheet, { undo, redo });
+    // Fitted row heights and hidden axes (#1123) are repaired only there.
+    ctx.runHistoryStep = vi.fn((step: () => Promise<boolean>) => step());
+
+    await handleGridKeydown.call(ctx, createEvent('z', { ctrlKey: true }).event);
+    await handleGridKeydown.call(
+      ctx,
+      createEvent('z', { ctrlKey: true, shiftKey: true }).event,
+    );
+
+    expect(ctx.runHistoryStep).toHaveBeenCalledTimes(2);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(redo).toHaveBeenCalledTimes(1);
+    expect(ctx.render).toHaveBeenCalledTimes(2);
+  });
+
   it('uses Ctrl+Arrow to move to content edge', async () => {
     const ctx = createContext();
     ctx.sheet.moveToEdge.mockResolvedValue(true);

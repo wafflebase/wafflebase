@@ -39,6 +39,10 @@ const createContext = (rowOrder: Array<string>) => {
     hiddenRowSizeBackup: new Map<number, number>(),
     hiddenColumns: new Set<number>(),
     hiddenColSizeBackup: new Map<number, number>(),
+    dimensionReloadQueue: Promise.resolve() as Promise<unknown>,
+    serializeDimensionReload: proto.serializeDimensionReload,
+    reloadDimensionsNow: proto.reloadDimensionsNow,
+    runHistoryStepNow: proto.runHistoryStepNow,
     takeFittedRows: proto.takeFittedRows,
     restoreFittedRows: proto.restoreFittedRows,
     resyncHiddenAxes: proto.resyncHiddenAxes,
@@ -186,6 +190,51 @@ describe('Worksheet.reloadDimensions', () => {
 });
 
 describe('Worksheet.runHistoryStep', () => {
+  it('waits for a remote reload already in flight before it snapshots', async () => {
+    const { ctx, fit, store, rowOrder, sheet } = createContext(ids(12));
+    fit(5, 101);
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    // A peer inserts a row above. Its reload is slow to finish: `rowDim` has
+    // already been rebuilt from the store (row 5 back at the default) when the
+    // user presses undo, and the undo's own step is slower still.
+    await store.shiftCells('row', 1, 1);
+    rowOrder.splice(0, 0, 'n1');
+    const load = sheet.loadDimensions.bind(sheet);
+    let slow = true;
+    sheet.loadDimensions = async () => {
+      await load();
+      if (slow) {
+        slow = false;
+        await sleep(10);
+      }
+    };
+    const reload = reloadDimensions(ctx);
+    await sleep(2);
+    const undo = runHistoryStep(ctx, async () => {
+      await sleep(20);
+      return true;
+    });
+    await Promise.all([reload, undo]);
+
+    // Interleaved, the undo would have snapshotted row 5's default height and
+    // written it over the fitted row the reload had just moved to row 6.
+    expect(ctx.rowDim.getSize(6)).toBe(101);
+  });
+
+  it('never keeps a zero backup, even when the previous backup was zero', async () => {
+    const { ctx, store, sheet } = createContext(ids(12));
+    await store.setHiddenState({ rows: [3], columns: [] });
+    await sheet.loadHiddenState();
+    ctx.hiddenRows.add(3);
+    ctx.hiddenRowSizeBackup.set(3, 0);
+    ctx.rowDim.setSize(3, 0);
+
+    (proto.resyncHiddenAxes as unknown as () => void).call(ctx);
+
+    expect(ctx.hiddenRowSizeBackup.get(3)).toBe(DefaultCellHeight);
+  });
+
   it('keeps fitted rows across an undo', async () => {
     const { ctx, fit, sheet } = createContext(ids(12));
     fit(2, 62);

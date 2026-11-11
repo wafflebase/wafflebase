@@ -844,7 +844,11 @@ also resets the zero size that hides them. That pass never keeps a zero as a
 hidden row's or column's backup — zero only ever means "hidden" — so a render
 that re-hid a row before it ran cannot leave the row stuck at 0px once it is
 shown again. Both paths re-check that the view still holds the same sheet
-after every await, since the view can be torn down mid-replay.
+after every await, since the view can be torn down mid-replay, and they run
+one at a time (`serializeDimensionReload`): each snapshots before it awaits
+the store and rebuilds `autoSizedRows` after, so an undo interleaved with a
+remote reload would otherwise restore a snapshot taken against a layout the
+reload had already changed.
 
 ### Freeze Panes
 
