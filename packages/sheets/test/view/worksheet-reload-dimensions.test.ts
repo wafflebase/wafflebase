@@ -190,3 +190,44 @@ describe('Worksheet.reloadDimensions', () => {
     expect(ctx.colDim.getSize(4)).toBe(140);
   });
 });
+
+describe('Worksheet.initialize', () => {
+  it('drops the previous sheet’s fitted heights and hidden axes before loading', async () => {
+    const { ctx } = createContext(ids(12));
+    ctx.rowDim.setFittedSize(2, 62, 'r2');
+    ctx.rowDim.setHidden([4]);
+    ctx.colDim.setHidden([3]);
+    const next = createContext(ids(12)).sheet;
+    // What the view shows while the new sheet loads.
+    let during: Array<number> = [];
+    const load = next.loadDimensions.bind(next);
+    next.loadDimensions = async () => {
+      during = [
+        ctx.rowDim.getSize(2),
+        ctx.rowDim.getSize(4),
+        ctx.colDim.getSize(3),
+      ];
+      await load();
+    };
+
+    await (
+      proto.initialize as unknown as (sheet: unknown) => Promise<void>
+    ).call(
+      {
+        ...ctx,
+        formulaBar: { initialize: () => {} },
+        addEventListeners: () => {},
+        resizeObserver: { observe: () => {} },
+        render: () => {},
+        primeCellInputForSelection: () => {},
+      },
+      next,
+    );
+
+    expect(during).toEqual([
+      DefaultCellHeight,
+      DefaultCellHeight,
+      DefaultCellWidth,
+    ]);
+  });
+});

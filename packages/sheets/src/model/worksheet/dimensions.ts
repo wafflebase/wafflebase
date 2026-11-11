@@ -27,6 +27,7 @@ export class DimensionIndex {
   private customSizes: Map<number, number>;
   private fittedSizes: Map<number, FittedSize> = new Map();
   private hidden: Set<number> = new Set();
+  private renumberings = 0;
   private defaultSize: number;
   private cacheDirty = true;
   private sortedIndices: number[] = [];
@@ -135,6 +136,16 @@ export class DimensionIndex {
   }
 
   /**
+   * `getRenumberings` counts the times the indices were renumbered: every
+   * `shift` and `move`, and every `realignFitted` that moved a size. A caller
+   * holding a copy of the axis order can tell from it whether this index
+   * still lines up with that copy, without copying the order again.
+   */
+  getRenumberings(): number {
+    return this.renumberings;
+  }
+
+  /**
    * `realignFitted` moves each fitted size to the index its axis ID has in
    * `order` (the axis IDs, first index first), and drops the ones whose ID is
    * gone. An insert, delete or move that reached this view through `shift` or
@@ -184,6 +195,7 @@ export class DimensionIndex {
     }
 
     this.fittedSizes = next;
+    this.renumberings++;
     this.cacheDirty = true;
     return true;
   }
@@ -232,10 +244,9 @@ export class DimensionIndex {
       return Math.floor(offset / this.defaultSize) + 1;
     }
 
+    // Not uniform, so the cache holds at least one index: every stored and
+    // fitted entry differs from the default, and a hidden index is 0.
     this.ensureCache();
-    if (this.sortedIndices.length === 0) {
-      return Math.floor(offset / this.defaultSize) + 1;
-    }
     const firstCustomStart = this.customStarts[0];
     if (offset < firstCustomStart) {
       return Math.floor(offset / this.defaultSize) + 1;
@@ -273,6 +284,7 @@ export class DimensionIndex {
     this.customSizes = remapKeys(this.customSizes, remap);
     this.fittedSizes = remapKeys(this.fittedSizes, remap);
     this.hidden = remapSet(this.hidden, remap);
+    this.renumberings++;
     this.cacheDirty = true;
   }
 
@@ -285,6 +297,7 @@ export class DimensionIndex {
     this.customSizes = remapKeys(this.customSizes, remap);
     this.fittedSizes = remapKeys(this.fittedSizes, remap);
     this.hidden = remapSet(this.hidden, remap);
+    this.renumberings++;
     this.cacheDirty = true;
   }
 

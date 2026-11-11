@@ -63,10 +63,12 @@ export function computeAutoRowHeights(
 /**
  * `axisTranslator` maps a 1-based index in the axis order `from` (axis IDs,
  * first index first) to the index the same axis ID has in `to`, or to
- * `undefined` when that ID is gone or the index had none.
+ * `undefined` when that ID is gone.
  *
- * With either order empty there are no IDs to go by, and every index maps to
- * itself. The lookup table is only built once an index has actually moved.
+ * Axis IDs cover only the rows up to the last one ever written, so an index
+ * past `from` has no ID to go by, and maps to itself — as does every index
+ * when either order is empty. Such a row has no content: writing a cell gives
+ * its row an ID. The lookup table is only built once an index has moved.
  */
 export function axisTranslator(
   from: ReadonlyArray<string>,
@@ -77,10 +79,10 @@ export function axisTranslator(
   }
   let positions: Map<string, number> | undefined;
   return (index) => {
-    const id = from[index - 1];
-    if (id === undefined) {
-      return undefined;
+    if (index > from.length) {
+      return index;
     }
+    const id = from[index - 1];
     if (to[index - 1] === id) {
       return index;
     }

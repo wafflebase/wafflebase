@@ -341,8 +341,8 @@ all cell, selection, and navigation operations.
   range so users can see the table area that filtering applies to.
   Value-checklist filtering is represented as `{ op: 'in', values: [...] }`.
   Hidden
-  rows are rendered as zero-height rows in `Worksheet` while preserving
-  user-defined row heights for restore.
+  rows are drawn at zero height through the `DimensionIndex` hidden layer,
+  which leaves every row's own height in place for when it is shown.
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
 
 **Grid dimensions:** `1,000,000 rows x 18,278 columns` — authoritative
@@ -858,18 +858,38 @@ the row that sits there, so a peer's pin lands on the row they pinned. The
 stored layer is cleared before the store is read, so a height set locally
 while the read is awaited stays in the layer even if the read missed it.
 
-The fit pass awaits too, and a reload or a local insert, delete or move can
-land meanwhile. It does not hold off for them; it keeps track of which row
-each index meant. `renderSheet()` takes the row order before it fetches the
-grid and paints with that order. The merges and the remaining columns are
-read one await later, so the pass takes the order again as it reads them and
-maps them into the grid's numbering by axis ID (`axisTranslator`). Once its
-last await is done, it realigns the fitted layer and writes each measured
-height to the index its row's axis ID has now. Each read is assumed to
-reflect the store as of the moment it is made, which both stores satisfy. A
-row's range check — whether it was inside the fetched range — uses the index
-it had when the grid was read. With no axis IDs (the memory store has none)
-indices are all there is, and they are used as they are.
+Each `renderSheet()` takes one copy of the row order (`takeRowAxis`) — it
+copies the whole axis, so a pass takes no more than the one it always took
+for the painter — and realigns the fitted layer to it. The grid is read and
+painted against that copy, and the fit records each fitted height under the
+axis ID the copy gives its row.
+
+The fit pass awaits, and a reload or a local insert, delete or move can land
+meanwhile. It does not hold off for them; it keeps track of which row each
+index meant. Before it reads the merges and the remaining columns, and again
+after its last await, it asks whether the copy is still current
+(`rowOrderNow`): `DimensionIndex.getRenumberings()` counts every `shift`,
+`move` and realign that moved a height, and the store's O(1) axis length
+catches a peer's insert or delete. Only then does it copy the order again,
+and map the merges, the remaining columns and its writes between the two
+orders by axis ID (`axisTranslator`). A peer's move that touches no fitted
+row and lands mid-pass goes unseen; it leaves at worst a height on the index
+its row had when measured, still under that row's axis ID, and the next
+pass's realign moves it. A row's range check — whether it was inside the
+fetched range — uses the index it had when the grid was read.
+
+Axis IDs reach only as far as the last row ever written, so an index past
+them has no ID: the translation leaves it as it is, which is harmless since
+writing a cell gives its row an ID. A store with no axis IDs at all — the
+read-only result sets of data-source and lakehouse views, and the memory
+store — cannot say where a fitted row went, so `loadDimensions` drops the
+fitted layer there and the rows are measured again; a data-source refresh
+loads different rows altogether.
+
+The fitted layer is the one place the view keeps axis IDs of its own, rather
+than converting at the `Store` boundary as `axis-id-selection.md` describes.
+It is a cache of measurements, never written back, and `realignFitted` is the
+conversion.
 
 ### Freeze Panes
 

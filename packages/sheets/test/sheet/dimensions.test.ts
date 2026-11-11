@@ -85,7 +85,9 @@ describe('Sheet row heights', () => {
  * test hands it the step to replay, and a row order to hold axis IDs in.
  */
 describe('Sheet undo and redo', () => {
-  const createReplay = (step: (store: MemStore, order: string[]) => Promise<void>) => {
+  const createReplay = (
+    step: (store: MemStore, order: string[]) => Promise<void>,
+  ) => {
     const { sheet, store } = createSheet();
     const order = Array.from({ length: 12 }, (_, i) => `r${i + 1}`);
     Object.assign(store, {
@@ -122,5 +124,19 @@ describe('Sheet undo and redo', () => {
 
     expect(rowDim.getSize(3)).toBe(0);
     expect(rowDim.getSize(7)).toBe(90);
+  });
+});
+
+describe('Sheet.loadDimensions', () => {
+  it('drops the fitted heights when the store has no axis IDs', async () => {
+    // A read-only result set (data sources, lakehouse) reloads to show other
+    // rows altogether, and nothing says where a fitted row went.
+    const { sheet } = createSheet();
+    const rowDim = sheet.getRowDimensions()!;
+    rowDim.setFittedSize(3, 80);
+
+    await sheet.loadDimensions();
+
+    expect(rowDim.hasFittedSizes()).toBe(false);
   });
 });

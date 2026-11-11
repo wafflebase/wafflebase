@@ -22,7 +22,7 @@ const ColWidth = 100;
 function dims(hiddenRows: number[] = [], narrowCols: number[] = []) {
   const rowDim = new DimensionIndex(RowHeight);
   const colDim = new DimensionIndex(ColWidth);
-  for (const r of hiddenRows) rowDim.setSize(r, 0);
+  rowDim.setHidden(hiddenRows);
   for (const c of narrowCols) colDim.setSize(c, 5);
   return { rowDim, colDim };
 }

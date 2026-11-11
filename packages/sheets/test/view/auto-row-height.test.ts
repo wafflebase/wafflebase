@@ -75,10 +75,18 @@ describe('axisTranslator', () => {
     expect([toNow(1), toNow(2), toNow(3)]).toEqual([2, 4, 3]);
   });
 
-  it('maps an index whose ID is gone, or that had none, to nothing', () => {
+  it('maps an index whose ID is gone to nothing', () => {
     const toNow = axisTranslator(['a', 'b'], ['a']);
 
-    expect([toNow(2), toNow(3)]).toEqual([undefined, undefined]);
+    expect(toNow(2)).toBeUndefined();
+  });
+
+  it('maps an index past the IDs to itself', () => {
+    // Coverage ends at the last row ever written; past it there is no ID to
+    // follow, and no content either.
+    const toNow = axisTranslator(['a', 'b'], ['x', 'a', 'b']);
+
+    expect([toNow(3), toNow(40)]).toEqual([3, 40]);
   });
 
   it('maps every index to itself without IDs to go by', () => {

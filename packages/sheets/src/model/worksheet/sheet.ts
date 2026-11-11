@@ -538,7 +538,15 @@ export class Sheet {
       // Before the stored sizes go in: each drops the fitted size at its
       // index, which must by then be the fitted size of the row that is there.
       if (this.rowDimensions.hasFittedSizes()) {
-        this.rowDimensions.realignFitted(this.store.getRowOrder());
+        const order = this.store.getRowOrder();
+        if (order.length > 0) {
+          this.rowDimensions.realignFitted(order);
+        } else {
+          // No axis IDs (a read-only result set, the memory store): nothing
+          // says where a fitted row went, and a read-only view reloads to show
+          // different rows altogether. Its rows are measured again.
+          this.rowDimensions.clearFitted();
+        }
       }
       for (const [index, size] of rowHeights) {
         this.rowDimensions.setSize(index, size);

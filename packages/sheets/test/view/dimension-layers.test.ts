@@ -50,7 +50,9 @@ describe('DimensionIndex layers', () => {
     dim.setFittedSize(2, 60, 'b');
 
     expect(dim.setHidden([1, 2])).toBe(true);
-    expect([dim.getSize(1), dim.getSize(2), dim.getOffset(3)]).toEqual([0, 0, 0]);
+    expect([dim.getSize(1), dim.getSize(2), dim.getOffset(3)]).toEqual([
+      0, 0, 0,
+    ]);
 
     expect(dim.setHidden([])).toBe(true);
     expect([dim.getSize(1), dim.getSize(2)]).toEqual([40, 60]);
@@ -80,6 +82,38 @@ describe('DimensionIndex layers', () => {
 
     expect(dim.clearFittedSize(2)).toBe(true);
     expect(dim.clearFittedSize(2)).toBe(false);
+  });
+
+  it('clears every fitted size, and nothing else', () => {
+    const dim = new DimensionIndex(Default);
+    dim.setSize(1, 40);
+    dim.setFittedSize(2, 60, 'b');
+    dim.setHidden([3]);
+
+    dim.clearFitted();
+
+    expect(dim.hasFittedSizes()).toBe(false);
+    expect([dim.getSize(1), dim.getSize(2), dim.getSize(3)]).toEqual([
+      40,
+      Default,
+      0,
+    ]);
+  });
+
+  it('counts the renumberings, and nothing else', () => {
+    const dim = new DimensionIndex(Default);
+    dim.setFittedSize(2, 60, 'b');
+    dim.setSize(1, 40);
+    dim.setHidden([4]);
+    dim.clear();
+    dim.realignFitted(['a', 'b']);
+    expect(dim.getRenumberings()).toBe(0);
+
+    dim.shift(1, 1);
+    dim.move(1, 1, 4);
+    // `b` now sits at 2 in the index, but at 1 in this order.
+    dim.realignFitted(['b']);
+    expect(dim.getRenumberings()).toBe(3);
   });
 
   describe('realignFitted', () => {
@@ -160,9 +194,7 @@ class ReferenceDimensions {
   size(index: number): number {
     if (this.hidden[index - 1]) return 0;
     return (
-      this.stored[index - 1] ??
-      this.fitted[index - 1]?.size ??
-      this.defaultSize
+      this.stored[index - 1] ?? this.fitted[index - 1]?.size ?? this.defaultSize
     );
   }
 
@@ -244,8 +276,9 @@ function random(seed: number) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  const int = (lo: number, hi: number) => lo + Math.floor(next() * (hi - lo + 1));
-  const pick = <T,>(items: Array<T>): T => items[int(0, items.length - 1)];
+  const int = (lo: number, hi: number) =>
+    lo + Math.floor(next() * (hi - lo + 1));
+  const pick = <T>(items: Array<T>): T => items[int(0, items.length - 1)];
   return { next, int, pick };
 }
 
@@ -321,7 +354,9 @@ describe('DimensionIndex against a reference', () => {
           else if (kind === 1) next.splice(at, 1);
           else next.splice(rng.int(0, Touched - 1), 0, ...next.splice(at, 1));
           order = next;
-          log.push(`realignFitted(peer ${['insert', 'delete', 'move'][kind]} at ${at + 1})`);
+          log.push(
+            `realignFitted(peer ${['insert', 'delete', 'move'][kind]} at ${at + 1})`,
+          );
           dim.realignFitted(order);
           ref.realign(order);
         } else if (op === 8) {
@@ -337,8 +372,16 @@ describe('DimensionIndex against a reference', () => {
 
         // Compared in bulk, so a mismatch reports every index at once along
         // with the operations that led to it.
-        const actual = { sizes: [] as number[], offsets: [] as number[], found: [] as number[] };
-        const expected = { sizes: [] as number[], offsets: [] as number[], found: [] as number[] };
+        const actual = {
+          sizes: [] as number[],
+          offsets: [] as number[],
+          found: [] as number[],
+        };
+        const expected = {
+          sizes: [] as number[],
+          offsets: [] as number[],
+          found: [] as number[],
+        };
         for (let index = 1; index <= Touched + 5; index++) {
           actual.sizes.push(dim.getSize(index));
           expected.sizes.push(ref.size(index));

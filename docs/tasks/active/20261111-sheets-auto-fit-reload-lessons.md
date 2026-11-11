@@ -223,6 +223,33 @@
     leaves fitted heights at the old indices until the next fit; and a pin a
     peer clears shows the default until the next render fits the row.
 
+- Round 11 (`@claude review`, 3 blocking). All accepted:
+  - Performance: the fit took one or two extra copies of the whole row order
+    per frame (`getRowOrder()` is ~12 ms at 100k rows, and a prior task had
+    removed such copies from this path). A pass now takes one copy, shared
+    with the painter, and takes another only when `rowDim`'s renumbering
+    count or the axis length says rows were renumbered. A test fails if the
+    fit copies again when nothing changed.
+  - Data-source and lakehouse views reload a read-only store with no axis
+    IDs to show a new result set, and fitted heights of the old rows stayed
+    on the new ones. `loadDimensions` drops the fitted layer when the store
+    has no axis IDs.
+  - `axisTranslator` dropped every index past axis-ID coverage, which would
+    lose merges and heights there. Indices past coverage now map to
+    themselves. Writing a cell gives its row an ID, so such rows have no
+    content; the change is defensive.
+  - Also taken: `initialize` resets the hidden layers along with the fitted
+    one; `applyAutoRowHeights` and `fetchRowRemainder` lost the test-only
+    defaults that would let a caller drop the order; an unreachable
+    `findIndex` branch went; a drag-move fixture hides rows through
+    `setHidden`; the design doc lost the backup sentence and says where the
+    fitted layer departs from `axis-id-selection.md`. Not taken: moving
+    `axisTranslator` beside the anchor helpers, and an upper bound on
+    fitted heights (both predate this change in kind).
+- CodeRabbit on the same head: one minor, outside the diff — an async store
+  could let an older dimension read land after a newer one. Pre-existing on
+  `main`, and both stores read synchronously; not changed.
+
 ## Verification
 
 - `pnpm verify:fast` green.
