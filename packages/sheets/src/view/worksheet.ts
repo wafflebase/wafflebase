@@ -258,8 +258,6 @@ export class Worksheet {
 
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
-  private hiddenRows: Set<number> = new Set();
-  private hiddenColumns: Set<number> = new Set();
 
   private listeners: Array<() => void> = [];
   private interactionCleanups: Set<() => void> = new Set();
@@ -6745,8 +6743,7 @@ export class Worksheet {
     const sheet = this.sheet;
     if (!sheet) return false;
 
-    this.hiddenRows = sheet.getHiddenRows();
-    return this.rowDim.setHidden(this.hiddenRows);
+    return this.rowDim.setHidden(sheet.getHiddenRows());
   }
 
   /**
@@ -6811,8 +6808,7 @@ export class Worksheet {
     const sheet = this.sheet;
     if (!sheet) return false;
 
-    this.hiddenColumns = sheet.getHiddenColumns();
-    return this.colDim.setHidden(this.hiddenColumns);
+    return this.colDim.setHidden(sheet.getHiddenColumns());
   }
 
   private get gridSize(): Size {

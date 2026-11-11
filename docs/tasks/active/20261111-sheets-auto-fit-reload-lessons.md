@@ -121,10 +121,8 @@
   every row it does not re-key; those rows go back to being measured, as
   before the change. The fix only ever carries less, never a different
   height.
-- Round 8 (`@claude review`, 4 blocking). Three were about a line this
-  file carried — a note on how many more review rounds would run. That was
-  process talk addressed at reviewers and does not belong in the
-  repository; it was removed. The fourth is real: the render path's
+- Round 8 (`@claude review`, 4 blocking; three were duplicates about a
+  line since removed from this file). The render path's
   `applyAutoRowHeights` writes the same state as the reload queue and was
   not in it, so a fit that landed between a reload's awaits could leave
   `autoSizedRows` out of step with `rowDim`. The queue now counts the
@@ -134,7 +132,7 @@
   wait behind a reload.
 
 - Local review before pushing round 9 (a separate agent, same lenses as the
-  panel): no blocking findings. Took its suggestions: `reloadDimensions` now
+  panel). Took its suggestions: `reloadDimensions` now
   re-checks the sheet after every load, as the design doc says, not only
   after the dimension reload; the fit's hold-off also compares a reload
   generation, so a reload that starts and finishes inside the fit's awaits
@@ -158,7 +156,7 @@
   share the reload queue, so a store read that never settles would stall
   undo behind it. The stores in this repository settle locally; a timeout
   or a per-path queue is recorded as a known limitation in the PR.
-- Local review of that fix (same agent): no blocking findings. Took two
+- Local review of that fix (same agent). Took two
   suggestions: the render also stamps `rowDim.getRenumberings()` before the
   fetch, so a local insert, delete or move inside the fit's window makes it
   stand down like a reload does; and the test for the exit bump runs a real
@@ -207,7 +205,7 @@
   the read and the write. Kept `main`'s order — clear, then read — and a
   test with a store whose read answers after the local edit.
 
-- Local review of the redesign (separate agent): no blocking findings.
+- Local review of the redesign (separate agent).
   Took two should-fix items and four nits:
   - The merges and the remaining columns are read one await after the grid,
     so a renumbering in between put them on other rows' indices for a pass.
@@ -246,7 +244,7 @@
     fitted layer departs from `axis-id-selection.md`. Not taken: moving
     `axisTranslator` beside the anchor helpers, and an upper bound on
     fitted heights (both predate this change in kind).
-- Local review of those fixes (separate agent): no blocking findings. Took
+- Local review of those fixes (separate agent). Took
   both should-fix items: the cache check missed renumberings that keep the
   axis length and move no fitted height — undoing a local move, or a reload
   that renumbers only pinned rows — so every `clear` (each reload) now counts

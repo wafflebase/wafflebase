@@ -32,8 +32,6 @@ const createContext = (rowOrder: Array<string>) => {
     sheet,
     rowDim,
     colDim,
-    hiddenRows: new Set<number>(),
-    hiddenColumns: new Set<number>(),
     syncHiddenRowsFromSheet: proto.syncHiddenRowsFromSheet,
     syncHiddenColumnsFromSheet: proto.syncHiddenColumnsFromSheet,
     updateFreezeState: vi.fn(),
