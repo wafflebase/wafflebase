@@ -257,6 +257,38 @@ describe('Worksheet.runHistoryStep', () => {
     expect(ctx.rowDim.getSize(6)).toBe(101);
   });
 
+  it('keeps running reloads after one of them fails', async () => {
+    const { ctx, fit, sheet } = createContext(ids(12));
+    fit(2, 62);
+    const load = sheet.loadDimensions.bind(sheet);
+    let fail = true;
+    sheet.loadDimensions = async () => {
+      if (fail) {
+        fail = false;
+        throw new Error('store went away');
+      }
+      await load();
+    };
+
+    await expect(reloadDimensions(ctx)).rejects.toThrow('store went away');
+    const replayed = await runHistoryStep(ctx, async () => true);
+
+    expect(replayed).toBe(true);
+  });
+
+  it('never keeps a zero backup for a hidden column either', async () => {
+    const { ctx, store, sheet } = createContext(ids(12));
+    await store.setHiddenState({ rows: [], columns: [4] });
+    await sheet.loadHiddenState();
+    ctx.hiddenColumns.add(4);
+    ctx.hiddenColSizeBackup.set(4, 140);
+    ctx.colDim.setSize(4, 0);
+
+    (proto.resyncHiddenAxes as unknown as () => void).call(ctx);
+
+    expect(ctx.hiddenColSizeBackup.get(4)).toBe(140);
+  });
+
   it('never keeps a zero backup, even when the previous backup was zero', async () => {
     const { ctx, store, sheet } = createContext(ids(12));
     await store.setHiddenState({ rows: [3], columns: [] });

@@ -121,8 +121,14 @@
   every row it does not re-key; those rows go back to being measured, as
   before the change. The fix only ever carries less, never a different
   height.
-- Stopping rule agreed with the author: round 8 is the last review round;
-  anything it still raises goes into the PR as a known limitation.
+- Round 8 (`@claude review`, 4 blocking). Three were about a line this
+  file carried — a note on how many more review rounds would run. That was
+  process talk addressed at reviewers and does not belong in the
+  repository; it was removed. The fourth is real and recorded as a known
+  limitation in the PR: the render path's `applyAutoRowHeights` writes the
+  same state as the reload queue and is not in it, so a fit that lands
+  between a reload's awaits can leave `autoSizedRows` out of step with
+  `rowDim` until a later fit.
 
 ## Verification
 

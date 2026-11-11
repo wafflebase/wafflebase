@@ -100,6 +100,8 @@ const createContext = (options?: {
   };
 };
 
+const ids = (n: number) => Array.from({ length: n }, (_, i) => `r${i + 1}`);
+
 const colOf = (sref: string): number => {
   const letters = sref.match(/^[A-Z]+/)![0];
   let col = 0;
@@ -163,6 +165,20 @@ describe('Worksheet.applyAutoRowHeights', () => {
 
     expect(ctx.autoSizedRows.has(3)).toBe(true);
     expect(ctx.autoSizedRowIds.has(3)).toBe(false);
+  });
+
+  it('drops the axis ID of a row past the measured range once rows were renumbered', async () => {
+    const ctx = createContext({ rowOrder: ids(50) });
+    // Row 40 was fitted on an earlier pass and has since scrolled below the
+    // fetched range: this pass leaves it alone.
+    ctx.autoSizedRows.add(40);
+    ctx.autoSizedRowIds.set(40, 'r40');
+
+    ctx.rowDim.shift(1, 1);
+    await applyAutoRowHeights.call(ctx, new Map(), 10, 5);
+
+    expect(ctx.autoSizedRows.has(40)).toBe(true);
+    expect(ctx.autoSizedRowIds.has(40)).toBe(false);
   });
 
   it('reports no change once the rows already fit', async () => {
