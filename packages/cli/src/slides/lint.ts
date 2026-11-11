@@ -29,6 +29,9 @@ export const LINT_RULES: LintRuleId[] = [
   'contrast',
   'min-font',
   'edge-margin',
+  'token-wrap',
+  'empty-region',
+  'inset-inconsistent',
 ];
 
 const SEVERITY_RANK: Record<LintSeverity, number> = { info: 0, warning: 1, error: 2 };

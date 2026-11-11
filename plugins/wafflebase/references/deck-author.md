@@ -142,7 +142,7 @@ overflows`. (`slides layout` is **not** this command — it is an alias of
 `slides layouts`, which lists a deck's layout ids.)
 
 `lint` prints one row per open finding — `slide, rule, severity, element,
-text, message` (`text` is the element's first 40 characters). The six rules:
+text, message` (`text` is the element's first 40 characters). The nine rules:
 
 | rule | flags | severity |
 | --- | --- | --- |
@@ -154,6 +154,9 @@ text, message` (`text` is the element's first 40 characters). The six rules:
 | `contrast` | text below WCAG AA — 4.5:1, or 3:1 for large text (18 pt, 14 pt bold) — against its fill, the shapes beneath and the slide background; skipped over images/tables/charts | error below 3:1, else warning |
 | `min-font` | text rendering below 12 slide points (9 for footer-like text) | error below 75% of the minimum, else warning |
 | `edge-margin` | text ink within 0.5 in of a slide edge (footer-like text exempt) | info |
+| `token-wrap` | a line wrap inside text that reads as one unit: a short bracketed group (`(58 / 174)`), a number ratio, or a word with a digit (`1,234`, `24%`, `87건`, `$4.2M`) broken mid-word; explicit `\n` breaks are exempt | warning |
+| `empty-region` | a content slide whose content ends early: the band below it fills ≥ 45% of the safe area (0.5 in top margin down to the 0.9 in footer band). Title / section / main-point / big-number layouts, slides with < 3 content elements, footers, backgrounds and full-height decoration are excluded | info; warning from 70% |
+| `inset-inconsistent` | sibling cards (filled or bordered boxes holding text, similar size, sharing a row or column) whose text inset differs from the others' by > 8 px — top inset for top-anchored text, left inset for left-aligned text | info |
 
 `grow` text (the default autofit) is never an `overflow` finding — a box
 that grows past the slide is `out-of-bounds`'. Line breaks in Node come from

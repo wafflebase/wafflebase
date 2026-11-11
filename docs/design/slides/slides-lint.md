@@ -19,7 +19,7 @@ This adds the cheap, deterministic half of a visual QA lane:
   for text the line count, laid-out height, box height, shrink scale and
   whether it overflows. Computed in Node on the same docs layout engine the
   canvas renderer uses; no browser.
-- **`lintSlides(doc): Finding[]`** — six rules, one file each, over the
+- **`lintSlides(doc): Finding[]`** — nine rules, one file each, over the
   same model and layout:
   `{ rule, severity, slideId, slideIndex, elementId?, text?, message }`.
 - **CLI**: `wafflebase slides layout-report` and `wafflebase slides lint`,
@@ -91,6 +91,9 @@ from the layout itself:
 | `contrast` | WCAG 2 AA: 4.5:1, or 3:1 for large text (18 pt, 14 pt bold). Backdrop at three points across the text: own fill, then filled shapes / text boxes beneath (alpha-composited), then the slide background (slide → layout → master). A gradient counts as its worst stop. An image, table, chart or background image underneath makes the point unknown — skipped, never guessed | error below 3:1, else warning |
 | `min-font` | Text rendering below 12 slide points (9 for footer-like text) | error below 75% of the minimum, else warning |
 | `edge-margin` | Text ink within 0.5 in of an edge; footer-like text (a short element in the bottom 0.9 in) exempt | info |
+| `token-wrap` | A line boundary of the laid-out text (the same `layoutText` the other rules read) inside a unit: a bracketed group of ≤ 24 characters (`(58 / 174)`, `[n = 12]`), a ratio of two numbers, or a whitespace-free word holding a digit (`1,234`, `24%`, `87건`, `$4.2M`, `v0.7.26`) broken mid-word — which the layout does at character fallback or at a style change inside the word. A line ended by an explicit `\n` is the author's and exempt | warning |
+| `empty-region` | A content slide whose content stops early: the band between the lowest painted content and the footer band (bottom 0.9 in) covers ≥ 45% of the safe area (0.5 in top margin → footer band). Content is measured by its painted box; backgrounds, thin decoration, footer-like text and text-less shapes ≥ 80% of the slide tall are not content. Skipped: `title-slide` / `section-header` / `main-point` / `big-number` layouts and slides with < 3 content elements. Only the bottom band counts — space above or between blocks is usually deliberate | info; warning from 70% |
+| `inset-inconsistent` | Sibling cards — boxes that paint a fill or border and hold text (their own, or enclosed text elements), similar size (±15%), sharing a row or column (±4 px) — whose text inset differs from the group's median by > 8 px. Top inset only for top-anchored text, left inset only for left-aligned text (middle anchoring and centering move text by design); for an even count the larger middle value is the reference, so the cramped card of a pair is reported | info |
 
 **Slide points.** The canvas is 1920 px wide for every deck, which the
 product treats as a 13.333-inch widescreen slide (2 px per point). Stored
@@ -118,6 +121,15 @@ and element ids are random, so neither survives a catalogue edit. The two
 entries today are known defects, labelled as such, not design decisions.
 Reverting the Workshop cover to its pre-#1090 `block` preset fails the gate
 on exactly the two elements the review flagged.
+
+The three composition rules added for #1112 (`token-wrap`, `empty-region`,
+`inset-inconsistent`) needed no baseline entry: over the 125 seed slides
+they find no token wrap and no inconsistent card inset, and `empty-region`
+reports 14 slides at `info` — all `title-two-columns` fill-in skeletons
+whose short "—" lists end 55–65% of the way up the safe area. That is why
+the warning threshold sits at 70% rather than at the info threshold: a
+skeleton waiting for content is sparse by design, a slide with less than a
+third of its height used is not.
 
 ### CLI
 

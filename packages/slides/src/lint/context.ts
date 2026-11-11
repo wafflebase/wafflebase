@@ -84,6 +84,9 @@ export function buildContext(
         'edge-margin',
         'min-font',
         'overflow',
+        'token-wrap',
+        'empty-region',
+        'inset-inconsistent',
       ],
       ignoreElementIds: options.ignoreElementIds ?? [],
       overlapMinFraction: options.overlapMinFraction ?? 0.15,
@@ -92,6 +95,9 @@ export function buildContext(
       minFooterFontPt: options.minFooterFontPt ?? 9,
       boundsTolerance: options.boundsTolerance ?? 2,
       overflowTolerance: options.overflowTolerance ?? 1,
+      emptyRegionMinFraction: options.emptyRegionMinFraction ?? 0.45,
+      emptyRegionWarnFraction: options.emptyRegionWarnFraction ?? 0.7,
+      insetTolerance: options.insetTolerance ?? 8,
     },
   };
 }
@@ -428,6 +434,21 @@ export function isFooterLike(placed: PlacedElement, ctx: DeckContext): boolean {
   const { box } = placed;
   const band = ctx.slideH - 0.9 * PX_PER_INCH;
   return box.y >= band && box.h <= 0.9 * PX_PER_INCH;
+}
+
+const BACKGROUND_COVERAGE = 0.8;
+const DECORATIVE_MAX_THICKNESS = 24;
+
+/**
+ * Intentional layering rather than content: a text-less shape or image
+ * covering ≥ 80% of the slide (a background), or a thin text-less shape
+ * (≤ 24 px — a rule or an accent bar).
+ */
+export function isBackground(el: Element, box: Box, ctx: DeckContext): boolean {
+  if (el.type !== 'shape' && el.type !== 'image') return false;
+  if (hasText(el)) return false;
+  if ((box.w * box.h) / (ctx.slideW * ctx.slideH) >= BACKGROUND_COVERAGE) return true;
+  return el.type === 'shape' && Math.min(box.w, box.h) <= DECORATIVE_MAX_THICKNESS;
 }
 
 export function fmt(n: number): string {
