@@ -31,3 +31,7 @@
   fixed four stale comments/task-doc lines it named.
 - Lesson: after deleting a consumer, also grep every surviving module's exports
   for a remaining importer; "nothing imports the deleted code" is only half.
+- Round 3 (security/docs): panel clean on all six lenses — loop stops. Took
+  three cheap minors (spawnSync timeout on the lane probe, an inaccurate test
+  header, the token-pool task doc still describing `shard` as live); the rest
+  are known limitations in the PR body.

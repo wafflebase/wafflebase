@@ -5,7 +5,7 @@
 // nothing in a subdirectory. A test file added there would have been written,
 // passed locally, and then never run again: green CI, an untested module, and no
 // symptom anywhere. So the lane's own command is read out of `verify-self.mjs`
-// and checked against the test files that exist.
+// and run in a fixture tree, to prove what the real runner reaches.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -76,6 +76,9 @@ test("the agent:tests lane runs test files at every depth and skips node_modules
       cwd: root,
       env: { ...env, LANE_PROBE_RAN: ran },
       encoding: "utf8",
+      // spawnSync blocks the event loop, so this test's own --test-timeout
+      // cannot cancel a hung nested runner; bound it here instead.
+      timeout: 30_000,
     });
     assert.equal(r.status, 0, `the lane's invocation failed in the fixture tree:\n${r.stdout}\n${r.stderr}`);
     assert.deepEqual(readdirSync(ran).sort(), ["nested", "top"], "the lane must run every depth and nothing under node_modules");

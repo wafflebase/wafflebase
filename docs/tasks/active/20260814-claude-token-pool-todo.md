@@ -178,6 +178,7 @@ to fail identically, or reporting "not logged in" for a pool merely out of quota
 `eval-replay`'s matrix shares one `GITHUB_RUN_ID`, so all legs picked the same credential:
 `CLAUDE_POOL_SHARD` (fed `matrix.runId`) now distinguishes them, which matters most for
 the one lane whose `max-parallel: 1` exists because legs contend on a single account.
+(Removed 2026-11-13 with `eval-replay`, #1131.)
 
 **Not acted on.** A reviewer read the reworded comments as correct; the two reviewers with
 commit-level evidence were right and it was not.
