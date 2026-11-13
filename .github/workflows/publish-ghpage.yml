@@ -7,9 +7,8 @@ on:
   # `scripts/changed-areas.mjs`: a `push` to `main` is never path-filtered, so the
   # run this waits on is always the complete suite.
   #
-  # A SIBLING at level 2 of the `workflow_run` chain, not a new link: `ci.yml` →
-  # `agent-review-panel.yml` → `capture-collect.yml` already uses GitHub's
-  # three-level limit with no headroom (see capture-collect.yml). Nothing may be
+  # A SIBLING of `agent-review-panel.yml` at level 2 of the `workflow_run` chain
+  # (`ci.yml` → this), not a new link; GitHub allows three levels. Nothing may be
   # inserted between CI and this workflow.
   #
   # `paths-ignore` is GONE because `workflow_run` supports no path filter. Its

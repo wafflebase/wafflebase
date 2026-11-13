@@ -22,13 +22,11 @@ has no way to be called from a terminal.
 Tracking issue: [#998](https://github.com/wafflebase/wafflebase/issues/998).
 Original proposal by @ggyuchive (v1, 2026-08-29).
 
-Precedent: `scripts/agent/eval/` already measures the code-review panel against
-CodeRabbit — freeze past PRs, replay the real panel K times, score on fixed
+Precedent: the since-removed `scripts/agent/eval/` measured the code-review panel
+against CodeRabbit — freeze past PRs, replay the real panel K times, score on fixed
 criteria, keep run data outside the repo. This is that method pointed at office
-work instead of review. See [agent-pipeline.md](agent-pipeline.md) for how
-the review side fits together and
-[eval-harness-usage.md](eval-harness-usage.md) for how its numbers are kept
-honest.
+work instead of review. See [agent-pipeline.md](agent-pipeline.md) §4.1 for why that
+rig was removed.
 
 ### Goals
 
@@ -341,9 +339,8 @@ else.
    isolation bug and 45 stored answers. If a prototype exists outside this
    repository it should be named, so the work starts from it.
 2. **Package boundary.** Do `office-agent` and `office-bench` live in this
-   monorepo (`packages/`, or `scripts/agent/` beside the existing eval harness),
-   or outside it? The eval harness keeps run data outside the repo; the same
-   question applies to fixtures.
+   monorepo (`packages/`, or `scripts/agent/`), or outside it? The removed eval
+   harness kept run data outside the repo; the same question applies to fixtures.
 3. ~~**Do agents authenticate with an API key or a session?**~~ **Answered: an
    API key.** A session is a person's credential and expires; a bench that
    depends on one cannot run unattended, and a `/api/v1` surface that works only

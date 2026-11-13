@@ -6,13 +6,9 @@
 // this expression could drift looser than the merge it is supposed to agree
 // with". There were three copies in the tree when this file was made: the
 // definition beside `dedupeFindings`, a byte-identical inline `keyOf` inside
-// `compareSampleAgreement`, and a third in the eval harness. Now there is one,
-// and the warning is enforced by the import graph instead of by a comment.
-//
-// It imports nothing, on purpose. `review-panel.mjs` needs it and so does
-// `eval/`, and the benchmark may never be imported by the panel (it only reads,
-// which is the property that makes it safe to land here at all). So the shared
-// rule has to sit somewhere both can reach without either reaching the other.
+// `compareSampleAgreement`, and a third in the (since-removed) eval harness. Now
+// there is one, and the warning is enforced by the import graph instead of by a
+// comment. It imports nothing, on purpose, so anything can reach it.
 //
 // THIS IS IDENTITY, NOT SIMILARITY, and the distinction is the whole reason the
 // key is worth pinning. Two wordings of one defect get two keys here, and that

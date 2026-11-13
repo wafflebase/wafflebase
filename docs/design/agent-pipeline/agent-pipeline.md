@@ -54,7 +54,6 @@ operator guides.
 | Review panel | automatic on an `agent/` branch; `@claude review` on demand | `.github/workflows/agent-review-panel.yml`, `scripts/agent/review-panel.mjs` | harness Phases 24, 27, 28, 29 |
 | Self review | `/self-review` — `.claude/commands/self-review.md` | `scripts/agent/spec-to-pr.mjs review` (the same panel, locally) | this doc, §1.1 |
 | Fix agent | `@claude fix` on a **PR**; also automatic within a panel round | `.github/workflows/agent-fix.yml`, `scripts/agent/fix-eligible.mjs` | harness Phase 30 |
-| Eval / benchmark | `eval-replay` and `eval-score`, dispatch only | `scripts/agent/eval/` | **none** — see §4.1 |
 
 #### 1.1 The panel is opt-in, and most PRs do not opt in
 
@@ -118,7 +117,7 @@ assigned to one primary area, so they sum rather than double-count shared files.
 | Spec → PR | 2026-07-28 (#559) | 2026-07-28 (#559) | — | `docs/tasks/archive/2026/07/20260724-local-spec-to-pr-pipeline-todo.md` |
 | The two hunters | 2026-07-30 (#588) | 2026-08-20 (#906) | 54 | `docs/tasks/active/20260729-autonomous-issue-hunting-todo.md` |
 | Fix agent | 2026-08-05 (#672) | 2026-08-19 (#894) | — | harness Phase 30 |
-| Eval / benchmark | 2026-08-06 (#677) | 2026-08-24 (#951) | 35 | `docs/tasks/archive/2026/08/20260805-eval-corpus-skeleton-todo.md` |
+| Eval / benchmark (removed 2026-11, #1131) | 2026-08-06 (#677) | 2026-08-24 (#951) | 35 | `docs/tasks/archive/2026/08/20260805-eval-corpus-skeleton-todo.md` |
 | Design → code | 2026-08-08 (#701) | 2026-08-25 (#966) | 37 | `docs/tasks/active/20260729-design-editor-layout-sandbox-todo.md` |
 | Debug reporter | 2026-08-24 (#946) | 2026-08-25 (#961) | 4 | `docs/tasks/archive/2026/08/20260821-debug-report-todo.md` |
 
@@ -222,20 +221,16 @@ leaves the browser until a batch is confirmed in the preview panel. `/report-int
 then takes that confirmed bundle through verification and PR assembly — and opens
 nothing on its own, so reading its plan is a step, not a formality.
 
-#### 4.1 What has no design doc
+#### 4.1 The removed eval / benchmark rig
 
-**The eval / benchmark rig.** `scripts/agent/eval/` replays a frozen corpus of past
-pull requests through the real review panel K times and scores the result — volume
-and mix, complementarity against a second reviewer, reliability across replicates,
-segmentation, validity, cost and latency. `eval-replay` is the one workflow whose whole
-purpose is to spend model budget — every other model call in the loop is a side
-effect of reviewing or implementing something — which is why it is dispatch-only and
-takes a required cost cap.
-
-It has no *design* document. [`eval-harness-usage.md`](eval-harness-usage.md) is an
-operator's guide — what to type, what it costs, how to read the report — not a record
-of intent. The reasoning still lives in `scripts/agent/eval/README.md`, and the spec
-its scorers cite by section number lives in a separate repository, not in this tree.
+`scripts/agent/eval/` replayed a frozen corpus of past pull requests through the real
+review panel and scored the result; the panel uploaded a per-lens stage-detail
+capture that a collector workflow copied into a separate repository. It went idle
+after 2026-08-24, and when the cross-repository token it relied on expired the
+collector and the weekly scorer failed on every run (#1131). Rather than rotate a
+credential for machinery nobody was using, the rig, its three workflows and the
+panel's capture were removed. `git log -- scripts/agent/eval` has the full history,
+and the store repository keeps what was already collected.
 
 ### 5. Design → code
 
@@ -296,11 +291,6 @@ python3 -m http.server 8080
 Opening the files directly with `file://` works too.
 
 ## Risks and Mitigation
-
-**The eval rig is undocumented where it matters.** Anyone changing a scorer works
-from `scripts/agent/eval/README.md` and a spec in another repository, with no design
-doc to check an intent against. *Mitigation:* none yet — §4.1
-states it so the gap is findable rather than discovered by surprise.
 
 **Two verb tables can disagree.** The table above is complete;
 [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)'s is not. Two tables covering the same

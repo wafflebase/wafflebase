@@ -360,9 +360,9 @@ test("both renderers classify a drained pool from its kind, not from an assumed 
 
 test("lensInfraReason: null for a model that ran, whatever else the error carries", () => {
   // The field is read as a boolean by every consumer — the workflow persists an
-  // empty carry-forward on it, eval/run.mjs voids the item, PANEL_INFRA_ERROR pages
-  // on it — so a non-null value for a genuine no-verdict would stop that round
-  // gating the merge. `infra` is the only thing that may decide this.
+  // empty carry-forward on it and PANEL_INFRA_ERROR pages on it — so a non-null
+  // value for a genuine no-verdict would stop that round gating the merge.
+  // `infra` is the only thing that may decide this.
   assert.equal(lensInfraReason(Object.assign(new Error("x"), { kind: "limit", code: "RUN_LIMIT_TURNS" })), null);
   assert.equal(lensInfraReason(Object.assign(new Error("x"), { kind: "no-output" })), null);
   assert.equal(lensInfraReason(new Error("all lens samples failed")), null);

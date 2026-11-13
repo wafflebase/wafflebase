@@ -14,10 +14,9 @@
 # DATA and calls the API. Do not add `actions/checkout` of `head_sha`, and do not
 # add a build step. If it ever needs repository code, check out the BASE ref.
 #
-# CHAIN DEPTH. GitHub allows three levels of `workflow_run` chaining, and
-# `ci.yml` -> `agent-review-panel.yml` -> itself already uses all three (see
-# `capture-collect.yml`). This is a SIBLING at level 2, like the two deploy
-# workflows, so that chain is untouched.
+# CHAIN DEPTH. GitHub allows three levels of `workflow_run` chaining. This is a
+# SIBLING of `agent-review-panel.yml` at level 2 (`ci.yml` -> this), like the two
+# deploy workflows, not a link between existing levels.
 name: CI Report
 
 on:

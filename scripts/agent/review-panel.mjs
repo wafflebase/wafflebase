@@ -39,7 +39,6 @@
 // installed. `classifyResult`/`withRetry` live there too and are re-exported from
 // here for existing importers.
 
-import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1728,10 +1727,10 @@ export function lensFailureSummary(err = {}) {
  *
  * The SECOND renderer of the same failure, and the one whose output is the panel's
  * machine-readable infra signal: it becomes `panelEntry.infraError`, which is what
- * makes the workflow persist an empty carry-forward, what `eval/run.mjs` reads to
- * mark an item unusable, and what `PANEL_INFRA_ERROR` pages on. `lensFailureSummary`
- * renders the same failure for humans. Extracted for the same reason that one was —
- * inline, its `kind` could only be exercised by a live outage.
+ * makes the workflow persist an empty carry-forward and what `PANEL_INFRA_ERROR`
+ * pages on. `lensFailureSummary` renders the same failure for humans. Extracted for
+ * the same reason that one was — inline, its `kind` could only be exercised by a
+ * live outage.
  *
  * Returning `null` rather than a string for a genuine no-verdict is load-bearing:
  * every consumer treats this field as a boolean "was this infrastructure", so a
@@ -2943,13 +2942,6 @@ async function main() {
       const foldVerdicts = await Promise.all(folds.map(verifyBlocking));
       return resolveClusterVerdict(f, repVerdict, folds, foldVerdicts);
     }));
-    // Named, rather than passed straight into `keepUnrefuted`, because the
-    // stage-detail capture below needs the ANNOTATED findings and cannot rebuild
-    // them: `annotateFindings` returns copies, so the `lane` it assigns exists
-    // only here. Index-aligned with `verdicts` exactly as `detected` is —
-    // `annotateFindings` maps, so it neither reorders nor filters — which is what
-    // lets the capture take this in place of `detected` without touching the
-    // verdict pairing.
     // Both gate passes CONCURRENTLY. They are independent git probes over the same
     // findings, and `blame -C -C -C` is the slowest call in this module — awaiting
     // them in sequence would serialise two full rounds of it inside the per-lens
@@ -3069,51 +3061,6 @@ async function main() {
     // `upheld` counter dies here every round and the standstill page never
     // fires — see substituteAdjudicated for the full failure.
     const mergedAfter = substituteAdjudicated(merged, gatingRaw, afterSkips, adjudged);
-
-    // Record WHAT THIS LENS DID, as data, before any of it is flattened for
-    // humans. Placed here on purpose: verification is complete (so every verdict
-    // exists) and nothing has been written yet, so this reads the same values the
-    // check run is about to be built from.
-    //
-    // The counters below say HOW MANY findings each stage moved. Nothing says which
-    // sample raised what, or how the verifier ruled on each one — and the channels
-    // that survive the job cannot be back-filled into it. `output.text` on the
-    // check run is blocking-only (it drops the whole `backlog` lane) and truncates
-    // trailing findings at the 60k cap; `review-state.mjs` states outright that it
-    // is designed to lose data. `output.summary` is prose whose shape has drifted
-    // every few PRs. So the panel's own decisions are, today, unscoreable after the
-    // fact — which is the same gap #608's corpus was opened to close, one stage
-    // earlier and at zero model cost.
-    //
-    // Read-only and best-effort. `buildStageDetail` derives; `writeStageDetail`
-    // swallows. Neither can change `merged`, `gating` or the conclusion.
-    writeStageDetail(lensOut, buildStageDetail({
-      lensDiff,
-      scopeNote,
-      samples: ok,
-      // `annotatedFresh`, not `findings`: post-cluster, index-aligned with
-      // `verdicts`, and carrying the `lane`/`novelty` the gate actually routed on.
-      //
-      // The lane is the one thing here that CANNOT be recovered later. `discarded`
-      // could be — `dropped` below is the same predicate — but `backlog` comes from
-      // `noveltyOf`, which is a `git blame` against the tree as it stood during the
-      // review. Once the branch moves there is nothing left to blame, so a capture
-      // written without it can never be told apart from one where nothing was
-      // demoted. That is the difference between "this finding gated" and "this
-      // finding was waved past", which is the whole question a gate is scored on.
-      fresh: annotatedFresh,
-      freshVerdicts: verdicts,
-      // Deliberately NOT annotated. Prior-round findings are routed with `null`
-      // novelties on purpose (see the call site), so their lane is derivable from
-      // the verdict already recorded on each row — annotating here would add a
-      // field that says nothing the reader could not compute.
-      prior: priorForLens,
-      priorVerdicts,
-      // Which prior verdicts no session produced. Without it the capture shows a
-      // verdict on every prior row and a later pass counting "prior-round
-      // verifications" would over-count by exactly what this change saves.
-      priorReuseIdx: reuseIdx,
-    }));
 
     // Reliability signals for this round: did the samples agree (fresh pass
     // only — prior-round re-checks aren't a sampling question), and what did
@@ -3263,206 +3210,6 @@ async function main() {
   const blockers = panel.filter((p) => p.blocking && p.applicable);
   if (blockers.length > 0 && blockers.every((p) => p.infraError)) {
     process.stderr.write(`PANEL_INFRA_ERROR: ${blockers[0].infraError}\n`);
-  }
-}
-
-/**
- * Is per-lens stage-detail capture on? **Default ON** — this reads as an opt-OUT,
- * which is the inverse of `AGENT_PIPELINE_ENABLED`'s `== 'true'` opt-in, and the
- * inversion is the whole reason this is a function with tests instead of a
- * truthiness check at the call site.
- *
- * A GitHub repo variable that has never been set arrives as the **empty string**,
- * not as absent — the same semantics the panel workflow already documents for
- * `REVIEW_MODE`/`SINCE_SHA` ("When narrowing did not happen both are EMPTY
- * STRINGS, which review-panel.mjs reads as absent"). So `if (env.X)` would resolve
- * unset to OFF and the capture would silently never run, on every repository that
- * had not explicitly opted in — a diagnostic that is quietly absent is worse than
- * one that is loudly broken. Unset, empty and whitespace therefore all mean ON;
- * only an explicit off-word turns it off.
- */
-export function stageDetailCaptureEnabled(env = process.env) {
-  const raw = String(env.STAGE_DETAIL_CAPTURE ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off");
-}
-
-/**
- * Does the capture carry the raw `lensDiff` CONTENT? **Default OFF** — the
- * deliberate inverse of `stageDetailCaptureEnabled` directly above, which
- * defaults ON.
- *
- * **The asymmetry is the design, not an oversight — please do not "fix" the two
- * into agreement.** They are opposite because what they gate is opposite:
- * capture is a few KB of our own generated data and is useful on every round, so
- * it must not depend on anyone having configured it. The diff body is 76–97% of
- * the payload and is verbatim contributor-authored text from a possibly-forked
- * branch, and it has exactly one consumer — a replay that feeds a lens the bytes
- * it actually saw. Content that is bulky, third-party and useful only on demand
- * is precisely the thing that should be requested rather than defaulted, so the
- * routine pipeline carries `lensDiffSha256` instead and stays first-party.
- *
- * Same empty-string discipline as the capture gate, in the other direction. A
- * GitHub repo variable that has never been set arrives as the EMPTY STRING, not
- * as absent, so unset / `""` / whitespace all resolve here to **OFF** — and so
- * does any value that is not an on-word, exactly as an unrecognized value there
- * falls to that gate's ON. Both gates fail toward their own default; only an
- * explicit `1`/`true`/`on` turns this one on.
- */
-export function stageDetailDiffContentEnabled(env = process.env) {
-  const raw = String(env.STAGE_DETAIL_DIFF_CONTENT ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "on";
-}
-
-/**
- * What stands in for the diff body once it stops riding along: enough to detect
- * that a slice re-derived later is NOT the one the lens read, and to size a
- * corpus, at a few dozen bytes instead of a few hundred KB.
- *
- * Re-deriving the slice from the SHAs is not a substitute for either field, and
- * the reason is the router rather than anything about retention: the slice is the
- * output of the file-class router (#582) applied to the diff, and that router has
- * changed once already and can change again. Re-deriving with a newer one yields
- * different bytes than production used, SILENTLY, no matter how perfectly the
- * commit was preserved. Hence a hash — drift stays *detectable* even when the
- * exact input cannot be reproduced.
- *
- * The hash is over the RAW router output — no trim, no normalisation, no
- * re-encoding — because the whole point is byte-comparability. A hash of
- * anything other than what the lens read is worse than no hash: it would report
- * drift on a slice that never moved and hide it on one that did.
- *
- * `createHash` is the one part of this that can fail for a reason unrelated to
- * the payload (a crypto policy that refuses SHA-256), and `buildStageDetail`
- * runs OUTSIDE `writeStageDetail`'s try/catch — it is evaluated as an argument
- * to it — so a throw here would escape into `Promise.all(allLenses.map(...))`
- * and take out the panel. On doubt the hash is simply absent; the round is the
- * product, the capture is not. `Buffer.byteLength` and `sliceDiffByFile` stay
- * outside the guard on purpose: both are total over a string, and the router
- * already runs the latter over the whole diff on every round.
- */
-function lensDiffMetadata(routedDiff) {
-  const meta = {
-    lensDiffBytes: Buffer.byteLength(routedDiff, "utf8"),
-    // The paths present in the ROUTED slice, split by the same function the
-    // router itself used, so this cannot drift from what the lens saw. This is
-    // the part that is genuinely unrecoverable later: `pulls/{n}/files` returns
-    // the PR's CURRENT diff, never the slice reviewed at this round. It is also
-    // what keeps the scope-discipline metric computable once the body is gone.
-    lensFiles: sliceDiffByFile(routedDiff).map((b) => b.path).filter(Boolean),
-  };
-  try {
-    return { lensDiffSha256: createHash("sha256").update(routedDiff, "utf8").digest("hex"), ...meta };
-  } catch {
-    return meta;
-  }
-}
-
-/**
- * What this lens actually did this round, as data — the input a later scoring pass
- * needs and that no existing channel carries.
- *
- * Pure and read-only over its arguments on purpose: this function is the reason a
- * reviewer can be sure capture changes no verdict. It derives, copies and returns;
- * it cannot reach the findings the panel goes on to gate on.
- *
- * - `samples` — the raw per-sample findings, BEFORE `unionSamples` and before
- *   `clusterFindings`. Per-sample detection is otherwise unrecoverable:
- *   `lensStats.agreement` keeps a score, not the findings it scored.
- * - `verifications` — one record per finding that reached the verifier, with the
- *   verdict and whether it dropped. `dropped` is recomputed through the real
- *   `isDroppingVerdict` rather than restated, so it cannot drift from the gate.
- *   `verdict: null` means the verifier errored and the finding was kept.
- * - `priorReuseIdx` — `planPriorVerifications`' plan, which marks the prior rows
- *   whose verdict was INHERITED from a fresh twin rather than produced by a
- *   session of their own (`reused: true`). Without it the capture is indistinguishable
- *   from one where every prior finding was verified, and counting rows in it
- *   would overstate what the round actually spent.
- * - `fresh` must be the POST-cluster findings, not the union: restatement clustering
- *   moved ahead of verification in #591/#601, so `verdicts` is index-aligned to what
- *   was clustered. Passing the union here would pair findings with other findings'
- *   verdicts. Pass the ANNOTATED array (`annotatedFresh`), which is the same list in
- *   the same order — `annotateFindings` maps — and additionally carries `lane` and
- *   `novelty`.
- * - `lane`/`novelty` on a fresh row are the gate's own routing decision, and the only
- *   part of a capture that is unrecoverable in principle rather than merely absent.
- *   `lane: "discarded"` is recomputable from `dropped`; `lane: "backlog"` is not — it
- *   comes from a `git blame` of the tree under review, so it expires with the branch.
- *   A reader must therefore treat a MISSING lane as "unknown", never as "blocking":
- *   every capture written before this existed has no lane at all, and reading absence
- *   as blocking would silently score demoted findings as gating ones.
- *   Non-blocking findings never carry a lane by design (`annotateFindings` returns
- *   them untouched) — for those, absence is not missing data.
- */
-export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts, priorReuseIdx, env = process.env }) {
-  const rows = (population, findings, verdicts, reuseIdx) =>
-    (Array.isArray(findings) ? findings : []).map((f, i) => {
-      const verdict = (Array.isArray(verdicts) ? verdicts : [])[i] ?? null;
-      const row = { population, finding: f, verdict, dropped: isDroppingVerdict(verdict, { claimType: claimTypeOf(f) }) };
-      // Present ONLY on a reused row, so every capture written before this — and
-      // every row that really was verified — keeps its exact previous shape.
-      if ((Array.isArray(reuseIdx) ? reuseIdx : [])[i] >= 0) row.reused = true;
-      return row;
-    });
-  // Only blocking findings are ever sent to the verifier, so the same filter that
-  // gates `verifyBlocking` gates what is recorded — a minor finding has no verdict
-  // to report and a `verdict: null` row for it would read as a verifier error.
-  const verifications = [
-    ...rows("fresh", fresh, freshVerdicts),
-    ...rows("prior-round", prior, priorVerdicts, priorReuseIdx),
-  ].filter((v) => BLOCKING.has(normalizeSeverity(v.finding?.severity)));
-  // The ROUTED slice this lens reviewed (its file-class subset, #582) — NOT the
-  // whole PR diff. It is what makes a capture replayable: a later pass can feed a
-  // lens exactly what it saw. It is also the bulk of the file, by a wide margin,
-  // which is why its CONTENT is now tiered behind an opt-in flag and the default
-  // path carries only the metadata below.
-  const routedDiff = typeof lensDiff === "string" ? lensDiff : "";
-  return {
-    // OMITTED, not `""`, when content is off. The distinction is load-bearing:
-    // `""` is a real value the router produces for a lens whose slice is empty,
-    // and a consumer keying on `typeof detail.lensDiff === "string"` would take
-    // that literally and replay the lens against nothing. An ABSENT key is the
-    // shape captures written before `lensDiff` existed already have, and the
-    // existing consumer path for those falls back to the full PR diff — so
-    // omission lands on a route that is already there rather than a new one.
-    ...(stageDetailDiffContentEnabled(env) ? { lensDiff: routedDiff } : {}),
-    // Always emitted, in BOTH modes, so the drift guard reads the same field
-    // whether or not the body came with it.
-    ...lensDiffMetadata(routedDiff),
-    // The incremental-scope prompt addendum; "" in full mode. Recorded because it
-    // is part of the prompt, so a round is not reproducible without it.
-    scopeNote: typeof scopeNote === "string" ? scopeNote : "",
-    samples: (Array.isArray(samples) ? samples : []).map((r) => (Array.isArray(r?.findings) ? r.findings : [])),
-    verifications,
-  };
-}
-
-/**
- * Write one lens's stage detail, or don't. Returns whether it landed.
- *
- * **This must never fail a review.** The capture is a diagnostic; the round is the
- * product. Every failure mode — a full disk, a read-only mount, a value
- * `JSON.stringify` refuses — degrades to "this run has no capture" and is logged,
- * never to a thrown error inside `Promise.all(allLenses.map(...))`, which would
- * take out the whole panel and turn an instrumentation bug into a review outage.
- */
-export function writeStageDetail(lensOut, detail, env = process.env) {
-  if (!stageDetailCaptureEnabled(env)) return false;
-  try {
-    mkdirSync(lensOut, { recursive: true });
-    writeFileSync(path.join(lensOut, "stage-detail.json"), JSON.stringify(detail) + "\n");
-    return true;
-  } catch (err) {
-    // `console.warn`, not `console.log`, and the reason is the same one that moved
-    // `eval/run.mjs`'s heartbeat off stdout: `review-panel.test.mjs` calls this
-    // function IN-PROCESS, so under `node --test` stdout is not a terminal but the
-    // runner's result channel, carrying v8 frames the parent parses. Plain text
-    // landing behind a frame in one read chunk is taken as that frame's successor
-    // and its bytes read as a length, which either stalls the stream or throws
-    // `Unable to deserialize cloned data` and loses this file's remaining results.
-    // Measured: this line put 421 bytes on that channel per run. A degradation
-    // notice belongs on stderr regardless, which the runner reads as lines.
-    console.warn(`stage-detail capture failed (continuing): ${err.message}`);
-    return false;
   }
 }
 

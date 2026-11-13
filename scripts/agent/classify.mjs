@@ -125,9 +125,8 @@ export function extractStructuredText(data, model = "model", maxTokens = 0) {
  *
  * Still returns `unknown` for a diff that names no path at all, and for one whose
  * paths git C-quoted (`+++ "b/na\303\257ve.ts"`, when a path carries a special or
- * non-ASCII byte): decoding that is `changedFilesFromDiff`'s job in
- * `eval/extract-corpus.mjs` and duplicating it here would fork a second path
- * parser. Documented as the remaining cause of `unknown` in `eval/README.md`.
+ * non-ASCII byte): decoding git's C-quoting is not worth a second path parser
+ * here.
  */
 export function localizationFromDiff(diff) {
   const files = new Set();

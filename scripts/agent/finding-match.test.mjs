@@ -6,18 +6,6 @@ import {
 } from "./finding-match.mjs";
 import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY } from "./rounds.mjs";
 import { findingKey } from "./finding-key.mjs";
-// The REAL record builder, not a hand-written fixture of its shape. `lensOf`'s
-// default exists to read `record.panel.lens`, and a test that asserted against
-// this file's own idea of a record would be a round trip through one author's
-// assumption — invisible to exactly the bug it is here to catch. Importing it
-// also makes an upstream rename of that field redden this lane instead of
-// quietly loosening a gate.
-//
-// The direction rule this does NOT break: `finding-match.mjs` must not import
-// `eval/` (see `LENSED_ARM`), because `harvest.mjs` imports `finding-match.mjs`
-// and would drag the benchmark's vocabulary into the harvester's graph. A test
-// file is in nobody's graph.
-import { buildFindingRecord } from "./eval/finding-record.mjs";
 
 test("extractAnchor: pulls backticked symbols from real-shaped evidence", () => {
   // modeled on the pr-521 resolveRange finding
@@ -854,18 +842,24 @@ test("groupFindings GATE: unreadable provenance falls back to the TIGHTER rule, 
 // were `undefined`, `"" !== ""` is false, and 20-29 classes per replicate
 // collapsed with nothing thrown and nothing logged.
 
-/** A real record from the real builder, with the lens ONLY where a record puts
- *  it — the arm namespace. The raw finding carries no `lens` of its own, which
- *  is the sampled population's shape and the case the default has to handle. */
-const rec = (lens, file, summary, evidence = "", extra = {}) =>
-  buildFindingRecord({
+/** A normalised finding record, with the lens ONLY where a record puts it —
+ *  the arm namespace (`record.panel.lens`). The raw finding carries no `lens`
+ *  of its own, which is the case the default has to handle. Shape as the
+ *  since-removed `eval/finding-record.mjs` built it. */
+const rec = (lens, file, summary, evidence = "", extra = {}) => {
+  const finding = { severity: "major", lane: "blocking", file, summary, evidence, ...extra };
+  return {
     arm: "panel",
-    itemId: "pr-548",
-    runId: "run-1",
+    item_id: "pr-548",
+    run_id: "run-1",
     population: "reported",
-    finding: { severity: "major", lane: "blocking", file, summary, evidence, ...extra },
-    detail: { lens },
-  });
+    file,
+    summary,
+    evidence,
+    severity: "major",
+    panel: { lens, raw: finding },
+  };
+};
 
 const ONE_DEFECT = "the retry loop never resets its backoff between attempts";
 

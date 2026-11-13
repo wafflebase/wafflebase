@@ -498,7 +498,7 @@ lens: `visual-intent`.
 the report pipeline passes it to `review-panel.mjs --lenses-dir` — a seam that
 already existed. It is a SIBLING of `lenses/` rather than a subdirectory: nested,
 it made `readdirSync` over the panel's lens directory return a directory, and
-`eval/run.test.mjs` — which copies that directory file by file — died on EISDIR. Registered in the shared manifest with an `appliesWhen` of
+a consumer that copied that directory file by file died on EISDIR. Registered in the shared manifest with an `appliesWhen` of
 `packages/frontend/**` it fired, blocking, on every PR touching the frontend or
 any engine's view layer, judging them against a reporter's sentence and a
 baseline/actual/diff set that only a report has. The rubric still carries the
@@ -630,7 +630,6 @@ without weakening the gate.
 | Publication boundary (credential / PII redaction) | `scripts/agent/redact.mjs` |
 | "Is this the same defect?" | `scripts/agent/finding-match.mjs`, `finding-key`, `novelty` |
 | Severity → blocking rules | `scripts/agent/severity.mjs` |
-| Write-once capture storage | `scripts/agent/capture-store.mjs`, `capture-meta.mjs` |
 | AI-authorship disclosure trailer | `scripts/agent/disclosure.mjs` |
 | Brief → branch → review → draft PR | `scripts/agent/spec-to-pr.mjs` |
 | UI defect verification (replay + panel) | `scripts/agent/hunt-ui.mjs` |

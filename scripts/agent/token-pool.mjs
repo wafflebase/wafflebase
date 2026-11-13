@@ -105,36 +105,14 @@ export function readPoolTokens(env = process.env) {
  * failure a long way from its cause. A local run with no GITHUB_RUN_ID gets the
  * first token, which is exactly right for a pool of one.
  */
-export function selectStartIndex(size, { runId, runAttempt, shard } = {}) {
+export function selectStartIndex(size, { runId, runAttempt } = {}) {
   if (!Number.isInteger(size) || size <= 0) return 0;
   // Run ids are ~11 digits today, but taking the tail keeps this exact if they
   // ever outgrow MAX_SAFE_INTEGER, where the parse would start rounding.
   const digits = String(runId ?? "").replace(/\D/g, "").slice(-15);
   const base = digits ? Number(digits) : 0;
   const attempt = Number(String(runAttempt ?? "").replace(/\D/g, "")) || 1;
-  return (base + attempt - 1 + shardOffset(shard)) % size;
-}
-
-/**
- * A stable number for a per-job discriminator, so SIBLINGS OF ONE RUN differ.
- *
- * `GITHUB_RUN_ID` identifies the workflow RUN, not the job — every leg of a
- * matrix shares it, so run-id-only selection puts every leg of one dispatch on
- * the same credential. That silently defeats the pool for eval-replay, the lane
- * that most wants it: its `max-parallel: 1` exists precisely because concurrent
- * legs contend on one account's rate limit, and legs landing on different
- * accounts is the thing that could eventually lift it.
- *
- * A hash rather than a digit parse because leg identifiers are opaque strings,
- * not numbers. Absent (the ordinary single-job case) contributes nothing, so
- * selection is unchanged for every workflow that does not set it.
- */
-export function shardOffset(shard) {
-  const text = String(shard ?? "");
-  if (!text) return 0;
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) % 100_000_007;
-  return hash;
+  return (base + attempt - 1) % size;
 }
 
 /**
@@ -149,8 +127,6 @@ export function createTokenPool({
   env = process.env,
   runId = env.GITHUB_RUN_ID,
   runAttempt = env.GITHUB_RUN_ATTEMPT,
-  // Set by a workflow whose jobs share one run id — see shardOffset.
-  shard = env.CLAUDE_POOL_SHARD,
 } = {}) {
   // Slots, not bare tokens: the NAME has to survive so a diagnostic — and the
   // fixer's credential picker — can say WHICH secret is live without printing a
@@ -158,7 +134,7 @@ export function createTokenPool({
   const slots = readPoolSlots(env);
   const tokens = slots.map((slot) => slot.token);
   const retired = new Set();
-  let index = selectStartIndex(tokens.length, { runId, runAttempt, shard });
+  let index = selectStartIndex(tokens.length, { runId, runAttempt });
 
   const current = () => (tokens.length && !retired.has(index) ? tokens[index] : null);
 

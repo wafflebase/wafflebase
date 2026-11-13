@@ -525,11 +525,8 @@ export const LINKAGE = "complete";
  * The one arm whose findings carry a real `lens`, and therefore the only
  * population the same-run (lens, file) gate is right for.
  *
- * Named here rather than imported from `eval/finding-record.mjs`'s `ARMS`, and
- * the direction is the reason: `harvest.mjs` imports this file, so importing the
- * benchmark's vocabulary here would drag `eval/` into the harvester's graph. The
- * benchmark may read the panel's modules; the panel's must not read the
- * benchmark's.
+ * A normalised finding record keeps it at `record.panel.lens` (see
+ * `defaultLensOf`).
  */
 const LENSED_ARM = "panel";
 
