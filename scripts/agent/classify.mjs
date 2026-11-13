@@ -109,9 +109,7 @@ export function extractStructuredText(data, model = "model", maxTokens = 0) {
 }
 
 /**
- * How spread out a diff is. Also frozen into a corpus item's
- * `meta.localization_scope` (PR 687), which is what made the deletion case below
- * load-bearing: an item is write-once, so a wrong value there is permanent.
+ * How spread out a diff is, recorded on every classify record.
  *
  * `+++ b/<path>` alone does not name every changed file. A DELETION has
  * `+++ /dev/null`, and a pure rename has no `+++` line at all, so both were

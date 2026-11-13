@@ -36,7 +36,7 @@ expire from 2027-01-05. The external store repo
 - [x] `checks.test.mjs`: drop the `capture-collect.yml` guard block
 - [x] Relocate the two live guards from `eval/test-lane.test.mjs` (lane covers
       every test file; agent workflows' github-script steps set retries) into
-      `checks.test.mjs`
+      `scripts/agent/test-lane.test.mjs`
 - [x] `token-pool.mjs`: remove the eval-replay-only `shard` option + its tests
 
 ## Docs / comments
@@ -69,14 +69,16 @@ expire from 2027-01-05. The external store repo
 - The `agent:tests` lane is back to one `node --test '**/*.test.mjs'`
   invocation. The `find` + second invocation existed only to isolate
   `eval/run.test.mjs`. The lane guards moved to `scripts/agent/test-lane.test.mjs`
-  (coverage at every depth via `path.matchesGlob`, timeout order, no
-  force-exit, github-script retries).
+  (the lane's real invocation run in a fixture tree for depth and
+  `node_modules`, timeout order, no force-exit, github-script retries).
 - The panel's capture removal is output-neutral: `buildStageDetail` only
   derived and `writeStageDetail` swallowed; nothing read `stage-detail.json`
   or `meta.json` but the collector.
-- `lensOf`'s `record.panel.lens` namespace in `finding-match.mjs` is kept; its
-  tests now use an inline record fixture. Removing that branch is a separate,
-  behavior-changing call.
+- `finding-match.mjs`'s grouping section (`groupFindings` and its accessors,
+  ~650 lines) had only eval consumers and is removed with its tests. The live
+  imports are `bestMatch`, `tokenOverlap` and `crossArmTokenOverlap`;
+  `matchFindings` stays as the tested entry to `matchAnchored`, which
+  `bestMatch` uses.
 - `verify:entropy`'s doc-staleness check flags removed file names written as
   code refs in design docs, so history notes name them in prose.
 - Verified: agent lane 1780/1780, `lint:scripts`, `verify:doc-links`,

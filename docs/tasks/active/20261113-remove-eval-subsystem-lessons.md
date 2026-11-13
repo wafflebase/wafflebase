@@ -23,3 +23,11 @@
   the lane's real invocation in a fixture tree (top, nested, two
   `node_modules`); mutation to a flat `'*.test.mjs'` now fails it. Other five
   lenses clean.
+- Round 2 (design fit): panel clean on all six lenses. The
+  `superpowers:requesting-code-review` pass found `finding-match.mjs`'s grouping
+  section (~650 lines) had only eval consumers — the coupling map covered
+  imports into surviving files but not exports out of them. Removed it with its
+  34 tests, kept `matchFindings` (tested entry to the live `matchAnchored`), and
+  fixed four stale comments/task-doc lines it named.
+- Lesson: after deleting a consumer, also grep every surviving module's exports
+  for a remaining importer; "nothing imports the deleted code" is only half.

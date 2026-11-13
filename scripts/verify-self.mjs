@@ -26,8 +26,8 @@ const LANES = [
   // silently matched nothing in any subdirectory. And node's own globber skips
   // `node_modules`, which `sh` does not: the `deps` job runs `npm ci` inside
   // `scripts/agent`, so an sh-expanded `**` would start running third-party
-  // test files. `test-lane.test.mjs` reads this line back and asserts every suite
-  // under `scripts/agent` is matched by it, at every depth.
+  // test files. `test-lane.test.mjs` runs this line's invocation in a fixture
+  // tree and asserts it reaches every depth and skips `node_modules`.
   //
   // WHY A TIMEOUT FLAG. On 2026-08-06 run 31073290840 printed `ok 1` .. `ok 305`,
   // went silent 2.3s in, and sat there for 31.5 minutes until a human with write
