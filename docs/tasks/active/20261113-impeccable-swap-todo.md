@@ -27,7 +27,7 @@ project's design tooling, installed per-project with `npx impeccable install`.
 - [x] Docs: design docs, design README index, agent-pipeline, harness-engineering, walkthrough, READMEs, CONTRIBUTING, docs site
 - [x] Install Impeccable; document it
 - [x] `pnpm install` (lockfile), `pnpm verify:fast`
-- [ ] Self review, PR
+- [x] Self review, PR
 
 ## Review
 

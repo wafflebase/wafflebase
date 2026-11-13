@@ -206,15 +206,16 @@ packages/documentation/.vitepress/cache
 # to publish it. Ignored by name so that mistake is not available.
 tokens.txt
 
-# Impeccable's platform engine (~18 MB per OS/arch). The launcher next to it
-# downloads and checksum-verifies it on first run against the committed
+# Impeccable's platform engine (~18 MB per OS/arch). `impeccable install`
+# drops one here; without it the launcher downloads into
+# ~/.impeccable/bin/<version>/ and checksum-verifies it against the committed
 # engine-checksums.txt, so the binary is a cache, not source.
 .claude/skills/impeccable/scripts/bin/
-# Shared settings (.impeccable/config.json, design.json, surfaces/, critique/)
-# are committed; these are per-developer or per-session.
+# Shared settings (.impeccable/config.json, design.json, surfaces/, critique/,
+# live/config.json) are committed; these are per-developer or per-session.
 .impeccable/config.local.json
-.impeccable/bin/
-.impeccable/live/
+.impeccable/live/sessions/
+.impeccable/live/inject-journal.json
 .impeccable/review/
 .impeccable/mocks/
 .impeccable/build/

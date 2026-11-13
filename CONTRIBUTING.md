@@ -96,8 +96,12 @@ same commands. With `pnpm dev` running:
 
 - `/impeccable audit` — review a screen for design and accessibility issues
 - `/impeccable polish` — tighten spacing, type, and color on what you touched
-- `/impeccable live` — edit the running Vite dev server, writing changes back to source
-- `npx impeccable detect packages/frontend/src` — agent-free anti-pattern scan
+- `/impeccable live` — pick elements in the running dev server and iterate on
+  variants; an accepted variant is written back to source. A session injects a
+  script into `packages/frontend/index.html` and removes it on stop, so do not
+  commit `index.html` mid-session
+- `.claude/skills/impeccable/scripts/impeccable detect packages/frontend/src` —
+  agent-free anti-pattern scan through the committed, checksum-pinned launcher
 
 Project context lives in `PRODUCT.md` and `DESIGN.md` once
 `/impeccable init` and `/impeccable document` have been run; keep them
