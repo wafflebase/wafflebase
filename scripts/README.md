@@ -53,6 +53,6 @@ compatible with the local-plugin pivot (see
 
 | Directory | Contents |
 |-----------|----------|
-| [`agent/`](agent/) | The autonomous issue → PR pipeline: hunters, review panel, evaluation harness. A **standalone npm package outside the pnpm workspace**, so `pnpm verify:fast` never reaches it — the `agent:tests` lane in `verify-self.mjs` is what runs its suites. See [`agent/eval/README.md`](agent/eval/README.md). |
+| [`agent/`](agent/) | The autonomous issue → PR pipeline: hunters and review panel. A **standalone npm package outside the pnpm workspace**, so `pnpm verify:fast` never reaches it — the `agent:tests` lane in `verify-self.mjs` is what runs its suites. |
 | `hooks/` | Shell hooks wired into `.claude/settings.json` and run by Claude Code (`session-prime.sh`, `guard-generated-files.sh`, `require-ai-disclosure.sh`, `check-arch-boundary.sh`, `post-task-reminder.sh`). Distinct from `.githooks/`, which git runs. |
 | `test/` | `node --test` suites for the top-level scripts above, run by the `scripts:tests` lane in `verify-self.mjs`. Nothing else reaches them — `pnpm verify:fast` does not. |

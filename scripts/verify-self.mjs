@@ -23,13 +23,11 @@ const LANES = [
   //
   // RECURSIVE, and single-quoted so NODE expands the pattern rather than `sh`.
   // Both halves are load-bearing. The glob used to be a flat `*.test.mjs`, which
-  // silently matched nothing in any subdirectory — `scripts/agent/eval/`'s suites
-  // would have been written, passed locally and then never run again, with green
-  // CI as the only evidence. And node's own globber skips `node_modules`, which
-  // `sh` does not: the `deps` job runs `npm ci` inside `scripts/agent`, so an
-  // sh-expanded `**` would start running third-party test files.
-  // `eval/test-lane.test.mjs` reads this line back and asserts every suite under
-  // `eval/` is matched by it, at every depth.
+  // silently matched nothing in any subdirectory. And node's own globber skips
+  // `node_modules`, which `sh` does not: the `deps` job runs `npm ci` inside
+  // `scripts/agent`, so an sh-expanded `**` would start running third-party
+  // test files. `test-lane.test.mjs` runs this line's invocation in a fixture
+  // tree and asserts it reaches every depth and skips `node_modules`.
   //
   // WHY A TIMEOUT FLAG. On 2026-08-06 run 31073290840 printed `ok 1` .. `ok 305`,
   // went silent 2.3s in, and sat there for 31.5 minutes until a human with write
@@ -61,10 +59,10 @@ const LANES = [
   //     1460, 1411 and 1434 tests — up to 58 missing, and on one run every test
   //     in `harvest.test.mjs`, a file unrelated to anything being changed. When
   //     the same truncation landed mid-message instead of between files it
-  //     surfaced as `eval/run.test.mjs` dying with "Unable to deserialize cloned
-  //     data": that is the CI failure seen on #736 and twice on #742, each time
-  //     cleared by a re-run, each time costing a maintainer the question "is this
-  //     my change?".
+  //     surfaced as the since-removed `eval/run.test.mjs` dying with "Unable
+  //     to deserialize cloned data": that is the CI failure seen on #736 and
+  //     twice on #742, each time cleared by a re-run, each time costing a
+  //     maintainer the question "is this my change?".
   //
   //     Removing it costs nothing measurable. Without the flag the same glob
   //     completes in 8-13s and reports the full 1468 every time (6/6 runs, exit
@@ -77,87 +75,11 @@ const LANES = [
   //     bounds that one"), which is the case it was reached for and the one case
   //     it never covered. `reapLaneGroup` below still cleans up orphans.
   //
-  // THE REMAINING FLAG GOES BEFORE `--test`. `eval/test-lane.test.mjs` captures
-  // everything after `--test ` in each invocation and expands it with `sh`; put
-  // the flag after and it is read back as a FILE to run, which node then fails to
-  // find. That is now a loud failure rather than the silent one this note used to
-  // describe: the check no longer matches globs by hand, it runs the command
-  // substitution and compares its real output against the files on disk.
-  //
-  // WHY THIS LANE INVOKES NODE TWICE. `eval/run.test.mjs` runs in a process of
-  // its own, and that is the whole fix for a failure this lane has been red with
-  // since #750: the file dies with `Unable to deserialize cloned data` thrown by
-  // the RUNNER's `#processRawBuffer`, never by a test — a partial frame on the
-  // v8-serialized channel a test file reports its results over. It always takes
-  // some of that file's trailing tests with it, so the run also goes SHORT.
-  //
-  // Measured on ubuntu-latest across 180 lane runs on a fork, counting the
-  // string:
-  //
-  //   in one invocation with the rest of the suite   6 / 60
-  //   alone, in its own invocation                   0 / 60   (p = 0.027)
-  //
-  // What that measurement also rules out, each on its own arm of 20-40 runs:
-  // node 22 vs node 24 (5/40 vs 4/40, p = 1.000 — not a runtime bug to wait
-  // out); `--test-concurrency=1` (still 1/20, and it doubles the lane); CPU
-  // pressure and OOM (`cancelled 0`, no kernel OOM line, 10.9 GB free, and the
-  // corrupted runs finish EARLY — 6.7s against a 9.6s median — which is the
-  // shape of a process that stopped, not one that struggled).
-  //
-  // THE CAUSE IS NOW KNOWN, and it was never really about sharing a runner. A
-  // test file reports over its own STDOUT, as v8 frames (`0xFF 0x0F`, 4-byte
-  // big-endian length, payload). `#processRawBuffer` looks for that magic only at
-  // the TOP of a call: having consumed one frame it takes whatever follows in the
-  // same read chunk as the next frame's header and length without re-checking, so
-  // plain text behind a frame becomes a length — a large one stalls the stream and
-  // loses that file's remaining results, a small one deserializes garbage and
-  // throws. `eval/run.mjs`'s progress heartbeat was the only writer of such text
-  // in this lane (`runCli` redirects `console.log`, which the heartbeat never
-  // used), and it now goes to stderr, which the runner reads as lines.
-  //
-  // Measured on a real `eval/run.test.mjs` child's captured result stream,
-  // randomized chunk boundaries, same frames in both arms: with its 931 bytes,
-  // 30/30 reproduce the exact error; with the text removed, 0/30. Sharing a runner
-  // was a proxy for load — a busy runner drains each socket later, so a frame and
-  // the text behind it coalesce into one read far more often, which is why the
-  // arms above moved without ever naming a cause.
-  //
-  // ISOLATION IS KEPT ANYWAY, and deliberately not claimed as the fix. The parser
-  // behaviour is upstream and still there, so this bounds the blast radius of any
-  // future stdout write from this file. Removing it is a separate change and wants
-  // its own measurement, not a rider on this one. What has not changed is why it is
-  // written this way: nothing is skipped, no result is dropped,
-  // and the two invocations together report the SAME total one invocation reports
-  // when it is not corrupted — 1556 + 55 = 1611 as measured at `7dbeb61ce`, a
-  // number that moves with every test added, so it is the equality that is the
-  // claim here and not the figure. Compare
-  // `--test-force-exit` below, which also made this lane green and did so by
-  // losing up to 58 tests without saying so.
-  //
-  // The cost is +5s on a lane that is 0.9% of `verify-self` (#692 measured 3.5s
-  // of 412s), against a failure that was costing a re-run on roughly one PR in
-  // eight.
-  //
-  // SEQUENCED, NOT `&&`. Joining the two invocations with `&&` would skip
-  // `eval/run.test.mjs` entirely whenever anything in the first list failed — the
-  // lane reporting less than it ran, on the exact failure path where a second
-  // failure is most worth seeing. That is the defect #750 was about, reintroduced
-  // by the fix for it, so both invocations run and the first non-zero status is
-  // what the lane exits with.
-  //
-  // `-prune` rather than `! -path './node_modules/*'`: that form only excludes the
-  // TOP-LEVEL install, so a nested `node_modules` anywhere under `scripts/agent`
-  // would still have its vendored suites run. `-prune` drops the directory at any
-  // depth, and `eval/test-lane.test.mjs` plants a file in a nested one to prove it.
-  //
-  // `find` rather than a second glob because node's `--test` has no exclusion
-  // syntax, and an ENUMERATED list would silently stop covering a file someone
-  // adds later — the exact failure `eval/test-lane.test.mjs` exists to prevent.
-  // That test now runs this command substitution and checks its real output, so
-  // the two invocations are proven to partition the suite rather than asserted to.
+  // THE REMAINING FLAG GOES BEFORE `--test`. Put it after and node reads it
+  // as a FILE to run. `test-lane.test.mjs` asserts the order.
   {
     name: "agent:tests",
-    cmd: "cd scripts/agent && node --test-timeout=60000 --test $(find . -type d -name node_modules -prune -o -name '*.test.mjs' ! -path './eval/run.test.mjs' -print | cut -c3- | sort) ; rest=$? ; node --test-timeout=60000 --test 'eval/run.test.mjs' ; iso=$? ; if [ $rest -ne 0 ] ; then exit $rest ; fi ; exit $iso",
+    cmd: "cd scripts/agent && node --test-timeout=60000 --test '**/*.test.mjs'",
     tags: ["agent"],
   },
   // Top-level harness scripts (`scripts/*.mjs`), whose suites live in

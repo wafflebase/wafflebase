@@ -690,9 +690,8 @@ What makes the gate meaningful rather than ceremonial:
   and a fork's default branch is usually also called `main`, so a fork PR opened
   from its own `main` would otherwise satisfy the trigger filter.
 - **Chain depth is unchanged.** GitHub allows three levels of `workflow_run`
-  chaining and `.github/workflows/ci.yml` → `.github/workflows/agent-review-panel.yml` → `.github/workflows/capture-collect.yml`
-  already uses all three with no headroom. These are **siblings** at level 2, not
-  new links. Nothing may be inserted between CI and them.
+  chaining. These are **siblings** of `.github/workflows/agent-review-panel.yml`
+  at level 2, not new links. Nothing may be inserted between CI and them.
 - **`concurrency` with `cancel-in-progress` answers "deploy every few PRs?"**
   without a policy: a burst of merges queues several deploys, all but the newest
   are cancelled, and one deploy publishes the newest CI-verified tree. Safe
@@ -1696,9 +1695,8 @@ Components:
     or surface gate demoted to `backlog`, reach no tool: `proseOnly` strips finding
     sections out of the markdown bodies, and carry-forward reads `output.text`.
     They are not lost — `.agent-review/<lens>/verdict.json` keeps every finding with
-    the `lane` and `novelty` that explain each decision, and the stage-detail capture
-    keeps the raw per-sample ones — but nothing on the pull request is addressed to a
-    reader.
+    the `lane` and `novelty` that explain each decision — but nothing on the pull
+    request is addressed to a reader.
 
     So the panel writes a **second, advisory check run**, once per round, aggregated
     across lenses (`scripts/agent/deferred-findings.mjs`), whose `output.text` is a
@@ -2044,25 +2042,9 @@ Components:
     green. `docker-publish.yml` / `publish-ghpage.yml` need no clause — their
     `head_branch == 'main'` gate means a forgery would have to be merged first.
 
-    **`capture-collect.yml` is the same class and is now guarded too.** It is
-    the consumer that needed it most and the one a search for CI's consumers
-    misses, because it consumes the PANEL rather than CI — by display name
-    (`workflows: ["Agent Review Panel", "Agent Review On-Demand"]`) — while
-    holding `secrets.EVAL_STORE_TOKEN`, a PAT with `Contents: write` on the
-    separate eval repository. A second file calling itself `Agent Review Panel`
-    therefore reached a job that pushes to another repository. Its `if:` now
-    asserts `github.event.workflow_run.path` is one of the two producer FILES
-    and that `head_repository` is this one; the `event_name` half is unchanged,
-    since `schedule` and `workflow_dispatch` carry no `workflow_run` object at
-    all. `collect-captures.test.mjs` evaluates the condition rather than pinning
-    its text — it used to compare against one exact string, which broke the day
-    the expression grew clauses that change WHICH PRODUCERS are trusted while
-    leaving WHICH CONCLUSIONS are collected exactly as asserted.
-
-    What that guard does not change: the blast radius was always bounded by
-    design — the workflow's own `permissions:` block is read-only, the token is
-    scoped to one public data repository, and write-once keys mean a forged run
-    could only add junk under `captures/`, never overwrite a real capture.
+    (The capture collector, which consumed the PANEL by display name while
+    holding a cross-repository write PAT, carried the same clause until it was
+    removed with the eval rig — #1131.)
 
     The panel's **concurrency group must carry the same clause as its gate**,
     which is easy to miss because the two are written far apart. `concurrency`
@@ -2311,10 +2293,8 @@ moves to the approving human reviewer.
   once. `scripts/agent/token-pool.mjs` reads `CLAUDE_CODE_OAUTH_TOKEN` plus
   `CLAUDE_CODE_OAUTH_TOKEN_1..8` from the `agent` environment, selects one per
   **job** from `GITHUB_RUN_ID` + `GITHUB_RUN_ATTEMPT` (so a re-run of a job that
-  died on exhaustion does not immediately re-pick the closed account) plus
-  `CLAUDE_POOL_SHARD` where jobs of one run would otherwise collide — every leg
-  of `eval-replay`'s matrix shares a run id — and replaces it only when that
-  account's window closes. Per job rather than per
+  died on exhaustion does not immediately re-pick the closed account), and
+  replaces it only when that account's window closes. Per job rather than per
   call because prompt caches are scoped to the account that wrote them, and
   `createWarmupGate()` exists to pay for the panel's shared diff prefix once; per-call
   rotation would pay that warm-up once per token instead.

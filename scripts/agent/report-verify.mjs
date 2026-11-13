@@ -35,8 +35,8 @@ import { fileURLToPath } from "node:url";
  * not have. `review-panel.mjs --lenses-dir` is the seam for this.
  *
  * A SIBLING of `lenses/`, not a subdirectory of it. Nested, it made
- * `readdirSync(lenses/)` return a directory, and `eval/run.test.mjs` — which
- * copies that directory file by file — died on EISDIR. `lenses/` is the review
+ * `readdirSync(lenses/)` return a directory, and a consumer that copied that
+ * directory file by file died on EISDIR. `lenses/` is the review
  * panel's lens set; a report-only set inside it is a category error.
  */
 export const LENSES_DIR = "scripts/agent/report-lenses";

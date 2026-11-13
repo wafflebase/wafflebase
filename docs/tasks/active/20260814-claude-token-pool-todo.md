@@ -73,7 +73,7 @@ exhaustion does not immediately re-pick the exhausted token; the shard is there 
 - `shardOffset()` — mixes a per-job discriminator into selection. `GITHUB_RUN_ID` identifies
   the run, not the job, so every leg of `eval-replay`'s matrix would otherwise land on one
   credential — no distribution for the lane whose `max-parallel: 1` exists because legs
-  contend on one account;
+  contend on one account (removed 2026-11-13 with `eval-replay` itself, #1131);
 - pure and injectable (env, run id, shard as arguments) so the tests need no runner.
 
 ### `scripts/agent/ask.mjs`
@@ -178,6 +178,7 @@ to fail identically, or reporting "not logged in" for a pool merely out of quota
 `eval-replay`'s matrix shares one `GITHUB_RUN_ID`, so all legs picked the same credential:
 `CLAUDE_POOL_SHARD` (fed `matrix.runId`) now distinguishes them, which matters most for
 the one lane whose `max-parallel: 1` exists because legs contend on a single account.
+(Removed 2026-11-13 with `eval-replay`, #1131.)
 
 **Not acted on.** A reviewer read the reworded comments as correct; the two reviewers with
 commit-level evidence were right and it was not.

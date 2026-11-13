@@ -5,7 +5,6 @@ import {
   readPoolSlots,
   readPoolTokens,
   selectStartIndex,
-  shardOffset,
   createTokenPool,
 } from "./token-pool.mjs";
 
@@ -90,38 +89,6 @@ test("selectStartIndex: a run id beyond MAX_SAFE_INTEGER still lands in range", 
 
 test("selectStartIndex: an empty pool is index zero rather than a divide by zero", () => {
   assert.equal(selectStartIndex(0, { runId: "7", runAttempt: "1" }), 0);
-});
-
-test("selectStartIndex: matrix siblings sharing one run id land on different tokens", () => {
-  // GITHUB_RUN_ID identifies the RUN, not the job, so every leg of eval-replay's
-  // matrix shares it. Without a per-leg shard the pool would deliver that lane
-  // nothing: all legs on one credential, which is the exact contention its
-  // `max-parallel: 1` exists to avoid.
-  const legs = ["r1", "r2", "r3", "r4"].map((shard) =>
-    selectStartIndex(4, { runId: "500", runAttempt: "1", shard }),
-  );
-  assert.ok(new Set(legs).size > 1, `all legs collided on one token: ${legs.join(",")}`);
-});
-
-test("selectStartIndex: no shard leaves selection exactly as it was", () => {
-  // Every workflow but eval-replay omits it; none of them may shift.
-  for (const shard of [undefined, null, ""]) {
-    assert.equal(
-      selectStartIndex(4, { runId: "101", runAttempt: "1", shard }),
-      selectStartIndex(4, { runId: "101", runAttempt: "1" }),
-    );
-  }
-});
-
-test("shardOffset: stable, non-negative, and integral for opaque leg ids", () => {
-  // Leg identifiers are strings, not numbers — a digit parse would map "r1" and
-  // "r2" both to 0 and collide exactly where the shard is needed.
-  assert.equal(shardOffset("2026-08-14-r1"), shardOffset("2026-08-14-r1"));
-  assert.notEqual(shardOffset("r1"), shardOffset("r2"));
-  for (const s of ["", "r1", "a".repeat(500), "💥"]) {
-    const n = shardOffset(s);
-    assert.ok(Number.isInteger(n) && n >= 0, `${JSON.stringify(s)} → ${n}`);
-  }
 });
 
 test("createTokenPool: isExhausted separates a drained pool from an unconfigured one", () => {

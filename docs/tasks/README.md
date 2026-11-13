@@ -18,6 +18,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| remove eval subsystem (2026-11-13) | [20261113-remove-eval-subsystem-todo.md](./active/20261113-remove-eval-subsystem-todo.md) | [20261113-remove-eval-subsystem-lessons.md](./active/20261113-remove-eval-subsystem-lessons.md) |
+| sheets auto fit reload (2026-11-11) | [20261111-sheets-auto-fit-reload-todo.md](./active/20261111-sheets-auto-fit-reload-todo.md) | [20261111-sheets-auto-fit-reload-lessons.md](./active/20261111-sheets-auto-fit-reload-lessons.md) |
+| sheets link card close (2026-11-11) | [20261111-sheets-link-card-close-todo.md](./active/20261111-sheets-link-card-close-todo.md) | [20261111-sheets-link-card-close-lessons.md](./active/20261111-sheets-link-card-close-lessons.md) |
+| sheet presence jumps (2026-11-09) | [20261109-sheet-presence-jumps-todo.md](./active/20261109-sheet-presence-jumps-todo.md) | [20261109-sheet-presence-jumps-lessons.md](./active/20261109-sheet-presence-jumps-lessons.md) |
 | release v0.6.14 (2026-11-08) | [20261108-release-v0.6.14-todo.md](./active/20261108-release-v0.6.14-todo.md) | [20261108-release-v0.6.14-lessons.md](./active/20261108-release-v0.6.14-lessons.md) |
 | sheets auto fit row height (2026-11-03) | [20261103-sheets-auto-fit-row-height-todo.md](./active/20261103-sheets-auto-fit-row-height-todo.md) | [20261103-sheets-auto-fit-row-height-lessons.md](./active/20261103-sheets-auto-fit-row-height-lessons.md) |
 | dependabot patch (2026-10-24) | [20261024-dependabot-patch-todo.md](./active/20261024-dependabot-patch-todo.md) | [20261024-dependabot-patch-lessons.md](./active/20261024-dependabot-patch-lessons.md) |
@@ -53,4 +57,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 632
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.6.14 (2026-11-08)
+Latest active task: remove eval subsystem (2026-11-13)

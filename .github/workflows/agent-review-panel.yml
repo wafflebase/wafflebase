@@ -935,29 +935,6 @@ jobs:
           # SHA the check runs below are attested against, so the pointer and the
           # attestation cannot drift apart.
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          # Per-lens stage-detail capture (uploaded as an artifact below).
-          # DEFAULT ON — an opt-OUT, deliberately the inverse of
-          # AGENT_PIPELINE_ENABLED's `== 'true'` opt-in. Passed RAW, with no
-          # `&& ... || ...` default applied here, because an unset repo variable
-          # interpolates to the EMPTY STRING (the same semantics the BASE_SHA /
-          # SINCE_SHA pair documents above) and the script resolves empty,
-          # whitespace and absent alike to ON. Only an explicit `0`/`false`/`off`
-          # in the repo variable disables it. Deciding the default here instead
-          # would put the inverted logic in a YAML expression that no test can
-          # reach; `stageDetailCaptureEnabled` is tested.
-          STAGE_DETAIL_CAPTURE: ${{ vars.AGENT_STAGE_DETAIL_CAPTURE }}
-          # Whether that capture carries the raw routed DIFF BODY as well.
-          # DEFAULT OFF — an opt-IN, and deliberately the OPPOSITE default to
-          # STAGE_DETAIL_CAPTURE directly above. Not an inconsistency: capture is
-          # a few KB of first-party data useful on every round, while the diff
-          # body is 76-97% of the payload and is verbatim contributor text from a
-          # possibly-forked branch, useful only when a lens is actually being
-          # replayed. The default path keeps `lensDiffSha256` + `lensFiles`
-          # instead, which is enough to detect that a re-derived slice drifted.
-          # Passed RAW for the same empty-string reason as above; the script
-          # resolves empty, whitespace and absent alike to OFF, and only an
-          # explicit `1`/`true`/`on` turns it on.
-          STAGE_DETAIL_DIFF_CONTENT: ${{ vars.AGENT_STAGE_DETAIL_DIFF_CONTENT }}
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
@@ -1010,7 +987,7 @@ jobs:
       # `retries: 3` turns on @octokit/plugin-retry, which backs off and retries
       # 5xx and network errors (4xx still fails fast, so a real permission or
       # validation bug is not papered over). Every github-script step in the agent
-      # workflows sets it; `eval/test-lane.test.mjs` asserts that, because the
+      # workflows sets it; `scripts/agent/test-lane.test.mjs` asserts that, because the
       # default is the dangerous value and a new step inherits it silently.
       - name: Post per-lens check runs
         id: panel
@@ -1183,10 +1160,9 @@ jobs:
       # findings that GATE — deliberately, for the three consumers named in the
       # comment beside that filter — and `proseOnly` strips every finding section
       # out of the markdown bodies before the fixer reads them. So a round's
-      # non-blocking and demoted findings are durable (`verdict.json` keeps them,
-      # and so does the stage-detail capture) but ADDRESSED TO NOBODY: there is no
-      # channel on the pull request that a tool can read, in the round, to find out
-      # what the gate did not act on.
+      # non-blocking and demoted findings are durable (`verdict.json` keeps them)
+      # but ADDRESSED TO NOBODY: there is no channel on the pull request that a
+      # tool can read, in the round, to find out what the gate did not act on.
       #
       # This records them as a SECOND check run rather than widening the first.
       # Widening it would break the non-convergence detector, which needs a
@@ -1224,9 +1200,8 @@ jobs:
           # rubric change is indistinguishable from one written before it — and an
           # archive's value grows with time, so the stamp cannot be added later.
           #
-          # The same expression the capture already uses for `--panel-sha`; `|| true`
-          # so a missing `.trusted` reaches the module's `null` rather than dying here
-          # under `set -e`. A fabricated stamp is worse than an absent one.
+          # `|| true` so a missing `.trusted` reaches the module's `null` rather than
+          # dying here under `set -e`. A fabricated stamp is worse than an absent one.
           PANEL_SHA=$(git -C .trusted rev-parse HEAD 2>/dev/null || true)
           node .trusted/scripts/agent/deferred-findings.mjs \
             --review-dir .agent-review \
@@ -1404,165 +1379,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      # WHICH PR THIS CAPTURE IS OF — the one thing the artifact never said.
-      #
-      # This workflow is triggered by `workflow_run`, which makes GitHub execute
-      # the DEFAULT BRANCH's copy, so the run's own metadata reads
-      # `head_branch: main` and `pull_requests: []`. Measured on all three real
-      # captures (#665, #666, #669): every one of them. That is a deliberate
-      # security property — the reviewer must never execute the branch's code —
-      # and it is not going to change, so a consumer cannot recover the PR from
-      # run metadata. This job knows it (`steps.pr.outputs.number`); it just
-      # never wrote it down. `agent-review-on-demand.yml` carries the twin step,
-      # differing only in `--channel` and `--workflow`.
-      #
-      # Written into `.agent-review/meta.json`, at the ROOT of the same directory
-      # the per-lens files live in, so the artifact comes out as `meta.json`
-      # beside `<lens>/stage-detail.json`.
-      #
-      # In the SCRIPT, not in YAML, and this subsystem has paid for that lesson
-      # twice: #641 ("a default in the workflow puts the inverted logic in the one
-      # place no test can reach it") and #664, which existed because a YAML-level
-      # mistake was untestable and stayed silent for five rounds. The step passes
-      # values it already holds; every validation is in `capture-meta.mjs` and
-      # unit-tested.
-      #
-      # `continue-on-error` because a capture problem must never fail a review.
-      # The script still exits 1 and prints an `::error::` ANNOTATION rather than
-      # a log line, because a capture it could not attribute is one a collector
-      # will discard — and a silent pass is exactly how the "No files were found"
-      # bug survived five rounds. It writes NOTHING on doubt: there is no partial
-      # meta.json, so a collector's question is "is the file there?" and never
-      # "can I trust this field?".
-      - name: Describe the capture (attribution for the artifact below)
-        if: always() && steps.pr.outputs.number != ''
-        continue-on-error: true
-        env:
-          PR: ${{ steps.pr.outputs.number }}
-          # The SHA the check runs are attested against and the panel reviewed —
-          # the same value the "Run review panel" step passes as --head-sha.
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          # Same merge-base the panel routed novelty against. Empty is legitimate
-          # (the diff step did not run) and the script records `baseSha: null`
-          # rather than refusing — unknown is a fact, a malformed sha is not.
-          BASE_SHA: ${{ steps.diff.outputs.base }}
-        run: |
-          # The reviewer's OWN version: `.trusted` is the `main` checkout this
-          # panel ran from, so its HEAD is the commit that made these decisions.
-          # Reviews from different panel versions are not comparable and nothing
-          # else records which one ran. `|| true` so an unexpectedly missing
-          # `.trusted` reaches the script's named refusal instead of dying here
-          # under `set -e` with no field name in the log.
-          #
-          # NOT a config hash: an audit of the existing config-hash logic found it
-          # omits fields that change behaviour, so two judges that decide
-          # differently hash identically. A commit sha is always available and
-          # always correct, and a config identity can be derived from it later.
-          PANEL_SHA=$(git -C .trusted rev-parse HEAD 2>/dev/null || true)
-          node .trusted/scripts/agent/capture-meta.mjs \
-            --out .agent-review/meta.json \
-            --pr "$PR" \
-            --head-sha "$HEAD_SHA" \
-            --base-sha "$BASE_SHA" \
-            --channel gating \
-            --workflow agent-review-panel.yml \
-            --run-id "$GITHUB_RUN_ID" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --event "$GITHUB_EVENT_NAME" \
-            --panel-sha "$PANEL_SHA"
-
-      # What each lens actually did this round: per-sample findings before the
-      # union, and the verifier's verdict on every blocking finding. Nothing else
-      # keeps this. The check runs persist only what GATES (`output.text` is
-      # critical/major, drops the `backlog` lane, and drops trailing findings to
-      # fit 60k — review-state.mjs calls that channel "DESIGNED to lose data"),
-      # and `review-lens-stats.json` above keeps counts, not the findings counted.
-      # So panel tuning decisions cannot currently be scored after the fact, which
-      # is the gap #608's feedback corpus exists to close — this records its input.
-      #
-      # A SEPARATE step from the execution log above, on purpose. Those two files
-      # are an intra-run hand-off to promote/fix and their 1-day retention is
-      # chosen to match that lifetime; this one has to outlive the run to be worth
-      # capturing. Extending that step would silently change the hand-off's
-      # semantics, and upload-artifact@v4 rejects a duplicate name within a run,
-      # so the name differs too.
-      #
-      # An artifact rather than a comment or a commit for the same reason the
-      # execution log is one: this job's SDK cwd is the untrusted branch checkout,
-      # so it is not granted the write scopes that would let it push this data
-      # anywhere itself. Anything that collects these belongs in its own job.
-      #
-      # Size tracks diff size and nothing else while AGENT_STAGE_DETAIL_DIFF_CONTENT
-      # is on — `lensDiff` is 76-97% of each file. Measured over real PRs with the
-      # body included: ~25 KB per run for a 10 KB diff, ~105 KB for 17 KB, and
-      # ~2 MB for a 470 KB diff (the largest in the last 40 commits).
-      # upload-artifact deflates, and diffs compress ~3x, so that worst case
-      # stores as ~0.6 MB. On the DEFAULT path the body is replaced by a hash, a
-      # byte count and the routed file list, which collapses those same four runs
-      # to 5.2 / 13.7 / 18.4 / 29.5 KB — 4.7x to 69x smaller. It still grows with
-      # the number of files routed to each lens (`lensFiles` is 48% of that last
-      # figure), but no longer with how much was written inside them.
-      - name: Upload per-lens stage detail
-        if: always() && steps.pr.outputs.number != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          # The PR number in the NAME is a convenience — for a human reading the
-          # artifact list, and for a collector fetching selectively instead of
-          # downloading everything. `meta.json` remains the source of truth;
-          # nothing may parse attribution back out of this string. Safe to rename:
-          # nothing downloads this artifact today (the only other references in
-          # the repo are the two upload steps and this subsystem's task doc).
-          name: review-panel-stage-detail-pr-${{ steps.pr.outputs.number }}
-          # Two entries, and the second one is why the artifact is self-describing.
-          # `getSearchPaths()` drops a search path that is a DESCENDANT of another,
-          # so the literal `meta.json` collapses into the glob's `.agent-review`
-          # root rather than triggering upload-artifact's least-common-ancestor
-          # path — the layout is unchanged for the lens files and `meta.json`
-          # lands at the artifact root. Verified against @actions/glob 0.5.0 with
-          # upload-artifact's own options.
-          path: |
-            .agent-review/*/stage-detail.json
-            .agent-review/meta.json
-          # REQUIRED, and not for the files themselves — for the DIRECTORY.
-          # upload-artifact resolves a glob with @actions/glob, whose search root
-          # is the pattern's non-wildcard prefix: `.agent-review`. With hidden
-          # files excluded (the v4 default) the globber skips any traversed item
-          # whose basename starts with a dot — including that root — so it never
-          # reads the directory and the whole subtree is invisible. It reports
-          # "No files were found", which if-no-files-found: ignore then swallows.
-          #
-          # The execution-log step above needs no such line only because it names
-          # its files literally: each search root is then the FILE, and no hidden
-          # component is ever inspected. Two steps reading the same directory,
-          # with opposite outcomes, is the shape of this bug. `ci.yml`'s
-          # `.harness-reports/` upload already carries this flag for the same
-          # reason; #641 shipped without it and produced no artifact on any of the
-          # five real panel runs that followed.
-          #
-          # The literal `.agent-review/meta.json` above is NOT immune the way the
-          # execution log's literal paths are, and that is measured rather than
-          # assumed: its search path is a descendant of the glob's, so it is
-          # dropped from `getSearchPaths()` and only the hidden `.agent-review`
-          # root is walked. Without this flag the whole step still uploads zero
-          # files, meta.json included.
-          include-hidden-files: true
-          # Absent whenever capture is disabled, or a lens was skipped, or the
-          # orchestrator crashed before writing — none of which is an error here.
-          # It CANNOT stand in for the line above: a silent zero-file upload and a
-          # legitimately empty one look identical from here, which is why this was
-          # invisible for five rounds. Still reachable after the meta step: that
-          # step writes NO meta.json when no lens captured, precisely so an empty
-          # round stays an empty artifact rather than one holding attribution for
-          # nothing.
-          if-no-files-found: ignore
-          # 90, the maximum for a public repo, raised from 30 by the same PR that
-          # added meta.json. The collector that moves these into permanent storage
-          # does not exist yet, so retention is the only thing standing between a
-          # capture and deletion — and this triples the deadline on data already
-          # sitting in Actions. Not the `retention-days: 1` steps above: those are
-          # an intra-run hand-off to promote/fix and 1 day is chosen to match.
-          retention-days: 90
 
   promote:
     # `ci` as well as `review-panel`, and this one is a CORRECTNESS requirement
