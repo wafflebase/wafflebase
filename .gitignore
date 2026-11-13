@@ -213,9 +213,9 @@ tokens.txt
 .claude/skills/impeccable/scripts/bin/
 # Shared settings (.impeccable/config.json, design.json, surfaces/, critique/,
 # live/config.json) are committed; these are per-developer or per-session.
-.impeccable/config.local.json
-.impeccable/live/sessions/
-.impeccable/live/inject-journal.json
-.impeccable/review/
-.impeccable/mocks/
-.impeccable/build/
+**/.impeccable/config.local.json
+**/.impeccable/live/sessions/
+**/.impeccable/live/inject-journal.json
+**/.impeccable/review/
+**/.impeccable/mocks/
+**/.impeccable/build/
