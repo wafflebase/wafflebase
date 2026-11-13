@@ -9,7 +9,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,31 +25,63 @@ function laneCmd() {
   return lane[1];
 }
 
-/** Every `*.test.mjs` under `scripts/agent`, at any depth, skipping `node_modules`. */
-function agentTestFiles(dir = AGENT_DIR, out = []) {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === "node_modules") continue;
-    const abs = path.join(dir, e.name);
-    if (e.isDirectory()) agentTestFiles(abs, out);
-    else if (e.isFile() && e.name.endsWith(".test.mjs")) out.push(path.relative(AGENT_DIR, abs));
-  }
-  return out;
-}
-
-test("the agent:tests lane runs every test file under scripts/agent, at every depth", () => {
+/** The lane's single `node --test` invocation, decoded from the source text. */
+function laneInvocation() {
   const cmd = laneCmd();
   assert.match(cmd, /^cd scripts\/agent && /, `the lane no longer runs from scripts/agent: ${cmd}`);
   const invocations = cmd.split(/&&|;/).map((p) => p.trim()).filter((p) => p.startsWith("node "));
   assert.equal(invocations.length, 1, `expected one node invocation in the lane: ${cmd}`);
-  // SINGLE-QUOTED and recursive, so NODE expands it: node's globber matches every
-  // depth and skips `node_modules`, where the `deps` job runs `npm ci`. An
-  // unquoted `**` would be expanded by `sh`, which does neither.
-  const glob = /--test\s+'([^']+)'\s*$/.exec(invocations[0]);
-  assert.ok(glob, `the lane must hand node one single-quoted glob: ${invocations[0]}`);
-  const files = agentTestFiles();
-  assert.ok(files.length >= 20, `expected the agent test files to be found, got ${files.length}`);
-  for (const file of files) {
-    assert.ok(path.matchesGlob(file, glob[1]), `${file} is not matched by the lane glob ${glob[1]} — it would never run in CI`);
+  // DECODED: the command is read out of JavaScript source, so any backslash in
+  // it is still escaped. Handing the raw capture to `sh` would run a different
+  // command than CI does.
+  return JSON.parse(`"${invocations[0]}"`);
+}
+
+test("the agent:tests lane runs test files at every depth and skips node_modules", () => {
+  // Proven against the REAL runner, not a reading of the glob: the lane's own
+  // invocation is run in a fixture tree, and each planted file records that it
+  // ran. Checking the files on disk instead would be vacuous — every suite in
+  // scripts/agent sits at the top level today, so a regression to a flat
+  // `*.test.mjs` would still match all of them. And `**/*.test.mjs` matches
+  // `node_modules` paths too; only node's runner excludes them, where the
+  // `deps` job runs `npm ci`.
+  const invocation = laneInvocation();
+  // SINGLE-QUOTED, so NODE expands it. An unquoted `**` would be expanded by
+  // `sh`, which neither recurses by default nor skips `node_modules`.
+  assert.match(invocation, /--test\s+'[^']+'\s*$/, `the lane must hand node one single-quoted glob: ${invocation}`);
+
+  const root = mkdtempSync(path.join(tmpdir(), "lane-probe-"));
+  const ran = mkdtempSync(path.join(tmpdir(), "lane-ran-"));
+  const plant = (rel, name) => {
+    const file = path.join(root, rel);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, [
+      'import { test } from "node:test";',
+      'import { writeFileSync } from "node:fs";',
+      'import path from "node:path";',
+      `test("probe", () => writeFileSync(path.join(process.env.LANE_PROBE_RAN, ${JSON.stringify(name)}), ""));`,
+      "",
+    ].join("\n"));
+  };
+  plant("top.test.mjs", "top");
+  plant("sub/deep/nested.test.mjs", "nested");
+  plant("node_modules/pkg/vendored.test.mjs", "vendored");
+  plant("sub/node_modules/pkg/vendored.test.mjs", "nested-vendored");
+  try {
+    // Without NODE_TEST_CONTEXT: inherited from this runner, it makes the nested
+    // `node --test` report to a parent that is not listening, and run nothing.
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const r = spawnSync("sh", ["-c", invocation], {
+      cwd: root,
+      env: { ...env, LANE_PROBE_RAN: ran },
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0, `the lane's invocation failed in the fixture tree:\n${r.stdout}\n${r.stderr}`);
+    assert.deepEqual(readdirSync(ran).sort(), ["nested", "top"], "the lane must run every depth and nothing under node_modules");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(ran, { recursive: true, force: true });
   }
 });
 

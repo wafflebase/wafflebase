@@ -11,3 +11,15 @@
   have silently dropped them.
 - `verify:entropy` treats backticked file names in design docs as references;
   write removed files as prose in history notes.
+
+## Self-review log
+
+- `spec-to-pr.mjs review` cannot review this branch: it builds the diff with
+  `execFileSync` at the default 1MB `maxBuffer`, and a 2.8MB diff of deleted
+  files fails with `ENOBUFS`. Ran the same `review-panel.mjs` directly on
+  `git diff --irreversible-delete` (150KB) instead.
+- Round 1 (correctness/tests): test-adequacy blocked — the "every depth" lane
+  check was vacuous once no test file lived in a subdirectory. Fixed by running
+  the lane's real invocation in a fixture tree (top, nested, two
+  `node_modules`); mutation to a flat `'*.test.mjs'` now fails it. Other five
+  lenses clean.
