@@ -215,89 +215,11 @@ const LANES = [
     needs: ["core:build", "docs:build"],
   },
   // notes reaches no BUILT workspace output, so this is the lane that can run
-  // against a tree with nothing built. design-editor used to sit here too; it no
-  // longer does — see `design-editor:build` below.
+  // against a tree with nothing built.
   {
     name: "notes:check",
     cmd: "pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes test",
     pkgs: ["notes"],
-  },
-  // `@wafflebase/design-editor` is now a BUILT workspace output like the engines,
-  // and this lane exists because that changed. Its `exports["."]` used to name
-  // `src/plugin/index.ts`; #966 pointed it at `dist/plugin/index.js`, because Node
-  // refuses to strip types under `node_modules` and the entry Node loads has to be
-  // loadable by an installed copy. Every consumer of the package therefore needs
-  // its `dist/` present — `packages/design-sandbox`'s typecheck resolves the
-  // package through that map, and so does knip when it LOADS that package's
-  // `vite.config.ts` to discover its plugins. Without this lane, an unbuilt
-  // checkout failed verify:entropy with `Could not parse knip output as JSON`,
-  // whose real cause was `Cannot find module …/dist/plugin/index.js` — the same
-  // class of failure `core:build` exists to prevent, one package later.
-  //
-  // The shell build rides along. `dist/` is gitignored, so nothing else in CI
-  // would ever run it — and a broken shell build is not cosmetic: `shellServer`
-  // serves `dist/shell`, so the whole editor 404s without it. ~3s total.
-  {
-    name: "design-editor:build",
-    cmd: "pnpm --filter @wafflebase/design-editor build",
-    pkgs: ["design-editor"],
-    // `pkgs` alone would never select this lane: harness.config.json lists
-    // packages/design-editor/** as inert, and an inert match short-circuits the
-    // packages/ classification, so the package never reaches `packages`. The tag
-    // is what keeps the lane reachable — same shape as documentation:build. The
-    // `needs` edges below are what select it on a change that never mentions the
-    // package at all.
-    tags: ["designEditor"],
-  },
-  {
-    name: "design-editor:check",
-    // `lint` runs FIRST, and because of what its absence cost: this package carried
-    // ~17 React files with no ESLint config at all, so `react-hooks` never saw it
-    // and a `useState` below an early return reached main. A lint error is the
-    // cheapest failure here, and finding it after a 1000-test suite wastes the
-    // difference.
-    //
-    // BUILD BEFORE TEST, since the publish contract asserts on what a consumer
-    // would actually install — `exports` resolves to `dist/plugin/index.js`, and a
-    // suite run against an unbuilt checkout could only check that the manifest
-    // names a path. That build is `design-editor:build` above rather than a step in
-    // this command, so the packages that merely CONSUME the output can depend on it
-    // without dragging this lane's lint and suite along.
-    cmd: "pnpm --filter @wafflebase/design-editor lint && pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test",
-    pkgs: ["design-editor"],
-    tags: ["designEditor"],
-    needs: ["design-editor:build"],
-  },
-  {
-    name: "design-sandbox:check",
-    cmd: "pnpm --filter @wafflebase/design-sandbox typecheck && pnpm --filter @wafflebase/design-sandbox test",
-    // Tagged on the same `designEditor` tag as the lane above, deliberately: this
-    // package imports design-editor through its `exports` map, so its typecheck
-    // program contains that package's files and a change to either can break the
-    // other. Two separate tags would let a design-editor-only change skip the lane
-    // that would have caught it.
-    pkgs: ["design-sandbox"],
-    tags: ["designEditor"],
-    // Two `dist/` trees, both one step removed and both easy to miss.
-    // `design-editor:build` is the one this package resolves DIRECTLY: since #966
-    // `exports["."]` names `dist/plugin/index.js`, so without it `tsc` reports
-    // "Cannot find module '@wafflebase/design-editor'" against `vite.config.ts`,
-    // `core-adapter.ts` and `preview-worker.ts` at once.
-    // `core:build` is reached transitively: `vitest.config.ts` aliases the ENGINES
-    // to their `src/` (the canvas seed tests must load the same copy the scenes
-    // do), and engine source imports `@wafflebase/core` through its `exports` map —
-    // `packages/sheets/src/view/theme.ts` pulls `@wafflebase/core/tokens`. Without
-    // core built that is an ERR_MODULE_NOT_FOUND inside sheets, reported against a
-    // design-sandbox test.
-    needs: ["core:build", "design-editor:build"],
-  },
-  {
-    name: "debug-report:check",
-    cmd: "pnpm --filter @wafflebase/debug-report typecheck && pnpm --filter @wafflebase/debug-report test",
-    pkgs: ["debug-report"],
-    // Geometry comes from `@wafflebase/core/geometry`, whose exports map points
-    // at `dist` — so the declarations have to exist before this typechecks.
-    needs: ["core:build"],
   },
   {
     name: "board:check",
@@ -364,25 +286,12 @@ const LANES = [
     name: "verify:entropy",
     cmd: "pnpm verify:entropy",
     anyPkg: true,
-    // `designEditor` is here because `anyPkg` cannot reach it. An inert package
-    // never lands in `packages`, so the one gate a design-editor change CAN fail
-    // — knip's dead-code pass, which analyses packages/design-editor since #819
-    // added it to knip.json's `workspaces` — would otherwise be skipped on the PR
-    // and first fail on main's push run. It costs the four engine builds in
-    // `needs`; the heavy jobs and the frontend/backend suites still skip.
-    tags: ["docsProse", "designEditor"],
-    // `design-editor:build` is in here for a reason that is invisible from the
-    // knip config: knip EXECUTES `packages/design-sandbox/vite.config.ts` to
-    // discover its plugins, and that config imports `@wafflebase/design-editor`,
-    // whose `exports["."]` names `dist/plugin/index.js` since #966. An unbuilt
-    // checkout made knip exit before emitting any JSON, which this lane reported as
-    // `Could not parse knip output as JSON` — a failure that names neither package.
+    tags: ["docsProse"],
     needs: [
       "core:build",
       "sheets:build",
       "docs:build",
       "slides:build",
-      "design-editor:build",
     ],
   },
 ];

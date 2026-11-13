@@ -51,6 +51,7 @@ detached.
 - **ANTLR generated files** have `@ts-nocheck` — do NOT hand-edit or add type fixes. Regenerate with `pnpm sheets build:formula` and commit the output.
 - **Store abstraction** — all spreadsheet behavior must go through the `Store` interface, all document behavior through `DocStore`. Do not bypass with ad-hoc persistence.
 - **Integration/e2e tests** require `docker compose up -d` first.
+- **UI design work** uses the committed [Impeccable](https://impeccable.style) skill (`/impeccable audit|polish|critique|live …`, `.claude/skills/impeccable/`). Its engine binary is gitignored and fetched by the launcher on first run.
 - **Frontend chunk-gate** defaults are in `harness.config.json`; override with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
 
 ## Task Workflow

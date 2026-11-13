@@ -59,14 +59,6 @@ const DocsHarnessPage = lazyWithRetry(() => import("@/app/harness/docs/page"));
 const HuntHarnessPage = import.meta.env.DEV
   ? lazyWithRetry(() => import("@/app/harness/hunt/page"))
   : null;
-/**
- * The debug-report overlay. DEV-gated for the same chunk-graph reason as above,
- * and because the deployed transport does not exist yet (SP2 in
- * `docs/design/agent-pipeline/debug-report.md`).
- */
-const DebugReportMount = import.meta.env.DEV
-  ? lazyWithRetry(() => import("./debug/mount"))
-  : null;
 const DocsDetail = lazyWithRetry(() => import("@/app/docs/docs-detail"));
 const SlidesDetail = lazyWithRetry(() => import("@/app/slides/slides-detail"));
 const FileDetail = lazyWithRetry(() => import("@/app/files/file-detail"));
@@ -110,9 +102,6 @@ function App() {
                 (docs/design/sync-status.md). */}
             <NavigationGuardProvider>
               <AnalyticsTracker />
-              <Suspense fallback={null}>
-                {DebugReportMount && <DebugReportMount />}
-              </Suspense>
               <Suspense fallback={<Loader />}>
                 <Routes>
                   <Route element={<PublicRoute />}>

@@ -13,12 +13,9 @@ type Block = Array<[string, string]>;
 /**
  * The four token sources this generator reads.
  *
- * Parameterized so the design-editor bridge can render `tokens.css` from PATCHED
- * sources without writing them to disk — that is how a staged token edit
- * previews on `--wb-*` consumers and in the canvas engines
- * (`POST /__design-editor/preview-tokens`). The alternative was porting the
- * mode-conditional logic below into the sandbox client, which would make the
- * preview's colour maths a second implementation of this emitter, free to drift.
+ * Parameterized so a caller (and the tests) can render `tokens.css` from
+ * PATCHED sources without writing them to disk, through the same emitter the
+ * build uses rather than a second implementation of its mode-conditional logic.
  *
  * `renderTokensCss()` keeps the module's own imports as the sources, so the CLI
  * path and every existing caller are byte-for-byte unchanged.
@@ -114,7 +111,7 @@ export function tokenBlocks(src: TokenSources): { light: Block; dark: Block } {
   };
 }
 
-/** Render `tokens.css` from explicit sources (used by the design-editor preview). */
+/** Render `tokens.css` from explicit sources. */
 export function renderTokensCssFrom(src: TokenSources): string {
   const { light, dark } = tokenBlocks(src);
   return [

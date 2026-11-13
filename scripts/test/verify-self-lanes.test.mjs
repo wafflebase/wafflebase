@@ -10,7 +10,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -91,40 +90,6 @@ test("the lane graph", async (t) => {
     assert.deepEqual(selectorless, DELIBERATELY_FULL_ONLY);
   });
 
-  await t.test("every lane that loads design-editor's dist declares its build", () => {
-    // PINNED BY NAME, because the generic "a selected lane never runs without its
-    // prerequisites" check below is self-consistent: delete the edge and it still
-    // passes. The failure that costs is specific and opaque — with
-    // packages/design-editor/dist absent, knip's own load of the package dies and
-    // `verify:entropy` reports `Could not parse knip output as JSON`, while
-    // design-sandbox's tsc reports "Cannot find module '@wafflebase/design-editor'"
-    // against three files at once. Neither names a missing build.
-    //
-    // These three all reach `exports["."]` → `dist/plugin/index.js`: knip resolves it
-    // while analysing the workspace, design-sandbox's program contains it, and
-    // design-editor's own typecheck emits it.
-    for (const name of ["design-editor:check", "design-sandbox:check", "verify:entropy"]) {
-      assert.ok(
-        byName.get(name)?.needs.includes("design-editor:build"),
-        `${name} loads packages/design-editor/dist, so it must need design-editor:build`,
-      );
-    }
-  });
-
-  await t.test("design-editor:build produces what its exports map names", () => {
-    // The edge above is only worth having if the lane builds the path the consumers
-    // resolve. `exports["."]` is the contract between them; a build script that stopped
-    // emitting there would leave the lane green and every consumer broken.
-    const pkg = JSON.parse(
-      readFileSync(path.join(REPO_ROOT, "packages/design-editor/package.json"), "utf8"),
-    );
-    assert.match(pkg.exports?.["."]?.default ?? "", /^\.\/dist\//);
-    assert.ok(
-      (pkg.scripts?.build ?? "").includes("build:plugin"),
-      "design-editor:build runs `pnpm … build`, which must emit dist/plugin",
-    );
-  });
-
   await t.test("every workspace package is covered by some lane", () => {
     // A package with no lane naming it would be typechecked and tested by
     // nothing on a filtered run, while still looking covered because the full
@@ -194,46 +159,6 @@ test("selection against the real lane graph", async (t) => {
     });
     assert.ok(selected.has("documentation:build"));
     assert.ok(!selected.has("frontend:build"));
-    assert.ok(!selected.has("sheets:check"));
-  });
-
-  await t.test("a design-editor change runs its check AND the knip gate", () => {
-    // `packages` is empty on purpose: harness.config.json lists
-    // packages/design-editor/** as inert, so the resolver never puts the package
-    // in the closure and the tag is each lane's only route in.
-    const selected = select({
-      full: false,
-      packages: [],
-      tags: ["designEditor"],
-    });
-    assert.ok(selected.has("design-editor:check"));
-    // The consumer of that package's SOURCE. design-sandbox imports design-editor
-    // through its `exports` map, so its typecheck program contains design-editor's
-    // files and a change here can break it. Neither package lands in `packages`
-    // (both are inert), so the shared tag is the only thing that runs this lane —
-    // which is why changed-areas.test.mjs asserts the two share one.
-    assert.ok(
-      selected.has("design-sandbox:check"),
-      "a design-editor change must typecheck the package that consumes its source",
-    );
-    // knip analyses packages/design-editor, so this is the one gate a change here
-    // can fail. `anyPkg` cannot reach it for an inert package — only the tag can.
-    assert.ok(
-      selected.has("verify:entropy"),
-      "a design-editor change must still run the dead-code gate",
-    );
-    // Pulled in by the `needs` of all three above, not by the tag. Named here as well
-    // as in the graph test so a dropped edge fails at BOTH altitudes: the declaration
-    // and the selection that has to honour it.
-    assert.ok(
-      selected.has("design-editor:build"),
-      "the lanes that load packages/design-editor/dist must drag its build along",
-    );
-    // Pulled in by entropy's `needs`, not by the tag.
-    assert.ok(selected.has("core:build"));
-    // Still nothing that cannot be affected.
-    assert.ok(!selected.has("frontend:test"));
-    assert.ok(!selected.has("backend:test"));
     assert.ok(!selected.has("sheets:check"));
   });
 

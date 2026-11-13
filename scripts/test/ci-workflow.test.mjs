@@ -178,7 +178,7 @@ test("ci-report.yml's inlined glob matcher cannot drift", async (t) => {
     "docs/**",
     "*.md",
     "**/*.ts",
-    "packages/design-editor/**",
+    "packages/documentation/**",
     "a.b+c(d)",
   ];
   const paths = [
@@ -201,7 +201,7 @@ test("ci-report.yml's inlined glob matcher cannot drift", async (t) => {
     "README.md",
     "packages/README.md",
     "docs/design/README.md",
-    "packages/design-editor/src/plugin/index.ts",
+    "packages/documentation/.vitepress/config.ts",
     "a.b+c(d)",
   ];
 

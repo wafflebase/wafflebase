@@ -17,8 +17,8 @@ const packageRoot = path.resolve(
  * TypeScript, Node is handed a `.ts` file, which it can only read from 22.18
  * where type stripping became the default.
  *
- * That is not a theoretical failure. `vite.config.ts` importing
- * `@wafflebase/debug-report/plugin` as a bare specifier made `pnpm dev`,
+ * That is not a theoretical failure. `vite.config.ts` once importing a
+ * workspace dev plugin (since removed) as a bare specifier made `pnpm dev`,
  * `frontend:test` and `frontend:build` all die on
  * `ERR_UNKNOWN_FILE_EXTENSION` for every contributor on Node 22.14-22.17 —
  * inside the active 22 LTS line — with a stack trace that never mentions Node.

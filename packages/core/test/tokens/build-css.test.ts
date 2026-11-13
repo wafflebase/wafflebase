@@ -59,9 +59,8 @@ describe('renderTokensCss', () => {
 });
 
 /**
- * `renderTokensCss()` was un-parameterized until the design-editor bridge needed
- * to render the same stylesheet from PATCHED sources without writing them to
- * disk. These cover the seam that refactor introduced.
+ * `renderTokensCssFrom()` renders the same stylesheet from PATCHED sources
+ * without writing them to disk. These cover that seam.
  */
 describe('renderTokensCssFrom', () => {
   it('is byte-identical to renderTokensCss() when given the module\'s own sources', () => {
@@ -89,20 +88,11 @@ describe('renderTokensCssFrom', () => {
   });
 
   /**
-   * THE CONSTRAINT THAT FORCES `preview-tokens.mts` TO EXIST.
-   *
    * `semantic.ts` binds `primary: palette.syrup` at MODULE EVALUATION, so any
    * `semantic` map handed to this function already carries a RESOLVED colour.
    * Object substitution therefore cannot move a semantic role — only
-   * re-evaluating `semantic.ts` against a patched `palette.ts` can.
-   *
-   * That is why the preview worker writes patched SOURCE TEXT to a fresh
-   * scratch directory and re-imports all four modules, rather than passing
-   * objects: a query-string cache bust on `semantic.ts` alone would still
-   * resolve the cached `palette` and return pre-edit colours silently.
-   *
-   * If this test ever starts failing, the token model has changed to late-bound
-   * references and the worker's scratch-directory machinery may be removable.
+   * re-evaluating `semantic.ts` against a patched `palette.ts` can. A caller
+   * that wants a palette edit to reach semantic roles has to patch both.
    */
   it('does NOT re-resolve semantic roles from a patched palette object', () => {
     const patched = renderTokensCssFrom({
