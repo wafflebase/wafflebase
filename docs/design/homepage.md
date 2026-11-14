@@ -148,6 +148,31 @@ Section frame: `--wb-paper` rounded card (18px), syrup-deep drop shadow.
   on the right (Vite injects the version from the root package.json at build
   time) (Slides hint: "Tip: arrow keys navigate — ⌘/Ctrl+Enter to present.").
 
+#### Daily reset
+
+The three demo panes are **editor** share links to real documents, so every
+visitor edits the same copy. `packages/backend/src/demo-reset/` puts them back
+once a day:
+
+- The good state is a **named revision** — the history panel's "Name current
+  version", label `demo-golden` (`WAFFLEBASE_DEMO_RESET_LABEL`). Changing the
+  example is editing it and naming a new version with the same label; the
+  newest match wins.
+- `WAFFLEBASE_DEMO_RESET_TOKENS` lists the share tokens (the same values as
+  `VITE_DEMO_*_SHARED_TOKEN`). Each resolves through
+  `ShareLinkService.findByToken`, so a revoked link or a trashed document
+  simply stops being reset.
+- One in-process `setTimeout`, re-armed after every run, fires at
+  `WAFFLEBASE_DEMO_RESET_HOUR_UTC` (default 15 = 00:00 KST). No scheduler
+  dependency and no public endpoint. A restart re-arms instead of resetting,
+  so a deploy never wipes a demo mid-day. Production runs one replica; with
+  more, each restores the same revision to the same result.
+- Per document: attach with the scoped service token, page `listRevisions`
+  newest-first (50 × at most 40 pages, since Yorkie keeps one automatic
+  revision per 500 changes and never deletes them), then `restoreRevision`.
+  Connected visitors see the content swap live. One document failing never
+  stops the others.
+
 #### FeaturesSection
 
 Two-tier layout. 3 large cards (waffle-pocket glyphs):
@@ -295,4 +320,4 @@ and the existing `ThemeProvider`.
 | Google Fonts blocked by network policy | `display=swap` + system serif/sans/mono fallbacks declared in the `--font-*` tokens |
 | Iframe blocked by X-Frame-Options / CSP | Same-origin iframe; on iframe `error`, `<DemoFrame>` swaps to an inline message ("Demo unavailable. Try refreshing the page.") instead of a static screenshot, keeping the surface text-only |
 | Iframe loads slowly on first visit | `loading="lazy"`, skeleton placeholder while loading |
-| Shared demo token expires or data changes | Dedicated demo document with stable read-only content |
+| Shared demo token expires or data changes | Dedicated demo documents behind editor share links, so visitors' edits accumulate; the backend's `DemoResetService` restores each to its newest `demo-golden` named revision once a day (see *Daily reset*) |
