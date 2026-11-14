@@ -912,7 +912,7 @@
               "--slide"
             ],
             "safety": "read-only",
-            "description": "Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin); advisory by default"
+            "description": "Flag slides that look broken (overflow, out-of-bounds, overlap, contrast, min-font, edge-margin, token-wrap, empty-region, inset-inconsistent); advisory by default"
           },
           "list": {
             "safety": "read-only",

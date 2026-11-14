@@ -83,6 +83,11 @@ describe('slides lint / layout-report', () => {
   it('validates --rules and --fail-on', () => {
     expect(parseRules(undefined)).toBeUndefined();
     expect(parseRules('contrast, overlap')).toEqual(['contrast', 'overlap']);
+    expect(parseRules('token-wrap,empty-region,inset-inconsistent')).toEqual([
+      'token-wrap',
+      'empty-region',
+      'inset-inconsistent',
+    ]);
     expect(() => parseRules('contrast,nope')).toThrow(/unknown rule/);
     expect(parseFailOn(undefined)).toBe('never');
     expect(parseFailOn('warning')).toBe('warning');

@@ -11,13 +11,13 @@
  * counts only when it sits on the picture (see `imageCoversText`). Two text-less elements
  * overlapping (a photo collage, stacked decoration) is not reported.
  */
-import type { Element } from '../../model/element';
 import type { Slide } from '../../model/presentation';
 import {
   encloses,
   fmt,
   hasText,
   intersection,
+  isBackground,
   paintedBox,
   paintsNothing,
   type Box,
@@ -25,16 +25,6 @@ import {
   type PlacedElement,
 } from '../context';
 import type { Finding } from '../types';
-
-const BACKGROUND_COVERAGE = 0.8;
-const DECORATIVE_MAX_THICKNESS = 24;
-
-function isBackground(el: Element, box: Box, ctx: DeckContext): boolean {
-  if (el.type !== 'shape' && el.type !== 'image') return false;
-  if (hasText(el)) return false;
-  if ((box.w * box.h) / (ctx.slideW * ctx.slideH) >= BACKGROUND_COVERAGE) return true;
-  return el.type === 'shape' && Math.min(box.w, box.h) <= DECORATIVE_MAX_THICKNESS;
-}
 
 /**
  * An image's frame includes its transparent padding, which we cannot see:
