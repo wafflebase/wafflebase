@@ -439,6 +439,30 @@ test("the test-removal record reads this repository's runners, bar one gap yorki
   assert.ok(fixGuard, "fix-guard.mjs loads with this configuration (it refuses a rule set without assertion patterns)");
 });
 
+test("an agent's own pnpm install does not arm the repository's git hooks", () => {
+  // The root postinstall points git at `.githooks`, whose pre-push runs
+  // `pnpm verify:self` — minutes, longer than an agent's tool timeout — and
+  // whose pre-commit runs `pnpm verify:fast`. The shared prompts forbid
+  // `--no-verify` and point `core.hooksPath` at the harness's own scope hook,
+  // so an agent that installs a dependency itself must not re-arm these.
+  // GitHub Actions sets `CI`; under it the postinstall does nothing.
+  const script = PACKAGE.scripts.postinstall;
+  assert.equal(script, '[ -n "$CI" ] || git config core.hooksPath .githooks || true');
+  for (const [ci, armed] of [[undefined, true], ["true", false]]) {
+    const dir = mkdtempSync(path.join(tmpdir(), "repo-test-postinstall-"));
+    try {
+      run("git", ["init", "-q"], { cwd: dir });
+      const env = { PATH: process.env.PATH, HOME: dir, GIT_CONFIG_GLOBAL: "/dev/null", ...(ci ? { CI: ci } : {}) };
+      const r = spawnSync("sh", ["-c", script], { cwd: dir, env, encoding: "utf8" });
+      assert.equal(r.status, 0, r.stderr);
+      const got = spawnSync("git", ["config", "--local", "core.hooksPath"], { cwd: dir, env, encoding: "utf8" }).stdout.trim();
+      assert.equal(got, armed ? ".githooks" : "", `CI=${ci}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 // --- identity, and what the core is told to allow ------------------------------------
 
 test("the bots the workflows believe are the ones the scripts believe", () => {

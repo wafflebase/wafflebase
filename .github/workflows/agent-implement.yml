@@ -258,7 +258,7 @@ jobs:
           node-version: 22.x
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile # also wires .githooks via postinstall
+        run: pnpm install --frozen-lockfile # the root postinstall leaves .githooks unwired under CI
 
       - name: Build the orchestration prompt
         id: prep

@@ -138,7 +138,10 @@ systematically.
 
 Git hooks provide local defense layers in addition to CI. All hooks live in
 `.githooks/` and are activated automatically via `core.hooksPath` (set by the
-`postinstall` script — no manual setup required).
+`postinstall` script — no manual setup required). Under CI (`CI` set) the
+`postinstall` leaves them unwired: an agent job that runs `pnpm install` itself
+would otherwise arm a pre-push hook that runs `pnpm verify:self` on its next
+push.
 
 ### Pre-Commit Hook
 

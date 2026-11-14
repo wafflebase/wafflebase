@@ -37,7 +37,7 @@
     "documentation": "pnpm --filter @wafflebase/documentation",
     "core": "pnpm --filter @wafflebase/core",
     "build:all": "pnpm core build && pnpm frontend build && pnpm documentation build && rm -rf packages/frontend/dist/docs && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs",
-    "postinstall": "git config core.hooksPath .githooks || true"
+    "postinstall": "[ -n \"$CI\" ] || git config core.hooksPath .githooks || true"
   },
   "keywords": [],
   "author": {
