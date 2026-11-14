@@ -71,6 +71,7 @@
         "CONTRIBUTING.md",
         "MAINTAINING.md",
         "harness.config.json",
+        "packages/backend/src/template/seed/catalog/README.md",
         "scripts/agent/lenses/*.md",
         ".github/**",
         ".claude/**"

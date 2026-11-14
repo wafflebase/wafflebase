@@ -47,7 +47,8 @@
         "packages/docs/src/spell/dict/**"
       ],
       "policy": [
-        "harness.config.json"
+        "harness.config.json",
+        "packages/backend/src/template/seed/catalog/README.md"
       ],
       "prose": [
         "packages/documentation/**/*.md",

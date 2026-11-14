@@ -284,7 +284,10 @@ test("every configured path and glob matches a tracked file, or is reserved with
 
 test("classifyFile: the file classes wafflebase's panel used, under the shared rules", () => {
   // Policy: what governs the agents, and the CI path filter.
-  for (const f of ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "MAINTAINING.md", "harness.config.json", ".github/PULL_REQUEST_TEMPLATE.md", ".claude/settings.json", "scripts/agent/lenses/security.md"]) {
+  // The template catalogue's README states a licensing rule the catalogue is
+  // held to ("a requirement, not a description"); under the shared rules any
+  // README is prose, which no code lens reads.
+  for (const f of ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "MAINTAINING.md", "harness.config.json", ".github/PULL_REQUEST_TEMPLATE.md", ".claude/settings.json", "scripts/agent/lenses/security.md", "packages/backend/src/template/seed/catalog/README.md"]) {
     assert.equal(panel.classifyFile(f), "policy", f);
   }
   for (const file of ["config.json", "coverage-note.md", "repo.snapshot.json", "repo.test.mjs", "toolchain.test.mjs"]) {
