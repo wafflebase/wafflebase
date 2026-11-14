@@ -63,3 +63,20 @@ Files under `scripts/agent/` that yorkie's core (main `0fa3f92f`) lacks:
   same output before and after, with and without the SDK, but for
   `auth-smoke`'s "run `npm ci` in scripts/agent" (it said "this directory").
 - actionlint 1.7.12: no findings.
+
+## Review round 1
+
+An independent review found no runtime break from the move and the picker
+behaviour-identical on 9,293 inputs. Three findings, all fixed:
+
+- [x] The vocabulary cross-check caught a removed pattern but not one added,
+      widened or narrowed. Both files export their lists and the test
+      compares them by source and flags; twelve mutations across the two
+      copies (add, widen, narrow, remove, flag change) each fail it
+- [x] `core-deps.mjs` re-implemented resolution and missed `module-sync`,
+      `node-addons` and the `main` fallbacks. It now asks Node itself
+      (`import.meta.resolve`, re-parented by a synchronous resolve hook)
+- [x] The tests tying the helper to Node's answer needed the real install,
+      which the lane lacks. A fixture install of seventeen package shapes
+      now runs there; the previous helper fails it
+
