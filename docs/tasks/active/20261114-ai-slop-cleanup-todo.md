@@ -38,11 +38,11 @@ for the lot, with before/after screenshots.
 
 ## 4. Harden — browser surfaces and accessibility
 
-- [ ] `index.html`: allow pinch zoom (WCAG 1.4.4) unless an editor needs it
-- [ ] `::selection`, `color-scheme`, `caret-color`, `accent-color` in the app base layer
-- [ ] Docs site: syrup focus ring, selection, scrollbars
-- [ ] Slides canvas context menu themed from tokens, real check icon
-- [ ] `index.html` meta description + og tags
+- [x] `index.html`: allow pinch zoom (WCAG 1.4.4) unless an editor needs it
+- [x] `::selection`, `color-scheme`, `caret-color`, `accent-color` in the app base layer
+- [x] Docs site: syrup focus ring, selection, scrollbars
+- [x] Slides canvas context menu themed from tokens, real check icon
+- [x] `index.html` meta description + og tags
 
 ## 5. Typeset
 

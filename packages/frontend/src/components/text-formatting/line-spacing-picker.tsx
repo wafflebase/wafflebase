@@ -116,7 +116,7 @@ export function LineSpacingPicker({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commitCustom}
-              className="h-7 w-full rounded border border-border bg-background px-2 text-sm outline-none"
+              className="h-7 w-full rounded border border-border bg-background px-2 text-base md:text-sm outline-none"
             />
           </form>
         ) : (

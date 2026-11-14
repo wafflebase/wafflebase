@@ -245,9 +245,11 @@ export function CommentComposer({
     }
   };
 
+  // 16px below `md`: anything smaller makes iOS zoom the page on focus, now
+  // that the viewport no longer pins `maximum-scale` (index.html).
   const textareaClass = compact
-    ? "flex w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-    : "flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none";
+    ? "flex w-full rounded-md border border-input bg-background px-2 py-1.5 text-base md:text-xs placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+    : "flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-xs placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 resize-none";
 
   return (
     <div className={compact ? "flex flex-col gap-1.5" : "flex flex-col gap-3"}>

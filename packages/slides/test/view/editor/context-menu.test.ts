@@ -199,16 +199,26 @@ describe('showContextMenu — selected indicator', () => {
     host.remove();
   });
 
-  it('prefixes selected items with a check-mark glyph (radio group)', () => {
+  const checkOf = (li: Element) => li.querySelector('svg[aria-label="Selected"]');
+
+  it('draws a check icon in a leading slot for the selected item (radio group)', () => {
     showContextMenu(host, [
       { label: 'Top',    run: () => undefined, selected: true },
       { label: 'Middle', run: () => undefined, selected: false },
       { label: 'Bottom', run: () => undefined, selected: false },
     ], 0, 0);
-    const items = Array.from(host.querySelectorAll('li')).map((li) => li.textContent ?? '');
-    expect(items[0]).toMatch(/^✓\s/);
-    expect(items[1]).toMatch(/^\s{3}/);
-    expect(items[2]).toMatch(/^\s{3}/);
+    const items = Array.from(host.querySelectorAll('li'));
+    // Labels are plain text — the check is an icon, not a `✓` glyph.
+    expect(items.map((li) => li.textContent)).toEqual(['Top', 'Middle', 'Bottom']);
+    expect(checkOf(items[0])).toBeTruthy();
+    expect(items[0].dataset.selected).toBe('true');
+    expect(checkOf(items[1])).toBeNull();
+    expect(checkOf(items[2])).toBeNull();
+    // Every radio row carries the same fixed-width slot so labels align.
+    for (const li of items) {
+      const slot = li.firstElementChild as HTMLElement;
+      expect(slot.style.width).toBe('16px');
+    }
   });
 
   it('does not indent unrelated items when a radio group is present', () => {
@@ -220,21 +230,24 @@ describe('showContextMenu — selected indicator', () => {
       { label: 'Middle', run: () => undefined, selected: false },
     ], 0, 0);
     const items = Array.from(host.querySelectorAll('li'))
-      .filter((li) => li.textContent && li.textContent.trim() !== '')
-      .map((li) => li.textContent ?? '');
-    expect(items.find((t) => t.includes('Copy'))).toBe('Copy');
-    expect(items.find((t) => t.includes('Cut'))).toBe('Cut');
-    expect(items.find((t) => t.startsWith('✓'))).toMatch(/^✓ Top/);
-    expect(items.find((t) => t.includes('Middle'))).toMatch(/^\s{3}Middle/);
+      .filter((li) => li.textContent && li.textContent.trim() !== '');
+    const byLabel = (label: string) => items.find((li) => li.textContent === label)!;
+    // Action items get no slot at all.
+    expect(byLabel('Copy').children).toHaveLength(0);
+    expect(byLabel('Cut').children).toHaveLength(0);
+    expect(checkOf(byLabel('Top'))).toBeTruthy();
+    expect(byLabel('Middle').children).toHaveLength(2);
+    expect(checkOf(byLabel('Middle'))).toBeNull();
   });
 
-  it('omits the check-mark glyph entirely when no item is selected', () => {
+  it('omits the check column entirely when no item opts in', () => {
     showContextMenu(host, [
       { label: 'Top',    run: () => undefined },
       { label: 'Middle', run: () => undefined },
     ], 0, 0);
     for (const li of host.querySelectorAll('li')) {
-      expect(li.textContent ?? '').not.toMatch(/^✓/);
+      expect(li.querySelector('svg')).toBeNull();
+      expect(li.children).toHaveLength(0);
     }
   });
 
@@ -273,11 +286,12 @@ describe('showContextMenu — touch sizing', () => {
     const li = document.body.querySelector<HTMLLIElement>(
       '.wfb-slides-context-menu li',
     )!;
-    expect(li.style.padding).toBe('6px 16px');
+    expect(li.style.padding).toBe('6px 8px');
+    expect(li.style.lineHeight).toBe('20px');
   });
 
   it('grows the rows to a touch target for a coarse pointer', () => {
-    // 13px above and below a 15px line is ~44px — the smallest target
+    // 13px above and below an 18px line is 44px — the smallest target
     // every touch platform's guidance accepts. At the mouse size, two
     // adjacent entries are within one fingertip of each other, which on
     // this menu means Delete sits a hair from Duplicate.
@@ -287,7 +301,8 @@ describe('showContextMenu — touch sizing', () => {
       '.wfb-slides-context-menu',
     )!;
     const li = menu.querySelector<HTMLLIElement>('li')!;
-    expect(li.style.padding).toBe('13px 16px');
+    expect(li.style.padding).toBe('13px 8px');
+    expect(li.style.lineHeight).toBe('18px');
     expect(menu.style.fontSize).toBe('15px');
   });
 

@@ -172,7 +172,7 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
         aria-label="Gradient stops"
         aria-valuenow={cur ? Math.round(cur.pos * 100) : 0}
         onPointerDown={onTrackPointerDown}
-        className="relative h-6 w-full cursor-copy rounded border border-border"
+        className="relative h-6 w-full cursor-copy touch-none rounded border border-border"
         style={{ background: cssGradient }}
       >
         {stops.map((s, i) => (

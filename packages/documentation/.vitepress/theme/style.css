@@ -118,3 +118,25 @@
   letter-spacing: -0.025em;
   font-weight: 600;
 }
+
+/*
+ * Browser surfaces — the parts the theme does not draw still follow the
+ * palette. Selection is the brand wash and text keeps its own color, so a
+ * light run on a dark code block is not forced dark on the wash; focus is the app's 3px 50%-syrup ring
+ * (VitePress's base leaves `outline: 4px auto -webkit-focus-ring-color`);
+ * scrollbars are a cocoa thumb on the page, not the OS grey.
+ */
+::selection {
+  background-color: color-mix(in srgb, var(--vp-c-brand-1) 22%, transparent);
+  color: var(--vp-c-text-1);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--vp-c-brand-1) 50%, transparent);
+  outline-offset: 2px;
+}
+
+html {
+  scrollbar-color: color-mix(in srgb, var(--vp-c-text-3) 55%, transparent)
+    transparent;
+}

@@ -119,7 +119,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
       <input
         ref={inputRef}
         type="text"
-        className="h-7 w-48 rounded border-none bg-transparent px-1 text-sm outline-none focus:ring-0"
+        className="h-7 w-48 rounded border-none bg-transparent px-1 text-base md:text-sm outline-none focus:ring-0"
         placeholder="Find..."
         aria-label="Find in sheet"
         value={query}

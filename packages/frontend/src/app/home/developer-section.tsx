@@ -207,6 +207,7 @@ export function DeveloperSection() {
         />
 
         <div
+          data-selection="dark"
           className="max-w-[880px] mx-auto rounded-2xl overflow-hidden bg-[color:var(--wb-terminal-bg)]"
           style={{
             boxShadow:

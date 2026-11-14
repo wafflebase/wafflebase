@@ -42,3 +42,22 @@
   out of a description explicitly (`aria-describedby={undefined}`); new
   `LoadErrorState` test.
 
+### Step 4 — harden
+- Review (a11y + touch lens, independent agent): nothing blocking; one
+  should-fix caused by this step. Removing `maximum-scale=1` re-enabled
+  iOS focus-zoom on every sub-16px field (find bars, link popover, tab
+  rename, SQL editor, sheets filter/validation, function browser). Fixed
+  with the repo's `text-base md:text-sm` convention and a coarse-pointer
+  16px helper in the sheets engine.
+  Lesson: a viewport-meta flag is load-bearing in more than one way —
+  `user-scalable=no` was blocking double-tap zoom *and* focus zoom; trace
+  every effect before removing it.
+- Fixed: a global `caret-color` would vanish on filled cells, so the syrup
+  caret is scoped to `ui/input`. Selection keeps `color: var(--foreground)`
+  (muted/syrup text fall under 4.5:1 otherwise) with a
+  `data-selection="dark"` opt-out for the always-dark terminal.
+- Known limitations (PR body): `ring/50` focus rings are ~1.9:1 (repo-wide
+  shadcn/DESIGN.md convention, not changed here); pinch starting on a
+  sheet image still zooms the page; slides canvas menu has no menu roles
+  (pre-existing); sheets cell editor stays 13px on iPhone landscape ≥768px.
+
