@@ -49,7 +49,7 @@ jobs:
     outputs:
       command: ${{ steps.route.outputs.command }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           sparse-checkout: scripts/agent/command.mjs
           sparse-checkout-cone-mode: false
@@ -88,7 +88,7 @@ jobs:
       # write). This is the authoritative gate — same as agent-implement.yml —
       # since this job also grants contents:write and runs a code-pushing agent.
       - name: Verify commenter has write access
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           retries: 3
           script: |
@@ -102,7 +102,7 @@ jobs:
 
       - name: Resolve PR head branch
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           retries: 3
           script: |
@@ -123,7 +123,7 @@ jobs:
       - name: Generate GitHub App token
         id: app-token
         if: steps.pr.outputs.is_agent == 'true'
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
           app-id: ${{ secrets.AGENT_APP_ID }}
           private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
@@ -145,35 +145,50 @@ jobs:
         with:
           node-version: 22.x
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: steps.pr.outputs.is_agent == 'true'
         with:
           ref: ${{ steps.pr.outputs.ref }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+          # Not persisted: nothing between this checkout and the agent needs to
+          # push, so the token is not written into the checkout the install
+          # runs in. The agent step configures its own push credential from
+          # `github_token` (claude-code-action does that in every mode), and the
+          # read-only `git ls-remote` calls in this job need none on a public
+          # repository.
+          persist-credentials: false
 
-      # A TRUSTED copy of `scripts/agent`, into a subdirectory: the dependency
-      # install and the credential picker below both run from it. This job's
-      # workspace is the PR BRANCH, so `./scripts/agent` here is the branch's own
-      # copy — and the picker is handed all nine pool secrets. Running the
-      # branch's version of it would let a branch author read every credential
-      # the pool holds. Checked out AFTER the branch checkout above, because
-      # `actions/checkout` cleans its target path and a root checkout would
-      # delete this one — and BEFORE the install, so the install is main's.
+      # A TRUSTED copy of `scripts/agent`, staged OUTSIDE the workspace: the
+      # dependency install and the credential picker below both run from it.
+      # This job's workspace is the PR BRANCH, so `./scripts/agent` here is the
+      # branch's own copy — and the picker is handed all nine pool secrets.
+      # Running the branch's version of it would let a branch author read every
+      # credential the pool holds. Main is checked out into a side directory
+      # AFTER the branch checkout above (`actions/checkout` cleans its target
+      # path, and a root checkout would delete this one), copied to
+      # `$RUNNER_TEMP/agent-tools`, and the side directory removed again — the
+      # same three steps `agent-iterate-ci.yml` uses. Nothing trusted is run
+      # from inside the workspace: a path there is one the branch's own tree
+      # can reach.
       #
-      # THE PATH IS CLEARED FIRST. `.trusted-cred` is a name inside the branch's
+      # THE PATH IS CLEARED FIRST. `.trusted-agent` is a name inside the branch's
       # tree, so whatever the branch has there is removed before main is checked
       # out to it.
       - name: Clear the path the trusted agent scripts are checked out to
-        run: rm -rf .trusted-cred
+        run: rm -rf .trusted-agent
       - name: Check out trusted main (for the install and the credential picker)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
-          path: .trusted-cred
+          path: .trusted-agent
           sparse-checkout: scripts/agent
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      - name: Stage the trusted agent scripts
+        run: |
+          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"
+          rm -rf .trusted-agent
 
       # THE INSTALL IS MAIN'S, NOT THE BRANCH'S, AND IT RUNS NOTHING. From the
       # checkout above the workspace is the UNTRUSTED PR branch and this job
@@ -187,9 +202,53 @@ jobs:
       # No lifecycle script is re-run here. The backend's Prisma client is
       # generated by the agent itself, as part of verifying (`claude_args` below
       # says so).
-      - name: Install dependencies
+      # THE STAGED SCRIPTS ARE FINGERPRINTED BEFORE THE INSTALL AND CHECKED AFTER
+      # IT. Every later step of this job that holds a token runs a script from
+      # `$RUNNER_TEMP/agent-tools`. The install is built to write nowhere but
+      # the workspace and its own store; this is what says so for the one
+      # directory those steps depend on. The digest is kept as a step output,
+      # which nothing on the runner's disk can rewrite. On a mismatch the
+      # directory is removed, so no later step — including the `always()` ones —
+      # runs a script from it. (It says nothing about the steps after the agent:
+      # the agent has a shell, and what it leaves there is a known limit.)
+      - name: Record a digest of the staged agent scripts
+        id: tools
         if: steps.pr.outputs.is_agent == 'true'
-        run: node .trusted-cred/scripts/agent/install-deps.mjs
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          digest="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        id: install
+        if: steps.pr.outputs.is_agent == 'true'
+        run: node "$RUNNER_TEMP/agent-tools/install-deps.mjs"
+      - name: Verify the staged agent scripts are unchanged
+        if: always() && steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts changed while dependencies were installed. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
+
+      # A REFUSED INSTALL SAYS SO ON THE PULL REQUEST. Without this the person
+      # who wrote `@claude` gets a red job and no reply. The reason is in the
+      # run's log as an `::error::` line; the comment links to it rather than
+      # quoting it. Run from the runner's temp directory, not the workspace.
+      - name: Tell the pull request the install did not complete
+        if: failure() && steps.install.outcome == 'failure'
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR" --body "🛑 \`@claude\` could not start: installing this branch's dependencies did not complete, so the agent never ran and nothing was changed. The agent jobs install only registry packages pinned by the lockfile, with main's pnpm version and workspace settings — a branch that changes those, or adds a dependency from anywhere else, needs a person. The reason is the \`install-deps\` error in the [workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
 
       # WHICH POOL SLOT THIS JOB USES — see agent-implement.yml for the full rationale.
       # Without it this step is pinned to slot zero of the pool and one dead account
@@ -213,11 +272,11 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
           CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
         run: |
-          [ -f .trusted-cred/scripts/agent/pick-credential.mjs ] || {
+          [ -f "$RUNNER_TEMP/agent-tools/pick-credential.mjs" ] || {
             echo "pick-credential.mjs is not on main yet; using the ambient credential"
             exit 0
           }
-          node .trusted-cred/scripts/agent/pick-credential.mjs
+          node "$RUNNER_TEMP/agent-tools/pick-credential.mjs"
 
       - name: Run Claude Code
         if: steps.pr.outputs.is_agent == 'true'
