@@ -21,3 +21,8 @@
   unused outside a test stub, but it is public engine API and out of scope.
   Loop stopped here: the panel cannot read this diff, and the substitute
   round was clean.
+- Rebase onto #1133 (eval removal) conflicted in the same prose: the design
+  README row, `agent-pipeline.md`'s timeline and §4.1, and the task index.
+  Resolve by taking main's side and re-applying this branch's deletions,
+  then regenerate `docs/tasks/README.md` with `pnpm tasks:index` rather than
+  hand-merging a generated file.
