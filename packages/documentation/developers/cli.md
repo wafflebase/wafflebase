@@ -1170,7 +1170,8 @@ discover commands by intent:
   `docs-export-pdf.md`, `docs-export-docx.md`, `docs-import-docx.md`
 - **Slides** — `slides-manage.md`, `slides-read-content.md`,
   `slides-export-pptx.md`, `slides-import-pptx.md`, `slides-author.md`,
-  `deck-author.md` (source folder → deck with a lint + render loop)
+  `deck-author.md` (source folder → deck with a lint + render + critique
+  loop), `deck-critic.md` (independent design critic for that loop)
 - **Files** — `files-upload-download.md`
 - **Recipes** — `recipe-csv-pipeline.md`, `recipe-data-collect.md`,
   `recipe-docx-to-pdf.md`, `recipe-doc-to-markdown.md`

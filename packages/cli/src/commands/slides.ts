@@ -33,6 +33,11 @@ import {
   readDeckFile,
   runLint,
 } from '../slides/lint.js';
+import {
+  parsePositiveInt,
+  readCritique,
+  runCritiqueCheck,
+} from '../slides/critique.js';
 import type { SlidesDocument } from '@wafflebase/slides/node';
 import { registerSlidesSetContentCommand } from './content-write.js';
 import { registerSlidesEditCommand } from './slides-edit.js';
@@ -391,6 +396,35 @@ export function registerSlidesCommand(program: Command) {
           );
         }
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      } catch (e) {
+        outputError(e, this);
+      }
+    });
+
+  slides
+    .command('critique-check')
+    .description(
+      'Validate a design-critic findings file, count it by severity and category, and apply the stop rule (no network, no model)',
+    )
+    .requiredOption('--file <path>', "This round's findings JSON (see skills/deck-critic.md)")
+    .option('--previous <path>', "The previous round's findings JSON")
+    .option('--round <n>', 'This round number (default: the file\'s "round", else previous + 1, else 1)')
+    .option('--max-rounds <n>', 'Stop at this round whatever the findings', '3')
+    .action(async function (this: Command) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{
+        file: string;
+        previous?: string;
+        round?: string;
+        maxRounds?: string;
+      }>();
+      try {
+        const fmt = parseOutputFormat(opts.format);
+        const round = parsePositiveInt(local.round, '--round');
+        const maxRounds = parsePositiveInt(local.maxRounds, '--max-rounds');
+        const current = readCritique(local.file);
+        const previous = local.previous ? readCritique(local.previous) : undefined;
+        output(runCritiqueCheck({ current, previous, round, maxRounds }), fmt);
       } catch (e) {
         outputError(e, this);
       }
