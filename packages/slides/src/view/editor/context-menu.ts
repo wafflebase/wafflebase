@@ -115,7 +115,8 @@ export function showContextMenu(
       li.style.opacity = '0.5';
     } else {
       li.addEventListener('pointerenter', () => {
-        li.style.background = '#3a7';
+        // Neutral lift on the dark menu — hover is a wash, not the accent.
+        li.style.background = 'rgba(255, 255, 255, 0.1)';
         li.style.color = '#fff';
       });
       li.addEventListener('pointerleave', () => {

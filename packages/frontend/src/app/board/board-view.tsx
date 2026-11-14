@@ -888,7 +888,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   if (error) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <div className="text-red-500">{error.message}</div>
+        <div className="text-destructive">{error.message}</div>
       </div>
     );
   }

@@ -156,7 +156,7 @@ export function PdfViewer({
   }, [fileUrl]);
 
   if (status === "error") {
-    return <div className="p-8 text-center text-red-500">{errorMsg}</div>;
+    return <div className="p-8 text-center text-destructive">{errorMsg}</div>;
   }
 
   return (

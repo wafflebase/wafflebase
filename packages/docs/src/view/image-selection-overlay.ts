@@ -1,6 +1,7 @@
 import type { DocumentLayout, LayoutBlock } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { getPageXOffset, getPageYOffset } from './pagination.js';
+import { Theme } from './theme.js';
 
 /**
  * Axis-aligned rectangle in document-layout coordinates (i.e. the same
@@ -110,8 +111,8 @@ export function drawResizeHud(
   rect: ImageRect,
   text: string,
   opts: { background: string; textColor: string } = {
-    background: '#1a73e8',
-    textColor: '#ffffff',
+    background: Theme.objectSelectionColor,
+    textColor: Theme.objectSelectionForeground,
   },
 ): void {
   ctx.save();
@@ -186,9 +187,9 @@ export function drawImageSelection(
     handles?: boolean;
   } = {},
 ): void {
-  const borderColor = opts.borderColor ?? '#1a73e8';
+  const borderColor = opts.borderColor ?? Theme.objectSelectionColor;
   const handleFill = opts.handleFill ?? '#ffffff';
-  const handleStroke = opts.handleStroke ?? '#1a73e8';
+  const handleStroke = opts.handleStroke ?? Theme.objectSelectionColor;
   ctx.save();
   // Selection rectangle. Offset by 0.5 so the 1px stroke lands on a
   // pixel center and stays crisp.

@@ -179,15 +179,19 @@ A cool, near-colorless working surface with a single warm syrup accent; the
 brand layer swaps the zinc for cream paper and walnut ink.
 
 ### Primary
-- **Maple Syrup** (syrup): the one accent. Primary buttons, focus rings, text selection, chart series 1, active sidebar item. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
+- **Maple Syrup** (syrup): the one accent. Primary buttons, focus rings, selection frames and handles in every editor (sheets object layer, docs image selection and drag guides, slides handles and lasso), chart series 1. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
 - **Deep Syrup** (syrup-deep): pressed/hover state of the brand primary button, the active sidebar item's text, and brand chip and footer-heading labels.
 
 ### Secondary
-- **Butter** (butter): highlight, never text. Sidebar active-item wash (30% light / 18% dark), brand tag and badge chips, the waffle illustrations.
+- **Butter** (butter): highlight, never text on light surfaces. The **selected** wash (`bg-selected`, 30% light / 18% dark, with `text-selected-foreground` = syrup-deep / butter at 5.99:1 / 8.81:1) marks every "this one is chosen" state: the sidebar's active item, a pressed `Toggle`, a picked shape or line. It is never the hover, which stays the zinc `accent`/`muted` wash, so on and hovered look different. A lighter butter wash (16–35% by engine and mode) is the cell, text and slide-table range selection in the engines; a whole selected row or column header deepens to a syrup tint. Also brand tag and badge chips and the waffle illustrations.
 
 ### Tertiary
 - **Berry** (berry / berry-bright): brand-surface error and emphasis, and the sheet engine's reference highlights.
-- **Leaf** (leaf / leaf-bright): live and success signals, such as the homepage's "live" dot.
+- **Leaf** (leaf / leaf-bright): live and success signals, such as the homepage's "live" dot. In the app it is the `success` token (`text-success`; 4.91:1 light, 9.76:1 dark).
+
+### Data and identity
+- **Chart series** (`chart-1`…`chart-5`): syrup, denim, teal, rose, olive gold, each with a lifted dark-mode stop. No purple, none equal to a status token, every series ≥3:1 on `background`. Only the analytics trend chart consumes them today; document charts inside sheets and slides keep their own palettes.
+- **Document types** (`type-sheet`, `type-doc`, `type-note`, `type-slides`, `type-pdf`, `type-image`, `type-board`, `type-file`): one identity hue per type for list icons and menus — leaf, denim, cocoa, teal, berry, rose, sticky-note gold, zinc. Nothing purple and nothing in syrup's orange band, each ≥3:1 on `background` in both modes.
 
 ### Neutral
 - **Zinc Paper** (app-background) and **Zinc Ink** (app-foreground): editor chrome, dialogs and popovers in light mode.
@@ -198,7 +202,7 @@ brand layer swaps the zinc for cream paper and walnut ink.
 - **Roast** (roast-bg, roast-paper, roast-sub, roast-rule): the brand layer's dark pair. The app's dark chrome stays on zinc (app-background-dark, app-card-dark, app-muted-dark).
 
 ### Named Rules
-**The One Accent Rule.** Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong.
+**The One Accent Rule.** Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.
 
 **The Two Ledgers Rule.** Editor and workspace screens use the zinc semantic tokens (`bg-background`, `text-foreground`, `border`). Brand surfaces use the `--wb-*` tokens. Don't mix them on one surface.
 
@@ -298,7 +302,7 @@ Precise and restrained.
 
 ### Don't:
 - **Don't** use Fraunces, cream paper or pill buttons inside an editor or workspace screen.
-- **Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, leaf) are for status only.
+- **Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, success) are for status only, and raw Tailwind hues (`text-red-500`, `bg-zinc-300`) never stand in for them.
 - **Don't** hard-code a hex in a component or engine when a token exists.
 - **Don't** add decorative shadows or gradients to app chrome.
 - **Don't** set a kicker or eyebrow label above a heading, or a row of non-metric "stats" under a hero. The heading carries its own weight.

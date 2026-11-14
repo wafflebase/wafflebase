@@ -23,6 +23,15 @@ export interface DocTheme {
   /** Selection */
   selectionColor: string;
   selectionColorInactive: string;
+  /**
+   * Object selection chrome — the image selection frame and handles, the
+   * resize HUD pill and the table drag guideline. Syrup, the one accent that
+   * carries selection (DESIGN.md), bright syrup on the dark canvas.
+   */
+  objectSelectionColor: string;
+  /** Text on an `objectSelectionColor` fill (the resize HUD) — the same pair
+   *  the app's primary button uses (`primaryForeground`). */
+  objectSelectionForeground: string;
 
   /** Page */
   pageGap: number;
@@ -54,6 +63,8 @@ const LightTheme: DocTheme = {
 
   selectionColor: `rgba(${palette.butterRgb}, 0.30)`,
   selectionColorInactive: 'rgba(0, 0, 0, 0.1)',
+  objectSelectionColor: palette.syrup,
+  objectSelectionForeground: '#FFFAF0',
 
   pageGap: 40,
   pageShadowColor: 'rgba(0, 0, 0, 0.15)',
@@ -85,6 +96,8 @@ const DarkTheme: DocTheme = {
 
   selectionColor: `rgba(${palette.butterRgb}, 0.35)`,
   selectionColorInactive: 'rgba(255, 255, 255, 0.1)',
+  objectSelectionColor: palette.syrupBright,
+  objectSelectionForeground: palette.neutrals.dark.bg,
 
   pageGap: 40,
   pageShadowColor: 'rgba(0, 0, 0, 0.4)',

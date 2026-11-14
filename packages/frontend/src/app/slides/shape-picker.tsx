@@ -52,7 +52,7 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
       title={label}
       data-active={active || undefined}
       onClick={() => onSelect(kind)}
-      className="flex size-8 cursor-pointer items-center justify-center rounded text-foreground hover:bg-accent data-[active=true]:bg-accent"
+      className="flex size-8 cursor-pointer items-center justify-center rounded text-foreground hover:bg-accent data-[active=true]:bg-selected"
     >
       <canvas ref={ref} className="size-6" />
     </button>
@@ -104,11 +104,11 @@ export function ShapePicker({
       type="button"
       aria-label="Shape"
       // data-state mirrors the Toggle component so the pressed
-      // visual (bg-accent / text-accent-foreground) matches the
+      // visual (bg-selected / text-selected-foreground) matches the
       // Select / Text Toggles next to it.
       data-state={activeKind !== null ? "on" : "off"}
       disabled={disabled}
-      className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+      className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-selected data-[state=on]:text-selected-foreground disabled:pointer-events-none disabled:opacity-50"
     >
       <IconShape size={16} />
     </button>

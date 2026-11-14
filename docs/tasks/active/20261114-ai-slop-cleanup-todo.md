@@ -17,13 +17,13 @@ for the lot, with before/after screenshots.
 
 ## 2. Colorize — one accent, tokens for every chrome color
 
-- [ ] Tooltip off the accent (`bg-foreground text-background`)
-- [ ] A `selected` token distinct from hover; Toggle on-state uses it
-- [ ] Sidebar hover is a neutral wash, active stays butter
-- [ ] Selection / handle / guide tokens in `@wafflebase/core`, threaded through slides, sheets object layer, docs image overlay
-- [ ] Document-type colors from tokens (no purple / fuchsia), paired light/dark
-- [ ] Chart tokens: a distinguishable series set, no AI purple
-- [ ] Raw `text-red-500` / `text-green-500` → `destructive` / `success`
+- [x] Tooltip off the accent (`bg-foreground text-background`)
+- [x] A `selected` token distinct from hover; Toggle on-state uses it
+- [x] Sidebar hover is a neutral wash, active stays butter
+- [x] Selection / handle / guide tokens in `@wafflebase/core`, threaded through slides, sheets object layer, docs image overlay
+- [x] Document-type colors from tokens (no purple / fuchsia), paired light/dark
+- [x] Chart tokens: a distinguishable series set, no AI purple
+- [x] Raw `text-red-500` / `text-green-500` → `destructive` / `success`
 
 ## 3. Clarify — copy
 

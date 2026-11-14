@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "packages/frontend/src/app/home/demo-section.tsx"
+        ],
+        "createdAt": "2026-11-14T02:31:52.761Z",
+        "reason": "Claude, verified by two audit agents: border-b-2 active-tab underline on a rounded-t tab, not a side accent on a card"
+      }
+    ]
+  }
+}

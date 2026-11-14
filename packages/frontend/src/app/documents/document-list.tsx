@@ -334,7 +334,7 @@ function ImportMenuItems({
       */}
       {workspaceId && (
         <DropdownMenuItem onClick={onImportMiro}>
-          <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
+          <Frame className="mr-2 h-4 w-4 text-type-board" />
           Import from Miro…
         </DropdownMenuItem>
       )}

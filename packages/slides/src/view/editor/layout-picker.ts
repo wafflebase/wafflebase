@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from './chrome-colors';
 import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import { renderLayoutPreview } from '../canvas/layout-preview';
 import type { SlidesStore } from '../../store/store';
@@ -87,7 +88,7 @@ export function showLayoutPicker(
     cell.style.borderRadius = '4px';
     if (layout.id === opts.selectedLayoutId) {
       cell.dataset.selected = 'true';
-      cell.style.outline = '2px solid var(--primary, #3a7)';
+      cell.style.outline = `2px solid var(--primary, ${SELECTION_COLOR})`;
     } else {
       cell.style.outline = '1px solid var(--border, #444)';
     }

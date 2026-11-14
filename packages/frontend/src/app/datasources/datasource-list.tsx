@@ -144,7 +144,7 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
           );
         }
         if (result === true) {
-          return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+          return <CheckCircle2 className="h-4 w-4 text-success" />;
         }
         if (result === false) {
           return <XCircle className="h-4 w-4 text-destructive" />;

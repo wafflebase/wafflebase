@@ -2334,7 +2334,7 @@ export function initialize(
       const scrollX = container.scrollLeft / scaleFactor;
       ctx.save();
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#4285F4';
+      ctx.strokeStyle = Theme.objectSelectionColor;
       ctx.lineWidth = 1;
       if (dragGuideline.x != null) {
         const x = (dragGuideline.x - scrollX) * scaleFactor;

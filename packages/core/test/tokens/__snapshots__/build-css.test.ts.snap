@@ -36,14 +36,17 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
   --warning: oklch(0.555 0.163 48.998);
+  --success: #5A7A3A;
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
   --ring: #B8651A;
+  --selected: rgba(244, 201, 93, 0.30);
+  --selected-foreground: #8A4A12;
   --chart-1: #B8651A;
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --chart-2: oklch(0.50 0.12 250);
+  --chart-3: oklch(0.58 0.10 185);
+  --chart-4: oklch(0.58 0.15 355);
+  --chart-5: oklch(0.64 0.12 95);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
   --sidebar-primary: #B8651A;
@@ -52,6 +55,14 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --sidebar-accent-foreground: #8A4A12;
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: #B8651A;
+  --type-sheet: #5A7A3A;
+  --type-doc: oklch(0.52 0.12 250);
+  --type-note: #6B584A;
+  --type-slides: oklch(0.55 0.09 195);
+  --type-pdf: #C2484C;
+  --type-image: oklch(0.56 0.15 355);
+  --type-board: oklch(0.62 0.12 95);
+  --type-file: oklch(0.552 0.016 285.938);
 }
 
 .dark {
@@ -81,14 +92,17 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --warning: oklch(0.769 0.188 70.08);
+  --success: #A0C078;
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: #E08A3A;
+  --selected: rgba(244, 201, 93, 0.18);
+  --selected-foreground: #F4C95D;
   --chart-1: #E08A3A;
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  --chart-2: oklch(0.72 0.11 250);
+  --chart-3: oklch(0.74 0.10 185);
+  --chart-4: oklch(0.72 0.13 355);
+  --chart-5: oklch(0.86 0.13 90);
   --sidebar: oklch(0.205 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: #E08A3A;
@@ -97,6 +111,14 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --sidebar-accent-foreground: #F4C95D;
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: #E08A3A;
+  --type-sheet: #A0C078;
+  --type-doc: oklch(0.74 0.10 250);
+  --type-note: #B5A48A;
+  --type-slides: oklch(0.76 0.09 195);
+  --type-pdf: #E27A7E;
+  --type-image: oklch(0.75 0.12 355);
+  --type-board: #F4C95D;
+  --type-file: oklch(0.705 0.015 286.067);
 }
 
 "

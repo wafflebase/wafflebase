@@ -21,6 +21,7 @@
  *
  * Refs: docs/tasks/active/20260507-slides-phase5a-plan.md Task 4.
  */
+import { SELECTION_COLOR } from './chrome-colors';
 import {
   initializeTextBox,
   CanvasTextMeasurer,
@@ -338,7 +339,7 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   // container so it intercepts clicks before they reach the slide canvas).
   container.style.pointerEvents = 'auto';
   // Match handle outline so users see they're in edit mode.
-  container.style.outline = '1px dashed #3a7';
+  container.style.outline = `1px dashed ${SELECTION_COLOR}`;
   container.style.outlineOffset = '0';
   // Apply rotation if the element is rotated. Rotation is around the
   // frame center — same convention as the slide renderer.
