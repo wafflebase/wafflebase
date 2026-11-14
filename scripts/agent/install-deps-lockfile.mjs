@@ -482,7 +482,7 @@ export function checkProjects(root, importers) {
   for (const importer of importers) {
     const dir = path.join(root, importer);
     const where = importer === "." ? "package.json" : `${importer}/package.json`;
-    if (!existsSync(dir) || realpathSync.native(dir) !== dir) {
+    if (!existsSync(dir) || !realpathSync.native(dir, { encoding: "buffer" }).equals(Buffer.from(dir))) {
       refuse(`pnpm-lock.yaml names the project ${importer}, which is not a plain directory of this checkout`);
     }
     const text = readBranchFile(path.join(dir, "package.json"), where, MANIFEST_MAX).toString("utf8");

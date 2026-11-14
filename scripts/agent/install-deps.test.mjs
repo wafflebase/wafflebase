@@ -23,7 +23,9 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  rmdirSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -62,6 +64,46 @@ const RESOLUTION = `    resolution: {integrity: ${INTEGRITY}}\n`;
 const GIT = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
 
 /**
+ * Remove a temporary tree, reading every name as bytes: some cases leave
+ * names that are not UTF-8, which a removal by decoded name cannot reach.
+ */
+function removeTree(dir) {
+  const target = Buffer.isBuffer(dir) ? dir : Buffer.from(dir);
+  const stat = lstatSync(target, { throwIfNoEntry: false });
+  if (!stat) return;
+  if (stat.isDirectory()) {
+    chmodSync(target, 0o700);
+    for (const name of readdirSync(target, { encoding: "buffer" })) {
+      removeTree(Buffer.concat([target, Buffer.from("/"), name]));
+    }
+    rmdirSync(target);
+  } else {
+    unlinkSync(target);
+  }
+}
+
+/**
+ * A path whose last component is `name` followed by raw bytes — bytes that
+ * are not UTF-8 unless `bytes` says otherwise.
+ */
+const rawPath = (dir, name, bytes = [0xff]) => Buffer.concat([Buffer.from(path.join(dir, name)), Buffer.from(bytes)]);
+const REPLACEMENT = "�";
+
+/** Whether this filesystem takes a file name that is not UTF-8 (ext4 does; APFS does not). */
+const NON_UTF8_NAMES = (() => {
+  const dir = mkdtempSync(path.join(TMP, "install-deps-names-"));
+  try {
+    writeFileSync(rawPath(dir, "probe"), "");
+    return true;
+  } catch {
+    return false;
+  } finally {
+    removeTree(dir);
+  }
+})();
+const NEEDS_NON_UTF8 = "needs a filesystem that takes file names that are not UTF-8 (ext4 does, APFS does not); runs in the Linux lane";
+
+/**
  * A temp area with, per case, a workspace, a runner temp directory, a pnpm
  * package on PATH (located and read by the script, never run) and a stub
  * `docker`.
@@ -69,9 +111,8 @@ const GIT = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdo
 function harness(t) {
   const base = mkdtempSync(path.join(TMP, "install-deps-test-"));
   t.after(() => {
-    // Some cases close a directory; open everything again before removing it.
-    spawnSync("chmod", ["-R", "u+rwx", base]);
-    rmSync(base, { recursive: true, force: true });
+    // Some cases close a directory or leave a name that is not UTF-8.
+    removeTree(base);
   });
   // The stub is told what to do through a file beside it: the script hands
   // the runtime's client an environment of its own, so nothing set here
@@ -1049,6 +1090,107 @@ test("the container half sets every .npmrc aside for pnpm and puts it back, what
   const gone = run({ DO: "fs.rmSync('packages/b', { recursive: true }); fs.writeFileSync('packages/b', 'now a file');" });
   assert.notEqual(gone.status, 0);
   assert.match(gone.err, /could not put packages\/b\/\.npmrc back/);
+});
+
+test("a name that is not UTF-8 is refused, before the install and after it", (t) => {
+  // Read leniently, such a name comes back with a replacement character in
+  // it, and that string names a DIFFERENT file — one shipped beside it, so
+  // that every check is made on the decoy instead. Names are read as bytes.
+  if (!NON_UTF8_NAMES) {
+    t.skip(NEEDS_NON_UTF8);
+    return;
+  }
+  const { outside, run } = harness(t);
+  const NOT_UTF8 = /^::error::install-deps: .*\\xff has a name that is not valid UTF-8; the install reads only names it can name exactly/m;
+  const sub = (dir, name, rest) => Buffer.concat([rawPath(dir, name), Buffer.from(rest)]);
+  const before = {
+    "a link out, with a decoy that stays in": (dir) => {
+      symlinkSync(outside, rawPath(dir, "x"));
+      symlinkSync("pnpm-lock.yaml", path.join(dir, `x${REPLACEMENT}`));
+    },
+    "a link into .git, with a decoy": (dir) => {
+      symlinkSync(".git/hooks", rawPath(dir, "x"));
+      symlinkSync("pnpm-lock.yaml", path.join(dir, `x${REPLACEMENT}`));
+    },
+    "a whole directory, with an empty decoy": (dir) => {
+      mkdirSync(rawPath(dir, "d"));
+      mkdirSync(sub(dir, "d", "/node_modules"));
+      symlinkSync(outside, sub(dir, "d", "/out"));
+      writeFileSync(sub(dir, "d", "/package.yaml"), "name: x\n");
+      mkdirSync(path.join(dir, `d${REPLACEMENT}`));
+    },
+    "a file with no decoy": (dir) => writeFileSync(rawPath(dir, "f"), "data"),
+    "a name deep in a project": (dir) => writeFileSync(rawPath(path.join(dir, "packages", "a"), "g"), "data"),
+  };
+  for (const [name, setup] of Object.entries(before)) {
+    const r = run(setup);
+    assert.notEqual(r.status, 0, name);
+    assert.match(r.err, NOT_UTF8, name);
+    assert.equal(r.installed, false, `${name}: pnpm install was reached`);
+  }
+  // A link whose TEXT is not UTF-8, beside a decoy name that is.
+  const text = run((dir) => {
+    writeFileSync(path.join(dir, `x${REPLACEMENT}`), "decoy");
+    symlinkSync(Buffer.from([0x78, 0xff]), path.join(dir, "via"));
+  });
+  assert.notEqual(text.status, 0);
+  assert.match(text.err, /via is a symbolic link that resolves outside the workspace/);
+  assert.equal(text.installed, false);
+  // Made by the install: in node_modules beside a decoy, and at the root.
+  for (const change of [
+    // (Double quotes only: the stub's configuration holds this in single quotes.)
+    `ln -s "$STUB_RT" "node_modules/x$(printf "\\377")" && ln -s . "node_modules/x$(printf "\\357\\277\\275")"`,
+    `echo x > "f$(printf "\\377")"`,
+  ]) {
+    const r = run(null, { stub: { STUB_EXTRA: change } });
+    assert.notEqual(r.status, 0, change);
+    assert.match(r.err, NOT_UTF8, change);
+    assert.equal(existsSync(r.githubEnv), false, change);
+  }
+  // Beside the workspace and in the runner's temp directory, a name swapped
+  // for another that reads the same when decoded leniently is a change.
+  const swapped = run((dir) => writeFileSync(rawPath(path.join(dir, "..", "..", "rt"), "a"), ""), {
+    stub: { STUB_EXTRA: `mv "$STUB_RT/a$(printf "\\377")" "$STUB_RT/a$(printf "\\376")"` },
+  });
+  assert.notEqual(swapped.status, 0);
+  assert.match(swapped.err, /created or removed something in the runner's temp directory/);
+  assert.deepEqual(readdirSync(outside), ["keep"]);
+});
+
+test("a name that is UTF-8 is accepted, a replacement character included", (t) => {
+  // The control: the character a lenient decoding produces is itself valid
+  // UTF-8, and a name that really contains it is an ordinary name.
+  const { run } = harness(t);
+  const ok = run((dir) => {
+    writeFileSync(path.join(dir, `x${REPLACEMENT}`), "a file");
+    symlinkSync(`x${REPLACEMENT}`, path.join(dir, `y${REPLACEMENT}`));
+    mkdirSync(path.join(dir, "ünïcödé"));
+    writeFileSync(path.join(dir, "ünïcödé", "f"), "x");
+  });
+  assert.equal(ok.status, 0, ok.err);
+  assert.equal(ok.installed, true);
+});
+
+test("the container half refuses a name that is not UTF-8 before it moves or runs anything", (t) => {
+  if (!NON_UTF8_NAMES) {
+    t.skip(NEEDS_NON_UTF8);
+    return;
+  }
+  const base = mkdtempSync(path.join(TMP, "install-deps-entry-names-"));
+  t.after(() => removeTree(base));
+  const dir = path.join(base, "ws");
+  mkdirSync(path.join(dir, ".git"), { recursive: true });
+  writeFileSync(path.join(dir, ".npmrc"), "root=1\n");
+  mkdirSync(rawPath(dir, "d"));
+  writeFileSync(Buffer.concat([rawPath(dir, "d"), Buffer.from("/.npmrc")]), "nested=1\n");
+  const ran = path.join(base, "ran");
+  const pnpm = path.join(base, "pnpm.cjs");
+  writeFileSync(pnpm, `require("fs").writeFileSync(${JSON.stringify(ran)}, "")\n`);
+  const r = spawnSync(process.execPath, [ENTRY, pnpm, "install"], { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH, TMPDIR: base } });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /install-deps: a name in the workspace is not valid UTF-8; the install does not run/);
+  assert.equal(existsSync(ran), false, "pnpm ran");
+  assert.equal(readFileSync(path.join(dir, ".npmrc"), "utf8"), "root=1\n", "a .npmrc was moved");
 });
 
 test("with the real runtime and the real pnpm: nothing the branch wrote runs, and the install stays inside", (t) => {

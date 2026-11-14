@@ -24,13 +24,27 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-/** Every `.npmrc` in the tree (file, directory or link), relative to the root; nothing is followed. */
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/**
+ * Every `.npmrc` in the tree (file, directory or link), relative to the root;
+ * nothing is followed. Names are read as bytes; one that is not UTF-8 cannot
+ * be named exactly as a string, so the walk stops there rather than look at a
+ * different file of a similar name.
+ */
 function findNpmrc(root) {
   const found = [];
   const stack = [root];
   while (stack.length > 0) {
     const dir = stack.pop();
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const raw of fs.readdirSync(dir, { withFileTypes: true, encoding: "buffer" })) {
+      let name;
+      try {
+        name = UTF8.decode(raw.name);
+      } catch {
+        throw new Error(`a name in ${path.relative(root, dir) || "the workspace"} is not valid UTF-8`);
+      }
+      const entry = { name, isDirectory: () => raw.isDirectory() };
       const full = path.join(dir, entry.name);
       if (entry.name === ".npmrc") found.push(path.relative(root, full));
       else if (entry.isDirectory() && !(dir === root && entry.name === ".git") && entry.name !== "node_modules") stack.push(full);
@@ -42,8 +56,16 @@ function findNpmrc(root) {
 function main() {
   const [pnpm, ...args] = process.argv.slice(2);
   const root = process.cwd();
+  let setAside;
+  try {
+    setAside = findNpmrc(root);
+  } catch (error) {
+    // Before anything is moved or run.
+    console.error(`install-deps: ${error.message}; the install does not run`);
+    process.exitCode = 1;
+    return;
+  }
   const stash = fs.mkdtempSync(path.join(os.tmpdir(), "npmrc-"));
-  const setAside = findNpmrc(root);
   const links = new Map();
   let status = 1;
   try {
@@ -52,7 +74,7 @@ function main() {
       // container's own scratch space, on another filesystem. A link is
       // remembered by where it points, not followed.
       const from = path.join(root, rel);
-      if (fs.lstatSync(from).isSymbolicLink()) links.set(i, fs.readlinkSync(from));
+      if (fs.lstatSync(from).isSymbolicLink()) links.set(i, fs.readlinkSync(from, { encoding: "buffer" }));
       else fs.cpSync(from, path.join(stash, String(i)), { recursive: true, verbatimSymlinks: true });
       fs.rmSync(from, { recursive: true, force: true });
     });

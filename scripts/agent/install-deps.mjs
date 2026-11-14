@@ -19,7 +19,8 @@
 //     or if any symbolic link fails to resolve, resolves outside the workspace
 //     or into its `.git`. After pnpm ran, the same is checked again, along
 //     with the runner's temp directory and the directory this script was
-//     staged in.
+//     staged in. Every name and link text is read as its bytes and must be
+//     valid UTF-8, so each check is made on the file it names.
 //   * It fetches registry packages only, by name, version and sha512
 //     integrity. `pnpm-lock.yaml` is held to an allow-list
 //     (install-deps-lockfile.mjs): no other kind of resolution, no local or
@@ -158,13 +159,55 @@ const refuse = (message) => {
 
 const isInside = (root, target) => target === root || target.startsWith(root + path.sep);
 
-/** A directory's entries. One that cannot be listed is a refusal, never something to skip. */
-function entriesOf(root, dir) {
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/**
+ * The bytes of a file name or a link's text, as a string that names exactly
+ * them. Names are read as bytes, never decoded leniently: a lenient decoding
+ * turns a byte sequence that is not UTF-8 into a replacement character, and
+ * the string that comes back then names a DIFFERENT file — one the branch can
+ * ship beside the real one, so that every check is made on it instead. Bytes
+ * that are not UTF-8 are refused.
+ */
+function exactly(bytes, what) {
+  let text;
   try {
-    return readdirSync(dir, { withFileTypes: true });
+    text = UTF8.decode(bytes);
+  } catch {
+    // Shown with the bytes that cannot be decoded escaped, never decoded.
+    const shown = [...bytes].map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : `\\x${b.toString(16).padStart(2, "0")}`)).join("");
+    return refuse(`${what(shown)} has a name that is not valid UTF-8; the install reads only names it can name exactly`);
+  }
+  return text;
+}
+
+/**
+ * A directory's entries, each named exactly (see `exactly`). One that cannot
+ * be listed is a refusal, never something to skip.
+ *
+ * @returns {{ name: string, isDirectory(): boolean, isFile(): boolean, isSymbolicLink(): boolean }[]}
+ */
+function entriesOf(root, dir) {
+  let raw;
+  try {
+    raw = readdirSync(dir, { withFileTypes: true, encoding: "buffer" });
   } catch (error) {
     return refuse(`${path.relative(root, dir) || "the workspace"} cannot be listed (${error.code ?? error.message}); the install does not skip what it cannot read`);
   }
+  return raw.map((entry) => {
+    const name = exactly(entry.name, (shown) => path.join(path.relative(root, dir), shown));
+    return {
+      name,
+      isDirectory: () => entry.isDirectory(),
+      isFile: () => entry.isFile(),
+      isSymbolicLink: () => entry.isSymbolicLink(),
+    };
+  });
+}
+
+/** The text of a symbolic link, exactly (see `exactly`). */
+function linkText(file) {
+  return exactly(readlinkSync(file, { encoding: "buffer" }), () => file);
 }
 
 /**
@@ -176,7 +219,7 @@ function entriesOf(root, dir) {
  *
  * @returns {string} the resolved path; throws if a component does not exist
  */
-const physical = (file) => realpathSync.native(file);
+const physical = (file) => exactly(realpathSync.native(file, { encoding: "buffer" }), () => file);
 
 /**
  * Where a symbolic link leads, judged by following its text one component at a
@@ -224,7 +267,7 @@ function judgeLink(root, dir, full) {
         } else if (stat.isSymbolicLink()) {
           let inner;
           try {
-            inner = readlinkSync(next);
+            inner = linkText(next);
           } catch {
             return "outside";
           }
@@ -242,7 +285,7 @@ function judgeLink(root, dir, full) {
   };
   let text;
   try {
-    text = readlinkSync(full);
+    text = linkText(full);
   } catch {
     return "outside";
   }
@@ -255,8 +298,10 @@ function judgeLink(root, dir, full) {
   let resolved;
   try {
     resolved = physical(full);
-  } catch {
-    return "dangling";
+  } catch (error) {
+    // A place whose own name cannot be named exactly is not in the working
+    // tree, whose names all can.
+    return error instanceof Refusal ? "outside" : "dangling";
   }
   if (resolved !== ended || !isInside(root, resolved)) return "outside";
   if (isInside(gitDir, resolved)) return "git";
@@ -452,7 +497,7 @@ export function hashTree(dir, skip = () => false) {
       const full = path.join(dir, child);
       try {
         const mode = lstatSync(full).mode & 0o7777;
-        if (entry.isSymbolicLink()) put("link", child, readlinkSync(full));
+        if (entry.isSymbolicLink()) put("link", child, readlinkSync(full, { encoding: "buffer" }));
         else if (entry.isDirectory()) put("dir", child, mode);
         else if (entry.isFile()) put("file", child, mode, readFileSync(full));
         else put("other", child, mode);
@@ -544,9 +589,9 @@ function checkInstalled(root, importers) {
     }
     if (!existsSync(modules)) continue;
     const entries = [];
-    for (const entry of readdirSync(modules, { withFileTypes: true })) {
+    for (const entry of entriesOf(root, modules)) {
       if (entry.name.startsWith("@") && entry.isDirectory()) {
-        for (const scoped of readdirSync(path.join(modules, entry.name), { withFileTypes: true })) {
+        for (const scoped of entriesOf(root, path.join(modules, entry.name))) {
           entries.push([path.join(entry.name, scoped.name), scoped]);
         }
       } else {
@@ -559,7 +604,8 @@ function checkInstalled(root, importers) {
       let target;
       try {
         target = physical(full);
-      } catch {
+      } catch (error) {
+        if (error instanceof Refusal) throw error;
         refuse(`${path.relative(root, full)} does not resolve after the install`);
       }
       if (!isInside(root, target)) {
@@ -606,14 +652,19 @@ function homeConfigDigest() {
   for (const name of [".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmrc", path.join(".config", "pnpm")]) {
     const file = path.join(home, name);
     const stat = lstatSync(file, { throwIfNoEntry: false });
-    const state = !stat ? "absent" : stat.isSymbolicLink() ? `link ${readlinkSync(file)}` : stat.isDirectory() ? `dir ${hashTree(file)}` : stat.isFile() ? `file ${readFileSync(file).toString("base64")}` : "other";
+    const state = !stat ? "absent" : stat.isSymbolicLink() ? `link ${readlinkSync(file, { encoding: "buffer" }).toString("base64")}` : stat.isDirectory() ? `dir ${hashTree(file)}` : stat.isFile() ? `file ${readFileSync(file).toString("base64")}` : "other";
     hash.update(`${name}\0${state}\0`);
   }
   return hash.digest("hex");
 }
 
-const siblings = (root) => readdirSync(path.dirname(root)).sort().join("\n");
-const listing = (dir) => readdirSync(dir).sort().join("\n");
+/** A directory's names as their bytes, so that two different names never compare equal. */
+const listing = (dir) =>
+  readdirSync(dir, { encoding: "buffer" })
+    .map((name) => name.toString("hex"))
+    .sort()
+    .join("\n");
+const siblings = (root) => listing(path.dirname(root));
 
 /**
  * Check the workspace, install, check again.
