@@ -30,17 +30,9 @@
       name="twitter:description"
       content="Sheets, Docs, Slides, Notes and Boards, edited together in real time. Run it on your own servers and script it with the REST API and CLI."
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Fraunces italic is loaded for 500 only: the hero's second line
-         (hero-section.tsx, `font-medium italic`) is the one italic display
-         text. A new italic weight needs its own `1,9..144,<wght>` tuple here;
-         `.font-display` sets `font-synthesis-style: none`, so a missing face renders
-         upright instead of as a browser-slanted fake. -->
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-    />
+    <!-- No font stylesheet here on purpose: the brand faces load only on the
+         brand routes, from script (src/lib/brand-fonts.ts), so no route waits
+         on a third-party stylesheet before first paint. -->
     <!-- Start Single Page Apps for GitHub Pages -->
     <script type="text/javascript">
       // Single Page Apps for GitHub Pages
@@ -78,16 +70,12 @@
       gtag('js', new Date());
       gtag('config', 'G-1Q13HY79ST', { send_page_view: false });
     </script>
-    <script type="module" crossorigin src="/assets/index-ZV735uX8.js"></script>
+    <script type="module" crossorigin src="/assets/index-zosScbvy.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-C3v5QauN.js">
-    <link rel="modulepreload" crossorigin href="/assets/sheet-formula-parser-Bol0c9h1.js">
-    <link rel="modulepreload" crossorigin href="/assets/sheet-formula-eval-CmmJ_ajO.js">
-    <link rel="modulepreload" crossorigin href="/assets/sheet-core-B26iyzxu.js">
-    <link rel="modulepreload" crossorigin href="/assets/slides-editor-engine-Dbd3btJV.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-app-Dz3Ax4dI.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-ui-DhU_i9X2.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-app-DU5We-AV.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-ui-DxOWuNQj.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-yorkie-BTsJicOF.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-5MVArUeC.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-F48ndeti.css">
   </head>
   <body>
     <div id="root"></div>
