@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-14T06:06:06.807Z",
+  "generatedAt": "2026-11-14T07:38:55.611Z",
   "title": "Design System: Wafflebase",
   "extensions": {
     "colorMeta": {
@@ -1088,15 +1088,15 @@
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "Homepage hero only; the italic second line is Fraunces true italic at 500."
+        "purpose": "Homepage hero only; the italic second line is Fraunces true italic at 500, the one italic face loaded. Brand faces load only on brand routes (/, /login, /templates, /t/:id) via src/lib/brand-fonts.ts with display=swap."
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "Brand-surface page titles (sign-in, template landing)."
+        "purpose": "Brand-surface page titles (sign-in, template landing); the sidebar wordmark uses the same face at 17px."
       },
       "section-title": {
         "displayName": "Section title",
-        "purpose": "Settings and workspace-settings section headings."
+        "purpose": "Settings and workspace-settings section headings; the largest app-chrome text outside an analytics stat figure (24px)."
       },
       "title": {
         "displayName": "Title",
@@ -1104,7 +1104,7 @@
       },
       "body": {
         "displayName": "Body",
-        "purpose": "All editor and workspace UI text; inputs render at 16px on mobile."
+        "purpose": "All editor and workspace UI text in the system stack (brand faces are not loaded on app routes); inputs render at 16px on mobile."
       },
       "body-brand": {
         "displayName": "Body (brand)",
@@ -1112,7 +1112,7 @@
       },
       "title-brand": {
         "displayName": "Title (brand)",
-        "purpose": "Homepage feature-card titles."
+        "purpose": "Homepage feature- and use-case-card titles (use-case cards in Fraunces); the brand nav and footer wordmarks use Fraunces at the same size."
       },
       "body-brand-sm": {
         "displayName": "Body (brand, small)",
@@ -1128,11 +1128,11 @@
       },
       "micro": {
         "displayName": "Micro",
-        "purpose": "Count badges, avatar initials, swatch captions. Never body copy."
+        "purpose": "Count badges, avatar initials, swatch captions (text-2xs). Never body copy, never a label the user must read to act; nothing in the app renders smaller."
       },
       "label-mono": {
         "displayName": "Label (mono)",
-        "purpose": "Uppercase footer column headings and the template category chip."
+        "purpose": "Uppercase footer column headings and the template category chip. Never a kicker or eyebrow above a heading."
       },
       "control": {
         "displayName": "Control",
@@ -1159,6 +1159,11 @@
         "name": "dialog",
         "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
         "purpose": "Dialogs and floating editor panels (shadow-lg)."
+      },
+      {
+        "name": "toast",
+        "value": "0px 4px 12px rgba(0, 0, 0, 0.1)",
+        "purpose": "Sonner toasts (library default, kept); surface, text and border are the popover tokens."
       },
       {
         "name": "brand-card",
@@ -1205,12 +1210,17 @@
       {
         "name": "sidebar-collapse",
         "value": "200ms linear",
-        "purpose": "Sidebar width, label margin and opacity when collapsing to the icon rail."
+        "purpose": "Sidebar width, label margin and opacity when collapsing to the icon rail; motion-reduce:transition-none."
       },
       {
         "name": "brand-hover",
         "value": "150ms (use-case cards, pill buttons) / 200ms (feature cards)",
         "purpose": "Brand card lift (-2px) or 1.005 scale, and the pill button 1px lift."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce): tw-animate enter/exit scale and translate zeroed; brand hover lifts and scale removed",
+        "purpose": "Overlays (dialogs, sheets, popovers, menus, tooltips) keep only the opacity fade; brand cards and the pill CTA stay still on hover (the CTA keeps its primary-hover fill). Slides presentation motion honors the same query in packages/slides."
       }
     ],
     "breakpoints": [
@@ -1286,6 +1296,14 @@
       "css": ".ds-input { height: 36px; width: 240px; min-width: 0; padding: 4px 12px; border: 1px solid var(--input-border, oklch(0.64 0.016 285.938)); border-radius: var(--radius-md, 2.8px); background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); caret-color: var(--primary, #9E5614); font: 14px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); } .ds-input:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-input[aria-invalid=\"true\"] { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); } @media (max-width: 767px) { .ds-input { font-size: 16px; } }"
     },
     {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Sonner via components/ui/sonner.tsx: the resolved app theme, popover surface and border, lg corners. An error toast names what failed and what to do next.",
+      "html": "<div class=\"ds-toast\" role=\"status\"><div class=\"ds-toast-title\">Couldn’t share the document</div><div class=\"ds-toast-desc\">Check your connection and try again.</div></div>",
+      "css": ".ds-toast { display: flex; flex-direction: column; gap: 2px; width: 356px; padding: 16px; border: 1px solid var(--border, oklch(0.92 0.004 286.32)); border-radius: var(--radius, 4.8px); background: var(--popover, #fff); color: var(--popover-foreground, oklch(0.141 0.005 285.823)); box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1); font: 13px ui-sans-serif, system-ui, sans-serif; } .ds-toast-title { font-weight: 500; line-height: 1.5; } .ds-toast-desc { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); }"
+    },
+    {
       "name": "Card",
       "kind": "card",
       "refersTo": "card",
@@ -1331,7 +1349,7 @@
     "rules": [
       {
         "name": "The One Accent Rule",
-        "body": "Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.",
+        "body": "Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong; the same goes for two primary buttons in one view (workspace settings keeps \"Create invite link\" primary and steps \"Create API key\" down to outline beside it). Hyperlink blue is the sole exception, and only on actual URLs. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.",
         "section": "colors"
       },
       {

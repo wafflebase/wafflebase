@@ -1,0 +1,35 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "files": [
+          "tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T07:39:32.575Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "lobster two",
+        "files": [
+          "tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T07:39:32.589Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "lobster",
+        "files": [
+          "tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T07:39:32.604Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      }
+    ]
+  }
+}

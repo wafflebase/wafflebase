@@ -104,13 +104,26 @@ describe("DocumentList", () => {
 
   it("keeps the column layout when a filter empties the body", () => {
     renderList({ data: [doc(1, "Budget")] });
-    const headerClasses = () =>
-      screen.getAllByRole("columnheader").map((th) => th.className);
-    const before = headerClasses();
+    // The widths and breakpoints live on the header cells, not only on the
+    // body cells, so a body with no rows lays the columns out the same way.
+    // Each body cell's width/breakpoint tokens must therefore be on its
+    // column's header too.
+    const sizing = (el: Element) =>
+      el.className
+        .split(/\s+/)
+        .filter((c) => /^(?:[a-z]+:)?(?:w-|min-w-|max-w-|hidden$|table-cell$)/.test(c));
+    const bodyCells = Array.from(
+      screen.getByRole("link", { name: "Budget" }).closest("tr")!.children,
+    );
+    const bodySizing = bodyCells.map(sizing);
+    expect(bodySizing.every((tokens) => tokens.length > 0)).toBe(true);
+
     fireEvent.change(screen.getByLabelText("Search documents by title"), {
       target: { value: "zzzz" },
     });
-    expect(headerClasses()).toEqual(before);
+    expect(screen.queryByRole("link", { name: "Budget" })).toBeNull();
+    const headerSizing = screen.getAllByRole("columnheader").map(sizing);
+    expect(headerSizing).toEqual(bodySizing);
   });
 
   it("hides Owner and Created below md, keeping the row menu column", () => {

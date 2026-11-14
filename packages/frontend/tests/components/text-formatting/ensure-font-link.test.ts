@@ -101,6 +101,24 @@ describe('ensureFontLink', () => {
     expect(fontLinks()).toHaveLength(0);
   });
 
+  test('an eager font waits for the bootstrap link instead of resolving at once', async () => {
+    // A PDF export awaits this before rasterising: resolving before the
+    // bootstrap stylesheet lands would paint the eager face in a fallback.
+    document.getElementById('wafflebase-google-fonts')?.remove();
+    let settled = false;
+    const done = ensureFontLink('Roboto').then(() => {
+      settled = true;
+    });
+    const bootstrap = document.getElementById('wafflebase-google-fonts');
+    expect(bootstrap).not.toBeNull();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    bootstrap!.dispatchEvent(new Event('load'));
+    await done;
+    expect(settled).toBe(true);
+    bootstrap!.remove();
+  });
+
   test('defaults to 400;700 weights for an unknown family', () => {
     ensureFontLink(FAKE_A);
     expect(fontLinks()[0].getAttribute('href')).toContain(
