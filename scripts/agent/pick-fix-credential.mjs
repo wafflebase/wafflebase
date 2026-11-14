@@ -171,10 +171,15 @@ export const AUTH = [
   /invalid[ _-]?(api[ _-]?key|token|credential)/i,
   /expired[ _-]?(token|credential)/i,
   /not[ _-]?authenticated/i,
-  /permission[ _-]?denied/i,
+  // Not a filesystem error. A failure is classified from the CLI's stderr
+  // tail, where the runner's own EACCES/EPERM ("EACCES: permission denied,
+  // mkdir …") or a shell's "/path: Permission denied" can appear.
+  /(?<!(?:E(?:ACCES|PERM)|\/[^\s:]*): )permission[ _-]?denied/i,
   /not[ _-]?logged[ _-]?in/i,
   /please run \/login/i,
-  /\/login\b/,
+  // The bare command only: not a URL's or a file's path (`…/oauth/login`,
+  // `/app/login.js`), which a network error or a stack frame can carry.
+  /(?<![\w./-])\/login(?![\w/-]|\.\w)/,
 ];
 
 /**

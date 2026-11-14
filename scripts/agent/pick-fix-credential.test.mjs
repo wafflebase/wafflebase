@@ -402,6 +402,35 @@ test("probeEnv: a probe child sees ONE token and no real home", () => {
   }
 });
 
+test("classifyProbeFailure: the runner's own faults in the stderr tail are not a refusal", () => {
+  // The SDK's exit error carries the CLI's stderr tail, so a filesystem error
+  // or a URL on the runner reaches the classifier. Read as auth, one passing
+  // fault would refuse every slot and page the PR.
+  const exit = (tail) => `Claude Code process exited with code 1. stderr: ${tail}`;
+  for (const msg of [
+    exit("Error: EACCES: permission denied, mkdir '/tmp/probe-abc/.claude'"),
+    exit("Error: EPERM: permission denied, open '/tmp/probe-abc/.claude.json'"),
+    exit("sh: /usr/local/bin/claude: Permission denied"),
+    exit("mkdir: cannot create directory '/tmp/x': Permission denied"),
+    exit("fetch failed: GET https://console.example.com/oauth/login (ECONNRESET)"),
+    exit("500 Internal server error; see https://status.example.com/login"),
+    exit("    at Object.<anonymous> (/app/login.js:12:5)"),
+    exit("    at run (/login.mjs:3:1)"),
+    exit("GET /login/callback failed"),
+  ]) {
+    assert.equal(classifyProbeFailure(msg), "unknown", msg);
+  }
+  // The same words still refuse when they are about the credential.
+  for (const msg of [
+    exit("Not logged in · Please run /login"),
+    exit("You must sign in first. Run /login."),
+    exit("Error: permission denied for this token"),
+    "error 0 Permission denied: the credential lacks access",
+  ]) {
+    assert.equal(classifyProbeFailure(msg), "auth", msg);
+  }
+});
+
 test("classifyProbeFailure: a transient overload is NOT a refusal — it must not latch a PR", () => {
   // review: a 30 s API-wide 429/529 made every slot look dead, `available=false`
   // posted the paged latch, and the PR stalled until a human reran it. Only a
