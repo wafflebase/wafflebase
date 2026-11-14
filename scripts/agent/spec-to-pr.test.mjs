@@ -1183,3 +1183,47 @@ test("review --dry-run rejects a rebuttals file the real run would reject", () =
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("review: a diff larger than a pipe buffer reaches the panel, built as CI builds it", () => {
+  // A deletion-heavy branch used to die with `spawnSync git ENOBUFS`: the diff
+  // was read back through `execFileSync`'s 1 MB default buffer. It is now
+  // streamed straight to the file, and filtered the way agent-review-panel.yml
+  // filters it, so a local round reviews the same body CI would.
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
+  const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-bigdiff-"));
+  try {
+    const work = stageBranchAheadOfOrigin(root);
+    // Land a 2 MB file on main, then delete it on the branch.
+    const originRepo = path.join(root, "origin");
+    writeFileSync(path.join(originRepo, "big.txt"), `${"y".repeat(80)}\n`.repeat(25_000));
+    fixtureGit(originRepo, "add", "-A");
+    fixtureGit(originRepo, "commit", "-q", "-m", "big file");
+    fixtureGit(work, "fetch", "-q", "origin", "main");
+    fixtureGit(work, "rebase", "-q", "origin/main");
+    rmSync(path.join(work, "big.txt"));
+    mkdirSync(path.join(work, "packages/sheets/antlr"), { recursive: true });
+    writeFileSync(path.join(work, "packages/sheets/antlr/Formula.interp"), "tooling only\n");
+    fixtureGit(work, "add", "-A");
+    fixtureGit(work, "commit", "-q", "-m", "delete it, add tooling output");
+
+    const base = path.join(root, "base");
+    const argvFile = path.join(root, "panel-argv.json");
+    execFileSync("node", [script, "review", "--out", base], {
+      cwd: work,
+      env: { ...fixtureGitEnv(work), WAFFLEBASE_REVIEW_PANEL: writeRecorderPanel(root, argvFile) },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+
+    const argv = JSON.parse(readFileSync(argvFile, "utf8"));
+    const diff = readFileSync(argv[argv.indexOf("--diff-file") + 1], "utf8");
+    const changed = readFileSync(argv[argv.indexOf("--changed-files") + 1], "utf8");
+    assert.ok(diff.length > 1024 * 1024, "the whole diff was written");
+    assert.match(diff, /deleted file mode/);
+    // Excluded from the body, as in CI, but still listed as changed.
+    assert.doesNotMatch(diff, /tooling only/);
+    assert.match(changed, /packages\/sheets\/antlr\/Formula\.interp/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
