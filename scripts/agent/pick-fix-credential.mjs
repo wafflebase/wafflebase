@@ -155,7 +155,7 @@ export function candidateNames(state, configuredNames) {
 // wafflebase's own arms, which live outside the shared core, and the jobs run
 // this file from a staged copy of `scripts/agent` that carries the core only.
 // `auth-smoke.test.mjs` holds the two to one vocabulary.
-const TRANSIENT = [
+export const TRANSIENT = [
   /rate[ _-]?limit/i,
   /\b429\b/,
   /overloaded/i,
@@ -163,7 +163,7 @@ const TRANSIENT = [
   /capacity/i,
   /too many requests/i,
 ];
-const AUTH = [
+export const AUTH = [
   /\b401\b/,
   /\b403\b/,
   /unauthorized/i,

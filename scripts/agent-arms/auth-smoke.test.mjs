@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyFailure, describeFailure, EXIT, worstExit } from "./auth-smoke.mjs";
-import { redactSecrets } from "../agent/redact.mjs";
-import { classifyProbeFailure } from "../agent/pick-fix-credential.mjs";
+import { AUTH, QUOTA, classifyFailure, describeFailure, EXIT, worstExit } from "./auth-smoke.mjs";
+import { SESSION_LIMIT_RE, redactSecrets } from "../agent/redact.mjs";
+import { AUTH as PROBE_AUTH, TRANSIENT as PROBE_TRANSIENT, classifyProbeFailure } from "../agent/pick-fix-credential.mjs";
 
 // This script had no test suite, and it is the FIRST thing an adopter runs —
 // so its diagnosis is the first thing they read. It reported "auth almost
@@ -165,8 +165,18 @@ test("classifyFailure: reads the RAW text, so redaction cannot change the verdic
 // calls a 429 or an overload `quota` (the credential worked; retry), the probe
 // would page a human over a blip. It keeps a copy rather than importing it —
 // it runs from a staged copy of the shared core, which does not carry this
-// arm — so this test is what keeps the two lists one vocabulary: one message
-// for each pattern on either side.
+// arm — so these tests are what keep the two lists one vocabulary: the lists
+// themselves are compared pattern for pattern, and one message for each
+// pattern shows the two thresholds.
+test("the fix-credential probe's lists are this script's, pattern for pattern", () => {
+  // Exact, not by example: a pattern added, widened or narrowed in one copy
+  // classifies the examples below the same and would pass them.
+  const key = (list) => list.map((re) => `${re.source}/${re.flags}`).sort();
+  assert.ok(QUOTA.includes(SESSION_LIMIT_RE), "the quota list no longer holds the pipeline's own session-limit rule");
+  assert.deepEqual(key(QUOTA.filter((re) => re !== SESSION_LIMIT_RE)), key(PROBE_TRANSIENT), "the transient-capacity lists differ");
+  assert.deepEqual(key(AUTH), key(PROBE_AUTH), "the auth lists differ");
+});
+
 test("the fix-credential probe reads this vocabulary, narrowed to refusals that stay refused", () => {
   // The same rejected credential reads the same in both.
   for (const msg of [

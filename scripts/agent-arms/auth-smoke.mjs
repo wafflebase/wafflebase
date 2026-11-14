@@ -43,7 +43,7 @@ export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 // saying "I don't know": a quota error read as auth sends someone after a good
 // credential, and an auth error read as quota sends them to wait for a reset
 // that will never help.
-const QUOTA = [
+export const QUOTA = [
   // The same rule the pipeline fails over on, imported rather than restated —
   // it covers `session`/`usage` plus the other billing periods. A period this
   // list knows but `SESSION_LIMIT_RE` does not (or the reverse) is a smoke test
@@ -58,7 +58,7 @@ const QUOTA = [
   /too many requests/i,
 ];
 
-const AUTH = [
+export const AUTH = [
   /\b401\b/,
   /\b403\b/,
   /unauthorized/i,
