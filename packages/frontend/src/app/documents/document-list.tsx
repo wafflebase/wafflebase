@@ -41,6 +41,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  SearchX,
   Trash2,
   X,
 } from "lucide-react";
@@ -830,22 +831,28 @@ export function DocumentList({
         const r = row.original;
         if (r.kind === "folder") {
           return (
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{r.item.name}</span>
+              <span className="truncate" title={r.item.name}>
+                {r.item.name}
+              </span>
             </div>
           );
         }
         const doc = r.item;
         const { Icon, color } = TYPE_META[doc.type];
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             {doc.type === "image" ? (
               <ImageThumb documentId={String(doc.id)} />
             ) : (
               <Icon className={`h-4 w-4 shrink-0 ${color}`} />
             )}
-            <span className="capitalize">{doc.title}</span>
+            {/* Shown exactly as typed: the editor header and the folder rows
+                beside it do not re-case titles, so neither does the list. */}
+            <span className="truncate" title={doc.title}>
+              {doc.title}
+            </span>
             {/* Live "currently editing" avatars sit next to the title rather
                 than in their own column. Presentational only — Title still
                 sorts by its own value. */}
@@ -1061,6 +1068,15 @@ export function DocumentList({
       rowSelection,
     },
   });
+
+  // An empty table means two different things: nothing is here, or the
+  // search / type filter hid everything that is. Only the first earns "New".
+  const titleQuery = String(table.getColumn("title")?.getFilterValue() ?? "");
+  const isFiltered = titleQuery.trim() !== "" || typeFilters.size > 0;
+  const clearFilters = () => {
+    table.getColumn("title")?.setFilterValue("");
+    setTypeFilters(new Set());
+  };
 
   const selectedKeys = Object.keys(rowSelection);
   const selectedDocIds = selectedKeys
@@ -1472,7 +1488,21 @@ export function DocumentList({
                     }}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        // The title takes whatever width the other columns
+                        // leave and truncates inside it; `max-w-0` is what lets
+                        // a `table-layout: auto` cell shrink below its content,
+                        // so one long title cannot push Modified / Created and
+                        // the row menu off the edge of the viewport. `min-w-64`
+                        // wins over it on a phone, where the title keeps a
+                        // readable width and the other columns scroll instead.
+                        className={
+                          cell.column.id === "title"
+                            ? "w-full max-w-0 min-w-64"
+                            : undefined
+                        }
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
@@ -1488,9 +1518,22 @@ export function DocumentList({
                   colSpan={columns.length}
                   className="h-48"
                 >
+                  {isFiltered ? (
+                    <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                      <SearchX className="h-10 w-10 stroke-1" />
+                      <p className="text-sm font-medium">
+                        No documents match your filters
+                      </p>
+                      <Button size="sm" variant="outline" onClick={clearFilters}>
+                        Clear filters
+                      </Button>
+                    </div>
+                  ) : (
                   <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                     <FileText className="h-10 w-10 stroke-1" />
-                    <p className="text-sm font-medium">No documents yet</p>
+                    <p className="text-sm font-medium">
+                      {folderId ? "This folder is empty" : "No documents yet"}
+                    </p>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button size="sm">
@@ -1513,12 +1556,14 @@ export function DocumentList({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
+                  )}
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
       </div>
+      {table.getPageCount() > 1 && (
       <div className="flex items-center justify-end space-x-2 py-4">
         <div className="flex-1" />
         <div className="space-x-2">
@@ -1540,6 +1585,7 @@ export function DocumentList({
           </Button>
         </div>
       </div>
+      )}
 
       <Dialog
         open={renamingDoc !== null}
