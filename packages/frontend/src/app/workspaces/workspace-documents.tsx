@@ -3,8 +3,10 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { fetchWorkspaceDocuments } from "@/api/workspaces";
 import { fetchFolders } from "@/api/folders";
 import { isAuthExpiredError } from "@/api/auth";
+import { HttpError } from "@/api/http-error";
 import { Document, Folder } from "@/types/documents";
 import { DocumentList } from "@/app/documents/document-list";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -26,6 +28,8 @@ export default function WorkspaceDocuments() {
     isLoading,
     isError,
     error,
+    refetch,
+    isFetching,
   } = useQuery<Array<Document>>({
     queryKey: ["workspaces", workspaceId, "documents", folderId ?? "root"],
     queryFn: () => fetchWorkspaceDocuments(workspaceId!, folderId),
@@ -58,10 +62,34 @@ export default function WorkspaceDocuments() {
     if (isAuthExpiredError(error)) {
       return null;
     }
+    // A 403 / 404 is the server's answer, not a hiccup: "try again later"
+    // would send someone back to a workspace they cannot open.
+    // Widened first: `AuthExpiredError` is structurally a plain `Error`, so
+    // the guard above narrows `error` to `never` in TypeScript's eyes.
+    const failure: unknown = error;
+    const noAccess =
+      failure instanceof HttpError &&
+      (failure.status === 403 || failure.status === 404);
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-destructive text-lg">Failed to load documents.</p>
-        <p className="text-sm text-muted-foreground">Please try again later.</p>
+      <div className="flex flex-col items-center justify-center gap-3 h-64">
+        <div className="text-center">
+          <p className="text-destructive text-lg">Failed to load documents.</p>
+          <p className="text-sm text-muted-foreground">
+            {noAccess
+              ? "This workspace doesn't exist, or you no longer have access to it."
+              : "Check your connection, then try again."}
+          </p>
+        </div>
+        {!noAccess && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+          >
+            {isFetching ? "Retrying…" : "Try again"}
+          </Button>
+        )}
       </div>
     );
   }
