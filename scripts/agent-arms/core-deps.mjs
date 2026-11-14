@@ -13,88 +13,62 @@
 // process can disagree at any version bump, and nothing would say so. This
 // loads the very file the core's own `import()` loads, so there is one.
 //
-// HOW. Node's ESM resolver takes no parent to resolve from (that needs a flag),
-// and `createRequire(...).resolve` resolves with the `require` condition, which
-// for zod is a different file — its CommonJS build — from the one the SDK
-// imports. So this finds the package where `require` would look from
-// `scripts/agent`, and then reads its `exports` the way `import` does: the `.`
-// entry, conditions `node`, `import` and `default`, first match in key order.
-// `core-deps.test.mjs` compares the answer with Node's own resolver, run from
-// `scripts/agent`.
+// HOW: NODE'S OWN RESOLVER, ASKED FROM `scripts/agent`. Resolution is not
+// re-implemented here: `exports` conditions (`module-sync` among them),
+// `main` without an extension or naming a directory, symlinked installs —
+// every rule is Node's, at whatever version runs this. `import.meta.resolve`
+// takes no parent to resolve from (its second argument needs a flag), so a
+// synchronous resolve hook (`module.registerHooks`, Node 22.15+) re-parents
+// the one call made below, and only while that call runs: it acts on nothing
+// but a resolution whose parent is this file, with an anchor set. The answer
+// is a file URL, so `importCoreDep` loads exactly what `ask.mjs`'s
+// `import(name)` loads. `core-deps.test.mjs` compares the two on a fixture
+// install of every package shape.
 //
 // A missing package throws `ERR_MODULE_NOT_FOUND`, as a bare `import()` would,
 // so the callers' "run `npm ci` in scripts/agent" fallbacks still apply.
 
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { registerHooks } from "node:module";
 
-/** The core's package manifest; resolution starts beside it. */
+/** The core's package manifest; resolution is asked from beside it. */
 export const CORE_PACKAGE = new URL("../agent/package.json", import.meta.url);
 
-const CONDITIONS = new Set(["node", "import", "default"]);
+const SELF = import.meta.url;
+/** The parent to resolve from, set only for the duration of one synchronous resolve. */
+let anchor = null;
+let hooked = false;
 
-/** Resolve one `exports` target against the ESM conditions, or null. */
-function target(value) {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    for (const v of value) {
-      const t = target(v);
-      if (t !== null) return t;
-    }
-    return null;
+function hook() {
+  if (hooked) return;
+  if (typeof registerHooks !== "function") {
+    throw new Error(`core-deps.mjs needs module.registerHooks (Node 22.15 or later); this is Node ${process.version}`);
   }
-  if (value && typeof value === "object") {
-    for (const [key, v] of Object.entries(value)) {
-      if (!CONDITIONS.has(key)) continue;
-      const t = target(v);
-      if (t !== null) return t;
-    }
-  }
-  return null;
-}
-
-/** The `.` entry of a package's `exports`, whichever form it is written in. */
-function rootEntry(exportsField) {
-  if (typeof exportsField === "string" || Array.isArray(exportsField)) return exportsField;
-  if (exportsField && typeof exportsField === "object") {
-    const keys = Object.keys(exportsField);
-    if (keys.some((k) => k.startsWith("."))) return exportsField["."];
-    return exportsField; // conditions only: sugar for `{ ".": { … } }`
-  }
-  return undefined;
-}
-
-function notFound(name, why) {
-  const err = new Error(`Cannot find package '${name}' from the core's install (${why}) — run \`npm ci\` in scripts/agent`);
-  err.code = "ERR_MODULE_NOT_FOUND";
-  return err;
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (anchor !== null && context.parentURL === SELF) {
+        return nextResolve(specifier, { ...context, parentURL: anchor });
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  hooked = true;
 }
 
 /**
- * The file URL `import(name)` would load from `scripts/agent`.
+ * The file URL `import(name)` loads when asked from `scripts/agent`.
  * Bare package names only: no subpath, no relative or absolute specifier.
  */
 export function resolveCoreDep(name, { corePackage = CORE_PACKAGE } = {}) {
   if (!/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(name)) {
     throw new TypeError(`resolveCoreDep takes a bare package name, not ${JSON.stringify(name)}`);
   }
-  const lookup = [];
-  for (let d = path.dirname(fileURLToPath(corePackage)); ; d = path.dirname(d)) {
-    if (path.basename(d) !== "node_modules") lookup.push(path.join(d, "node_modules", name));
-    if (path.dirname(d) === d) break;
+  hook();
+  anchor = String(corePackage);
+  try {
+    return import.meta.resolve(name);
+  } finally {
+    anchor = null;
   }
-  const dir = lookup.find((d) => existsSync(path.join(d, "package.json")));
-  if (!dir) throw notFound(name, "not installed");
-  const manifest = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
-  let rel;
-  if (manifest.exports !== undefined) {
-    rel = target(rootEntry(manifest.exports));
-    if (rel === null || rel === undefined) throw notFound(name, "no `.` export for import");
-  } else {
-    rel = manifest.main ?? "index.js";
-  }
-  return pathToFileURL(path.join(dir, rel)).href;
 }
 
 /** `import(name)`, resolved from the core's install. */

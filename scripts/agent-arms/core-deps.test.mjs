@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -39,61 +39,128 @@ for (const name of ["@anthropic-ai/claude-agent-sdk", "zod"]) {
   });
 }
 
-// --- how a package is read ----------------------------------------------------
+// --- Node's answer, on every package shape -------------------------------------
+//
+// This is what CI proves, where `scripts/agent/node_modules` is absent: on a
+// fixture install of every shape a package can take, the helper answers what
+// Node's own resolver answers when asked from the core's directory — the same
+// file, and so the same module instance — or fails with the same code. The
+// test above then only has to show that the real install is asked from where
+// `ask.mjs` lives, which the test below this one does without the install.
 
-function fixture(packages) {
+/** Node's answer for each name, asked from `cwd` by a fresh process. */
+function nodeAnswers(cwd, names) {
+  const r = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `const out = {};
+       for (const n of process.argv.slice(1)) {
+         try { out[n] = { url: import.meta.resolve(n) }; } catch (e) { out[n] = { code: e.code }; }
+       }
+       process.stdout.write(JSON.stringify(out));`,
+      ...names,
+    ],
+    { cwd, encoding: "utf8" },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+
+test("every package shape resolves to Node's own answer from the core's directory", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "core-deps-"));
   const core = path.join(root, "repo", "scripts", "agent");
   mkdirSync(core, { recursive: true });
-  writeFileSync(path.join(core, "package.json"), "{}");
-  for (const [where, name, manifest] of packages) {
-    const dir = path.join(root, where, "node_modules", name);
+  writeFileSync(path.join(core, "package.json"), JSON.stringify({ type: "module" }));
+  const put = (dir, manifest, files) => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "package.json"), JSON.stringify(manifest));
-  }
-  return { root, corePackage: pathToFileURL(path.join(core, "package.json")) };
-}
-
-test("exports: the `.` entry, ESM conditions, first match in key order", () => {
-  const { root, corePackage } = fixture([
-    ["repo/scripts/agent", "both", { exports: { types: "./t.d.ts", import: "./esm.js", require: "./cjs.cjs" } }],
-    ["repo/scripts/agent", "req-first", { exports: { require: "./cjs.cjs", default: "./d.js" } }],
-    ["repo/scripts/agent", "nested", { exports: { ".": { node: { import: "./n.mjs", default: "./n.cjs" } }, "./x": "./x.js" } }],
-    ["repo/scripts/agent", "plain", { exports: "./p.js" }],
-    ["repo/scripts/agent", "array", { exports: [{ worker: "./w.js" }, "./a.js"] }],
-    ["repo/scripts/agent", "legacy", { main: "lib/m.js" }],
-    ["repo/scripts/agent", "bare", {}],
-    ["repo/scripts/agent", "@scope/pkg", { exports: { default: "./s.js" } }],
-    ["repo/scripts/agent", "cjs-only", { exports: { require: "./c.cjs" } }],
-  ]);
+    for (const [f, body] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      writeFileSync(path.join(dir, f), body);
+    }
+  };
+  const near = (name) => path.join(core, "node_modules", name);
+  const ESM = "export const id = Symbol();\n";
+  const CJS = "module.exports = { id: Symbol() };\n";
+  put(near("both"), { exports: { types: "./t.d.ts", import: "./esm.mjs", require: "./cjs.cjs" } }, { "esm.mjs": ESM, "cjs.cjs": CJS });
+  put(near("req-first"), { exports: { require: "./cjs.cjs", default: "./d.mjs" } }, { "cjs.cjs": CJS, "d.mjs": ESM });
+  put(near("module-sync"), { exports: { ".": { "module-sync": "./sync.mjs", import: "./imp.mjs" } } }, { "sync.mjs": ESM, "imp.mjs": ESM });
+  put(near("node-addons"), { exports: { "node-addons": "./a.mjs", default: "./d.mjs" } }, { "a.mjs": ESM, "d.mjs": ESM });
+  put(near("nested"), { exports: { ".": { node: { import: "./n.mjs", default: "./n.cjs" } }, "./x": "./x.mjs" } }, { "n.mjs": ESM, "n.cjs": CJS, "x.mjs": ESM });
+  put(near("plain"), { exports: "./p.mjs" }, { "p.mjs": ESM });
+  put(near("array"), { exports: [{ worker: "./w.mjs" }, "./a.mjs"] }, { "w.mjs": ESM, "a.mjs": ESM });
+  put(near("main-file"), { main: "lib/m.js" }, { "lib/m.js": CJS });
+  put(near("main-no-ext"), { main: "./entry" }, { "entry.js": CJS });
+  put(near("main-dir"), { main: "lib" }, { "lib/index.js": CJS });
+  put(near("no-main"), {}, { "index.js": CJS });
+  put(near("@scope/pkg"), { exports: { default: "./s.mjs" } }, { "s.mjs": ESM });
+  put(near("require-only"), { exports: { require: "./c.cjs" } }, { "c.cjs": CJS });
+  // A symlinked install (pnpm's layout): Node answers with the real path.
+  const store = path.join(core, "node_modules", ".pnpm", "linked@1", "node_modules", "linked");
+  put(store, { exports: { import: "./e.mjs" } }, { "e.mjs": ESM });
+  symlinkSync(store, near("linked"), "dir");
+  // Lookup order: the nearest node_modules above the core wins.
+  put(path.join(root, "repo", "node_modules", "hoisted"), { exports: "./up.mjs" }, { "up.mjs": ESM });
+  put(path.join(root, "repo", "node_modules", "shadowed"), { exports: "./up.mjs" }, { "up.mjs": ESM });
+  put(near("shadowed"), { exports: "./near.mjs" }, { "near.mjs": ESM });
+  const names = [
+    "both", "req-first", "module-sync", "node-addons", "nested", "plain", "array",
+    "main-file", "main-no-ext", "main-dir", "no-main", "@scope/pkg", "require-only",
+    "linked", "hoisted", "shadowed", "absent-package-for-this-test",
+  ];
   try {
-    const at = (name, rel) => pathToFileURL(path.join(root, "repo/scripts/agent/node_modules", name, rel)).href;
-    const r = (name) => resolveCoreDep(name, { corePackage });
-    assert.equal(r("both"), at("both", "esm.js"));
-    assert.equal(r("req-first"), at("req-first", "d.js"));
-    assert.equal(r("nested"), at("nested", "n.mjs"));
-    assert.equal(r("plain"), at("plain", "p.js"));
-    assert.equal(r("array"), at("array", "a.js"));
-    assert.equal(r("legacy"), at("legacy", "lib/m.js"));
-    assert.equal(r("bare"), at("bare", "index.js"));
-    assert.equal(r("@scope/pkg"), at("@scope/pkg", "s.js"));
-    assert.throws(() => r("cjs-only"), { code: "ERR_MODULE_NOT_FOUND" });
+    const node = nodeAnswers(core, names);
+    const corePackage = pathToFileURL(path.join(core, "package.json"));
+    let resolved = 0;
+    for (const name of names) {
+      let mine;
+      try {
+        mine = { url: resolveCoreDep(name, { corePackage }) };
+      } catch (e) {
+        mine = { code: e.code };
+      }
+      assert.deepEqual(mine, node[name], name);
+      if (mine.url) {
+        resolved++;
+        assert.equal(await importCoreDep(name, { corePackage }), await import(node[name].url), `${name}: the same module instance`);
+      }
+    }
+    assert.ok(resolved >= 15, `only ${resolved} shapes resolved — the fixture is not what it says`);
+    assert.equal(node["module-sync"].url.endsWith("/sync.mjs"), true, "this Node does not apply module-sync — the case tests nothing here");
+    assert.equal(node["absent-package-for-this-test"].code, "ERR_MODULE_NOT_FOUND");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("lookup: the nearest node_modules above the core wins; a missing package is ERR_MODULE_NOT_FOUND", () => {
-  const { root, corePackage } = fixture([
-    ["repo", "hoisted", { exports: "./up.js" }],
-    ["repo", "shadowed", { exports: "./up.js" }],
-    ["repo/scripts/agent", "shadowed", { exports: "./near.js" }],
-  ]);
+test("the real install is asked from the directory ask.mjs lives in", () => {
+  // `ask.mjs` runs the hunters' MCP server with ITS `import()` of the SDK, which
+  // Node resolves from `ask.mjs`'s directory. Anchoring there (with the test above)
+  // is what makes the helper's answer the same file — no install needed to see it.
+  const askDir = path.dirname(fileURLToPath(new URL("../agent/ask.mjs", import.meta.url)));
+  assert.equal(path.dirname(fileURLToPath(CORE_PACKAGE)), askDir);
+  assert.equal(path.dirname(fileURLToPath(CORE_PACKAGE)), CORE_DIR);
+  assert.match(readFileSync(path.join(askDir, "ask.mjs"), "utf8"), /\bimport\(\s*["']@anthropic-ai\/claude-agent-sdk["']\s*\)/, "ask.mjs no longer imports the SDK by name");
+});
+
+test("the resolve hook acts only while the helper is resolving", () => {
+  // Registered process-wide on first use, so it must leave every other
+  // resolution alone: after the helper found a package, the same name asked
+  // from here — where nothing is installed — is still not found.
+  // Real path: Node answers with one, and the temp directory may be a link.
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "core-deps-")));
+  const core = path.join(root, "scripts", "agent");
+  const pkg = path.join(core, "node_modules", "only-in-the-fixture");
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(path.join(core, "package.json"), "{}");
+  writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ exports: "./i.mjs" }));
+  writeFileSync(path.join(pkg, "i.mjs"), "export {};\n");
   try {
-    const r = (name) => resolveCoreDep(name, { corePackage });
-    assert.equal(r("hoisted"), pathToFileURL(path.join(root, "repo/node_modules/hoisted/up.js")).href);
-    assert.equal(r("shadowed"), pathToFileURL(path.join(root, "repo/scripts/agent/node_modules/shadowed/near.js")).href);
-    assert.throws(() => r("absent-package-for-this-test"), { code: "ERR_MODULE_NOT_FOUND" });
+    const corePackage = pathToFileURL(path.join(core, "package.json"));
+    assert.equal(resolveCoreDep("only-in-the-fixture", { corePackage }), pathToFileURL(path.join(pkg, "i.mjs")).href);
+    assert.throws(() => import.meta.resolve("only-in-the-fixture"), { code: "ERR_MODULE_NOT_FOUND" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
