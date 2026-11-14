@@ -9,34 +9,64 @@
 // runs nothing.
 //
 // The jobs run THIS file from the copy of `scripts/agent` they took from `main`
-// (`$RUNNER_TEMP/agent-tools`, or a side checkout of `main`), never the
+// and staged outside the workspace (`$RUNNER_TEMP/agent-tools`), never the
 // branch's own — `scripts/test/agent-workflow-guards.test.mjs` holds them to it.
 //
 // WHAT IT GUARANTEES
 //
 //   * The install stays inside the workspace. Before pnpm runs, the tree is
-//     refused if a `node_modules` exists anywhere (a fresh checkout has none),
-//     if any symbolic link fails to resolve, resolves outside the workspace or
-//     into its `.git`, or if the lockfile names a project or a local package
-//     outside the root. After pnpm ran, the same is checked again.
+//     refused if a `node_modules` exists anywhere (a fresh checkout has none)
+//     or if any symbolic link fails to resolve, resolves outside the workspace
+//     or into its `.git`. After pnpm ran, the same is checked again, along
+//     with the runner's temp directory and the directory this script was
+//     staged in.
+//   * It fetches registry packages only, by name, version and sha512
+//     integrity. `pnpm-lock.yaml` is held to an allow-list
+//     (install-deps-lockfile.mjs): no other kind of resolution, no local or
+//     remote path, no protocol other than `workspace:`, and no way of writing
+//     the file other than the plain one pnpm writes. The `package.json` of
+//     every project is held to the same specifiers.
 //   * It runs no lifecycle scripts and no hooks: `--ignore-scripts`,
 //     `--ignore-pnpmfile`, and `--frozen-lockfile` so what is installed is what
 //     the lockfile pins.
 //   * The branch's pnpm configuration is not read. Every `.npmrc` in the tree is
-//     set aside for the install and put back afterwards (main's stands in when
-//     main has one: `install-deps.npmrc` beside this file); the directories pnpm
+//     set aside for the install and put back afterwards — inside the
+//     container, by install-deps-container.cjs — (main's stands in when main
+//     has one: `install-deps.npmrc` beside this file); the directories pnpm
 //     writes to are pinned on the command line; `pnpm-workspace.yaml` must be
 //     byte-identical to main's (`install-deps.workspace.yaml` beside this file);
 //     and the root `package.json` may carry no `pnpm` setting outside
 //     `ALLOWED_PNPM_KEYS`.
-//   * The pnpm binary is the one the workflow installed, at `PNPM_VERSION`. The
-//     `packageManager` field must name that version and cannot select another.
+//   * pnpm runs INSIDE A CONTAINER, and the host never runs it. The container
+//     is given the workspace (read-write), the workspace's `.git` (read-only
+//     over it), pnpm's store directory, the pnpm the workflow installed and
+//     one file of this script (both read-only) — and nothing else of the runner: not this script's
+//     directory, not `$HOME`, not the job's environment, no socket, no
+//     capabilities. Whatever an install does with what a manifest, a lockfile
+//     or a package says, the files it can change are the workspace's own
+//     working tree and its store. There is no uncontained fallback: without a
+//     container runtime the install fails.
+//   * Once the container has run, the runner writes nothing under the
+//     workspace. Everything it does there afterwards is a read.
+//   * The pnpm is the one the workflow installed, at `PNPM_VERSION`, and the
+//     Node is the image's, pinned by digest. The `packageManager` field must
+//     name that version and cannot select another.
+//
+// THE CONTAINER IS THE PRIMARY DEFENCE; THE CHECKS BEFORE IT ARE THE SECOND.
+// Reading manifests and lockfiles by allow-list catches what is known to turn
+// a string into a path or a command. The container is for what is not known.
+//
+// WHERE PNPM KEEPS ITS STORE. Under `$RUNNER_TEMP/agent-pnpm`, outside the
+// workspace, named on the command line and mounted at the same path. The path
+// is exported to the steps that follow (`npm_config_store_dir`, through
+// `$GITHUB_ENV`), so a pnpm command the agent runs later agrees with the
+// install about it.
 //
 // A PULL REQUEST THAT LEGITIMATELY CHANGES ANY OF THIS — the pnpm version, the
-// workspace file, a `pnpm` setting in `package.json`, a new `.npmrc` — is
-// refused here until it is merged, because the copies this file compares
-// against are main's. That is intended: such a change needs a person, not an
-// agent fix round, and each refusal says so.
+// workspace file, a `pnpm` setting in `package.json`, a dependency that is not
+// a registry package — is refused here until it is merged, because the copies
+// this file compares against are main's. That is intended: such a change needs
+// a person, not an agent fix round, and each refusal says so.
 //
 // LIFECYCLE SCRIPTS ARE NOT REPLACED BY ANYTHING HERE. The workspace has two:
 // the root `postinstall` (wires `.githooks`, which the agent jobs do not want)
@@ -46,30 +76,30 @@
 // agent to run it.
 //
 // AUDITED AGAINST pnpm 10.5.2, which reads settings from `.npmrc`, the command
-// line, the `pnpm` field of the root `package.json` and a fixed list of keys in
-// `pnpm-workspace.yaml`. Later versions read more from the workspace file. The
-// byte comparison covers that file whatever a version reads from it, but
-// `PNPM_VERSION` is pinned so that moving it is a decision: re-run the audit
-// (docs/design/agent-pipeline/agent-install.md) when you do.
+// line, the environment, the `pnpm` field of the root `package.json` and a
+// fixed list of keys in `pnpm-workspace.yaml`. Later versions read more from
+// the workspace file. `PNPM_VERSION` is pinned so that moving it is a decision:
+// re-run the audit (docs/design/agent-pipeline/agent-install.md) when you do.
 //
-// Usage: node install-deps.mjs            (workspace: $GITHUB_WORKSPACE or cwd)
+// Usage: node install-deps.mjs   (workspace: $GITHUB_WORKSPACE or cwd; needs $RUNNER_TEMP)
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
-  cpSync,
+  appendFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
-  renameSync,
   rmSync,
 } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Refusal, checkLockfile, checkProjects, readBranchFile } from "./install-deps-lockfile.mjs";
 
 /** The pnpm this install was audited against. Equal to the root `packageManager`. */
 export const PNPM_VERSION = "10.5.2";
@@ -93,14 +123,35 @@ export const INSTALL_ARGS = [
   "--config.virtual-store-dir=node_modules/.pnpm",
 ];
 
+/**
+ * The image pnpm runs in: Node 22 (22.23.5) on Debian bookworm, by digest. A
+ * tag can be moved; a digest cannot. Moving it is a decision — check the Node
+ * version it carries against `ci.yml`'s.
+ */
+export const IMAGE = "node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee";
+
+/** The whole environment inside the container. Nothing of the job's is passed in. */
+export const CONTAINER_ENV = { CI: "true", HOME: "/tmp/home" };
+
+/** What the container runtime's own client inherits from the job: how to find and reach the daemon. */
+export const DOCKER_ENV = ["PATH", "DOCKER_HOST"];
+
+/** Where the workflow's pnpm and this script's container half are mounted inside the container. */
+const PNPM_MOUNT = "/opt/pnpm";
+const ENTRY_MOUNT = "/opt/install/install-deps-container.cjs";
+const NPMRC_MOUNT = "/opt/install/npmrc";
+
+/** The directory under `$RUNNER_TEMP` that holds pnpm's store and home. */
+export const PNPM_DIR = "agent-pnpm";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TRUSTED_WORKSPACE_FILE = path.join(HERE, "install-deps.workspace.yaml");
 const TRUSTED_NPMRC = path.join(HERE, "install-deps.npmrc");
+const ENTRY = path.join(HERE, "install-deps-container.cjs");
 
 const NEEDS_A_PERSON =
   "A pull request that changes this needs a person: the agent jobs compare against main's copy and will install again once the change is merged.";
 
-class Refusal extends Error {}
 const refuse = (message) => {
   throw new Refusal(message);
 };
@@ -126,6 +177,9 @@ function checkTree(root) {
         }
         refuse(`${rel} exists before the install; the install refuses a checkout that brings its own node_modules`);
       }
+      if (entry.name === "package.yaml" || entry.name === "package.json5") {
+        refuse(`${rel} is a package manifest in a format the install does not read; it accepts package.json only`);
+      }
       if (entry.isSymbolicLink()) {
         let target;
         try {
@@ -148,11 +202,10 @@ function checkTree(root) {
 
 /** The root manifest must name the pinned pnpm and set nothing outside the allow-list. */
 function checkManifest(root) {
-  const file = path.join(root, "package.json");
-  if (!existsSync(file)) refuse("package.json is missing at the workspace root");
+  const text = readBranchFile(path.join(root, "package.json"), "package.json at the workspace root", 1024 * 1024).toString("utf8");
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync(file, "utf8"));
+    manifest = JSON.parse(text);
   } catch {
     refuse("package.json at the workspace root is not valid JSON");
   }
@@ -180,116 +233,187 @@ function checkManifest(root) {
 /** The workspace file decides which projects are installed and, in pnpm 10, settings. */
 function checkWorkspaceFile(root) {
   const file = path.join(root, "pnpm-workspace.yaml");
-  if (!existsSync(file)) refuse("pnpm-workspace.yaml is missing at the workspace root");
-  if (!lstatSync(file).isFile()) refuse("pnpm-workspace.yaml is not a regular file");
   if (!existsSync(TRUSTED_WORKSPACE_FILE)) {
     refuse("install-deps.workspace.yaml is missing beside install-deps.mjs");
   }
-  if (!readFileSync(file).equals(readFileSync(TRUSTED_WORKSPACE_FILE))) {
+  if (!readBranchFile(file, "pnpm-workspace.yaml at the workspace root", 1024 * 1024).equals(readFileSync(TRUSTED_WORKSPACE_FILE))) {
     refuse(
       `pnpm-workspace.yaml differs from main's; the agent jobs install only with main's workspace file, because it names the projects and carries pnpm settings. ${NEEDS_A_PERSON}`,
     );
   }
 }
 
+/** Where pnpm keeps its store and home: under the runner's temp directory, outside the workspace. */
+function pnpmDirs(root) {
+  const runnerTemp = process.env.RUNNER_TEMP;
+  if (!runnerTemp || !path.isAbsolute(runnerTemp) || !existsSync(runnerTemp)) {
+    refuse("RUNNER_TEMP is not set to an existing directory; the install keeps pnpm's store there");
+  }
+  const temp = realpathSync(runnerTemp);
+  if (isInside(root, temp) || isInside(temp, root)) {
+    refuse("RUNNER_TEMP and the workspace contain one another; pnpm's store must be outside the workspace");
+  }
+  const base = path.join(temp, PNPM_DIR);
+  const dirs = { temp, base, store: path.join(base, "store"), home: path.join(base, "home") };
+  for (const dir of [dirs.base, dirs.store, dirs.home]) {
+    const stat = lstatSync(dir, { throwIfNoEntry: false });
+    if (!stat) mkdirSync(dir);
+    else if (!stat.isDirectory()) refuse(`${dir} exists and is not a directory`);
+  }
+  return dirs;
+}
+
 /**
- * The lockfile names the projects it installs for and any local package it
- * links or copies. Each must be a plain path under the workspace root. Read
- * line by line, so the file must also stay in the plain form pnpm writes:
- * no escapes, anchors, aliases or tags that could spell a path another way.
- *
- * @returns {string[]} the importers, relative to the root
+ * The environment of the container runtime's client: where to find it, how to
+ * reach the daemon, and an EMPTY configuration directory — so the image is
+ * pulled without any credential the runner happens to hold.
  */
-export function checkLockfile(root, text) {
-  const lines = text.split("\n");
-  if (text.includes("\\")) {
-    refuse("pnpm-lock.yaml contains a backslash; the install reads only the plain form pnpm writes");
+export function dockerEnv(configDir, source = process.env) {
+  const env = { DOCKER_CONFIG: configDir, HOME: configDir };
+  for (const name of DOCKER_ENV) {
+    if (source[name]) env[name] = source[name];
   }
-  const importers = [];
-  let section = "";
-  let importer = ".";
-  for (const line of lines) {
-    if (/^\s*(#|$)/.test(line)) continue;
-    if (/(^|[\s,[{:])[&!][^\s]/.test(line) || /(^|[\s,[{]|:\s)\*[^\s'*]/.test(line)) {
-      refuse("pnpm-lock.yaml uses a YAML anchor, alias or tag; the install reads only the plain form pnpm writes");
-    }
-    if (/^\S/.test(line)) {
-      section = line.replace(/:.*$/, "");
-      if (section === "importers" && line.trim() !== "importers:") {
-        refuse("pnpm-lock.yaml does not list its importers in block form");
-      }
-      importer = ".";
-      continue;
-    }
-    if (section === "importers") {
-      const key = /^ {2}(\S.*?):(?:\s*\{\s*\})?\s*$/.exec(line);
-      if (key) {
-        let name = key[1];
-        if (/^'.*'$/.test(name)) name = name.slice(1, -1);
-        if (!/^(\.|[A-Za-z0-9@_][A-Za-z0-9@_./-]*)$/.test(name) || name.split("/").includes("..")) {
-          refuse(`pnpm-lock.yaml names a project that is not a plain path under the workspace root: ${name}`);
-        }
-        importer = name;
-        importers.push(name);
-        continue;
-      }
-      if (/^ {2}\S/.test(line)) {
-        refuse(`pnpm-lock.yaml has an importer entry the install cannot read: ${line.trim()}`);
-      }
-    }
-    // Local packages: `link:` is relative to the importer; `file:` and
-    // `directory:` are checked against both the importer and the root, so
-    // whichever one pnpm resolves them from, they stay inside.
-    const local = /(?:^|[\s'"{,@(])(link|file):([^\s'",})]+)|(directory):\s*([^\s,}]+)/g;
-    for (const match of line.matchAll(local)) {
-      const kind = match[1] ?? match[3];
-      const target = (match[2] ?? match[4]).replace(/:$/, "");
-      const bases = kind === "link" ? [importer] : [importer, "."];
-      for (const base of bases) {
-        const resolved = path.resolve(root, base, target);
-        if (path.isAbsolute(target) || !isInside(root, resolved)) {
-          refuse(`pnpm-lock.yaml names a local package outside the workspace root: ${kind}:${target}`);
-        }
-      }
-    }
-  }
-  if (importers.length === 0) refuse("pnpm-lock.yaml lists no importers");
-  return importers;
+  return env;
 }
 
-/** The pnpm on PATH, asked from an empty directory so no project file can answer for it. */
-function checkPnpmVersion(pnpm) {
-  const neutral = mkdtempSync(path.join(os.tmpdir(), "install-deps-pnpm-"));
-  try {
-    const r = spawnSync(pnpm, ["--version"], {
-      cwd: neutral,
-      encoding: "utf8",
-      env: { ...process.env, npm_config_manage_package_manager_versions: "false" },
-    });
-    const version = (r.stdout ?? "").trim();
-    if (r.status !== 0 || version !== PNPM_VERSION) {
-      refuse(
-        `the pnpm on PATH is ${version || "not runnable"}; the agent jobs install with pnpm ${PNPM_VERSION}, set up by the workflow before the branch is checked out`,
-      );
-    }
-  } finally {
-    rmSync(neutral, { recursive: true, force: true });
-  }
+/**
+ * The `docker run` that performs the install. Everything the container can
+ * reach is on this command line.
+ */
+export function dockerArgs({ root, store, pnpmDir, uid, gid, entry = ENTRY, npmrc = null }) {
+  return [
+    "run",
+    "--rm",
+    // The default bridge: out to the registry, and not the runner's own network namespace.
+    "--network=bridge",
+    // The runner's own user, with no way to become another.
+    `--user=${uid}:${gid}`,
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges",
+    // The image itself is read-only; scratch space is in memory.
+    "--read-only",
+    "--tmpfs=/tmp:rw,exec,mode=1777",
+    ...Object.entries({ ...CONTAINER_ENV, ...(npmrc ? { INSTALL_DEPS_NPMRC: NPMRC_MOUNT } : {}) }).map(([name, value]) => `--env=${name}=${value}`),
+    // The workspace, at the path it has on the runner, so what pnpm records
+    // about it holds afterwards.
+    `--volume=${root}:${root}:rw`,
+    // Its `.git`, read-only over it: an install has nothing to write there.
+    `--volume=${path.join(root, ".git")}:${path.join(root, ".git")}:ro`,
+    `--volume=${store}:${store}:rw`,
+    `--volume=${pnpmDir}:${PNPM_MOUNT}:ro`,
+    // The half of this script that runs in there — that one file, read-only.
+    `--volume=${entry}:${ENTRY_MOUNT}:ro`,
+    ...(npmrc ? [`--volume=${npmrc}:${NPMRC_MOUNT}:ro`] : []),
+    `--workdir=${root}`,
+    "--entrypoint=node",
+    IMAGE,
+    ENTRY_MOUNT,
+    `${PNPM_MOUNT}/bin/pnpm.cjs`,
+    ...INSTALL_ARGS,
+    `--store-dir=${store}`,
+  ];
 }
 
-/** Every `.npmrc` in the tree (file or directory), relative to the root. */
-function findNpmrc(root) {
-  const found = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop();
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.name === ".npmrc") found.push(path.relative(root, full));
-      else if (entry.isDirectory() && !(dir === root && entry.name === ".git")) stack.push(full);
+/** A digest of what git would act on without being asked: its hooks, its configuration, its `info`. */
+function gitControlDigest(root) {
+  const gitDir = path.join(root, ".git");
+  const hash = createHash("sha256");
+  for (const name of ["hooks", "info"]) {
+    const dir = path.join(gitDir, name);
+    hash.update(`${name}\0${lstatSync(dir, { throwIfNoEntry: false })?.isDirectory() ? hashTree(dir) : "absent"}\0`);
+  }
+  const config = path.join(gitDir, "config");
+  hash.update(`config\0${lstatSync(config, { throwIfNoEntry: false })?.isFile() ? readFileSync(config).toString("base64") : "absent"}\0`);
+  return hash.digest("hex");
+}
+
+/**
+ * What git reports as changed or untracked in the working tree, `node_modules`
+ * aside. Asked before and after: an install adds `node_modules` and nothing
+ * else. Git runs with an environment of its own and reads only the
+ * repository's configuration, which the install cannot write.
+ */
+function workingTreeStatus(root) {
+  const r = spawnSync(
+    "git",
+    ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", ":(exclude,glob)**/node_modules/**", ":(exclude,glob)**/node_modules"],
+    { cwd: root, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", GIT_OPTIONAL_LOCKS: "0" }, maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (r.error || r.status !== 0) refuse("git status could not be read in the workspace; the install runs on a checkout");
+  return r.stdout;
+}
+
+/** A digest of a directory: every entry's path and kind, every file's bytes, every link's target. */
+export function hashTree(dir) {
+  const hash = createHash("sha256");
+  const walk = (rel) => {
+    const entries = readdirSync(path.join(dir, rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
+    for (const entry of entries) {
+      const child = path.join(rel, entry.name);
+      const full = path.join(dir, child);
+      if (entry.isSymbolicLink()) hash.update(`l\0${child}\0${readlinkSync(full)}\0`);
+      else if (entry.isDirectory()) {
+        hash.update(`d\0${child}\0`);
+        walk(child);
+      } else if (entry.isFile()) {
+        hash.update(`f\0${child}\0`);
+        hash.update(readFileSync(full));
+        hash.update("\0");
+      } else hash.update(`?\0${child}\0`);
+    }
+  };
+  walk("");
+  return hash.digest("hex");
+}
+
+/**
+ * The pnpm the workflow installed: the package behind `pnpm` on PATH. It is
+ * located and read, never run — the container runs it. It must be the pinned
+ * version and must not be inside the workspace.
+ *
+ * @returns {string} the package's directory
+ */
+function locatePnpm(root, name) {
+  let found = null;
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!dir || !path.isAbsolute(dir)) continue;
+    const candidate = path.join(dir, name);
+    if (lstatSync(candidate, { throwIfNoEntry: false }) && existsSync(candidate)) {
+      found = realpathSync(candidate);
+      break;
     }
   }
-  return found;
+  if (!found) refuse(`there is no ${name} on PATH; the workflow sets pnpm ${PNPM_VERSION} up before the branch is checked out`);
+  // Two layouts: the entry on PATH is a link into the package (an npm-style
+  // install), or it is a launcher in a `.bin` directory beside the package
+  // (how pnpm installs itself, which is what `pnpm/action-setup` does).
+  const readManifest = (dir) => {
+    try {
+      return JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  let dir = path.dirname(found);
+  while (!existsSync(path.join(dir, "package.json")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+  let manifest = readManifest(dir);
+  if (manifest?.name !== "pnpm" && path.basename(path.dirname(found)) === ".bin") {
+    const beside = path.join(path.dirname(found), "..", "pnpm");
+    if (existsSync(beside)) {
+      dir = realpathSync(beside);
+      manifest = readManifest(dir);
+    }
+  }
+  if (manifest?.name !== "pnpm" || !existsSync(path.join(dir, "bin", "pnpm.cjs"))) {
+    refuse(`the ${name} on PATH is not the pnpm package the workflow installs`);
+  }
+  if (manifest.version !== PNPM_VERSION) {
+    refuse(
+      `the pnpm on PATH is ${manifest.version}; the agent jobs install with pnpm ${PNPM_VERSION}, set up by the workflow before the branch is checked out`,
+    );
+  }
+  if (isInside(root, dir)) refuse("the pnpm on PATH is inside the workspace");
+  return dir;
 }
 
 /** After the install: every project's `node_modules` is a real directory whose entries stay inside. */
@@ -331,68 +455,140 @@ function checkInstalled(root, importers) {
   }
 }
 
-/** Move a file or directory, also across filesystems. */
-function move(from, to) {
-  try {
-    renameSync(from, to);
-  } catch (error) {
-    if (error.code !== "EXDEV") throw error;
-    cpSync(from, to, { recursive: true });
-    rmSync(from, { recursive: true, force: true });
+/**
+ * After the install, the whole workspace: every symbolic link in it resolves
+ * inside it and outside its `.git`, and there is no second `.git` anywhere.
+ * The checkout was held to the first before the install; whatever fails it now
+ * is the install's.
+ */
+function checkTreeAfter(root) {
+  const gitDir = path.join(root, ".git");
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (full === gitDir) continue;
+      const rel = path.relative(root, full);
+      if (entry.name === ".git") refuse(`${rel} appeared during the install; a workspace has one .git`);
+      if (entry.isSymbolicLink()) {
+        // Where it points as written, and where that resolves if it resolves.
+        let target = path.resolve(dir, readlinkSync(full));
+        try {
+          target = realpathSync(full);
+        } catch {
+          // A link that resolves nowhere is judged by where it points.
+        }
+        if (!isInside(root, target) || isInside(gitDir, target)) {
+          refuse(`${rel} is a symbolic link out of the workspace's working tree after the install`);
+        }
+      } else if (entry.isDirectory()) {
+        stack.push(full);
+      }
+    }
   }
 }
 
+/** The package managers' own configuration in the runner's home: present or not, and what it says. */
+function homeConfigDigest() {
+  const home = process.env.HOME;
+  const hash = createHash("sha256");
+  if (!home) return "no home";
+  for (const name of [".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmrc", path.join(".config", "pnpm")]) {
+    const file = path.join(home, name);
+    const stat = lstatSync(file, { throwIfNoEntry: false });
+    const state = !stat ? "absent" : stat.isSymbolicLink() ? `link ${readlinkSync(file)}` : stat.isDirectory() ? `dir ${hashTree(file)}` : stat.isFile() ? `file ${readFileSync(file).toString("base64")}` : "other";
+    hash.update(`${name}\0${state}\0`);
+  }
+  return hash.digest("hex");
+}
+
 const siblings = (root) => readdirSync(path.dirname(root)).sort().join("\n");
+const listing = (dir) => readdirSync(dir).sort().join("\n");
 
 /**
  * Check the workspace, install, check again.
  *
  * @param {{ workspace: string, pnpm?: string, log?: (line: string) => void }} opts
- * @returns {number} the exit status of `pnpm install`
+ * @returns {number} the exit status of the contained `pnpm install`
  */
 export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   const root = realpathSync(workspace);
+  const dirs = pnpmDirs(root);
 
   // BEFORE THE INSTALL. Nothing below this block runs unless all of it passes.
-  checkPnpmVersion(pnpm);
+  // The tree first: after it, every file read below is known not to lead
+  // anywhere, and each is still read as a regular file of bounded size.
+  const pnpmDir = locatePnpm(root, pnpm);
+  if (!lstatSync(path.join(root, ".git"), { throwIfNoEntry: false })) refuse("the workspace has no .git; the install runs on a checkout");
+  if (!lstatSync(ENTRY, { throwIfNoEntry: false })?.isFile()) refuse("install-deps-container.cjs is missing beside install-deps.mjs");
+  checkTree(root);
   checkManifest(root);
   checkWorkspaceFile(root);
-  checkTree(root);
-  const lockfile = path.join(root, "pnpm-lock.yaml");
-  if (!existsSync(lockfile)) refuse("pnpm-lock.yaml is missing at the workspace root");
-  const importers = checkLockfile(root, readFileSync(lockfile, "utf8"));
+  const lockfile = readBranchFile(path.join(root, "pnpm-lock.yaml"), "pnpm-lock.yaml at the workspace root", 64 * 1024 * 1024);
+  const importers = checkLockfile(lockfile.toString("utf8"));
+  checkProjects(root, importers);
   const besideBefore = siblings(root);
+  const toolsBefore = hashTree(HERE);
+  const gitBefore = gitControlDigest(root);
+  const homeBefore = homeConfigDigest();
+  const treeBefore = workingTreeStatus(root);
 
-  // The branch's `.npmrc` files step aside for the install and come back
-  // afterwards, so the agent's working tree is what the branch holds.
-  // The stash is outside the workspace, on the runner's own temp directory.
-  const runnerTemp = process.env.RUNNER_TEMP;
-  const stash = mkdtempSync(path.join(runnerTemp && existsSync(runnerTemp) ? runnerTemp : os.tmpdir(), "install-deps-npmrc-"));
-  const setAside = findNpmrc(root);
+  // THE INSTALL. From here on the runner writes NOTHING under the workspace:
+  // setting the branch's `.npmrc` files aside and putting them back is done
+  // inside the container, by install-deps-container.cjs. What the runner does
+  // afterwards is read.
+  const dockerConfig = mkdtempSync(path.join(dirs.base, "docker-config-"));
+  const tempBefore = listing(dirs.temp);
+  const args = dockerArgs({
+    root,
+    store: dirs.store,
+    pnpmDir,
+    uid: process.getuid(),
+    gid: process.getgid(),
+    npmrc: lstatSync(TRUSTED_NPMRC, { throwIfNoEntry: false })?.isFile() ? TRUSTED_NPMRC : null,
+  });
   let status;
   try {
-    for (const rel of setAside) {
-      mkdirSync(path.dirname(path.join(stash, rel)), { recursive: true });
-      move(path.join(root, rel), path.join(stash, rel));
+    log(`install-deps: docker ${args.join(" ")}`);
+    const r = spawnSync("docker", args, { cwd: dirs.temp, stdio: "inherit", env: dockerEnv(dockerConfig) });
+    if (r.error) {
+      refuse(`docker could not be run (${r.error.code ?? r.error.message}); the install runs only inside a container and has no other way to run`);
     }
-    if (setAside.length > 0) log(`install-deps: set aside ${setAside.length} .npmrc for the install`);
-    if (existsSync(TRUSTED_NPMRC)) cpSync(TRUSTED_NPMRC, path.join(root, ".npmrc"));
-    log(`install-deps: pnpm ${INSTALL_ARGS.join(" ")}`);
-    const r = spawnSync(pnpm, INSTALL_ARGS, { cwd: root, stdio: "inherit" });
     status = r.status ?? 1;
   } finally {
-    rmSync(path.join(root, ".npmrc"), { recursive: true, force: true });
-    for (const rel of setAside) move(path.join(stash, rel), path.join(root, rel));
-    rmSync(stash, { recursive: true, force: true });
+    rmSync(dockerConfig, { recursive: true, force: true });
   }
-  if (status !== 0) return status;
 
-  // AFTER THE INSTALL. The checks above are what keep it inside; this is what
-  // says so if one of them is ever wrong.
-  checkInstalled(root, importers);
+  // AFTER THE INSTALL, whether or not pnpm succeeded. The checks above are
+  // what keep it inside; this is what says so if one of them is ever wrong.
+  // It looks at the places a step after this one reads from — beside the
+  // workspace, the runner's temp directory, this script's own directory — and
+  // not at the rest of the machine.
   if (siblings(root) !== besideBefore) {
     refuse("the install created or removed something beside the workspace");
   }
+  if (listing(dirs.temp) !== tempBefore) {
+    refuse("the install created or removed something in the runner's temp directory");
+  }
+  if (hashTree(HERE) !== toolsBefore) {
+    refuse("the directory install-deps.mjs runs from changed during the install");
+  }
+  if (gitControlDigest(root) !== gitBefore) {
+    refuse("the repository's git hooks, configuration or info changed during the install");
+  }
+  if (homeConfigDigest() !== homeBefore) {
+    refuse("a package manager's configuration in the runner's home changed during the install");
+  }
+  checkTreeAfter(root);
+  if (workingTreeStatus(root) !== treeBefore) {
+    refuse("the install changed the working tree outside node_modules");
+  }
+  if (status !== 0) return status;
+  checkInstalled(root, importers);
+
+  // Later pnpm commands in this job must name the same store.
+  if (process.env.GITHUB_ENV) appendFileSync(process.env.GITHUB_ENV, `npm_config_store_dir=${dirs.store}\n`);
   return 0;
 }
 
