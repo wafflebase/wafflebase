@@ -211,48 +211,128 @@ const BRANCH_REF =
   /^\s*ref:\s*\$\{\{\s*(github\.event\.workflow_run\.head_(branch|sha)|github\.event\.pull_request\.head\.(ref|sha)|steps\.[\w-]+\.outputs\.(head_)?(branch|sha|ref))/;
 
 /**
- * The jobs of a workflow, each as its steps; a step is its lines with comments
- * dropped, so commented-out YAML neither satisfies nor trips a guard.
+ * Lines with YAML comments dropped, so commented-out YAML neither satisfies nor
+ * trips a guard — but not inside a block scalar (`run: |`, `script: |`), where
+ * a line starting with `#` is part of the script. Dropping one there would
+ * change what the guard reads: a quote closed on such a line would open
+ * instead.
  */
-function jobsOf(file) {
-  const lines = readFileSync(path.join(WORKFLOWS, file), "utf8").split("\n");
-  const jobsAt = lines.findIndex((l) => l === "jobs:");
-  if (jobsAt === -1) return [];
-  const starts = lines.reduce((acc, l, i) => (i > jobsAt && /^ {2}[\w-]+:\s*$/.test(l) ? [...acc, i] : acc), []);
-  return starts.map((from, k) => {
-    const body = lines.slice(from + 1, starts[k + 1] ?? lines.length).filter((l) => !l.trim().startsWith("#"));
-    const steps = [];
-    for (const line of body) {
-      if (/^ {6}- /.test(line)) steps.push([line]);
-      else if (steps.length > 0) steps.at(-1).push(line);
+function dropComments(lines) {
+  const kept = [];
+  let blockIndent = null; // indentation a line needs to stay inside the scalar
+  for (const line of lines) {
+    const indent = line.length - line.trimStart().length;
+    if (blockIndent !== null && (line.trim() === "" || indent >= blockIndent)) {
+      kept.push(line);
+      continue;
     }
-    return {
-      file,
-      name: lines[from].trim().replace(/:$/, ""),
-      steps: steps.map((s) => {
-        const text = s.join("\n");
-        const runAt = s.findIndex((l) => /^\s*(?:- )?run:/.test(l));
-        return {
-          text,
-          name: /^\s*- name:\s*(.*)$/m.exec(text)?.[1] ?? "",
-          id: /^\s*id:\s*(\S+)\s*$/m.exec(text)?.[1] ?? null,
-          cond: /^\s*if:\s*(.*)$/m.exec(text)?.[1] ?? "",
-          usesLine: s.find((l) => /^\s*(?:- )?uses:/.test(l)) ?? null,
-          uses: /^\s*(?:- )?uses:\s*(\S+)/m.exec(text)?.[1] ?? null,
-          isRun: runAt !== -1,
-          // A `run: |` block, dedented; or the one-line command.
-          script:
-            runAt === -1
-              ? null
-              : /run:\s*\|\s*$/.test(s[runAt])
-                ? s.slice(runAt + 1).map((l) => l.replace(/^ {10}/, "")).join("\n")
-                : s[runAt].replace(/^\s*(?:- )?run:\s*/, ""),
-          checksOutBranch: s.some((l) => BRANCH_REF.test(l)),
-        };
-      }),
-    };
-  });
+    blockIndent = null;
+    if (line.trim().startsWith("#")) continue;
+    kept.push(line);
+    const block = /^(\s*)(- )?[\w-]+:\s*[|>][-+]?\s*$/.exec(line);
+    if (block) blockIndent = block[1].length + (block[2] ? 2 : 0) + 1;
+  }
+  return kept;
 }
+
+/**
+ * The entries of the `env:` mapping that sits at `indent` among `lines` (the
+ * key may also open a step: `- env:`). A mapping it cannot read — a flow
+ * mapping, a non-key line — comes back as one entry named `<unreadable>`, so an
+ * allow-list of names refuses it.
+ */
+function envEntries(lines, indent) {
+  const entries = [];
+  const pad = " ".repeat(indent);
+  for (let i = 0; i < lines.length; i++) {
+    const head = new RegExp(`^(?:${pad}|${" ".repeat(Math.max(indent - 2, 0))}- )env:(.*)$`).exec(lines[i]);
+    if (!head) continue;
+    if (head[1].trim() !== "") entries.push({ key: "<unreadable>", value: head[1].trim() });
+    for (let j = i + 1; j < lines.length; j++) {
+      const l = lines[j];
+      if (l.trim() === "") continue;
+      const at = l.length - l.trimStart().length;
+      if (at <= indent) break;
+      if (at > indent + 2) continue; // the continuation of a value
+      const kv = /^\s*([A-Za-z_][A-Za-z0-9_]*):(?:\s(.*))?$/.exec(l);
+      entries.push(kv ? { key: kv[1], value: (kv[2] ?? "").trim() } : { key: "<unreadable>", value: l.trim() });
+    }
+  }
+  return entries;
+}
+
+/** The value of a step's own `key:` (not one inside its `with:` or `env:`), block scalars folded. */
+function stepValue(s, key) {
+  const re = new RegExp(`^(?: {6}- | {8})${key}:(.*)$`);
+  const at = s.findIndex((l) => re.test(l));
+  if (at === -1) return null;
+  const v = re.exec(s[at])[1].trim();
+  if (!/^[>|][-+]?$/.test(v)) return v;
+  const more = [];
+  for (let i = at + 1; i < s.length && (s[i].trim() === "" || /^ {10}/.test(s[i])); i++) more.push(s[i].trim());
+  return more.join(" ").trim();
+}
+
+/**
+ * A workflow's text, read into what the guards need: its workflow-level `env:`
+ * and `defaults:`, and its jobs — each with its header (the lines before
+ * `steps:`) and its steps.
+ */
+function parseWorkflow(text, file) {
+  const lines = dropComments(text.split("\n"));
+  const jobsAt = lines.findIndex((l) => l === "jobs:");
+  const top = jobsAt === -1 ? lines : lines.slice(0, jobsAt);
+  const starts = jobsAt === -1 ? [] : lines.reduce((acc, l, i) => (i > jobsAt && /^ {2}[\w-]+:\s*$/.test(l) ? [...acc, i] : acc), []);
+  return {
+    file,
+    env: envEntries(top, 0),
+    defaults: top.some((l) => /^defaults:/.test(l)),
+    jobs: starts.map((from, k) => {
+      const body = lines.slice(from + 1, starts[k + 1] ?? lines.length);
+      const stepsAt = body.findIndex((l) => /^ {4}steps:\s*$/.test(l));
+      const header = stepsAt === -1 ? body : body.slice(0, stepsAt);
+      const steps = [];
+      for (const line of stepsAt === -1 ? [] : body.slice(stepsAt + 1)) {
+        if (/^ {6}- /.test(line)) steps.push([line]);
+        else if (steps.length > 0) steps.at(-1).push(line);
+      }
+      return {
+        file,
+        name: lines[from].trim().replace(/:$/, ""),
+        env: envEntries(header, 4),
+        defaults: header.some((l) => /^ {4}defaults:/.test(l)),
+        steps: steps.map((s) => {
+          const text = s.join("\n");
+          const runAt = s.findIndex((l) => /^(?: {6}- | {8})run:/.test(l));
+          return {
+            lines: s,
+            text,
+            name: stepValue(s, "name") ?? "",
+            id: stepValue(s, "id"),
+            cond: stepValue(s, "if") ?? "",
+            env: envEntries(s, 8),
+            // The step's own `uses:` only: a line of a `run:` block that reads
+            // `uses: …` must not turn the step into an action.
+            usesLine: s.find((l) => /^(?: {6}- | {8})uses:/.test(l)) ?? null,
+            uses: stepValue(s, "uses")?.split(/\s/)[0] || null,
+            isRun: runAt !== -1,
+            // A `run: |` block, dedented; or the one-line command.
+            script:
+              runAt === -1
+                ? null
+                : /run:\s*\|\s*$/.test(s[runAt])
+                  ? s.slice(runAt + 1).map((l) => l.replace(/^ {10}/, "")).join("\n")
+                  : s[runAt].replace(/^\s*(?:- )?run:\s*/, ""),
+            checksOutBranch: s.some((l) => BRANCH_REF.test(l)),
+          };
+        }),
+      };
+    }),
+  };
+}
+
+/** The jobs of a workflow file, each as its steps. */
+const jobsOf = (file) => parseWorkflow(readFileSync(path.join(WORKFLOWS, file), "utf8"), file).jobs;
 
 /** The four jobs that install a pull request's branch. */
 const INSTALLING_JOBS = [
@@ -415,13 +495,15 @@ test("the staged scripts are fingerprinted before the install and checked right 
 /**
  * The simple commands of a shell script, for checking against an allow-list.
  * A small reading of POSIX shell: words with their quoting kept as written,
- * command substitutions `$( … )` read as scripts of their own, redirections
- * with their targets, and the separators and reserved words that end or open
- * a command. Whatever it does not read — a backtick, an arithmetic expansion,
- * a GitHub expression in the script, a here-document, an unterminated quote —
- * is reported as a problem rather than guessed at.
+ * command substitutions `$( … )` read as scripts of their own, assignments,
+ * redirections with their targets, and the separators and reserved words that
+ * end or open a command. Whatever it does not read — a backtick, an arithmetic
+ * expansion or command, ANSI-C or locale quoting, a parameter expansion other
+ * than `${NAME}` / `${NAME:-literal}`, a comment inside a command
+ * substitution, a GitHub expression in the script, a here-document, an
+ * unterminated quote — is reported as a problem rather than guessed at.
  *
- * @returns {{ commands: { words: string[], redirects: { op: string, target: string }[] }[], problems: string[] }}
+ * @returns {{ commands: { words: string[], assigns: string[], redirects: { op: string, target: string }[] }[], problems: string[] }}
  */
 function shellCommands(script) {
   const problems = [];
@@ -435,13 +517,33 @@ function shellCommands(script) {
   const add = (text) => {
     word = (word ?? "") + text;
   };
+  // `$'…'` reads `\'` as an escaped quote, so where it ends is not where a
+  // plain single quote would; `$"…"` is translated through the locale. Both
+  // are refused anywhere in the script, even where a quote makes them literal:
+  // a refusal that was not needed costs a rewrite, a misreading costs the guard.
+  if (script.includes("$'")) problems.push("ANSI-C quoting ($'…')");
+  if (script.includes('$"')) problems.push('locale quoting ($"…")');
+  // `${x@P}` runs command substitutions held in x, `${a[…]}` evaluates its
+  // subscript as arithmetic (which runs them too), `${!x}` reads a name from x.
+  // Only the two forms the workflows use are read.
+  const PARAM = /^\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^$`'"\\{}]*)?\}/;
+  const param = (i) => {
+    const m = PARAM.exec(script.slice(i));
+    if (m) return m[0].length;
+    problems.push(`a parameter expansion this guard does not read (${script.slice(i, i + 16)})`);
+    return 2;
+  };
   /** From `$(` at `i`, the index just past the matching `)`. */
   const substitution = (i) => {
     let depth = 0;
     for (let j = i + 1; j < script.length; j++) {
       const c = script[j];
       if (c === "\\") j++;
-      else if (c === "'") {
+      else if (c === "#") {
+        // A comment in there runs to the end of its line, past any `)` this
+        // scan would have stopped at.
+        problems.push("a # inside a command substitution");
+      } else if (c === "'") {
         j = script.indexOf("'", j + 1);
         if (j === -1) break;
       } else if (c === '"') {
@@ -467,6 +569,16 @@ function shellCommands(script) {
     } else if (rest.startsWith("$((") || c === "`") {
       problems.push(`an expansion this guard does not read (${rest.slice(0, 3)})`);
       i++;
+    } else if (rest.startsWith("$[")) {
+      problems.push("an arithmetic expansion ($[…])");
+      i += 2;
+    } else if (rest.startsWith("((")) {
+      problems.push("an arithmetic command ((…))");
+      i += 2;
+    } else if (c === "$" && script[i + 1] === "{") {
+      const n = param(i);
+      add(script.slice(i, i + n));
+      i += n;
     } else if (rest.startsWith("\\\n")) {
       i += 2;
     } else if (c === " " || c === "\t") {
@@ -495,6 +607,8 @@ function shellCommands(script) {
         if (script[j] === "\\") j++;
         else if (script[j] === "`") problems.push("a backtick inside double quotes");
         else if (script[j] === "$" && script[j + 1] === "{" && script[j + 2] === "{") problems.push("a GitHub expression inside the script");
+        else if (script[j] === "$" && script[j + 1] === "{") j += param(j) - 1;
+        else if (script[j] === "$" && script[j + 1] === "[") problems.push("an arithmetic expansion ($[…])");
         else if (script[j] === "$" && script[j + 1] === "(" && script[j + 2] === "(") problems.push("an arithmetic expansion");
         else if (script[j] === "$" && script[j + 1] === "(") j = substitution(j) - 1;
       }
@@ -530,10 +644,10 @@ function shellCommands(script) {
   end();
 
   const commands = [];
-  let current = { words: [], redirects: [] };
+  let current = { words: [], assigns: [], redirects: [] };
   const finish = () => {
-    if (current.words.length > 0 || current.redirects.length > 0) commands.push(current);
-    current = { words: [], redirects: [] };
+    if (current.words.length > 0 || current.assigns.length > 0 || current.redirects.length > 0) commands.push(current);
+    current = { words: [], assigns: [], redirects: [] };
   };
   const RESERVED = new Set(["if", "then", "else", "elif", "fi", "!"]);
   for (let k = 0; k < tokens.length; k++) {
@@ -553,7 +667,9 @@ function shellCommands(script) {
     } else if (current.words.length === 0 && RESERVED.has(t.word)) {
       // Opens or closes a compound command; what follows is a command.
     } else if (current.words.length === 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t.word)) {
-      // An assignment before the command; its substitutions are read below.
+      // An assignment, alone or before the command; kept for the caller to
+      // judge, and its substitutions are read below.
+      current.assigns.push(t.word);
     } else {
       current.words.push(t.word);
     }
@@ -569,114 +685,811 @@ function shellCommands(script) {
 
 test("shellCommands reads the commands a script runs, and says what it cannot read", () => {
   const read = (script) => shellCommands(script);
-  const words = (script) => read(script).commands.map((c) => c.words.join(" "));
+  const words = (script) => read(script).commands.filter((c) => c.words.length > 0).map((c) => c.words.join(" "));
   assert.deepEqual(words('A="$(git rev-parse HEAD)"\nif [ "$A" != x ]; then\n  echo "y $(date -u)"\n  exit 1\nfi'), ["[ \"$A\" != x ]", "echo \"y $(date -u)\"", "exit 1", "git rev-parse HEAD", "date -u"]);
+  assert.deepEqual(read('A="$(git rev-parse HEAD)"').commands[0].assigns, ['A="$(git rev-parse HEAD)"']);
+  assert.deepEqual(read('N=1 node x').commands[0], { words: ["node", "x"], assigns: ["N=1"], redirects: [] });
   assert.deepEqual(words('[ -f "$F" ] || {\n  echo no\n  exit 0\n}\nnode "$F"'), ['[ -f "$F" ]', "echo no", "exit 0", 'node "$F"']);
   assert.deepEqual(read('{\n  printf x\n} > "$RUNNER_TEMP/a.md"').commands.at(-1).redirects, [{ op: ">", target: '"$RUNNER_TEMP/a.md"' }]);
   assert.deepEqual(read('echo "a" >&2 2>/dev/null').commands[0].redirects, [{ op: ">&", target: "2" }, { op: ">", target: "/dev/null" }]);
   assert.deepEqual(words("printf '%s' 'it'\"'\"'s' | cut -f1"), ["printf '%s' 'it'\"'\"'s'", "cut -f1"]);
   assert.deepEqual(words('echo "$(git ls-remote o "r/$B" | cut -f1)"'), ['echo "$(git ls-remote o "r/$B" | cut -f1)"', 'git ls-remote o "r/$B"', "cut -f1"]);
-  for (const bad of ["echo `id`", "echo $((1+1))", "echo ${{ github.ref }}", 'echo "a', "echo 'a", "cat <<EOF\nx\nEOF", "echo $(id"]) {
+  assert.deepEqual(read('echo "${A:-x y}" ${B}').problems, []);
+  for (const bad of [
+    "echo `id`",
+    "echo $((1+1))",
+    "echo ${{ github.ref }}",
+    'echo "a',
+    "echo 'a",
+    "cat <<EOF\nx\nEOF",
+    "echo $(id",
+    "echo $'\\'' ; cp a b #'",
+    'echo $"x"',
+    'echo "${x@P}"',
+    "echo ${x@P}",
+    'echo "${a[$(id)]}"',
+    "echo ${!x}",
+    "echo ${x:=y}",
+    "echo $[1+1]",
+    "((x = 1))",
+    'echo "$(# )\ncp a b\n)"',
+  ]) {
     assert.ok(read(bad).problems.length > 0, `read without a problem: ${bad}`);
   }
 });
 
-test("between the install and the agent, trusted steps run only what is allowed, and each staged script right after its check", () => {
-  // AN ALLOW-LIST, NOT A LIST OF FORBIDDEN SPELLINGS. A trusted step in this
-  // stretch runs after the branch's tree is in the workspace, so whatever it
-  // writes there, or runs from there, follows that tree. Every simple command
-  // of every shell step must be one of a few known to do neither; every
-  // redirection must name one of the runner's own files; every action must be
-  // one known not to write into the workspace.
-  const VERIFY = "Verify the staged agent scripts are unchanged";
-  const FIRST_COND = "always() && steps.tools.outputs.digest != ''";
-  const LATER_COND = "steps.tools.outputs.digest != ''";
-  const STAGED = /^"\$RUNNER_TEMP\/agent-tools\/[a-z][a-z0-9-]*\.mjs"$/;
-  const ALLOWED = {
-    echo: () => true,
-    printf: () => true,
-    test: () => true,
-    "[": () => true,
-    exit: () => true,
-    true: () => true,
-    cut: () => true,
-    date: () => true,
-    git: (w) => w[1] === "rev-parse" || w[1] === "ls-remote",
-    gh: (w) => w[1] === "pr" && w[2] === "comment",
-    node: (w) => STAGED.test(w[1] ?? ""),
-  };
-  const TARGET = (r) =>
-    (r.op === ">&" && (r.target === "1" || r.target === "2")) ||
-    ((r.op === ">" || r.op === ">>") &&
-      (['"$GITHUB_OUTPUT"', '"$GITHUB_STEP_SUMMARY"', "/dev/null"].includes(r.target) || /^"\$RUNNER_TEMP\/[\w.-]+"$/.test(r.target)));
-  const STEP_KEYS = /^\s*(?:- )?(name|id|if|env|run|uses|with|continue-on-error|working-directory|timeout-minutes):/;
-  /** A step's text with its `if:` line taken out, to compare the checks by. */
-  const withoutCond = (s) =>
-    s.text
-      .split("\n")
-      .filter((l) => !/^\s*if:/.test(l))
-      .join("\n")
-      .trimEnd();
+/**
+ * What a `github-script` step's code does that this guard does not allow. A
+ * small tokenizer and a few rules over its tokens: every call is one of the
+ * calls the workflows make today, every read of `github`, `core`, `context`
+ * and `process` is one they make today, and nothing reaches past those — no
+ * bracket access but `[<integer>]`, no `constructor`, `Function`, `eval`,
+ * `require`, `import`, no tagged template, no assignment but a `const`/`let`
+ * declaration's own. What the tokenizer cannot read is a problem.
+ *
+ * @returns {string[]}
+ */
+function githubScriptProblems(code) {
+  const problems = [];
+  const toks = []; // { t: "id"|"num"|"str"|"p"|"tmpl"|"tmplend"|"tmplopen"|"tmplclose", v, line }
+  let line = 1;
+  const push = (t, v) => toks.push({ t, v, line });
+  const KEYWORDS = new Set(["const", "let", "if", "else", "return", "await", "async", "try", "catch", "true", "false", "null"]);
+  const PUNCT = ["===", "!==", "**=", "...", "&&=", "||=", "??=", ">>>", "=>", "==", "!=", "<=", ">=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "%=", "**", "<<", ">>", "{", "}", "(", ")", "[", "]", ";", ",", ".", ":", "?", "=", "<", ">", "!", "+", "-", "*", "%"];
+  // GitHub substitutes these into the code before it runs, so the code that
+  // runs is not the code read here.
+  if (code.includes("${{")) problems.push("a GitHub expression inside the script");
+  const valueEnd = (t) => t && ((t.t === "id" && !KEYWORDS.has(t.v)) || t.t === "num" || t.t === "str" || t.t === "tmplend" || t.v === ")" || t.v === "]");
 
-  let uses = 0;
-  for (const [file, name] of INSTALLING_JOBS) {
-    const where = `${file} (job ${name})`;
-    const { steps } = job(file, name);
-    const installAt = steps.findIndex((s) => s.id === "install");
-    const agentAt = steps.findIndex((s) => s.uses?.startsWith(AGENT_ACTION));
-    assert.ok(installAt > 0 && agentAt > installAt, `${where}: no install before the agent`);
-    const first = steps[installAt + 1];
-    assert.equal(first.name, VERIFY, `${where}: the step after the install is not the check`);
-    assert.equal(first.cond, FIRST_COND, `${where}: the check after the install has another condition`);
-    for (let i = installAt + 1; i < agentAt; i++) {
-      const s = steps[i];
-      const label = `${where}: step "${s.name || s.uses}"`;
-      // Every key of the step is one this guard reads; a `shell:` would make
-      // the script mean something else.
-      for (const line of s.text.split("\n")) {
-        if (/^ {6}- |^ {8}\S/.test(line)) assert.match(line, STEP_KEYS, `${label} has a key this guard does not read: ${line.trim()}`);
-      }
-      if (s.name === VERIFY) {
-        // The same check, word for word, with the one condition it may have.
-        assert.equal(withoutCond(s), withoutCond(first), `${label} is not the same check as the one after the install`);
-        assert.equal(s.cond, i === installAt + 1 ? FIRST_COND : LATER_COND, `${label} runs under another condition`);
-        continue;
-      }
-      if (s.uses) {
-        if (s.uses.startsWith("actions/download-artifact@")) {
-          assert.match(s.text, /^ {10}path: \$\{\{ runner\.temp \}\}\/[\w-]+\/?\s*$/m, `${label} downloads somewhere other than the runner's temp directory`);
-          assert.equal((s.text.match(/^\s*path:/gm) ?? []).length, 1, `${label} names more than one path`);
-        } else {
-          assert.ok(s.uses.startsWith("actions/github-script@"), `${label} is an action this guard does not know to be free of workspace writes`);
-          assert.doesNotMatch(s.text, /\b(require|import|exec|io|glob|process|eval|Function|globalThis|child_process|fs)\b/, `${label} reaches for modules, programs or files`);
+  function lex(i, inTemplate) {
+    let depth = 0;
+    while (i < code.length) {
+      const c = code[i];
+      const rest = code.slice(i, i + 4);
+      if (c === "\n") {
+        line++;
+        i++;
+      } else if (c === " " || c === "\t" || c === "\r") {
+        i++;
+      } else if (rest.startsWith("${{")) {
+        problems.push("a GitHub expression inside the script");
+        i += 3;
+      } else if (rest.startsWith("//")) {
+        while (i < code.length && code[i] !== "\n") i++;
+      } else if (rest.startsWith("/*")) {
+        const e = code.indexOf("*/", i + 2);
+        if (e === -1) {
+          problems.push("an unterminated comment");
+          return code.length;
         }
-        assert.doesNotMatch(s.text, /agent-tool/, `${label} names the staged scripts`);
-        continue;
-      }
-      assert.ok(s.isRun, `${label} neither runs a script nor uses an action`);
-      const { commands, problems } = shellCommands(s.script);
-      assert.deepEqual(problems, [], `${label}: the guard cannot read this script`);
-      let runsNode = false;
-      for (const c of commands) {
-        for (const r of c.redirects) {
-          assert.ok(TARGET(r), `${label} redirects ${r.op} ${r.target}, which is not one of the runner's own files`);
+        line += (code.slice(i, e).match(/\n/g) ?? []).length;
+        i = e + 2;
+      } else if (c === "'" || c === '"') {
+        let j = i + 1;
+        for (; j < code.length && code[j] !== c && code[j] !== "\n"; j++) if (code[j] === "\\") j++;
+        if (code[j] !== c) {
+          problems.push("an unterminated string");
+          return code.length;
         }
-        if (c.words.length === 0) continue;
-        const allowed = ALLOWED[c.words[0]];
-        assert.ok(allowed && allowed(c.words), `${label} runs \`${c.words.join(" ")}\`, which is not on the list of commands allowed before the agent`);
-        if (c.words[0] === "node") runsNode = true;
-      }
-      // A staged script is run only directly after the check — and anything
-      // that names one, however spelled, counts as running it.
-      if (runsNode || /agent-tool|RUNNER_TEMP[^\n]*\.m?js|runner\.temp[^\n]*\.m?js/.test(s.text)) {
-        uses++;
-        assert.equal(steps[i - 1].name, VERIFY, `${label} runs a staged script without the check directly before it`);
+        push("str", code.slice(i, j + 1));
+        i = j + 1;
+      } else if (c === "`") {
+        if (valueEnd(toks.at(-1))) problems.push(`a tagged template (${toks.at(-1).v ?? toks.at(-1).t}\`…\`)`);
+        push("tmpl");
+        i = template(i + 1);
+        push("tmplend");
+      } else if (/[A-Za-z_]/.test(c)) {
+        const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(code.slice(i))[0];
+        push("id", m);
+        i += m.length;
+      } else if (/[0-9]/.test(c)) {
+        const m = /^[0-9]+(?:\.[0-9]+)?(?![A-Za-z0-9_$])/.exec(code.slice(i));
+        if (!m) {
+          problems.push("a number this guard does not read");
+          return code.length;
+        }
+        push("num", m[0]);
+        i += m[0].length;
+      } else {
+        const p = PUNCT.find((q) => code.startsWith(q, i));
+        if (!p) {
+          problems.push(`a character this guard does not read (${JSON.stringify(c)})`);
+          return code.length;
+        }
+        if (p === "{") depth++;
+        if (p === "}") {
+          if (depth === 0 && inTemplate) return i + 1;
+          depth--;
+        }
+        push("p", p);
+        i += p.length;
       }
     }
+    if (inTemplate) problems.push("an unterminated template expression");
+    return i;
   }
-  // fix: the picker; panel fix: set-state and the no-credential page; iterate:
-  // summarize, set-state and the picker; reply: the picker.
-  assert.equal(uses, 7, `found ${uses} uses of the staged scripts between the install and the agent`);
+  function template(i) {
+    for (; i < code.length; i++) {
+      const c = code[i];
+      if (c === "\\") {
+        if (code[i + 1] === "\n") line++;
+        i++;
+      } else if (c === "\n") line++;
+      else if (c === "`") return i + 1;
+      else if (c === "$" && code[i + 1] === "{") {
+        if (code[i + 2] === "{") problems.push("a GitHub expression inside the script");
+        push("tmplopen");
+        i = lex(i + 2, true) - 1;
+        push("tmplclose");
+      }
+    }
+    problems.push("an unterminated template literal");
+    return code.length;
+  }
+  lex(0, false);
+  if (problems.length > 0) return problems;
+
+  // Names that reach past what a step should touch, wherever they appear —
+  // as a name, a property or a key.
+  const FORBIDDEN = new Set(["constructor", "prototype", "__proto__", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "Function", "eval", "require", "import", "export", "globalThis", "global", "window", "self", "module", "exports", "this", "new", "with", "function", "class", "var", "delete", "arguments", "Reflect", "Proxy", "call", "apply", "bind", "mainModule", "binding", "dlopen", "addPath", "exportVariable"]);
+  // The calls and reads the workflows make in this stretch today.
+  const API_CALLS = new Set(["github.rest.pulls.list", "github.rest.issues.createComment", "github.paginate", "core.setOutput", "core.info", "core.warning", "core.summary.addRaw"]);
+  const API_READS = new Set(["context.repo.owner", "context.repo.repo", "context.serverUrl", "context.runId", "github.rest.actions.listWorkflowRuns", "github.rest.issues.listComments"]);
+  const apiRead = (p) => API_READS.has(p) || /^context\.payload(\.[A-Za-z_]\w*)+$/.test(p) || /^process\.env\.[A-Z][A-Z0-9_]*$/.test(p);
+  const API_ROOTS = new Set(["github", "core", "context", "process"]);
+  const GLOBAL_CALLS = new Set(["String", "parseInt"]);
+  const VALUE_METHODS = new Set(["filter", "some", "includes"]);
+  const OPEN = new Set(["(", "[", "{"]);
+  const CLOSE = new Set([")", "]", "}"]);
+  const isOpen = (t) => (t.t === "p" && OPEN.has(t.v)) || t.t === "tmplopen";
+  const isClose = (t) => (t.t === "p" && CLOSE.has(t.v)) || t.t === "tmplclose";
+  const matching = (k) => {
+    for (let d = 0, j = k; j < toks.length; j++) {
+      if (isOpen(toks[j])) d++;
+      else if (isClose(toks[j]) && --d === 0) return j;
+    }
+    return toks.length;
+  };
+
+  // Pass 1: the names the script declares, and which of them are functions.
+  const declared = new Set();
+  const declaredAt = new Set(); // token indices of declared names
+  const arrows = new Set();
+  const declare = (k, why) => {
+    const t = toks[k];
+    if (t?.t !== "id" || KEYWORDS.has(t.v)) {
+      problems.push(`${why} this guard does not read`);
+      return;
+    }
+    if (API_ROOTS.has(t.v) || GLOBAL_CALLS.has(t.v)) problems.push(`declares ${t.v}, a name this guard reads as the runtime's own`);
+    declared.add(t.v);
+    declaredAt.add(k);
+  };
+  const arrowAfter = (k) => {
+    // `= async? (…) =>` or `= async? x =>` from token k (the `=`).
+    let j = k + 1;
+    if (toks[j]?.v === "async") j++;
+    if (toks[j]?.t === "id" && toks[j + 1]?.v === "=>") return true;
+    return toks[j]?.v === "(" && toks[matching(j) + 1]?.v === "=>";
+  };
+  let decl = null;
+  let depth = 0;
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k];
+    if (decl && depth === decl.depth && (t.v === ";" || t.line > toks[k - 1].line)) decl = null;
+    if (t.t === "id" && (t.v === "const" || t.v === "let")) {
+      declare(k + 1, "a declaration");
+      decl = { depth };
+      if (toks[k + 2]?.v === "=" && arrowAfter(k + 2)) arrows.add(toks[k + 1].v);
+    } else if (decl && depth === decl.depth && t.v === ",") {
+      declare(k + 1, "a declaration");
+      if (toks[k + 2]?.v === "=" && arrowAfter(k + 2)) arrows.add(toks[k + 1].v);
+    } else if (t.v === "=>") {
+      if (toks[k - 1]?.t === "id") declare(k - 1, "an arrow parameter");
+      else if (toks[k - 1]?.v === ")") {
+        let j = k - 2;
+        while (j >= 0 && toks[j].v !== "(") {
+          if (toks[j].t === "id") declare(j, "an arrow parameter");
+          else if (toks[j].v !== ",") problems.push("arrow parameters this guard does not read");
+          j--;
+        }
+      } else problems.push("arrow parameters this guard does not read");
+    } else if (t.v === "catch" && toks[k + 1]?.v === "(") {
+      declare(k + 2, "a catch parameter");
+    }
+    if (isOpen(t)) depth++;
+    else if (isClose(t)) depth--;
+  }
+
+  // Pass 2: every name, call, access and assignment against the lists.
+  const writeOk = new Set(); // `.write` right after `core.summary.addRaw(…)`
+  const stack = [];
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k];
+    const prev = toks[k - 1];
+    const next = toks[k + 1];
+    if (isOpen(t)) stack.push(t.v ?? t.t);
+    else if (isClose(t)) stack.pop();
+    if (t.t === "p") {
+      if (["?.", "...", "++", "--", "+=", "-=", "*=", "%=", "**", "**=", "&&=", "||=", "??=", "<<", ">>", ">>>"].includes(t.v)) problems.push(`the operator ${t.v}`);
+      if (t.v === "=" && !declaredAt.has(k - 1)) problems.push(`an assignment to ${prev?.v ?? prev?.t} outside a declaration`);
+      if (t.v === "[" && valueEnd(prev) && !(next?.t === "num" && /^\d+$/.test(next.v) && toks[k + 2]?.v === "]")) problems.push(`a bracket access (${prev.v ?? prev.t}[…])`);
+      continue;
+    }
+    if (t.t !== "id") continue;
+    if (FORBIDDEN.has(t.v)) {
+      problems.push(`the name ${t.v}`);
+      continue;
+    }
+    if (KEYWORDS.has(t.v)) continue;
+    if (prev?.v === ".") {
+      // A property of a value. API chains are consumed whole below, so what is
+      // left is a property of something the script itself holds.
+      if (next?.v === "(" && !VALUE_METHODS.has(t.v) && !writeOk.has(k)) problems.push(`a call of .${t.v}()`);
+      continue;
+    }
+    if ((prev?.v === "{" || prev?.v === ",") && next?.v === ":" && stack.at(-1) === "{") continue; // an object key
+    if (declaredAt.has(k)) continue;
+    if (API_ROOTS.has(t.v)) {
+      let j = k;
+      const chain = [t.v];
+      while (toks[j + 1]?.v === "." && toks[j + 2]?.t === "id") {
+        chain.push(toks[j + 2].v);
+        j += 2;
+      }
+      const p = chain.join(".");
+      for (const name of chain) if (FORBIDDEN.has(name)) problems.push(`the name ${name}`);
+      if (toks[j + 1]?.v === "(") {
+        if (!API_CALLS.has(p)) problems.push(`a call of ${p}(), which is not one of the calls this stretch makes`);
+        else if (p === "core.summary.addRaw") {
+          const close = matching(j + 1);
+          if (toks[close + 1]?.v === "." && toks[close + 2]?.v === "write" && toks[close + 3]?.v === "(") writeOk.add(close + 2);
+        }
+      } else if (!apiRead(p)) problems.push(`a use of ${p}, which is not one of the reads this stretch makes`);
+      k = j;
+      continue;
+    }
+    if (GLOBAL_CALLS.has(t.v)) {
+      if (next?.v !== "(") problems.push(`a use of ${t.v} other than a call`);
+      continue;
+    }
+    if (!declared.has(t.v)) problems.push(`the name ${t.v}, which the script does not declare`);
+    else if (next?.v === "(" && !arrows.has(t.v)) problems.push(`a call of ${t.v}, which the script does not define as a function`);
+  }
+  return problems;
+}
+
+test("githubScriptProblems reads today's github-script code and refuses what reaches past it", () => {
+  const ok = [
+    "const owner = context.repo.owner, repo = context.repo.repo;\nconst prs = await github.rest.pulls.list({ owner, repo, head: `${owner}:x` });\nconst pr = prs.data[0];\nif (!pr) { core.setOutput('proceed', 'false'); return; }",
+    "const max = parseInt(process.env.MAX_ATTEMPTS, 10);\nconst runs = await github.paginate(github.rest.actions.listWorkflowRuns, { owner: 1, per_page: 100 });\nconst n = runs.filter(r => r.conclusion === 'failure').length;",
+    "const s = async (md) => {\n  try { await core.summary.addRaw(md).write(); }\n  catch (e) { core.warning(`failed: ${e.message}`); }\n};\nawait s('x');",
+    "const L = ['a[bot]'];\nconst f = (c) => {\n  const user = (c || {}).user || {};\n  return L.includes(user.login) || String((c || {}).body ?? '').includes('x');\n};",
+  ];
+  for (const code of ok) assert.deepEqual(githubScriptProblems(code), [], code);
+  for (const bad of [
+    "core.addPath('/x');",
+    "core.exportVariable('BASH_ENV', '/x');",
+    "core.setSecret('x');",
+    "const P = [].constructor.constructor('return pro'+'cess')();",
+    "core['addPath']('x');",
+    "const c = core; c.info('x');",
+    "const f = core.info; f('x');",
+    "process.env.PATH = '/x';",
+    "const x = process;",
+    "process.chdir('/');",
+    "eval('1');",
+    "require('fs');",
+    "await import('fs');",
+    "new Function('x')();",
+    "globalThis.x = 1;",
+    "x = 1;",
+    "const a = 1;\na = 2;",
+    "String.raw`x`;",
+    "const t = (s) => s; t`x`;",
+    "core.info('${{ github.workspace }}');",
+    "const o = {}; o.x = 1;",
+    "const a = [1]; a[0] = 2;",
+    "const a = [1]; a?.[0];",
+    "const s = 'x'; s.replace(/x/, 'y');",
+    "const s = 'x'; s.at(0);",
+    "github.request('GET /');",
+    "context.repo.owner();",
+  ]) {
+    assert.ok(githubScriptProblems(bad).length > 0, `read without a problem: ${bad}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// From the branch checkout to the agent. Every trusted step in that stretch
+// runs with the branch's tree in the workspace, so whatever it writes there,
+// runs from there, or lets steer the steps after it, follows that tree.
+
+const VERIFY = "Verify the staged agent scripts are unchanged";
+const FIRST_COND = "always() && steps.tools.outputs.digest != ''";
+const LATER_COND = "steps.tools.outputs.digest != ''";
+const DIGEST = "{ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1";
+// The record and verify steps, pinned to their text: they run `cd`, `find`,
+// `sort`, `xargs` and `rm`, which nothing else here may, and the digest test
+// above runs exactly this text.
+const RECORD_SCRIPT = ['cd "$RUNNER_TEMP/agent-tools"', `digest="$(${DIGEST})"`, 'echo "digest=$digest" >> "$GITHUB_OUTPUT"'].join("\n");
+const VERIFY_SCRIPT = [
+  'cd "$RUNNER_TEMP/agent-tools"',
+  `actual="$(${DIGEST})"`,
+  'if [ "$actual" != "$EXPECTED" ]; then',
+  '  cd "$RUNNER_TEMP"',
+  '  rm -rf "$RUNNER_TEMP/agent-tools"',
+  '  echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2',
+  "  exit 1",
+  "fi",
+].join("\n");
+const STAGED = /^"\$RUNNER_TEMP\/agent-tools\/[a-z][a-z0-9-]*\.mjs"$/;
+const STEP_KEYS = new Set(["name", "id", "if", "env", "run", "uses", "with", "continue-on-error", "working-directory", "timeout-minutes"]);
+// The `env:` names these jobs use today, by level. Anything else is refused,
+// and these never: each steers how a later command is found or what it loads.
+const STEP_ENV = new Set(["GH_TOKEN", "PR", "BRANCH", "EXPECTED", "CAPACITY", "CRED_REASON", "RUN_URL", "DISPATCH_FILE", "ATTEMPTS", "MAX", "CLAUDE_CODE_OAUTH_TOKEN", ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `CLAUDE_CODE_OAUTH_TOKEN_${n}`)]);
+const JOB_ENV = new Set(["WAFFLEBASE_AGENT_AUTONOMOUS"]);
+const WORKFLOW_ENV = new Set(["GH_REPO", "MAX_REVIEW_ROUNDS", "MAX_ATTEMPTS"]);
+const NEVER_SET = /^(PATH|BASH_ENV|ENV|HOME|IFS|CDPATH|SHELLOPTS|BASHOPTS|PS4|NODE_\w*|RUNNER_\w*|GITHUB_\w*|ACTIONS_\w*|LD_\w*|DYLD_\w*|GIT_\w*|npm_config_\w*|NPM_CONFIG_\w*|PNPM_\w*)$/;
+// The shell variables the stretch's scripts assign today, outside the pinned
+// record and verify steps. Bare assignments only; never as a command prefix.
+const SHELL_LOCALS = new Set(["ACTUAL", "DIAG"]);
+/** A `$RUNNER_TEMP/<name>` the job writes: a plain name, directly under it. */
+const TEMP_FILE = /^"\$RUNNER_TEMP\/([\w-][\w.-]*)"$/;
+const STATUS_FN = /\b(always|failure|cancelled|success)\s*\(/;
+/** A plain condition: `steps.<x>.outputs.<y> ==/!= '<literal>'`, joined by `&&`, on neither the record nor the install. */
+const PLAIN_COND = /^steps\.(?!tools\.|install\.)[\w-]+\.outputs\.[\w-]+ (==|!=) '[\w-]*'( && steps\.(?!tools\.|install\.)[\w-]+\.outputs\.[\w-]+ (==|!=) '[\w-]*')*$/;
+
+/** The word with its quotes removed, or null when it expands anything. */
+const literalOf = (w) => (/[$`\\]/.test(w.replace(/'[^']*'/g, "")) ? null : w.replace(/'([^']*)'|"([^"]*)"/g, (_, a, b) => a ?? b));
+const singleQuotedRuns = (w) => /'[^']*(\$\(|`)[^']*'/.test(w);
+
+/**
+ * What each allowed command may be given. Each returns why its words are
+ * refused, or null. `ctx` carries what the step has written so far and its env.
+ */
+const ARGUMENTS = {
+  echo: () => null,
+  true: (w) => (w.length > 1 ? "takes no arguments" : null),
+  exit: (w) => (w.length > 2 || (w[1] !== undefined && !/^\d+$/.test(w[1])) ? "takes one literal status" : null),
+  // printf has one option, -v, which assigns — and an array subscript in its
+  // name is evaluated as arithmetic, which runs any `$( … )` in it. The format
+  // must be a literal that is not an option. (Its integer conversions do not
+  // evaluate arithmetic: checked against bash 5.2.)
+  printf: (w) => {
+    const fmt = w[1] === undefined ? null : literalOf(w[1]);
+    if (fmt === null) return "takes a literal format first";
+    if (fmt.startsWith("-")) return `takes no option (${w[1]})`;
+    return null;
+  },
+  // `test -v` / `[ -v` evaluate an array subscript as arithmetic, and `-R`
+  // reads a name the same way. Only the shapes used here, with the operator
+  // written literally — `[ "$X" "$Y" ]` makes $X the operator, and an
+  // operator that comes from a variable can be -v.
+  test: (w) => testShape(w.slice(1)),
+  "[": (w) => (w.at(-1) !== "]" ? "has no closing ]" : testShape(w.slice(1, -1))),
+  // Standard input only: a file operand is a file read.
+  cut: (w) => {
+    for (const a of w.slice(1)) if (!/^-f[0-9,-]+$/.test(a) && !/^-d(.|'.'|".")$/.test(a)) return `the operand ${a}: cut reads standard input only`;
+    return null;
+  },
+  date: (w) => {
+    for (const a of w.slice(1)) {
+      const v = literalOf(a);
+      if (v !== "-u" && !(v !== null && v.startsWith("+"))) return `the operand ${a}: date takes -u and a +format only`;
+    }
+    return null;
+  },
+  // `rev-parse <ref>` and `ls-remote <origin|github.com URL> <pattern>`, with
+  // no option: `--upload-pack`, `-u`, `--exec`, `-c` and `--config` each run a
+  // program, and a remote that is a local path runs one by itself.
+  git: (w) => {
+    const sub = w[1];
+    if (sub === "rev-parse") {
+      if (w.length < 3) return "rev-parse takes a ref";
+      for (const a of w.slice(2)) if (!/^[A-Za-z0-9_][A-Za-z0-9_./^~@-]*$/.test(a)) return `the rev-parse argument ${a}`;
+      return null;
+    }
+    if (sub === "ls-remote") {
+      const remote = w[2];
+      if (remote !== "origin" && !/^(["']?)https:\/\/github\.com\/[\w.-]+\/[\w.-]+\1$/.test(remote ?? "")) return `the remote ${remote}: only origin or a github.com URL`;
+      for (const a of w.slice(3)) if (!/^"?[A-Za-z0-9_/]/.test(a)) return `the ls-remote argument ${a}: patterns start with a literal`;
+      return null;
+    }
+    return `the subcommand ${sub}: only rev-parse and ls-remote`;
+  },
+  // One pull request, and a body — or a body file this job wrote itself,
+  // directly under $RUNNER_TEMP: in this step, before this command, or in a
+  // step before the branch was checked out. Any other file is one gh would
+  // publish, whatever it holds.
+  gh: (w, ctx) => {
+    if (w[1] !== "pr" || w[2] !== "comment") return "only gh pr comment";
+    let prs = 0;
+    for (let k = 3; k < w.length; k++) {
+      const a = w[k];
+      if (a === "--body") {
+        if (w[++k] === undefined) return "--body has no value";
+      } else if (a === "--body-file" || a === "-F") {
+        const why = ctx.bodyFile(w[++k]);
+        if (why) return why;
+      } else if (/^"\$[A-Z_]+"$/.test(a) || /^\d+$/.test(a)) {
+        if (++prs > 1) return "names more than one pull request";
+      } else return `the argument ${a}`;
+    }
+    return prs === 1 ? null : "names no pull request";
+  },
+  node: (w) => (STAGED.test(w[1] ?? "") ? null : `runs ${w[1]}, which is not a staged script`),
+};
+function testShape(args) {
+  for (const a of args) {
+    const v = literalOf(a);
+    if (v === "-v" || v === "-R") return `the operator ${a}, which evaluates an array subscript`;
+    if (singleQuotedRuns(a)) return `the operand ${a}, which holds a substitution`;
+  }
+  const op = (a, ok) => ok.includes(a);
+  if (args.length === 1) return null;
+  if (args.length === 2 && op(args[0], ["-f", "-s", "-n", "-z", "-d", "-e"])) return null;
+  if (args.length === 3 && op(args[1], ["=", "!="])) return null;
+  return `the test ${args.join(" ")}: only a literal -f/-s/-n/-z/-d/-e or =/!=`;
+}
+
+const REDIRECT_OK = (r) =>
+  (r.op === ">&" && (r.target === "1" || r.target === "2")) ||
+  ((r.op === ">" || r.op === ">>") && (['"$GITHUB_OUTPUT"', '"$GITHUB_STEP_SUMMARY"', "/dev/null"].includes(r.target) || TEMP_FILE.test(r.target)));
+
+/** A step's own keys, as written (`- key:` or two levels in). */
+const keysOf = (s) => s.lines.filter((l) => /^ {6}- |^ {8}\S/.test(l)).map((l) => /^(?: {6}- | {8})([\w-]+):/.exec(l)?.[1] ?? `<unreadable: ${l.trim()}>`);
+/** The keys of a step's `with:`, and the block under `script: |`. */
+function withOf(s) {
+  const at = s.lines.findIndex((l) => /^ {8}with:\s*$/.test(l));
+  if (at === -1) return { keys: [], lines: [], script: null };
+  const block = [];
+  for (const l of s.lines.slice(at + 1)) {
+    if (l.trim() !== "" && !/^ {10}/.test(l)) break;
+    block.push(l);
+  }
+  const keys = block.filter((l) => /^ {10}\S/.test(l)).map((l) => /^ {10}([\w-]+):/.exec(l)?.[1] ?? `<unreadable: ${l.trim()}>`);
+  const scriptAt = block.findIndex((l) => /^ {10}script:/.test(l));
+  let script = null;
+  if (scriptAt !== -1) {
+    if (/^ {10}script:\s*\|\s*$/.test(block[scriptAt])) {
+      const body = [];
+      for (const l of block.slice(scriptAt + 1)) {
+        if (l.trim() !== "" && !/^ {12}/.test(l)) break;
+        body.push(l.replace(/^ {12}/, ""));
+      }
+      script = body.join("\n");
+    } else script = false;
+  }
+  return { keys, lines: block.filter((l) => /^ {10}\S/.test(l)).map((l) => l.trim()), script };
+}
+
+/**
+ * Every way the trusted steps from the branch checkout to the agent leave the
+ * allow-list, each tagged with the rule it breaks.
+ *
+ * @returns {{ problems: { rule: string, step: string, message: string }[], usesBefore: number, usesAfter: number }}
+ */
+function stretchProblems(wf, jobName) {
+  const problems = [];
+  const label = (s) => (s ? s.name || s.uses || s.id || "(unnamed)" : "(job)");
+  const problem = (rule, s, message) => problems.push({ rule, step: label(s), message });
+  const job = wf.jobs.find((j) => j.name === jobName);
+  if (!job) return { problems: [{ rule: "shape", step: "(job)", message: `${wf.file} has no job ${jobName}` }], usesBefore: 0, usesAfter: 0 };
+  const { steps } = job;
+  const branchAt = steps.findIndex((s) => s.checksOutBranch);
+  const installAt = steps.findIndex((s) => s.id === "install");
+  const agentAt = steps.findIndex((s) => s.uses?.startsWith(AGENT_ACTION));
+  if (!(branchAt >= 0 && installAt > branchAt && agentAt > installAt)) {
+    problem("shape", null, "no branch checkout, then an install, then the agent");
+    return { problems, usesBefore: 0, usesAfter: 0 };
+  }
+
+  // What every step of the job inherits.
+  if (wf.defaults) problem("defaults", null, "the workflow sets defaults:, which changes how every run: step is run");
+  if (job.defaults) problem("defaults", null, "the job sets defaults:, which changes how every run: step is run");
+  const envKey = (level, allowed, s) => ({ key }) => {
+    if (NEVER_SET.test(key)) problem("env-key", s, `${level} env: sets ${key}, which steers how later commands are found or what they load`);
+    else if (!allowed.has(key)) problem("env-key", s, `${level} env: sets ${key}, which is not one of the names this stretch uses (${[...allowed].join(", ")})`);
+  };
+  wf.env.forEach(envKey("workflow", WORKFLOW_ENV, null));
+  job.env.forEach(envKey("job", JOB_ENV, null));
+
+  // A staged script used after the install runs only when its check ran, or
+  // when the install never did. The record and the install share one plain
+  // condition, so "the record was skipped" is "the install was skipped"; a
+  // use carries no status function, so it inherits success() and cannot run
+  // past a check that failed — and when that check was skipped for want of a
+  // digest, so was the install.
+  const record = steps[installAt - 1];
+  if (record?.id !== "tools" || record.cond !== steps[installAt].cond || !PLAIN_COND.test(record.cond)) {
+    problem("staged-use-condition", record, `the record (${record?.cond}) and the install (${steps[installAt].cond}) must share one plain condition on earlier steps' outputs`);
+  }
+  const first = steps[installAt + 1];
+  if (first?.name !== VERIFY || first.cond !== FIRST_COND) problem("check-after-install", first, `the step after the install must be the check, under ${FIRST_COND}`);
+
+  // Files named under $RUNNER_TEMP by a step before the branch was checked out.
+  const tempBeforeBranch = new Set();
+  for (const s of steps.slice(0, branchAt)) {
+    for (const { value } of s.env) {
+      const m = /^\$\{\{ runner\.temp \}\}\/([\w-][\w.-]*)$/.exec(value);
+      if (m) tempBeforeBranch.add(m[1]);
+    }
+  }
+
+  let usesBefore = 0;
+  let usesAfter = 0;
+  for (let i = branchAt + 1; i < agentAt; i++) {
+    const s = steps[i];
+    const keys = keysOf(s);
+    const keyProblem = (allowed) => {
+      for (const k of keys) if (!allowed.includes(k)) problem(STEP_KEYS.has(k) ? "pinned-step" : "step-keys", s, `has the key ${k}`);
+    };
+    if (i === installAt) {
+      // Its command is held to its exact text by its own test; a `shell:`,
+      // `working-directory:` or `continue-on-error:` would change what that
+      // text does.
+      keyProblem(["name", "id", "if", "run"]);
+      continue;
+    }
+    for (const e of s.env) envKey("step", STEP_ENV, s)(e);
+
+    // The steps pinned to their text: the side-directory checkout of main and
+    // its staging, the record and every check.
+    const script = s.script?.trimEnd() ?? null;
+    const clear = /^rm -rf (\.trusted-[\w-]+)$/.exec(script ?? "");
+    const stage = /^cp -R (\.trusted-[\w-]+)\/scripts\/agent "\$\{\{ runner\.temp \}\}\/agent-tools"\nrm -rf (\.trusted-[\w-]+)$/.exec(script ?? "");
+    if (clear || (stage && stage[1] === stage[2])) {
+      keyProblem(["name", "run"]);
+      continue;
+    }
+    if (/^cp |agent-tools"?\s*$/m.test(script ?? "") && /\.trusted-/.test(script ?? "")) {
+      problem("pinned-step", s, "stages the agent scripts with something other than the copy and the removal");
+      continue;
+    }
+    if (s.uses?.startsWith("actions/checkout@")) {
+      const w = withOf(s);
+      const dir = w.lines.find((l) => /^path: \.trusted-[\w-]+$/.test(l))?.slice(6);
+      const want = ["ref: main", `path: ${dir}`, "sparse-checkout: scripts/agent", "sparse-checkout-cone-mode: false", "persist-credentials: false"];
+      if (!dir || [...w.lines].sort().join("\n") !== [...want].sort().join("\n")) problem("pinned-step", s, `checks out something other than main's scripts/agent into a .trusted-* directory: ${w.lines.join("; ")}`);
+      keyProblem(["name", "uses", "with"]);
+      continue;
+    }
+    if (s.id === "tools") {
+      if (script !== RECORD_SCRIPT) problem("pinned-step", s, "the record step is not the pinned script");
+      keyProblem(["name", "id", "if", "run"]);
+      continue;
+    }
+    if (s.name === VERIFY) {
+      if (script !== VERIFY_SCRIPT) problem("pinned-step", s, "the check is not the pinned script");
+      if (s.env.length !== 1 || s.env[0].key !== "EXPECTED" || s.env[0].value !== "${{ steps.tools.outputs.digest }}") problem("pinned-step", s, "the check is handed something other than EXPECTED: ${{ steps.tools.outputs.digest }}");
+      if (i > installAt + 1 && s.cond !== LATER_COND) problem("pinned-step", s, `a later check runs under ${s.cond}, not ${LATER_COND}`);
+      keyProblem(["name", "if", "env", "run"]);
+      continue;
+    }
+
+    for (const k of keys) if (!STEP_KEYS.has(k)) problem("step-keys", s, `has a key this guard does not read: ${k}`);
+    const wd = stepValue(s.lines, "working-directory");
+    if (wd !== null && wd !== "${{ runner.temp }}") problem("working-directory", s, `runs in ${wd}, not the runner's temp directory`);
+
+    if (s.uses && s.isRun) problem("shape", s, "both runs a script and uses an action");
+    if (s.uses) {
+      const w = withOf(s);
+      if (s.uses.startsWith("actions/download-artifact@")) {
+        if (!/^ {10}path: \$\{\{ runner\.temp \}\}\/[\w-]+\/?\s*$/m.test(s.text) || w.keys.filter((k) => k === "path").length !== 1) problem("download-path", s, "downloads somewhere other than one directory in the runner's temp directory");
+        for (const k of w.keys) if (!["name", "path", "run-id", "github-token"].includes(k)) problem("action", s, `download-artifact is given ${k}`);
+      } else if (s.uses.startsWith("actions/github-script@")) {
+        for (const k of w.keys) if (!["retries", "script"].includes(k)) problem("github-script", s, `github-script is given ${k}`);
+        if (typeof w.script !== "string") problem("github-script", s, "the script is not a literal block (script: |)");
+        else for (const p of githubScriptProblems(w.script)) problem("github-script", s, p);
+      } else {
+        problem("action", s, `${s.uses} is not an action this guard knows to stay out of the workspace`);
+      }
+      if (/agent-tool/.test(s.text)) problem("staged-name", s, "names the staged scripts");
+      continue;
+    }
+    if (!s.isRun) {
+      problem("shape", s, "neither runs a script nor uses an action");
+      continue;
+    }
+
+    const read = shellCommands(s.script);
+    for (const p of read.problems) problem("shell-unreadable", s, p);
+    const written = new Set();
+    const ctx = {
+      bodyFile: (target) => {
+        if (target === undefined) return "--body-file has no value";
+        const direct = TEMP_FILE.exec(target);
+        if (direct) return written.has(direct[1]) ? null : `--body-file ${target}, which this step has not written`;
+        const viaEnv = /^"\$([A-Z_]+)"$/.exec(target);
+        const value = viaEnv && s.env.find((e) => e.key === viaEnv[1])?.value;
+        const name = value && /^\$\{\{ runner\.temp \}\}\/([\w-][\w.-]*)$/.exec(value)?.[1];
+        if (name && tempBeforeBranch.has(name)) return null;
+        return `--body-file ${target}: only a file the job wrote directly under $RUNNER_TEMP`;
+      },
+    };
+    let runsNode = false;
+    for (const c of read.commands) {
+      for (const a of c.assigns) {
+        const name = a.slice(0, a.indexOf("="));
+        if (NEVER_SET.test(name)) problem("shell-assignment", s, `assigns ${name}, which steers how later commands are found or what they load`);
+        else if (c.words.length > 0) problem("shell-assignment", s, `assigns ${name} as a prefix of ${c.words[0]}`);
+        else if (!SHELL_LOCALS.has(name)) problem("shell-assignment", s, `assigns ${name}, which is not one of the shell variables this stretch uses (${[...SHELL_LOCALS].join(", ")})`);
+      }
+      for (const r of c.redirects) {
+        if (!REDIRECT_OK(r)) problem("redirect-target", s, `redirects ${r.op} ${r.target}, which is not one of the runner's own files`);
+        const m = TEMP_FILE.exec(r.target);
+        if (m && (r.op === ">" || r.op === ">>")) written.add(m[1]);
+      }
+      if (c.words.length === 0) continue;
+      const check = Object.hasOwn(ARGUMENTS, c.words[0]) ? ARGUMENTS[c.words[0]] : null;
+      if (!check) {
+        problem("shell-command", s, `runs \`${c.words.join(" ")}\`, which is not on the list of commands allowed before the agent`);
+        continue;
+      }
+      const why = check(c.words, ctx);
+      if (why) problem("shell-arguments", s, `\`${c.words.join(" ")}\`: ${why}`);
+      if (c.words[0] === "node") runsNode = true;
+    }
+    // Anything that names a staged script, however spelled, counts as using one.
+    if (runsNode || /agent-tool|RUNNER_TEMP[^\n]*\.m?js|runner\.temp[^\n]*\.m?js/.test(s.text)) {
+      if (i < installAt) {
+        // Before the install nothing of the branch's has run: the staged
+        // copy is still what was staged.
+        usesBefore++;
+        continue;
+      }
+      usesAfter++;
+      if (steps[i - 1].name !== VERIFY) problem("staged-use-order", s, "runs a staged script without the check directly before it");
+      if (STATUS_FN.test(s.cond)) problem("staged-use-condition", s, `runs a staged script under ${s.cond}, which can run it when the check before it did not`);
+    }
+  }
+  return { problems, usesBefore, usesAfter };
+}
+
+const formatProblems = (ps) => ps.map((p) => `  [${p.rule}] ${p.step}: ${p.message}`).join("\n");
+
+test("from the branch checkout to the agent, trusted steps run only what is allowed, and each staged script only after its check", () => {
+  // AN ALLOW-LIST, NOT A LIST OF FORBIDDEN SPELLINGS. Every simple command of
+  // every shell step is one of a few known to write nothing into the
+  // workspace and run nothing from it, with arguments that keep it so; every
+  // redirection names one of the runner's own files; every assignment and
+  // `env:` name is one this stretch uses, and none that steers how a later
+  // command is found or what it loads; every action is one known not to
+  // write into the workspace, and a github-script makes only the calls the
+  // workflows make today. The steps that must run something else — the side
+  // checkout of main and its staging, the digest record and checks — are
+  // pinned to their text.
+  let usesBefore = 0;
+  let usesAfter = 0;
+  for (const [file, name] of INSTALLING_JOBS) {
+    const r = stretchProblems(parseWorkflow(WF_TEXT(file), file), name);
+    assert.deepEqual(r.problems, [], `${file} (job ${name}):\n${formatProblems(r.problems)}`);
+    usesBefore += r.usesBefore;
+    usesAfter += r.usesAfter;
+  }
+  // After the install — fix: the picker; panel fix: set-state and the
+  // no-credential page; iterate: summarize, set-state and the picker; reply:
+  // the picker. Before it — iterate's paged steps: metrics, set-state and
+  // loop-status.
+  assert.equal(usesAfter, 7, `found ${usesAfter} uses of the staged scripts between the install and the agent`);
+  assert.equal(usesBefore, 3, `found ${usesBefore} uses of the staged scripts between the branch checkout and the install`);
+});
+
+// Each of these is a workflow edit the guard must refuse, and the rule that
+// must refuse it. Most come from an adversarial review of the guard (m1–m21);
+// each one names the rule it is there for, so a failure says which rule let
+// it through.
+const IT = "agent-iterate-ci.yml";
+const SS = '        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n';
+const SS_ENV = "          PR: ${{ steps.guard.outputs.pr }}\n" + SS;
+const RB = '        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"\n';
+const rb = (...pre) => [IT, RB, "        run: |\n" + [...pre, 'echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"'].map((l) => `          ${l}\n`).join("")];
+const AT_BEFORE_FIX = "      - name: Record branch head before fix\n";
+const gs = (code) => [IT, AT_BEFORE_FIX, `      - name: m\n        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7\n        with:\n          script: |\n            ${code}\n${AT_BEFORE_FIX}`];
+const AT_RECORD = "      - name: Record a digest of the staged agent scripts\n";
+const pre = (step) => [IT, AT_RECORD, `${step}${AT_RECORD}`];
+const IT_HEADER = '      cancel-in-progress: true\n    env:\n      WAFFLEBASE_AGENT_AUTONOMOUS: "true"\n';
+const SET_FIXING = "      - name: Set state → fixing\n        if: steps.guard.outputs.proceed == 'true'\n";
+
+const MUTATIONS = {
+  // Assignments and env.
+  m1_assign_RUNNER_TEMP: ["shell-assignment", IT, SS, '        run: |\n          RUNNER_TEMP="$PWD"\n          node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n'],
+  m2_prefix_NODE_OPTIONS: ["shell-assignment", IT, SS, '        run: NODE_OPTIONS="--require ./x.cjs" node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n'],
+  m3_yaml_env_NODE_OPTIONS: ["env-key", IT, SS_ENV, "          PR: ${{ steps.guard.outputs.pr }}\n          NODE_OPTIONS: --require ./x.cjs\n" + SS],
+  m3b_yaml_env_RUNNER_TEMP: ["env-key", IT, SS_ENV, "          PR: ${{ steps.guard.outputs.pr }}\n          RUNNER_TEMP: ${{ github.workspace }}\n" + SS],
+  m8_assign_PATH: ["shell-assignment", ...rb('PATH="$PWD/bin:$PATH"')],
+  m9_assign_GITHUB_OUTPUT: ["shell-assignment", ...rb('GITHUB_OUTPUT="$PWD/node_modules/.bin/git"', 'echo x > "$GITHUB_OUTPUT"')],
+  g1_assign_unlisted_local: ["shell-assignment", ...rb("y=1")],
+  g2_assign_listed_local_as_prefix: ["shell-assignment", ...rb("DIAG=1 echo x")],
+  g3_job_env_NODE_OPTIONS: ["env-key", IT, IT_HEADER, IT_HEADER + "      NODE_OPTIONS: --require ./x.cjs\n"],
+  g4_workflow_env_BASH_ENV: ["env-key", IT, '  MAX_ATTEMPTS: "4"\n', '  MAX_ATTEMPTS: "4"\n  BASH_ENV: ./x.sh\n'],
+  g5_step_env_flow_mapping: ["env-key", IT, "        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" + SS_ENV, "        env: { NODE_OPTIONS: x }\n" + SS],
+  g6_verify_env_BASH_ENV: ["env-key", IT, "          EXPECTED: ${{ steps.tools.outputs.digest }}\n", "          EXPECTED: ${{ steps.tools.outputs.digest }}\n          BASH_ENV: ./x.sh\n"],
+  g7_job_defaults_shell: ["defaults", IT, IT_HEADER, IT_HEADER + "    defaults:\n      run:\n        shell: sh {0}\n"],
+  g8_working_directory_workspace: ["working-directory", IT, SET_FIXING, SET_FIXING + "        working-directory: ${{ github.workspace }}/x\n"],
+  g9_shell_key: ["step-keys", IT, SET_FIXING, SET_FIXING + "        shell: sh {0}\n"],
+  // What the lexer must not misread.
+  m4_ansiC_quote: ["shell-unreadable", ...rb("echo $'\\'' ; cp -R src dst #'")],
+  m5_prompt_P: ["shell-unreadable", ...rb("x='$(touch pwned)'", 'echo "${x@P}"')],
+  g10_prompt_P_of_env: ["shell-unreadable", ...rb('echo "${BRANCH@P}"')],
+  g11_indirection: ["shell-unreadable", ...rb('echo "${!BRANCH}"')],
+  g12_subscript_expansion: ["shell-unreadable", ...rb("echo ${BRANCH[$(id)]}")],
+  g13_arith_command: ["shell-unreadable", ...rb("((x = 1))")],
+  g14_old_arith: ["shell-unreadable", ...rb("echo $[1+1]")],
+  g15_comment_in_substitution: ["shell-unreadable", ...rb('echo "$(# )', "cp a b", ')"')],
+  m16_dollar_dq_ctl: ["shell-unreadable", ...rb('echo $"x"; cp a b')],
+  // A line starting with # inside a run: block is script, not YAML comment:
+  // dropping it would read `cp a b` as part of a quoted string.
+  g16_hash_line_closes_quote: ["shell-command", ...rb("echo '", "#'", "cp a b")],
+  // Commands and their arguments.
+  m6_printf_v: ["shell-arguments", ...rb("printf -v 'a[$(touch pwned)]' x")],
+  m7_test_v: ["shell-arguments", ...rb("test -v 'a[$(touch pwned)]'")],
+  g17_bracket_v: ["shell-arguments", ...rb("[ -v 'a[$(touch pwned)]' ]")],
+  g18_test_operator_from_variable: ["shell-arguments", ...rb('[ "$PR" "$BRANCH" ]')],
+  g19_printf_format_from_variable: ["shell-arguments", ...rb('printf "$BRANCH" x')],
+  m10_lsremote_uploadpack: ["shell-arguments", ...rb("git ls-remote --upload-pack=./bin/x .")],
+  g20_git_config_option: ["shell-arguments", ...rb("git -c core.fsmonitor=./x rev-parse HEAD")],
+  g21_lsremote_remote_from_variable: ["shell-arguments", ...rb('git ls-remote "$BRANCH"')],
+  g22_lsremote_local_path: ["shell-arguments", ...rb("git ls-remote ./x")],
+  m17_cut_reads: ["shell-arguments", ...rb("cut -f1 /proc/self/environ")],
+  g23_date_reads: ["shell-arguments", ...rb("date -f /proc/self/environ")],
+  m18_gh_bodyfile: ["shell-arguments", ...rb("gh pr comment 1 --body-file /proc/self/environ")],
+  g24_gh_bodyfile_unwritten: ["shell-arguments", ...rb('gh pr comment "$PR" --body-file "$RUNNER_TEMP/other.md"')],
+  g25_gh_bodyfile_panel_renamed: ["shell-arguments", "agent-review-panel.yml", 'gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"', 'gh pr comment "$PR" --body-file "$RUNNER_TEMP/elsewhere.md"'],
+  g26_rev_parse_option: ["shell-arguments", "agent-fix.yml", 'ACTUAL="$(git rev-parse HEAD)"', 'ACTUAL="$(git rev-parse --git-path hooks)"'],
+  m15_ctl_semicolon: ["shell-command", ...rb("echo x; cp a b")],
+  g27_let: ["shell-command", ...rb("let x=1")],
+  g28_cd: ["shell-command", ...rb("cd /")],
+  g29_export: ["shell-command", ...rb("export DIAG")],
+  m14_ctl_GITHUB_ENV: ["redirect-target", ...rb('echo "X=1" >> "$GITHUB_ENV"')],
+  g30_redirect_into_workspace: ["redirect-target", ...rb("echo x > node_modules/.bin/git")],
+  // github-script.
+  m11_gs_addPath: ["github-script", ...gs("core.addPath('${{ github.workspace }}/node_modules/.bin');")],
+  m12_gs_BASH_ENV: ["github-script", ...gs("core.exportVariable('BASH_ENV', '/tmp/x.sh');")],
+  m13_gs_ctor: ["github-script", ...gs("const P=[].constructor.constructor('return pro'+'cess')(); P.mainModule['req'+'uire']('f'+'s').writeFileSync('x','y');")],
+  g31_gs_bracket: ["github-script", ...gs("core['addPath']('x');")],
+  g32_gs_alias_root: ["github-script", ...gs("const c = core; c.addPath('x');")],
+  g33_gs_process_env_write: ["github-script", ...gs("process.env.PATH = '/x';")],
+  g34_gs_tagged_template: ["github-script", ...gs("String.raw`x`;")],
+  g35_gs_pre_install: ["github-script", IT, "            const max = parseInt(process.env.MAX_ATTEMPTS, 10);\n", "            const max = parseInt(process.env.MAX_ATTEMPTS, 10);\n            core.exportVariable('NODE_OPTIONS', '--require ./x.cjs');\n"],
+  g36_gs_extra_input: ["github-script", IT, "        id: guard\n        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0\n        with:\n", "        id: guard\n        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0\n        with:\n          github-token: ${{ secrets.OTHER_TOKEN }}\n"],
+  g37_other_action: ["action", IT, AT_BEFORE_FIX, "      - name: m\n        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n        with:\n          path: x\n          key: y\n" + AT_BEFORE_FIX],
+  g54_local_action_from_branch: ["action", IT, AT_RECORD, "      - name: m\n        uses: ./.github/actions/setup\n" + AT_RECORD],
+  g38_download_into_workspace: ["download-path", IT, "          path: ${{ runner.temp }}/harness-reports/\n", "          path: harness-reports/\n"],
+  // The stretch starts at the branch checkout, not at the install.
+  m19_preinstall_node_ws: ["shell-arguments", ...pre("      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: node scripts/verify-self.mjs\n")],
+  m20_preinstall_sh_ws: ["shell-command", ...pre("      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: ./scripts/ci.sh\n")],
+  m21_preinstall_npx: ["shell-command", ...pre("      - name: m\n        run: npx --yes tsx scripts/x.ts\n")],
+  g39_preinstall_prefix_on_staged: ["shell-assignment", IT, '        run: node "$RUNNER_TEMP/agent-tools/metrics.mjs"', '        run: NODE_OPTIONS=--require=./x.cjs node "$RUNNER_TEMP/agent-tools/metrics.mjs"'],
+  g40_stage_with_extra_command: ["pinned-step", "agent-review-reply.yml", '          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"\n', '          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"\n          node .trusted-agent/x.mjs\n'],
+  g41_side_checkout_lfs: ["pinned-step", "agent-review-reply.yml", "          sparse-checkout: scripts/agent\n", "          sparse-checkout: scripts/agent\n          lfs: true\n"],
+  g42_record_script_extra: ["pinned-step", IT, '          echo "digest=$digest" >> "$GITHUB_OUTPUT"\n', '          echo "digest=$digest" >> "$GITHUB_OUTPUT"\n          node ./x.mjs\n'],
+  g43_record_continue_on_error: ["pinned-step", IT, "        id: tools\n", "        id: tools\n        continue-on-error: true\n"],
+  // A staged script runs only when its check ran (or the install did not).
+  g44_use_under_always: ["staged-use-condition", IT, SET_FIXING, "      - name: Set state → fixing\n        if: always() && steps.guard.outputs.proceed == 'true'\n"],
+  g45_use_under_always_block_scalar: ["staged-use-condition", IT, SET_FIXING, "      - name: Set state → fixing\n        if: >-\n          always() &&\n          steps.guard.outputs.proceed == 'true'\n"],
+  g46_use_under_not_cancelled: ["staged-use-condition", IT, SET_FIXING, "      - name: Set state → fixing\n        if: ${{ !cancelled() }}\n"],
+  g47_install_condition_differs: ["staged-use-condition", IT, "        id: install\n        if: steps.guard.outputs.proceed == 'true'\n", "        id: install\n        if: steps.guard.outputs.proceed != 'false'\n"],
+  g49_run_disguised_as_download: ["shell-command", ...rb("cp a b", "uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0", "path: ${{ runner.temp }}/x")],
+  g50_gs_names_staged: ["staged-name", ...gs("core.info('agent-tools');")],
+  g51_first_check_not_always: ["check-after-install", IT, "        if: always() && steps.tools.outputs.digest != ''\n", "        if: steps.tools.outputs.digest != ''\n"],
+  g52_install_shell: ["step-keys", IT, "        id: install\n", "        id: install\n        shell: sh -c './x; node {0}'\n"],
+  g53_install_continue_on_error: ["pinned-step", IT, "        id: install\n", "        id: install\n        continue-on-error: true\n"],
+  g48_use_without_check: ["staged-use-order", IT, AT_BEFORE_FIX, '      - name: m\n        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" x\n' + AT_BEFORE_FIX],
+};
+
+test("each workflow edit the guard must refuse is refused, by the rule it names", async (t) => {
+  for (const [name, [rule, file, from, to]] of Object.entries(MUTATIONS)) {
+    await t.test(`${name} is refused by ${rule}`, () => {
+      const text = WF_TEXT(file);
+      assert.ok(text.includes(from), `${name}: the anchor is no longer in ${file}:\n${from}`);
+      const jobName = INSTALLING_JOBS.find(([f]) => f === file)[1];
+      const mutated = text.replace(from, () => to);
+      const { problems } = stretchProblems(parseWorkflow(mutated, file), jobName);
+      assert.ok(problems.some((p) => p.rule === rule), `${name} was not refused by ${rule}:\n${formatProblems(problems) || "  (refused by nothing)"}`);
+    });
+  }
 });
 
 test("a refused install is reported where the job has no other way to say so", () => {

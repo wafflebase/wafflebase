@@ -216,30 +216,91 @@ A script rather than a composite action: every job already has main's
 that exists instead of adding a second trusted checkout and a directory that has
 to outlive the job.
 
-### Between the install and the agent
+### From the branch checkout to the agent
 
-Two rules hold for the trusted steps that run after the install and before the
-agent, and the guard test enforces both:
+Two rules hold for the trusted steps that run after the branch is checked out
+and before the agent, and the guard test enforces both:
 
-- **Nothing is written into the workspace.** A write there goes wherever the
-  tree leads it, whatever was checked before. The CI-fix job's download of the
-  failed run's reports goes to `$RUNNER_TEMP/harness-reports`, and
-  `summarize-ci.mjs` is pointed at it.
-- **The staged scripts are verified directly before every use**, not once.
+- **Nothing is written into the workspace, run from it, or set up to steer a
+  later step.** A write there goes wherever the tree leads it, whatever was
+  checked before. The CI-fix job's download of the failed run's reports goes to
+  `$RUNNER_TEMP/harness-reports`, and `summarize-ci.mjs` is pointed at it.
+- **A staged script is run after the install only once it has been checked**:
+  the check of the staged scripts sits directly before every use, and a use runs
+  only when that check ran or the install did not.
 
 The guard reads this stretch by **allow-list**, not by a list of forbidden
-spellings — there are too many ways to write a file. Each shell step is read
-into its simple commands (command substitutions included), and every command
-must be one of: `echo`, `printf`, `test`/`[`, `exit`, `true`, `cut`, `date`,
-`git rev-parse`, `git ls-remote`, `gh pr comment`, or `node` with a staged
-script as its first argument. Every redirection must name `$GITHUB_OUTPUT`,
-`$GITHUB_STEP_SUMMARY`, a named file under `$RUNNER_TEMP`, stderr or
-`/dev/null`. A script it cannot read — a backtick, an arithmetic expansion, a
-here-document, a GitHub expression inside the script — fails it. The only
-actions are a download into `$RUNNER_TEMP` and a `github-script` that reaches
-for no module, program or file. Every check of the staged scripts is the same
-step word for word, under exactly the condition it should have, and any step
-that names a staged script, however spelled, has one directly before it.
+spellings: there are too many ways to write a file, and more to change what a
+later command finds. A step is one of these, or the test fails.
+
+- **Pinned steps**, compared with their exact text: the side-directory clear,
+  checkout of main's `scripts/agent` (with exactly `ref`, `path`, the sparse
+  pattern and `persist-credentials: false`) and staging; the digest record; and
+  every check, which is handed nothing but `EXPECTED`. These are the steps that
+  must run `cp`, `rm`, `cd`, `find`, `sort`, `xargs` or `sha256sum`, which no
+  other step may. The install itself is held to its one command, and none of
+  these takes a `shell:`, `working-directory:` or `continue-on-error:`.
+- **Shell steps**, read into their simple commands (command substitutions
+  included). Every command is one of these, with these arguments:
+
+  | Command | Arguments |
+  | --- | --- |
+  | `echo`, `true`, `exit` | anything; none; one literal status |
+  | `printf` | a literal format that is not an option first (`-v` assigns, and an array subscript in its name runs `$( … )`) |
+  | `test`, `[` | one literal `-f`/`-s`/`-n`/`-z`/`-d`/`-e` and an operand, or two operands around a literal `=`/`!=` — so the operator is never a variable, and never `-v` or `-R` |
+  | `cut`, `date` | options only (`-f`, `-d`; `-u`, `+format`): standard input, no file |
+  | `git` | `rev-parse <ref>`, or `ls-remote` with `origin` or a `github.com` URL and patterns that begin with a literal; no option at all, so nothing names a program (`--upload-pack`, `-u`, `--exec`, `-c`) |
+  | `gh` | `pr comment`, one pull request, `--body`, or a `--body-file` the job wrote directly under `$RUNNER_TEMP` — in this step before the command, or named by a step before the branch was checked out; any other file is one `gh` would publish |
+  | `node` | a staged script, `"$RUNNER_TEMP/agent-tools/<name>.mjs"`, first |
+
+  A shell assignment is refused unless it stands alone and names one of the
+  variables the scripts use (`ACTUAL`, `DIAG`). Every redirection names
+  `$GITHUB_OUTPUT`, `$GITHUB_STEP_SUMMARY`, a plain file name directly under
+  `$RUNNER_TEMP`, stderr or `/dev/null`. A step runs in the workspace or in
+  `${{ runner.temp }}`, nowhere else.
+- **Actions**: a download into one directory under `$RUNNER_TEMP`, and
+  `github-script` with only `script` and `retries`. Its code is read by a small
+  tokenizer and held to the calls and reads the workflows make —
+  `github.rest.pulls.list`, `github.rest.issues.createComment`,
+  `github.paginate` over `listWorkflowRuns`/`listComments`, `core.setOutput`,
+  `core.info`, `core.warning`, `core.summary.addRaw(…).write()`, `String`,
+  `parseInt`, `context.*` and `process.env.<NAME>` reads, and `filter`/`some`/
+  `includes` on its own values. No bracket access but `[<integer>]`, no
+  `constructor`, `Function`, `eval`, `require`, `import`, tagged template or
+  `${{ }}`, and no assignment outside a `const`/`let` declaration. So
+  `core.addPath` and `core.exportVariable` — which would reach every later step
+  — are refused by name and by omission.
+
+**Environment.** Every `env:` name — of the step, the job and the workflow — is
+one the jobs use today, and never `PATH`, `BASH_ENV`, `ENV`, `HOME`, `IFS`,
+`NODE_*`, `RUNNER_*`, `GITHUB_*`, `ACTIONS_*`, `LD_*`, `DYLD_*`, `GIT_*`,
+`npm_config_*`, `NPM_CONFIG_*` or `PNPM_*`: each steers how a later command is
+found or what it loads, and the redirect and `node` rules above trust the
+values of the runner's own variables. Neither the workflow nor the job sets
+`defaults:`.
+
+**What it does not read, it refuses.** A backtick, an arithmetic expansion or
+command (`$((`, `$[`, `((`), ANSI-C or locale quoting (`$'…'`, `$"…"`), a
+parameter expansion other than `${NAME}` or `${NAME:-literal}` (`${x@P}` and
+an array subscript both run substitutions), a `#` inside a command
+substitution, a here-document, a GitHub expression inside a script, an
+unterminated quote, or a key the guard does not read. A line starting with `#`
+inside a `run:` or `script:` block is read as script, not dropped as a YAML
+comment. A step's `uses:`, `if:` and `env:` are read only at the step's own
+level.
+
+**When a staged script may run.** Each later check has the condition
+`steps.tools.outputs.digest != ''` and inherits `success()`. A step that uses a
+staged script after the install has no status function (`always()`,
+`failure()`, `cancelled()`, `success()`) in its `if:`, so it cannot run past a
+check that failed; and the record step and the install share one plain
+condition on earlier steps' outputs, so a check skipped for want of a digest
+means the install was skipped too. Before the install nothing of the branch's
+has run, and the staged copy is still what was staged: uses there need no
+check.
+
+The test carries a named workflow edit for each rule, applied to the real
+workflow text, which must be refused by that rule.
 
 ### The digest
 
@@ -337,8 +398,8 @@ Stated plainly, the property rests on these and on nothing else:
 - **`PATH`, Node and Docker on the runner** as they are when the step starts:
   nothing before the install step has run anything of the branch's.
 - **No trusted step before the agent follows a path in the workspace or runs a
-  program from it.** The guards hold the workflows to this for the scripts they
-  run; a new pre-agent step that reads workspace files is a new thing to check.
+  program from it.** From the branch checkout on, the guard holds every step to
+  the allow-list above; before the checkout the workspace is main's tree.
 - **Everything after the agent is untrusted**, as before: the agent has a
   shell.
 - **The container has open egress and no credential.** It can reach the
