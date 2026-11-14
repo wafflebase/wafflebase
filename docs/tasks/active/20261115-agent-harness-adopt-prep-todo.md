@@ -58,3 +58,25 @@ switch (W4) is the sync and nothing else. The sync itself is not part of it:
   `agent-workflow-guards.test.mjs`, the same on both cores, which W4 has to
   resolve (most are the guard's shape for today's install steps).
 - actionlint 1.7.12: the base's 16 shellcheck notes, nothing new.
+
+## Review round 1
+
+Two independent reviews (toolchain; configuration and the rest). Fixed:
+
+- [x] The install skipped every root `.trusted-*` directory; it now skips
+      only the checkout it runs from (a real directory with a real `.git`),
+      walks every other one, and refuses links into any of them
+- [x] `DOCKER_HOST` must be unset or a `unix://` socket
+- [x] `repo.test.mjs` claimed the shared rules take every test name; it now
+      pins the exact gap (`*.e2e-spec.ts`, `*.integration.ts` are not
+      runnable names) until yorkie-team/yorkie#2362 lands
+- [x] The root `postinstall` leaves `.githooks` unwired under CI
+- [x] The template catalogue's README is policy, not prose
+- [x] The probe-vocabulary `todo`s became an exact pin of yorkie main's
+      present answers, so any change there fails
+- [x] `summarize-ci.mjs` closes a fence a cut leaves open and escapes the
+      heading
+- [x] The switch's losses are listed in `.github/agent-harness/README.md`
+
+Each fix was mutation-checked: reverting it fails its test.
+

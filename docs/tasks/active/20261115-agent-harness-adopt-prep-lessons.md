@@ -17,7 +17,16 @@
   `.trusted-toolchain` (with its own `.git`) and persist a token in `.git`.
   Both had to be handled — skipped in the walks, covered in the container —
   or the moved code would have refused every run, or handed the container a
-  credential it never had before.
+  credential it never had before. And the exemption has to name the one
+  checkout the job made, not a prefix: the first version skipped every
+  `.trusted-*` directory, which a branch can simply carry.
+- A `todo` that switches on "is the other side there yet" never fails, so it
+  can hide a change on that side forever. Pin the other side's present state
+  exactly in a normal test; the day it changes, the test says so.
+- Read the guidance that disappears as carefully as the code. Today's
+  prompts told the agent to push with `--no-verify`; the shared ones forbid
+  it, so anything that re-arms the minutes-long pre-push (the root
+  `postinstall`) becomes a stuck push.
 - A launcher layout is part of an interface. `install-deps.mjs` finds pnpm by
   walking from the PATH entry; laying the fetched tarball out as `.bin/pnpm`
   beside `pnpm/` reused that resolution instead of changing it.

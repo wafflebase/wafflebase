@@ -30,4 +30,34 @@ toolchain action came from, are deleted by that sync.
 | `repo.snapshot.json` | Every configured value and rendered prompt, recorded. A change to a gate, a prompt or a value shows its before and after in this file's diff (`AGENT_HARNESS_RECORD=1 npm run test:repo` records it again) |
 | `upstream.json` | Which repository and commit the shared half was copied from, and the manifest digest. Written by `sync.mjs`, never by hand |
 | `../actions/agent-toolchain/action.yml` | One step, no other action, no cache. It fetches pnpm 10.5.2 — one tarball from the npm registry, checked against a pinned sha512 before it is unpacked under the runner's temp directory — and runs `install-deps.mjs` with a scrubbed environment; then puts the fetched pnpm on the PATH of later steps |
-| `../actions/agent-toolchain/install-deps.mjs` | The install (#1142): refuses a tree with a `node_modules`, a link out of the working tree or into `.git` or a `.trusted-*` checkout, a branch-changed workspace file or pnpm setting; installs in a container (image pinned by digest) whose only writable mount is the workspace, with an empty read-only directory over `.git` and each trusted checkout, and no environment; then checks that nothing outside the working tree changed. `install-deps-lockfile.mjs` holds the lockfile and manifests to an allow-list, `install-deps-container.cjs` is the half that runs in the container, `install-deps.workspace.yaml` is main's `pnpm-workspace.yaml` |
+| `../actions/agent-toolchain/install-deps.mjs` | The install (#1142): refuses a tree with a `node_modules`, a link out of the working tree or into `.git` or any `.trusted-*` name, a branch-changed workspace file or pnpm setting; installs in a container (image pinned by digest, local Docker only) whose only writable mount is the workspace, with an empty read-only directory over `.git` and over the trusted checkout the script runs from, and no environment; then checks that nothing outside the working tree changed. Every other `.trusted-*` entry is walked as the branch's. `install-deps-lockfile.mjs` holds the lockfile and manifests to an allow-list, `install-deps-container.cjs` is the half that runs in the container, `install-deps.workspace.yaml` is main's `pnpm-workspace.yaml` |
+
+## What changes at the switch
+
+What wafflebase's own copy of the harness does today that the shared one will
+not, or will do differently. Each is known and accepted for now:
+
+- **Renaming a Jest e2e or frontend integration suite away is not recorded.**
+  The shared test-removal rules take `*.test.*` and `*.spec.*` for names a
+  runner picks up, not `*.e2e-spec.ts` or `*.integration.ts`; those files are
+  still test files by their directory, so tests added, removed or switched
+  off in them are recorded. yorkie-team/yorkie#2362 adds the two suffixes;
+  `repo.test.mjs` pins the gap and says when to flip it.
+- **The issue classification step goes.** The shared `agent-implement.yml`
+  has none.
+- **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set**, so
+  `scripts/hooks/require-ai-disclosure.sh` stops firing in agent jobs; the
+  shared report jobs and the ready gate check disclosure.
+- **More READMEs are prose.** The shared rules make every `README.md` prose,
+  which no code lens reads: `packages/README.md`, `scripts/README.md` and
+  `plugins/wafflebase/README.md` move from `code`. The template catalogue's
+  README, which states a rule, is kept as policy (`config.json`).
+- **The issue-to-PR prompt drops** the SessionStart-hook claim, the
+  self-review step and its `<!-- agent-self-review -->` marker (nothing reads
+  it), the `set-state.mjs … implementing` step (the shared workflow sets the
+  state itself), and writes a new design document as
+  `docs/design/<topic>.md` rather than `docs/design/<area>/<topic>.md`.
+- **Fix rounds push with the shared scope hook**, not `--no-verify`; the root
+  `postinstall` leaves `.githooks` unwired under CI so an agent's own
+  `pnpm install` cannot re-arm the minutes-long pre-push.
+
