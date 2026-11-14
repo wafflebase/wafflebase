@@ -29,8 +29,11 @@ describe('renderTokensCss', () => {
 
   it('emits the semantic variables expected by the @theme block', () => {
     expect(css).toMatch(/--background:\s*oklch\(1 0 0\);/);
-    expect(css).toMatch(/--primary:\s*#B8651A;/);
+    expect(css).toMatch(/--primary:\s*#9E5614;/);
+    expect(css).toMatch(/--primary-hover:\s*#8A4A12;/);
+    expect(css).toMatch(/--input-border:\s*oklch\(0\.64 /);
     expect(css).toMatch(/--ring:\s*#B8651A;/);
+    expect(css).toMatch(/--link:\s*#1967D2;/);
   });
 
   it('emits dark-mode overrides', () => {
@@ -88,7 +91,7 @@ describe('renderTokensCssFrom', () => {
   });
 
   /**
-   * `semantic.ts` binds `primary: palette.syrup` at MODULE EVALUATION, so any
+   * `semantic.ts` binds `ring: palette.syrup` at MODULE EVALUATION, so any
    * `semantic` map handed to this function already carries a RESOLVED colour.
    * Object substitution therefore cannot move a semantic role — only
    * re-evaluating `semantic.ts` against a patched `palette.ts` can. A caller
@@ -99,7 +102,8 @@ describe('renderTokensCssFrom', () => {
       ...OWN,
       palette: { ...palette, syrup: '#0000FF' },
     });
-    expect(patched).toMatch(/--primary:\s*#B8651A;/);
+    // `ring` binds `palette.syrup` the same way `primary` once did.
+    expect(patched).toMatch(/--ring:\s*#B8651A;/);
   });
 
   it('moves a semantic role when the semantic map itself is patched', () => {

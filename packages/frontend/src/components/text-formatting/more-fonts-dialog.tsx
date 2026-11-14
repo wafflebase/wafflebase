@@ -72,7 +72,7 @@ function Chip({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+      className={`focus-ring rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
         active
           ? "border-foreground bg-foreground text-background"
           : "border-border text-muted-foreground hover:bg-muted"
@@ -251,7 +251,7 @@ export function MoreFontsDialog({
                         pendingPickRef.current = entry.family;
                         onOpenChange(false);
                       }}
-                      className={`flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-base hover:bg-muted ${
+                      className={`focus-ring flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-base hover:bg-muted ${
                         selected ? "bg-muted font-medium" : ""
                       }`}
                       style={{ fontFamily: entry.family }}

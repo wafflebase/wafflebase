@@ -333,3 +333,156 @@ describe('showContextMenu — touch sizing', () => {
     expect(menu.style.maxHeight).toBe(`${window.innerHeight - 16}px`);
   });
 });
+
+describe('showContextMenu — keyboard model', () => {
+  let canvas: HTMLButtonElement;
+
+  beforeEach(() => {
+    // Stand-in for whatever held focus before the right-click (the
+    // canvas wrapper, a thumbnail row).
+    canvas = document.createElement('button');
+    document.body.appendChild(canvas);
+    canvas.focus();
+  });
+
+  afterEach(() => {
+    dismiss();
+    canvas.remove();
+  });
+
+  const menuEl = () =>
+    document.body.querySelector<HTMLUListElement>('.wfb-slides-context-menu');
+  const press = (key: string) => {
+    const target = (document.activeElement ?? document.body) as HTMLElement;
+    const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    target.dispatchEvent(ev);
+    return ev;
+  };
+  const focusedLabel = () => (document.activeElement as HTMLElement).textContent;
+
+  it('exposes menu semantics', () => {
+    showContextMenu(document.body, [
+      { label: 'Copy', run: vi.fn() },
+      { label: '---', run: vi.fn() },
+      { label: 'Top', run: vi.fn(), selected: true },
+      { label: 'Gone', run: vi.fn(), disabled: true },
+    ], 0, 0);
+    const menu = menuEl()!;
+    expect(menu.getAttribute('role')).toBe('menu');
+    const [copy, sep, top, gone] = Array.from(menu.children) as HTMLElement[];
+    expect(copy.getAttribute('role')).toBe('menuitem');
+    expect(sep.getAttribute('role')).toBe('separator');
+    expect(top.getAttribute('role')).toBe('menuitemradio');
+    expect(top.getAttribute('aria-checked')).toBe('true');
+    expect(gone.getAttribute('aria-disabled')).toBe('true');
+    // No row sits in the Tab order; focus moves by arrow key.
+    expect(copy.tabIndex).toBe(-1);
+  });
+
+  it('moves focus into the menu on open', () => {
+    showContextMenu(document.body, [{ label: 'Copy', run: vi.fn() }], 0, 0);
+    expect(document.activeElement).toBe(menuEl());
+  });
+
+  it('walks enabled rows with the arrow keys, Home and End, skipping separators and disabled rows', () => {
+    showContextMenu(document.body, [
+      { label: 'Copy', run: vi.fn() },
+      { label: '---', run: vi.fn() },
+      { label: 'Disabled', run: vi.fn(), disabled: true },
+      { label: 'Paste', run: vi.fn() },
+      { label: 'Delete', run: vi.fn() },
+    ], 0, 0);
+    press('ArrowDown');
+    expect(focusedLabel()).toBe('Copy');
+    press('ArrowDown');
+    expect(focusedLabel()).toBe('Paste');
+    press('End');
+    expect(focusedLabel()).toBe('Delete');
+    press('ArrowDown'); // wraps
+    expect(focusedLabel()).toBe('Copy');
+    press('ArrowUp'); // wraps back
+    expect(focusedLabel()).toBe('Delete');
+    press('Home');
+    expect(focusedLabel()).toBe('Copy');
+  });
+
+  it('ArrowUp from the menu itself lands on the last row', () => {
+    showContextMenu(document.body, [
+      { label: 'Copy', run: vi.fn() },
+      { label: 'Delete', run: vi.fn() },
+    ], 0, 0);
+    press('ArrowUp');
+    expect(focusedLabel()).toBe('Delete');
+  });
+
+  it('typing a character jumps to the next row starting with it', () => {
+    showContextMenu(document.body, [
+      { label: 'Copy', run: vi.fn() },
+      { label: 'Delete', run: vi.fn() },
+      { label: 'Duplicate', run: vi.fn() },
+    ], 0, 0);
+    press('d');
+    expect(focusedLabel()).toBe('Delete');
+    press('d');
+    expect(focusedLabel()).toBe('Duplicate');
+  });
+
+  it.each(['Enter', ' '])('%j activates the focused row and returns focus', (key) => {
+    const run = vi.fn();
+    showContextMenu(document.body, [{ label: 'Copy', run }], 0, 0);
+    press('ArrowDown');
+    const ev = press(key);
+    expect(run).toHaveBeenCalledOnce();
+    expect(ev.defaultPrevented).toBe(true);
+    expect(menuEl()).toBeNull();
+    expect(document.activeElement).toBe(canvas);
+  });
+
+  it('Escape closes the menu and restores focus to the previous element', () => {
+    showContextMenu(document.body, [{ label: 'Copy', run: vi.fn() }], 0, 0);
+    press('ArrowDown');
+    press('Escape');
+    expect(menuEl()).toBeNull();
+    expect(document.activeElement).toBe(canvas);
+  });
+
+  it('keeps handled keys away from the editor shortcuts', () => {
+    // The editor nudges the selection on arrows and enters text edit on
+    // Enter from a document-level listener; a key meant for the menu
+    // must not reach it.
+    const docKey = vi.fn();
+    document.addEventListener('keydown', docKey);
+    showContextMenu(document.body, [{ label: 'Copy', run: vi.fn() }], 0, 0);
+    press('ArrowDown');
+    expect(docKey).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', docKey);
+  });
+
+  it('hover moves focus, so pointer and keyboard share one highlight', () => {
+    showContextMenu(document.body, [
+      { label: 'Copy', run: vi.fn() },
+      { label: 'Delete', run: vi.fn() },
+    ], 0, 0);
+    const [copy, del] = Array.from(menuEl()!.children) as HTMLElement[];
+    press('ArrowDown');
+    expect(copy.style.background).not.toBe('transparent');
+    del.dispatchEvent(new Event('pointerenter'));
+    expect(document.activeElement).toBe(del);
+    expect(copy.style.background).toBe('transparent');
+    del.dispatchEvent(new Event('pointerleave'));
+    expect(document.activeElement).toBe(menuEl());
+    expect(del.style.background).toBe('transparent');
+  });
+
+  it('an outside click does not pull focus back', async () => {
+    showContextMenu(document.body, [{ label: 'Copy', run: vi.fn() }], 0, 0);
+    await new Promise((r) => setTimeout(r, 0));
+    const other = document.createElement('input');
+    document.body.appendChild(other);
+    other.focus();
+    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(menuEl()).toBeNull();
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
+});

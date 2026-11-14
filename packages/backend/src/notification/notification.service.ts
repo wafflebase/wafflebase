@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { NotificationHub, NotificationSummary } from './notification-hub';
 import { CommentNotificationDto } from './notification.dto';
+import { LIVE_DOCUMENT } from '../document/live-document';
 
 /** One report may not fan out further than this. */
 export const MAX_RECIPIENTS = 20;
@@ -114,8 +115,10 @@ export class NotificationService {
     actorId: number,
     dto: CommentNotificationDto,
   ): Promise<{ created: number }> {
+    // A trashed document takes no new comment events (the Yorkie webhook
+    // refuses its attach anyway); already-delivered rows are history and stay.
     const document = await this.prisma.document.findUnique({
-      where: { id: dto.documentId },
+      where: { id: dto.documentId, ...LIVE_DOCUMENT },
       select: { id: true, workspaceId: true },
     });
     if (!document) throw new NotFoundException('Document not found');

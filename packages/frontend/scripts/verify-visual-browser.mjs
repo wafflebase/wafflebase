@@ -384,9 +384,10 @@ async function readBaseline(target, profile) {
 // report is on disk, rather than aborting mid-capture on a TimeoutError
 // that leaves nothing to look at.
 //
-// The floor mirrors the `css2` query in `packages/frontend/index.html`
-// (family + every requested weight). Keep the two in sync: a weight the
-// UI renders but the floor omits is a weight this wait cannot vouch for.
+// The floor mirrors `BRAND_FONTS_HREF` in `packages/frontend/src/lib/
+// brand-fonts.ts` (family + every requested weight), which the harness page
+// loads through `useBrandFonts()`. Keep the two in sync: a weight the UI
+// renders but the floor omits is a weight this wait cannot vouch for.
 const REQUIRED_WEB_FONTS = [
   { family: "Inter", weights: [400, 500, 600, 700] },
   { family: "Fraunces", weights: [500, 600, 700] },

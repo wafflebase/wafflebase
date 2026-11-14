@@ -1,5 +1,6 @@
 import { Fragment, useRef, useState } from 'react';
 import { IconMessage } from '@tabler/icons-react';
+import { palette } from '@wafflebase/core/tokens';
 
 import type { PdfAnchor, PdfRect, Thread } from '@/types/comments.ts';
 import {
@@ -12,6 +13,16 @@ import {
 // A single click (no drag) drops a default marker of this pixel size at the
 // click point, so commenting a spot doesn't require dragging a box.
 const DEFAULT_MARK_PX = 24;
+
+/**
+ * Comment marks are painted on the PDF page, which stays white in both themes
+ * (`pdf-viewer.tsx`), so they take the light-mode brand values directly rather
+ * than the theme-flipping tokens: dark mode's syrup-bright would be 2.6:1 on
+ * that page, and `--wb-syrup-deep` turns butter. The wash is `--wb-butter`,
+ * which never flips — the same butter the editors use for "this is chosen".
+ */
+const MARK_EDGE = palette.syrup;
+const MARK_INK = palette.syrupDeep;
 
 type Props = {
   pageIndex: number;
@@ -72,13 +83,14 @@ export function PdfCommentLayer({
                       // a border — a box per line would otherwise draw a
                       // ladder of rules through the paragraph.
                       `absolute rounded-[2px] ${
-                        active ? 'bg-yellow-300/45' : 'bg-yellow-200/40'
+                        active ? 'bg-wb-butter/60' : 'bg-wb-butter/40'
                       }`
-                    : `absolute rounded-sm border bg-yellow-200/20 ${
-                        active ? 'border-yellow-500' : 'border-yellow-400/60'
-                      }`
+                    : 'absolute rounded-sm border border-wb-butter bg-wb-butter/20'
                 }
-                style={rectToStyle(rect)}
+                style={{
+                  ...rectToStyle(rect),
+                  ...(!isText && active ? { borderColor: MARK_EDGE } : null),
+                }}
               />
             ))}
             {/* Clickable pin at the anchor's top-left corner. It sits on top
@@ -107,12 +119,14 @@ export function PdfCommentLayer({
             >
               <span
                 className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
-                  active
-                    ? 'border-yellow-600 bg-yellow-300 ring-1 ring-yellow-500'
-                    : 'border-yellow-500/70 bg-yellow-300/80'
+                  active ? 'bg-wb-butter' : 'bg-wb-butter/80'
                 }`}
+                style={{
+                  borderColor: active ? MARK_EDGE : MARK_INK,
+                  boxShadow: active ? `0 0 0 1px ${MARK_EDGE}` : undefined,
+                }}
               >
-                <IconMessage size={9} className="text-yellow-800" />
+                <IconMessage size={9} style={{ color: MARK_INK }} />
               </span>
             </button>
           </Fragment>
@@ -167,8 +181,8 @@ export function PdfCommentLayer({
           {ghost && (ghost.w > 0 || ghost.h > 0) && (
             <div
               data-testid="pdf-region-ghost"
-              className="pointer-events-none absolute rounded-sm border-2 border-dashed border-yellow-500 bg-yellow-200/30"
-              style={rectToStyle(ghost)}
+              className="pointer-events-none absolute rounded-sm border-2 border-dashed bg-wb-butter/30"
+              style={{ ...rectToStyle(ghost), borderColor: MARK_EDGE }}
             />
           )}
         </div>

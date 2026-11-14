@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsProducerService } from './analytics-producer.service';
 import { AnalyticsWarehouseService } from './analytics-warehouse.service';
@@ -181,6 +181,8 @@ describe('AnalyticsController dashboard', () => {
   function setup(opts: {
     memberRole?: string;
     authorID: number | null;
+    /** The row is in the trash. The stub honors a `deletedAt: null` filter. */
+    trashed?: boolean;
     byShareLink?: Array<{ shareLinkId: string; views: number }>;
     links?: Array<{
       id: string;
@@ -199,12 +201,17 @@ describe('AnalyticsController dashboard', () => {
     } as unknown as AnalyticsWarehouseService;
     const prisma = {
       document: {
-        findUnique: () =>
-          Promise.resolve({
-            id: 'doc-1',
-            workspaceId: 'ws-1',
-            authorID: opts.authorID,
-          }),
+        findUnique: (args: { where: { deletedAt?: null } }) =>
+          Promise.resolve(
+            opts.trashed && 'deletedAt' in args.where
+              ? null
+              : {
+                  id: 'doc-1',
+                  workspaceId: 'ws-1',
+                  authorID: opts.authorID,
+                  deletedAt: opts.trashed ? new Date() : null,
+                },
+          ),
       },
       workspaceMember: {
         findUnique: () =>
@@ -229,6 +236,16 @@ describe('AnalyticsController dashboard', () => {
     const req = { user: { id: 7 } } as never;
     const res = await c.dashboard('doc-1', req, undefined, undefined);
     expect((res as { totalViews: number }).totalViews).toBe(5);
+  });
+
+  // A trashed document answers as if it did not exist, so its view counts,
+  // per-link breakdown and link creators stay out of reach — the owner's too.
+  it('404s a trashed document, even for its workspace owner', async () => {
+    const c = setup({ memberRole: 'owner', authorID: null, trashed: true });
+    const req = { user: { id: 7 } } as never;
+    await expect(
+      c.dashboard('doc-1', req, undefined, undefined),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('forbids a non-manager member', async () => {
@@ -313,6 +330,8 @@ describe('AnalyticsController analyticsEnabled', () => {
 });
 
 describe('AnalyticsController workspaceDashboard', () => {
+  let lastFindMany: jest.Mock;
+
   function setup(opts: { isMember: boolean; role?: string }) {
     const warehouse = {
       getWorkspaceAnalytics: (ids: string[]) =>
@@ -340,16 +359,15 @@ describe('AnalyticsController workspaceDashboard', () => {
           _ids: ids,
         }),
     } as unknown as AnalyticsWarehouseService;
-    const prisma = {
-      document: {
-        // d1 is authored by the caller (7), d2 by someone else.
-        findMany: () =>
-          Promise.resolve([
-            { id: 'd1', title: 'Budget', authorID: 7 },
-            { id: 'd2', title: 'Deck', authorID: 9 },
-          ]),
-      },
-    } as unknown as PrismaService;
+    const findMany = jest.fn(() =>
+      Promise.resolve([
+        { id: 'd1', title: 'Budget', authorID: 7 },
+        { id: 'd2', title: 'Deck', authorID: 9 },
+      ]),
+    );
+    // d1 is authored by the caller (7), d2 by someone else.
+    const prisma = { document: { findMany } } as unknown as PrismaService;
+    lastFindMany = findMany;
     const workspace = {
       resolveId: (idOrSlug: string) => Promise.resolve(idOrSlug),
       assertMember: () => {
@@ -392,6 +410,21 @@ describe('AnalyticsController workspaceDashboard', () => {
     const req = { user: { id: 7 } } as never;
     const res = await c.workspaceDashboard('ws-1', req, undefined, undefined);
     expect(res.byDocument.map((r) => r.canManage)).toEqual([true, false]);
+  });
+
+  it('ranks live documents only', async () => {
+    const c = setup({ isMember: true });
+    await c.workspaceDashboard(
+      'ws-1',
+      { user: { id: 7 } } as never,
+      undefined,
+      undefined,
+    );
+    expect(lastFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { workspaceId: 'ws-1', deletedAt: null },
+      }),
+    );
   });
 
   it('marks every row manageable for the workspace owner', async () => {

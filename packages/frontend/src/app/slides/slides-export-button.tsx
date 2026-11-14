@@ -6,6 +6,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
+import { userFacingError } from "@/api/http-error";
 import type { SlidesStore } from "@wafflebase/slides";
 import {
   DropdownMenu,
@@ -62,8 +63,10 @@ export function SlidesExportButton({
       else toast.success(message);
     } catch (err) {
       console.error(`Slides ${label} export failed`, err);
-      const message =
-        err instanceof Error ? `Export failed: ${err.message}` : "Export failed";
+      // Export runs client-side (pdf-lib, font fetches, the DOCX writer),
+      // so its errors are a library's wording, not the reader's: log the
+      // detail and toast the recovery.
+      const message = userFacingError(err, `Couldn't export "${t}". Try again.`);
       if (toastId !== undefined) toast.error(message, { id: toastId });
       else toast.error(message);
     } finally {
@@ -80,7 +83,7 @@ export function SlidesExportButton({
               type="button"
               disabled={disabled || !store || exporting}
               aria-label="Export presentation"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              className="focus-ring inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
             >
               {exporting ? (
                 <IconLoader2 size={16} className="animate-spin" />

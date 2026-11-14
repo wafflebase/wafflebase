@@ -130,7 +130,7 @@ export function BackgroundSidePanel({
           />
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-muted"
+            className="focus-ring flex w-full items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-muted"
             onClick={() => fileRef.current?.click()}
           >
             <span>
@@ -174,7 +174,7 @@ export function BackgroundSidePanel({
               </div>
               <button
                 type="button"
-                className="mt-1 w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
+                className="focus-ring mt-1 w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
                 onClick={bg.onRemoveImage}
               >
                 Remove image
@@ -186,14 +186,14 @@ export function BackgroundSidePanel({
       <div className="space-y-1 border-t pt-2">
         <button
           type="button"
-          className="w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
+          className="focus-ring w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
           onClick={bg.onResetToTheme}
         >
           Reset to theme
         </button>
         <button
           type="button"
-          className="w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
+          className="focus-ring w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
           onClick={bg.onApplyToAll}
         >
           Apply to all slides
@@ -220,7 +220,7 @@ export function BackgroundSidePanel({
           type="button"
           aria-label="Close background options"
           onClick={onClose}
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="focus-ring rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <IconX size={16} aria-hidden="true" />
         </button>

@@ -223,7 +223,7 @@ export function AnimationSection(props: {
                           props.store.reorderAnimation(props.slideId, a.id, i - 1),
                         )
                       }
-                      className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+                      className="focus-ring rounded p-0.5 hover:bg-muted disabled:opacity-30"
                     >
                       <IconArrowUp size={14} aria-hidden="true" />
                     </button>
@@ -236,7 +236,7 @@ export function AnimationSection(props: {
                           props.store.reorderAnimation(props.slideId, a.id, i + 1),
                         )
                       }
-                      className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+                      className="focus-ring rounded p-0.5 hover:bg-muted disabled:opacity-30"
                     >
                       <IconArrowDown size={14} aria-hidden="true" />
                     </button>
@@ -248,7 +248,7 @@ export function AnimationSection(props: {
                           props.store.removeAnimation(props.slideId, a.id),
                         )
                       }
-                      className="rounded p-0.5 text-destructive hover:bg-muted"
+                      className="focus-ring rounded p-0.5 text-destructive hover:bg-muted"
                     >
                       <IconX size={14} aria-hidden="true" />
                     </button>

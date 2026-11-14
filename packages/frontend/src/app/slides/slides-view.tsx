@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
+import { userFacingError } from "@/api/http-error";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -264,11 +265,16 @@ export function SlidesView({
           });
           clearPendingImport(documentId);
         } catch (err) {
+          // The error comes out of the CRDT update, not from anything the
+          // reader can act on, so it goes to the console and the toast
+          // names the recovery: the staged import survives a throw (see
+          // above), so a reload retries it.
           console.error("Failed to apply pending PPTX import", err);
           toast.error(
-            err instanceof Error
-              ? `Couldn't load the imported deck: ${err.message}`
-              : "Couldn't load the imported deck",
+            userFacingError(
+              err,
+              "Couldn't load the imported deck. Reload the page to try again.",
+            ),
           );
         }
       }

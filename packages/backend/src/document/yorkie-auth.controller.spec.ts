@@ -651,3 +651,93 @@ describe('YorkieAuthController.decide (revision methods)', () => {
     expect(decision).toMatchObject({ allowed: false, status: 403 });
   });
 });
+
+// The trash invariant at the webhook, wired through the *real*
+// DocumentService and ShareLinkService over a fake Prisma — stubbing those two
+// would only test the stubs. A trashed document must be neither readable nor
+// writable by a member or a share-link holder, and its own share link must
+// not be reachable by a Yorkie client that skips the app.
+describe('YorkieAuthController.decide (trashed documents)', () => {
+  const DOC = '11111111-2222-3333-4444-555555555555';
+  const MEMBER = 7;
+
+  function makeTrashController(deletedAt: Date | null) {
+    const row = { id: DOC, workspaceId: 'ws-1', authorID: MEMBER, deletedAt };
+    const prisma = {
+      document: {
+        // Honours the `deletedAt: null` filter the way Postgres would.
+        findUnique: jest.fn(
+          ({ where }: { where: { id: string; deletedAt?: null } }) => {
+            const filteredOut = where.deletedAt === null && row.deletedAt;
+            return Promise.resolve(
+              where.id === DOC && !filteredOut ? row : null,
+            );
+          },
+        ),
+      },
+      shareLink: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'link-1',
+          token: 'share',
+          role: 'editor',
+          documentId: DOC,
+          expiresAt: null,
+          document: row,
+        }),
+      },
+    };
+    const documentService = new DocumentService(prisma as never);
+    const shareLinkService = new ShareLinkService(prisma as never);
+    const workspaceService = {
+      assertMember: jest.fn().mockResolvedValue({ role: 'owner' }),
+    } as unknown as WorkspaceService;
+    return (identity: YorkieTokenPayload) =>
+      new YorkieAuthController(
+        {
+          verifyYorkieToken: jest.fn(() => identity),
+        } as unknown as AuthService,
+        documentService,
+        workspaceService,
+        shareLinkService,
+        { get: jest.fn() } as unknown as ConfigService,
+      );
+  }
+
+  const push = (verb: 'r' | 'rw') => ({
+    method: 'PushPull',
+    token: 't',
+    attributes: [{ key: `sheet-${DOC}`, verb }],
+  });
+
+  it('allows a member and a share-link editor while the document is live', async () => {
+    const make = makeTrashController(null);
+    expect(
+      await make({ typ: 'yorkie', sub: MEMBER }).decide(push('rw')),
+    ).toMatchObject({ allowed: true });
+    expect(
+      await make({ typ: 'yorkie-share', shareToken: 'share' }).decide(
+        push('rw'),
+      ),
+    ).toMatchObject({ allowed: true });
+  });
+
+  it('denies a workspace member read and write once the document is trashed', async () => {
+    const make = makeTrashController(new Date());
+    for (const verb of ['r', 'rw'] as const) {
+      expect(
+        await make({ typ: 'yorkie', sub: MEMBER }).decide(push(verb)),
+      ).toMatchObject({ status: 403, allowed: false });
+    }
+  });
+
+  it('denies a share-link holder read and write once the document is trashed', async () => {
+    const make = makeTrashController(new Date());
+    for (const verb of ['r', 'rw'] as const) {
+      expect(
+        await make({ typ: 'yorkie-share', shareToken: 'share' }).decide(
+          push(verb),
+        ),
+      ).toMatchObject({ status: 403, allowed: false });
+    }
+  });
+});

@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { avatarInitials } from "@/components/avatar-size";
 import type { Notification } from "@/api/notifications";
 import { formatRelativeTime } from "@/app/documents/document-list-utils";
 import { notificationHref, notificationSentence } from "./notification-text";
@@ -30,7 +31,7 @@ export function NotificationItem({ notification, onSelect }: Props) {
           <AvatarImage src={actor.photo} alt={actor.username} />
         )}
         <AvatarFallback className="text-2xs">
-          {(actor?.username ?? "?").slice(0, 2).toUpperCase()}
+          {avatarInitials(actor?.username ?? "")}
         </AvatarFallback>
       </Avatar>
 

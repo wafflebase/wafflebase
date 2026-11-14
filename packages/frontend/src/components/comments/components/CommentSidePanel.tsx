@@ -95,7 +95,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
               <li key={t.id} className="border-b last:border-0">
                 <button
                   type="button"
-                  className="flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+                  className="focus-ring flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-muted/50"
                   onClick={() => onJumpTo(t)}
                   aria-label={`Jump to comment by ${root.author.username}`}
                 >
@@ -168,7 +168,7 @@ function TabButton({
     <button
       type="button"
       aria-pressed={active}
-      className={`flex-1 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+      className={`focus-ring flex-1 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
         active
           ? "border-primary text-primary"
           : "border-transparent text-muted-foreground hover:text-foreground"

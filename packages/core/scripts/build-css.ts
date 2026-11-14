@@ -58,6 +58,7 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--popover-foreground', m.popoverForeground],
     ['--primary', m.primary],
     ['--primary-foreground', m.primaryForeground],
+    ['--primary-hover', m.primaryHover],
     ['--secondary', m.secondary],
     ['--secondary-foreground', m.secondaryForeground],
     ['--muted', m.muted],
@@ -69,7 +70,9 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--success', m.success],
     ['--border', m.border],
     ['--input', m.input],
+    ['--input-border', m.inputBorder],
     ['--ring', m.ring],
+    ['--link', m.link],
     ['--selected', m.selected],
     ['--selected-foreground', m.selectedForeground],
     ['--chart-1', m.chart1],
@@ -102,6 +105,8 @@ function rootOnlyBlock(src: TokenSources): Block {
     // Terminal palette is locked across both modes (matches existing index.css).
     ['--wb-terminal-bg', src.palette.terminal.bg],
     ['--wb-terminal-fg', src.palette.terminal.fg],
+    ['--wb-terminal-keyword', src.palette.terminal.keyword],
+    ['--wb-terminal-flag', src.palette.terminal.flag],
     // Font families — listed once, do not change between modes.
     ['--font-display', src.typography.display],
     ['--font-body', src.typography.body],

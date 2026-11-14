@@ -23,7 +23,9 @@ vi.mock('sonner', () => ({
 }));
 
 import { toast } from 'sonner';
-import { SiteHeader } from '../site-header';
+import { HttpError } from '@/api/http-error';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { HeaderPanelToggle, SiteHeader } from '../site-header';
 
 describe('SiteHeader rename', () => {
   it('opens the title input on click when editable', async () => {
@@ -118,7 +120,9 @@ describe('SiteHeader rename', () => {
     vi.mocked(toast.error).mockClear();
     const onRename = vi
       .fn()
-      .mockRejectedValue(new Error('Failed to rename document'));
+      .mockRejectedValue(
+        new HttpError('You can only view this document.', 403),
+      );
     const unhandled = vi.fn();
     process.on('unhandledRejection', unhandled);
     try {
@@ -134,7 +138,7 @@ describe('SiteHeader rename', () => {
       await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
       expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toContain('Renamed');
       expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toMatchObject({
-        description: 'Failed to rename document',
+        description: 'You can only view this document.',
       });
       // The title is a prop; a refused PATCH leaves the row unchanged.
       expect(screen.getByText('Budget')).toBeInTheDocument();
@@ -143,6 +147,26 @@ describe('SiteHeader rename', () => {
     } finally {
       process.off('unhandledRejection', unhandled);
     }
+  });
+
+  // A network failure or a 5xx carries developer text (`Failed to fetch`, a
+  // stack trace). The toast says what to do instead.
+  it('does not show developer text from a failed rename', async () => {
+    vi.mocked(toast.error).mockClear();
+    const onRename = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    render(<SiteHeader title="Budget" editable onRename={onRename} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename "Budget"' }));
+    const input = screen.getByLabelText('Document title');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Renamed{Enter}');
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const options = vi.mocked(toast.error).mock.calls[0]?.[1] as {
+      description?: string;
+    };
+    expect(options.description).not.toContain('Failed to fetch');
+    expect(options.description).toMatch(/try again/i);
   });
 
   // Reopening after a peer rename must start from the peer's title, not from
@@ -158,5 +182,121 @@ describe('SiteHeader rename', () => {
     await userEvent.keyboard('{Enter}');
 
     expect(onRename).not.toHaveBeenCalled();
+  });
+});
+
+describe('SiteHeader title semantics', () => {
+  // The rename control used to be the `<h1>` itself with `role="button"`,
+  // which removed the page's only heading from heading navigation.
+  it('keeps the title a level-one heading named by the title when editable', () => {
+    render(<SiteHeader title="Budget" editable onRename={vi.fn()} />);
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Budget' });
+    const button = screen.getByRole('button', { name: 'Rename "Budget"' });
+    expect(heading.contains(button)).toBe(true);
+  });
+
+  it('is a plain heading when not editable', () => {
+    render(<SiteHeader title="Budget" />);
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Budget' });
+    expect(heading.querySelector('button')).toBeNull();
+  });
+
+  it('opens the rename input from the keyboard', async () => {
+    render(<SiteHeader title="Budget" editable onRename={vi.fn()} />);
+
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'Rename "Budget"' })).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByLabelText('Document title')).toHaveFocus();
+  });
+});
+
+describe('SiteHeader action slots', () => {
+  const slotOrder = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[data-header-slot]')).map((el) =>
+      el.getAttribute('data-header-slot'),
+    );
+
+  // Each editor used to hand-build its own row, so the same controls came in
+  // a different order per document type (slides put Export before History,
+  // docs after it). The order is the header's, whatever order the caller
+  // writes the object in.
+  it('renders the slots in one fixed order regardless of how they are passed', () => {
+    const { container } = render(
+      <SiteHeader
+        title="Deck"
+        actions={{
+          presence: <span>presence</span>,
+          share: <span>share</span>,
+          export: <span>export</span>,
+          history: <span>history</span>,
+          comments: <span>comments</span>,
+          primary: <span>present</span>,
+        }}
+      />,
+    );
+
+    expect(slotOrder(container)).toEqual([
+      'primary',
+      'comments',
+      'history',
+      'export',
+      'share',
+      'presence',
+    ]);
+  });
+
+  it('leaves an absent capability out without moving the others', () => {
+    const { container } = render(
+      <SiteHeader
+        title="Board"
+        actions={{
+          share: <span>share</span>,
+          history: <span>history</span>,
+          presence: <span>presence</span>,
+        }}
+      />,
+    );
+
+    expect(slotOrder(container)).toEqual(['history', 'share', 'presence']);
+  });
+});
+
+describe('HeaderPanelToggle', () => {
+  it('names its action after the panel state and reports it pressed', async () => {
+    const onPressedChange = vi.fn();
+    const Icon = () => <svg />;
+    const { rerender } = render(
+      <TooltipProvider>
+        <HeaderPanelToggle
+          icon={Icon}
+          label="comments"
+          pressed={false}
+          onPressedChange={onPressedChange}
+        />
+      </TooltipProvider>,
+    );
+
+    const closed = screen.getByRole('button', { name: 'Show comments' });
+    expect(closed).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(closed);
+    expect(onPressedChange).toHaveBeenCalledWith(true);
+
+    rerender(
+      <TooltipProvider>
+        <HeaderPanelToggle
+          icon={Icon}
+          label="comments"
+          pressed
+          onPressedChange={onPressedChange}
+        />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Hide comments' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 });

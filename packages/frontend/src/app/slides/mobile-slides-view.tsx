@@ -473,9 +473,12 @@ export function MobileSlidesView({
 
   return (
     <>
+      {/* The letterbox around the slide is chrome, so it takes the muted
+          tonal step of the theme rather than a pure black that reads as a
+          hole in a light UI. The slide keeps its own background. */}
       <div
         ref={canvasHostRef}
-        className="flex flex-1 items-center justify-center bg-black"
+        className="flex flex-1 items-center justify-center bg-muted"
         style={{
           minHeight: 0,
           // edit: canvas owns horizontal pointer (drag-to-move), so

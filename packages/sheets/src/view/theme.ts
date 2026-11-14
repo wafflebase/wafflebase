@@ -7,7 +7,7 @@ export const LightTheme = {
   customBorderColor: '#000000',
   cellBGColor: '#FFFFFF',
   cellTextColor: '#000000',
-  cellLinkColor: '#1A73E8',
+  cellLinkColor: palette.link,
   // Butter & Maple — active cell ring uses syrup, selection fill uses
   // butter, header chip uses solid butter. Matches the homepage MiniSpreadsheet.
   activeCellColor: palette.syrup,
@@ -46,7 +46,8 @@ export const LightTheme = {
   formulaRange4: '#27AE60',
   formulaRange5: '#F39C12',
   formulaRange6: '#00ACC1',
-  filterRangeBorderColor: '#1A73E8',
+  // The filter frame is chrome, not a reference color: the one accent.
+  filterRangeBorderColor: palette.syrup,
   searchHighlightColor: 'rgba(255, 200, 0, 0.35)',
   searchCurrentColor: 'rgba(255, 150, 0, 0.55)',
 };
@@ -56,7 +57,7 @@ export const DarkTheme = {
   customBorderColor: '#FFFFFF',
   cellBGColor: '#1E1E1E',
   cellTextColor: '#FFFFFF',
-  cellLinkColor: '#8AB4F8',
+  cellLinkColor: palette.linkBright,
   // Butter & Maple — dark variant. Syrup brightens to maple-amber, butter
   // stays gold so the header chip reads against the dark grid.
   activeCellColor: palette.syrupBright,
@@ -87,7 +88,7 @@ export const DarkTheme = {
   formulaRange4: '#66BB6A',
   formulaRange5: '#FFB74D',
   formulaRange6: '#4DD0E1',
-  filterRangeBorderColor: '#8AB4F8',
+  filterRangeBorderColor: palette.syrupBright,
   searchHighlightColor: 'rgba(255, 200, 0, 0.35)',
   searchCurrentColor: 'rgba(255, 150, 0, 0.55)',
 };

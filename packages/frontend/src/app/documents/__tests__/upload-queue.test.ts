@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as q from "@/app/documents/upload-queue";
+import { uploadFailureReason } from "@/app/documents/upload-queue";
+import { HttpError } from "@/api/http-error";
 import { hasUnsavedWork } from "@/lib/unsaved-work";
 
 function file(name: string, size = 1): File {
@@ -176,5 +178,35 @@ describe("upload-queue unsaved-work probe", () => {
     expect(item.status).toBe("error");
     expect(q.isRetryable(item)).toBe(false);
     expect(hasUnsavedWork()).toBe(false);
+  });
+});
+
+describe("uploadFailureReason", () => {
+  it("keeps an importer's own message", () => {
+    expect(uploadFailureReason(new Error("Invalid NDJSON at line 2"))).toBe(
+      "Invalid NDJSON at line 2",
+    );
+  });
+
+  it("keeps a 4xx refusal but hides a 5xx body", () => {
+    expect(uploadFailureReason(new HttpError("Quota exceeded", 413))).toBe(
+      "Quota exceeded",
+    );
+    expect(uploadFailureReason(new HttpError("stack trace", 500))).toBe(
+      "Couldn't upload this file. Check your connection and retry.",
+    );
+  });
+
+  it("hides developer text from fetch and parser failures", () => {
+    for (const err of [
+      new TypeError("Failed to fetch"),
+      new TypeError("Cannot read properties of undefined (reading 'x')"),
+      new SyntaxError("Unexpected end of JSON input"),
+      "boom",
+    ]) {
+      expect(uploadFailureReason(err)).toBe(
+        "Couldn't upload this file. Check your connection and retry.",
+      );
+    }
   });
 });

@@ -2,6 +2,11 @@ import { IconDotsVertical, IconLogout, IconSun, IconMoon } from "@tabler/icons-r
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  AVATAR_INITIALS_CLASS,
+  AVATAR_SIZE_CLASS,
+  avatarInitials,
+} from "@/components/avatar-size";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -23,20 +28,13 @@ import { User } from "@/types/users";
 /**
  * Renders the NavUser component.
  */
-function getInitials(name: string): string {
-  return name
-    .split(/[\s_-]+/)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
-}
-
 export function NavUser({ user }: { user: User }) {
   const { isMobile } = useSidebar();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const initials = getInitials(user.username);
+  // The same circle and initials rule as the editor presence stack, so the
+  // signed-in user reads as one person across the sidebar and the header.
+  const initials = avatarInitials(user.username);
   const handleLogout = async () => {
     await logout();
   };
@@ -50,9 +48,13 @@ export function NavUser({ user }: { user: User }) {
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer"
             >
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage src={user.photo} alt={user.username} />
-                <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+              <Avatar className={AVATAR_SIZE_CLASS[32]}>
+                {user.photo && (
+                  <AvatarImage src={user.photo} alt={user.username} />
+                )}
+                <AvatarFallback className={AVATAR_INITIALS_CLASS[32]}>
+                  {initials}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.username}</span>
@@ -71,9 +73,13 @@ export function NavUser({ user }: { user: User }) {
           >
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={user.photo} alt={user.username} />
-                  <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+                <Avatar className={AVATAR_SIZE_CLASS[32]}>
+                  {user.photo && (
+                    <AvatarImage src={user.photo} alt={user.username} />
+                  )}
+                  <AvatarFallback className={AVATAR_INITIALS_CLASS[32]}>
+                    {initials}
+                  </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.username}</span>

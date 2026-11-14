@@ -90,7 +90,9 @@
   padding: 0.2em 0.4em;
   font-size: 85%;
   background-color: #eff1f3;
-  border-radius: 6px;
+  /* Radii come from the app scale (DESIGN.md Shapes), not GitHub's 6px:
+   * `md` for small marks and controls, `lg` for blocks. */
+  border-radius: calc(var(--radius) - 2px);
 }
 
 .note-preview code::before,
@@ -121,7 +123,7 @@
 
 .note-preview pre.note-code::-webkit-scrollbar-thumb {
   background-color: #d0d7de;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 2px solid #f6f8fa;
 }
 
@@ -202,7 +204,7 @@
   color: #57606a;
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(27, 31, 36, 0.15);
-  border-radius: 0.375rem;
+  border-radius: calc(var(--radius) - 2px);
   opacity: 0;
   cursor: pointer;
   transition:
@@ -312,7 +314,7 @@
 .note-preview .note-mermaid .note-mermaid-source {
   margin: 0;
   padding: 12px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   overflow-x: auto;
   font-size: 85%;
   line-height: 1.45;

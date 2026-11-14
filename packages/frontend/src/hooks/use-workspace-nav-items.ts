@@ -6,6 +6,7 @@ import {
   IconFolder,
   IconLayoutGrid,
   IconSettings,
+  IconTrash,
 } from "@tabler/icons-react";
 import { fetchAnalyticsEnabled } from "@/api/workspaces";
 import type { NavItem } from "@/types/nav-items";
@@ -69,6 +70,7 @@ export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
               },
             ]
           : []),
+        { title: "Trash", url: `${root}/trash`, icon: IconTrash },
         { title: "Settings", url: `${root}/settings`, icon: IconSettings },
       ],
       secondary: [],

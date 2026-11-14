@@ -185,6 +185,173 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
       .expect(200);
   });
 
+  // docs/design/document-trash.md — the whole lifecycle against a real
+  // Postgres, since the trash invariant lives in `where` clauses a unit test
+  // can only assert the shape of.
+  it('moves a document to the trash, hides it everywhere, and restores it', async () => {
+    const owner = await createUser();
+    const member = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
+    await prisma.workspaceMember.create({
+      data: { workspaceId: workspace.id, userId: member.id, role: 'member' },
+    });
+    const folder = await prisma.folder.create({
+      data: { name: 'Plans', workspaceId: workspace.id },
+    });
+    const doc = await prisma.document.create({
+      data: {
+        title: 'Trash me',
+        authorID: owner.id,
+        workspaceId: workspace.id,
+        folderId: folder.id,
+      },
+    });
+    const link = await request(app.getHttpServer())
+      .post(`/documents/${doc.id}/share-links`)
+      .set('Cookie', authCookie(owner))
+      .send({ role: 'viewer', expiration: '1h' })
+      .expect(201);
+    const token = link.body.token as string;
+
+    // A plain member who is not the author may not trash it.
+    await request(app.getHttpServer())
+      .delete(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(member))
+      .expect(403);
+
+    const trashed = await request(app.getHttpServer())
+      .delete(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(trashed.body.deletedAt).toEqual(expect.any(String));
+
+    // Invisible everywhere a live document is visible…
+    await request(app.getHttpServer())
+      .get(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(404);
+    const all = await request(app.getHttpServer())
+      .get('/documents')
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(all.body).toHaveLength(0);
+    const inFolder = await request(app.getHttpServer())
+      .get(`/workspaces/${workspace.id}/documents?folderId=${folder.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(inFolder.body).toHaveLength(0);
+    await request(app.getHttpServer())
+      .get(`/share-links/${token}/resolve`)
+      .expect(404);
+    await request(app.getHttpServer())
+      .post(`/documents/${doc.id}/copy`)
+      .set('Cookie', authCookie(owner))
+      .expect(404);
+    // …and trashing it again is a 404, not a reset of `deletedAt`.
+    await request(app.getHttpServer())
+      .delete(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(404);
+
+    // …except in the trash, which any member can read.
+    const trash = await request(app.getHttpServer())
+      .get(`/workspaces/${workspace.id}/trash`)
+      .set('Cookie', authCookie(member))
+      .expect(200);
+    expect(trash.body).toEqual([
+      expect.objectContaining({
+        id: doc.id,
+        canManage: false,
+        deletedAt: trashed.body.deletedAt,
+      }),
+    ]);
+
+    // Its folder is deleted while it sits in the trash, so it comes back at
+    // the workspace root.
+    await request(app.getHttpServer())
+      .delete(`/folders/${folder.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/documents/${doc.id}/restore`)
+      .set('Cookie', authCookie(member))
+      .expect(403);
+    const restored = await request(app.getHttpServer())
+      .post(`/documents/${doc.id}/restore`)
+      .set('Cookie', authCookie(owner))
+      .expect(201);
+    expect(restored.body).toMatchObject({
+      id: doc.id,
+      deletedAt: null,
+      folderId: null,
+    });
+    // Restoring a live document is a 404.
+    await request(app.getHttpServer())
+      .post(`/documents/${doc.id}/restore`)
+      .set('Cookie', authCookie(owner))
+      .expect(404);
+    // The share link survived the trash and works again.
+    await request(app.getHttpServer())
+      .get(`/share-links/${token}/resolve`)
+      .expect(200);
+  });
+
+  it('deletes trashed documents for good, never live ones', async () => {
+    const owner = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
+    const [a, b, c] = await Promise.all(
+      ['A', 'B', 'C'].map((title) =>
+        prisma.document.create({
+          data: { title, authorID: owner.id, workspaceId: workspace.id },
+        }),
+      ),
+    );
+
+    // A trashed document can be deleted for good…
+    await request(app.getHttpServer())
+      .delete(`/documents/${a.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete(`/documents/${a.id}?permanent=true`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(await prisma.document.findUnique({ where: { id: a.id } })).toBeNull();
+
+    // …but a live one cannot: only the trash can be emptied, so a stale
+    // Trash page cannot destroy a document somebody restored meanwhile.
+    await request(app.getHttpServer())
+      .delete(`/documents/${c.id}?permanent=true`)
+      .set('Cookie', authCookie(owner))
+      .expect(404);
+    await request(app.getHttpServer())
+      .post('/documents/delete')
+      .set('Cookie', authCookie(owner))
+      .send({ ids: [b.id] })
+      .expect(201);
+    expect(
+      (await prisma.document.findUnique({ where: { id: b.id } }))?.deletedAt,
+    ).toBeInstanceOf(Date);
+    // A bulk purge naming a live id is refused whole.
+    await request(app.getHttpServer())
+      .post('/documents/delete')
+      .set('Cookie', authCookie(owner))
+      .send({ ids: [b.id, c.id], permanent: true })
+      .expect(403);
+    expect(
+      await prisma.document.count({ where: { workspaceId: workspace.id } }),
+    ).toBe(2);
+    await request(app.getHttpServer())
+      .post('/documents/delete')
+      .set('Cookie', authCookie(owner))
+      .send({ ids: [b.id], permanent: true })
+      .expect(201);
+    expect(
+      await prisma.document.findMany({ where: { workspaceId: workspace.id } }),
+    ).toEqual([expect.objectContaining({ id: c.id, deletedAt: null })]);
+  });
+
   it('enforces share-link owner permissions and supports public token resolve', async () => {
     const owner = await createUser();
     const other = await createUser();

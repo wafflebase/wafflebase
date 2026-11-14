@@ -195,6 +195,19 @@ describe('NotificationService', () => {
   });
 
   describe('createFromComment', () => {
+    it('reads the document live-only, so a trashed one is NotFound', async () => {
+      prisma.document.findUnique.mockResolvedValue(null);
+
+      await expect(service.createFromComment(1, commentDto())).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.document.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: DOCUMENT, deletedAt: null },
+        }),
+      );
+    });
+
     it('throws NotFound when the document does not exist', async () => {
       prisma.document.findUnique.mockResolvedValue(null);
 

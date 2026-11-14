@@ -4,16 +4,57 @@ import { fileURLToPath } from "node:url";
 
 const HardDefaultChunkLimitKb = 500;
 const HardDefaultChunkCountLimit = 60;
+const HardDefaultEagerLimitKb = 1500;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const harnessConfigPath = path.resolve(scriptDir, "..", "harness.config.json");
-const frontendAssetsDir = path.resolve(
+const frontendDistDir = path.resolve(
   scriptDir,
   "..",
   "packages",
   "frontend",
   "dist",
-  "assets",
 );
+const frontendAssetsDir = path.join(frontendDistDir, "assets");
+
+/**
+ * The JavaScript a cold load of ANY route downloads before the app can run:
+ * the entry `<script type="module">` plus every `<link rel="modulepreload">`
+ * Vite wrote into `dist/index.html`. The per-chunk cap cannot see this — a
+ * 700 kB engine chunk is within budget on its own, and is still a regression
+ * when a misplaced shared helper makes the entry import it statically, which
+ * is how the slides and sheet engines once ended up preloaded on the
+ * homepage. Returns paths relative to `dist`, in document order, deduped.
+ */
+export function eagerScriptPaths(html) {
+  const paths = [];
+  const tags = html.match(/<(?:script|link)\b[^>]*>/g) ?? [];
+  for (const tag of tags) {
+    const attr = (name) =>
+      tag.match(new RegExp(`\\s${name}=["']([^"']*)["']`))?.[1];
+    const isEntry = tag.startsWith("<script") && attr("type") === "module";
+    const isPreload =
+      tag.startsWith("<link") && attr("rel") === "modulepreload";
+    const ref = isEntry ? attr("src") : isPreload ? attr("href") : undefined;
+    // An inline module script has no src; an absolute URL is not ours.
+    if (!ref || /^(?:[a-z]+:)?\/\//i.test(ref)) continue;
+    const rel = ref.replace(/^\//, "");
+    if (!paths.includes(rel)) paths.push(rel);
+  }
+  return paths;
+}
+
+/** Sums the eager scripts' on-disk size, in kB (1000 bytes, like the
+ *  per-chunk budget). */
+export async function measureEagerScripts(distDir) {
+  const html = await readFile(path.join(distDir, "index.html"), "utf8");
+  const scripts = [];
+  for (const rel of eagerScriptPaths(html)) {
+    const details = await stat(path.join(distDir, rel));
+    scripts.push({ name: rel, sizeKb: details.size / 1000 });
+  }
+  const totalKb = scripts.reduce((sum, s) => sum + s.sizeKb, 0);
+  return { scripts, totalKb };
+}
 
 function parsePositiveNumber(label, value) {
   const parsed = Number(value);
@@ -136,76 +177,136 @@ function formatChunk(chunk) {
   return `${chunk.name} (${chunk.sizeKb.toFixed(2)} kB)`;
 }
 
-const harnessConfig = await readHarnessConfig();
-const defaultChunkLimitKb = readConfiguredBudget(
-  harnessConfig,
-  "maxChunkKb",
-  HardDefaultChunkLimitKb,
-);
-const defaultChunkCountLimit = readConfiguredBudget(
-  harnessConfig,
-  "maxChunkCount",
-  HardDefaultChunkCountLimit,
-);
-const chunkOverrides = readChunkOverrides(harnessConfig);
-
-const chunkLimitKb = parsePositiveLimit(
-  "FRONTEND_CHUNK_LIMIT_KB",
-  defaultChunkLimitKb,
-);
-const chunkCountLimit = parsePositiveLimit(
-  "FRONTEND_CHUNK_COUNT_LIMIT",
-  defaultChunkCountLimit,
-);
-let chunks;
-
-try {
-  chunks = await readChunkSizes();
-} catch {
-  console.error(
-    "[verify:frontend:chunks] Could not read frontend build artifacts at " +
-      `${frontendAssetsDir}. Run \`pnpm frontend build\` first.`,
+async function main() {
+  const harnessConfig = await readHarnessConfig();
+  const defaultChunkLimitKb = readConfiguredBudget(
+    harnessConfig,
+    "maxChunkKb",
+    HardDefaultChunkLimitKb,
   );
-  process.exit(1);
-}
-
-if (chunks.length === 0) {
-  console.error(
-    "[verify:frontend:chunks] No JavaScript chunks found in frontend build " +
-      "artifacts.",
+  const defaultChunkCountLimit = readConfiguredBudget(
+    harnessConfig,
+    "maxChunkCount",
+    HardDefaultChunkCountLimit,
   );
-  process.exit(1);
-}
-
-if (chunks.length > chunkCountLimit) {
-  console.error(
-    "[verify:frontend:chunks] Found too many JavaScript chunks: " +
-      `${chunks.length} (limit: ${chunkCountLimit}).`,
+  const defaultEagerLimitKb = readConfiguredBudget(
+    harnessConfig,
+    "maxEagerKb",
+    HardDefaultEagerLimitKb,
   );
-  process.exit(1);
-}
+  const chunkOverrides = readChunkOverrides(harnessConfig);
 
-const overBudgetChunks = chunks.filter((chunk) => {
-  const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
-  return chunk.sizeKb > limit;
-});
-
-if (overBudgetChunks.length > 0) {
-  console.error(
-    "[verify:frontend:chunks] Found chunk(s) above their allowed limit:",
+  const chunkLimitKb = parsePositiveLimit(
+    "FRONTEND_CHUNK_LIMIT_KB",
+    defaultChunkLimitKb,
   );
-  for (const chunk of overBudgetChunks) {
-    const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
-    console.error(`- ${formatChunk(chunk)} > ${limit} kB`);
+  const chunkCountLimit = parsePositiveLimit(
+    "FRONTEND_CHUNK_COUNT_LIMIT",
+    defaultChunkCountLimit,
+  );
+  const eagerLimitKb = parsePositiveLimit(
+    "FRONTEND_EAGER_LIMIT_KB",
+    defaultEagerLimitKb,
+  );
+  let chunks;
+
+  try {
+    chunks = await readChunkSizes();
+  } catch {
+    console.error(
+      "[verify:frontend:chunks] Could not read frontend build artifacts at " +
+        `${frontendAssetsDir}. Run \`pnpm frontend build\` first.`,
+    );
+    process.exit(1);
   }
-  process.exit(1);
+
+  if (chunks.length === 0) {
+    console.error(
+      "[verify:frontend:chunks] No JavaScript chunks found in frontend build " +
+        "artifacts.",
+    );
+    process.exit(1);
+  }
+
+  if (chunks.length > chunkCountLimit) {
+    console.error(
+      "[verify:frontend:chunks] Found too many JavaScript chunks: " +
+        `${chunks.length} (limit: ${chunkCountLimit}).`,
+    );
+    process.exit(1);
+  }
+
+  const overBudgetChunks = chunks.filter((chunk) => {
+    const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
+    return chunk.sizeKb > limit;
+  });
+
+  if (overBudgetChunks.length > 0) {
+    console.error(
+      "[verify:frontend:chunks] Found chunk(s) above their allowed limit:",
+    );
+    for (const chunk of overBudgetChunks) {
+      const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
+      console.error(`- ${formatChunk(chunk)} > ${limit} kB`);
+    }
+    process.exit(1);
+  }
+
+  let eager;
+  try {
+    eager = await measureEagerScripts(frontendDistDir);
+  } catch {
+    console.error(
+      "[verify:frontend:chunks] Could not read the entry scripts referenced by " +
+        `${path.join(frontendDistDir, "index.html")}. Run \`pnpm frontend build\` first.`,
+    );
+    process.exit(1);
+  }
+
+  if (eager.scripts.length === 0) {
+    console.error(
+      "[verify:frontend:chunks] dist/index.html references no module script.",
+    );
+    process.exit(1);
+  }
+
+  if (eager.totalKb > eagerLimitKb) {
+    console.error(
+      "[verify:frontend:chunks] Eager JavaScript (entry + modulepreload) is " +
+        `${eager.totalKb.toFixed(2)} kB, above the ${eagerLimitKb} kB budget. ` +
+        "Every route downloads all of it before first render:",
+    );
+    for (const script of [...eager.scripts].sort((a, b) => b.sizeKb - a.sizeKb)) {
+      console.error(`- ${formatChunk(script)}`);
+    }
+    console.error(
+      "A large engine chunk in this list usually means a small module shared " +
+        "by the entry and that engine has no manualChunks home " +
+        "(packages/frontend/vite.config.ts).",
+    );
+    process.exit(1);
+  }
+
+  console.log(
+    "[verify:frontend:chunks] Checked " +
+      `${chunks.length} JS chunks (limit: ${chunkCountLimit}) against ` +
+      `${chunkLimitKb} kB.`,
+  );
+  console.log(
+    `[verify:frontend:chunks] Largest chunk: ${formatChunk(chunks[0])}.`,
+  );
+  console.log(
+    "[verify:frontend:chunks] Eager entry: " +
+      `${eager.totalKb.toFixed(2)} kB in ${eager.scripts.length} script(s) ` +
+      `(limit: ${eagerLimitKb} kB).`,
+  );
 }
 
-console.log(
-  "[verify:frontend:chunks] Checked " +
-    `${chunks.length} JS chunks (limit: ${chunkCountLimit}) against ` +
-    `${chunkLimitKb} kB.`,
-);
-console.log(
-  `[verify:frontend:chunks] Largest chunk: ${formatChunk(chunks[0])}.`,
-);
+const isDirectRun =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) ===
+    path.resolve(fileURLToPath(import.meta.url));
+
+if (isDirectRun) {
+  await main();
+}

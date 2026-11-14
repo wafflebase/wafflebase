@@ -629,7 +629,14 @@ export function SheetView({
 
         setSelectedImageId(imageId);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Image upload failed');
+        // `uploadImageFile` throws a plain `Error` with reader text for every
+        // refusal it explains (type, size, the server's reason); anything else
+        // — a `TypeError` from `fetch`, a decode failure — is developer text.
+        toast.error(
+          err instanceof Error && err.name === 'Error' && err.message
+            ? err.message
+            : "Couldn't insert the image. Check your connection and try again.",
+        );
       }
     },
     [doc, readOnly, tabId, workspaceId],

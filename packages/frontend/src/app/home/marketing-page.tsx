@@ -3,6 +3,7 @@ import { fetchMeOptional } from "@/api/auth";
 import { fetchWorkspaces } from "@/api/workspaces";
 import { NavBar } from "./nav-bar";
 import { Footer } from "./footer";
+import { useBrandFonts } from "@/lib/brand-fonts";
 
 /**
  * The page chrome every **public** route shares with the landing page: the
@@ -30,6 +31,7 @@ export function MarketingPage({
    */
   signInTo?: string;
 }) {
+  useBrandFonts();
   const me = useQuery({
     queryKey: ["me-optional"],
     queryFn: fetchMeOptional,

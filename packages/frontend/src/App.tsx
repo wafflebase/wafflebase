@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Suspense, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
@@ -82,6 +82,9 @@ const WorkspaceAnalytics = lazyWithRetry(
 const WorkspaceTemplates = lazyWithRetry(
   () => import("@/app/workspaces/workspace-templates"),
 );
+const WorkspaceTrash = lazyWithRetry(
+  () => import("@/app/documents/trash-page"),
+);
 const WorkspaceDataSources = lazyWithRetry(
   () => import("@/app/workspaces/workspace-datasources"),
 );
@@ -144,6 +147,10 @@ function App() {
                       <Route
                         path="/w/:workspaceId/datasources"
                         element={<WorkspaceDataSources />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/trash"
+                        element={<WorkspaceTrash />}
                       />
                       <Route
                         path="/w/:workspaceId/analytics"

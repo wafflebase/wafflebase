@@ -1,9 +1,131 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Toggle } from "@/components/ui/toggle";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { SyncStatusChip } from "@/components/sync-status/sync-status-chip";
+import { userFacingError } from "@/api/http-error";
+
+/**
+ * The document-level controls every editor puts in its header, by role.
+ *
+ * Editors fill slots instead of passing a free-form row, so the order is
+ * decided here once and is the same in every document type: the sync chip,
+ * then these in `ACTION_ORDER`, then the notifications bell. A type without a
+ * capability leaves its slot empty (slides and board have no comments system,
+ * so they pass no `comments`); it never moves the others.
+ */
+export interface HeaderActions {
+  /** The document type's own primary action, e.g. slides' Present. */
+  primary?: ReactNode;
+  /** Show/hide the comments panel. */
+  comments?: ReactNode;
+  /** Show/hide version history. */
+  history?: ReactNode;
+  /** Download / export the document. */
+  export?: ReactNode;
+  /** The Share dialog trigger. */
+  share?: ReactNode;
+  /** Who else is here (`UserPresence`). */
+  presence?: ReactNode;
+}
+
+const ACTION_ORDER = [
+  "primary",
+  "comments",
+  "history",
+  "export",
+  "share",
+  "presence",
+] as const satisfies readonly (keyof HeaderActions)[];
+
+/**
+ * The header's panel toggle (comments, version history): one size, one
+ * pressed treatment and one "Show … / Hide …" naming rule for every editor,
+ * where each used to hand-build its own and the sheet editor's carried no
+ * pressed wash at all.
+ *
+ * Needs a `TooltipProvider` above it, as every editor layout has.
+ */
+export function HeaderPanelToggle({
+  icon: Icon,
+  label,
+  pressed,
+  onPressedChange,
+}: {
+  icon: ComponentType<{ size?: number }>;
+  /** What the panel holds, lower case: "comments", "version history". */
+  label: string;
+  pressed: boolean;
+  onPressedChange: (pressed: boolean) => void;
+}) {
+  const name = `${pressed ? "Hide" : "Show"} ${label}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toggle
+          size="sm"
+          className="h-8 w-8 min-w-8 cursor-pointer border p-0 pointer-coarse:min-w-11"
+          aria-label={name}
+          pressed={pressed}
+          onPressedChange={onPressedChange}
+        >
+          <Icon size={16} />
+        </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>{name}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+type SiteHeaderProps = {
+  title: string;
+  editable?: boolean;
+  /**
+   * Usually asynchronous — `useDocumentRename` PATCHes the row — so the
+   * returned promise is awaited here rather than discarded; see
+   * `commitRename`.
+   */
+  onRename?: (newTitle: string) => void | Promise<void>;
+  /** Optional control rendered left of the title (e.g. a back button). */
+  leading?: ReactNode;
+  /**
+   * Show whether local edits have reached the server. Opt-in, and NOT because
+   * the chip is optional for an editor — it is because this header is also
+   * used by shells with no Yorkie document at all (the documents list in
+   * `app/Layout.tsx`, the static-file viewer in `app/files/file-shell.tsx`),
+   * and `useDocument()` throws outside a `DocumentProvider`. Pass it from any
+   * shell that mounts inside one.
+   */
+  syncStatus?: boolean;
+} & (
+  | {
+      /** Every editor: the slotted document controls, see `HeaderActions`. */
+      actions?: HeaderActions;
+      children?: never;
+    }
+  | {
+      /**
+       * Shells that are not editors (the static-file viewers) and have a
+       * control set of their own. An editor passes `actions` instead.
+       */
+      children?: ReactNode;
+      actions?: never;
+    }
+);
 
 /**
  * Renders the SiteHeader component.
@@ -14,29 +136,9 @@ export function SiteHeader({
   onRename,
   leading,
   syncStatus = false,
+  actions,
   children,
-}: {
-  title: string;
-  editable?: boolean;
-  /**
-   * Usually asynchronous — `useDocumentRename` PATCHes the row — so the
-   * returned promise is awaited here rather than discarded; see
-   * `commitRename`.
-   */
-  onRename?: (newTitle: string) => void | Promise<void>;
-  /** Optional control rendered left of the title (e.g. a back button). */
-  leading?: React.ReactNode;
-  /**
-   * Show whether local edits have reached the server. Opt-in, and NOT because
-   * the chip is optional for an editor — it is because this header is also
-   * used by shells with no Yorkie document at all (the documents list in
-   * `app/Layout.tsx`, the static-file viewer in `app/files/file-shell.tsx`),
-   * and `useDocument()` throws outside a `DocumentProvider`. Pass it from any
-   * shell that mounts inside one.
-   */
-  syncStatus?: boolean;
-  children?: React.ReactNode;
-}) {
+}: SiteHeaderProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(title);
   // Whether the user has actually typed into the open input. An input that is
@@ -97,9 +199,11 @@ export function SiteHeader({
       // and the title itself needs no restoring: it is a prop, and a refused
       // `PATCH` leaves the row it is read from unchanged.
       void (async () => onRename(trimmed))().catch((err: unknown) => {
-        const reason = err instanceof Error ? err.message : String(err);
         toast.error(`Couldn't rename to "${trimmed}"`, {
-          description: reason,
+          description: userFacingError(
+            err,
+            "Check your connection and try again.",
+          ),
         });
       });
     }
@@ -136,31 +240,49 @@ export function SiteHeader({
               }}
             />
           ) : (
+            // The heading stays a heading: the rename control is a button
+            // inside it rather than the `<h1>` itself wearing a button role,
+            // which took it out of heading navigation. `aria-label` keeps the
+            // heading's name the title, not the button's "Rename …".
+            //
+            // Only the button truncates when editable: an `overflow: hidden`
+            // heading around it would clip its focus ring.
             <h1
-              className={`text-base font-medium truncate min-w-0 ${editable ? "cursor-pointer hover:bg-muted/50 px-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`}
-              onClick={() => {
-                if (editable) openEditing();
-              }}
-              onKeyDown={(e) => {
-                if (editable && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  openEditing();
-                }
-              }}
-              role={editable ? "button" : undefined}
-              tabIndex={editable ? 0 : undefined}
-              aria-label={editable ? `Rename "${title}"` : undefined}
+              className={`min-w-0 text-base font-medium ${editable ? "" : "truncate"}`}
+              aria-label={editable ? title : undefined}
             >
-              {title}
+              {editable ? (
+                <button
+                  type="button"
+                  className="block max-w-full cursor-pointer truncate rounded px-1 text-left transition-colors hover:bg-muted/50 focus-ring"
+                  onClick={openEditing}
+                  aria-label={`Rename "${title}"`}
+                >
+                  {title}
+                </button>
+              ) : (
+                title
+              )}
             </h1>
           )}
         </div>
 
-        {/* Always reserve space for children to prevent layout shift */}
-        <div className="flex shrink-0 items-center">
+        {/* Always reserve space for the controls to prevent layout shift */}
+        <div className="flex shrink-0 items-center gap-2">
           {/* Left of the per-editor controls, so it reads as a property of the
               document rather than as one more button. */}
-          {syncStatus && <SyncStatusChip className="mr-2" />}
+          {syncStatus && <SyncStatusChip />}
+          {actions &&
+            ACTION_ORDER.map((slot) =>
+              actions[slot] ? (
+                // `contents`, so a slot adds no box of its own: one whose
+                // control renders nothing (comments withheld during a
+                // revision preview) leaves no stray gap.
+                <div key={slot} data-header-slot={slot} className="contents">
+                  {actions[slot]}
+                </div>
+              ) : null,
+            )}
           {children}
           {/* One mount point for the whole app: this header is used by the
               documents shell and by every editor. Renders nothing for

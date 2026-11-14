@@ -193,3 +193,97 @@ describe('DocsContextMenu', () => {
     expect(onInsertComment).not.toHaveBeenCalled();
   });
 });
+
+describe('DocsContextMenu keyboard model', () => {
+  const open = (editor: EditorAPI) => {
+    render(<Wrapper editor={editor} />);
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), {
+      clientX: 10,
+      clientY: 10,
+    });
+    return screen.getByRole('menu');
+  };
+  const press = (key: string) =>
+    fireEvent.keyDown(document.activeElement as Element, { key });
+
+  it('opens as a focused role=menu whose rows are menuitems', () => {
+    const menu = open(makeEditor(withSelection()));
+    expect(document.activeElement).toBe(menu);
+    const labels = screen
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent?.replace(/\s+/g, ' ').trim());
+    expect(labels[0]).toMatch(/^Cut/);
+    // No row sits in the Tab order; focus moves by arrow key.
+    for (const el of screen.getAllByRole('menuitem')) {
+      expect(el.tabIndex).toBe(-1);
+    }
+  });
+
+  it('ArrowDown / ArrowUp / Home / End move focus between rows, wrapping', () => {
+    open(makeEditor(withSelection()));
+    press('ArrowDown');
+    expect(document.activeElement?.textContent).toMatch(/^Cut/);
+    press('ArrowDown');
+    expect(document.activeElement?.textContent).toMatch(/^Copy/);
+    press('End');
+    expect(document.activeElement?.textContent).toMatch(/^Insert comment/);
+    press('ArrowDown');
+    expect(document.activeElement?.textContent).toMatch(/^Cut/);
+    press('ArrowUp');
+    expect(document.activeElement?.textContent).toMatch(/^Insert comment/);
+    press('Home');
+    expect(document.activeElement?.textContent).toMatch(/^Cut/);
+  });
+
+  it('Enter activates the focused row and returns focus to the editor', () => {
+    const editor = makeEditor(withSelection());
+    open(editor);
+    press('ArrowDown');
+    press('ArrowDown'); // Copy
+    press('Enter');
+    expect(editor.copy).toHaveBeenCalledTimes(1);
+    expect(editor.focus).toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('typing a letter jumps to the next row starting with it', () => {
+    open(makeEditor(withSelection()));
+    press('p');
+    expect(document.activeElement?.textContent).toMatch(/^Paste/);
+    press('c');
+    expect(document.activeElement?.textContent).toMatch(/^Cut/);
+    press('c');
+    expect(document.activeElement?.textContent).toMatch(/^Copy/);
+  });
+
+  it('Escape closes the menu and hands focus back to the editor', () => {
+    const editor = makeEditor();
+    open(editor);
+    press('ArrowDown');
+    press('Escape');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(editor.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips status rows that are not actions', async () => {
+    const editor = makeEditor({
+      getSpellErrorAt: vi.fn(() => ({ word: 'teh' })) as unknown as EditorAPI['getSpellErrorAt'],
+      // Never resolves: the "Checking…" row stays up.
+      getSpellSuggestions: vi.fn(() => new Promise<string[]>(() => {})),
+    });
+    open(editor);
+    const checking = screen.getByText('Checking…');
+    expect(checking.getAttribute('aria-disabled')).toBe('true');
+    press('ArrowDown');
+    expect(document.activeElement?.textContent).toMatch(/^Paste/);
+  });
+
+  it('hovering a row focuses it, so one highlight serves pointer and keys', () => {
+    open(makeEditor(withSelection()));
+    const copy = screen.getByText('Copy').closest('button')!;
+    fireEvent.pointerMove(copy);
+    expect(document.activeElement).toBe(copy);
+    press('ArrowDown');
+    expect(document.activeElement?.textContent).toMatch(/^Paste/);
+  });
+});

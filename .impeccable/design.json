@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-14T06:06:06.807Z",
+  "generatedAt": "2026-11-14T07:38:55.611Z",
   "title": "Design System: Wafflebase",
   "extensions": {
     "colorMeta": {
@@ -17,6 +17,21 @@
           "#E08A3A",
           "#F0B57A",
           "#FAE3C8"
+        ]
+      },
+      "syrup-strong": {
+        "role": "primary",
+        "displayName": "Strong Syrup",
+        "canonical": "#9E5614",
+        "tonalRamp": [
+          "oklch(0.15 0.06 56.5)",
+          "oklch(0.26 0.103 56.5)",
+          "oklch(0.37 0.12 56.5)",
+          "oklch(0.48 0.12 56.5)",
+          "oklch(0.6 0.12 56.5)",
+          "oklch(0.72 0.112 56.5)",
+          "oklch(0.84 0.064 56.5)",
+          "oklch(0.95 0.02 56.5)"
         ]
       },
       "syrup-deep": {
@@ -47,6 +62,21 @@
           "oklch(0.72 0.124 59.9)",
           "oklch(0.84 0.071 59.9)",
           "oklch(0.95 0.022 59.9)"
+        ]
+      },
+      "syrup-bright-pressed": {
+        "role": "primary",
+        "displayName": "Pressed Bright Syrup",
+        "canonical": "#C97A30",
+        "tonalRamp": [
+          "oklch(0.15 0.065 59.8)",
+          "oklch(0.26 0.113 59.8)",
+          "oklch(0.37 0.131 59.8)",
+          "oklch(0.48 0.131 59.8)",
+          "oklch(0.6 0.131 59.8)",
+          "oklch(0.72 0.122 59.8)",
+          "oklch(0.84 0.069 59.8)",
+          "oklch(0.95 0.022 59.8)"
         ]
       },
       "butter": {
@@ -274,6 +304,36 @@
           "oklch(0.95 0.002 84.6)"
         ]
       },
+      "link": {
+        "role": "neutral",
+        "displayName": "Link",
+        "canonical": "#1967D2",
+        "tonalRamp": [
+          "oklch(0.15 0.09 258.3)",
+          "oklch(0.26 0.155 258.3)",
+          "oklch(0.37 0.181 258.3)",
+          "oklch(0.48 0.181 258.3)",
+          "oklch(0.6 0.181 258.3)",
+          "oklch(0.72 0.168 258.3)",
+          "oklch(0.84 0.096 258.3)",
+          "oklch(0.95 0.031 258.3)"
+        ]
+      },
+      "link-bright": {
+        "role": "neutral",
+        "displayName": "Link (dark mode)",
+        "canonical": "#8AB4F8",
+        "tonalRamp": [
+          "oklch(0.15 0.054 259.8)",
+          "oklch(0.26 0.093 259.8)",
+          "oklch(0.37 0.108 259.8)",
+          "oklch(0.48 0.108 259.8)",
+          "oklch(0.6 0.108 259.8)",
+          "oklch(0.72 0.101 259.8)",
+          "oklch(0.84 0.057 259.8)",
+          "oklch(0.95 0.018 259.8)"
+        ]
+      },
       "app-background": {
         "role": "neutral",
         "displayName": "Zinc Paper",
@@ -347,6 +407,21 @@
           "oklch(0.72 0.004 286.3)",
           "oklch(0.84 0.002 286.3)",
           "oklch(0.95 0.001 286.3)"
+        ]
+      },
+      "app-input-border": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "canonical": "oklch(0.64 0.016 285.938)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 285.9)",
+          "oklch(0.26 0.014 285.9)",
+          "oklch(0.37 0.016 285.9)",
+          "oklch(0.48 0.016 285.9)",
+          "oklch(0.6 0.016 285.9)",
+          "oklch(0.72 0.015 285.9)",
+          "oklch(0.84 0.008 285.9)",
+          "oklch(0.95 0.003 285.9)"
         ]
       },
       "app-sidebar": {
@@ -452,6 +527,21 @@
           "oklch(0.72 0 0)",
           "oklch(0.84 0 0)",
           "oklch(0.95 0 0)"
+        ]
+      },
+      "app-input-border-dark": {
+        "role": "neutral",
+        "displayName": "Control Edge (dark mode)",
+        "canonical": "oklch(0.52 0.016 285.938)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 285.9)",
+          "oklch(0.26 0.014 285.9)",
+          "oklch(0.37 0.016 285.9)",
+          "oklch(0.48 0.016 285.9)",
+          "oklch(0.6 0.016 285.9)",
+          "oklch(0.72 0.015 285.9)",
+          "oklch(0.84 0.008 285.9)",
+          "oklch(0.95 0.003 285.9)"
         ]
       },
       "selected": {
@@ -998,15 +1088,15 @@
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "Homepage hero only; the italic second line is Fraunces true italic at 500."
+        "purpose": "Homepage hero only; the italic second line is Fraunces true italic at 500, the one italic face loaded. Brand faces load only on brand routes (/, /login, /templates, /t/:id) via src/lib/brand-fonts.ts with display=swap."
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "Brand-surface page titles (sign-in, template landing)."
+        "purpose": "Brand-surface page titles (sign-in, template landing); the sidebar wordmark uses the same face at 17px."
       },
       "section-title": {
         "displayName": "Section title",
-        "purpose": "Settings and workspace-settings section headings."
+        "purpose": "Settings and workspace-settings section headings; the largest app-chrome text outside an analytics stat figure (24px)."
       },
       "title": {
         "displayName": "Title",
@@ -1014,7 +1104,7 @@
       },
       "body": {
         "displayName": "Body",
-        "purpose": "All editor and workspace UI text; inputs render at 16px on mobile."
+        "purpose": "All editor and workspace UI text in the system stack (brand faces are not loaded on app routes); inputs render at 16px on mobile."
       },
       "body-brand": {
         "displayName": "Body (brand)",
@@ -1022,7 +1112,7 @@
       },
       "title-brand": {
         "displayName": "Title (brand)",
-        "purpose": "Homepage feature-card titles."
+        "purpose": "Homepage feature- and use-case-card titles (use-case cards in Fraunces); the brand nav and footer wordmarks use Fraunces at the same size."
       },
       "body-brand-sm": {
         "displayName": "Body (brand, small)",
@@ -1038,11 +1128,11 @@
       },
       "micro": {
         "displayName": "Micro",
-        "purpose": "Count badges, avatar initials, swatch captions. Never body copy."
+        "purpose": "Count badges, avatar initials, swatch captions (text-2xs). Never body copy, never a label the user must read to act; nothing in the app renders smaller."
       },
       "label-mono": {
         "displayName": "Label (mono)",
-        "purpose": "Uppercase footer column headings and the template category chip."
+        "purpose": "Uppercase footer column headings and the template category chip. Never a kicker or eyebrow above a heading."
       },
       "control": {
         "displayName": "Control",
@@ -1069,6 +1159,11 @@
         "name": "dialog",
         "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
         "purpose": "Dialogs and floating editor panels (shadow-lg)."
+      },
+      {
+        "name": "toast",
+        "value": "0px 4px 12px rgba(0, 0, 0, 0.1)",
+        "purpose": "Sonner toasts (library default, kept); surface, text and border are the popover tokens."
       },
       {
         "name": "brand-card",
@@ -1115,12 +1210,17 @@
       {
         "name": "sidebar-collapse",
         "value": "200ms linear",
-        "purpose": "Sidebar width, label margin and opacity when collapsing to the icon rail."
+        "purpose": "Sidebar width, label margin and opacity when collapsing to the icon rail; motion-reduce:transition-none."
       },
       {
         "name": "brand-hover",
         "value": "150ms (use-case cards, pill buttons) / 200ms (feature cards)",
         "purpose": "Brand card lift (-2px) or 1.005 scale, and the pill button 1px lift."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce): tw-animate enter/exit scale and translate zeroed; brand hover lifts and scale removed",
+        "purpose": "Overlays (dialogs, sheets, popovers, menus, tooltips) keep only the opacity fade; brand cards and the pill CTA stay still on hover (the CTA keeps its primary-hover fill). Slides presentation motion honors the same query in packages/slides."
       }
     ],
     "breakpoints": [
@@ -1153,7 +1253,7 @@
       "refersTo": "button-primary",
       "description": "The one syrup action on an app screen.",
       "html": "<button class=\"ds-btn-primary\">Share</button>",
-      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 8px 16px; border: 1px solid transparent; border-radius: var(--radius-md, 2.8px); background: var(--primary, #B8651A); color: var(--primary-foreground, #FFFAF0); font: 500 14px/1 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); cursor: pointer; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { background: color-mix(in srgb, var(--primary, #B8651A) 90%, transparent); } .ds-btn-primary:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 8px 16px; border: 1px solid transparent; border-radius: var(--radius-md, 2.8px); background: var(--primary, #9E5614); color: var(--primary-foreground, #FFFAF0); font: 500 14px/1 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); cursor: pointer; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { background: var(--primary-hover, #8A4A12); } .ds-btn-primary:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
     },
     {
       "name": "Outline Button",
@@ -1193,7 +1293,15 @@
       "refersTo": "input",
       "description": "Single-line field for dialogs and panels.",
       "html": "<input class=\"ds-input\" placeholder=\"Document title\" aria-label=\"Document title\" />",
-      "css": ".ds-input { height: 36px; width: 240px; min-width: 0; padding: 4px 12px; border: 1px solid var(--input, oklch(0.92 0.004 286.32)); border-radius: var(--radius-md, 2.8px); background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); caret-color: var(--primary, #B8651A); font: 14px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); } .ds-input:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-input[aria-invalid=\"true\"] { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); } @media (max-width: 767px) { .ds-input { font-size: 16px; } }"
+      "css": ".ds-input { height: 36px; width: 240px; min-width: 0; padding: 4px 12px; border: 1px solid var(--input-border, oklch(0.64 0.016 285.938)); border-radius: var(--radius-md, 2.8px); background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); caret-color: var(--primary, #9E5614); font: 14px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); } .ds-input:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-input[aria-invalid=\"true\"] { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); } @media (max-width: 767px) { .ds-input { font-size: 16px; } }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Sonner via components/ui/sonner.tsx: the resolved app theme, popover surface and border, lg corners. An error toast names what failed and what to do next.",
+      "html": "<div class=\"ds-toast\" role=\"status\"><div class=\"ds-toast-title\">Couldn’t share the document</div><div class=\"ds-toast-desc\">Check your connection and try again.</div></div>",
+      "css": ".ds-toast { display: flex; flex-direction: column; gap: 2px; width: 356px; padding: 16px; border: 1px solid var(--border, oklch(0.92 0.004 286.32)); border-radius: var(--radius, 4.8px); background: var(--popover, #fff); color: var(--popover-foreground, oklch(0.141 0.005 285.823)); box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1); font: 13px ui-sans-serif, system-ui, sans-serif; } .ds-toast-title { font-weight: 500; line-height: 1.5; } .ds-toast-desc { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); }"
     },
     {
       "name": "Card",
@@ -1217,7 +1325,7 @@
       "refersTo": "brand-button-primary",
       "description": "Primary and ghost CTAs on brand surfaces only (homepage, sign-in, templates).",
       "html": "<div class=\"ds-brand-row\"><button class=\"ds-brand-btn\">Start a workspace <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></button><button class=\"ds-brand-btn-ghost\">Read the docs</button></div>",
-      "css": ".ds-brand-row { display: flex; gap: 12px; padding: 16px; background: var(--wb-bg, #FBF6EC); } .ds-brand-btn, .ds-brand-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border-radius: 9999px; font: 500 14px var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); white-space: nowrap; cursor: pointer; outline: none; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-brand-btn { border: 1px solid var(--wb-syrup-deep, #8A4A12); background: var(--wb-syrup, #B8651A); color: var(--primary-foreground, #FFFAF0); box-shadow: 0 1px 0 var(--wb-syrup-deep, #8A4A12), inset 0 1px 0 color-mix(in srgb, white 25%, transparent); } .ds-brand-btn:hover { background: var(--wb-syrup-deep, #8A4A12); transform: translateY(-1px); } .ds-brand-btn-ghost { border: 1px solid var(--wb-rule, #E8DCC4); background: transparent; color: var(--wb-ink, #2A1E12); } .ds-brand-btn-ghost:hover { background: color-mix(in srgb, var(--wb-rule, #E8DCC4) 40%, transparent); } .ds-brand-btn:focus-visible, .ds-brand-btn-ghost:focus-visible { box-shadow: 0 0 0 2px var(--wb-bg, #FBF6EC), 0 0 0 4px color-mix(in srgb, var(--wb-syrup, #B8651A) 40%, transparent); }"
+      "css": ".ds-brand-row { display: flex; gap: 12px; padding: 16px; background: var(--wb-bg, #FBF6EC); } .ds-brand-btn, .ds-brand-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border-radius: 9999px; font: 500 14px var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); white-space: nowrap; cursor: pointer; outline: none; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-brand-btn { border: 1px solid var(--wb-syrup-deep, #8A4A12); background: var(--primary, #9E5614); color: var(--primary-foreground, #FFFAF0); box-shadow: 0 1px 0 var(--wb-syrup-deep, #8A4A12), inset 0 1px 0 color-mix(in srgb, white 25%, transparent); } .ds-brand-btn:hover { background: var(--primary-hover, #8A4A12); transform: translateY(-1px); } .ds-brand-btn-ghost { border: 1px solid var(--wb-rule, #E8DCC4); background: transparent; color: var(--wb-ink, #2A1E12); } .ds-brand-btn-ghost:hover { background: color-mix(in srgb, var(--wb-rule, #E8DCC4) 40%, transparent); } .ds-brand-btn:focus-visible, .ds-brand-btn-ghost:focus-visible { box-shadow: 0 0 0 2px var(--wb-bg, #FBF6EC), 0 0 0 4px color-mix(in srgb, var(--wb-syrup, #B8651A) 40%, transparent); }"
     },
     {
       "name": "Brand Feature Card",
@@ -1225,7 +1333,7 @@
       "refersTo": "brand-card",
       "description": "Cream-paper use-case card on the homepage; Fraunces title, syrup-deep caption link, lifts 2px on hover.",
       "html": "<a class=\"ds-brand-card\" href=\"#\"><div class=\"ds-brand-card-title\">Query your own database</div><p class=\"ds-brand-card-body\">A SQL tab reads straight from PostgreSQL into a read-only grid.</p><span class=\"ds-brand-card-link\">See how it works</span></a>",
-      "css": ".ds-brand-card { display: flex; flex-direction: column; gap: 12px; width: 300px; padding: 28px 24px 24px; border: 1px solid var(--wb-rule, #E8DCC4); border-radius: 16px; background: var(--wb-paper, #FFFDF7); color: var(--wb-ink, #2A1E12); text-decoration: none; box-shadow: 0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18); outline: none; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-brand-card:hover { transform: translateY(-2px); } .ds-brand-card:focus-visible { box-shadow: 0 0 0 2px var(--wb-bg, #FBF6EC), 0 0 0 4px color-mix(in srgb, var(--wb-syrup, #B8651A) 40%, transparent); } .ds-brand-card-title { font: 600 21px/1.2 var(--font-display, Fraunces, ui-serif, Georgia, serif); letter-spacing: -0.015em; text-wrap: balance; } .ds-brand-card-body { margin: 0; font: 15px/1.55 var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); color: var(--wb-sub, #6B584A); } .ds-brand-card-link { margin-top: auto; padding-top: 8px; font: 500 13px var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); color: var(--wb-syrup-deep, #8A4A12); } .ds-brand-card:hover .ds-brand-card-link { color: var(--wb-syrup, #B8651A); }"
+      "css": ".ds-brand-card { display: flex; flex-direction: column; gap: 12px; width: 300px; padding: 28px 24px 24px; border: 1px solid var(--wb-rule, #E8DCC4); border-radius: 16px; background: var(--wb-paper, #FFFDF7); color: var(--wb-ink, #2A1E12); text-decoration: none; box-shadow: 0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18); outline: none; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-brand-card:hover { transform: translateY(-2px); } .ds-brand-card:focus-visible { box-shadow: 0 0 0 2px var(--wb-bg, #FBF6EC), 0 0 0 4px color-mix(in srgb, var(--wb-syrup, #B8651A) 40%, transparent); } .ds-brand-card-title { font: 600 19px/1.3 var(--font-display, Fraunces, ui-serif, Georgia, serif); letter-spacing: -0.015em; text-wrap: balance; } .ds-brand-card-body { margin: 0; font: 15px/1.55 var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); color: var(--wb-sub, #6B584A); } .ds-brand-card-link { margin-top: auto; padding-top: 8px; font: 500 13px var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); color: var(--wb-syrup-deep, #8A4A12); } .ds-brand-card-link:hover { text-decoration: underline; text-underline-offset: 2px; }"
     }
   ],
   "narrative": {
@@ -1241,7 +1349,7 @@
     "rules": [
       {
         "name": "The One Accent Rule",
-        "body": "Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.",
+        "body": "Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong; the same goes for two primary buttons in one view (workspace settings keeps \"Create invite link\" primary and steps \"Create API key\" down to outline beside it). Hyperlink blue is the sole exception, and only on actual URLs. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.",
         "section": "colors"
       },
       {

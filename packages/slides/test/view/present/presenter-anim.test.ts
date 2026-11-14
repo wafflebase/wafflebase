@@ -686,3 +686,35 @@ describe('presenter — backward navigation', () => {
     }
   });
 });
+
+describe('presenter — prefers-reduced-motion', () => {
+  it('a click lands the animation step on its final state without playing it', () => {
+    const { doc, aId } = makeDocWithAnimations();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+      prefersReducedMotion: () => true,
+    });
+    try {
+      // Without reduced motion, a second click mid-step would only
+      // skip-to-end; here each click settles its step, so two clicks play
+      // both steps and the slide has not changed.
+      testApi(presenter).next();
+      const player = testApi(presenter).getAnimPlayer()!;
+      expect(player.isAnimating).toBe(false);
+      testApi(presenter).next();
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+      expect(player.isAnimating).toBe(false);
+      expect(player.done).toBe(true);
+      // The element is fully in: no frame of the fade is left to play.
+      const elemId = doc.slides[0].elements[0].id;
+      const rest = player.restingState().get(elemId);
+      expect(rest?.hidden).toBe(false);
+      expect(rest?.opacity).toBeCloseTo(1);
+    } finally {
+      presenter.dispose();
+    }
+  });
+});

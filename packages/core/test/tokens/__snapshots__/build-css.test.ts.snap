@@ -7,6 +7,8 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --radius: 0.3rem;
   --wb-terminal-bg: #1C1610;
   --wb-terminal-fg: #FBF6EC;
+  --wb-terminal-keyword: #E27A7E;
+  --wb-terminal-flag: #A0C078;
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -26,8 +28,9 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --card-foreground: oklch(0.141 0.005 285.823);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: #B8651A;
+  --primary: #9E5614;
   --primary-foreground: #FFFAF0;
+  --primary-hover: #8A4A12;
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.967 0.001 286.375);
@@ -39,7 +42,9 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --success: #5A7A3A;
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
+  --input-border: oklch(0.64 0.016 285.938);
   --ring: #B8651A;
+  --link: #1967D2;
   --selected: rgba(244, 201, 93, 0.30);
   --selected-foreground: #8A4A12;
   --chart-1: #B8651A;
@@ -49,7 +54,7 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --chart-5: oklch(0.64 0.12 95);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: #B8651A;
+  --sidebar-primary: #9E5614;
   --sidebar-primary-foreground: #FFFAF0;
   --sidebar-accent: rgba(244, 201, 93, 0.30);
   --sidebar-accent-foreground: #8A4A12;
@@ -84,6 +89,7 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --popover-foreground: oklch(0.985 0 0);
   --primary: #E08A3A;
   --primary-foreground: #1C1610;
+  --primary-hover: #C97A30;
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.274 0.006 286.033);
@@ -95,7 +101,9 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
   --success: #A0C078;
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
+  --input-border: oklch(0.52 0.016 285.938);
   --ring: #E08A3A;
+  --link: #8AB4F8;
   --selected: rgba(244, 201, 93, 0.18);
   --selected-foreground: #F4C95D;
   --chart-1: #E08A3A;

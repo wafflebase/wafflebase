@@ -6,6 +6,7 @@ import {
   type SlidesDocument,
   renderThumbnail,
 } from '@wafflebase/slides';
+import { palette } from '@wafflebase/core/tokens';
 import {
   sceneBounds, fitScene, miniToWorld, viewportRectInMini, type MiniFit,
 } from './minimap-geometry';
@@ -22,7 +23,10 @@ const PAD = 80; // world-px breathing room around the scene bounds
  * whose `border` shorthand carries a var().
  */
 const TOGGLE_CSS = [
-  'display:inline-flex', 'align-items:center', 'gap:2px',
+  'display:inline-flex', 'align-items:center', 'justify-content:center', 'gap:2px',
+  // 16px line + 2px padding + 1px border measures 22px; the floor lifts it
+  // to the 24px minimum target (WCAG 2.5.8). Coarse pointers get 44px below.
+  'min-height:24px', 'box-sizing:border-box',
   'font:500 12px/16px var(--font-body, system-ui, sans-serif)',
   'padding:2px 6px 2px 8px', 'border-radius:calc(var(--radius, 4.8px) - 2px)',
   'background:var(--popover, oklch(1 0 0))', 'color:var(--muted-foreground, oklch(0.552 0.016 285.938))',
@@ -36,6 +40,34 @@ const PANEL_CSS = [
   'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))',
   'box-shadow:0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
 ].join(';');
+
+/*
+ * A fingertip target for the toggle. Inline styles cannot carry the
+ * `pointer: coarse` media query, so the mount decides once and passes it in.
+ */
+const TOGGLE_COARSE_CSS = ['min-height:44px', 'min-width:44px', 'padding:0 10px 0 12px'].join(';');
+
+/*
+ * The viewport rectangle is a selection-like frame over the scene, so it is
+ * drawn in the ring color: syrup in light, bright syrup in dark — the same
+ * stops `--ring` resolves to (packages/core/src/tokens/semantic.ts). Canvas
+ * takes the palette hex directly (DESIGN.md, the Canvas Hex Rule).
+ */
+export function viewportStrokeColor(theme: 'light' | 'dark'): string {
+  return theme === 'dark' ? palette.syrupBright : palette.syrup;
+}
+
+/**
+ * Whether the minimap starts open. On a phone the 200×150 panel covers about
+ * a quarter of the screen and sits over content the user came to see, so a
+ * narrow viewport or a coarse primary pointer starts it collapsed; the Map
+ * toggle still opens it. Falls back to open where `matchMedia` is missing
+ * (jsdom, SSR), which is the desktop default.
+ */
+export function defaultMinimapVisible(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return true;
+  return !window.matchMedia('(max-width: 767px), (pointer: coarse)').matches;
+}
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -59,6 +91,10 @@ export interface BoardMinimapDeps {
   onNavigate: (worldCenter: Point) => void;
   dpr: number;
   initialVisible?: boolean;
+  /** Grow the toggle to a 44px touch target. */
+  coarsePointer?: boolean;
+  /** Current resolved theme, read at each paint. Defaults to light. */
+  getTheme?: () => 'light' | 'dark';
 }
 
 export interface BoardMinimap {
@@ -76,6 +112,7 @@ export interface BoardMinimap {
  */
 export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   const { store, getHostSize, onNavigate, dpr } = deps;
+  const getTheme = deps.getTheme ?? (() => 'light' as const);
   let visible = deps.initialVisible ?? true;
 
   const root = document.createElement('div');
@@ -87,7 +124,9 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.setAttribute('aria-label', 'Toggle minimap');
-  toggle.style.cssText = TOGGLE_CSS;
+  toggle.style.cssText = deps.coarsePointer
+    ? `${TOGGLE_CSS};${TOGGLE_COARSE_CSS}`
+    : TOGGLE_CSS;
 
   const panel = document.createElement('div');
   panel.style.cssText = PANEL_CSS;
@@ -163,7 +202,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
       const r = viewportRectInMini(lastVp, getHostSize(), lastFit);
       ctx.save();
       ctx.scale(dpr, dpr);
-      ctx.strokeStyle = '#2b7fff';
+      ctx.strokeStyle = viewportStrokeColor(getTheme());
       ctx.lineWidth = 1.5;
       ctx.strokeRect(r.x, r.y, r.w, r.h);
       ctx.restore();

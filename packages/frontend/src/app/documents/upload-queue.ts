@@ -8,11 +8,29 @@ import {
 import { importDocx } from "@/app/docs/docx-actions";
 import { importPptxFile } from "@/app/slides/pptx-actions";
 import { uploadFile } from "@/api/files";
-import { createDocument, deleteDocument } from "@/api/documents";
+import { HttpError, userFacingError } from "@/api/http-error";
+import { createDocument, discardDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
 import { registerUnsavedWorkProbe } from "@/lib/unsaved-work";
 import type { Document, DocumentType } from "@/types/documents";
+
+const UPLOAD_FAILED = "Couldn't upload this file. Check your connection and retry.";
+
+/**
+ * The reason shown on a failed row. A plain `Error` is what the importers
+ * throw on purpose ("Invalid NDJSON at line 2"), so its text is kept; an HTTP
+ * failure goes through `userFacingError`; anything else — a `TypeError` from
+ * `fetch` ("Failed to fetch") or from a parser bug, a `SyntaxError` — is
+ * developer text and yields the generic reason.
+ */
+export function uploadFailureReason(err: unknown): string {
+  if (err instanceof HttpError) return userFacingError(err, UPLOAD_FAILED);
+  if (err instanceof Error && err.name === "Error" && err.message) {
+    return err.message;
+  }
+  return UPLOAD_FAILED;
+}
 
 export type UploadStatus =
   | "pending"
@@ -251,7 +269,7 @@ export interface UploadDeps {
   ) => Promise<Document>;
   getDocumentPath: (doc: DocRef) => string;
   applyContent: typeof applyImportedContentDefault;
-  deleteDoc: typeof deleteDocument;
+  deleteDoc: typeof discardDocument;
   sleep: (ms: number) => Promise<void>;
 }
 
@@ -264,7 +282,7 @@ const defaultDeps: UploadDeps = {
     ws ? createWorkspaceDocument(ws, payload) : createDocument(payload),
   getDocumentPath: getDocumentPathDefault,
   applyContent: applyImportedContentDefault,
-  deleteDoc: deleteDocument,
+  deleteDoc: discardDocument,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
@@ -482,7 +500,7 @@ async function runItem(item: UploadItem): Promise<void> {
   } catch (err) {
     patchItem(item.id, {
       status: "error",
-      reason: err instanceof Error ? err.message : "Upload failed",
+      reason: uploadFailureReason(err),
       // Clear any warning the same way retry() clears `reason`. Unreachable
       // today — `finish()` is the only writer of `warning` and a "done" item
       // never re-enters the worker — but `finish()` calls `settle()`, whose

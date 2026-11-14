@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRevisions, type RevisionSummary } from '@yorkie-js/react';
 import { groupRevisions, type TimelineDay } from './group-revisions';
-import { beginRestore, endRestore } from './restore-lock';
+import {
+  beginRestore,
+  endRestore,
+  RestoreInProgressError,
+} from './restore-lock';
 import { writeRevisionMeta } from './revision-meta';
 
 /**
@@ -175,7 +179,7 @@ export function useRevisionHistory({
       // both entry points already render whatever `restore` rejects with, and
       // a silent resolve would let the preview close as if it had worked.
       if (!beginRestore()) {
-        throw new Error('A restore is already in progress.');
+        throw new RestoreInProgressError();
       }
       try {
         // Safety first, and deliberately un-caught: if the current state

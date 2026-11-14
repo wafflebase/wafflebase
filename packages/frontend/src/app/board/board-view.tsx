@@ -34,7 +34,11 @@ import { dropStickyAtViewportCenter } from "./sticky";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
-import { createBoardMinimap, type BoardMinimap } from "./board-minimap";
+import {
+  createBoardMinimap,
+  defaultMinimapVisible,
+  type BoardMinimap,
+} from "./board-minimap";
 import { centerViewportOnWorld } from "./minimap-geometry";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import {
@@ -203,6 +207,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const { resolvedTheme } = useTheme();
   const resolvedThemeRef = useRef(resolvedTheme);
   resolvedThemeRef.current = resolvedTheme;
+  // Held so the theme effect can repaint the minimap's viewport frame,
+  // whose stroke follows the theme but would otherwise wait for a pan.
+  const minimapRef = useRef<BoardMinimap | null>(null);
 
   // Background grid mode. React state so the toolbar's dropdown reflects
   // it, mirrored into a ref for the same reason as the theme above — the
@@ -341,6 +348,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     const minimap: BoardMinimap = createBoardMinimap({
       store,
       dpr,
+      initialVisible: defaultMinimapVisible(),
+      coarsePointer: isCoarsePointer(),
+      getTheme: () => resolvedThemeRef.current,
       getHostSize: () => ({ w: hostW, h: hostH }),
       // Forward reference to `commitViewport`, declared below: the
       // dependency is circular (it repaints this minimap), so one side has
@@ -353,6 +363,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       },
     });
     container.appendChild(minimap.element);
+    minimapRef.current = minimap;
     minimap.repaintScene();
     minimap.repaintViewport(vp.current);
 
@@ -842,6 +853,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       offChange();
       offPeers();
       minimap.dispose();
+      minimapRef.current = null;
       editor.detach();
       store.dispose();
       editorRef.current = null;
@@ -867,6 +879,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     const container = containerRef.current;
     if (!container) return;
     applyGridBackground(container, gridKind, vp.current, resolvedTheme);
+    minimapRef.current?.repaintViewport(vp.current);
   }, [gridKind, resolvedTheme]);
 
   // The board's picture for the template gallery
@@ -894,7 +907,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   }
 
   return (
-    <div className="flex h-full w-full min-h-0 flex-col">
+    // `min-w-0` because this root is a flex item of `PreviewSurface`'s row:
+    // with the default `min-width: auto` it grows to the toolbar's unwrapped
+    // width, the row's `overflow-hidden` clips the strip at the right edge of
+    // a phone, and the toolbar never becomes the scroller it is built to be.
+    <div className="flex h-full w-full min-h-0 min-w-0 flex-col">
       {/* Toolbar sits ABOVE the canvas host as a sibling, not a wrapper —
           the mount effect measures `containerRef.getBoundingClientRect()`
           for canvas sizing and `canvas.getBoundingClientRect()` for

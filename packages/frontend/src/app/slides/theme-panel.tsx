@@ -78,7 +78,7 @@ export function ThemePanel({
           role="tab"
           aria-selected={view === v}
           onClick={() => setView(v)}
-          className={`flex-1 rounded px-2 py-1 text-xs font-medium capitalize transition-colors ${
+          className={`focus-ring flex-1 rounded px-2 py-1 text-xs font-medium capitalize transition-colors ${
             view === v
               ? "bg-background shadow-sm"
               : "text-muted-foreground hover:text-foreground"
@@ -151,7 +151,7 @@ export function ThemePanel({
           type="button"
           onClick={onClose}
           aria-label="Close theme panel"
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="focus-ring rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <IconX size={16} aria-hidden="true" />
         </button>

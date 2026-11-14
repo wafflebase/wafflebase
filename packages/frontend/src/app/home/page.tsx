@@ -11,6 +11,7 @@ import { WhySection } from "./why-section";
 import { DeveloperSection } from "./developer-section";
 import { OpenSourceSection } from "./opensource-section";
 import { Footer } from "./footer";
+import { useBrandFonts } from "@/lib/brand-fonts";
 
 export default function HomePage({
   workspacePath,
@@ -18,6 +19,7 @@ export default function HomePage({
   workspacePath: string | null;
 }) {
   const { hash } = useLocation();
+  useBrandFonts();
 
   useEffect(() => {
     document.title = "Wafflebase — the open-source office suite you can own";

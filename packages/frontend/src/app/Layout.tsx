@@ -15,6 +15,7 @@ const ROUTE_TITLES: Array<{ path: string; title: string }> = [
   { path: "/w/:workspaceId/analytics/:id", title: "Document analytics" },
   { path: "/w/:workspaceId/templates", title: "Templates" },
   { path: "/w/:workspaceId/settings", title: "Settings" },
+  { path: "/w/:workspaceId/trash", title: "Trash" },
   { path: "/w/:workspaceId", title: "Documents" },
   { path: "/datasources", title: "Data sources" },
   { path: "/settings", title: "Settings" },

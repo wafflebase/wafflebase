@@ -11,11 +11,17 @@ interface Props {
  * Shared "Insert comment" row. Both the unified body context menu
  * (`DocsContextMenu`) and the table context menu
  * (`DocsTableContextMenu`) render it, so the label, icon, and ⌘⌥M
- * shortcut hint live in one place and can't drift apart.
+ * shortcut hint live in one place and can't drift apart. It is a
+ * `menuitem` of either host's keyboard-driven menu (`menu-focus.ts`).
  */
 export function InsertCommentMenuItem({ onSelect, className }: Props) {
   return (
-    <button className={className} onClick={onSelect}>
+    <button
+      role="menuitem"
+      tabIndex={-1}
+      className={className}
+      onClick={onSelect}
+    >
       <IconMessage2Plus size={16} className="text-muted-foreground" />
       Insert comment
       <span className="ml-auto text-xs text-muted-foreground">⌘⌥M</span>

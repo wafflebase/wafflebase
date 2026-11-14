@@ -16,9 +16,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Loader } from "@/components/loader";
+import { userFacingError } from "@/api/http-error";
 
 import { usePreviewLoadingId } from "./preview-loading";
-import { useRestoreInProgress } from "./restore-lock";
+import { restoreErrorMessage, useRestoreInProgress } from "./restore-lock";
 import { useRevisionHistory } from "./use-revision-history";
 import type { TimelineEntry } from "./group-revisions";
 
@@ -155,8 +156,13 @@ export function HistoryPanel({
       // catch the rejection was unhandled, the spinner cleared, the label
       // stayed in the box and the user was told nothing. Every other action
       // in this panel reports its failures; so does this one now.
+      // The rejection is a Yorkie RPC error ("[permission_denied] …"), which
+      // is developer text — `userFacingError` yields the sentence below.
       setNameError(
-        err instanceof Error ? err.message : "The version was not named.",
+        userFacingError(
+          err,
+          "Couldn't name this version. Check your connection and try again.",
+        ),
       );
     } finally {
       setIsNaming(false);
@@ -172,7 +178,10 @@ export function HistoryPanel({
       // failed, and the hook deliberately leaves the timeline alone so this
       // cannot be mistaken for "the history is gone".
       setLoadMoreError(
-        err instanceof Error ? err.message : "Older versions were not loaded.",
+        userFacingError(
+          err,
+          "Couldn't load older versions. Check your connection and try again.",
+        ),
       );
     }
   };
@@ -190,9 +199,7 @@ export function HistoryPanel({
       // A restore that failed and said nothing is the worst outcome this
       // feature can produce: the user believes their document was rolled
       // back. Report it the same way the list reports a failed load.
-      setRestoreError(
-        err instanceof Error ? err.message : "The restore did not complete.",
-      );
+      setRestoreError(restoreErrorMessage(err));
     } finally {
       restoreInFlight.current = false;
       setIsRestoringHere(false);
@@ -241,7 +248,7 @@ export function HistoryPanel({
           role="alert"
           className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive"
         >
-          Couldn't name this version: {nameError}
+          {nameError}
         </p>
       )}
 
@@ -250,15 +257,27 @@ export function HistoryPanel({
           role="alert"
           className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive"
         >
-          Couldn't restore this version: {restoreError}
+          {restoreError}
         </p>
       )}
 
       <ScrollArea className="flex-1">
         {error && (
-          <p role="alert" className="px-4 py-6 text-center text-sm text-destructive">
-            Couldn't load version history: {error.message}
-          </p>
+          <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+            <p role="alert" className="text-sm text-destructive">
+              Couldn't load version history.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void refresh();
+              }}
+            >
+              Try again
+            </Button>
+          </div>
         )}
 
         {!error && isLoading && <Loader />}
@@ -308,7 +327,7 @@ export function HistoryPanel({
             </Button>
             {loadMoreError && (
               <p role="alert" className="text-xs text-destructive">
-                Couldn't load older versions: {loadMoreError}
+                {loadMoreError}
               </p>
             )}
           </div>

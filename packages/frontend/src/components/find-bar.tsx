@@ -135,7 +135,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            className="focus-ring rounded p-0.5 hover:bg-muted disabled:opacity-30"
             onClick={handlePrevious}
             disabled={total === 0}
             aria-label="Previous match"
@@ -149,7 +149,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            className="focus-ring rounded p-0.5 hover:bg-muted disabled:opacity-30"
             onClick={handleNext}
             disabled={total === 0}
             aria-label="Next match"
@@ -163,7 +163,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 hover:bg-muted"
+            className="focus-ring rounded p-0.5 hover:bg-muted"
             onClick={handleClose}
             aria-label="Close find bar"
           >

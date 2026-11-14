@@ -32,6 +32,7 @@ import {
   ShareLinkPermissions,
 } from "@/api/share-links";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import { TemplateShareSection } from "@/components/template-share-section";
 
 const DEFAULT_PERMISSIONS: ShareLinkPermissions = {
@@ -94,7 +95,10 @@ export function ShareDialog({ documentId }: { documentId: string }) {
         // their viewer-only default and the backend remains the real gate, so
         // the user can retry rather than facing a permanently disabled button.
         toast.error(
-          error instanceof Error ? error.message : "Couldn't load share links",
+          userFacingError(
+            error,
+            "Couldn't load share links. Close and reopen Share to try again.",
+          ),
         );
       })
       .finally(() => {
@@ -112,8 +116,22 @@ export function ShareDialog({ documentId }: { documentId: string }) {
     }
   }, [loaded, permissions.canCreateEditorLink, role]);
 
+  /**
+   * A denied clipboard permission is reported on its own, so a link that was
+   * created is never announced as a failed creation.
+   */
+  const copyToClipboard = async (url: string, ok: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(ok);
+    } catch {
+      toast.error("Couldn't copy the link. Use the copy button to try again.");
+    }
+  };
+
   const handleCreate = async () => {
     setLoading(true);
+    let url: string;
     try {
       const link = await createShareLink(
         documentId,
@@ -122,23 +140,28 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       );
       // The creator can always revoke a link they just made.
       setLinks((prev) => [{ ...link, canDelete: true }, ...prev]);
-      const url = `${window.location.origin}/shared/${link.token}`;
-      await navigator.clipboard.writeText(url);
-      toast.success("Link created and copied to clipboard");
+      url = `${window.location.origin}/shared/${link.token}`;
     } catch (error) {
-      if (isAuthExpiredError(error)) return;
-      toast.error(
-        error instanceof Error ? error.message : "Couldn't create the share link",
-      );
+      if (!isAuthExpiredError(error)) {
+        toast.error(
+          userFacingError(
+            error,
+            "Couldn't create the share link. Check your connection and try again.",
+          ),
+        );
+      }
+      return;
     } finally {
       setLoading(false);
     }
+    await copyToClipboard(url, "Link created and copied to clipboard");
   };
 
   const handleCopy = async (token: string) => {
-    const url = `${window.location.origin}/shared/${token}`;
-    await navigator.clipboard.writeText(url);
-    toast.success("Link copied to clipboard");
+    await copyToClipboard(
+      `${window.location.origin}/shared/${token}`,
+      "Link copied to clipboard",
+    );
   };
 
   const handleDelete = async (id: string) => {
@@ -148,7 +171,12 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       toast.success("Share link revoked");
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Couldn't revoke the share link");
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't revoke the share link. Check your connection and try again.",
+        ),
+      );
     }
   };
 

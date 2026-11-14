@@ -1,5 +1,5 @@
 import { Document as YorkieDocument } from '@yorkie-js/sdk';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
   DocumentCopyService,
   reviveLongs,
@@ -112,6 +112,17 @@ function makeService(
 }
 
 describe('DocumentCopyService', () => {
+  it('refuses a trashed source before touching storage or Yorkie', async () => {
+    const { service, documentService, fileService, withDocument } =
+      makeService();
+    await expect(
+      service.copy({ ...SOURCE, deletedAt: new Date() } as never, 42),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(documentService.createDocument).not.toHaveBeenCalled();
+    expect(fileService.copy).not.toHaveBeenCalled();
+    expect(withDocument).not.toHaveBeenCalled();
+  });
+
   it('creates the copy in the source workspace and folder, owned by the copier', async () => {
     const { service, documentService } = makeService();
     await service.copy(SOURCE as never, 42);

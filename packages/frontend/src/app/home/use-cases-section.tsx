@@ -44,7 +44,7 @@ export function UseCasesSection() {
               }}
             >
               <h3
-                className="font-display font-semibold text-[21px] leading-[1.2] tracking-[-0.015em] text-balance text-[color:var(--wb-ink)] m-0"
+                className="font-display font-semibold text-[19px] leading-[1.3] tracking-[-0.015em] text-balance text-[color:var(--wb-ink)] m-0"
                 style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
               >
                 {u.title}
@@ -54,7 +54,7 @@ export function UseCasesSection() {
               </p>
               <a
                 href={u.href}
-                className="mt-auto pt-2 text-[13px] font-medium text-[color:var(--wb-syrup-deep)] no-underline hover:text-[color:var(--wb-syrup)]"
+                className="mt-auto pt-2 text-[13px] font-medium text-[color:var(--wb-syrup-deep)] no-underline underline-offset-2 hover:underline"
               >
                 Read the docs →
               </a>

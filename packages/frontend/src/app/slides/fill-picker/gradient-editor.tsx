@@ -212,7 +212,7 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
                 type="button"
                 aria-label={`Direction ${p.label}`}
                 onClick={() => setPreset(p.deg)}
-                className="flex h-5 w-5 items-center justify-center rounded border border-border hover:bg-muted"
+                className="focus-ring flex h-5 w-5 items-center justify-center rounded border border-border hover:bg-muted"
               >
                 <p.icon size={12} aria-hidden="true" />
               </button>
@@ -258,7 +258,7 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
           type="button"
           onClick={deleteSelected}
           disabled={stops.length <= 2}
-          className="rounded border border-border px-2 py-0.5 hover:bg-muted disabled:opacity-40"
+          className="focus-ring rounded border border-border px-2 py-0.5 hover:bg-muted disabled:opacity-40"
         >
           Delete stop
         </button>
@@ -325,7 +325,7 @@ function GradientStopMarker({
           aria-label={`Gradient stop ${index + 1}`}
           aria-pressed={selected}
           onPointerDown={startDrag(index, () => setOpen(true))}
-          className={`absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${
+          className={`focus-ring absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${
             selected ? 'border-foreground ring-2 ring-ring/50' : 'border-white'
           }`}
           style={{ left: `${stop.pos * 100}%`, backgroundColor: resolveColor(stop.color, theme) }}

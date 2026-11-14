@@ -16,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/database/prisma.service';
 import { isDocumentManager } from '../document/document-access';
 import { DocumentCopyService } from '../document/document-copy.service';
+import { isLiveDocument, LIVE_DOCUMENT } from '../document/live-document';
 import { ShareLinkService } from '../share-link/share-link.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { FolderService } from '../folder/folder.service';
@@ -273,8 +274,10 @@ export class TemplateService {
     documentId: string,
     userId: number,
   ): Promise<DocumentModel> {
+    // A trashed document can be neither published nor have its listing
+    // edited, submitted or unpublished: it answers 404 until restored.
     const doc = await this.prisma.document.findUnique({
-      where: { id: documentId },
+      where: { id: documentId, ...LIVE_DOCUMENT },
     });
     if (!doc) throw new NotFoundException('Document not found');
 
@@ -610,7 +613,17 @@ export class TemplateService {
       where: { id },
       include: LISTING_INCLUDE,
     });
-    if (!listing) throw new NotFoundException('Template not found');
+    // A takedown stays recordable on a trashed source; approve and reject do
+    // not. The publisher controls the trash and alone can restore, and a
+    // restore brings the listing back as it was — so refusing a takedown here
+    // would let them freeze one by trashing the document and reviving it once
+    // the reviewer moved on.
+    if (
+      !listing ||
+      (dto.decision !== 'takedown' && !isLiveDocument(listing.document))
+    ) {
+      throw new NotFoundException('Template not found');
+    }
     assertDecisionAllowed(listing.status, dto.decision);
     if (dto.decision === 'approve') {
       assertPublicTierOpen();
@@ -789,6 +802,9 @@ export class TemplateService {
   /** Open reports, oldest first, with the listing each one is about. */
   async listReports(): Promise<TemplateReportView[]> {
     const rows = await this.prisma.templateReport.findMany({
+      // Trashed sources stay in this queue on purpose (see `review`): their
+      // preview resolves to nothing until restored, but a takedown can still
+      // be recorded against them.
       where: { status: 'open' },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: REVIEW_QUEUE_LIMIT,
@@ -837,7 +853,7 @@ export class TemplateService {
    */
   async listForReview(): Promise<TemplateListingView[]> {
     const rows = await this.prisma.templateListing.findMany({
-      where: { status: 'pending' },
+      where: { status: 'pending', document: LIVE_DOCUMENT },
       orderBy: [{ submittedAt: 'asc' }, { id: 'asc' }],
       take: REVIEW_QUEUE_LIMIT,
       include: LISTING_INCLUDE,
@@ -923,7 +939,11 @@ export class TemplateService {
       where: { id },
       include: LISTING_INCLUDE,
     });
-    if (!listing) throw new NotFoundException('Template not found');
+    // A trashed source document hides its listing from everyone, managers
+    // included — the listing is a window onto the document.
+    if (!listing || !isLiveDocument(listing.document)) {
+      throw new NotFoundException('Template not found');
+    }
 
     const canManage = userId ? await this.isManagerOf(listing, userId) : false;
     if (!canManage && !(await this.isVisibleTo(listing, userId))) {
@@ -955,7 +975,11 @@ export class TemplateService {
       where: { id },
       include: LISTING_INCLUDE,
     });
-    if (!listing) throw new NotFoundException('Template not found');
+    // Using a template copies its source document, and a trashed document is
+    // not copyable by anyone (see live-document.ts).
+    if (!listing || !isLiveDocument(listing.document)) {
+      throw new NotFoundException('Template not found');
+    }
     // A takedown refuses everyone, including the publisher — unlike a *read*,
     // which a manager keeps so they can see the decision and its reason. The
     // listing is what was removed, and using it is the one action that spreads
@@ -1046,7 +1070,8 @@ export class TemplateService {
     const where: Prisma.TemplateListingWhereInput = {};
     // Filters that constrain the *document* share one relation clause; Prisma
     // would otherwise let a later assignment overwrite an earlier one.
-    const documentWhere: Prisma.DocumentWhereInput = {};
+    // A listing whose source document is trashed is in no gallery.
+    const documentWhere: Prisma.DocumentWhereInput = { ...LIVE_DOCUMENT };
 
     let membershipRole: string | undefined;
     if (dto.scope === 'workspace') {
@@ -1083,7 +1108,7 @@ export class TemplateService {
     }
 
     if (dto.type) documentWhere.type = dto.type;
-    if (Object.keys(documentWhere).length > 0) where.document = documentWhere;
+    where.document = documentWhere;
     if (dto.category) where.category = dto.category;
     // Never emit `has: undefined` — Prisma drops an undefined filter, which
     // turns "show me this tag" into "show me everything". The DTO already
@@ -1159,7 +1184,7 @@ export class TemplateService {
       where: { documentId },
       include: LISTING_INCLUDE,
     });
-    if (!listing) return null;
+    if (!listing || !isLiveDocument(listing.document)) return null;
 
     const membership = await this.prisma.workspaceMember.findUnique({
       where: {
@@ -1192,6 +1217,10 @@ export class TemplateService {
     // below returns true unconditionally — so a check placed per-tier would
     // never run for the one tier a taken-down listing is guaranteed to be in.
     if (listing.status === 'removed') return false;
+    // Before the tier switch for the same reason: the unlisted arm grants on
+    // the id alone, and a trashed source document must not be reachable
+    // through any tier.
+    if (!isLiveDocument(listing.document)) return false;
     if (listing.visibility === 'public') {
       return listing.status === 'listed' && contentMatchesApproval(listing);
     }
@@ -1217,6 +1246,7 @@ export class TemplateService {
     listing: TemplateListing & { document: DocumentModel },
     userId: number,
   ): Promise<boolean> {
+    if (!isLiveDocument(listing.document)) return false;
     const membership = await this.prisma.workspaceMember.findUnique({
       where: {
         workspaceId_userId: {

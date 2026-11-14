@@ -26,6 +26,7 @@ import {
   rewriteImageRefs,
   workspaceImageUrl,
 } from './document-image-refs';
+import { assertLiveDocument } from './live-document';
 
 /**
  * Document types whose Yorkie root holds only plain JSON (no `Tree` / `Text`
@@ -168,6 +169,10 @@ export class DocumentCopyService {
     userId: number,
     dest?: CopyDestination,
   ): Promise<DocumentModel> {
+    // Defense in depth: every caller reads `source` through a live-only path
+    // already, but a copy is the one action that spreads content further, so
+    // a trashed source is refused here too (see live-document.ts).
+    assertLiveDocument(source);
     const workspaceId = dest?.workspaceId ?? source.workspaceId;
     const folderId = dest ? (dest.folderId ?? null) : source.folderId;
     const siblings = await this.documentService.documents({

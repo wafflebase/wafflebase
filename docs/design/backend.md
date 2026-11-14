@@ -319,12 +319,22 @@ allowed to delete or move it (`DocumentController.resolveDocManager`).
   where the two gates diverge.
 
 **`DELETE /documents/:id`**
-- Deletes the document if the caller is its manager (workspace owner or author).
-- Throws `ForbiddenException` (403) for a non-manager member. Best-effort blob
-  cleanup for `pdf` documents.
+- Moves the document to the trash (sets `deletedAt`) if the caller is its
+  manager (workspace owner or author). With `?permanent=true` it deletes a
+  **trashed** row for good with best-effort blob cleanup; a live document is a
+  `404`, so a stale Trash page cannot destroy one a collaborator restored.
+- Throws `ForbiddenException` (403) for a non-manager member.
+- `POST /documents/delete` (`{ ids, permanent? }`) is the bulk form,
+  `POST /documents/:id/restore` restores (manager-gated), and
+  `GET /workspaces/:workspaceId/trash` lists the trash (member-gated).
+- A trashed document is invisible to every other read path — lists, reads,
+  share links, the Yorkie auth webhook, templates, copy, file serving, v1 —
+  enforced through `LIVE_DOCUMENT` / `DocumentService`'s live-only reads. See
+  [document-trash.md](document-trash.md) for the invariant and every gated path.
 
-The REST v1 `DELETE /api/v1/workspaces/:wid/documents/:did` applies the same
-manager gate to every caller. An API key carries the authority of the user who
+The REST v1 `DELETE /api/v1/workspaces/:wid/documents/:did` (trash, or
+`?permanent=true`) and `POST .../restore` apply the same manager gate to every
+caller. An API key carries the authority of the user who
 minted it, resolved against that user's membership at request time. Any member
 may mint a key, so the role is resolved per request rather than assumed from
 who was allowed to mint: a live owner's key is unaffected, a plain member's key

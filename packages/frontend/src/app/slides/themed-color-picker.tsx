@@ -126,7 +126,7 @@ export function ThemedColorPicker({
           aria-label={clearLabel}
           aria-pressed={value === undefined}
           onClick={onClear}
-          className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-0.5 py-1 text-xs hover:bg-muted"
+          className="focus-ring mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-0.5 py-1 text-xs hover:bg-muted"
         >
           <NoneSwatch selected={value === undefined} />
           {clearLabel}
