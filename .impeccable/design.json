@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-14T00:00:00Z",
+  "title": "Design System: Wafflebase",
+  "extensions": {
+    "colorMeta": {
+      "syrup": { "role": "primary", "displayName": "Maple Syrup", "tonalRamp": ["#3A1E07", "#5C300C", "#8A4A12", "#B8651A", "#D07E33", "#E08A3A", "#F0B57A", "#FAE3C8"] },
+      "syrup-deep": { "role": "primary", "displayName": "Deep Syrup" },
+      "syrup-bright": { "role": "primary", "displayName": "Bright Syrup (dark mode)" },
+      "butter": { "role": "secondary", "displayName": "Butter", "tonalRamp": ["#4A3A10", "#7A6018", "#B08A2A", "#D9AE45", "#F4C95D", "#F8DA8A", "#FBE8B6", "#FDF5DE"] },
+      "berry": { "role": "tertiary", "displayName": "Berry", "tonalRamp": ["#3D1416", "#6A2226", "#963338", "#C2484C", "#D5666A", "#E27A7E", "#EFB0B2", "#F9E1E2"] },
+      "leaf": { "role": "tertiary", "displayName": "Leaf", "tonalRamp": ["#1C2712", "#2F411D", "#44602B", "#5A7A3A", "#7D9C58", "#A0C078", "#C8DCAE", "#ECF3E2"] },
+      "cream-bg": { "role": "neutral", "displayName": "Cream" },
+      "cream-paper": { "role": "neutral", "displayName": "Cream Paper" },
+      "walnut-ink": { "role": "neutral", "displayName": "Walnut Ink" },
+      "cocoa-sub": { "role": "neutral", "displayName": "Cocoa" },
+      "oat-rule": { "role": "neutral", "displayName": "Oat Rule" },
+      "roast-bg": { "role": "neutral", "displayName": "Roast" },
+      "app-background": { "role": "neutral", "displayName": "Zinc Paper", "canonical": "oklch(1 0 0)" },
+      "app-foreground": { "role": "neutral", "displayName": "Zinc Ink", "canonical": "oklch(0.141 0.005 285.823)" },
+      "app-muted": { "role": "neutral", "displayName": "Zinc Wash", "canonical": "oklch(0.967 0.001 286.375)" },
+      "app-muted-foreground": { "role": "neutral", "displayName": "Zinc Sub", "canonical": "oklch(0.552 0.016 285.938)" },
+      "app-border": { "role": "neutral", "displayName": "Zinc Rule", "canonical": "oklch(0.92 0.004 286.32)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Homepage hero only." },
+      "headline": { "displayName": "Headline", "purpose": "Brand-surface page titles and the sidebar wordmark." },
+      "title": { "displayName": "Title", "purpose": "Card and dialog titles in the app." },
+      "body": { "displayName": "Body", "purpose": "All editor and workspace UI text." },
+      "body-brand": { "displayName": "Body (brand)", "purpose": "Homepage lead paragraphs." },
+      "label": { "displayName": "Label", "purpose": "Badges and small metadata." },
+      "label-mono": { "displayName": "Label (mono)", "purpose": "Uppercase eyebrows, stat captions, section numbers." }
+    },
+    "shadows": [
+      { "name": "hairline-lift", "value": "0 1px 2px 0 rgb(0 0 0 / 0.05)", "purpose": "Buttons and inputs at rest." },
+      { "name": "card-rest", "value": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)", "purpose": "App cards." },
+      { "name": "brand-card", "value": "0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18)", "purpose": "Homepage feature cards; lift 2px on hover." },
+      { "name": "brand-primary-bevel", "value": "0 1px 0 #8A4A12, inset 0 1px 0 color-mix(in srgb, white 25%, transparent)", "purpose": "Pressed-syrup edge on the brand pill CTA." },
+      { "name": "focus-ring", "value": "0 0 0 3px color-mix(in srgb, #B8651A 50%, transparent)", "purpose": "Every focusable control on :focus-visible." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "150ms ease", "purpose": "Hover, focus and color changes on controls and brand cards." }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one syrup action on an app screen.",
+      "html": "<button class=\"ds-btn-primary\">Share</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 8px 16px; border: 1px solid transparent; border-radius: 2.8px; background: var(--primary, #B8651A); color: var(--primary-foreground, #FFFAF0); font: 500 14px/1 ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); cursor: pointer; transition: all 150ms ease; } .ds-btn-primary:hover { background: color-mix(in srgb, var(--primary, #B8651A) 90%, transparent); } .ds-btn-primary:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary actions beside a primary.",
+      "html": "<button class=\"ds-btn-outline\">Cancel</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; height: 36px; padding: 8px 16px; border: 1px solid var(--border, oklch(0.92 0.004 286.32)); border-radius: 2.8px; background: var(--background, #fff); color: var(--foreground, oklch(0.141 0.005 285.823)); font: 500 14px/1 ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); cursor: pointer; transition: all 150ms ease; } .ds-btn-outline:hover { background: var(--accent, oklch(0.967 0.001 286.375)); } .ds-btn-outline:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); }"
+    },
+    {
+      "name": "Toolbar Button",
+      "kind": "custom",
+      "refersTo": "toolbar-button",
+      "description": "28px icon button in editor toolbars, grouped by thin separators.",
+      "html": "<div class=\"ds-toolbar\"><button class=\"ds-tb-btn\" aria-label=\"Bold\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 5h6a3.5 3.5 0 0 1 0 7h-6z\"/><path d=\"M13 12h1a3.5 3.5 0 0 1 0 7h-7v-7\"/></svg></button><button class=\"ds-tb-btn\" aria-label=\"Italic\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M11 5h6\"/><path d=\"M7 19h6\"/><path d=\"M14 5l-4 14\"/></svg></button><span class=\"ds-tb-sep\"></span><button class=\"ds-tb-btn ds-tb-menu\">Arial ▾</button></div>",
+      "css": ".ds-toolbar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; border-bottom: 1px solid var(--border, oklch(0.92 0.004 286.32)); background: var(--background, #fff); } .ds-tb-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: 2.8px; background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); font: 14px ui-sans-serif, system-ui, sans-serif; cursor: pointer; } .ds-tb-btn:hover { background: var(--muted, oklch(0.967 0.001 286.375)); } .ds-tb-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-tb-menu { width: auto; padding: 0 6px; gap: 2px; } .ds-tb-sep { width: 1px; height: 20px; margin: 0 8px; background: #d4d4d8; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Single-line field for dialogs and panels.",
+      "html": "<input class=\"ds-input\" placeholder=\"Document title\" />",
+      "css": ".ds-input { height: 36px; width: 240px; padding: 4px 12px; border: 1px solid var(--input, oklch(0.92 0.004 286.32)); border-radius: 2.8px; background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); font: 14px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); transition: color 150ms, box-shadow 150ms; } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); } .ds-input:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Grouped content in workspace and settings screens.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">API keys</div><div class=\"ds-card-desc\">Keys authenticate the CLI and /api/v1 as you.</div></div>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: 6px; width: 320px; padding: 24px; border: 1px solid var(--border, oklch(0.92 0.004 286.32)); border-radius: 8.8px; background: var(--card, #fff); color: var(--card-foreground, oklch(0.141 0.005 285.823)); box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); font-family: ui-sans-serif, system-ui, sans-serif; } .ds-card-title { font-weight: 600; font-size: 16px; line-height: 1; } .ds-card-desc { font-size: 14px; color: var(--muted-foreground, oklch(0.552 0.016 285.938)); }"
+    },
+    {
+      "name": "Sidebar Item",
+      "kind": "nav",
+      "refersTo": "sidebar-item",
+      "description": "Workspace sidebar entry; active is a butter wash with deep-syrup text.",
+      "html": "<nav class=\"ds-nav\"><div class=\"ds-nav-brand\">Wafflebase</div><a class=\"ds-nav-item is-active\">Documents</a><a class=\"ds-nav-item\">Templates</a><a class=\"ds-nav-item\">Settings</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; width: 220px; padding: 8px; background: var(--sidebar, oklch(0.985 0 0)); font: 14px ui-sans-serif, system-ui, sans-serif; } .ds-nav-brand { padding: 8px; font: 600 17px/1 Fraunces, ui-serif, Georgia, serif; letter-spacing: -0.01em; } .ds-nav-item { padding: 8px; border-radius: 2.8px; color: var(--sidebar-foreground, oklch(0.141 0.005 285.823)); cursor: pointer; } .ds-nav-item:hover { background: var(--muted, oklch(0.967 0.001 286.375)); } .ds-nav-item.is-active { background: rgba(244, 201, 93, 0.30); color: #8A4A12; font-weight: 500; }"
+    },
+    {
+      "name": "Brand Pill Button",
+      "kind": "button",
+      "refersTo": "brand-button-primary",
+      "description": "Primary CTA on brand surfaces only (homepage, sign-in, templates).",
+      "html": "<button class=\"ds-brand-btn\">Get Started Free</button>",
+      "css": ".ds-brand-btn { display: inline-flex; align-items: center; padding: 9px 16px; border: 1px solid #8A4A12; border-radius: 9999px; background: #B8651A; color: #FFFAF0; font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 0 #8A4A12, inset 0 1px 0 color-mix(in srgb, white 25%, transparent); cursor: pointer; transition: all 150ms ease; } .ds-brand-btn:hover { background: #8A4A12; transform: translateY(-1px); } .ds-brand-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px #FBF6EC, 0 0 0 4px color-mix(in srgb, #B8651A 40%, transparent); }"
+    },
+    {
+      "name": "Brand Feature Card",
+      "kind": "card",
+      "refersTo": "brand-card",
+      "description": "Cream-paper card on the homepage; lifts on hover.",
+      "html": "<div class=\"ds-brand-card\"><span class=\"ds-brand-eyebrow\">01 — DATA</span><div class=\"ds-brand-card-title\">Query your own database</div><p class=\"ds-brand-card-body\">A SQL tab reads straight from PostgreSQL into a read-only grid.</p></div>",
+      "css": ".ds-brand-card { display: flex; flex-direction: column; gap: 12px; width: 300px; padding: 28px 24px 24px; border: 1px solid #E8DCC4; border-radius: 16px; background: #FFFDF7; color: #2A1E12; box-shadow: 0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18); transition: all 150ms ease; } .ds-brand-card:hover { transform: translateY(-2px); } .ds-brand-eyebrow { font: 12px 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.08em; color: #6B584A; } .ds-brand-card-title { font: 600 20px/1.2 Fraunces, ui-serif, Georgia, serif; letter-spacing: -0.01em; } .ds-brand-card-body { margin: 0; font: 15px/1.55 Inter, ui-sans-serif, system-ui, sans-serif; color: #6B584A; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Ruled Ledger",
+    "overview": "Wafflebase is a set of ledgers: grids, pages, slides and boards laid out on precise rules, where the document is the subject and everything around it is ruling and margin. The editors are dense, exact and quiet. Chrome sits on neutral zinc, thin borders do the work that shadows would do elsewhere, and controls stay small (28px toolbar targets, 36px form controls) so the canvas gets the room.\n\nWarmth is the ledger's binding, not its pages. The Butter & Maple palette (syrup, butter, cream paper, walnut ink) and the Fraunces display face set the brand surfaces: the homepage, sign-in, the template gallery and the sidebar wordmark. Inside the editors that warmth survives only as the syrup accent on the primary action, focus ring, selection and active sidebar item. That split is deliberate, and new work keeps it.\n\nThe ruler is the recurring motif: the homepage's word-ruler backdrop, the docs and slides rulers, the grid itself, and mono uppercase labels set like tick marks.",
+    "keyCharacteristics": [
+      "Two layers on one token source (`@wafflebase/core/tokens`): neutral editor chrome, warm brand surfaces.",
+      "One accent, syrup, carrying every \"this is the action\" signal.",
+      "Flat by default: borders and tonal steps before shadows.",
+      "Small, exact controls; Google-suite-familiar placement inside the editors.",
+      "Light and dark are paired token for token; neither is an afterthought."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong.", "section": "colors" },
+      { "name": "The Two Ledgers Rule", "body": "Editor and workspace screens use the zinc semantic tokens (`bg-background`, `text-foreground`, `border`). Brand surfaces use the `--wb-*` tokens. Don't mix them on one surface.", "section": "colors" },
+      { "name": "The Canvas Hex Rule", "body": "Brand colors are authored as hex because the Canvas engines assign them straight to `fillStyle`. Add a new brand color to `packages/core/src/tokens/palette.ts`, never inline in an engine.", "section": "colors" },
+      { "name": "The Serif Is a Signature Rule", "body": "Fraunces never appears inside an editor or on a control. It is the brand's voice, used for wordmarks and brand-surface headings only.", "section": "typography" },
+      { "name": "The Document Owns Its Fonts Rule", "body": "Text inside a sheet, doc or slide uses the document's own font picker (the curated family list and Google Fonts catalog), never the UI stack.", "section": "typography" },
+      { "name": "The Rule Before Shadow Rule", "body": "Reach for a 1px border or a tonal step first. A shadow means the element floats above the canvas (menu, popover, dialog, drag ghost), not that it's important.", "section": "elevation" }
+    ],
+    "dos": [
+      "**Do** take every color from `@wafflebase/core/tokens` (semantic classes in the app, `--wb-*` on brand surfaces), in both light and dark.",
+      "**Do** keep editor controls at 28px (toolbar) and 36px (forms) on fine pointers, and let them grow to 44px on coarse pointers.",
+      "**Do** use the 3px 50%-syrup focus ring for every focusable control.",
+      "**Do** separate panels with 1px rules and tonal steps before considering a shadow.",
+      "**Do** place and behave like the Google suite in the editors (menus, toolbar order, shortcuts)."
+    ],
+    "donts": [
+      "**Don't** use Fraunces, cream paper or pill buttons inside an editor or workspace screen.",
+      "**Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, leaf) are for status only.",
+      "**Don't** hard-code a hex in a component or engine when a token exists.",
+      "**Don't** add decorative shadows or gradients to app chrome."
+    ]
+  }
+}

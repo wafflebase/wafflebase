@@ -7,15 +7,6 @@ import {
 } from "fs";
 import { createRequire } from "module";
 import path from "path";
-// Imported by relative path, not as `@wafflebase/debug-report/plugin`, and
-// that is load-bearing. Vite's config bundler externalizes every bare
-// specifier — it resolves the id to an absolute path and marks it external —
-// so a bare import here would hand `src/plugin/index.ts` to Node itself.
-// Node can only load TypeScript from 22.18, where type stripping became the
-// default, which silently made 22.14-22.17 unable to run `pnpm dev`,
-// `frontend:test` or `frontend:build` at all. A relative specifier is bundled
-// by esbuild instead, so any Node 22 works.
-import { debugReportPlugin } from "../debug-report/src/plugin/index.ts";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -307,10 +298,6 @@ function manualChunks(id: string): string | undefined {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    // Dev-only: writes confirmed reports into `.wb-reports/` and hosts the
-    // drafting call, so the model credential stays in this process and never
-    // reaches the browser (`docs/design/agent-pipeline/debug-report.md`).
-    debugReportPlugin({ repoRoot: path.resolve(__dirname, "../..") }),
     gaSnippet(),
     antlr4tsAssertShim(),
     pdfjsAssets(),
@@ -376,20 +363,6 @@ export default defineConfig({
       "@wafflebase/notes": path.resolve(__dirname, "../notes/src/index.ts"),
       "@wafflebase/slides": path.resolve(__dirname, "../slides/src/index.ts"),
       "@wafflebase/board": path.resolve(__dirname, "../board/src/index.ts"),
-      // The `/react` alias comes FIRST: Vite matches these in order, so the
-      // bare-name entry would otherwise swallow the subpath.
-      "@wafflebase/debug-report/testing": path.resolve(
-        __dirname,
-        "../debug-report/src/testing/index.ts",
-      ),
-      "@wafflebase/debug-report/react": path.resolve(
-        __dirname,
-        "../debug-report/src/ui/index.ts",
-      ),
-      "@wafflebase/debug-report": path.resolve(
-        __dirname,
-        "../debug-report/src/index.ts",
-      ),
       util: utilShimPath,
       assert: assertShimPath,
     },

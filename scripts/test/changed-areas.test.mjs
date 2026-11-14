@@ -819,7 +819,7 @@ test("the real repository config", async (t) => {
   // Enumerated rather than derived, so adding one has to be a deliberate edit
   // here: this is the list that decides which packages can skip the browser and
   // integration jobs.
-  const INERT_PACKAGES = new Set(["documentation", "design-editor", "design-sandbox"]);
+  const INERT_PACKAGES = new Set(["documentation"]);
 
   await t.test("no inert glob reaches a source package", () => {
     // If an inert entry ever matched, say, packages/frontend/**, every frontend
@@ -838,13 +838,9 @@ test("the real repository config", async (t) => {
     // make a reduced run a lie, and this is the only place that would notice.
     //
     // Inert-to-inert is the exception, and it is narrower than it looks: an inert
-    // package never lands in `packages`, so its lane is reached by TAG alone.
-    // `design-sandbox` importing `design-editor` is the dogfood edge that
-    // proves the plugin's package boundary holds, and it is safe only because both
-    // sides share the `designEditor` tag — asserted below rather than assumed,
-    // because the edge would otherwise let a design-editor-only change skip both
-    // the typecheck that consumes it and the `design-editor:build` its
-    // `exports["."]` now resolves through.
+    // package never lands in `packages`, so its lane is reached by TAG alone. An
+    // inert dependent is safe only if it shares its dependency's tag, which the
+    // loop below asserts rather than assumes.
     for (const [pkg, deps] of Object.entries(graph)) {
       for (const dep of deps) {
         if (!INERT_PACKAGES.has(dep)) continue;
@@ -871,21 +867,6 @@ test("the real repository config", async (t) => {
     assert.equal(out.full, false);
     assert.equal(out.heavy, false);
     assert.deepEqual(out.tags, ["documentation"]);
-  });
-
-  await t.test("the design-editor package is inert and checks its own lane", () => {
-    const out = classify(
-      ["packages/design-editor/src/mutate.ts", "packages/design-editor/README.md"],
-      ci,
-      graph,
-    );
-    assert.equal(out.full, false);
-    assert.equal(out.heavy, false);
-    assert.deepEqual(out.tags, ["designEditor"]);
-    // No package, so no reverse closure and no heavy job — the lane is reached
-    // by the tag alone. That the tag actually reaches it is asserted in
-    // scripts/test/verify-self-lanes.test.mjs, which owns the lane graph.
-    assert.deepEqual(out.packages, []);
   });
 
   await t.test("an agent-only change runs no heavy job", () => {

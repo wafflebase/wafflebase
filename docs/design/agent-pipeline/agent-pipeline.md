@@ -8,8 +8,13 @@ target-version: 0.6.7
 ## Summary
 
 Between 2026-07-21 and 2026-08-25 this repository grew a loop that takes work from
-*somebody noticed something* to *a pull request a human merges*. Nine components do
+*somebody noticed something* to *a pull request a human merges*. Seven components do
 it, and there has been no single place that says what they are.
+
+Two more — the design editor (design → code) and the on-screen debug reporter — were
+part of it until 2026-11-13, when they were removed in favour of
+[Impeccable](https://impeccable.style) (see [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)
+§ Design tooling); `git log` keeps them.
 
 This is that place, and it is only that. It does not explain why any of it is shaped
 the way it is — [`harness-engineering.md`](harness-engineering.md) owns the
@@ -27,7 +32,7 @@ Two invariants come first, because most of what follows descends from one of the
 
 ## Goals / Non-Goals
 
-**Goals.** Give a reader one entry point to nine components. Make "is this new, or
+**Goals.** Give a reader one entry point to seven components. Make "is this new, or
 has it been here a while?" answerable without reading `git log`. Say which parts can
 be run, and how. Name the gaps, including the one subsystem with no design doc.
 
@@ -35,9 +40,7 @@ be run, and how. Name the gaps, including the one subsystem with no design doc.
 its design lives, and that is the point of the row. Being a changelog: the timeline
 records first, last and count per component, not commits. The human contributor's
 workflow, which is [`CONTRIBUTING.md`](../../../CONTRIBUTING.md). And operating
-detail: [`hunter-usage.md`](hunter-usage.md) and
-[`design-editor-running.md`](../design-editor/design-editor-running.md) are the
-operator guides.
+detail: [`hunter-usage.md`](hunter-usage.md) is the operator guide.
 
 ## Proposal Details
 
@@ -49,8 +52,6 @@ operator guides.
 | UI hunter | `/hunt-ui` — `.claude/commands/hunt-ui.md` | `scripts/agent/hunt-ui.mjs`, personas in `scripts/agent/charters-ui/` | [`hunter-usage.md`](hunter-usage.md) + harness Phase 31 |
 | Issue → PR | `@claude fix` on an **issue** | `.github/workflows/agent-implement.yml`, verb parsed by `scripts/agent/command.mjs` | harness Phase 24 |
 | Spec → PR | `/spec-to-pr` — `.claude/commands/spec-to-pr.md` | `scripts/agent/spec-to-pr.mjs` | harness Phase 25 |
-| Design → code | `pnpm design`, then `pnpm design-pr` | `scripts/design.mjs`, `scripts/design-pr.mjs`, `packages/design-editor`, `packages/design-sandbox` | [`design-editor-local-plugin.md`](../design-editor/design-editor-local-plugin.md) — start there |
-| Debug reporter | `Mod+Shift+Y` in the running app, then `/report-intake` | `packages/debug-report`, `scripts/agent/report-intake.mjs` and its siblings | [`debug-report.md`](debug-report.md) + harness Phase 32 |
 | Review panel | automatic on an `agent/` branch; `@claude review` on demand | `.github/workflows/agent-review-panel.yml`, `scripts/agent/review-panel.mjs` | harness Phases 24, 27, 28, 29 |
 | Self review | `/self-review` — `.claude/commands/self-review.md` | `scripts/agent/spec-to-pr.mjs review` (the same panel, locally) | this doc, §1.1 |
 | Fix agent | `@claude fix` on a **PR**; also automatic within a panel round | `.github/workflows/agent-fix.yml`, `scripts/agent/fix-eligible.mjs` | harness Phase 30 |
@@ -89,21 +90,17 @@ reading a PR's history, which does not exist yet.
 
 ### 2. Where work comes from
 
-Five ways in. The last column is the one that matters most.
+Three ways in. The last column is the one that matters most.
 
 | Channel | Started by | Produces | Files anything by itself |
 | --- | --- | --- | --- |
 | An issue | a maintainer commenting `@claude fix` on an issue | a draft PR on an `agent/` branch | yes — the PR it was asked for |
 | A spec | a developer, locally, through Claude Code | the same draft PR, pushed from their machine | yes — same |
-| A design edit | anyone who can run the editor, including non-developers | edits in their own working tree, then a PR | only when they run `pnpm design-pr` |
-| An on-screen report | a person who noticed something while using the app | a confirmed bundle on disk, then PRs or issues | **no** — nothing leaves until the reporter confirms |
 | Machine exploration | a hunter run, on demand | a local report of verified findings | **no** — by construction |
 
-The last two are the ones people conflate. The debug reporter carries what a
-*person* noticed and needs their confirmation; the hunters carry what a *machine*
-noticed and cannot file at all. They are not tiers of the same thing — the
-reporter's ground truth is a sentence a human wrote, the hunter's is a prediction
-that trusted code checked.
+The hunters are the only channel that generates its own candidates, and they carry
+what a *machine* noticed — so they cannot file at all. Their ground truth is a
+prediction that trusted code checked, not a request a person made.
 
 ### 3. When each piece landed
 
@@ -118,11 +115,10 @@ assigned to one primary area, so they sum rather than double-count shared files.
 | The two hunters | 2026-07-30 (#588) | 2026-08-20 (#906) | 54 | `docs/tasks/active/20260729-autonomous-issue-hunting-todo.md` |
 | Fix agent | 2026-08-05 (#672) | 2026-08-19 (#894) | — | harness Phase 30 |
 | Eval / benchmark (removed 2026-11, #1131) | 2026-08-06 (#677) | 2026-08-24 (#951) | 35 | `docs/tasks/archive/2026/08/20260805-eval-corpus-skeleton-todo.md` |
-| Design → code | 2026-08-08 (#701) | 2026-08-25 (#966) | 37 | `docs/tasks/active/20260729-design-editor-layout-sandbox-todo.md` |
-| Debug reporter | 2026-08-24 (#946) | 2026-08-25 (#961) | 4 | `docs/tasks/archive/2026/08/20260821-debug-report-todo.md` |
 
-36 days, 269 merged commits over the union of those paths. The review panel and the
-hunters dominate the count, and both for the same reason: their output is judged by
+36 days, 269 merged commits over the union of those paths (counted while the design
+editor and debug reporter were still part of it — 41 of those commits were theirs).
+The review panel and the hunters dominate the count, and both for the same reason: their output is judged by
 a model, so most of the work is in the apparatus that decides whether to believe it.
 
 **One week of `git log` is misleading.** Between 2026-08-11 (#769) and 2026-08-14
@@ -137,7 +133,7 @@ than about behaviour.
 Every channel converges on the same machinery:
 
 ```text
-  issue · spec · design edit · report · (hunter → a human decides)
+  issue · spec · (hunter → a human decides)
                         │
                         ▼
             branch  +  DRAFT pull request
@@ -206,21 +202,6 @@ output is a local report.
 prerequisites, what a run costs, how often a run finds nothing, and how to read what
 comes back.
 
-#### The debug reporter
-
-The channel for a defect a *person* noticed, so it runs inside the app rather than
-from a terminal. The DEV-only harness routes need no login and no backend:
-
-```bash
-pnpm frontend dev
-# then http://localhost:5173/harness/hunt?surface=sheet
-```
-
-`Mod+Shift+Y` turns the overlay on and the badge that appears lists the keys. Nothing
-leaves the browser until a batch is confirmed in the preview panel. `/report-intake`
-then takes that confirmed bundle through verification and PR assembly — and opens
-nothing on its own, so reading its plan is a step, not a formality.
-
 #### 4.1 The removed eval / benchmark rig
 
 `scripts/agent/eval/` replayed a frozen corpus of past pull requests through the real
@@ -231,64 +212,6 @@ collector and the weekly scorer failed on every run (#1131). Rather than rotate 
 credential for machinery nobody was using, the rig, its three workflows and the
 panel's capture were removed. `git log -- scripts/agent/eval` has the full history,
 and the store repository keeps what was already collected.
-
-### 5. Design → code
-
-The editor renders this application's **real** routes from real component source, and
-writes edits back into the `.tsx` and design-token files they came from. It is the
-one part of wafflebase that runs standalone: its scenes answer their own data requests
-from fixtures, so it needs no database, no Yorkie and no `docker compose`.
-
-On a fresh clone it prepares pnpm, installs dependencies, and builds both the editor
-and `@wafflebase/core`, then prints the URL to open. Every step is skipped when it is
-already done, and a start that dies on a missing package installs once and tries
-again:
-
-```bash
-pnpm design
-```
-
-Edits land in your own working tree, so `git diff` shows exactly what changed. Then:
-
-```bash
-pnpm design-pr
-```
-
-turns those edits into a pull request using the `git` and `gh` already on your
-machine — this project stores no credential and forwards none. It commits only the
-files the editor recorded writing, never commits on `main`, and never force-pushes.
-
-**c.f.** the scene frame is a second host for the bug reporter, so a defect noticed
-while restyling a page can be reported without leaving the editor:
-
-```bash
-VITE_WB_DEBUG_REPORT=1 pnpm design
-```
-
-Off unless asked for, read once per frame load, and the pointer has to be over a
-scene when the hotkey is pressed — `design-editor-running.md` §5 explains why the
-editor's own chrome is not reportable this way.
-
-Design starts at
-[`design-editor-local-plugin.md`](../design-editor/design-editor-local-plugin.md);
-[`design-editor-running.md`](../design-editor/design-editor-running.md) is the operator's
-guide for when it boots but shows the wrong thing.
-
-### 6. Walkthroughs you can open
-
-`docs/design/agent-pipeline/walkthrough/` holds two standalone HTML pages covering the **design
-editor and the debug reporter** in more depth than the map above — one explaining what
-each does and why it is built that way, one a step-by-step to follow while running
-them, reached from an `index.html` landing page.
-
-Serve the repository root, so the screenshot the first page references resolves:
-
-```bash
-python3 -m http.server 8080
-# → http://localhost:8080/docs/design/agent-pipeline/walkthrough/
-```
-
-Opening the files directly with `file://` works too.
 
 ## Risks and Mitigation
 

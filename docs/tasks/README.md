@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| impeccable swap (2026-11-13) | [20261113-impeccable-swap-todo.md](./active/20261113-impeccable-swap-todo.md) | [20261113-impeccable-swap-lessons.md](./active/20261113-impeccable-swap-lessons.md) |
 | remove eval subsystem (2026-11-13) | [20261113-remove-eval-subsystem-todo.md](./active/20261113-remove-eval-subsystem-todo.md) | [20261113-remove-eval-subsystem-lessons.md](./active/20261113-remove-eval-subsystem-lessons.md) |
 | sheets auto fit reload (2026-11-11) | [20261111-sheets-auto-fit-reload-todo.md](./active/20261111-sheets-auto-fit-reload-todo.md) | [20261111-sheets-auto-fit-reload-lessons.md](./active/20261111-sheets-auto-fit-reload-lessons.md) |
 | sheets link card close (2026-11-11) | [20261111-sheets-link-card-close-todo.md](./active/20261111-sheets-link-card-close-todo.md) | [20261111-sheets-link-card-close-lessons.md](./active/20261111-sheets-link-card-close-lessons.md) |
@@ -40,7 +41,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
 | cli upstream error envelope (2026-08-11) | [20260811-cli-upstream-error-envelope-todo.md](./active/20260811-cli-upstream-error-envelope-todo.md) | [20260811-cli-upstream-error-envelope-lessons.md](./active/20260811-cli-upstream-error-envelope-lessons.md) |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
-| design editor layout sandbox (2026-07-29) | [20260729-design-editor-layout-sandbox-todo.md](./active/20260729-design-editor-layout-sandbox-todo.md) | [20260729-design-editor-layout-sandbox-lessons.md](./active/20260729-design-editor-layout-sandbox-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
 | devops storage secrets (2026-07-08) | [20260708-devops-storage-secrets-todo.md](./active/20260708-devops-storage-secrets-todo.md) | - |
@@ -57,4 +57,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 632
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: remove eval subsystem (2026-11-13)
+Latest active task: impeccable swap (2026-11-13)
