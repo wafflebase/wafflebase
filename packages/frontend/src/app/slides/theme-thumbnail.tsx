@@ -25,8 +25,8 @@ export function ThemeThumbnail({ theme, selected, onClick }: ThemeThumbnailProps
       aria-label={`Apply ${theme.name} theme`}
       aria-pressed={selected}
       style={{
-        border: selected ? `2px solid ${c.accent1}` : "1px solid #ddd",
-        borderRadius: 6,
+        border: selected ? `2px solid ${c.accent1}` : "1px solid var(--border)",
+        borderRadius: "var(--radius)",
         padding: 8,
         background: c.background,
         width: "100%",

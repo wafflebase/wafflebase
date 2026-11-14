@@ -149,7 +149,11 @@ export async function getDocumentTemplate(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(documentId)}/template`
   );
   await assertOk(response, "Couldn't load the template");
-  return response.json();
+  // An unpublished document answers `200` with an empty body — Nest
+  // serializes a handler's `null` as nothing at all — so `response.json()`
+  // would throw "Unexpected end of JSON input" on every Share dialog open.
+  const body = (await response.text()).trim();
+  return body ? (JSON.parse(body) as TemplateListing | null) : null;
 }
 
 export async function updateTemplate(

@@ -123,3 +123,20 @@ export async function assertOk(
     retryAfterMs,
   );
 }
+
+/**
+ * The message to show a person for a failed operation.
+ *
+ * Only an {@link HttpError} below 500 carries text written for a reader: the
+ * backend's own refusal ("Only the workspace owner can …"), or a
+ * `statusMessages` override. Anything else — a `TypeError` from a network
+ * failure, a JSON parse error, a 5xx stack trace — is developer text, so it
+ * yields the caller's `fallback`, which should say what failed and what to
+ * do next.
+ */
+export function userFacingError(error: unknown, fallback: string): string {
+  if (error instanceof HttpError && error.status < 500 && error.message) {
+    return error.message;
+  }
+  return fallback;
+}

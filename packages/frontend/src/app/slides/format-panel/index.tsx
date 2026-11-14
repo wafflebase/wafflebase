@@ -370,7 +370,7 @@ export function FormatPanel({
           type="button"
           aria-label="Close format options"
           onClick={onClose}
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="focus-ring rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <IconX size={16} aria-hidden="true" />
         </button>

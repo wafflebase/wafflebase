@@ -11,7 +11,7 @@ import {
 } from "@/api/templates";
 import { imageUrl } from "@/api/images";
 import { isAuthExpiredError } from "@/api/auth";
-import { HttpError } from "@/api/http-error";
+import { HttpError, userFacingError } from "@/api/http-error";
 import { Loader } from "@/components/loader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,7 +84,10 @@ export function TemplateReviewQueue() {
     onError: (error: unknown) => {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Couldn't close this report"
+        userFacingError(
+          error,
+          "Couldn't close this report. Check your connection and try again."
+        )
       );
     },
   });
@@ -112,8 +115,13 @@ export function TemplateReviewQueue() {
     },
     onError: (error: unknown) => {
       if (isAuthExpiredError(error)) return;
+      // A stale `contentAt` comes back as a 409 the reviewer can act on
+      // (reload and read the current version), so 4xx text is kept.
       toast.error(
-        error instanceof Error ? error.message : "Couldn't record this decision"
+        userFacingError(
+          error,
+          "Couldn't record this decision. Check your connection and try again."
+        )
       );
     },
   });

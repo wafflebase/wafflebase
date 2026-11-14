@@ -76,7 +76,7 @@ export function SheetLinkPopover({
             target="_blank"
             rel="noopener noreferrer"
             title={url}
-            className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-[#1A73E8] hover:underline dark:text-[#8AB4F8]"
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-link underline-offset-2 hover:underline"
           >
             <IconExternalLink size={14} className="shrink-0" />
             <span className="truncate">{toLabel(url)}</span>

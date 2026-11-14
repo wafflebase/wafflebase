@@ -9,6 +9,10 @@ import type { EditorAPI, SpellError } from "@wafflebase/docs";
 import { IconLink, IconScissors, IconCopy, IconClipboard } from "@tabler/icons-react";
 import { InsertCommentMenuItem } from "./comments/InsertCommentMenuItem";
 import { modKey } from "@/components/text-formatting/platform";
+import {
+  handleMenuKeyDown,
+  handleMenuPointerMove,
+} from "@/components/menu-focus";
 
 interface Props {
   editor: EditorAPI | null;
@@ -140,6 +144,14 @@ export function DocsContextMenu({
     };
   }, [open, close]);
 
+  // Move focus into the menu when it opens, so the arrow keys reach it.
+  // Keyed on open/closed rather than on `open` itself: the viewport clamp
+  // below rewrites `open` with a new position, which must not re-focus.
+  const isOpen = open !== null;
+  useEffect(() => {
+    if (isOpen) menuRef.current?.focus({ preventScroll: true });
+  }, [isOpen]);
+
   // Viewport clamp — offsetWidth/offsetHeight avoids the zoom-in
   // animation distorting getBoundingClientRect mid-animation.
   useLayoutEffect(() => {
@@ -163,13 +175,22 @@ export function DocsContextMenu({
 
   const { position, spellErr, hasSelection } = open;
 
+  // The highlight is focus, not hover: the pointer moves focus (see
+  // `handleMenuPointerMove`), so the mouse and the arrow keys light the
+  // same single row.
   const item =
-    "flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground";
+    "flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent focus:text-accent-foreground";
   const itemDisabled =
     "flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none opacity-50 pointer-events-none";
   const sep = "my-1 h-px bg-border -mx-1";
   const shortcut = "ml-auto text-xs text-muted-foreground";
   const iconSize = 16;
+
+  /** Escape: close, and hand focus back to the editor's caret. */
+  const dismiss = () => {
+    close();
+    editor?.focus();
+  };
 
   /** Wraps an action: runs it, focuses the editor, and closes the menu. */
   const act = (fn: () => void) => () => {
@@ -215,20 +236,32 @@ export function DocsContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+      role="menu"
+      aria-orientation="vertical"
+      tabIndex={-1}
+      className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95"
       style={{ left: position.x, top: position.y }}
+      onKeyDown={(e) => handleMenuKeyDown(e, { onClose: dismiss })}
+      onPointerMove={handleMenuPointerMove}
+      onPointerLeave={handleMenuPointerMove}
     >
       {/* ── Group 1: Spell suggestions ── */}
       {hasSpellGroup && (
         <>
           {suggestions === null || suggestions.status === "loading" ? (
-            <span className={itemDisabled}>Checking…</span>
+            <span role="menuitem" aria-disabled="true" className={itemDisabled}>
+              Checking…
+            </span>
           ) : suggestions.items.length === 0 ? (
-            <span className={itemDisabled}>No suggestions</span>
+            <span role="menuitem" aria-disabled="true" className={itemDisabled}>
+              No suggestions
+            </span>
           ) : (
             suggestions.items.map((s) => (
               <button
                 key={s}
+                role="menuitem"
+                tabIndex={-1}
                 className={item}
                 onClick={act(() => {
                   editor!.applySpellSuggestion(spellErr!, s);
@@ -238,7 +271,7 @@ export function DocsContextMenu({
               </button>
             ))
           )}
-          {sepAfterSpell && <div className={sep} />}
+          {sepAfterSpell && <div role="separator" className={sep} />}
         </>
       )}
 
@@ -247,6 +280,8 @@ export function DocsContextMenu({
         <>
           {showCut && (
             <button
+              role="menuitem"
+              tabIndex={-1}
               className={item}
               onClick={act(() => editor!.cut())}
             >
@@ -257,6 +292,8 @@ export function DocsContextMenu({
           )}
           {showCopy && (
             <button
+              role="menuitem"
+              tabIndex={-1}
               className={item}
               onClick={act(() => editor!.copy())}
             >
@@ -267,6 +304,8 @@ export function DocsContextMenu({
           )}
           {showPaste && (
             <button
+              role="menuitem"
+              tabIndex={-1}
               className={item}
               onClick={act(() => {
                 void editor!.paste();
@@ -277,7 +316,7 @@ export function DocsContextMenu({
               <span className={shortcut}>{modKey}V</span>
             </button>
           )}
-          {sepAfterClipboard && <div className={sep} />}
+          {sepAfterClipboard && <div role="separator" className={sep} />}
         </>
       )}
 
@@ -285,6 +324,8 @@ export function DocsContextMenu({
       {hasInsertGroup && (
         <>
           <button
+            role="menuitem"
+            tabIndex={-1}
             className={item}
             onClick={act(() => editor!.requestLink())}
           >

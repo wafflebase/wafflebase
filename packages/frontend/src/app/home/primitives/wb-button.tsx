@@ -9,11 +9,12 @@ const wbButtonVariants = cva(
   {
     variants: {
       variant: {
-        // `text-primary-foreground`, not a fixed cream: dark mode brightens
-        // --wb-syrup to syrup-bright, and cream on it measures 2.6:1. The
-        // token pairs with that bg in both modes, as the app's own Button does.
+        // The `primary` fill/label pair, not `--wb-syrup` under a fixed cream:
+        // base syrup is 4.11:1 under cream in light mode and syrup-bright
+        // 2.6:1 in dark. The token pair clears AA in both, and its hover
+        // presses darker rather than fading (core contrast.test.ts).
         primary:
-          "bg-[color:var(--wb-syrup)] text-primary-foreground border border-[color:var(--wb-syrup-deep)] shadow-[0_1px_0_var(--wb-syrup-deep),inset_0_1px_0_color-mix(in_srgb,white_25%,transparent)] hover:bg-[color:var(--wb-syrup-deep)] hover:-translate-y-px",
+          "bg-primary text-primary-foreground border border-[color:var(--wb-syrup-deep)] shadow-[0_1px_0_var(--wb-syrup-deep),inset_0_1px_0_color-mix(in_srgb,white_25%,transparent)] hover:bg-primary-hover hover:-translate-y-px",
         ghost:
           "bg-transparent text-[color:var(--wb-ink)] border border-[color:var(--wb-rule)] hover:bg-[color:var(--wb-rule)]/40",
       },

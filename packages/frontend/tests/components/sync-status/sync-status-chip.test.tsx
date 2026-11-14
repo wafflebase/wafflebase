@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -373,12 +374,14 @@ describe('SyncStatusChip', () => {
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'disconnected' };
 
-    const { container } = renderChip();
+    renderChip();
     act(() => {
       doc.type();
     });
 
-    expect(container.querySelector('[role="status"]')?.getAttribute('tabindex')).toBe('0');
+    expect(
+      screen.getByText('Not saved').closest('[tabindex]')?.getAttribute('tabindex'),
+    ).toBe('0');
   });
 
   it('does not claim the work is stored locally', () => {
@@ -391,6 +394,104 @@ describe('SyncStatusChip', () => {
     act(() => { doc.type(); });
 
     expect(container.textContent).not.toMatch(/this device|saved locally|offline/i);
+  });
+});
+
+/**
+ * The chip itself is not a live region. It used to be, so every `Saving…` /
+ * `Saved` flip while someone typed was read aloud; now only a move into
+ * trouble is announced, plus the recovery that answers it.
+ */
+describe('SyncStatusChip announcements', () => {
+  const polite = () => screen.getByRole('status').textContent;
+  const urgent = () => screen.getByRole('alert').textContent;
+
+  function rerenderChip(rerender: (ui: ReactElement) => void) {
+    rerender(
+      <TooltipProvider>
+        <SyncStatusChip />
+      </TooltipProvider>,
+    );
+  }
+
+  it('says nothing while a healthy document saves edit after edit', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    renderChip();
+
+    for (let i = 0; i < 3; i++) {
+      act(() => {
+        doc.type();
+      });
+      expect(screen.getByText('Saving…')).toBeTruthy();
+      doc.ack();
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(screen.getByText('Saved')).toBeTruthy();
+    }
+
+    expect(polite()).toBe('');
+    expect(urgent()).toBe('');
+  });
+
+  it('announces a dropped connection politely', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    const { rerender } = renderChip();
+    expect(polite()).toBe('');
+
+    mockCtx = { doc, connection: 'disconnected' };
+    act(() => rerenderChip(rerender));
+
+    expect(polite()).toMatch(/Reconnecting/);
+    expect(urgent()).toBe('');
+  });
+
+  it('announces stranded work assertively', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    renderChip();
+
+    act(() => {
+      doc.type();
+    });
+
+    expect(urgent()).toMatch(/^Not saved/);
+  });
+
+  it('announces the recovery once, then goes quiet again', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const { rerender } = renderChip();
+    act(() => {
+      doc.type();
+    });
+    expect(urgent()).toMatch(/^Not saved/);
+
+    // Back online: `Saving…` first, which is not yet worth saying...
+    mockCtx = { doc, connection: 'connected' };
+    act(() => rerenderChip(rerender));
+    expect(screen.getByText('Saving…')).toBeTruthy();
+    expect(polite()).toBe('');
+    expect(urgent()).toBe('');
+
+    // ...then `Saved`, which answers the alarm.
+    doc.ack();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(polite()).toMatch(/^Saved/);
+
+    // The next ordinary edit is not news.
+    act(() => {
+      doc.type();
+    });
+    doc.ack();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(polite()).toBe('');
   });
 });
 

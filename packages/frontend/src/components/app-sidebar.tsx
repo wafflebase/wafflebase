@@ -142,7 +142,7 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={items.main} />
+        <NavMain items={items.main} workspace={currentWorkspace} />
         <NavSecondary items={items.secondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>

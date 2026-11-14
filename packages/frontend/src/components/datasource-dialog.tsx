@@ -13,6 +13,7 @@ import {
   testWorkspaceDataSourceConfig,
 } from "@/api/workspaces";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import type { DataSource } from "@/types/datasource";
 import { toast } from "sonner";
 
@@ -70,7 +71,12 @@ export function DataSourceDialog({
       onOpenChange(false);
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Couldn't create the data source");
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't create the data source. Check your network and try again.",
+        ),
+      );
     } finally {
       setSaving(false);
     }
@@ -94,7 +100,12 @@ export function DataSourceDialog({
       }
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Couldn't test the connection");
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't run the connection test. Check your network and try again.",
+        ),
+      );
     } finally {
       setTesting(false);
     }

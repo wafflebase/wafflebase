@@ -61,7 +61,7 @@ export function ThemedFontPicker({
           aria-label="Heading font"
           aria-pressed={headingSelected}
           onClick={() => onChange(makeRoleFont("heading"))}
-          className={`flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
+          className={`focus-ring flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
             headingSelected
               ? "border-foreground ring-2 ring-ring/50"
               : "border-border"
@@ -78,7 +78,7 @@ export function ThemedFontPicker({
           aria-label="Body font"
           aria-pressed={bodySelected}
           onClick={() => onChange(makeRoleFont("body"))}
-          className={`flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
+          className={`focus-ring flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
             bodySelected
               ? "border-foreground ring-2 ring-ring/50"
               : "border-border"
@@ -111,7 +111,7 @@ export function ThemedFontPicker({
                   aria-pressed={selected}
                   aria-label={family}
                   onClick={() => onChange(makeFamilyFont(family))}
-                  className={`flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted ${
+                  className={`focus-ring flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted ${
                     selected ? "bg-muted text-foreground" : "text-foreground"
                   }`}
                   style={{ fontFamily: family }}

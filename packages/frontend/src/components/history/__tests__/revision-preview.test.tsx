@@ -312,8 +312,12 @@ describe('RevisionPreview', () => {
     render(<PreviewHarness open />);
 
     await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(/network down/i),
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't load this version. Check your connection and pick it again from the list.",
+      ),
     );
+    // The rejection's own text is developer text, not a sentence for a reader.
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/network down/i);
     expect(screen.getByRole('status')).not.toHaveAttribute('aria-busy');
     expect(screen.getByRole('status')).not.toHaveTextContent(/Loading version/);
     expect(
@@ -605,9 +609,12 @@ describe('RevisionPreviewOverlay', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(/couldn't restore this version: permission denied/i),
+        screen.getByText(
+          "Couldn't restore this version. Check your connection and try again.",
+        ),
       ).toBeInTheDocument(),
     );
+    expect(screen.queryByText(/permission denied/i)).not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
   });
 

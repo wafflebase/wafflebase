@@ -288,11 +288,12 @@ const WIRED_EDITORS: Array<{
   {
     file: 'documents/document-detail.tsx',
     covered: ['<SheetView', '<TabBar'],
-    // The comments toggle, by its icon — the one tag in the header button
-    // that is unique to it. It goes with the panel it owns: left rendered,
-    // it reports `aria-pressed` for a panel that is not there, and clicking
-    // it flips the toggle off so closing the preview gives nothing back.
-    removed: ['<IconMessage'],
+    // The comments toggle, by its icon — the one reference in the header
+    // button that is unique to it (passed as `icon={…}` to the shared toolbar
+    // button). It goes with the panel it owns: left rendered, it reports
+    // `aria-pressed` for a panel that is not there, and clicking it flips the
+    // toggle off so closing the preview gives nothing back.
+    removed: ['icon={IconMessage}'],
   },
   { file: 'board/board-detail.tsx', covered: ['<BoardView'], removed: [] },
 ];

@@ -301,7 +301,8 @@ A few things bite first-time contributors:
   you.
 - **Frontend chunk budgets** are enforced by `verify:self`. Defaults
   live in `harness.config.json`; override locally with
-  `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT` only when
+  `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT` /
+  `FRONTEND_EAGER_LIMIT_KB` only when
   intentionally landing larger bundles.
 
 ## Reporting security issues

@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DateCell } from "@/app/documents/document-list";
+import { DateCell } from "@/app/documents/date-cell";
 import {
   formatExactDate,
   formatFullDateTime,

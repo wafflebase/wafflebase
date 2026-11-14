@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { resolveShareLink } from "@/api/share-links";
 import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 import { SectionHead } from "./primitives/section-head";
@@ -19,7 +20,53 @@ type Tab = "sheet" | "doc" | "slides";
 
 const TAB_ORDER: Tab[] = ["sheet", "doc", "slides"];
 
+type Availability = "checking" | "available" | "unavailable";
+
+/**
+ * Whether the demo documents exist on this deployment.
+ *
+ * The default tokens name documents on wafflebase.io, so on a self-hosted
+ * install — or wherever a `VITE_DEMO_*` token went stale — every pane would
+ * open on "Share link not found" inside the brand frame. All three are checked
+ * up front, and any failure hides the section: a demo with a broken pane is
+ * not a demo, and a transient failure costs a section of a marketing page,
+ * not anything the visitor was doing.
+ */
+function useDemoAvailability(): Availability {
+  const [availability, setAvailability] = useState<Availability>("checking");
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      [DEMO_SHEET_TOKEN, DEMO_DOC_TOKEN, DEMO_SLIDES_TOKEN].map((token) =>
+        resolveShareLink(token),
+      ),
+    ).then(
+      () => {
+        if (!cancelled) setAvailability("available");
+      },
+      () => {
+        if (!cancelled) setAvailability("unavailable");
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return availability;
+}
+
+/**
+ * The live demo, rendered only once its documents are known to resolve.
+ * Nothing renders while checking, so a deployment without them never flashes
+ * the frame before it disappears.
+ */
 export function DemoSection() {
+  const availability = useDemoAvailability();
+  if (availability !== "available") return null;
+  return <LiveDemo />;
+}
+
+function LiveDemo() {
   const { resolvedTheme } = useTheme();
   const sheetIframeRef = useRef<HTMLIFrameElement>(null);
   const docIframeRef = useRef<HTMLIFrameElement>(null);

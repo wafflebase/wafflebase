@@ -7,6 +7,7 @@ import {
   updateLakehouseSource,
 } from '@/api/lakehouse';
 import { isAuthExpiredError } from '@/api/auth';
+import { userFacingError } from '@/api/http-error';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -185,10 +186,6 @@ function updatePayload(
   return payload;
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
 /** Creates, edits, and non-destructively tests a lakehouse connection. */
 export function LakehouseDialog({
   workspaceId,
@@ -303,7 +300,12 @@ export function LakehouseDialog({
     } catch (error) {
       if (operationSequenceRef.current !== operation) return;
       if (isAuthExpiredError(error)) return;
-      toast.error(errorMessage(error, "Couldn't save the lakehouse connection"));
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't save the lakehouse connection. Check your network and try again.",
+        ),
+      );
     } finally {
       if (operationSequenceRef.current === operation) {
         setSaving(false);
@@ -324,12 +326,20 @@ export function LakehouseDialog({
       if (result.success) {
         toast.success('Connected');
       } else {
-        toast.error(result.error || "Couldn't connect");
+        toast.error(
+          result.error ||
+            "Couldn't connect to the lakehouse. Check the connection details and try again.",
+        );
       }
     } catch (error) {
       if (operationSequenceRef.current !== operation) return;
       if (isAuthExpiredError(error)) return;
-      toast.error(errorMessage(error, "Couldn't test the lakehouse connection"));
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't run the connection test. Check your network and try again.",
+        ),
+      );
     } finally {
       if (operationSequenceRef.current === operation) {
         setTesting(false);

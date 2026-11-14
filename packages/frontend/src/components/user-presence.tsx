@@ -19,7 +19,11 @@ import {
 import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useTheme } from "@/components/theme-provider";
 import { AvatarStack, AvatarStackUser } from "@/components/avatar-stack";
-import { AVATAR_SIZE_CLASS, type AvatarSize } from "@/components/avatar-size";
+import {
+  AVATAR_SIZE_CLASS,
+  avatarInitials,
+  type AvatarSize,
+} from "@/components/avatar-size";
 
 /**
  * One literal for both the drawn stack and the slot held open before it
@@ -49,6 +53,29 @@ type PresenceUser = AvatarStackUser & {
   clientID: string;
   isCurrentUser: boolean;
 };
+
+/** "hackerwins (you)" for the current user, the bare name for a peer. */
+function displayName(user: PresenceUser): string {
+  return user.isCurrentUser ? `${user.username} (you)` : user.username;
+}
+
+/**
+ * The name of the whole stack, so a screen reader landing in it hears who is
+ * here before it hears avatars one by one: "Collaborators: alice and 2
+ * others". Peers lead, since "you" is never news.
+ */
+function collaboratorsLabel(users: PresenceUser[]): string {
+  const ordered = [
+    ...users.filter((user) => !user.isCurrentUser),
+    ...users.filter((user) => user.isCurrentUser),
+  ];
+  const [first, ...rest] = ordered;
+  if (!first) return "Collaborators";
+  const lead = first.isCurrentUser ? "only you" : first.username;
+  if (rest.length === 0) return `Collaborators: ${lead}`;
+  const others = rest.length === 1 ? "1 other" : `${rest.length} others`;
+  return `Collaborators: ${lead} and ${others}`;
+}
 
 /**
  * Renders the UserPresence component.
@@ -112,7 +139,15 @@ export function UserPresence({
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="relative cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
+            // Without a label the name came from the avatar's contents, which
+            // is the initials whenever the photo is missing or still loading
+            // — "HA", not a person.
+            aria-label={
+              canJump && hint
+                ? `${displayName(user)}, jump to ${hint}`
+                : displayName(user)
+            }
+            className="relative cursor-pointer rounded-full focus-ring disabled:cursor-default"
             onClick={() => {
               if (!canJump || !onSelectPeer) return;
               onSelectPeer(user.clientID);
@@ -123,10 +158,7 @@ export function UserPresence({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>
-            {user.username}
-            {user.isCurrentUser ? " (You)" : ""}
-          </p>
+          <p>{displayName(user)}</p>
           {canJump && hint && <p>Click to jump to {hint}</p>}
         </TooltipContent>
       </Tooltip>
@@ -134,7 +166,11 @@ export function UserPresence({
   };
 
   return (
-    <div className={`flex items-center gap-2 min-h-[2.5rem] ${className}`}>
+    <div
+      role={totalUsers > 0 ? "group" : undefined}
+      aria-label={totalUsers > 0 ? collaboratorsLabel(users) : undefined}
+      className={`flex items-center gap-2 min-h-[2.5rem] ${className ?? ""}`}
+    >
       {totalUsers > 0 ? (
         <AvatarStack
           users={users}
@@ -148,8 +184,8 @@ export function UserPresence({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium"
-                  aria-label={`${overflow.length} more users`}
+                  className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium focus-ring"
+                  aria-label={`Show ${overflow.length} more users`}
                 >
                   +{overflow.length}
                 </button>
@@ -178,14 +214,11 @@ export function UserPresence({
                           <AvatarImage src={user.photo} alt={user.username} />
                         )}
                         <AvatarFallback className="text-2xs">
-                          {user.username.slice(0, 2).toUpperCase() || "??"}
+                          {avatarInitials(user.username)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate">
-                          {user.username}
-                          {user.isCurrentUser ? " (You)" : ""}
-                        </p>
+                        <p className="truncate">{displayName(user)}</p>
                         {hint && (
                           <p className="truncate text-xs text-muted-foreground">
                             {canJump ? `Jump: ${hint}` : hint}

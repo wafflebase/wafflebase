@@ -3647,6 +3647,7 @@ Harness policy is managed in `harness.config.json`:
 Frontend chunk environment overrides:
 - `FRONTEND_CHUNK_LIMIT_KB`
 - `FRONTEND_CHUNK_COUNT_LIMIT`
+- `FRONTEND_EAGER_LIMIT_KB` (entry + modulepreloaded bytes from `dist/index.html`)
 
 Entropy detectors default to enabled; set `"enabled": false` to disable
 individually for debugging. Dependency freshness `failOnCritical` fails the

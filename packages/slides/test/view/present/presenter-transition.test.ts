@@ -678,3 +678,69 @@ describe('presenter — async asset-load repaint scheduling', () => {
     expect(testApi(presenter).getRepaintRafHandle()).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite: reduced motion
+// ---------------------------------------------------------------------------
+
+describe('presenter — prefers-reduced-motion', () => {
+  it('cuts straight to the next slide instead of playing its transition', () => {
+    const { doc, aId, bId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+      prefersReducedMotion: () => true,
+    });
+    try {
+      testApi(presenter).next();
+      expect(presenter.getCurrentSlideId()).toBe(bId);
+      // No cross-paint loop, and the next slide is armed and painted now.
+      expect(testApi(presenter).getTransitionRafHandle()).toBeNull();
+      expect(testApi(presenter).getAnimPlayer()).not.toBeNull();
+      expect(testApi(presenter).getLastPaintKind()).toBe('slide');
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('defaults to the prefers-reduced-motion media query', () => {
+    const queries: string[] = [];
+    vi.stubGlobal('matchMedia', (query: string) => {
+      queries.push(query);
+      return { matches: query === '(prefers-reduced-motion: reduce)' };
+    });
+    const { doc, aId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      testApi(presenter).next();
+      expect(queries).toContain('(prefers-reduced-motion: reduce)');
+      expect(testApi(presenter).getTransitionRafHandle()).toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('still plays the transition when reduced motion is not requested', () => {
+    const { doc, aId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+      prefersReducedMotion: () => false,
+    });
+    try {
+      testApi(presenter).next();
+      expect(testApi(presenter).getTransitionRafHandle()).not.toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+});

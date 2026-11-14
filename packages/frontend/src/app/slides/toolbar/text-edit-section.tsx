@@ -102,7 +102,7 @@ export function TextEditSection({ state, editor }: TextEditSectionProps) {
             onClick={() => editor?.exitTextEditing()}
             disabled={!editor}
             aria-label="Done editing text"
-            className="inline-flex cursor-pointer h-7 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex cursor-pointer h-7 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-50"
           >
             Done
           </button>

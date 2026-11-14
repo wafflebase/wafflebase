@@ -3,8 +3,10 @@ name: Wafflebase
 description: A self-hosted collaborative office suite — quiet, ruled editors with a warm syrup-and-butter signature.
 colors:
   syrup: "#B8651A"
+  syrup-strong: "#9E5614"
   syrup-deep: "#8A4A12"
   syrup-bright: "#E08A3A"
+  syrup-bright-pressed: "#C97A30"
   butter: "#F4C95D"
   berry: "#C2484C"
   berry-bright: "#E27A7E"
@@ -20,11 +22,14 @@ colors:
   roast-sub: "#B5A48A"
   roast-rule: "#3A2E1F"
   on-syrup: "#FFFAF0"
+  link: "#1967D2"
+  link-bright: "#8AB4F8"
   app-background: "oklch(1 0 0)"
   app-foreground: "oklch(0.141 0.005 285.823)"
   app-muted: "oklch(0.967 0.001 286.375)"
   app-muted-foreground: "oklch(0.552 0.016 285.938)"
   app-border: "oklch(0.92 0.004 286.32)"
+  app-input-border: "oklch(0.64 0.016 285.938)"
   app-sidebar: "oklch(0.985 0 0)"
   app-background-dark: "oklch(0.141 0.005 285.823)"
   app-card-dark: "oklch(0.21 0.006 285.885)"
@@ -32,6 +37,7 @@ colors:
   app-foreground-dark: "oklch(0.985 0 0)"
   app-muted-foreground-dark: "oklch(0.705 0.015 286.067)"
   app-border-dark: "oklch(1 0 0 / 10%)"
+  app-input-border-dark: "oklch(0.52 0.016 285.938)"
   selected: "rgba(244, 201, 93, 0.30)"
   selected-foreground: "#8A4A12"
   selected-dark: "rgba(244, 201, 93, 0.18)"
@@ -149,12 +155,14 @@ spacing:
   xl: "24px"
 components:
   button-primary:
-    backgroundColor: "{colors.syrup}"
+    backgroundColor: "{colors.syrup-strong}"
     textColor: "{colors.on-syrup}"
     typography: "{typography.control}"
     rounded: "{rounded.md}"
     padding: "8px 16px"
     height: "36px"
+  button-primary-hover:
+    backgroundColor: "{colors.syrup-deep}"
   button-outline:
     backgroundColor: "{colors.app-background}"
     textColor: "{colors.app-foreground}"
@@ -214,6 +222,12 @@ components:
     textColor: "{colors.app-foreground}"
     rounded: "{rounded.md}"
     padding: "16px"
+  toast:
+    backgroundColor: "{colors.app-background}"
+    textColor: "{colors.app-foreground}"
+    rounded: "{rounded.lg}"
+  link:
+    textColor: "{colors.link}"
   sidebar-item:
     textColor: "{colors.app-foreground}"
     typography: "{typography.body}"
@@ -226,13 +240,13 @@ components:
     backgroundColor: "{colors.selected}"
     textColor: "{colors.selected-foreground}"
   badge:
-    backgroundColor: "{colors.syrup}"
+    backgroundColor: "{colors.syrup-strong}"
     textColor: "{colors.on-syrup}"
     typography: "{typography.label}"
     rounded: "{rounded.md}"
     padding: "2px 8px"
   brand-button-primary:
-    backgroundColor: "{colors.syrup}"
+    backgroundColor: "{colors.syrup-strong}"
     textColor: "{colors.on-syrup}"
     rounded: "{rounded.pill}"
     padding: "9px 16px"
@@ -287,8 +301,9 @@ A cool, near-colorless working surface with a single warm syrup accent; the
 brand layer swaps the zinc for cream paper and walnut ink.
 
 ### Primary
-- **Maple Syrup** (syrup): the one accent. Primary buttons, focus rings, selection frames and handles in every editor (the sheets active cell, formula references and object layer, docs image selection and drag guides, slides handles and lasso), chart series 1. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
-- **Deep Syrup** (syrup-deep): pressed/hover state of the brand primary button, the active sidebar item's text, and brand chip and footer-heading labels.
+- **Maple Syrup** (syrup): the one accent as a *graphic*. Focus rings, selection frames and handles in every editor (the sheets active cell, filter range frame, formula references and object layer, docs image selection and drag guides, slides handles and lasso), chart series 1, the brand illustrations. It is 4.27:1 on white, enough for a 3:1 mark and not for words, so it never carries text. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
+- **Strong Syrup** (syrup-strong): the one accent wherever it carries words, the `primary` token in light mode. Primary button and badge fills (5.32:1 under on-syrup), the brand pill CTA, and `text-primary` (5.53:1 on white, 5.14:1 on cream). Dark mode's `primary` stays syrup-bright under roast text (6.71:1).
+- **Deep Syrup** (syrup-deep): the light-mode `primary-hover` (6.58:1 under on-syrup), the active sidebar item's text, and brand chip and footer-heading labels. Dark mode's `primary-hover` is **Pressed Bright Syrup** (syrup-bright-pressed, 5.39:1 under roast). Hover always presses *darker*: a translucent `bg-primary/90` fades toward the page and lightens a light-mode fill, so primary controls use `hover:bg-primary-hover`.
 
 ### Secondary
 - **Butter** (butter): highlight, never text on light surfaces. The **selected** wash (`bg-selected`, 30% light / 18% dark, with `text-selected-foreground` = syrup-deep / butter at 5.99:1 / 8.81:1) marks every "this one is chosen" state: the sidebar's active item, a pressed `Toggle`, a picked shape or line. It is never the hover, which stays the zinc `accent`/`muted` wash, so on and hovered look different. A lighter butter wash (16–35% by engine and mode) is the cell, text and slide-table range selection in the engines; a whole selected row or column header deepens to a syrup tint. Also brand tag and badge chips and the waffle illustrations.
@@ -296,21 +311,26 @@ brand layer swaps the zinc for cream paper and walnut ink.
 ### Tertiary
 - **Berry** (berry / berry-bright): brand-surface error and emphasis (the homepage's ✕ marks and code-sample keywords), and a swatch in the formatting palette and the Wafflebase slide theme. It is the `type-pdf` hue too.
 - **Leaf** (leaf / leaf-bright): success signals, such as the homepage's ✓ marks. In the app it is the `success` token (`text-success`; 4.91:1 light, 9.76:1 dark) and the `type-sheet` hue.
+- **Terminal hues**: the homepage code sample sits on a roast panel in both themes, so its keywords and flags use the locked `--wb-terminal-keyword` (berry-bright, 6.25:1) and `--wb-terminal-flag` (leaf-bright, 8.80:1), never the theme-flipping `--wb-berry` / `--wb-leaf`, whose light stops are 3.69:1 / 3.65:1 there.
 
 ### Data and identity
 - **Chart series** (`chart-1`…`chart-5`): syrup, denim, teal, rose, olive gold, each with a lifted dark-mode stop. No purple, none equal to a status token, every series ≥3:1 on `background`. Only the analytics trend chart consumes them today; document charts inside sheets and slides keep their own palettes.
 - **Document types** (`type-sheet`, `type-doc`, `type-note`, `type-slides`, `type-pdf`, `type-image`, `type-board`, `type-file`): one identity hue per type for list icons and menus — leaf, denim, cocoa, teal, berry, rose, sticky-note gold, zinc. Nothing purple and nothing in syrup's orange band, each ≥3:1 on `background` in both modes.
 
+### Links
+- **Link** (link / link-bright, the `link` token, `text-link`): hyperlink text in the docs and sheets link popovers and the sheets grid's linked cells. The one non-syrup hue in chrome, because a URL has to read as a URL: Google's own pair, 5.37:1 on white and 9.44:1 on the dark background. It underlines on hover rather than changing shade. A link-styled *button* (`variant="link"`) is an action, not a URL, and stays syrup.
+
 ### Neutral
 - **Zinc Paper** (app-background) and **Zinc Ink** (app-foreground): editor chrome, dialogs and popovers in light mode.
 - **Zinc Wash** (app-muted) / **Zinc Sub** (app-muted-foreground): hover fills, secondary text, placeholders.
-- **Zinc Rule** (app-border): every hairline in the app: toolbars, panels, inputs, cards.
+- **Zinc Rule** (app-border): every hairline in the app: toolbars, panels, cards.
+- **Control Edge** (app-input-border / app-input-border-dark, the `input-border` token): the boundary of a form control — `Input`, `Textarea`, the `Select` trigger, a `Switch`'s off track. A hairline is ~1.3:1 and fine between regions; a control's edge tells you where to click, so it clears WCAG 1.4.11's 3:1 (3.37:1 light on `background`, 3.60:1 dark, 3.21:1 on a dark popover).
 - **Cream** (cream-bg) / **Cream Paper** (cream-paper): brand-surface page and raised paper.
 - **Walnut Ink** (walnut-ink) / **Cocoa** (cocoa-sub) / **Oat Rule** (oat-rule): brand-surface text, secondary text and borders.
 - **Roast** (roast-bg, roast-paper, roast-sub, roast-rule): the brand layer's dark pair. The app's dark chrome stays on zinc (app-background-dark, app-card-dark, app-muted-dark, app-foreground-dark, app-muted-foreground-dark, app-border-dark).
 
 ### Named Rules
-**The One Accent Rule.** Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.
+**The One Accent Rule.** Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong; the same goes for two primary buttons in one view (workspace settings keeps "Create invite link" primary and steps "Create API key" down to outline beside it). Hyperlink blue is the sole exception, and only on actual URLs. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.
 
 **The Two Ledgers Rule.** Editor and workspace screens use the zinc semantic tokens (`bg-background`, `text-foreground`, `border`). Brand surfaces use the `--wb-*` tokens. Don't mix them on one surface.
 
@@ -332,7 +352,7 @@ brand layer swaps the zinc for cream paper and walnut ink.
 - **Body** (400, 14px): all editor and workspace UI text. Inputs render at 16px on mobile, which prevents iOS zoom-on-focus.
 - **Control** (500, 14px): button and toggle labels, one weight step above Body so a control reads as actionable without color.
 - **Body (brand)** (400, clamp(17px, 1.4vw, 19px), 1.55): homepage lead paragraphs, max ~560px measure.
-- **Title (brand)** (600, 19px, 1.3): homepage feature-card titles; the brand nav and footer wordmarks use Fraunces at the same size.
+- **Title (brand)** (600, 19px, 1.3): homepage feature- and use-case-card titles (the use-case cards in Fraunces); the brand nav and footer wordmarks use Fraunces at the same size.
 - **Body (brand, small)** (400, 15px, 1.55): template-landing descriptions, feature-list titles, the large pill button.
 - **Caption (brand)** (400, 13px): card links, interop captions, template metadata.
 - **Label** (500, 12px): badges, small metadata.
@@ -341,7 +361,9 @@ brand layer swaps the zinc for cream paper and walnut ink.
 
 Section labels inside popovers and panels (Theme / Recent / Standard in the color picker, shape categories, pivot sections) are **Label**, sentence case, muted: not an uppercase tracked kicker. Uppercase belongs to real abbreviations and keyboard keys.
 
-**Brand scale.** Brand surfaces (homepage, sign-in, template gallery and landing) set their own pixel sizes rather than the app ramp: 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 16, 17, 19, 21 and 28px, plus the fluid `clamp(15px,1.2vw,17px)`, `clamp(17px,1.4vw,19px)`, `clamp(28px,3.5vw,40px)` and Display. Reuse one of these before adding a new value; app chrome uses only `text-2xs` / `text-xs` / `text-sm` / `text-base` and the Section title, except the paragraph-style menu, whose items preview the sizes of the styles they apply.
+**Brand scale.** Brand surfaces (homepage, sign-in, template gallery and landing) set their own pixel sizes rather than the app ramp: 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 16, 17, 19 and 28px, plus the fluid `clamp(15px,1.2vw,17px)`, `clamp(17px,1.4vw,19px)`, `clamp(28px,3.5vw,40px)` and Display. Reuse one of these before adding a new value; app chrome uses only `text-2xs` / `text-xs` / `text-sm` / `text-base` and the Section title, except the paragraph-style menu, whose items preview the sizes of the styles they apply.
+
+**Loading.** The brand faces (Fraunces, Inter, JetBrains Mono) load only on brand routes (`/`, `/login`, `/templates`, `/t/:id`) through `src/lib/brand-fonts.ts`, inserted from script with `display=swap`, so they never block first paint and a self-hosted editor session makes no third-party font request. App routes draw in the system stack. Inter also loads eagerly with the document font catalog, because built-in slide themes set it.
 
 ### Named Rules
 **The Serif Is a Signature Rule.** Fraunces never appears inside an editor or on a control. It is the brand's voice, used for wordmarks and brand-surface headings only.
@@ -383,7 +405,7 @@ Corners are barely softened in the app. The radius base is 0.3rem (4.8px) and th
 ### Buttons
 Precise and restrained.
 - **Shape:** gently squared (2.8px). Sizes are 32px (`sm`), 36px (default), 40px (`lg`) and a 36px square icon button.
-- **Primary:** syrup fill, warm off-white text, 14px medium, 8px 16px padding; hovers to 90% syrup.
+- **Primary:** strong-syrup fill (`bg-primary`), warm off-white text, 14px medium, 8px 16px padding; hovers darker to `primary-hover` (deep syrup light, pressed bright syrup dark). Every fill/label pair clears 4.5:1, asserted in `packages/core/test/tokens/contrast.test.ts`.
 - **Hover / Focus:** a 3px ring in 50% syrup plus a syrup border on `:focus-visible`. Disabled fades to 50% and ignores the pointer.
 - **Outline / Secondary / Ghost / Link:** outline is a zinc-bordered background button; secondary is a zinc-wash fill; ghost shows a wash only on hover; link is syrup text, underlined on hover. Destructive uses the destructive red fill.
 
@@ -394,9 +416,14 @@ Precise and restrained.
 - **Tooltip:** inverted ink (foreground fill, background text), 12px, 6px 12px padding, 2.8px corners, with a matching arrow. It fades and zooms in from 95%.
 
 ### Inputs / Fields
-- **Style:** 36px high, 1px zinc border, transparent fill (in dark, 30% of the 15%-white `input` token), 2.8px corners, 12px side padding, hairline lift, syrup caret.
+- **Style:** 36px high, 1px `input-border` edge (≥3:1, see Control Edge), transparent fill (in dark, 30% of the 15%-white `input` token), 2.8px corners, 12px side padding, hairline lift, syrup caret.
 - **Focus:** the same 3px 50%-syrup ring and syrup border as buttons.
 - **Error / Disabled:** `aria-invalid` turns the border and ring destructive red. Disabled fades to 50%.
+- **Textarea:** `components/ui/textarea.tsx`, the same edge, caret, ring and invalid state at `min-h-16` with 8px vertical padding.
+
+### Toasts
+- **Style:** Sonner through `components/ui/sonner.tsx`, never the raw `Toaster`. It takes the app's *resolved* theme (so a dark-mode user gets a dark toast, and an explicit light choice on a dark OS gets a light one) and maps Sonner's `--normal-bg` / `--normal-text` / `--normal-border` to the popover surface, foreground and `border`, with `lg` corners: a toast is the same floating surface as a popover.
+- **Copy:** an error toast names what failed and what to do next. Show a message from the server only through `userFacingError(error, fallback)`, which passes a sub-500 `HttpError`'s text and otherwise shows the fallback, never a `TypeError` or a stack.
 
 ### Cards / Containers
 - **Corner Style:** 8.8px.
@@ -409,10 +436,10 @@ Precise and restrained.
 - **Style:** 12px medium label, 2px 8px padding, 2.8px corners. Default is syrup on off-white; secondary, outline and destructive variants follow the button roles.
 
 ### Navigation
-- **Sidebar:** near-white zinc (`sidebar`), with the Fraunces wordmark at 17px. The active item is a butter wash with deep-syrup text and the hover a neutral wash. It collapses to an icon rail.
+- **Sidebar:** near-white zinc (`sidebar`), with the display-stack wordmark at 17px (Fraunces once a brand page has loaded it this session, the `ui-serif, Georgia` fallback otherwise). The active item is a butter wash with deep-syrup text and the hover a neutral wash. It collapses to an icon rail.
 
 ### Brand pill button (brand surfaces only)
-- **Style:** fully rounded, Inter 14–15px medium, syrup fill with a deep-syrup border and bevel. It hovers to deep syrup and lifts 1px. The ghost variant is an oat-rule outline on walnut ink.
+- **Style:** fully rounded, Inter 14–15px medium, the `primary` fill/label pair (strong syrup light, bright syrup dark) with a deep-syrup border and bevel. It hovers darker to `primary-hover` and lifts 1px. The ghost variant is an oat-rule outline on walnut ink.
 
 ## Do's and Don'ts
 

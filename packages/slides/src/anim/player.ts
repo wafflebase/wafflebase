@@ -2,6 +2,18 @@ import type { Step } from './timeline';
 import { sampleTimeline, stepDurationMs } from './sample';
 import type { AnimState } from './state';
 
+export interface AnimationPlayerOptions {
+  /**
+   * Asked on every step start. When it answers true the step lands on its
+   * final state in the same call instead of playing over time: an entrance
+   * still appears on the click that triggers it and an exit still removes
+   * its element, but nothing moves, scales or fades on the way. Read per
+   * step rather than once so a viewer who turns on the OS setting mid-show
+   * gets it on the very next click.
+   */
+  reducedMotion?: () => boolean;
+}
+
 export class AnimationPlayer {
   private index = -1;        // current step index, -1 = not started
   private startNow: number | null = null;
@@ -12,6 +24,7 @@ export class AnimationPlayer {
     private readonly steps: Step[],
     private readonly size: { w: number; h: number },
     private readonly onFrame: (s: Map<string, AnimState>) => void,
+    private readonly options: AnimationPlayerOptions = {},
   ) {}
 
   get isAnimating(): boolean { return this.playing; }
@@ -32,6 +45,7 @@ export class AnimationPlayer {
     this.startNow = null;
     this.playing = true;
     this.finishedCurrent = false;
+    if (this.options.reducedMotion?.()) this.snapToEnd();
     return true;
   }
 

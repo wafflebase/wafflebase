@@ -191,7 +191,7 @@ export function DocsFindBar({
     matchCount > 0 ? `${activeIndex + 1} of ${matchCount}` : "No results";
 
   const iconBtnClass =
-    "flex items-center justify-center w-6 h-6 rounded hover:bg-muted text-muted-foreground disabled:opacity-40";
+    "focus-ring flex items-center justify-center w-6 h-6 rounded hover:bg-muted text-muted-foreground disabled:opacity-40";
   const toggleClass =
     "w-6 h-6 min-w-6 p-0 rounded text-muted-foreground [&_svg:not([class*='size-'])]:size-3.5";
 
@@ -305,14 +305,14 @@ export function DocsFindBar({
             onKeyDown={handleReplaceKeyDown}
           />
           <button
-            className="rounded border px-2 py-0.5 text-xs hover:bg-muted disabled:opacity-40"
+            className="focus-ring rounded border px-2 py-0.5 text-xs hover:bg-muted disabled:opacity-40"
             disabled={matchCount === 0}
             onClick={handleReplace}
           >
             Replace
           </button>
           <button
-            className="rounded border px-2 py-0.5 text-xs hover:bg-muted disabled:opacity-40"
+            className="focus-ring rounded border px-2 py-0.5 text-xs hover:bg-muted disabled:opacity-40"
             disabled={matchCount === 0}
             onClick={handleReplaceAll}
           >

@@ -199,9 +199,22 @@ function manualChunks(id: string): string | undefined {
     return "vendor-ui";
   }
 
+  // `@wafflebase/core` (resolved through the workspace symlink to
+  // `packages/core/dist/`) and Vite's own `__vitePreload` helper are tiny
+  // modules that the entry imports AND every engine imports. With no rule
+  // here Rollup parks each one inside whichever engine chunk claims it first,
+  // and the entry then has to statically import that engine to reach it:
+  // `__vitePreload` landed in `slides-editor-engine`, `seg` (core/url) in
+  // `sheet-core`, and `dist/index.html` modulepreloaded the slides, sheet
+  // and formula bundles (~1 MB gzip) on every route, the homepage included.
+  // Giving them a home in the eager `vendor-app` chunk keeps the entry's
+  // static graph free of engines. `verify:frontend:chunks` guards the result
+  // with its eager-bytes budget.
   if (
     normalizedId.includes("node_modules/@tanstack") ||
-    normalizedId.includes("node_modules/react-router")
+    normalizedId.includes("node_modules/react-router") ||
+    normalizedId.includes("/packages/core/") ||
+    normalizedId.includes("vite/preload-helper")
   ) {
     return "vendor-app";
   }

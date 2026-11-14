@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import {
   fetchWorkspace,
   fetchWorkspaces,
@@ -196,7 +197,12 @@ export default function WorkspaceSettings() {
       toast.success("Workspace deleted");
     },
     onError: (err: Error) =>
-      toast.error(err.message || "Couldn't delete the workspace"),
+      toast.error(
+        userFacingError(
+          err,
+          "Couldn't delete the workspace. Try again in a moment.",
+        ),
+      ),
   });
 
   if (isLoading) {
@@ -447,8 +453,12 @@ export default function WorkspaceSettings() {
                 : "Create API keys for programmatic access via the CLI or REST API. A key acts as you, and only you and the workspace owner can see it."}
             </p>
           </div>
+          {/* One primary per screen (DESIGN.md, the One Accent Rule): an
+              owner also sees "Create invite link", which is the page's main
+              action, so this one steps down to outline beside it. */}
           <Button
             size="sm"
+            variant={isOwner ? "outline" : "default"}
             onClick={() => setCreateKeyDialogOpen(true)}
             className="flex items-center gap-2"
           >

@@ -37,10 +37,13 @@ const LICENSE_OF = { ofl: 'OFL', apache: 'APACHE2', ufl: 'UFL' };
  * Families loaded eagerly in the bootstrap CSS link so existing
  * documents render with no flash. Kept to the set the editors already
  * shipped before the catalog expansion — everything else lazy-loads.
+ * Inter is here because six built-in slides themes set it, and it used to
+ * arrive with the app-wide brand stylesheet in `index.html`, which now
+ * loads on brand routes only (`src/lib/brand-fonts.ts`).
  */
 const EAGER = new Set([
   'Noto Sans KR', 'Noto Serif KR', 'Nanum Gothic', 'Nanum Myeongjo',
-  'Gothic A1', 'Gowun Dodum', 'Gowun Batang', 'Roboto',
+  'Gothic A1', 'Gowun Dodum', 'Gowun Batang', 'Roboto', 'Inter',
 ]);
 
 /**

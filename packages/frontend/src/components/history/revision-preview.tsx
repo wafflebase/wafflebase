@@ -40,7 +40,7 @@ import { boardPreviewViewport } from './board-preview-viewport';
 import { firstWorksheetTabId } from './first-worksheet-tab';
 import { setPreviewLoadingId } from './preview-loading';
 import { readRevisionMeta } from './revision-meta';
-import { useRestoreInProgress } from './restore-lock';
+import { restoreErrorMessage, useRestoreInProgress } from './restore-lock';
 import { useRevisionHistory } from './use-revision-history';
 
 export type RevisionPreviewType =
@@ -100,7 +100,8 @@ function parseByType(type: RevisionPreviewType, snapshot: string): ParsedContent
  * reached a user as a silent black rectangle rather than as an error. A blank
  * render is a lie about the user's data — the same rule the
  * unreadable-snapshot branch already follows — so a mount that throws says so,
- * in the same `role="alert"` treatment, with the engine's own message attached.
+ * in the same `role="alert"` treatment. The engine's own message is developer
+ * text, so it goes to the console at each mount site rather than on screen.
  *
  * It renders as an opaque overlay *above* the still-mounted container rather
  * than in place of it. Replacing the container would tear out the `ref` the
@@ -108,14 +109,13 @@ function parseByType(type: RevisionPreviewType, snapshot: string): ParsedContent
  * paging to another revision after one failure would find no container to
  * mount into and stay stuck on the error for a document that reads fine.
  */
-function MountErrorOverlay({ what, error }: { what: string; error: unknown }) {
-  const detail = error instanceof Error ? error.message : String(error);
+function MountErrorOverlay({ what }: { what: string }) {
   return (
     <div
       role="alert"
       className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6 text-center text-sm text-destructive"
     >
-      Couldn't show this version's {what}: {detail}
+      Couldn't show this version's {what}. Reload the page to try again.
     </div>
   );
 }
@@ -257,15 +257,17 @@ export function RevisionPreview({
           // A snapshot this build cannot parse must say so — rendering an
           // empty document would read as "this version was blank," which
           // is a lie about the user's data.
-          setError(
-            err instanceof Error ? err.message : 'This version could not be read.',
-          );
+          // The parser's message is developer text. The restore runs
+          // server-side and does not need our parser, so it stays possible.
+          console.error('Failed to parse the revision snapshot', err);
+          setError("Couldn't read this version, but it can still be restored.");
         }
       })
       .catch((err) => {
         if (cancelled) return;
+        console.error('Failed to load the revision', err);
         setError(
-          err instanceof Error ? err.message : 'This version could not be loaded.',
+          "Couldn't load this version. Check your connection and pick it again from the list.",
         );
       })
       .finally(() => {
@@ -380,7 +382,7 @@ export function RevisionPreview({
           role="alert"
           className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive"
         >
-          Couldn't restore this version: {restoreError}
+          {restoreError}
         </p>
       )}
       {content?.kind === 'sheet' && (
@@ -395,7 +397,7 @@ export function RevisionPreview({
             role="alert"
             className="flex h-full items-center justify-center p-6 text-center text-sm text-destructive"
           >
-            Couldn't read this version: {error}
+            {error}
           </div>
         )}
         {!error && content?.kind === 'sheet' && <SheetPreview doc={content.doc} />}
@@ -462,9 +464,7 @@ export function RevisionPreviewOverlay({
       await restore(revisionId);
       onClose();
     } catch (err) {
-      setRestoreError(
-        err instanceof Error ? err.message : 'The restore did not complete.',
-      );
+      setRestoreError(restoreErrorMessage(err));
     } finally {
       setIsRestoringHere(false);
     }
@@ -591,7 +591,7 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {mountError !== null && (
-        <MountErrorOverlay what="grid" error={mountError} />
+        <MountErrorOverlay what="grid" />
       )}
     </div>
   );
@@ -808,10 +808,7 @@ function SlidesPreview({
         className="flex h-full w-full items-center justify-center overflow-hidden bg-muted/20"
       />
       {mountError !== null && (
-        <MountErrorOverlay
-          what={board ? 'canvas' : 'slide'}
-          error={mountError}
-        />
+        <MountErrorOverlay what={board ? 'canvas' : 'slide'} />
       )}
     </div>
   );
@@ -851,7 +848,7 @@ function NotePreview({ text }: { text: string }) {
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full overflow-auto" />
       {mountError !== null && (
-        <MountErrorOverlay what="text" error={mountError} />
+        <MountErrorOverlay what="text" />
       )}
     </div>
   );
@@ -906,7 +903,7 @@ function DocsPreview({ doc }: { doc: DocsDocument }) {
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {mountError !== null && (
-        <MountErrorOverlay what="document" error={mountError} />
+        <MountErrorOverlay what="document" />
       )}
     </div>
   );

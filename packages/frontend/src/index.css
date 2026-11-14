@@ -51,6 +51,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -62,7 +63,9 @@
   --color-success: var(--success);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-input-border: var(--input-border);
   --color-ring: var(--ring);
+  --color-link: var(--link);
   --color-selected: var(--selected);
   --color-selected-foreground: var(--selected-foreground);
   --color-chart-1: var(--chart-1);
@@ -107,6 +110,19 @@
  * value) the moment it is the declaration that wins, and only lost to
  * tokens.css by cascade order.
  */
+/*
+ * The focus contract from DESIGN.md: a 3px 50%-syrup ring plus a syrup
+ * border, on keyboard focus only. `Button`/`Input` carry it in their cva
+ * bases; raw `<button>`s and hand-built controls opt in with `focus-ring`.
+ */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+}
+
 @theme inline reference {
   /* stylelint-disable value-keyword-case */
   --font-display: var(--font-display);
@@ -148,7 +164,7 @@
     touch-action: manipulation;
   }
   /*
-   * The brand faces load only the italics they use (index.html), so never
+   * The brand faces load only the italics they use (src/lib/brand-fonts.ts), so never
    * let the browser fake a missing one: a mechanically slanted Fraunces is a
    * different, worse letterform than its true italic. Add the face to the
    * font URL instead.
@@ -180,5 +196,48 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Reduced motion */
+/*
+ * Intentional alternatives for `prefers-reduced-motion: reduce`, not a
+ * blanket kill: opacity still fades, so a menu or dialog does not snap into
+ * place with no cue at all, but nothing travels, grows or shrinks on the
+ * way. Unlayered on purpose: it must outrank the utilities layer whatever
+ * a call site's selector specificity, and a rule here never applies unless
+ * the viewer asked for it.
+ *
+ * - tw-animate (`animate-in` / `animate-out`, every dialog, sheet, popover,
+ *   dropdown, context menu and tooltip): zero the enter/exit transform
+ *   inputs. The keyframes read these variables, so the zoom-in-95 and
+ *   slide-in-from-* classes become identity transforms and only the fade
+ *   is left. A side sheet therefore fades in where it lands.
+ * - Brand surfaces: the use-case and template cards' 2px hover lift, the
+ *   feature card's 1.005 scale and the pill CTA's 1px lift become still.
+ *   The CTA keeps its darker `primary-hover` fill; the lift on the cards was
+ *   decoration, and they read as hoverable from the cursor alone.
+ *
+ * Canvas motion lives in the engines: presentation transitions and object
+ * animations honor the same query in packages/slides (presenter.ts).
+ */
+@media (prefers-reduced-motion: reduce) {
+  [class*="animate-in"],
+  [class*="animate-out"] {
+    --tw-enter-scale: 1;
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-enter-rotate: 0;
+    --tw-exit-scale: 1;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+    --tw-exit-rotate: 0;
+  }
+  [class~="hover:-translate-y-0.5"]:hover,
+  [class~="hover:-translate-y-px"]:hover {
+    translate: none;
+  }
+  [class~="hover:scale-[1.005]"]:hover {
+    scale: none;
   }
 }

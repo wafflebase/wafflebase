@@ -49,6 +49,17 @@ afterEach(() => {
 });
 
 describe("FontSizePicker", () => {
+  test("the pill shows the focus ring while any part of it has focus", () => {
+    // The input is `outline-none` and the pill's border appeared on hover
+    // only, so keyboard focus on the field drew nothing at all.
+    const el = render(h(FontSizePicker, { value: 14, onChange: () => {} }));
+    const input = el.querySelector('input[aria-label="Font size"]')!;
+    const pill = input.closest("[data-text-edit-keepalive]")!;
+    expect(pill.className).toContain("focus-within:border-ring");
+    expect(pill.className).toContain("focus-within:ring-[3px]");
+    expect(pill.className).toContain("focus-within:ring-ring/50");
+  });
+
   test("shows the current size in the input", () => {
     const el = render(
       h(FontSizePicker, { value: 14, onChange: () => {} }),

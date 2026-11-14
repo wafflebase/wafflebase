@@ -130,9 +130,12 @@ const TOKEN_CLASSES: Record<TokenType, string> = {
   comment:
     "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_50%,transparent)]",
   string: "text-[color:var(--wb-butter)]",
-  flag: "text-[color:var(--wb-leaf)]",
-  cmd: "text-[color:var(--wb-berry)] font-semibold",
-  method: "text-[color:var(--wb-berry)] font-semibold",
+  // The terminal's own locked hues, not `--wb-leaf` / `--wb-berry`: those
+  // flip with the theme, and their light stops are 3.65:1 / 3.69:1 on this
+  // roast. The bright stops are 8.80:1 / 6.25:1 in both themes.
+  flag: "text-[color:var(--wb-terminal-flag)]",
+  cmd: "text-[color:var(--wb-terminal-keyword)] font-semibold",
+  method: "text-[color:var(--wb-terminal-keyword)] font-semibold",
   prompt:
     "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_55%,transparent)]",
   text: "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_90%,transparent)]",

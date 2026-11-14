@@ -17,7 +17,7 @@ import { useDocumentRename } from "@/hooks/use-document-rename";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { SiteHeader } from "@/components/site-header";
+import { HeaderPanelToggle, SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
@@ -703,53 +703,48 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           editable={!previewing}
           syncStatus
           onRename={previewing ? undefined : handleRenameDocument}
-        >
-          <div className="flex items-center gap-2">
-            {/* The toggle goes with the panel, as it does in docs. Left
-                rendered it would still report `aria-pressed` for a panel that
-                is not there, and clicking it would flip `commentsPanelOpen`
-                to false with nothing on screen to show for it — so closing
-                the preview would NOT give the panel back, which is the whole
-                promise of withholding it rather than closing it. */}
-            <EditingChrome previewing={previewing}>
-              <button
-                type="button"
-                className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
-                  commentsPanelOpen ? "bg-muted" : ""
-                }`}
-                aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
-                aria-pressed={commentsPanelOpen}
-                onClick={() => setCommentsPanelOpen((v) => !v)}
-              >
-                <IconMessage size={16} />
-              </button>
-            </EditingChrome>
-            <button
-              type="button"
-              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
-                historyOpen ? "bg-muted" : ""
-              }`}
-              aria-label={historyOpen ? "Hide version history" : "Show version history"}
-              aria-pressed={historyOpen}
-              onClick={() => setHistoryOpen((v) => !v)}
-            >
-              <IconHistory size={16} />
-            </button>
-            <ShareDialog documentId={documentId} />
-            {/* Who is here is read-only, so the avatars stay. The *jump* is
-                not: it moves the LIVE grid behind the preview and publishes
-                this user's selection from a document they are not looking
-                at — the same live `doc.update()` the comments panel was
-                withheld for. Omitting the two callbacks is what
-                `UserPresence` documents as "non-clickable" (it disables the
-                trigger and drops the "Click to jump to…" hint), so the
-                control is not reachable rather than merely inert. */}
-            <UserPresence
-              onSelectPeer={previewing ? undefined : handleSelectPeer}
-              getJumpHint={previewing ? undefined : getJumpHint}
-            />
-          </div>
-        </SiteHeader>
+          actions={{
+            // The toggle goes with the panel, as it does in docs. Left
+            // rendered it would still report `aria-pressed` for a panel that
+            // is not there, and clicking it would flip `commentsPanelOpen`
+            // to false with nothing on screen to show for it — so closing
+            // the preview would NOT give the panel back, which is the whole
+            // promise of withholding it rather than closing it.
+            comments: (
+              <EditingChrome previewing={previewing}>
+                <HeaderPanelToggle
+                  icon={IconMessage}
+                  label="comments"
+                  pressed={commentsPanelOpen}
+                  onPressedChange={setCommentsPanelOpen}
+                />
+              </EditingChrome>
+            ),
+            history: (
+              <HeaderPanelToggle
+                icon={IconHistory}
+                label="version history"
+                pressed={historyOpen}
+                onPressedChange={setHistoryOpen}
+              />
+            ),
+            share: <ShareDialog documentId={documentId} />,
+            // Who is here is read-only, so the avatars stay. The *jump* is
+            // not: it moves the LIVE grid behind the preview and publishes
+            // this user's selection from a document they are not looking
+            // at — the same live `doc.update()` the comments panel was
+            // withheld for. Omitting the two callbacks is what
+            // `UserPresence` documents as "non-clickable" (it disables the
+            // trigger and drops the "Click to jump to…" hint), so the
+            // control is not reachable rather than merely inert.
+            presence: (
+              <UserPresence
+                onSelectPeer={previewing ? undefined : handleSelectPeer}
+                getJumpHint={previewing ? undefined : getJumpHint}
+              />
+            ),
+          }}
+        />
         <div className="flex flex-1 overflow-hidden">
           {/* The tab bar lives INSIDE the preview surface. A preview that
               covered only the grid left it live below, so "Delete sheet"

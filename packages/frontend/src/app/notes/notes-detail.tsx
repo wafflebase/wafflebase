@@ -24,15 +24,9 @@ import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { SiteHeader } from "@/components/site-header";
+import { HeaderPanelToggle, SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
-import { Toggle } from "@/components/ui/toggle";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
@@ -260,30 +254,19 @@ function NotesLayout({ documentId }: { documentId: string }) {
           editable={!previewing}
           syncStatus
           onRename={previewing ? undefined : handleRenameDocument}
-        >
-          <div className="flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Toggle
-                  size="sm"
-                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                  aria-label={
-                    historyOpen ? "Hide version history" : "Show version history"
-                  }
-                  pressed={historyOpen}
-                  onPressedChange={setHistoryOpen}
-                >
-                  <IconHistory size={16} />
-                </Toggle>
-              </TooltipTrigger>
-              <TooltipContent>
-                {historyOpen ? "Hide version history" : "Show version history"}
-              </TooltipContent>
-            </Tooltip>
-            <ShareDialog documentId={documentId} />
-            <UserPresence />
-          </div>
-        </SiteHeader>
+          actions={{
+            history: (
+              <HeaderPanelToggle
+                icon={IconHistory}
+                label="version history"
+                pressed={historyOpen}
+                onPressedChange={setHistoryOpen}
+              />
+            ),
+            share: <ShareDialog documentId={documentId} />,
+            presence: <UserPresence />,
+          }}
+        />
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           {/* Same arrangement as slides, for the same reason and so the two
               read alike: the toolbar stays full-width above the panel row

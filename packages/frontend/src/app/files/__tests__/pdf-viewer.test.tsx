@@ -125,3 +125,21 @@ describe("PdfViewer text layer", () => {
     expect(screen.getAllByTestId("pdf-text-layer")).toHaveLength(2);
   });
 });
+
+describe("PdfViewer load failure", () => {
+  it("shows a recovery hint, not the raw status, when the fetch fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 502, headers: { get: () => null } })),
+    );
+
+    render(<PdfViewer fileUrl="/f/1" />);
+
+    expect(
+      await screen.findByText(
+        "Couldn't open this PDF. Reload the page to try again.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/502/)).toBeNull();
+  });
+});

@@ -189,3 +189,74 @@ describe("UserPresence peer jump", () => {
     expect(onSelectPeer).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The avatar buttons were named by their contents — the initials whenever a
+ * photo was missing or still loading — so a screen reader heard "HA, button"
+ * and nothing about who that was or what the stack is.
+ */
+describe("UserPresence accessible names", () => {
+  beforeEach(() => {
+    presencesMock.mockReset();
+    useDocumentMock.mockReset();
+  });
+
+  it("names each avatar after its person, marking the current user", () => {
+    setup(
+      [
+        { clientID: "me", presence: { username: "hackerwins" } },
+        { clientID: "p1", presence: { username: "alice" } },
+      ],
+      ["p1"],
+    );
+
+    expect(screen.getByRole("button", { name: "hackerwins (you)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "alice" })).toBeTruthy();
+  });
+
+  it("says where a jumpable avatar goes", () => {
+    setup(
+      [
+        { clientID: "me", presence: { username: "hackerwins" } },
+        { clientID: "p1", presence: { username: "alice" } },
+      ],
+      ["p1"],
+      { onSelectPeer: vi.fn(), getJumpHint: () => "B2" },
+    );
+
+    expect(screen.getByRole("button", { name: "alice, jump to B2" })).toBeTruthy();
+  });
+
+  it("names the stack as a whole: peers first, then how many others", () => {
+    setup(
+      [
+        { clientID: "me", presence: { username: "hackerwins" } },
+        { clientID: "p1", presence: { username: "alice" } },
+        { clientID: "p2", presence: { username: "bob" } },
+      ],
+      ["p1", "p2"],
+    );
+
+    expect(
+      screen.getByRole("group", { name: "Collaborators: alice and 2 others" }),
+    ).toBeTruthy();
+  });
+
+  it("says so when the current user is alone", () => {
+    setup([{ clientID: "me", presence: { username: "hackerwins" } }]);
+
+    expect(
+      screen.getByRole("group", { name: "Collaborators: only you" }),
+    ).toBeTruthy();
+  });
+
+  it("draws the same initials as the sidebar account menu", () => {
+    // One rule (`avatarInitials`) everywhere: "hackerwins" is "H", not the
+    // "HA" the stack used to derive while the sidebar showed "H".
+    const { container } = setup([
+      { clientID: "me", presence: { username: "hackerwins" } },
+    ]);
+
+    expect((container.textContent ?? "").trim()).toBe("H");
+  });
+});

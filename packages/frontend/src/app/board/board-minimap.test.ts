@@ -2,8 +2,13 @@
    minimal SlidesStore stub and the jsdom canvas 2D-context stub is a
    narrow mock; typing either precisely would just re-declare their
    real interfaces for no test-clarity gain. */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createBoardMinimap } from './board-minimap';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { palette } from '@wafflebase/core/tokens';
+import {
+  createBoardMinimap,
+  defaultMinimapVisible,
+  viewportStrokeColor,
+} from './board-minimap';
 
 function fakeStore() {
   return {
@@ -103,5 +108,72 @@ describe('createBoardMinimap', () => {
       mm.repaintViewport({ panX: 0, panY: 0, zoom: 1 });
     }).not.toThrow();
     mm.dispose();
+  });
+
+  it('starts collapsed when asked to', () => {
+    const mm = createBoardMinimap({
+      store: fakeStore(),
+      getHostSize: () => ({ w: 800, h: 600 }),
+      onNavigate: vi.fn(),
+      dpr: 1,
+      initialVisible: false,
+    });
+    const toggle = mm.element.querySelector('button') as HTMLButtonElement;
+    const panel = mm.element.querySelector('div') as HTMLElement;
+    expect(panel.style.display).toBe('none');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    expect(panel.style.display).toBe('block');
+    mm.dispose();
+  });
+
+  it('gives the toggle a 24px floor, and 44px on a coarse pointer', () => {
+    const make = (coarsePointer: boolean) =>
+      createBoardMinimap({
+        store: fakeStore(),
+        getHostSize: () => ({ w: 800, h: 600 }),
+        onNavigate: vi.fn(),
+        dpr: 1,
+        coarsePointer,
+      });
+    const fine = make(false);
+    const fineToggle = fine.element.querySelector('button') as HTMLButtonElement;
+    expect(fineToggle.style.minHeight).toBe('24px');
+    fine.dispose();
+    const coarse = make(true);
+    const coarseToggle = coarse.element.querySelector('button') as HTMLButtonElement;
+    expect(coarseToggle.style.minHeight).toBe('44px');
+    expect(coarseToggle.style.minWidth).toBe('44px');
+    coarse.dispose();
+  });
+});
+
+describe('viewportStrokeColor', () => {
+  it('draws the viewport frame in the ring color of each theme', () => {
+    expect(viewportStrokeColor('light')).toBe(palette.syrup);
+    expect(viewportStrokeColor('dark')).toBe(palette.syrupBright);
+  });
+});
+
+describe('defaultMinimapVisible', () => {
+  const original = window.matchMedia;
+  afterEach(() => {
+    window.matchMedia = original;
+  });
+  const stub = (matches: boolean) => {
+    window.matchMedia = ((query: string) => ({
+      matches,
+      media: query,
+    })) as unknown as typeof window.matchMedia;
+  };
+
+  it('is closed on a narrow viewport or a coarse pointer', () => {
+    stub(true);
+    expect(defaultMinimapVisible()).toBe(false);
+  });
+
+  it('is open on a wide viewport with a fine pointer', () => {
+    stub(false);
+    expect(defaultMinimapVisible()).toBe(true);
   });
 });

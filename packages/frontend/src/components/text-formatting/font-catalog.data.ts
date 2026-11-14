@@ -27,7 +27,7 @@ export const FONT_CATALOG_DATA: readonly FontEntry[] = [
   { label: "Lato", family: "Lato", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","greek","greek-ext","latin","latin-ext","vietnamese"] },
   { label: "Montserrat", family: "Montserrat", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","latin","latin-ext","vietnamese"] },
   { label: "Poppins", family: "Poppins", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["devanagari","latin","latin-ext"] },
-  { label: "Inter", family: "Inter", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","greek","greek-ext","latin","latin-ext","vietnamese"] },
+  { label: "Inter", family: "Inter", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","greek","greek-ext","latin","latin-ext","vietnamese"], eager: true },
   { label: "Work Sans", family: "Work Sans", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["latin","latin-ext","vietnamese"] },
   { label: "Nunito", family: "Nunito", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","latin","latin-ext","vietnamese"] },
   { label: "Nunito Sans", family: "Nunito Sans", group: "Sans-serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","latin","latin-ext","vietnamese"] },

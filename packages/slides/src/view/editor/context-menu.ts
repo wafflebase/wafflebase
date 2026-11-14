@@ -31,6 +31,12 @@ const MENU_VIEWPORT_MARGIN = 8;
 
 let activeMenu: HTMLUListElement | null = null;
 let activeCleanup: (() => void) | null = null;
+/**
+ * The element that held focus when the menu opened, so closing the menu
+ * from the keyboard hands focus back to where the user was (the canvas
+ * wrapper, a thumbnail row) instead of stranding it on `<body>`.
+ */
+let restoreFocusTo: HTMLElement | null = null;
 
 /**
  * Whether the primary input is a fingertip. The menu is the one piece
@@ -86,6 +92,87 @@ function createCheckSlot(selected: boolean): HTMLSpanElement {
   return slot;
 }
 
+interface MenuRow {
+  li: HTMLLIElement;
+  item: ContextMenuItem;
+}
+
+/** Close the menu (returning focus), then run the item's action. */
+function activate(item: ContextMenuItem): void {
+  const handler = item.run;
+  dismiss();
+  handler();
+}
+
+/**
+ * Keyboard model for the menu, per the WAI-ARIA menu pattern: Up / Down
+ * step (wrapping), Home / End jump, Enter / Space activate, a printable
+ * character jumps to the next row starting with it, Escape closes and
+ * restores focus. Tab is swallowed rather than letting focus leave a menu
+ * that would then stay open behind it. Handled keys stop here so the
+ * editor's own shortcuts — arrows nudge the selection, Enter enters text
+ * edit — never act on a keystroke meant for the menu.
+ */
+function onMenuKeyDown(
+  e: KeyboardEvent,
+  rows: readonly MenuRow[],
+): void {
+  if (e.isComposing) return;
+  const current = rows.findIndex((r) => r.li === document.activeElement);
+  const focusAt = (index: number) => {
+    if (rows.length === 0) return;
+    const n = rows.length;
+    rows[((index % n) + n) % n].li.focus();
+  };
+  let handled = true;
+  switch (e.key) {
+    case 'ArrowDown':
+      focusAt(current < 0 ? 0 : current + 1);
+      break;
+    case 'ArrowUp':
+      focusAt(current < 0 ? rows.length - 1 : current - 1);
+      break;
+    case 'Home':
+      focusAt(0);
+      break;
+    case 'End':
+      focusAt(rows.length - 1);
+      break;
+    case 'Enter':
+    case ' ':
+      if (current >= 0) activate(rows[current].item);
+      break;
+    case 'Escape':
+      dismiss();
+      break;
+    case 'Tab':
+      break;
+    default:
+      handled = false;
+      if (
+        e.key.length === 1 &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        rows.length > 0
+      ) {
+        const ch = e.key.toLowerCase();
+        for (let step = 1; step <= rows.length; step++) {
+          const row = rows[(current + step) % rows.length];
+          if (row.item.label.toLowerCase().startsWith(ch)) {
+            row.li.focus();
+            handled = true;
+            break;
+          }
+        }
+      }
+  }
+  if (handled) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
 export function showContextMenu(
   host: HTMLElement,
   items: readonly ContextMenuItem[],
@@ -96,9 +183,23 @@ export function showContextMenu(
   dismiss();
 
   const coarse = isCoarsePointer();
+  /** The enabled rows, in order — what the arrow keys walk. */
+  const rows: MenuRow[] = [];
+
+  const previous = document.activeElement;
+  restoreFocusTo = previous instanceof HTMLElement ? previous : null;
 
   const menu = document.createElement('ul');
   menu.className = 'wfb-slides-context-menu';
+  // WAI-ARIA menu pattern. The `ul` itself takes focus on open (as the
+  // Radix menus' content does on a pointer open), so a mouse open paints
+  // no highlight while ArrowDown / ArrowUp step straight onto the first /
+  // last row. `role="menu"` is also what the editor's keyboard rules key
+  // on to leave arrows, Enter and Escape to the menu (`isEditableTarget`).
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-orientation', 'vertical');
+  menu.tabIndex = -1;
+  menu.style.outline = 'none';
   menu.style.position = 'fixed';
   // Themed from the app's tokens so it reads as the same family as the
   // Radix menus (`components/ui/context-menu.tsx`): popover surface,
@@ -139,6 +240,7 @@ export function showContextMenu(
   for (const item of items) {
     if (item.label === '---') {
       const sep = document.createElement('li');
+      sep.setAttribute('role', 'separator');
       sep.style.borderTop = '1px solid var(--border, #e4e4e7)';
       // Bleed across the menu's 4px inset, as the Radix separator does.
       sep.style.margin = '4px -4px';
@@ -146,6 +248,17 @@ export function showContextMenu(
       continue;
     }
     const li = document.createElement('li');
+    // Focusable by script (`focus()`) but out of the Tab order: focus is
+    // the menu's cursor, and the arrow keys move it between rows.
+    li.tabIndex = -1;
+    li.style.outline = 'none';
+    if (item.selected === undefined) {
+      li.setAttribute('role', 'menuitem');
+    } else {
+      li.setAttribute('role', 'menuitemradio');
+      li.setAttribute('aria-checked', String(item.selected));
+    }
+    if (item.disabled) li.setAttribute('aria-disabled', 'true');
     // Per-item radio group: items opt in by setting `selected` to a
     // boolean and get a fixed-width leading slot, checked or empty, so
     // the group's labels stay aligned. Action items leave it undefined
@@ -173,27 +286,36 @@ export function showContextMenu(
     if (item.disabled) {
       li.style.opacity = '0.5';
     } else {
-      li.addEventListener('pointerenter', () => {
+      // The highlight follows focus, and the pointer moves focus — the
+      // Radix model — so hovering and arrowing paint one highlight and
+      // can never show two rows lit at once.
+      li.addEventListener('pointerenter', () => li.focus());
+      li.addEventListener('pointerleave', () => {
+        if (document.activeElement === li) menu.focus();
+      });
+      li.addEventListener('focus', () => {
         // Hover is the neutral accent wash, as in the Radix menus — never
         // the syrup accent, which is reserved for the action.
         li.style.background = 'var(--accent, #f4f4f5)';
         li.style.color = 'var(--accent-foreground, #18181b)';
       });
-      li.addEventListener('pointerleave', () => {
+      li.addEventListener('blur', () => {
         li.style.background = 'transparent';
         li.style.color = '';
       });
       li.addEventListener('click', (e) => {
         e.stopPropagation();
-        const handler = item.run;
-        dismiss();
-        handler();
+        activate(item);
       });
+      rows.push({ li, item });
     }
     menu.appendChild(li);
   }
 
+  menu.addEventListener('keydown', (e) => onMenuKeyDown(e, rows));
+
   host.appendChild(menu);
+  menu.focus({ preventScroll: true });
 
   // Keep the menu inside the viewport. It mounts with `position:
   // fixed`, so its coordinates are viewport-relative. When the anchor
@@ -254,9 +376,17 @@ export function showContextMenu(
 
 export function dismiss(): void {
   if (activeMenu) {
+    // Hand focus back only when the menu holds it. An outside click is
+    // already moving focus to whatever was clicked, and taking it back
+    // would fight the user.
+    const hadFocus = activeMenu.contains(document.activeElement);
     activeMenu.remove();
     activeMenu = null;
+    if (hadFocus && restoreFocusTo?.isConnected) {
+      restoreFocusTo.focus({ preventScroll: true });
+    }
   }
+  restoreFocusTo = null;
   if (activeCleanup) {
     activeCleanup();
     activeCleanup = null;

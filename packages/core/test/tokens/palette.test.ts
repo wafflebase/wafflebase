@@ -20,4 +20,9 @@ describe('palette', () => {
     expect(palette.butterRgb).toMatch(/^\d+,\s*\d+,\s*\d+$/);
     expect(palette.syrupRgb).toMatch(/^\d+,\s*\d+,\s*\d+$/);
   });
+
+  it('locks the terminal syntax hues to the bright brand stops', () => {
+    expect(palette.terminal.keyword).toBe(palette.berryBright);
+    expect(palette.terminal.flag).toBe(palette.leafBright);
+  });
 });

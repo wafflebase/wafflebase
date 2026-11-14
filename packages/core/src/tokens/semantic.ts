@@ -7,8 +7,21 @@ type SemanticColorMap = {
   cardForeground: string;
   popover: string;
   popoverForeground: string;
+  /**
+   * The one accent as a fill or as text. Light mode uses syrup-strong rather
+   * than syrup: the cream label on syrup is 4.11:1 and syrup text on white
+   * 4.27:1, both under AA. Every pairing is asserted in `contrast.test.ts`.
+   */
   primary: string;
   primaryForeground: string;
+  /**
+   * Hover fill for a primary control. Always a step *darker* than `primary`:
+   * the old `bg-primary/90` composited toward the background, which lightens
+   * a light-mode fill (3.49:1 under its label) instead of pressing it.
+   * Light syrup-deep is 6.58:1 under `primaryForeground`; dark #C97A30 is
+   * 5.39:1 under roast.
+   */
+  primaryHover: string;
   secondary: string;
   secondaryForeground: string;
   muted: string;
@@ -52,7 +65,20 @@ type SemanticColorMap = {
   success: string;
   border: string;
   input: string;
+  /**
+   * Form-control boundary (Input, Select trigger, Switch off-track). `border`
+   * is a hairline between regions and measures ~1.3:1; a control's edge is
+   * what tells you where to click, so it must clear WCAG 1.4.11's 3:1. Light
+   * is 3.37:1 on `background` (3.07:1 on `muted`); dark is 3.60:1 on
+   * `background` and 3.21:1 on `popover`, where most dialog inputs sit.
+   */
+  inputBorder: string;
   ring: string;
+  /**
+   * Hyperlink text. One hue per theme (see `palette.link`), AA on
+   * `background`: 5.37:1 light, 9.44:1 dark.
+   */
+  link: string;
   /**
    * The on state of a toggle, pressed tool or picked option. Separate from
    * `accent`, which shadcn spends on hover and keyboard focus in every menu —
@@ -111,8 +137,9 @@ const light: SemanticColorMap = {
   cardForeground: 'oklch(0.141 0.005 285.823)',
   popover: 'oklch(1 0 0)',
   popoverForeground: 'oklch(0.141 0.005 285.823)',
-  primary: palette.syrup,
+  primary: palette.syrupStrong,
   primaryForeground: '#FFFAF0',
+  primaryHover: palette.syrupDeep,
   secondary: 'oklch(0.967 0.001 286.375)',
   secondaryForeground: 'oklch(0.21 0.006 285.885)',
   muted: 'oklch(0.967 0.001 286.375)',
@@ -126,7 +153,10 @@ const light: SemanticColorMap = {
   success: palette.leaf,
   border: 'oklch(0.92 0.004 286.32)',
   input: 'oklch(0.92 0.004 286.32)',
+  inputBorder: 'oklch(0.64 0.016 285.938)',
+  // The ring stays base syrup: it is a 3px graphic (≥3:1), not text.
   ring: palette.syrup,
+  link: palette.link,
   selected: `rgba(${palette.butterRgb}, 0.30)`,
   selectedForeground: palette.syrupDeep,
   // On #ffffff: 4.27 / 5.99 / 4.07 / 4.65 / 3.36.
@@ -140,7 +170,7 @@ const light: SemanticColorMap = {
   // Editor tools feel more professional when the chrome is quiet.
   sidebar: 'oklch(0.985 0 0)',
   sidebarForeground: 'oklch(0.141 0.005 285.823)',
-  sidebarPrimary: palette.syrup,
+  sidebarPrimary: palette.syrupStrong,
   sidebarPrimaryForeground: '#FFFAF0',
   sidebarAccent: `rgba(${palette.butterRgb}, 0.30)`,
   sidebarAccentForeground: palette.syrupDeep,
@@ -166,6 +196,9 @@ const dark: SemanticColorMap = {
   popoverForeground: 'oklch(0.985 0 0)',
   primary: palette.syrupBright,
   primaryForeground: palette.neutrals.dark.bg,
+  // Darker than syrup-bright, not lighter: a lighter fill would read as lit,
+  // and roast-on-syrup must stay ≥4.5:1 (5.39:1 here).
+  primaryHover: '#C97A30',
   secondary: 'oklch(0.274 0.006 286.033)',
   secondaryForeground: 'oklch(0.985 0 0)',
   muted: 'oklch(0.274 0.006 286.033)',
@@ -179,7 +212,9 @@ const dark: SemanticColorMap = {
   success: palette.leafBright,
   border: 'oklch(1 0 0 / 10%)',
   input: 'oklch(1 0 0 / 15%)',
+  inputBorder: 'oklch(0.52 0.016 285.938)',
   ring: palette.syrupBright,
+  link: palette.linkBright,
   selected: `rgba(${palette.butterRgb}, 0.18)`,
   selectedForeground: palette.butter,
   // The light hues lifted for the dark surface. On #09090b:

@@ -295,8 +295,10 @@ describe('ensurePreviewFontLink', () => {
     });
 
     test('a longer family name is not mistaken for a shorter one', () => {
-      appShellLink('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400&display=swap');
-      ensurePreviewFontLink('Inter', 'Inter');
+      // Not Inter/Inter Tight: Inter is an eager catalog face, so it never
+      // gets a preview link whatever the shell loads.
+      appShellLink('https://fonts.googleapis.com/css2?family=Lobster+Two:wght@400&display=swap');
+      ensurePreviewFontLink('Lobster', 'Lobster');
       expect(previewLinks()).toHaveLength(1);
     });
 

@@ -6,6 +6,7 @@ import { LoginForm } from "@/components/login-form";
 import { WaffleLogo } from "@/app/home/primitives/waffle-logo";
 import { RulerBackdrop } from "@/app/home/primitives/ruler-backdrop";
 import { ThemeToggle } from "@/app/home/primitives/theme-toggle";
+import { useBrandFonts } from "@/lib/brand-fonts";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
@@ -14,6 +15,7 @@ const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
  */
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
+  useBrandFonts();
   // Which providers this deployment actually has — Google is optional and
   // configured server-side. Starts false so the page renders GitHub straight
   // away rather than waiting on a request; the call never rejects, so an

@@ -164,3 +164,74 @@ describe('DocsTableContextMenu Insert comment gating', () => {
     expect(screen.queryByText('Insert comment')).toBeNull();
   });
 });
+
+describe('DocsTableContextMenu keyboard model', () => {
+  const open = (editor: EditorAPI) => {
+    render(<Wrapper editor={editor} />);
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), {
+      clientX: 10,
+      clientY: 10,
+    });
+  };
+  const press = (key: string) =>
+    fireEvent.keyDown(document.activeElement as Element, { key });
+  const focusedText = () => document.activeElement?.textContent?.trim();
+
+  it('opens focused and walks rows, skipping labels and the disabled merge row', () => {
+    open(makeEditor());
+    const [menu] = screen.getAllByRole('menu');
+    expect(document.activeElement).toBe(menu);
+    press('ArrowDown');
+    expect(focusedText()).toBe('Insert above');
+    press('ArrowDown');
+    press('ArrowDown');
+    expect(focusedText()).toBe('Delete row');
+    press('ArrowDown');
+    expect(focusedText()).toBe('Insert left');
+    press('ArrowDown');
+    press('ArrowDown');
+    press('ArrowDown');
+    // "Merge cells" is disabled with nothing to merge — skipped.
+    expect(focusedText()).toBe('Cell background');
+    press('End');
+    expect(focusedText()).toBe('Delete table');
+  });
+
+  it('ArrowRight opens the colour submenu with focus inside; ArrowLeft returns', () => {
+    const editor = makeEditor({ applyTableCellStyle: vi.fn() } as Partial<EditorAPI>);
+    open(editor);
+    const trigger = screen.getByText('Cell background').closest('button')!;
+    trigger.focus();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    press('ArrowRight');
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(focusedText()).toBe('Reset');
+    press('ArrowDown');
+    expect(document.activeElement?.getAttribute('aria-label')).toMatch(/^Background /);
+    press('ArrowLeft');
+    expect(document.activeElement).toBe(trigger);
+    expect(screen.queryByText('Reset')).toBeNull();
+
+    // Enter opens it too, and a swatch activates from the keyboard.
+    press('Enter');
+    expect(focusedText()).toBe('Reset');
+    press('ArrowDown');
+    press('Enter');
+    expect(editor.applyTableCellStyle).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('Escape in the submenu closes only the submenu; Escape again closes the menu', () => {
+    const editor = makeEditor();
+    open(editor);
+    const trigger = screen.getByText('Cell background').closest('button')!;
+    trigger.focus();
+    press('ArrowRight');
+    press('Escape');
+    expect(document.activeElement).toBe(trigger);
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    press('Escape');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(editor.focus).toHaveBeenCalledTimes(1);
+  });
+});

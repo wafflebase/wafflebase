@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { DataSourceFormFields } from "@/components/datasource-form-fields";
 import { updateDataSource, testDataSourceConnection } from "@/api/datasources";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import type { DataSource } from "@/types/datasource";
 import { toast } from "sonner";
 
@@ -68,7 +69,12 @@ export function DataSourceEditDialog({
       onSaved();
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Couldn't update the data source");
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't save the data source. Check your network and try again.",
+        ),
+      );
     } finally {
       setSaving(false);
     }
@@ -86,7 +92,12 @@ export function DataSourceEditDialog({
       }
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Couldn't test the connection");
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't run the connection test. Check your network and try again.",
+        ),
+      );
     } finally {
       setTesting(false);
     }

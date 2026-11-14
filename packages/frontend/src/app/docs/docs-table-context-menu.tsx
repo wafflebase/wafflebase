@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -21,6 +22,11 @@ import {
   IconTableOff,
 } from "@tabler/icons-react";
 import { InsertCommentMenuItem } from "./comments/InsertCommentMenuItem";
+import {
+  handleMenuKeyDown,
+  handleMenuPointerMove,
+  menuItems,
+} from "@/components/menu-focus";
 
 interface DocsTableContextMenuProps {
   editor: EditorAPI | null;
@@ -67,6 +73,13 @@ export function DocsTableContextMenu({
   // collapsed caret), so the item only appears when there's text selected.
   const [hasSelection, setHasSelection] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const colorsTriggerRef = useRef<HTMLButtonElement>(null);
+  const colorsMenuRef = useRef<HTMLDivElement>(null);
+  // Set when the keyboard opens the colour submenu, so focus follows into
+  // it; a mouse click only toggles it open.
+  const focusColorsOnOpenRef = useRef(false);
+  const rowLabelId = useId();
+  const columnLabelId = useId();
 
   const handleContextMenu = useCallback(
     (e: MouseEvent) => {
@@ -117,6 +130,21 @@ export function DocsTableContextMenu({
     };
   }, [position, close]);
 
+  // Move focus into the menu when it opens, so the arrow keys reach it.
+  // Keyed on open/closed: the viewport clamp below rewrites `position`,
+  // which must not pull focus back out of a row.
+  const isOpen = position !== null;
+  useEffect(() => {
+    if (isOpen) menuRef.current?.focus({ preventScroll: true });
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!showColors || !focusColorsOnOpenRef.current) return;
+    focusColorsOnOpenRef.current = false;
+    const submenu = colorsMenuRef.current;
+    if (submenu) menuItems(submenu)[0]?.focus();
+  }, [showColors]);
+
   // Keep the menu inside the viewport. Measures after render and shifts
   // left/up if the menu would overflow the right/bottom edges. Re-runs
   // when `showColors` toggles because that changes the menu's height.
@@ -149,11 +177,26 @@ export function DocsTableContextMenu({
 
   if (!position || !editor) return null;
 
+  // The highlight is focus, not hover: the pointer moves focus (see
+  // `handleMenuPointerMove`), so the mouse and the arrow keys light the
+  // same single row.
   const item =
-    "flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground";
+    "flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent focus:text-accent-foreground";
   const sep = "my-1 h-px bg-border -mx-1";
   const label = "px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground";
   const iconSize = 16;
+
+  /** Escape: close, and hand focus back to the editor's caret. */
+  const dismiss = () => {
+    close();
+    editor.focus();
+  };
+
+  /** ArrowLeft / Escape inside the colour submenu: back to its trigger. */
+  const closeColors = () => {
+    setShowColors(false);
+    colorsTriggerRef.current?.focus();
+  };
 
   const act = (fn: () => void) => () => {
     fn();
@@ -164,51 +207,80 @@ export function DocsTableContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+      role="menu"
+      aria-orientation="vertical"
+      tabIndex={-1}
+      className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95"
       style={{ left: position.x, top: position.y }}
+      onKeyDown={(e) =>
+        handleMenuKeyDown(e, {
+          onClose: dismiss,
+          onOpenSubmenu: (el) => {
+            if (el !== colorsTriggerRef.current) return false;
+            focusColorsOnOpenRef.current = true;
+            if (showColors) {
+              // Already open from a click: just step inside.
+              focusColorsOnOpenRef.current = false;
+              const submenu = colorsMenuRef.current;
+              if (submenu) menuItems(submenu)[0]?.focus();
+            } else {
+              setShowColors(true);
+            }
+            return true;
+          },
+        })
+      }
+      onPointerMove={handleMenuPointerMove}
+      onPointerLeave={handleMenuPointerMove}
     >
       {/* Row */}
-      <div className={label}>Row</div>
-      <button className={item} onClick={act(() => editor.insertTableRow(true))}>
-        <IconRowInsertTop size={iconSize} className="text-muted-foreground" />
-        Insert above
-      </button>
-      <button className={item} onClick={act(() => editor.insertTableRow(false))}>
-        <IconRowInsertBottom size={iconSize} className="text-muted-foreground" />
-        Insert below
-      </button>
-      <button className={item} onClick={act(() => editor.deleteTableRow())}>
-        <IconRowRemove size={iconSize} className="text-muted-foreground" />
-        Delete row
-      </button>
+      <div role="group" aria-labelledby={rowLabelId}>
+        <div id={rowLabelId} className={label}>Row</div>
+        <button role="menuitem" tabIndex={-1} className={item} onClick={act(() => editor.insertTableRow(true))}>
+          <IconRowInsertTop size={iconSize} className="text-muted-foreground" />
+          Insert above
+        </button>
+        <button role="menuitem" tabIndex={-1} className={item} onClick={act(() => editor.insertTableRow(false))}>
+          <IconRowInsertBottom size={iconSize} className="text-muted-foreground" />
+          Insert below
+        </button>
+        <button role="menuitem" tabIndex={-1} className={item} onClick={act(() => editor.deleteTableRow())}>
+          <IconRowRemove size={iconSize} className="text-muted-foreground" />
+          Delete row
+        </button>
+      </div>
 
-      <div className={sep} />
+      <div role="separator" className={sep} />
 
       {/* Column */}
-      <div className={label}>Column</div>
-      <button className={item} onClick={act(() => editor.insertTableColumn(true))}>
-        <IconColumnInsertLeft size={iconSize} className="text-muted-foreground" />
-        Insert left
-      </button>
-      <button className={item} onClick={act(() => editor.insertTableColumn(false))}>
-        <IconColumnInsertRight size={iconSize} className="text-muted-foreground" />
-        Insert right
-      </button>
-      <button className={item} onClick={act(() => editor.deleteTableColumn())}>
-        <IconColumnRemove size={iconSize} className="text-muted-foreground" />
-        Delete column
-      </button>
+      <div role="group" aria-labelledby={columnLabelId}>
+        <div id={columnLabelId} className={label}>Column</div>
+        <button role="menuitem" tabIndex={-1} className={item} onClick={act(() => editor.insertTableColumn(true))}>
+          <IconColumnInsertLeft size={iconSize} className="text-muted-foreground" />
+          Insert left
+        </button>
+        <button role="menuitem" tabIndex={-1} className={item} onClick={act(() => editor.insertTableColumn(false))}>
+          <IconColumnInsertRight size={iconSize} className="text-muted-foreground" />
+          Insert right
+        </button>
+        <button role="menuitem" tabIndex={-1} className={item} onClick={act(() => editor.deleteTableColumn())}>
+          <IconColumnRemove size={iconSize} className="text-muted-foreground" />
+          Delete column
+        </button>
+      </div>
 
-      <div className={sep} />
+      <div role="separator" className={sep} />
 
       {/* Cell merge / unmerge — single hybrid slot */}
       {mergeCtx.state === 'canUnmerge' ? (
-        <button className={item} onClick={act(() => editor.splitTableCell())}>
+        <button role="menuitem" tabIndex={-1} className={item} onClick={act(() => editor.splitTableCell())}>
           <IconArrowsSplit size={iconSize} className="text-muted-foreground" />
           Unmerge cells
         </button>
       ) : (
         <button
+          role="menuitem"
+          tabIndex={-1}
           className={`${item} disabled:opacity-50 disabled:pointer-events-none`}
           disabled={mergeCtx.state !== 'canMerge'}
           onClick={
@@ -222,6 +294,11 @@ export function DocsTableContextMenu({
         </button>
       )}
       <button
+        ref={colorsTriggerRef}
+        role="menuitem"
+        tabIndex={-1}
+        aria-haspopup="menu"
+        aria-expanded={showColors}
         className={item}
         onClick={(e) => {
           e.stopPropagation();
@@ -232,9 +309,22 @@ export function DocsTableContextMenu({
         Cell background
       </button>
       {showColors && (
-        <div className="px-2 py-1.5">
+        <div
+          ref={colorsMenuRef}
+          role="menu"
+          aria-label="Cell background"
+          tabIndex={-1}
+          className="px-2 py-1.5 outline-none"
+          onKeyDown={(e) =>
+            handleMenuKeyDown(e, { isSubmenu: true, onClose: closeColors })
+          }
+          onPointerMove={handleMenuPointerMove}
+          onPointerLeave={handleMenuPointerMove}
+        >
           <button
-            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+            role="menuitem"
+            tabIndex={-1}
+            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs outline-none focus:bg-muted"
             onClick={act(() =>
               // Clear the fill rather than storing an empty string, so the
               // attribute is removed from the CRDT node instead of merged
@@ -251,7 +341,9 @@ export function DocsTableContextMenu({
             {BG_COLORS.map((color) => (
               <button
                 key={color}
-                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
+                role="menuitem"
+                tabIndex={-1}
+                className="h-5 w-5 cursor-pointer rounded border border-border outline-none focus:scale-125 transition-transform"
                 style={{ backgroundColor: color }}
                 onClick={act(() =>
                   editor.applyTableCellStyle({ backgroundColor: color }),
@@ -271,7 +363,7 @@ export function DocsTableContextMenu({
       */}
       {onInsertComment && !readOnly && canComment && hasSelection && (
         <>
-          <div className={sep} />
+          <div role="separator" className={sep} />
           <InsertCommentMenuItem
             className={item}
             onSelect={() => {
@@ -282,10 +374,12 @@ export function DocsTableContextMenu({
         </>
       )}
 
-      <div className={sep} />
+      <div role="separator" className={sep} />
 
       {/* Table */}
       <button
+        role="menuitem"
+        tabIndex={-1}
         className={item}
         onClick={act(() => {
           editor.deleteTable();

@@ -11,15 +11,9 @@ import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { SiteHeader } from "@/components/site-header";
+import { HeaderPanelToggle, SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
-import { Toggle } from "@/components/ui/toggle";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
@@ -409,45 +403,34 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
           editable={!previewing}
           syncStatus
           onRename={previewing ? undefined : handleRenameDocument}
-        >
-          <div className="flex items-center gap-2">
-            <PresentButton
-              disabled={!store || slideCount === 0}
-              onStart={handleStartPresentation}
-            />
-            <SlidesExportButton
-              store={store}
-              title={documentData?.title ?? "presentation"}
-              disabled={!store || slideCount === 0}
-            />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Toggle
-                  size="sm"
-                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                  aria-label={
-                    rightPanel === "history"
-                      ? "Hide version history"
-                      : "Show version history"
-                  }
-                  pressed={rightPanel === "history"}
-                  onPressedChange={() =>
-                    setRightPanel((p) => (p === "history" ? null : "history"))
-                  }
-                >
-                  <IconHistory size={16} />
-                </Toggle>
-              </TooltipTrigger>
-              <TooltipContent>
-                {rightPanel === "history"
-                  ? "Hide version history"
-                  : "Show version history"}
-              </TooltipContent>
-            </Tooltip>
-            <ShareDialog documentId={documentId} />
-            <UserPresence />
-          </div>
-        </SiteHeader>
+          actions={{
+            primary: (
+              <PresentButton
+                disabled={!store || slideCount === 0}
+                onStart={handleStartPresentation}
+              />
+            ),
+            history: (
+              <HeaderPanelToggle
+                icon={IconHistory}
+                label="version history"
+                pressed={rightPanel === "history"}
+                onPressedChange={() =>
+                  setRightPanel((p) => (p === "history" ? null : "history"))
+                }
+              />
+            ),
+            export: (
+              <SlidesExportButton
+                store={store}
+                title={documentData?.title ?? "presentation"}
+                disabled={!store || slideCount === 0}
+              />
+            ),
+            share: <ShareDialog documentId={documentId} />,
+            presence: <UserPresence />,
+          }}
+        />
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           {/* The toolbar stays full-width above the panel row — pulling it
               into the covered surface would narrow it by the panel's 288px
@@ -487,7 +470,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                 <button
                   type="button"
                   onClick={() => setLayoutEditTarget(null)}
-                  className="shrink-0 rounded border bg-background px-2 py-1 font-medium hover:bg-muted"
+                  className="focus-ring shrink-0 rounded border bg-background px-2 py-1 font-medium hover:bg-muted"
                 >
                   Done
                 </button>
@@ -790,21 +773,24 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
           editable
           syncStatus
           onRename={handleRenameDocument}
-        >
-          <div className="flex items-center gap-2">
-            <PresentButton
-              disabled={!store || slideCount === 0}
-              onStart={handleStartPresentation}
-            />
-            <SlidesExportButton
-              store={store}
-              title={documentData?.title ?? "presentation"}
-              disabled={!store || slideCount === 0}
-            />
-            <ShareDialog documentId={documentId} />
-            <UserPresence />
-          </div>
-        </SiteHeader>
+          actions={{
+            primary: (
+              <PresentButton
+                disabled={!store || slideCount === 0}
+                onStart={handleStartPresentation}
+              />
+            ),
+            export: (
+              <SlidesExportButton
+                store={store}
+                title={documentData?.title ?? "presentation"}
+                disabled={!store || slideCount === 0}
+              />
+            ),
+            share: <ShareDialog documentId={documentId} />,
+            presence: <UserPresence />,
+          }}
+        />
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           <SlidesToolbar
             editor={editor}

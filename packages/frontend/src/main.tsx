@@ -7,6 +7,7 @@ import { ErrorBoundary } from "@sentry/react";
 import { backendOrigin } from "@/api/images";
 import { initSentry } from "./sentry.ts";
 import { AppCrashFallback } from "@/components/app-crash-fallback";
+import { loadBrandFontsForPath } from "@/lib/brand-fonts";
 
 // First statement to run in the module, so a throw anywhere below is still
 // reported. A no-op unless `VITE_SENTRY_DSN` is set for this build — see
@@ -19,6 +20,10 @@ initSentry();
 // because the engine packages that load the images have no `import.meta.env`
 // of their own; anything not on this origin loads exactly as it always has.
 setCredentialedImageOrigins([backendOrigin()]);
+
+// Brand faces only for a cold load of a brand route, started before the
+// route chunk is fetched; see `brand-fonts.ts`.
+loadBrandFontsForPath(window.location.pathname);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
