@@ -60,13 +60,25 @@ jobs:
     #                             otherwise pass the trigger filter. `event ==
     #                             'push'` already excludes it; this makes the
     #                             intent explicit rather than incidental.
+    #
+    # A RELEASE THE AGENT APP PUBLISHED is refused. The App's `contents: write`
+    # (it pushes the agent's branches) also lets it publish a release, and this
+    # job answers a release with the registry credentials. Nothing legitimate
+    # publishes a release as the App. This is not the whole answer: a release
+    # runs the workflow file at the TAGGED commit, which could predate this
+    # line, and the App can publish a draft a human created. Publish secrets
+    # behind a reviewed environment, or a `v*` tag ruleset, close those. Same
+    # guard as yorkie-team/yorkie's docker-publish.yml;
+    # scripts/test/release-guard.test.mjs pins it.
     if: >-
-      github.event_name != 'workflow_run' || (
+      (github.event_name != 'workflow_run' || (
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push' &&
         github.event.workflow_run.head_branch == 'main' &&
         github.event.workflow_run.head_repository.full_name == github.repository
-      )
+      )) &&
+      (github.event_name != 'release' ||
+        github.event.release.author.login != 'yorkie-agent[bot]')
     strategy:
       fail-fast: false
       matrix:
