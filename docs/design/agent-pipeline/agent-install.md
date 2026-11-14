@@ -92,10 +92,10 @@ One script, `scripts/agent/install-deps.mjs` (with
 | Where pnpm writes | `modules-dir` and `virtual-store-dir` pinned inside the workspace; the store pinned to `$RUNNER_TEMP/agent-pnpm/store`, outside it. The same store is exported to later steps (`npm_config_store_dir` via `$GITHUB_ENV`) so a pnpm command the agent runs agrees with the install |
 | `pnpm-workspace.yaml` (projects, and in pnpm 10 settings) | Must be byte-identical to main's, shipped as `scripts/agent/install-deps.workspace.yaml` |
 | `pnpm.*` in the root `package.json` | Only the keys in `ALLOWED_PNPM_KEYS` (`overrides`); any other key is refused |
-| The shape of the tree | Refused before pnpm runs: any `node_modules` (a fresh checkout has none), any symbolic link that does not resolve inside the workspace and outside `.git`, a project directory that is itself a link, a package manifest in YAML or JSON5 form |
+| The shape of the tree | Refused before pnpm runs: any `node_modules` (a fresh checkout has none), any symbolic link that does not lead into the working tree — judged by its text as well as by what it resolves to, since a target under `/proc/self` is a different place for every process that follows it — a project directory that is itself a link, a second `.git`, a package manifest in YAML or JSON5 form, anything that cannot be listed. The workspace path itself must be absolute, without `..`, and not a link; `.git` must be a real directory |
 | `pnpm-lock.yaml` | Read by allow-list — see below |
 | `package.json` of every project | Read by allow-list — see below |
-| Afterwards | Every project's `node_modules` is a real directory whose entries resolve inside the workspace; nothing appeared beside the workspace or in `$RUNNER_TEMP` outside pnpm's own directory; the directory the script ran from is byte-for-byte what it was; `.git/hooks`, `.git/config` and `.git/info` are what they were; the package managers' configuration in the runner's home (`.npmrc`, `.yarnrc*`, `.pnpmrc`, `.config/pnpm`) is what it was; no symbolic link anywhere in the workspace leaves its working tree and there is no second `.git`; `git status` reports the same working tree as before, `node_modules` aside |
+| Afterwards | Every project's `node_modules` is a real directory whose entries resolve inside the workspace; nothing appeared beside the workspace or in `$RUNNER_TEMP` outside pnpm's own directory; the directory the script ran from is byte-for-byte what it was; `.git/hooks`, `.git/config` and `.git/info` are what they were; the package managers' configuration in the runner's home (`.npmrc`, `.yarnrc*`, `.pnpmrc`, `.config/pnpm`) is what it was; every symbolic link in the workspace — those the checkout brought as well as new ones — leads into the working tree, as written and as resolved; there is no second `.git`; nothing in the workspace is unlistable (what cannot be read is a refusal, never a skip); and a digest of the working tree, everything but `.git` and `node_modules`, is what it was. The runner computes all of this by reading files; it runs no other program in the workspace, git included |
 | Dependency caches | None: no `cache:` on any setup action in an agent workflow |
 | The checkout's credential | `persist-credentials: false` on the branch checkout: the token is not in `.git/config` while the install runs. The agent step configures its own push credential |
 
@@ -281,14 +281,36 @@ those places is the list above, not a check afterwards.
 
 **What the container still shares with the runner**: the network, the kernel,
 the workspace's working tree and the store directory. An install can still be
-led to write a file *inside the working tree* (the tree-status check then fails
-the step, unless the file is one git ignores), and a package fetched from the
+led to write a file *inside the working tree* (the working-tree digest then
+fails the step), and a package fetched from the
 registry is whatever the registry serves for that name, version and hash.
 Neither runs anything: the next thing to execute files from the workspace is
 the agent.
 
 pnpm is passed no proxy settings. A self-hosted runner that reaches the
 registry through a proxy needs them added to `PASSED_ENV`, deliberately.
+
+## What is trusted
+
+Stated plainly, the property rests on these and on nothing else:
+
+- **Docker's isolation and the kernel under it.** The container's mount
+  namespace is what keeps the install to the workspace and the store. A fault
+  there is outside what this design defends.
+- **The image, by digest**, and the registry that serves it.
+- **The pnpm the setup step installed** before the branch was checked out, and
+  the registry it came from. It is located on `PATH`, not chosen by the branch.
+- **`PATH`, Node and Docker on the runner** as they are when the step starts:
+  nothing before the install step has run anything of the branch's.
+- **No trusted step before the agent follows a path in the workspace or runs a
+  program from it.** The guards hold the workflows to this for the scripts they
+  run; a new pre-agent step that reads workspace files is a new thing to check.
+- **Everything after the agent is untrusted**, as before: the agent has a
+  shell.
+- **The container has open egress and no credential.** It can reach the
+  network; it holds nothing worth sending.
+- **The store under `$RUNNER_TEMP` is shared with the agent's later pnpm
+  commands.** What the install put there is what those commands link from.
 
 ## When pnpm moves
 

@@ -158,16 +158,64 @@ const refuse = (message) => {
 
 const isInside = (root, target) => target === root || target.startsWith(root + path.sep);
 
+/** A directory's entries. One that cannot be listed is a refusal, never something to skip. */
+function entriesOf(root, dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return refuse(`${path.relative(root, dir) || "the workspace"} cannot be listed (${error.code ?? error.message}); the install does not skip what it cannot read`);
+  }
+}
+
 /**
- * Walk the tree without following links. Refuses any `node_modules`, and any
- * symbolic link that does not resolve inside the workspace and outside `.git`.
+ * Where a symbolic link leads, judged twice: BY ITS TEXT and by what it
+ * resolves to. The text matters because resolution depends on who asks — a
+ * target under `/proc/self` is a different place for every process — so a link
+ * is acceptable only if, read as written from its own directory, it stays in
+ * the working tree; and, if it resolves here, it resolves there too.
+ *
+ * @returns {"special" | "outside" | "git" | "dangling" | null}
+ */
+function judgeLink(root, dir, full) {
+  const gitDir = path.join(root, ".git");
+  let text;
+  try {
+    text = readlinkSync(full);
+  } catch {
+    return "outside";
+  }
+  if (path.isAbsolute(text) && text.split("/").some((part) => part === "proc" || part === "dev" || part === "sys")) return "special";
+  // Step by step, so a path that climbs out and comes back in is out.
+  let asWritten = path.isAbsolute(text) ? path.parse(text).root : dir;
+  for (const part of text.split("/")) {
+    if (part === "" || part === ".") continue;
+    asWritten = part === ".." ? path.dirname(asWritten) : path.join(asWritten, part);
+    if (!path.isAbsolute(text) && !isInside(root, asWritten)) return "outside";
+  }
+  if (!isInside(root, asWritten)) return "outside";
+  if (isInside(gitDir, asWritten)) return "git";
+  let resolved;
+  try {
+    resolved = realpathSync(full);
+  } catch {
+    return "dangling";
+  }
+  if (!isInside(root, resolved)) return "outside";
+  if (isInside(gitDir, resolved)) return "git";
+  return null;
+}
+
+/**
+ * Before the install, the whole checkout without following links: no
+ * `node_modules`, no manifest in another format, and every symbolic link
+ * leading — as written and as resolved — into the working tree.
  */
 function checkTree(root) {
   const gitDir = path.join(root, ".git");
   const stack = [root];
   while (stack.length > 0) {
     const dir = stack.pop();
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of entriesOf(root, dir)) {
       const full = path.join(dir, entry.name);
       const rel = path.relative(root, full);
       if (full === gitDir) continue;
@@ -180,19 +228,13 @@ function checkTree(root) {
       if (entry.name === "package.yaml" || entry.name === "package.json5") {
         refuse(`${rel} is a package manifest in a format the install does not read; it accepts package.json only`);
       }
+      if (entry.name === ".git") refuse(`${rel} is a second .git; a workspace has one`);
       if (entry.isSymbolicLink()) {
-        let target;
-        try {
-          target = realpathSync(full);
-        } catch {
-          refuse(`${rel} is a symbolic link that does not resolve`);
-        }
-        if (!isInside(root, target)) {
-          refuse(`${rel} is a symbolic link that resolves outside the workspace`);
-        }
-        if (isInside(gitDir, target)) {
-          refuse(`${rel} is a symbolic link into the repository's .git`);
-        }
+        const problem = judgeLink(root, dir, full);
+        if (problem === "special") refuse(`${rel} is a symbolic link to a process or device path`);
+        if (problem === "dangling") refuse(`${rel} is a symbolic link that does not resolve`);
+        if (problem === "outside") refuse(`${rel} is a symbolic link that resolves outside the workspace`);
+        if (problem === "git") refuse(`${rel} is a symbolic link into the repository's .git`);
       } else if (entry.isDirectory()) {
         stack.push(full);
       }
@@ -328,42 +370,47 @@ function gitControlDigest(root) {
 }
 
 /**
- * What git reports as changed or untracked in the working tree, `node_modules`
- * aside. Asked before and after: an install adds `node_modules` and nothing
- * else. Git runs with an environment of its own and reads only the
- * repository's configuration, which the install cannot write.
+ * A digest of a directory: every entry's path and kind, every file's bytes and
+ * whether it is executable, every link's target. Nothing is followed, and an
+ * entry that cannot be read is a refusal.
+ *
+ * @param {(rel: string, name: string) => boolean} [skip] entries to leave out
  */
-function workingTreeStatus(root) {
-  const r = spawnSync(
-    "git",
-    ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", ":(exclude,glob)**/node_modules/**", ":(exclude,glob)**/node_modules"],
-    { cwd: root, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", GIT_OPTIONAL_LOCKS: "0" }, maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (r.error || r.status !== 0) refuse("git status could not be read in the workspace; the install runs on a checkout");
-  return r.stdout;
-}
-
-/** A digest of a directory: every entry's path and kind, every file's bytes, every link's target. */
-export function hashTree(dir) {
+export function hashTree(dir, skip = () => false) {
   const hash = createHash("sha256");
   const walk = (rel) => {
-    const entries = readdirSync(path.join(dir, rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
+    const entries = entriesOf(dir, path.join(dir, rel)).sort((a, b) => (a.name < b.name ? -1 : 1));
     for (const entry of entries) {
       const child = path.join(rel, entry.name);
+      if (skip(child, entry.name)) continue;
       const full = path.join(dir, child);
-      if (entry.isSymbolicLink()) hash.update(`l\0${child}\0${readlinkSync(full)}\0`);
-      else if (entry.isDirectory()) {
-        hash.update(`d\0${child}\0`);
-        walk(child);
-      } else if (entry.isFile()) {
-        hash.update(`f\0${child}\0`);
-        hash.update(readFileSync(full));
-        hash.update("\0");
-      } else hash.update(`?\0${child}\0`);
+      try {
+        if (entry.isSymbolicLink()) hash.update(`l\0${child}\0${readlinkSync(full)}\0`);
+        else if (entry.isDirectory()) hash.update(`d\0${child}\0`);
+        else if (entry.isFile()) {
+          hash.update(`f\0${child}\0${lstatSync(full).mode & 0o111 ? "x" : "-"}\0`);
+          hash.update(readFileSync(full));
+          hash.update("\0");
+        } else hash.update(`?\0${child}\0`);
+      } catch (error) {
+        if (error instanceof Refusal) throw error;
+        refuse(`${child} cannot be read (${error.code ?? error.message}); the install does not skip what it cannot read`);
+      }
+      if (entry.isDirectory() && !entry.isSymbolicLink()) walk(child);
     }
   };
   walk("");
   return hash.digest("hex");
+}
+
+/**
+ * A digest of the working tree as the checkout left it: everything but `.git`
+ * and the `node_modules` directories an install adds. Taken before and after —
+ * an install changes nothing else. Read from the files themselves; no other
+ * program is asked.
+ */
+function workingTreeDigest(root) {
+  return hashTree(root, (rel, name) => rel === ".git" || name === "node_modules");
 }
 
 /**
@@ -456,30 +503,25 @@ function checkInstalled(root, importers) {
 }
 
 /**
- * After the install, the whole workspace: every symbolic link in it resolves
- * inside it and outside its `.git`, and there is no second `.git` anywhere.
- * The checkout was held to the first before the install; whatever fails it now
- * is the install's.
+ * After the install, the whole workspace again: EVERY symbolic link in it —
+ * those the checkout brought as much as those the install made — leads, as
+ * written and as resolved, into the working tree; there is no second `.git`;
+ * and there is nothing that cannot be listed.
  */
 function checkTreeAfter(root) {
   const gitDir = path.join(root, ".git");
   const stack = [root];
   while (stack.length > 0) {
     const dir = stack.pop();
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of entriesOf(root, dir)) {
       const full = path.join(dir, entry.name);
       if (full === gitDir) continue;
       const rel = path.relative(root, full);
       if (entry.name === ".git") refuse(`${rel} appeared during the install; a workspace has one .git`);
       if (entry.isSymbolicLink()) {
-        // Where it points as written, and where that resolves if it resolves.
-        let target = path.resolve(dir, readlinkSync(full));
-        try {
-          target = realpathSync(full);
-        } catch {
-          // A link that resolves nowhere is judged by where it points.
-        }
-        if (!isInside(root, target) || isInside(gitDir, target)) {
+        // A link that resolves nowhere is judged by where it points as written.
+        const problem = judgeLink(root, dir, full);
+        if (problem !== null && problem !== "dangling") {
           refuse(`${rel} is a symbolic link out of the workspace's working tree after the install`);
         }
       } else if (entry.isDirectory()) {
@@ -513,14 +555,24 @@ const listing = (dir) => readdirSync(dir).sort().join("\n");
  * @returns {number} the exit status of the contained `pnpm install`
  */
 export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
+  // The workspace is named plainly: an absolute path with no `..` in it that
+  // is not, and does not pass through, a symbolic link.
+  if (!path.isAbsolute(workspace) || workspace.split(path.sep).includes("..") || !existsSync(workspace)) {
+    refuse("the workspace is not an existing absolute path without `..`");
+  }
   const root = realpathSync(workspace);
+  if (root !== path.resolve(workspace)) refuse("the workspace path is, or passes through, a symbolic link");
   const dirs = pnpmDirs(root);
 
   // BEFORE THE INSTALL. Nothing below this block runs unless all of it passes.
   // The tree first: after it, every file read below is known not to lead
   // anywhere, and each is still read as a regular file of bounded size.
   const pnpmDir = locatePnpm(root, pnpm);
-  if (!lstatSync(path.join(root, ".git"), { throwIfNoEntry: false })) refuse("the workspace has no .git; the install runs on a checkout");
+  // A real `.git` directory: it is what gets mounted read-only, so there has
+  // to be one, and it has to be the directory itself.
+  if (!lstatSync(path.join(root, ".git"), { throwIfNoEntry: false })?.isDirectory()) {
+    refuse("the workspace's .git is missing or is not a directory; the install runs on a checkout");
+  }
   if (!lstatSync(ENTRY, { throwIfNoEntry: false })?.isFile()) refuse("install-deps-container.cjs is missing beside install-deps.mjs");
   checkTree(root);
   checkManifest(root);
@@ -532,7 +584,7 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   const toolsBefore = hashTree(HERE);
   const gitBefore = gitControlDigest(root);
   const homeBefore = homeConfigDigest();
-  const treeBefore = workingTreeStatus(root);
+  const treeBefore = workingTreeDigest(root);
 
   // THE INSTALL. From here on the runner writes NOTHING under the workspace:
   // setting the branch's `.npmrc` files aside and putting them back is done
@@ -581,7 +633,7 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
     refuse("a package manager's configuration in the runner's home changed during the install");
   }
   checkTreeAfter(root);
-  if (workingTreeStatus(root) !== treeBefore) {
+  if (workingTreeDigest(root) !== treeBefore) {
     refuse("the install changed the working tree outside node_modules");
   }
   if (status !== 0) return status;

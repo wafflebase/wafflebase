@@ -67,7 +67,11 @@ const GIT = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdo
  */
 function harness(t) {
   const base = mkdtempSync(path.join(TMP, "install-deps-test-"));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => {
+    // Some cases close a directory; open everything again before removing it.
+    spawnSync("chmod", ["-R", "u+rwx", base]);
+    rmSync(base, { recursive: true, force: true });
+  });
   // The stub is told what to do through a file beside it: the script hands
   // the runtime's client an environment of its own, so nothing set here
   // reaches it. It says it ran, records its arguments, its environment and
@@ -101,7 +105,7 @@ function harness(t) {
    * leaves no `docker` on PATH, `launcher` puts pnpm on PATH the way pnpm
    * installs itself: a launcher script in a `.bin` beside the package.
    */
-  const run = (setup, { stub = {}, env = {}, staged = false, pnpmVersion = PNPM_VERSION, docker = true, launcher = false, repository = true } = {}) => {
+  const run = (setup, { stub = {}, env = {}, staged = false, pnpmVersion = PNPM_VERSION, docker = true, launcher = false } = {}) => {
     const area = path.join(base, `case${++n}`);
     // The workspace sits in a directory of its own, so that anything appearing
     // beside it is the install's doing.
@@ -123,7 +127,6 @@ function harness(t) {
     } else {
       symlinkSync(path.join(pnpmDir, "bin", "pnpm.cjs"), path.join(bin, "pnpm"));
     }
-    symlinkSync(GIT, path.join(bin, "git"));
     if (docker) {
       writeFileSync(path.join(bin, "docker"), DOCKER_STUB);
       chmodSync(path.join(bin, "docker"), 0o755);
@@ -132,18 +135,14 @@ function harness(t) {
       mkdirSync(path.join(dir, project), { recursive: true });
       writeFileSync(path.join(dir, project, "package.json"), JSON.stringify(manifest));
     }
-    // A case that is refused before the install never asks git anything: a
-    // bare `.git` directory stands in, which keeps a few hundred cases quick.
-    if (repository) spawnSync(GIT, ["init", "-q", dir]);
-    else mkdirSync(path.join(dir, ".git"));
+    // What a checkout has in `.git` that the install looks at.
+    mkdirSync(path.join(dir, ".git", "hooks"), { recursive: true });
+    mkdirSync(path.join(dir, ".git", "info"));
+    writeFileSync(path.join(dir, ".git", "config"), "[core]\n");
+    writeFileSync(path.join(dir, ".git", "info", "exclude"), "");
     writeFileSync(path.join(dir, "pnpm-workspace.yaml"), TRUSTED_WORKSPACE);
     writeFileSync(path.join(dir, "pnpm-lock.yaml"), LOCKFILE);
     setup?.(dir);
-    if (repository) {
-      // A checkout: everything the case put in the tree is tracked.
-      spawnSync(GIT, ["add", "-A"], { cwd: dir });
-      spawnSync(GIT, ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--no-verify", "-m", "tree"], { cwd: dir });
-    }
     const ran = path.join(area, "ran");
     const conf = { STUB_RAN: ran, STUB_EXTRA: ":", STUB_EXIT: "0", STUB_RT: rt, STUB_HOME: home, ...stub };
     writeFileSync(path.join(bin, "stub.conf"), Object.entries(conf).map(([k, v]) => `${k}='${v}'\n`).join(""));
@@ -159,8 +158,8 @@ function harness(t) {
     const r = spawnSync(process.execPath, [script], {
       cwd: dir,
       encoding: "utf8",
-      // PATH holds this case's pnpm, git and docker and nothing else, so a
-      // case without a docker has none.
+      // PATH holds this case's pnpm and docker and nothing else, so a case
+      // without a docker has none — and the script asks no other program.
       env: { PATH, HOME: home, GITHUB_WORKSPACE: dir, RUNNER_TEMP: rt, GITHUB_ENV: githubEnv, ...env },
     });
     return { dir, rt, home, pnpmDir, status: r.status, out: r.stdout, err: r.stderr, installed: existsSync(ran), ran, githubEnv };
@@ -311,7 +310,7 @@ test("the container is given the workspace, its store and the workflow's pnpm, a
 function expectRefused(t, cases) {
   const { outside, run } = harness(t);
   for (const [name, setup, message] of cases) {
-    const r = run((dir) => setup(dir, outside), { repository: false });
+    const r = run((dir) => setup(dir, outside));
     assert.notEqual(r.status, 0, `${name}: the install did not fail`);
     assert.match(r.err, message, name);
     assert.match(r.err, /^::error::install-deps: /m, name);
@@ -386,6 +385,30 @@ test("a tree the install cannot keep inside the workspace is refused before pnpm
     ],
     ["a link that resolves nowhere", (dir) => symlinkSync("nowhere", path.join(dir, "dangling")), /does not resolve/],
     ["a link into .git", (dir) => symlinkSync(".git", path.join(dir, "meta")), /symbolic link into the repository's \.git/],
+    // A link is judged by its text as well: where it resolves depends on who asks.
+    ["a link to the asking process's directory", (dir) => symlinkSync("/proc/self/cwd", path.join(dir, "here")), /here is a symbolic link to a process or device path/],
+    ["a link through the asking process's root", (dir) => symlinkSync(`/proc/self/root${dir}/packages`, path.join(dir, "packages", "y")), /packages\/y is a symbolic link to a process or device path/],
+    ["a link to a device", (dir) => symlinkSync("/dev/fd/0", path.join(dir, "in")), /in is a symbolic link to a process or device path/],
+    [
+      "a link that leaves the workspace as written and comes back",
+      (dir) => symlinkSync(`../${path.basename(dir)}/packages`, path.join(dir, "round")),
+      /round is a symbolic link that resolves outside the workspace/,
+    ],
+    [
+      "an absolute link elsewhere whose target resolves into the workspace",
+      (dir) => {
+        const back = path.join(dir, "..", "..", "back");
+        symlinkSync(path.join(dir, "packages"), back);
+        symlinkSync(path.resolve(back), path.join(dir, "via"));
+      },
+      /via is a symbolic link that resolves outside the workspace/,
+    ],
+    ["a link into .git as written, to something that is not there", (dir) => symlinkSync(".git/hooks/later", path.join(dir, "later")), /later is a symbolic link into the repository's \.git/],
+    ["a second .git", (dir) => mkdirSync(path.join(dir, "packages", "a", ".git")), /packages\/a\/\.git is a second \.git/],
+    ["a directory that cannot be listed", (dir) => { mkdirSync(path.join(dir, "closed", "in"), { recursive: true }); chmodSync(path.join(dir, "closed"), 0o311); }, /closed cannot be listed \(EACCES\); the install does not skip what it cannot read/],
+    ["no .git", (dir) => rmSync(path.join(dir, ".git"), { recursive: true }), /\.git is missing or is not a directory/],
+    ["a .git that is a file", (dir) => { rmSync(path.join(dir, ".git"), { recursive: true }); writeFileSync(path.join(dir, ".git"), "gitdir: elsewhere\n"); }, /\.git is missing or is not a directory/],
+    ["a .git that is a link", (dir) => { cpSync(path.join(dir, ".git"), path.join(dir, "realgit"), { recursive: true }); rmSync(path.join(dir, ".git"), { recursive: true }); symlinkSync("realgit", path.join(dir, ".git")); }, /\.git is missing or is not a directory/],
     [
       "a project directory that is a link, even to inside the workspace",
       (dir) => {
@@ -707,6 +730,22 @@ test("without a runner temp directory outside the workspace there is no install"
   });
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /^::error::install-deps: RUNNER_TEMP and the workspace contain one another/m);
+
+  // The workspace itself is named plainly: no link, no `..`, not relative.
+  const plain = run(null);
+  assert.equal(plain.status, 0, plain.err);
+  const alias = path.join(path.dirname(plain.dir), "alias");
+  symlinkSync(plain.dir, alias);
+  for (const [name, expected] of [
+    [alias, /the workspace path is, or passes through, a symbolic link/],
+    [`${plain.dir}/../ws`, /the workspace is not an existing absolute path without `\.\.`/],
+    ["ws", /the workspace is not an existing absolute path/],
+    [path.join(plain.dir, "nowhere"), /the workspace is not an existing absolute path/],
+  ]) {
+    const named = spawnSync(process.execPath, [SCRIPT], { cwd: plain.dir, encoding: "utf8", env: { PATH: process.env.PATH, GITHUB_WORKSPACE: name, RUNNER_TEMP: plain.rt } });
+    assert.notEqual(named.status, 0, name);
+    assert.match(named.stderr, expected, name);
+  }
 });
 
 test("after the install, anything that left the workspace fails the step", (t) => {
@@ -775,6 +814,27 @@ test("after the install, anything that left the workspace fails the step", (t) =
     const nested = extra(change);
     assert.notEqual(nested.status, 0, change);
     assert.match(nested.err, /\.git appeared during the install; a workspace has one \.git/, change);
+  }
+
+  // EVERY link is judged afterwards, not only the new ones — the check does
+  // not lean on the one before the install — and by its text as well.
+  for (const change of ["ln -s /proc/self/cwd node_modules/here", "mkdir -p node_modules/x && ln -s /dev/fd/0 node_modules/x/in", "ln -s ../../ws/packages node_modules/round"]) {
+    const link = extra(change);
+    assert.notEqual(link.status, 0, change);
+    assert.match(link.err, /is a symbolic link out of the workspace's working tree after the install/, change);
+  }
+  // A file git would ignore is still a change to the working tree.
+  const ignored = run((dir) => writeFileSync(path.join(dir, ".gitignore"), "*.log\n"), { stub: { STUB_EXTRA: "echo x > packages/a/build.log" } });
+  assert.match(ignored.err, /^::error::install-deps: the install changed the working tree outside node_modules/m);
+  // So is a file made executable.
+  assert.match(extra("chmod +x packages/a/package.json").err, /the install changed the working tree outside node_modules/);
+  // WHAT CANNOT BE LISTED IS A REFUSAL, NOT A SKIP: a closed directory — in
+  // node_modules, in the tree, or the root itself — hides nothing.
+  for (const change of ["mkdir -p node_modules/c/in && chmod 311 node_modules/c", "mkdir -p packages/a/node_modules/c && chmod 311 packages/a/node_modules/c", "chmod 311 packages/b", "chmod 311 ."]) {
+    const closed = extra(change);
+    assert.notEqual(closed.status, 0, change);
+    assert.match(closed.err, /^::error::install-deps: .* cannot be (listed|read) \(EACCES\); the install does not skip what it cannot read/m, change);
+    assert.equal(existsSync(closed.githubEnv), false, change);
   }
 
   // THE RUNNER WRITES NOTHING UNDER THE WORKSPACE AFTER THE CONTAINER RAN. A
@@ -1036,6 +1096,16 @@ test("the copies beside the script are main's own files, and the pins are this r
   if (existsSync(copy)) {
     assert.equal(readFileSync(copy, "utf8"), readFileSync(rootNpmrc, "utf8"), "scripts/agent/install-deps.npmrc is not the root .npmrc — copy it over");
   }
+});
+
+test("the symbolic links this repository tracks are the ones known here", () => {
+  // The install judges every link in a checkout. This pins which ones main
+  // has, so a new one arrives as a change to this list, seen in review.
+  const r = spawnSync(GIT, ["ls-files", "-s"], { cwd: REPO, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(r.status, 0, r.stderr);
+  const links = r.stdout.split("\n").filter((l) => l.startsWith("120000 ")).map((l) => l.slice(l.indexOf("\t") + 1));
+  assert.deepEqual(links, ["AGENTS.md"]);
+  assert.equal(spawnSync("readlink", [path.join(REPO, "AGENTS.md")], { encoding: "utf8" }).stdout.trim(), "CLAUDE.md");
 });
 
 test("this repository's own lockfile and manifests are ones the agent jobs install", async () => {
