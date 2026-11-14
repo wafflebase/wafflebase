@@ -127,7 +127,15 @@ test("a known-dead pool skips the setup steps and still reaches its page", () =>
   const gated = steps.slice(from, to + 1);
   // The token, the branch checkout, the toolchain, the install, the state flip.
   assert.ok(gated.length >= 6, `expected the setup block, got ${gated.length} step(s)`);
+  // ONE STEP IS GATED THROUGH ANOTHER. The check of the staged scripts after
+  // the install has to run under always(), so it cannot carry the gate itself;
+  // it runs only when the step that recorded the digest did — and that step,
+  // which is in this block, carries the gate.
+  const VERIFY = "name: Verify the staged agent scripts are unchanged";
+  assert.match(steps[at(VERIFY)], /\n\s+if: always\(\) && steps\.tools\.outputs\.digest != ''(\n|$)/);
+  assert.ok(gated.some((st) => /\n\s+id: tools\n/.test(st)), "the step that records the digest is not in the gated block");
   for (const st of gated) {
+    if (st.includes(VERIFY)) continue;
     assert.match(st, /\n\s+if: steps\.guard\.outputs\.proceed == 'true' && steps\.cred\.outputs\.available != 'false'(\n|$)/,
       `a setup step runs on a dead pool: ${st.split("\n")[0].trim()}`);
   }

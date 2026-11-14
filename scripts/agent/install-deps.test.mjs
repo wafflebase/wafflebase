@@ -101,7 +101,7 @@ function harness(t) {
    * leaves no `docker` on PATH, `launcher` puts pnpm on PATH the way pnpm
    * installs itself: a launcher script in a `.bin` beside the package.
    */
-  const run = (setup, { stub = {}, env = {}, staged = false, pnpmVersion = PNPM_VERSION, docker = true, launcher = false } = {}) => {
+  const run = (setup, { stub = {}, env = {}, staged = false, pnpmVersion = PNPM_VERSION, docker = true, launcher = false, repository = true } = {}) => {
     const area = path.join(base, `case${++n}`);
     // The workspace sits in a directory of its own, so that anything appearing
     // beside it is the install's doing.
@@ -132,13 +132,18 @@ function harness(t) {
       mkdirSync(path.join(dir, project), { recursive: true });
       writeFileSync(path.join(dir, project, "package.json"), JSON.stringify(manifest));
     }
-    spawnSync(GIT, ["init", "-q", dir]);
+    // A case that is refused before the install never asks git anything: a
+    // bare `.git` directory stands in, which keeps a few hundred cases quick.
+    if (repository) spawnSync(GIT, ["init", "-q", dir]);
+    else mkdirSync(path.join(dir, ".git"));
     writeFileSync(path.join(dir, "pnpm-workspace.yaml"), TRUSTED_WORKSPACE);
     writeFileSync(path.join(dir, "pnpm-lock.yaml"), LOCKFILE);
     setup?.(dir);
-    // A checkout: everything the case put in the tree is tracked.
-    spawnSync(GIT, ["add", "-A"], { cwd: dir });
-    spawnSync(GIT, ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--no-verify", "-m", "tree"], { cwd: dir });
+    if (repository) {
+      // A checkout: everything the case put in the tree is tracked.
+      spawnSync(GIT, ["add", "-A"], { cwd: dir });
+      spawnSync(GIT, ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--no-verify", "-m", "tree"], { cwd: dir });
+    }
     const ran = path.join(area, "ran");
     const conf = { STUB_RAN: ran, STUB_EXTRA: ":", STUB_EXIT: "0", STUB_RT: rt, STUB_HOME: home, ...stub };
     writeFileSync(path.join(bin, "stub.conf"), Object.entries(conf).map(([k, v]) => `${k}='${v}'\n`).join(""));
@@ -306,7 +311,7 @@ test("the container is given the workspace, its store and the workflow's pnpm, a
 function expectRefused(t, cases) {
   const { outside, run } = harness(t);
   for (const [name, setup, message] of cases) {
-    const r = run((dir) => setup(dir, outside));
+    const r = run((dir) => setup(dir, outside), { repository: false });
     assert.notEqual(r.status, 0, `${name}: the install did not fail`);
     assert.match(r.err, message, name);
     assert.match(r.err, /^::error::install-deps: /m, name);
