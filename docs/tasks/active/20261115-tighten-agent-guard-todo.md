@@ -6,7 +6,7 @@ four installing jobs (`agent-fix` `fix`, `agent-review-panel` `fix`,
 between the install and the agent. A mutation review found workflow edits the
 guard still accepts. None is in the workflows today; each would be a break if a
 later edit made it. Design: `docs/design/agent-pipeline/agent-install.md`
-("From the branch checkout to the agent").
+("From the job's first step to the agent").
 
 ## Plan
 
@@ -37,6 +37,18 @@ later edit made it. Design: `docs/design/agent-pipeline/agent-install.md`
 - [x] Re-run the review's `mut.py` against the final tree
 - [x] `pnpm verify:self`, actionlint
 - [x] Design doc section, PR body
+- [x] Second review: read the workflows with a YAML parser (plain-scalar
+      continuations, `run: | # …`, continued `if:`, keys after a block); a
+      character allow-list on the four files (no CR, tab, U+2028/2029 or
+      non-ASCII beyond today's eleven); no anchors, aliases, merge keys, tags
+      or second documents
+- [x] `//` comments in github-script end at every JavaScript line terminator
+- [x] The stretch starts at the job's first step: a pre-branch allow-list up
+      to the first checkout of anything but `main`, the strict one after
+- [x] Refuse job `container:` and `services:`
+- [x] Named edits on a synthetic fixture job; accepted edits as cases too;
+      messages that name what is allowed (`core.notice` and the other log
+      calls allowed; "quote the variable")
 - [ ] PR
 
 ## Decisions
@@ -64,6 +76,17 @@ later edit made it. Design: `docs/design/agent-pipeline/agent-install.md`
 - **The record and verify steps are pinned to their text** instead of
   widening the command list with `cd`, `find`, `sort`, `xargs`, `sha256sum` and
   `rm`; the digest test runs exactly that text.
+- **`yaml` from `packages/cli`, not a new root dependency.** The lockfile
+  already resolves `yaml@2.8.3` for the CLI; the guard reaches it with
+  `createRequire`, as `verify-browser-lanes.mjs` reaches Playwright.
+- **The stretch starts at the job's first step, with two policies**, rather
+  than at a recognised branch ref. Recognising every spelling of a branch
+  checkout is a list that cannot be finished; holding the steps before it to
+  an allow-list that can only check out `main` makes the first checkout of
+  anything else the only door, whatever its ref says.
+- **Mutation cases run on a synthetic fixture job**, so they never depend on
+  where a harmless step sits in the real workflows; the real workflows are
+  held by the main test, and the fixture by its own "accepted" test.
 - **The github-script allow-list is of calls, not of namespaces**: the seven
   calls and the reads used today, not `github.rest.issues.*`. A new call is a
   deliberate widening.

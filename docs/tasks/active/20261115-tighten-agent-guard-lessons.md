@@ -21,3 +21,14 @@
 - Mutation cases belong in the suite, named for the rule that must catch them:
   a mutation harness outside the repository proves the guard once, a named
   case keeps proving it.
+- Reading YAML line by line is a second parser, and it disagrees with the
+  real one on plain-scalar continuations, block headers with comments and
+  keys after a block. Read structure with the parser the platform's format
+  needs, and keep a raw pass only for what that parser normalises away
+  (CR, line separators, look-alike characters).
+- "Where does the untrusted part begin" should not be answered by recognising
+  the untrusted thing. Hold everything before it to a list that cannot
+  produce it, and the first thing outside that list is the boundary.
+- A test case anchored on a real file's step names breaks, or goes vacuous,
+  when a maintainer tidies that file. Give mutation cases a fixture of their
+  own, and test the accepted edits as well as the refused ones.
