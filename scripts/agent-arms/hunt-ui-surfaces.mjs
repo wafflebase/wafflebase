@@ -19,7 +19,7 @@
 // the tool already imports the probe, so putting it there is an import cycle. The
 // vocabulary has to sit BELOW both, which is what this file is.
 //
-// NO IMPORTS, deliberately — `agent:tests` runs with `scripts/agent/node_modules` absent,
+// NO IMPORTS, deliberately — `agent-arms:tests` runs with `scripts/agent/node_modules` absent,
 // and a vocabulary constant that can fail to load is not a vocabulary.
 
 /**

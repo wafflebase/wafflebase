@@ -83,6 +83,18 @@ const LANES = [
     cmd: "cd scripts/agent && node --test-timeout=60000 --test '**/*.test.mjs'",
     tags: ["agent"],
   },
+  // wafflebase's own agent arms (hunters, harvest, spec-to-pr, classify, …),
+  // which live beside the core rather than in it: `scripts/agent` is to become a
+  // byte-identical copy of yorkie's shared harness core, whose sync deletes any
+  // file the upstream lacks. The same invocation for the same reasons as above,
+  // and it too runs without `scripts/agent/node_modules` — the arms load the
+  // core's packages through `core-deps.mjs`, whose own suite is skipped here.
+  // `scripts/test/test-lane.test.mjs` holds both lanes to the shape above.
+  {
+    name: "agent-arms:tests",
+    cmd: "cd scripts/agent-arms && node --test-timeout=60000 --test '**/*.test.mjs'",
+    tags: ["agent"],
+  },
   // Top-level harness scripts (`scripts/*.mjs`), whose suites live in
   // `scripts/test/`. NOTHING RAN THESE BEFORE THIS LANE. `agent:tests` above
   // covers `scripts/agent/` only — a standalone npm package outside the pnpm

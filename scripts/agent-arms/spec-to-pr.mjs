@@ -26,8 +26,8 @@
 // half.
 //
 // Usage:
-//   node ./scripts/agent/spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title t] [--dry-run]
-//   node ./scripts/agent/spec-to-pr.mjs review [--round N] [--fresh] [--force]
+//   node ./scripts/agent-arms/spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title t] [--dry-run]
+//   node ./scripts/agent-arms/spec-to-pr.mjs review [--round N] [--fresh] [--force]
 //        [--rebuttals <f>] [--out <dir>] [--dry-run]
 //
 // `review` keeps its rounds in a per-branch temp directory and carries each
@@ -45,11 +45,13 @@ import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, rea
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
-import { carryForwardFindings } from "./prior-findings.mjs";
-import { findingKeyOf } from "./rebuttal.mjs";
+import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "../agent/disclosure.mjs";
+import { carryForwardFindings } from "../agent/prior-findings.mjs";
+import { findingKeyOf } from "../agent/rebuttal.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** The shared harness core, which this arm reads from but does not belong to. */
+const CORE = path.join(HERE, "..", "agent");
 
 // --- pure helpers (exported for tests; no gh/git) --------------------------
 
@@ -483,7 +485,7 @@ function cmdHandoff(args) {
   let pr = "";
   try {
     pr = String(ghJson(["pr", "view", branch, "--json", "number"]).number);
-    execFileSync("node", [path.join(HERE, "set-state.mjs"), pr, "awaiting-ci"], { stdio: "inherit" });
+    execFileSync("node", [path.join(CORE, "set-state.mjs"), pr, "awaiting-ci"], { stdio: "inherit" });
   } catch (e) {
     console.warn(`spec-to-pr: PR opened but could not set the advisory state: ${e.message}`);
   }
@@ -895,11 +897,11 @@ export function reviewBase(branch, repo = "") {
  *
  * It grants nothing: this is a local dev script, and anyone who can set a
  * variable in its environment can already run whatever they like as the user
- * running it. Unset — every real invocation — it is the sibling `review-panel.mjs`.
+ * running it. Unset — every real invocation — it is the core's `review-panel.mjs`.
  */
 export function panelScript(env = process.env) {
   const override = typeof env?.WAFFLEBASE_REVIEW_PANEL === "string" ? env.WAFFLEBASE_REVIEW_PANEL.trim() : "";
-  return override === "" ? path.join(HERE, "review-panel.mjs") : path.resolve(override);
+  return override === "" ? path.join(CORE, "review-panel.mjs") : path.resolve(override);
 }
 
 /**
@@ -1219,7 +1221,7 @@ function cmdReview(args) {
         baseSha,
         priorFile: inputs.priorFile,
         rebuttals: inputs.rebuttals,
-        lensesDir: path.join(HERE, "lenses"),
+        lensesDir: path.join(CORE, "lenses"),
         outDir,
       }),
       { stdio: "inherit" },

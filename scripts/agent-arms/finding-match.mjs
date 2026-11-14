@@ -45,7 +45,7 @@
 // SUPPRESSES a candidate, and a suppressed candidate is a miss nobody can
 // recover later; a false `maybe` costs a curator one line of reading.
 
-import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY, MIN_SHARED_TOKENS } from "./rounds.mjs";
+import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY, MIN_SHARED_TOKENS } from "../agent/rounds.mjs";
 
 // Code-ish words that appear inside backticks but identify nothing.
 const SYMBOL_STOP = new Set([

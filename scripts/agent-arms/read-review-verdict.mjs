@@ -13,12 +13,12 @@
 //   conclusion=success|failure   blocking_count=<n>   valid=true|false
 // Side effect: writes `<dir>/summary.md` (the check-run output body).
 //
-// Usage: node ./scripts/agent/read-review-verdict.mjs [verdict.json path] [label]
+// Usage: node ./scripts/agent-arms/read-review-verdict.mjs [verdict.json path] [label]
 //   defaults to .agent-review/verdict.json, label "Independent review"
 
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { classify, renderSummaryMd } from "./severity.mjs";
+import { classify, renderSummaryMd } from "../agent/severity.mjs";
 
 const verdictPath = path.resolve(process.cwd(), process.argv[2] ?? ".agent-review/verdict.json");
 const label = process.argv[3] ?? "Independent review";

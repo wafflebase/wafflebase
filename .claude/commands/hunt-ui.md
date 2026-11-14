@@ -34,7 +34,7 @@ report, that is the signal to drop it.
 1. **PREFLIGHT.** Run it and fix what it names — nothing else works until it passes:
 
    ```sh
-   node ./scripts/agent/hunt-ui.mjs preflight
+   node ./scripts/agent-arms/hunt-ui.mjs preflight
    ```
 
    It checks four things: the runner exists; `playwright` is installed in
@@ -80,7 +80,7 @@ report, that is the signal to drop it.
 4. **RUN.**
 
    ```sh
-   node ./scripts/agent/hunt-ui.mjs run --surface doc
+   node ./scripts/agent-arms/hunt-ui.mjs run --surface doc
    ```
 
    Repeat `--surface` per surface, or omit it for all of them. `--charter <id>` picks

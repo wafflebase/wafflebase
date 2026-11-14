@@ -66,9 +66,9 @@
 // permissive, not the verifiers too strict.
 //
 // Pure and dependency-free: `node:` and relative imports only, because the
-// `agent:tests` lane runs with `scripts/agent/node_modules` absent.
+// `agent-arms:tests` lane runs with `scripts/agent/node_modules` absent.
 
-import { CITATION } from "./citation.mjs";
+import { CITATION } from "../agent/citation.mjs";
 import { citationInScope } from "./hunt-gate.mjs";
 
 /**

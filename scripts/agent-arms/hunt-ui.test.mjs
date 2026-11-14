@@ -723,7 +723,7 @@ test("replayUiCandidate folds the PREDICTION's measured value into the key", () 
 
 test("renderUiRepro emits a runnable command over the plan that actually ran", () => {
   const md = renderUiRepro(ACTIONS, { planPath: ".harness-reports/hunt-ui/doc-writer/repro-1.json" });
-  assert.match(md, /node scripts\/agent\/hunt-ui\.mjs replay --plan \.harness-reports/);
+  assert.match(md, /node scripts\/agent-arms\/hunt-ui\.mjs replay --plan \.harness-reports/);
   // The plan is rendered from the actions, never authored, so it round-trips.
   const json = JSON.parse(md.slice(md.indexOf("{"), md.lastIndexOf("}") + 1));
   assert.deepEqual(json.actions, ACTIONS);
@@ -1527,9 +1527,9 @@ test("runHunt: raw proposals AND the journal are persisted before any filtering"
 // --- static-import guard (the thing that broke CI on #600) -------------------
 
 test("hunt-ui.mjs static-imports nothing third-party", () => {
-  // `agent:tests` runs with scripts/agent/node_modules ABSENT. Any static import of
+  // `agent-arms:tests` runs with scripts/agent/node_modules ABSENT. Any static import of
   // the SDK or zod makes this whole file unloadable in that lane, which is exactly
-  // how #600 broke CI. ask.mjs's recursive walk guards the directory; this pins the
+  // how #600 broke CI. core-deps.test.mjs's walk guards the directory; this pins the
   // orchestrator specifically because it is the file most tempted to import the SDK.
   const src = readFileSync(path.join(HERE, "hunt-ui.mjs"), "utf8");
   const statics = [...src.matchAll(/^import\s[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);

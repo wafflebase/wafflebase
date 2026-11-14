@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyFailure, describeFailure, EXIT, worstExit } from "./auth-smoke.mjs";
-import { redactSecrets } from "./redact.mjs";
-import { classifyProbeFailure } from "./pick-fix-credential.mjs";
+import { redactSecrets } from "../agent/redact.mjs";
+import { classifyProbeFailure } from "../agent/pick-fix-credential.mjs";
 
 // This script had no test suite, and it is the FIRST thing an adopter runs —
 // so its diagnosis is the first thing they read. It reported "auth almost

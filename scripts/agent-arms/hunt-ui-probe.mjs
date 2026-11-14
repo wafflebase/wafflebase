@@ -1,10 +1,10 @@
 // The agent-side half of the UI probe — validates an action plan, runs it, and
 // reduces what came back to a comparable SHAPE.
 //
-// WHY A SUBPROCESS AND NOT AN IMPORT. `playwright` does not resolve from this
-// directory. `scripts/agent` is a standalone npm package outside the pnpm workspace
-// with its own `node_modules`; playwright is a dependency of
-// `packages/frontend`. Verified, not assumed:
+// WHY A SUBPROCESS AND NOT AN IMPORT. `playwright` does not resolve from the
+// harness. `scripts/agent` is a standalone npm package outside the pnpm workspace
+// with its own `node_modules` (the arms here load from it, `core-deps.mjs`);
+// playwright is a dependency of `packages/frontend`. Verified, not assumed:
 //
 //   from packages/frontend :  import('playwright') -> ok, chromium present
 //   from scripts/agent     :  import('playwright') -> ERR_MODULE_NOT_FOUND
@@ -18,11 +18,11 @@
 // what lets `hunt-probe.mjs`'s `replay()` — a sync for-loop over `spawnSync` — be
 // reused unchanged instead of rewritten.
 //
-// NO THIRD-PARTY STATIC IMPORTS. `verify-self.mjs`'s `agent:tests` lane runs with
-// `scripts/agent/node_modules` ABSENT, so a static import of anything that is not
-// `node:` or relative makes every test in this file fail to load. `ask.test.mjs`
-// enforces this with a recursive walk; it is stated here too because prose
-// invariants get broken (that is exactly how #600 broke CI).
+// NO THIRD-PARTY STATIC IMPORTS. `verify-self.mjs`'s `agent-arms:tests` lane runs
+// with `scripts/agent/node_modules` ABSENT, so a static import of anything that is
+// not `node:` or relative makes every test in this file fail to load.
+// `core-deps.test.mjs` enforces this with a recursive walk; it is stated here too
+// because prose invariants get broken (that is exactly how #600 broke CI).
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";

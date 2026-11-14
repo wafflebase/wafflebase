@@ -30,7 +30,7 @@ restates itself:
 
 | Round | Weight it toward | Reviewer |
 | --- | --- | --- |
-| 1 | correctness, test adequacy | `node ./scripts/agent/spec-to-pr.mjs review` |
+| 1 | correctness, test adequacy | `node ./scripts/agent-arms/spec-to-pr.mjs review` |
 | 2 | design fit, simplification, blast radius | the same, plus `superpowers:requesting-code-review` |
 | 3 | security, docs, design-doc consistency | the same — it is the machine gate, so finish here |
 
@@ -48,7 +48,7 @@ misreadings. That is what the panel's independent lenses are for.
 1. **Review.**
 
    ```bash
-   node ./scripts/agent/spec-to-pr.mjs review
+   node ./scripts/agent-arms/spec-to-pr.mjs review
    ```
 
    Needs `cd scripts/agent && npm ci` done once. It does **not** need a token:

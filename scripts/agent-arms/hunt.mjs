@@ -72,6 +72,8 @@ import {
 } from "./hunt-probe.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** The shared harness core, which this arm reads from but does not belong to. */
+const CORE = path.join(HERE, "..", "agent");
 
 /**
  * How many reproduced candidates one charter may send to the verifier panel.
@@ -225,7 +227,7 @@ function buildSafetyOf(bin, cfg) {
  * actually ran.
  */
 async function explore(charter, { repo, context, sessionLog, bin, safetyOf, runId }) {
-  const { askStructured, withRetry } = await import("./ask.mjs");
+  const { askStructured, withRetry } = await import("../agent/ask.mjs");
   const budgetCfg = charter.probeBudget ?? {};
 
   const prompt = [
@@ -322,7 +324,7 @@ async function explore(charter, { repo, context, sessionLog, bin, safetyOf, runI
 // --- verification -----------------------------------------------------------
 
 async function verify(candidate, charter, { repo, context, sessionLog, index }) {
-  const { askStructured, withRetry } = await import("./ask.mjs");
+  const { askStructured, withRetry } = await import("../agent/ask.mjs");
   const claimed = candidate.claimed;
   const prompt = [
     "A hunter proposed the defect below, and a trusted runner ALREADY REPRODUCED it",
@@ -587,7 +589,7 @@ async function cmdPreflight(args) {
     problems.push(`charters: ${String(err.message)}`);
   }
 
-  if (!existsSync(path.join(HERE, "node_modules", "@anthropic-ai", "claude-agent-sdk"))) {
+  if (!existsSync(path.join(CORE, "node_modules", "@anthropic-ai", "claude-agent-sdk"))) {
     problems.push("Agent SDK not installed — run `cd scripts/agent && npm ci`");
   }
   if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {

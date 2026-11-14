@@ -4,12 +4,13 @@
     "inert": [
       {
         "paths": [
-          "scripts/agent/**"
+          "scripts/agent/**",
+          "scripts/agent-arms/**"
         ],
         "tags": [
           "agent"
         ],
-        "reason": "The agent pipeline. Safe to isolate for two independent reasons: knip.json ignores `scripts/**` entirely, so it cannot affect the dead-code gate, and nothing under packages/ imports it (it is a standalone npm package outside the pnpm workspace, which is why `verify:fast` never reaches it)."
+        "reason": "The agent pipeline: the shared harness core (`scripts/agent`) and wafflebase's own arms beside it (`scripts/agent-arms`). Safe to isolate for two independent reasons: knip.json ignores `scripts/**` entirely, so it cannot affect the dead-code gate, and nothing under packages/ imports the core (it is a standalone npm package outside the pnpm workspace, which is why `verify:fast` never reaches it). Two hunter scripts in packages/frontend/scripts do import arm modules; `verify:hunt:oracles` exercises them in the browser lane, which an agent-only change skips, as it did before the arms moved out of scripts/agent."
       },
       {
         "paths": [

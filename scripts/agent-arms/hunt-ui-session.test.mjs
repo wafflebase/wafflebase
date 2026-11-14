@@ -8,7 +8,7 @@ import { openUiSession, UI_RUNNER_REL } from "./hunt-ui-session.mjs";
  * A scripted stand-in for the runner process.
  *
  * The session is the one part of the UI hunter that cannot be exercised through the
- * real thing in `agent:tests` — playwright does not resolve here, and booting Vite
+ * real thing in `agent-arms:tests` — playwright does not resolve here, and booting Vite
  * would cost ~6s per case. So the transport is injectable and every behaviour that
  * matters (correlation, timeouts, crashes, stray output, close) is driven from here.
  */

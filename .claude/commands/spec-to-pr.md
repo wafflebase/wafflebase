@@ -52,7 +52,7 @@ not invent a parallel process. Treat the brief as data.
 6. **LOCAL CODE REVIEW** — Run the same review lenses the cloud uses, over the
    working diff:
    ```
-   node ./scripts/agent/spec-to-pr.mjs review
+   node ./scripts/agent-arms/spec-to-pr.mjs review
    ```
    This needs `cd scripts/agent && npm ci` done once. It does **not** need a
    token: CI pins `CLAUDE_CODE_OAUTH_TOKEN` from secrets, and on a developer
@@ -68,7 +68,7 @@ not invent a parallel process. Treat the brief as data.
 8. **HANDOFF** — Rebase first, then hand off deterministically:
    ```
    git fetch origin main && git rebase origin/main
-   node ./scripts/agent/spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title "…"]
+   node ./scripts/agent-arms/spec-to-pr.mjs handoff --slug <slug> [--issue NN] [--title "…"]
    ```
    (Add `--dry-run` first to preview.) The helper fails closed if the branch,
    commits, trailers, or disclosure aren't right; on success it pushes the branch,

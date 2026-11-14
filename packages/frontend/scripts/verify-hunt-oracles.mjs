@@ -23,7 +23,7 @@ import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 import { domControls } from "./hunt-ui-dom.mjs";
 // The SAME gesture the driver performs, not a copy of it.
 import { performDrag } from "./hunt-ui-gesture.mjs";
-import { UI_SURFACES } from "../../../scripts/agent/hunt-ui-surfaces.mjs";
+import { UI_SURFACES } from "../../../scripts/agent-arms/hunt-ui-surfaces.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -733,7 +733,7 @@ async function checkSlidesTargeting(page, baseUrl) {
  */
 async function checkSlidesDrag(repoRoot) {
   const problems = [];
-  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent-arms/hunt-ui-session.mjs`);
   let session;
   try {
     session = await openUiSession({ repoRoot, fault: null });
@@ -917,7 +917,7 @@ async function checkBoardViewport(page, baseUrl) {
  */
 async function checkBoardTargeting(repoRoot) {
   const problems = [];
-  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent-arms/hunt-ui-session.mjs`);
   let session;
   try {
     session = await openUiSession({ repoRoot, fault: null });
@@ -1623,8 +1623,8 @@ const FUNNEL_PLAN = {
 
 async function checkPredictionFunnel(repoRoot) {
   const problems = [];
-  const { runUiPlan } = await import(`${repoRoot}/scripts/agent/hunt-ui-probe.mjs`);
-  const { assessExpectation } = await import(`${repoRoot}/scripts/agent/hunt-ui-expect.mjs`);
+  const { runUiPlan } = await import(`${repoRoot}/scripts/agent-arms/hunt-ui-probe.mjs`);
+  const { assessExpectation } = await import(`${repoRoot}/scripts/agent-arms/hunt-ui-expect.mjs`);
 
   // The journal the MCP tool would have built, assembled from what the runner
   // actually returned — never hand-authored, which is the entire point.
@@ -1689,7 +1689,7 @@ async function checkPredictionFunnel(repoRoot) {
  */
 async function checkSeededFaultInServeMode(repoRoot) {
   const problems = [];
-  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent-arms/hunt-ui-session.mjs`);
 
   for (const [label, fault, wantContains] of [
     ["seeded", "drop-second-char", "ACE"],

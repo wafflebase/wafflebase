@@ -73,7 +73,7 @@ export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
  *   * A conventional MCP grant trusts a server the SDK connects to — another
  *     process, whose capabilities this file cannot see or bound.
  *   * These are `createSdkMcpServer` tools defined in THIS repo, running in THIS
- *     process, whose handler is `scripts/agent/hunt-tool.mjs` and whose entire
+ *     process, whose handler is `scripts/agent-arms/hunt-tool.mjs` and whose entire
  *     reachable surface is `node <cli-bin> <argv…>` behind `assertSafeArgv`,
  *     a replaced environment, and a probe budget.
  *

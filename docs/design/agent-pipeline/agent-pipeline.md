@@ -48,12 +48,12 @@ detail: [`hunter-usage.md`](hunter-usage.md) is the operator guide.
 
 | Component | Entry point | Code | Design |
 | --- | --- | --- | --- |
-| CLI hunter | `/hunt` — `.claude/commands/hunt.md` | `scripts/agent/hunt.mjs`, charters in `scripts/agent/charters/` | [`hunter-usage.md`](hunter-usage.md) + harness Phase 26 |
-| UI hunter | `/hunt-ui` — `.claude/commands/hunt-ui.md` | `scripts/agent/hunt-ui.mjs`, personas in `scripts/agent/charters-ui/` | [`hunter-usage.md`](hunter-usage.md) + harness Phase 31 |
+| CLI hunter | `/hunt` — `.claude/commands/hunt.md` | `scripts/agent-arms/hunt.mjs`, charters in `scripts/agent-arms/charters/` | [`hunter-usage.md`](hunter-usage.md) + harness Phase 26 |
+| UI hunter | `/hunt-ui` — `.claude/commands/hunt-ui.md` | `scripts/agent-arms/hunt-ui.mjs`, personas in `scripts/agent-arms/charters-ui/` | [`hunter-usage.md`](hunter-usage.md) + harness Phase 31 |
 | Issue → PR | `@claude fix` on an **issue** | `.github/workflows/agent-implement.yml`, verb parsed by `scripts/agent/command.mjs` | harness Phase 24 |
-| Spec → PR | `/spec-to-pr` — `.claude/commands/spec-to-pr.md` | `scripts/agent/spec-to-pr.mjs` | harness Phase 25 |
+| Spec → PR | `/spec-to-pr` — `.claude/commands/spec-to-pr.md` | `scripts/agent-arms/spec-to-pr.mjs` | harness Phase 25 |
 | Review panel | automatic on an `agent/` branch; `@claude review` on demand | `.github/workflows/agent-review-panel.yml`, `scripts/agent/review-panel.mjs` | harness Phases 24, 27, 28, 29 |
-| Self review | `/self-review` — `.claude/commands/self-review.md` | `scripts/agent/spec-to-pr.mjs review` (the same panel, locally) | this doc, §1.1 |
+| Self review | `/self-review` — `.claude/commands/self-review.md` | `scripts/agent-arms/spec-to-pr.mjs review` (the same panel, locally) | this doc, §1.1 |
 | Fix agent | `@claude fix` on a **PR**; also automatic within a panel round | `.github/workflows/agent-fix.yml`, `scripts/agent/fix-eligible.mjs` | harness Phase 30 |
 
 #### 1.1 The panel is opt-in, and most PRs do not opt in

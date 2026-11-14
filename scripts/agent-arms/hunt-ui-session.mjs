@@ -23,7 +23,7 @@
 // one mechanism for both would mean either a slow explorer or a replay that inherits
 // state, and the second is how phantom repros get through.
 //
-// No third-party static imports: `agent:tests` runs with `scripts/agent/node_modules`
+// No third-party static imports: `agent-arms:tests` runs with `scripts/agent/node_modules`
 // absent, and `playwright` does not resolve from this directory anyway.
 
 import { spawn } from "node:child_process";
@@ -88,7 +88,7 @@ function createLineReader(onLine) {
  * `spawnImpl` is injectable so the tests can exercise correlation, timeouts, crash
  * handling and close semantics with a scripted stand-in — no browser, no Vite, no
  * network. That matters more here than usual: this is the one part of the UI hunter
- * that cannot be unit-tested through the real thing in the `agent:tests` lane.
+ * that cannot be unit-tested through the real thing in the `agent-arms:tests` lane.
  */
 export async function openUiSession({
   repoRoot,

@@ -6,7 +6,7 @@
 // looking like it does.
 //
 // No CLI, no network, and NO SDK: these exercise `createProbeTool`, the handler
-// factory, which has no third-party imports. That is deliberate — the `agent:tests`
+// factory, which has no third-party imports. That is deliberate — the `agent-arms:tests`
 // lane runs with `scripts/agent/node_modules` absent, so a test that reached through
 // the real MCP server object would fail in CI with ERR_MODULE_NOT_FOUND. The server
 // wrapper is covered by one self-skipping smoke test at the bottom.
@@ -18,6 +18,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { importCoreDep } from "./core-deps.mjs";
 import {
   createProbeBudget,
   createProbeTool,
@@ -336,13 +337,13 @@ test("resolveProbeRefs DROPS a candidate citing runs that never happened", () =>
 test("createProbeServer registers the `run` tool (skipped without the SDK)", async (t) => {
   // The one thing `createProbeTool` cannot cover: that the tool is actually wired
   // into an MCP server under the exact name ask.mjs pre-approves. It needs the SDK,
-  // which the agent:tests lane deliberately runs without — so it SKIPS there rather
+  // which the agent-arms:tests lane deliberately runs without — so it SKIPS there rather
   // than failing, and still runs locally where the dependency exists.
   let mod;
   try {
-    mod = await import("@anthropic-ai/claude-agent-sdk");
+    mod = await importCoreDep("@anthropic-ai/claude-agent-sdk");
   } catch {
-    t.skip("Agent SDK not installed (expected in the agent:tests lane)");
+    t.skip("Agent SDK not installed (expected in the agent-arms:tests lane)");
     return;
   }
   assert.ok(mod, "sdk import should have produced a namespace");

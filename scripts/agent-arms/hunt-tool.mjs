@@ -41,7 +41,7 @@
 
 // The SDK and zod are imported LAZILY, inside `createProbeServer` only.
 //
-// This is not style. `scripts/verify-self.mjs`'s `agent:tests` lane runs with
+// This is not style. `scripts/verify-self.mjs`'s `agent-arms:tests` lane runs with
 // `scripts/agent/node_modules` ABSENT — CI never installs it — so a static import
 // here makes every test in this file, and every file importing it, fail with
 // ERR_MODULE_NOT_FOUND. `ask.mjs` states the same invariant and it still caught me
@@ -53,6 +53,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { importCoreDep } from "./core-deps.mjs";
 import {
   assertSafeArgv,
   buildProbeEnv,
@@ -380,7 +381,7 @@ export function createProbeTool({
  * The in-process MCP server exposing the single `run` tool.
  *
  * ASYNC and lazy on purpose: this is the only function here that touches the SDK or
- * zod, so it is the only one that cannot run in the `agent:tests` lane. Everything
+ * zod, so it is the only one that cannot run in the `agent-arms:tests` lane. Everything
  * worth testing is in `createProbeTool`, which this merely wraps in a tool schema.
  */
 export async function createProbeServer(opts = {}) {
@@ -392,8 +393,8 @@ export async function createProbeServer(opts = {}) {
   // question about whether a cached SDK import already read it.
   if (!process.env.MCP_TOOL_TIMEOUT) process.env.MCP_TOOL_TIMEOUT = String(60_000);
 
-  const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
-  const { z } = await import("zod");
+  const { createSdkMcpServer, tool } = await importCoreDep("@anthropic-ai/claude-agent-sdk");
+  const { z } = await importCoreDep("zod");
   const runTool = createProbeTool(opts);
 
   return createSdkMcpServer({

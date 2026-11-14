@@ -39,7 +39,7 @@ import os from "node:os";
  *
  * Imported as well as re-exported — `renderReproSh` below calls it.
  */
-import { redactSecrets } from "./redact.mjs";
+import { redactSecrets } from "../agent/redact.mjs";
 export { redactSecrets };
 
 // --- shell rendering (display only) -----------------------------------------

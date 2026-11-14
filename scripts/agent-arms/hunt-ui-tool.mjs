@@ -37,9 +37,10 @@
 // review panel fails closed; hunting fails quiet. Nothing in this file may manufacture a
 // candidate out of its own trouble.
 //
-// No third-party static imports — `agent:tests` runs with `scripts/agent/node_modules`
+// No third-party static imports — `agent-arms:tests` runs with `scripts/agent/node_modules`
 // absent, so the SDK and zod are imported lazily inside `createUiServer` only.
 
+import { importCoreDep } from "./core-deps.mjs";
 import { redactSecrets } from "./hunt-probe.mjs";
 import { assessExpectation, isUnusableValue } from "./hunt-ui-expect.mjs";
 import { assertSafeActionPlan, UI_ACTION_TYPES } from "./hunt-ui-probe.mjs";
@@ -367,7 +368,7 @@ const say = (text, extra = {}) => ({ content: [{ type: "text", text }], ...extra
  *
  * Pure by construction — no SDK, no zod, no network, no browser. `session` is injected,
  * so the whole handler is testable against a stub returning scripted observations, which
- * is the only way any of this runs in `agent:tests`.
+ * is the only way any of this runs in `agent-arms:tests`.
  */
 /**
  * One line describing an action that just completed, for a human watching a live run.
@@ -533,15 +534,15 @@ export function createUiTool({ charter = {}, surface = "doc", session, budget, j
  *
  * ASYNC and lazy for the same reason as `createProbeServer`: this is the only function
  * in the file that touches the SDK or zod, so it is the only one that cannot run in the
- * `agent:tests` lane. Everything worth testing lives in `createUiTool`.
+ * `agent-arms:tests` lane. Everything worth testing lives in `createUiTool`.
  */
 export async function createUiServer(opts = {}) {
   // Set BEFORE the SDK is imported — see `createProbeServer` for why this env var is the
   // only available lever on in-process server tool timeouts.
   if (!process.env.MCP_TOOL_TIMEOUT) process.env.MCP_TOOL_TIMEOUT = String(60_000);
 
-  const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
-  const { z } = await import("zod");
+  const { createSdkMcpServer, tool } = await importCoreDep("@anthropic-ai/claude-agent-sdk");
+  const { z } = await importCoreDep("zod");
   const runUiTool = createUiTool(opts);
   const surface = opts.surface ?? "doc";
 

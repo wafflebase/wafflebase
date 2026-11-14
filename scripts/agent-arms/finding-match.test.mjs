@@ -4,7 +4,7 @@ import {
   extractAnchor, anchorIsEmpty, compareAnchors, linesOverlap,
   matchFindings, tokenOverlap, crossArmTokenOverlap, bestMatch, CROSS_ARM_SIMILARITY,
 } from "./finding-match.mjs";
-import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY } from "./rounds.mjs";
+import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY } from "../agent/rounds.mjs";
 
 test("extractAnchor: pulls backticked symbols from real-shaped evidence", () => {
   // modeled on the pr-521 resolveRange finding

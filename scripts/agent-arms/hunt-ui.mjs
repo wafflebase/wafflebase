@@ -37,10 +37,11 @@
 //   node hunt-ui.mjs report --out <dir>
 //
 // `preflight` and `replay` return before the SDK is imported, so they work without
-// `scripts/agent/node_modules` — which is also how the `agent:tests` lane runs.
+// `scripts/agent/node_modules` — which is also how the `agent-arms:tests` lane runs.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
+import { importCoreDep } from "./core-deps.mjs";
 import { gitSha, repoSlug, makeChangedSince, strArg as sharedStrArg } from "./hunt-cli.mjs";
 import {
   COVERAGE_KEY_VERSION,
@@ -425,7 +426,7 @@ export function uiDefectKey(candidate, journal, { personaId } = {}) {
  * One exploration session: the model drives a real browser and reports what broke.
  *
  * ALL THREE third-party touchpoints are injected — the browser session, the model
- * call, AND the MCP server — because `agent:tests` runs with
+ * call, AND the MCP server — because `agent-arms:tests` runs with
  * `scripts/agent/node_modules` ABSENT entirely. Injecting two of the three is the
  * failure mode to avoid, and it is the one that actually happened: `createUiServer`
  * lazily imports the Agent SDK, so a test that stubbed the session and the ask still
@@ -449,7 +450,7 @@ export async function exploreUi(
     createServerImpl = createUiServer,
   } = {},
 ) {
-  const { askStructured, withRetry } = askImpl ?? (await import("./ask.mjs"));
+  const { askStructured, withRetry } = askImpl ?? (await import("../agent/ask.mjs"));
   const budgetCfg = persona.actionBudget ?? {};
   const maxActions = budgetCfg.maxActions ?? 80;
 
@@ -575,7 +576,7 @@ export async function exploreUi(
  * measures the wrong thing.
  */
 export async function verifyUi(candidate, persona, { repo, context, sessionLog, index, askImpl = null } = {}) {
-  const { askStructured, withRetry } = askImpl ?? (await import("./ask.mjs"));
+  const { askStructured, withRetry } = askImpl ?? (await import("../agent/ask.mjs"));
   const claimed = candidate.claimed;
   const prompt = [
     "A hunter proposed the defect below while driving the real UI, and a trusted",
@@ -849,7 +850,7 @@ export function renderUiRepro(actions, { planPath = "<plan.json>" } = {}) {
     "Replay it:",
     "",
     "```sh",
-    `node scripts/agent/hunt-ui.mjs replay --plan ${planPath}`,
+    `node scripts/agent-arms/hunt-ui.mjs replay --plan ${planPath}`,
     "```",
   ].join("\n");
 }
@@ -1115,9 +1116,9 @@ async function cmdPreflight(args) {
   }
 
   // 3. The SDK and the token. Imported lazily so this command still works without
-  //    `scripts/agent/node_modules`, which is how `agent:tests` runs.
+  //    `scripts/agent/node_modules`, which is how `agent-arms:tests` runs.
   try {
-    await import("@anthropic-ai/claude-agent-sdk");
+    await importCoreDep("@anthropic-ai/claude-agent-sdk");
   } catch {
     problems.push("the Agent SDK is not installed — run `npm ci` in scripts/agent");
   }

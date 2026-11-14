@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { mkdtempSync, mkdirSync, chmodSync, writeFileSync, rmSync, readdirSync, existsSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { fixtureGitEnv } from "./git-env.mjs";
+import { fixtureGitEnv } from "../agent/git-env.mjs";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
@@ -35,8 +35,8 @@ import {
   branchKey,
   MAX_SELF_REVIEW_ROUNDS,
 } from "./spec-to-pr.mjs";
-import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
-import { findingKeyOf } from "./rebuttal.mjs";
+import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "../agent/disclosure.mjs";
+import { findingKeyOf } from "../agent/rebuttal.mjs";
 import { readFileSync } from "node:fs";
 
 // Written as escapes on purpose: a literal control character in a source file

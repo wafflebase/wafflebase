@@ -10,6 +10,10 @@
 #
 # Deliberately NOT gated on AGENT_PIPELINE_ENABLED — the whole point is to test
 # BEFORE arming — and it can only ever run via manual dispatch.
+#
+# NOT NAMED `agent-*.yml`. That glob is the shared harness core's, copied from
+# yorkie by `scripts/agent/sync.mjs`, which deletes any `agent-*.yml` the
+# upstream does not have. This check and `auth-smoke.mjs` are wafflebase's own.
 name: Agent SDK Auth Smoke Test
 
 on:
@@ -35,9 +39,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # workflow_dispatch can target ANY ref; force the REVIEWED main copy of
-          # auth-smoke.mjs + the lockfile so a pushed branch can't swap in a script
-          # that exfiltrates CLAUDE_CODE_OAUTH_TOKEN. (Also restrict the `agent`
-          # environment's deployment branches to `main` in repo settings.)
+          # auth-smoke.mjs, the core it imports and the core's lockfile, so a
+          # pushed branch can't swap in a script that exfiltrates
+          # CLAUDE_CODE_OAUTH_TOKEN. (Also restrict the `agent` environment's
+          # deployment branches to `main` in repo settings.)
           ref: main
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -45,7 +50,8 @@ jobs:
           node-version: 22.x
       # Install WITHOUT the auth secret in scope (same rule as the panel's
       # unprivileged deps job: never run `npm ci` lifecycle scripts with the
-      # token present). Only the next step gets the token.
+      # token present). Only the next step gets the token. The SDK is the
+      # core's dependency; auth-smoke.mjs loads it from there (core-deps.mjs).
       - name: Install the Agent SDK
         run: cd scripts/agent && npm ci --no-audit --no-fund
       # auth-smoke.mjs already honours SMOKE_MODEL; wiring it to a dispatch input
@@ -68,4 +74,4 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
           CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
           SMOKE_MODEL: ${{ inputs.model }}
-        run: node scripts/agent/auth-smoke.mjs
+        run: node scripts/agent-arms/auth-smoke.mjs

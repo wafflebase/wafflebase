@@ -18,17 +18,24 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const VERIFY_SELF = path.join(HERE, "..", "verify-self.mjs");
 
-function laneCmd() {
+// The core's suites and wafflebase's own arms, each its own lane run from its
+// own directory, and each held to the same shape.
+const AGENT_LANES = [
+  ["agent:tests", "scripts/agent"],
+  ["agent-arms:tests", "scripts/agent-arms"],
+];
+
+function laneCmd(name) {
   const src = readFileSync(VERIFY_SELF, "utf8");
-  const lane = /name:\s*"agent:tests",\s*cmd:\s*"([^"]+)"/.exec(src);
-  assert.ok(lane, "no agent:tests lane in verify-self.mjs — if it was renamed, re-point this test rather than deleting it");
+  const lane = new RegExp(`name:\\s*"${name}",\\s*cmd:\\s*"([^"]+)"`).exec(src);
+  assert.ok(lane, `no ${name} lane in verify-self.mjs — if it was renamed, re-point this test rather than deleting it`);
   return lane[1];
 }
 
 /** The lane's single `node --test` invocation, decoded from the source text. */
-function laneInvocation() {
-  const cmd = laneCmd();
-  assert.match(cmd, /^cd scripts\/agent && /, `the lane no longer runs from scripts/agent: ${cmd}`);
+function laneInvocation(name, dir) {
+  const cmd = laneCmd(name);
+  assert.ok(cmd.startsWith(`cd ${dir} && `), `the ${name} lane no longer runs from ${dir}: ${cmd}`);
   const invocations = cmd.split(/&&|;/).map((p) => p.trim()).filter((p) => p.startsWith("node "));
   assert.equal(invocations.length, 1, `expected one node invocation in the lane: ${cmd}`);
   // DECODED: the command is read out of JavaScript source, so any backslash in
@@ -37,71 +44,73 @@ function laneInvocation() {
   return JSON.parse(`"${invocations[0]}"`);
 }
 
-test("the agent:tests lane runs test files at every depth and skips node_modules", () => {
-  // Proven against the REAL runner, not a reading of the glob: the lane's own
-  // invocation is run in a fixture tree, and each planted file records that it
-  // ran. Checking the files on disk instead would be vacuous — every suite in
-  // scripts/agent sits at the top level today, so a regression to a flat
-  // `*.test.mjs` would still match all of them. And `**/*.test.mjs` matches
-  // `node_modules` paths too; only node's runner excludes them, where the
-  // `deps` job runs `npm ci`.
-  const invocation = laneInvocation();
-  // SINGLE-QUOTED, so NODE expands it. An unquoted `**` would be expanded by
-  // `sh`, which neither recurses by default nor skips `node_modules`.
-  assert.match(invocation, /--test\s+'[^']+'\s*$/, `the lane must hand node one single-quoted glob: ${invocation}`);
+for (const [name, dir] of AGENT_LANES) {
+  test(`the ${name} lane runs test files at every depth and skips node_modules`, () => {
+    // Proven against the REAL runner, not a reading of the glob: the lane's own
+    // invocation is run in a fixture tree, and each planted file records that it
+    // ran. Checking the files on disk instead would be vacuous — every suite in
+    // scripts/agent sits at the top level today, so a regression to a flat
+    // `*.test.mjs` would still match all of them. And `**/*.test.mjs` matches
+    // `node_modules` paths too; only node's runner excludes them, where the
+    // `deps` job runs `npm ci`.
+    const invocation = laneInvocation(name, dir);
+    // SINGLE-QUOTED, so NODE expands it. An unquoted `**` would be expanded by
+    // `sh`, which neither recurses by default nor skips `node_modules`.
+    assert.match(invocation, /--test\s+'[^']+'\s*$/, `the lane must hand node one single-quoted glob: ${invocation}`);
 
-  const root = mkdtempSync(path.join(tmpdir(), "lane-probe-"));
-  const ran = mkdtempSync(path.join(tmpdir(), "lane-ran-"));
-  const plant = (rel, name) => {
-    const file = path.join(root, rel);
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, [
-      'import { test } from "node:test";',
-      'import { writeFileSync } from "node:fs";',
-      'import path from "node:path";',
-      `test("probe", () => writeFileSync(path.join(process.env.LANE_PROBE_RAN, ${JSON.stringify(name)}), ""));`,
-      "",
-    ].join("\n"));
-  };
-  plant("top.test.mjs", "top");
-  plant("sub/deep/nested.test.mjs", "nested");
-  plant("node_modules/pkg/vendored.test.mjs", "vendored");
-  plant("sub/node_modules/pkg/vendored.test.mjs", "nested-vendored");
-  try {
-    // Without NODE_TEST_CONTEXT: inherited from this runner, it makes the nested
-    // `node --test` report to a parent that is not listening, and run nothing.
-    const env = { ...process.env };
-    delete env.NODE_TEST_CONTEXT;
-    const r = spawnSync("sh", ["-c", invocation], {
-      cwd: root,
-      env: { ...env, LANE_PROBE_RAN: ran },
-      encoding: "utf8",
-      // spawnSync blocks the event loop, so this test's own --test-timeout
-      // cannot cancel a hung nested runner; bound it here instead.
-      timeout: 30_000,
-    });
-    assert.equal(r.status, 0, `the lane's invocation failed in the fixture tree:\n${r.stdout}\n${r.stderr}`);
-    assert.deepEqual(readdirSync(ran).sort(), ["nested", "top"], "the lane must run every depth and nothing under node_modules");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(ran, { recursive: true, force: true });
-  }
-});
+    const root = mkdtempSync(path.join(tmpdir(), "lane-probe-"));
+    const ran = mkdtempSync(path.join(tmpdir(), "lane-ran-"));
+    const plant = (rel, name) => {
+      const file = path.join(root, rel);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, [
+        'import { test } from "node:test";',
+        'import { writeFileSync } from "node:fs";',
+        'import path from "node:path";',
+        `test("probe", () => writeFileSync(path.join(process.env.LANE_PROBE_RAN, ${JSON.stringify(name)}), ""));`,
+        "",
+      ].join("\n"));
+    };
+    plant("top.test.mjs", "top");
+    plant("sub/deep/nested.test.mjs", "nested");
+    plant("node_modules/pkg/vendored.test.mjs", "vendored");
+    plant("sub/node_modules/pkg/vendored.test.mjs", "nested-vendored");
+    try {
+      // Without NODE_TEST_CONTEXT: inherited from this runner, it makes the nested
+      // `node --test` report to a parent that is not listening, and run nothing.
+      const env = { ...process.env };
+      delete env.NODE_TEST_CONTEXT;
+      const r = spawnSync("sh", ["-c", invocation], {
+        cwd: root,
+        env: { ...env, LANE_PROBE_RAN: ran },
+        encoding: "utf8",
+        // spawnSync blocks the event loop, so this test's own --test-timeout
+        // cannot cancel a hung nested runner; bound it here instead.
+        timeout: 30_000,
+      });
+      assert.equal(r.status, 0, `the lane's invocation failed in the fixture tree:\n${r.stdout}\n${r.stderr}`);
+      assert.deepEqual(readdirSync(ran).sort(), ["nested", "top"], "the lane must run every depth and nothing under node_modules");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(ran, { recursive: true, force: true });
+    }
+  });
 
-test("the timeout flag comes before --test", () => {
-  const cmd = laneCmd();
-  assert.match(cmd, /--test-timeout=\d+/, "the lane needs a per-test timeout");
-  // After `--test`, node reads it as a file to run.
-  assert.ok(cmd.indexOf("--test-timeout=") < cmd.indexOf("--test "), `the timeout flag comes after --test: ${cmd}`);
-});
+  test(`the ${name} timeout flag comes before --test`, () => {
+    const cmd = laneCmd(name);
+    assert.match(cmd, /--test-timeout=\d+/, "the lane needs a per-test timeout");
+    // After `--test`, node reads it as a file to run.
+    assert.ok(cmd.indexOf("--test-timeout=") < cmd.indexOf("--test "), `the timeout flag comes after --test: ${cmd}`);
+  });
 
-test("the agent:tests lane does NOT force-exit the runner", () => {
-  // `--test-force-exit` exits once the tests are known to have finished, without
-  // waiting for the per-file child results to finish arriving — so whole files'
-  // results were dropped and the lane still printed `# fail 0`. See the comment
-  // above the lane in verify-self.mjs.
-  assert.doesNotMatch(laneCmd(), /--test-force-exit/, "--test-force-exit silently truncates this lane's report");
-});
+  test(`the ${name} lane does NOT force-exit the runner`, () => {
+    // `--test-force-exit` exits once the tests are known to have finished, without
+    // waiting for the per-file child results to finish arriving — so whole files'
+    // results were dropped and the lane still printed `# fail 0`. See the comment
+    // above the lane in verify-self.mjs.
+    assert.doesNotMatch(laneCmd(name), /--test-force-exit/, "--test-force-exit silently truncates this lane's report");
+  });
+}
 
 // --- every github-script step must retry transient GitHub errors -------------
 

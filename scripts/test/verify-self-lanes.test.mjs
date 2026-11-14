@@ -110,9 +110,9 @@ test("selection against the real lane graph", async (t) => {
     assert.equal(select({ full: true }).size, LANES.length);
   });
 
-  await t.test("an agent-only change runs two cheap lanes", () => {
+  await t.test("an agent-only change runs three cheap lanes", () => {
     const selected = select({ full: false, packages: [], tags: ["agent"] });
-    assert.deepEqual([...selected].sort(), ["agent:tests", "lint:scripts"]);
+    assert.deepEqual([...selected].sort(), ["agent-arms:tests", "agent:tests", "lint:scripts"]);
   });
 
   await t.test("a docs-prose change runs the prose lanes and entropy's builds", () => {

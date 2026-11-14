@@ -51,19 +51,21 @@
 import { readFileSync, appendFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isSingleParentCommit } from "./rounds.mjs";
-import { classifyFile } from "./review-panel.mjs";
-import { HANDOFF_MARKER, hasDisclosureTrailer } from "./disclosure.mjs";
-import { normalizeSeverity, BLOCKING, classify } from "./severity.mjs";
-import { ORIGINS } from "./novelty.mjs";
-import { latestLensRuns, parseReviewState } from "./review-state.mjs";
-import { tagPriorFindings, lensCheckNames } from "./prior-findings.mjs";
+import { isSingleParentCommit } from "../agent/rounds.mjs";
+import { classifyFile } from "../agent/review-panel.mjs";
+import { HANDOFF_MARKER, hasDisclosureTrailer } from "../agent/disclosure.mjs";
+import { normalizeSeverity, BLOCKING, classify } from "../agent/severity.mjs";
+import { ORIGINS } from "../agent/novelty.mjs";
+import { latestLensRuns, parseReviewState } from "../agent/review-state.mjs";
+import { tagPriorFindings, lensCheckNames } from "../agent/prior-findings.mjs";
 import { bestMatch } from "./finding-match.mjs";
-import { gh, parseArgs, commitCheckRuns, withFullOutput } from "./gh-checks.mjs";
+import { gh, parseArgs, commitCheckRuns, withFullOutput } from "../agent/gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** The shared harness core, which this arm reads from but does not belong to. */
+const CORE = path.join(HERE, "..", "agent");
 export const MISSES_PATH = path.join(HERE, "misses.jsonl");
-const LENSES_PATH = path.join(HERE, "lenses", "lenses.json");
+const LENSES_PATH = path.join(CORE, "lenses", "lenses.json");
 
 /** Record-format version. A consumer that does not know this string must refuse
  *  the record rather than read it optimistically — the fields it would miss are

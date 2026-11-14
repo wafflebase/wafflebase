@@ -38,10 +38,12 @@ import {
   sampleCountFor,
   cacheCoreClasses,
   splitLensDiff,
-} from "./review-panel.mjs";
-import { TOKEN_WEIGHTS } from "./metrics.mjs";
+} from "../agent/review-panel.mjs";
+import { TOKEN_WEIGHTS } from "../agent/metrics.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** The shared harness core, which this arm reads from but does not belong to. */
+const CORE = path.join(HERE, "..", "agent");
 
 /**
  * Rough token count. Deliberately crude and deliberately the SAME function on
@@ -245,7 +247,7 @@ function main() {
     : sliceDiffByFile(diff).map((b) => b.path).filter(Boolean);
   const { scopeNote } = resolveReviewScope(args, changedFiles);
   const fileBlocks = sliceDiffByFile(diff);
-  const lenses = loadLenses(path.resolve(String(args["lenses-dir"] ?? path.join(HERE, "lenses"))));
+  const lenses = loadLenses(path.resolve(String(args["lenses-dir"] ?? path.join(CORE, "lenses"))));
 
   const { sessions, skipped, noNewHunks } = planSessions(lenses, {
     changedFiles, fileBlocks, issue, scopeNote,

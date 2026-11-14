@@ -18,10 +18,10 @@
 //                 know both vocabularies.
 //
 // Nothing here touches the SDK or any third-party package, so it loads in the
-// `agent:tests` lane where `scripts/agent/node_modules` is absent.
+// `agent-arms:tests` lane where `scripts/agent/node_modules` is absent.
 
 import { execFileSync } from "node:child_process";
-import { repoScopedEnv } from "./git-env.mjs";
+import { repoScopedEnv } from "../agent/git-env.mjs";
 
 /**
  * The commit under test, or `"unknown"`.

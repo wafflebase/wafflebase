@@ -21,7 +21,7 @@
 //      be classified. Actionable: fix the secret, or read the raw message.
 //   2  the credential WORKED and the service refused on capacity or quota
 //      (session limit, rate limit, overloaded). Nothing is misconfigured; retry.
-//   3  the SDK is not installed — `npm ci` was not run in this directory.
+//   3  the SDK is not installed — `npm ci` was not run in scripts/agent.
 //
 // Code 2 exists because of a real diagnosis this script got wrong. It reported
 // "auth almost certainly failed" for `You've hit your session limit`, which is
@@ -31,8 +31,9 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readPoolSlots, TOKEN_ENV } from "./token-pool.mjs";
-import { SESSION_LIMIT_RE, redactSecrets } from "./redact.mjs";
+import { readPoolSlots, TOKEN_ENV } from "../agent/token-pool.mjs";
+import { SESSION_LIMIT_RE, redactSecrets } from "../agent/redact.mjs";
+import { importCoreDep } from "./core-deps.mjs";
 
 export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 
@@ -193,9 +194,9 @@ async function main() {
 
   let query;
   try {
-    ({ query } = await import("@anthropic-ai/claude-agent-sdk"));
+    ({ query } = await importCoreDep("@anthropic-ai/claude-agent-sdk"));
   } catch (err) {
-    console.error(`Could not import the Agent SDK — run \`npm ci\` in this directory first: ${err.message}`);
+    console.error(`Could not import the Agent SDK — run \`npm ci\` in scripts/agent first: ${err.message}`);
     process.exit(EXIT.tooling);
   }
 
