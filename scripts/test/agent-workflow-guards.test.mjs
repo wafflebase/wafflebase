@@ -191,3 +191,172 @@ test("the staged agent-tools copy is itself populated from trusted code", () => 
       `look trusted:\n${problems.join("\n")}`,
   );
 });
+
+// ---------------------------------------------------------------------------
+// The dependency install of the jobs that hold a token while a pull request's
+// branch is in the workspace. `scripts/agent/install-deps.mjs` is what makes
+// that install run nothing and stay inside the workspace, and
+// `scripts/agent/install-deps.test.mjs` runs it. These guards are the other
+// half: that the workflows actually call it, from main's copy, with a pnpm the
+// branch had no say in — and that nothing reintroduces an inline install, a
+// dependency cache or a movable action tag beside it.
+
+/** The ref of a pull request's own branch, in any of the forms the workflows use. */
+const BRANCH_REF =
+  /^\s*ref:\s*\$\{\{\s*(github\.event\.workflow_run\.head_(branch|sha)|github\.event\.pull_request\.head\.(ref|sha)|steps\.[\w-]+\.outputs\.(head_)?(branch|sha|ref))/;
+
+/**
+ * The jobs of a workflow, each as its steps; a step is its lines with comments
+ * dropped, so commented-out YAML neither satisfies nor trips a guard.
+ */
+function jobsOf(file) {
+  const lines = readFileSync(path.join(WORKFLOWS, file), "utf8").split("\n");
+  const jobsAt = lines.findIndex((l) => l === "jobs:");
+  if (jobsAt === -1) return [];
+  const starts = lines.reduce((acc, l, i) => (i > jobsAt && /^ {2}[\w-]+:\s*$/.test(l) ? [...acc, i] : acc), []);
+  return starts.map((from, k) => {
+    const body = lines.slice(from + 1, starts[k + 1] ?? lines.length).filter((l) => !l.trim().startsWith("#"));
+    const steps = [];
+    for (const line of body) {
+      if (/^ {6}- /.test(line)) steps.push([line]);
+      else if (steps.length > 0) steps.at(-1).push(line);
+    }
+    return {
+      file,
+      name: lines[from].trim().replace(/:$/, ""),
+      steps: steps.map((s) => ({
+        text: s.join("\n"),
+        uses: /^\s*(?:- )?uses:\s*(\S+)/m.exec(s.join("\n"))?.[1] ?? null,
+        isRun: s.some((l) => /^\s*(?:- )?run:/.test(l)),
+        checksOutBranch: s.some((l) => BRANCH_REF.test(l)),
+      })),
+    };
+  });
+}
+
+/** The four jobs that install a pull request's branch. */
+const INSTALLING_JOBS = [
+  ["agent-fix.yml", "fix"],
+  ["agent-review-panel.yml", "fix"],
+  ["agent-iterate-ci.yml", "iterate"],
+  ["agent-review-reply.yml", "reply"],
+];
+const installingJob = (file, name) => {
+  const job = jobsOf(file).find((j) => j.name === name);
+  assert.ok(job, `${file} has no job named ${name}`);
+  return job;
+};
+const PNPM_COMMAND = /(^|[\s;&|(])pnpm\s+(install|i|ci|add|exec|dlx|run|rebuild|--filter|-r|-C)\b/m;
+
+test("the jobs that install a PR branch's dependencies do it through main's install-deps.mjs", () => {
+  for (const [file, name] of INSTALLING_JOBS) {
+    const where = `${file} (job ${name})`;
+    const { steps } = installingJob(file, name);
+    const branchAt = steps.findIndex((s) => s.checksOutBranch);
+    assert.notEqual(branchAt, -1, `${where} no longer checks out the PR's branch — is it still an installing job?`);
+
+    const installs = steps.map((s, i) => [s, i]).filter(([s]) => /install-deps\.mjs/.test(s.text));
+    assert.equal(installs.length, 1, `${where} must run install-deps.mjs in exactly one step`);
+    const [install, installAt] = installs[0];
+    assert.ok(installAt > branchAt, `${where} runs the install before the branch is checked out`);
+
+    // The whole command, not a substring: nothing before or after it, and no
+    // wrapper that could change what it runs.
+    const run = /^\s*run:\s*(.*)$/m.exec(install.text)?.[1] ?? "";
+    const staged = 'node "$RUNNER_TEMP/agent-tools/install-deps.mjs"';
+    const side = /^node (\.[\w-]+)\/scripts\/agent\/install-deps\.mjs$/.exec(run);
+    assert.ok(run === staged || side, `${where} runs ${JSON.stringify(run)}; expected ${staged} or main's side checkout`);
+
+    // A side directory is a name inside the branch's tree: it must be cleared,
+    // then checked out from main, before anything is read from it. This holds
+    // for the directory `agent-tools` is staged from as well.
+    const sideDirs = new Set(side ? [side[1]] : []);
+    for (const s of steps) {
+      const from = /\bcp -R (\.[\w-]+)\/scripts\/agent\b/.exec(s.text);
+      if (from) sideDirs.add(from[1]);
+    }
+    for (const dir of sideDirs) {
+      const checkoutAt = steps.findIndex(
+        (s) =>
+          s.uses?.startsWith("actions/checkout@") &&
+          /^\s*ref:\s*main\s*$/m.test(s.text) &&
+          new RegExp(`^\\s*path:\\s*${dir.replace(".", "\\.")}\\s*$`, "m").test(s.text),
+      );
+      assert.notEqual(checkoutAt, -1, `${where} reads ${dir} but never checks main out to it`);
+      assert.ok(checkoutAt < installAt, `${where} checks out ${dir} after the install`);
+      const clearedAt = steps.findIndex((s) => new RegExp(`^\\s*run:\\s*rm -rf ${dir.replace(".", "\\.")}\\s*$`, "m").test(s.text));
+      assert.ok(
+        clearedAt > branchAt && clearedAt < checkoutAt,
+        `${where} must \`rm -rf ${dir}\` after the branch checkout and before main is checked out to it`,
+      );
+    }
+
+    // No other step installs, builds or generates with pnpm: after the branch
+    // is checked out, the only pnpm this job runs itself is the install above.
+    for (const [i, s] of steps.entries()) {
+      if (!s.isRun || i === installAt) continue;
+      assert.doesNotMatch(s.text, PNPM_COMMAND, `${where} runs pnpm in a step of its own:\n${s.text}`);
+    }
+  }
+});
+
+test("the installing jobs set up pnpm and Node before the branch, pinned, with no cache", () => {
+  const manifest = JSON.parse(readFileSync(path.join(REPO, "package.json"), "utf8"));
+  const pnpmVersion = /^pnpm@(\d+\.\d+\.\d+)$/.exec(manifest.packageManager)?.[1];
+  assert.ok(pnpmVersion, `package.json's packageManager is not a plain pnpm@x.y.z: ${manifest.packageManager}`);
+  const PINNED = /@[0-9a-f]{40} # v\d+\.\d+\.\d+$/;
+
+  for (const [file, name] of INSTALLING_JOBS) {
+    const where = `${file} (job ${name})`;
+    const { steps } = installingJob(file, name);
+    const branchAt = steps.findIndex((s) => s.checksOutBranch);
+    for (const action of ["pnpm/action-setup", "actions/setup-node"]) {
+      const found = steps.map((s, i) => [s, i]).filter(([s]) => s.uses?.startsWith(`${action}@`));
+      assert.equal(found.length, 1, `${where} must use ${action} exactly once`);
+      const [step, at] = found[0];
+      // Before the branch is in the workspace, so nothing in the branch is
+      // there for the setup to read.
+      assert.ok(at < branchAt, `${where} runs ${action} after the PR's branch is checked out`);
+      const usesLine = step.text.split("\n").find((l) => /uses:/.test(l));
+      assert.match(usesLine, PINNED, `${where} must pin ${action} to a commit, with the version in a comment`);
+    }
+    const setup = steps.find((s) => s.uses?.startsWith("pnpm/action-setup@"));
+    assert.match(
+      setup.text,
+      new RegExp(`^\\s*version:\\s*${pnpmVersion.replaceAll(".", "\\.")}\\s*$`, "m"),
+      `${where} must give pnpm/action-setup the version main's packageManager names (${pnpmVersion})`,
+    );
+  }
+});
+
+test("no agent workflow caches dependencies, installs a branch inline, or sets pnpm up from a movable tag", () => {
+  const manifest = JSON.parse(readFileSync(path.join(REPO, "package.json"), "utf8"));
+  const pnpmVersion = manifest.packageManager.replace(/^pnpm@/, "");
+  let setups = 0;
+  for (const f of agentWorkflows) {
+    for (const job of jobsOf(f)) {
+      const where = `${f} (job ${job.name})`;
+      const hasBranch = job.steps.some((s) => s.checksOutBranch);
+      const usesPnpm = job.steps.some((s) => s.uses?.startsWith("pnpm/action-setup@"));
+      for (const s of job.steps) {
+        // Every agent job holds a token or a model credential, and a cache
+        // saved by one is saved after the agent ran.
+        assert.doesNotMatch(s.text, /^\s*cache:/m, `${where} sets cache: on a setup action`);
+        assert.ok(!s.uses?.startsWith("actions/cache"), `${where} uses actions/cache`);
+        if (s.isRun && hasBranch) {
+          assert.doesNotMatch(s.text, /\bpnpm\s+(install|i)\b/, `${where} installs a PR branch inline instead of through install-deps.mjs`);
+        }
+        if (s.uses?.startsWith("pnpm/action-setup@")) {
+          setups++;
+          assert.match(s.uses, /@[0-9a-f]{40}$/, `${where} uses pnpm/action-setup from a tag`);
+          assert.match(s.text, new RegExp(`^\\s*version:\\s*${pnpmVersion.replaceAll(".", "\\.")}\\s*$`, "m"), `${where} leaves the pnpm version to the workspace`);
+        }
+        if (usesPnpm && s.uses?.startsWith("actions/setup-node@")) {
+          assert.match(s.uses, /@[0-9a-f]{40}$/, `${where} uses actions/setup-node from a tag beside the pnpm setup`);
+        }
+      }
+    }
+  }
+  // Anti-vacuity: the four installing jobs and agent-implement.
+  assert.ok(setups >= 5, `found only ${setups} pnpm/action-setup steps in agent workflows`);
+});
