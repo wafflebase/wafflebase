@@ -187,7 +187,7 @@ by how they shipped:
 
 ## Template
 
-New design documents should be based on [template.md](template.md). YAML frontmatter and structure:
+New design documents should be based on [TEMPLATE.md](TEMPLATE.md). YAML frontmatter and structure:
 
 ```markdown
 ---

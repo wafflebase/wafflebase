@@ -11,7 +11,7 @@ the *right change*, not whether the code is line-by-line correct.
 - **Scope & approach fit:** over- or under-engineered vs the issue and the
   relevant `docs/design/<area>/*.md` **Non-Goals**; wrong layer/abstraction.
 - **Design-doc discipline:** an architecture/data-model change must add or update
-  a design doc under `docs/design/` following `docs/design/template.md` and linked
+  a design doc under `docs/design/` following `docs/design/TEMPLATE.md` and linked
   in `docs/design/README.md` — NOT a parallel/duplicate doc (the repo files docs
   by validity; fold into the canonical subsystem doc). See `CONTRIBUTING.md`.
 

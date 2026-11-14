@@ -50,7 +50,7 @@ body:
     id: arch_change
     attributes:
       label: Architecture change?
-      description: If yes, the agent must add or update a design doc under docs/design/ (see docs/design/template.md).
+      description: If yes, the agent must add or update a design doc under docs/design/ (see docs/design/TEMPLATE.md).
       options:
         - "No"
         - "Yes — needs a design doc"

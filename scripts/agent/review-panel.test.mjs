@@ -1053,7 +1053,7 @@ test("classifyFile: ordered rules — the .md that is policy is not prose", () =
 
   // The design contract stays with design-fit, never with docs.
   assert.equal(classifyFile("docs/design/sheets/formula.md"), "design-spec");
-  assert.equal(classifyFile("docs/design/template.md"), "design-spec");
+  assert.equal(classifyFile("docs/design/TEMPLATE.md"), "design-spec");
   assert.equal(classifyFile("docs/design/README.md"), "design-spec");
 
   // Markdown that behavior depends on is read as code.
