@@ -44,3 +44,8 @@
   compiled with Tailwind in a test.
   Lesson: an invariant ("trashed = invisible") applied to moderation paths
   becomes an evasion tool; ask who controls the state before gating on it.
+- Pre-push: `verify:entropy` (knip) refused the push — the `Textarea`
+  primitive stream B created had no caller. Adopted it in the slides alt-text
+  field and the SQL editor rather than deleting it, which also moves those two
+  onto the ≥3:1 `input-border` edge. Lesson: a primitive added "for later" is
+  dead code to the gate; land it with its first caller.

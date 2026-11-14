@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Element } from '@wafflebase/slides';
+import { Textarea } from '@/components/ui/textarea';
 import { getCommonValue } from './units';
 
 export interface AltTextSectionProps {
@@ -27,7 +28,7 @@ export function AltTextSection({ elements, onCommit }: AltTextSectionProps) {
       <h3 id="format-alt-text-label" className="mb-2 text-xs font-semibold">
         Alt text
       </h3>
-      <textarea
+      <Textarea
         rows={3}
         value={draft}
         placeholder={
@@ -47,7 +48,7 @@ export function AltTextSection({ elements, onCommit }: AltTextSectionProps) {
             draft,
           );
         }}
-        className="border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border bg-transparent px-3 py-2 text-xs shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:opacity-50"
+        className="min-h-0 text-xs md:text-xs"
       />
     </section>
   );
