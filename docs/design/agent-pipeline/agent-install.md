@@ -224,10 +224,22 @@ agent, and the guard test enforces both:
 - **Nothing is written into the workspace.** A write there goes wherever the
   tree leads it, whatever was checked before. The CI-fix job's download of the
   failed run's reports goes to `$RUNNER_TEMP/harness-reports`, and
-  `summarize-ci.mjs` is pointed at it. Shell steps may redirect only to the
-  runner's own files (`$GITHUB_OUTPUT`, `$GITHUB_STEP_SUMMARY`, a named file
-  under `$RUNNER_TEMP`); they create, copy, move and remove nothing.
+  `summarize-ci.mjs` is pointed at it.
 - **The staged scripts are verified directly before every use**, not once.
+
+The guard reads this stretch by **allow-list**, not by a list of forbidden
+spellings — there are too many ways to write a file. Each shell step is read
+into its simple commands (command substitutions included), and every command
+must be one of: `echo`, `printf`, `test`/`[`, `exit`, `true`, `cut`, `date`,
+`git rev-parse`, `git ls-remote`, `gh pr comment`, or `node` with a staged
+script as its first argument. Every redirection must name `$GITHUB_OUTPUT`,
+`$GITHUB_STEP_SUMMARY`, a named file under `$RUNNER_TEMP`, stderr or
+`/dev/null`. A script it cannot read — a backtick, an arithmetic expansion, a
+here-document, a GitHub expression inside the script — fails it. The only
+actions are a download into `$RUNNER_TEMP` and a `github-script` that reaches
+for no module, program or file. Every check of the staged scripts is the same
+step word for word, under exactly the condition it should have, and any step
+that names a staged script, however spelled, has one directly before it.
 
 ### The digest
 
@@ -308,6 +320,11 @@ registry through a proxy needs them added to `PASSED_ENV`, deliberately.
 
 Stated plainly, the property rests on these and on nothing else:
 
+- **A name is its bytes.** Every name and link text is read as bytes and must
+  be valid UTF-8; one that is not is refused. A name decoded leniently comes
+  back with a replacement character in it, and that string names a different
+  file — so a check would be made on whatever the branch put under that other
+  name. (macOS refuses such names; ext4, what the runners use, takes them.)
 - **Where a link leads is what the kernel says.** Locations are judged by
   physical resolution (`realpath(3)`), never by simplifying a path's text
   first: the two differ as soon as a `..` follows a link.
@@ -349,6 +366,17 @@ the workspace file. Before moving the pin, check for the new version that:
 4. the YAML parser it bundles still reads the strict subset the same way
    (re-run the differential check);
 5. the real-pnpm test in `install-deps.test.mjs` still passes.
+
+## Follow-ups
+
+- **The `always()` steps after the agent.** In the CI-fix job, the on-demand
+  fix job and the panel's fix job, steps that run after the agent — under
+  `always()` — run staged scripts with the App token or the `GITHUB_TOKEN`.
+  The agent has a shell, and could by then have rewritten
+  `$RUNNER_TEMP/agent-tools`, `$GITHUB_PATH` or `.git/config`. This is so on
+  main before this change and is not touched by it. The fix is to move those
+  steps to a fresh job that does not share the agent's runner, as the
+  harness's own `report` job does.
 
 ## Out of scope
 
