@@ -30,7 +30,7 @@ export function DocumentPresenceAvatars({
   return (
     <div
       onClick={(e: MouseEvent<HTMLElement>) => e.stopPropagation()}
-      className="inline-flex"
+      className="inline-flex shrink-0"
     >
       <AvatarStack
         users={toStackUsers(editors)}
