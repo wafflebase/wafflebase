@@ -1,5 +1,5 @@
 import { Star } from "lucide-react";
-import { BigWaffle } from "./primitives/big-waffle";
+import { RepoMap } from "./primitives/repo-map";
 import { SectionHead } from "./primitives/section-head";
 import { WbButton } from "./primitives/wb-button";
 
@@ -59,11 +59,9 @@ export function OpenSourceSection() {
             </div>
           </div>
 
-          {/* BigWaffle illustration */}
+          {/* What the one repository holds, drawn as a ruled file tree. */}
           <div className="relative z-10 flex justify-center md:justify-end">
-            <div className="w-full max-w-[320px] aspect-square">
-              <BigWaffle />
-            </div>
+            <RepoMap />
           </div>
         </div>
       </div>

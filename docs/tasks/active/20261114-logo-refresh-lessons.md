@@ -18,3 +18,7 @@
 - **A font that fails to load renders a fallback silently.** Instrument
   Serif in the font comparison came out as a sans; check every candidate
   actually rendered before judging it.
+- **"The image at the bottom of the homepage" means the page's last image.**
+  I read "첫화면 하단" as under the hero and asked about the live demo;
+  the user meant the BigWaffle in the last panel. Screenshot the whole
+  page and point at the candidate before asking about the wrong one.

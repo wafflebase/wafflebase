@@ -92,7 +92,7 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 | 6 | InteropSection | Import/Export format matrix — "no lock-in" paper cards |
 | 7 | WhySection | Comparison table vs Google Workspace inside a paper card |
 | 8 | DeveloperSection | Single dark code card with REST API / CLI tabs |
-| 9 | OpenSourceSection | Apache-2.0 callout with `<BigWaffle>` illustration + Star/Contribute CTAs |
+| 9 | OpenSourceSection | Apache-2.0 callout with `<RepoMap>` infographic + Star/Contribute CTAs |
 | 10 | Footer | Brand block + 3 link columns + bottom copyright row |
 
 #### NavBar
@@ -211,11 +211,16 @@ documentation →" depending on the active tab.
 
 `--wb-paper` rounded card with grid layout: copy on the left
 (left-aligned `<SectionHead>`, badges, primary "★ Star on GitHub" + ghost
-"Contribute →" buttons), `<BigWaffle>` illustration on the right.
+"Contribute →" buttons), `<RepoMap>` infographic on the right.
 
-The `<BigWaffle>` is a 240×240 SVG: 4×4 syrup pockets with shading gradient,
-butter pat with knife-slice marks, syrup pour from top-right with three drip
-landings.
+`<RepoMap>` backs the headline's claim with the repository itself: the
+`wafflebase/wafflebase` root under the Facet mark, then a ruled file tree of
+the real `packages/*` directories in three groups — Editors (sheets, docs,
+slides, notes, board; filled pockets), Server and app (backend, frontend) and
+Tools (cli, core; outlined pockets). Package names are mono because they are
+code. It replaced `<BigWaffle>`, a butter-and-syrup waffle illustration that
+read as clip art next to the one-color mark. Keep its rows in step with the
+monorepo.
 
 #### Footer
 
@@ -271,7 +276,7 @@ packages/frontend/src/app/home/
 └── primitives/
     ├── waffle-logo.tsx                      # 28×28 logo SVG
     ├── ruler-backdrop.tsx                   # Hero word-ruler motif
-    ├── big-waffle.tsx                       # OSS section illustration
+    ├── repo-map.tsx                         # OSS section infographic
     ├── feature-glyph.tsx                    # 5-kind feature icon set
     ├── theme-toggle.tsx                     # Sun/moon icon button
     ├── wb-button.tsx                        # Pill-shape primary/ghost buttons

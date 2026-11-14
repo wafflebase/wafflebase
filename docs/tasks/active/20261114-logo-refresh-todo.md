@@ -28,6 +28,11 @@ no mark at all.
 - [x] Verify: homepage nav light/dark, sign-in, docs nav light/dark rendered.
 - [x] No visual baseline covers the homepage, sign-in or sidebar.
 - [x] `pnpm verify:fast`
+- [x] Homepage bottom: replace the `BigWaffle` clip-art illustration in the
+      open-source panel with `RepoMap`, a ruled file tree of the real
+      `packages/*` (user asked for an infographic; first misread as the
+      area under the hero, then clarified). Rendered desktop light/dark +
+      390px mobile; `docs/design/homepage.md` updated.
 
 ## Review
 
