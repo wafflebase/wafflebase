@@ -412,12 +412,212 @@ test("the staged scripts are fingerprinted before the install and checked right 
   }
 });
 
-test("between the install and the agent, the staged scripts are verified before every use and nothing is written into the workspace", () => {
+/**
+ * The simple commands of a shell script, for checking against an allow-list.
+ * A small reading of POSIX shell: words with their quoting kept as written,
+ * command substitutions `$( … )` read as scripts of their own, redirections
+ * with their targets, and the separators and reserved words that end or open
+ * a command. Whatever it does not read — a backtick, an arithmetic expansion,
+ * a GitHub expression in the script, a here-document, an unterminated quote —
+ * is reported as a problem rather than guessed at.
+ *
+ * @returns {{ commands: { words: string[], redirects: { op: string, target: string }[] }[], problems: string[] }}
+ */
+function shellCommands(script) {
+  const problems = [];
+  const subscripts = [];
+  const tokens = []; // { word } | { op }
+  let word = null;
+  const end = () => {
+    if (word !== null) tokens.push({ word });
+    word = null;
+  };
+  const add = (text) => {
+    word = (word ?? "") + text;
+  };
+  /** From `$(` at `i`, the index just past the matching `)`. */
+  const substitution = (i) => {
+    let depth = 0;
+    for (let j = i + 1; j < script.length; j++) {
+      const c = script[j];
+      if (c === "\\") j++;
+      else if (c === "'") {
+        j = script.indexOf("'", j + 1);
+        if (j === -1) break;
+      } else if (c === '"') {
+        for (j++; j < script.length && script[j] !== '"'; j++) {
+          if (script[j] === "\\") j++;
+          else if (script[j] === "$" && script[j + 1] === "(") j = substitution(j) - 1;
+        }
+      } else if (c === "(") depth++;
+      else if (c === ")" && --depth === 0) {
+        subscripts.push(script.slice(i + 2, j));
+        return j + 1;
+      }
+    }
+    problems.push("an unterminated command substitution");
+    return script.length;
+  };
+  for (let i = 0; i < script.length; ) {
+    const c = script[i];
+    const rest = script.slice(i);
+    if (rest.startsWith("${{")) {
+      problems.push("a GitHub expression inside the script");
+      i += 3;
+    } else if (rest.startsWith("$((") || c === "`") {
+      problems.push(`an expansion this guard does not read (${rest.slice(0, 3)})`);
+      i++;
+    } else if (rest.startsWith("\\\n")) {
+      i += 2;
+    } else if (c === " " || c === "\t") {
+      end();
+      i++;
+    } else if (c === "\n") {
+      end();
+      tokens.push({ op: "\n" });
+      i++;
+    } else if (c === "#" && word === null) {
+      while (i < script.length && script[i] !== "\n") i++;
+    } else if (c === "\\") {
+      add(script.slice(i, i + 2));
+      i += 2;
+    } else if (c === "'") {
+      const close = script.indexOf("'", i + 1);
+      if (close === -1) {
+        problems.push("an unterminated single quote");
+        break;
+      }
+      add(script.slice(i, close + 1));
+      i = close + 1;
+    } else if (c === '"') {
+      let j = i + 1;
+      for (; j < script.length && script[j] !== '"'; j++) {
+        if (script[j] === "\\") j++;
+        else if (script[j] === "`") problems.push("a backtick inside double quotes");
+        else if (script[j] === "$" && script[j + 1] === "{" && script[j + 2] === "{") problems.push("a GitHub expression inside the script");
+        else if (script[j] === "$" && script[j + 1] === "(" && script[j + 2] === "(") problems.push("an arithmetic expansion");
+        else if (script[j] === "$" && script[j + 1] === "(") j = substitution(j) - 1;
+      }
+      if (j >= script.length) {
+        problems.push("an unterminated double quote");
+        break;
+      }
+      add(script.slice(i, j + 1));
+      i = j + 1;
+    } else if (c === "$" && script[i + 1] === "(") {
+      const j = substitution(i);
+      add(script.slice(i, j));
+      i = j;
+    } else if (c === ">" || c === "<") {
+      // An all-digit word just before is a file descriptor, part of the operator.
+      if (word !== null && /^\d+$/.test(word)) word = null;
+      end();
+      const op = /^(>>|>&|>\||<<-?|<&|<>|>|<)/.exec(rest)[1];
+      if (op.startsWith("<<")) problems.push("a here-document");
+      tokens.push({ op, redirect: true });
+      i += op.length;
+    } else if (/^(&&|\|\||;;|[;&|()])/.test(rest)) {
+      end();
+      const op = /^(&&|\|\||;;|[;&|()])/.exec(rest)[1];
+      if (op === "&" && script[i + 1] === ">") problems.push("an &> redirection");
+      tokens.push({ op });
+      i += op.length;
+    } else {
+      add(c);
+      i++;
+    }
+  }
+  end();
+
+  const commands = [];
+  let current = { words: [], redirects: [] };
+  const finish = () => {
+    if (current.words.length > 0 || current.redirects.length > 0) commands.push(current);
+    current = { words: [], redirects: [] };
+  };
+  const RESERVED = new Set(["if", "then", "else", "elif", "fi", "!"]);
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k];
+    if (t.redirect) {
+      const target = tokens[k + 1];
+      if (!target || target.word === undefined) {
+        problems.push(`a ${t.op} redirection with no target`);
+        continue;
+      }
+      current.redirects.push({ op: t.op, target: target.word });
+      k++;
+    } else if (t.op !== undefined) {
+      finish();
+    } else if (current.words.length === 0 && (t.word === "{" || t.word === "}")) {
+      finish();
+    } else if (current.words.length === 0 && RESERVED.has(t.word)) {
+      // Opens or closes a compound command; what follows is a command.
+    } else if (current.words.length === 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t.word)) {
+      // An assignment before the command; its substitutions are read below.
+    } else {
+      current.words.push(t.word);
+    }
+  }
+  finish();
+  for (const sub of subscripts) {
+    const inner = shellCommands(sub);
+    commands.push(...inner.commands);
+    problems.push(...inner.problems);
+  }
+  return { commands, problems };
+}
+
+test("shellCommands reads the commands a script runs, and says what it cannot read", () => {
+  const read = (script) => shellCommands(script);
+  const words = (script) => read(script).commands.map((c) => c.words.join(" "));
+  assert.deepEqual(words('A="$(git rev-parse HEAD)"\nif [ "$A" != x ]; then\n  echo "y $(date -u)"\n  exit 1\nfi'), ["[ \"$A\" != x ]", "echo \"y $(date -u)\"", "exit 1", "git rev-parse HEAD", "date -u"]);
+  assert.deepEqual(words('[ -f "$F" ] || {\n  echo no\n  exit 0\n}\nnode "$F"'), ['[ -f "$F" ]', "echo no", "exit 0", 'node "$F"']);
+  assert.deepEqual(read('{\n  printf x\n} > "$RUNNER_TEMP/a.md"').commands.at(-1).redirects, [{ op: ">", target: '"$RUNNER_TEMP/a.md"' }]);
+  assert.deepEqual(read('echo "a" >&2 2>/dev/null').commands[0].redirects, [{ op: ">&", target: "2" }, { op: ">", target: "/dev/null" }]);
+  assert.deepEqual(words("printf '%s' 'it'\"'\"'s' | cut -f1"), ["printf '%s' 'it'\"'\"'s'", "cut -f1"]);
+  assert.deepEqual(words('echo "$(git ls-remote o "r/$B" | cut -f1)"'), ['echo "$(git ls-remote o "r/$B" | cut -f1)"', 'git ls-remote o "r/$B"', "cut -f1"]);
+  for (const bad of ["echo `id`", "echo $((1+1))", "echo ${{ github.ref }}", 'echo "a', "echo 'a", "cat <<EOF\nx\nEOF", "echo $(id"]) {
+    assert.ok(read(bad).problems.length > 0, `read without a problem: ${bad}`);
+  }
+});
+
+test("between the install and the agent, trusted steps run only what is allowed, and each staged script right after its check", () => {
+  // AN ALLOW-LIST, NOT A LIST OF FORBIDDEN SPELLINGS. A trusted step in this
+  // stretch runs after the branch's tree is in the workspace, so whatever it
+  // writes there, or runs from there, follows that tree. Every simple command
+  // of every shell step must be one of a few known to do neither; every
+  // redirection must name one of the runner's own files; every action must be
+  // one known not to write into the workspace.
   const VERIFY = "Verify the staged agent scripts are unchanged";
-  // A write a trusted step makes after the install lands wherever the tree
-  // leads it, so there are none: what such a step writes, it writes to the
-  // runner's own files. Each allowed target is one the branch cannot name.
-  const WRITES_TO = /(?:>>?)\s*("?\$GITHUB_OUTPUT"?|"?\$GITHUB_STEP_SUMMARY"?|"\$RUNNER_TEMP\/[\w.-]+"|&2|\/dev\/null)/g;
+  const FIRST_COND = "always() && steps.tools.outputs.digest != ''";
+  const LATER_COND = "steps.tools.outputs.digest != ''";
+  const STAGED = /^"\$RUNNER_TEMP\/agent-tools\/[a-z][a-z0-9-]*\.mjs"$/;
+  const ALLOWED = {
+    echo: () => true,
+    printf: () => true,
+    test: () => true,
+    "[": () => true,
+    exit: () => true,
+    true: () => true,
+    cut: () => true,
+    date: () => true,
+    git: (w) => w[1] === "rev-parse" || w[1] === "ls-remote",
+    gh: (w) => w[1] === "pr" && w[2] === "comment",
+    node: (w) => STAGED.test(w[1] ?? ""),
+  };
+  const TARGET = (r) =>
+    (r.op === ">&" && (r.target === "1" || r.target === "2")) ||
+    ((r.op === ">" || r.op === ">>") &&
+      (['"$GITHUB_OUTPUT"', '"$GITHUB_STEP_SUMMARY"', "/dev/null"].includes(r.target) || /^"\$RUNNER_TEMP\/[\w.-]+"$/.test(r.target)));
+  const STEP_KEYS = /^\s*(?:- )?(name|id|if|env|run|uses|with|continue-on-error|working-directory|timeout-minutes):/;
+  /** A step's text with its `if:` line taken out, to compare the checks by. */
+  const withoutCond = (s) =>
+    s.text
+      .split("\n")
+      .filter((l) => !/^\s*if:/.test(l))
+      .join("\n")
+      .trimEnd();
+
   let uses = 0;
   for (const [file, name] of INSTALLING_JOBS) {
     const where = `${file} (job ${name})`;
@@ -425,35 +625,52 @@ test("between the install and the agent, the staged scripts are verified before 
     const installAt = steps.findIndex((s) => s.id === "install");
     const agentAt = steps.findIndex((s) => s.uses?.startsWith(AGENT_ACTION));
     assert.ok(installAt > 0 && agentAt > installAt, `${where}: no install before the agent`);
-    const verifyScript = steps[installAt + 1].script.trim();
+    const first = steps[installAt + 1];
+    assert.equal(first.name, VERIFY, `${where}: the step after the install is not the check`);
+    assert.equal(first.cond, FIRST_COND, `${where}: the check after the install has another condition`);
     for (let i = installAt + 1; i < agentAt; i++) {
       const s = steps[i];
       const label = `${where}: step "${s.name || s.uses}"`;
+      // Every key of the step is one this guard reads; a `shell:` would make
+      // the script mean something else.
+      for (const line of s.text.split("\n")) {
+        if (/^ {6}- |^ {8}\S/.test(line)) assert.match(line, STEP_KEYS, `${label} has a key this guard does not read: ${line.trim()}`);
+      }
       if (s.name === VERIFY) {
-        assert.equal(s.script.trim(), verifyScript, `${label} is not the same check as the one after the install`);
-        assert.match(s.cond, /steps\.tools\.outputs\.digest != ''$/, `${label} does not key on the recorded digest`);
+        // The same check, word for word, with the one condition it may have.
+        assert.equal(withoutCond(s), withoutCond(first), `${label} is not the same check as the one after the install`);
+        assert.equal(s.cond, i === installAt + 1 ? FIRST_COND : LATER_COND, `${label} runs under another condition`);
         continue;
       }
-      // Every run of a staged script is directly preceded by the check.
-      if (/agent-tools/.test(s.text)) {
-        uses++;
-        assert.equal(steps[i - 1].name, VERIFY, `${label} runs a staged script without the check directly before it`);
-      }
-      // No action that writes files, except a download into the runner's temp directory.
       if (s.uses) {
         if (s.uses.startsWith("actions/download-artifact@")) {
-          assert.match(s.text, /^\s*path: \$\{\{ runner\.temp \}\}\/[\w-]+\/?\s*$/m, `${label} downloads into the workspace`);
+          assert.match(s.text, /^ {10}path: \$\{\{ runner\.temp \}\}\/[\w-]+\/?\s*$/m, `${label} downloads somewhere other than the runner's temp directory`);
+          assert.equal((s.text.match(/^\s*path:/gm) ?? []).length, 1, `${label} names more than one path`);
         } else {
           assert.ok(s.uses.startsWith("actions/github-script@"), `${label} is an action this guard does not know to be free of workspace writes`);
-          assert.doesNotMatch(s.text, /writeFile|appendFile|mkdir|\bexec\b|io\.(cp|mv|rmRF)/, `${label} writes files or runs programs`);
+          assert.doesNotMatch(s.text, /\b(require|import|exec|io|glob|process|eval|Function|globalThis|child_process|fs)\b/, `${label} reaches for modules, programs or files`);
         }
+        assert.doesNotMatch(s.text, /agent-tool/, `${label} names the staged scripts`);
         continue;
       }
-      // No shell step that creates, copies, moves or removes, and no redirect to anywhere else.
-      assert.doesNotMatch(s.script, /(^|[\s;&|(])(cp|mv|mkdir|touch|tee|rm|ln|chmod|git (config|add|commit|checkout|apply|stash|reset|clean))\s/m, `${label} changes files`);
-      const redirects = s.script.replace(/\$\{\{[^}]*\}\}/g, "").match(/(?:^|[^<>-])>>?\s*\S+/g) ?? [];
-      for (const r of redirects) {
-        assert.match(r, new RegExp(WRITES_TO.source), `${label} redirects output to ${r.trim()}`);
+      assert.ok(s.isRun, `${label} neither runs a script nor uses an action`);
+      const { commands, problems } = shellCommands(s.script);
+      assert.deepEqual(problems, [], `${label}: the guard cannot read this script`);
+      let runsNode = false;
+      for (const c of commands) {
+        for (const r of c.redirects) {
+          assert.ok(TARGET(r), `${label} redirects ${r.op} ${r.target}, which is not one of the runner's own files`);
+        }
+        if (c.words.length === 0) continue;
+        const allowed = ALLOWED[c.words[0]];
+        assert.ok(allowed && allowed(c.words), `${label} runs \`${c.words.join(" ")}\`, which is not on the list of commands allowed before the agent`);
+        if (c.words[0] === "node") runsNode = true;
+      }
+      // A staged script is run only directly after the check — and anything
+      // that names one, however spelled, counts as running it.
+      if (runsNode || /agent-tool|RUNNER_TEMP[^\n]*\.m?js|runner\.temp[^\n]*\.m?js/.test(s.text)) {
+        uses++;
+        assert.equal(steps[i - 1].name, VERIFY, `${label} runs a staged script without the check directly before it`);
       }
     }
   }
