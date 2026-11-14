@@ -1,0 +1,107 @@
+{
+  "repo": {
+    "name": "wafflebase",
+    "appSlug": "yorkie-agent",
+    "botLogins": [
+      "github-actions[bot]",
+      "yorkie-agent[bot]"
+    ],
+    "appLogins": [
+      "yorkie-agent[bot]",
+      "app/yorkie-agent"
+    ]
+  },
+  "docs": {
+    "commandVerbsRef": "https://github.com/yorkie-team/yorkie/blob/main/docs/design/agent-command-verbs.md"
+  },
+  "ci": {
+    "definingPaths": [
+      "harness.config.json",
+      "knip.json",
+      "package.json",
+      "packages/*/package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "scripts/changed-areas.mjs",
+      "scripts/verify-*.mjs"
+    ],
+    "gateLabel": "verify:self, and verify:integration where the change reaches it",
+    "handoffSummary": [
+      "- ✅ CI verification (`verify:self` and `verify:integration`) is green, for this",
+      "  exact head SHA, on a PR based on the default branch — and the branch changes",
+      "  none of the paths that define what CI does (`harness.config.json`'s",
+      "  `ci.ciConfig` surface: workflows, composite actions, `scripts/verify-*.mjs`,",
+      "  the root and per-package manifests, the lockfile), so the CI definition that",
+      "  run executed came from `main` rather than from the branch."
+    ],
+    "laneReports": true
+  },
+  "review": {
+    "classRules": {
+      "code-adjacent": [
+        "packages/**/test/**",
+        "packages/**/tests/**",
+        "packages/**/__tests__/**",
+        "**/__fixtures__/**",
+        "**/fixtures/**",
+        "packages/docs/src/spell/dict/**"
+      ],
+      "policy": [
+        "harness.config.json"
+      ],
+      "prose": [
+        "packages/documentation/**/*.md",
+        "packages/documentation/**/*.mdx",
+        ".changeset/*.md"
+      ]
+    },
+    "sourceGlobs": [
+      "packages/**"
+    ],
+    "sharedPrimitivesNote": "This\n  repo expects reuse (Slides reuses the Docs rich-text engine; shared code lives\n  in `@wafflebase/core`).",
+    "diffExcludes": [
+      "packages/sheets/antlr/*.interp",
+      "packages/sheets/antlr/*.tokens"
+    ]
+  },
+  "fixer": {
+    "verifyCommand": "pnpm verify:fast",
+    "verifyDescription": "the lint of `scripts/` and `plugins/`, the doc index and link checks, the core build and suite, the architecture lint, the frontend lint and suite, the backend's Jest suite, and the typecheck and suite of sheets, slides, cli, docs, notes and board",
+    "verifyFailureHint": "Run `pnpm --filter @wafflebase/backend exec prisma generate` once before it: the dependencies were installed without lifecycle scripts, so the backend's Prisma client is not generated yet.",
+    "integrationWarning": "Do NOT run `pnpm verify:integration` or the browser lanes: they need Postgres, a Yorkie server and Docker browsers this job does not stand up",
+    "integrationRerunBy": "them in CI",
+    "ciFailureNote": "If the failure is in one of them, fix it from the diagnosis and let CI confirm.",
+    "generatedCodeNote": "Never hand-edit the ANTLR output in packages/sheets/antlr/ (everything there but `Formula.g4`): edit the grammar, regenerate with `pnpm sheets build:formula` and commit what it writes.",
+    "apiChangeNote": "",
+    "keepReproducerAs": "Keep it running in the form its runner has, with a comment naming the finding — Vitest `it.fails(...)`, Jest (packages/backend `*.spec.ts`, `*.e2e-spec.ts`) `test.failing(...)`, and node:test (`scripts/**` `*.test.mjs`, the frontend's `*.integration.ts`), which has neither and crashes on both, the option `{ todo: 'still reproduces: <finding>' }`",
+    "disabledTestForms": "focuses (`.only`, `fit`), or turns into `.skip`/`.todo`/`xit`/`{ todo }`/`{ skip }`",
+    "commitNote": "Commit messages follow this repository's convention: subject <= 70 characters, a blank line, body lines <= 80 characters saying why.",
+    "licenceScope": "",
+    "todoTrackingLine": "",
+    "implementVerifyStep": "LET CI VERIFY — do NOT run `pnpm verify:self`, `pnpm verify:fast`, `pnpm verify:integration:docker`, or full builds locally: they are slow and this is a one-shot headless run. The PR's CI runs the full lanes and the agent-iterate-ci loop feeds any failure back to you to fix on the branch. Running a single targeted unit-test file in the FOREGROUND is fine (a backend one needs `pnpm --filter @wafflebase/backend exec prisma generate` once first: dependencies were installed without lifecycle scripts), but never wait on slow builds.",
+    "replyVerifyInstruction": "run `pnpm --filter @wafflebase/backend exec prisma generate` once and then `pnpm verify:fast`",
+    "toolchainSteps": "the pnpm download, the contained dependency install",
+    "lastResortDiagnosis": "Re-run `pnpm verify:self` locally and read its console output directly to diagnose the failure."
+  },
+  "tests": {
+    "rules": [
+      "vitest"
+    ]
+  },
+  "fixGuard": {
+    "replicatedRuleGlobs": [],
+    "replicatedRuleNotice": "",
+    "counterpartRepos": []
+  },
+  "redact": {
+    "extraPatterns": [
+      "\\bwfb_[A-Za-z0-9_-]+"
+    ]
+  },
+  "ask": {
+    "permittedMcpTools": [
+      "mcp__wafflebase__run",
+      "mcp__wafflebase__ui"
+    ]
+  }
+}
