@@ -8,3 +8,10 @@
   goes stale, so it can only shrink.
 - Splitting on shell operators inside quoted text turns prose into commands.
   Read quoted strings as one word before splitting a script.
+- A safety step marked `continue-on-error` is a step whose failure the job
+  proceeds past. A revocation that guards what follows has to fail the job.
+- When a later job takes over steps that used to run in the same job, it also
+  takes over their conditions. Carry the gate across as an output written
+  only after the gate passed.
+- The job's own token reaches an action's environment whether or not a step
+  names it. Declare a job's permissions, even when every step brings its own.
