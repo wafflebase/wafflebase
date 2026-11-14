@@ -371,6 +371,20 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
+      # The same reports under the name the shared agent harness's CI-fix job
+      # (`agent-iterate-ci.yml` from yorkie's core) downloads when
+      # `.github/agent-harness/config.json` sets `ci.laneReports`, rendered by
+      # `scripts/ci/summarize-ci.mjs`. `harness-reports` above stays for
+      # `ci-report.yml` and for today's CI-fix job.
+      - name: Upload the lane reports for the CI-fix agent
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-lane-reports
+          path: .harness-reports/
+          include-hidden-files: true
+          retention-days: 14
+
   verify-backend-image:
     runs-on: ubuntu-latest
     needs: [changes, verify-self]
