@@ -96,8 +96,12 @@ test("renderPrBody: output satisfies the ready-gate disclosure predicate", () =>
 });
 
 test("disclosesAiAuthorship: needs BOTH autonomous AND an AI-tool token", () => {
+  // The predicate is the shared core's, graded in full by its own suite. These
+  // are the cases this arm leans on, each said in ONE clause: yorkie's core
+  // reads the two words per clause (split at `.`, `;`, `!`, `?` and newlines),
+  // so a disclosure spread over two clauses is not one there.
   assert.ok(disclosesAiAuthorship("Authored autonomously by Claude Code"));
-  assert.ok(disclosesAiAuthorship("autonomous run; AI tools assisted"));
+  assert.ok(disclosesAiAuthorship("autonomous run, AI tools assisted"));
   assert.ok(disclosesAiAuthorship("Autonomous, ai-assisted change"));
   assert.ok(!disclosesAiAuthorship("autonomous change")); // no AI token
   assert.ok(!disclosesAiAuthorship("written with Claude")); // not autonomous
