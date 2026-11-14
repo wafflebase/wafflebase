@@ -22,7 +22,6 @@ export function OpenSourceSection() {
             <SectionHead
               align="left"
               className="mb-7"
-              kicker="Open source"
               title="Free. Apache-2.0. Yours to host."
               sub="Wafflebase is open-source under the Apache-2.0 license. Contributions, issues, and forks are welcome from everyone."
             />

@@ -35,7 +35,6 @@ export function InteropSection() {
     <section className="bg-[color:var(--wb-bg)] py-16 md:py-20 px-6 md:px-8">
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          kicker="No lock-in"
           title="Bring your files — and take them with you."
           sub="Import what you already have and export what you make. Wafflebase speaks the formats your team already uses, so your data is never trapped."
         />

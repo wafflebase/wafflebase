@@ -57,10 +57,9 @@ export function WorkspaceAnalyticsPage() {
 
       <ViewsTrendChart data={data.viewsByDay} />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Stat label="Total views" value={data.totalViews} />
         <Stat label="Unique visitors" value={data.uniqueVisitors} />
-        <Stat label="Documents tracked" value={data.byDocument.length} />
       </div>
 
       <section>

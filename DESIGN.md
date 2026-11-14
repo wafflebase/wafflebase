@@ -180,10 +180,10 @@ brand layer swaps the zinc for cream paper and walnut ink.
 
 ### Primary
 - **Maple Syrup** (syrup): the one accent. Primary buttons, focus rings, text selection, chart series 1, active sidebar item. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
-- **Deep Syrup** (syrup-deep): pressed/hover state of the brand primary button, the active sidebar item's text, and brand eyebrows.
+- **Deep Syrup** (syrup-deep): pressed/hover state of the brand primary button, the active sidebar item's text, and brand chip and footer-heading labels.
 
 ### Secondary
-- **Butter** (butter): highlight, never text. Sidebar active-item wash (30% light / 18% dark), brand eyebrow pills, the waffle illustrations.
+- **Butter** (butter): highlight, never text. Sidebar active-item wash (30% light / 18% dark), brand tag and badge chips, the waffle illustrations.
 
 ### Tertiary
 - **Berry** (berry / berry-bright): brand-surface error and emphasis, and the sheet engine's reference highlights.
@@ -219,7 +219,7 @@ brand layer swaps the zinc for cream paper and walnut ink.
 - **Body** (400, 14px): all editor and workspace UI text. Inputs render at 16px on mobile, which prevents iOS zoom-on-focus.
 - **Body (brand)** (400, clamp(17px, 1.4vw, 19px), 1.55): homepage lead paragraphs, max ~560px measure.
 - **Label** (500, 12px): badges, small metadata.
-- **Label (mono)** (400, 11.5–13px, 0.08em, uppercase): brand eyebrows, stat captions, section numbers.
+- **Label (mono)** (400, 11.5–13px, 0.08em, uppercase): footer column headings and category/tag chips. Never a kicker or eyebrow above a heading.
 
 ### Named Rules
 **The Serif Is a Signature Rule.** Fraunces never appears inside an editor or on a control. It is the brand's voice, used for wordmarks and brand-surface headings only.
@@ -251,7 +251,7 @@ Flat by default. App surfaces separate by a 1px zinc rule and a tonal step (back
 
 ## Shapes
 
-Corners are barely softened in the app. The radius base is 0.3rem (4.8px): controls take `md` (2.8px), and cards and dialogs take `xl` (8.8px). The brand layer is rounder on purpose: pill CTAs and eyebrow chips, 16px cards. Borders are always 1px. The waffle grid is the one decorative geometry and appears only as brand illustration.
+Corners are barely softened in the app. The radius base is 0.3rem (4.8px): controls take `md` (2.8px), and cards and dialogs take `xl` (8.8px). The brand layer is rounder on purpose: pill CTAs and tag chips, 16px cards. Borders are always 1px. The waffle grid is the one decorative geometry and appears only as brand illustration.
 
 ## Components
 
@@ -301,3 +301,4 @@ Precise and restrained.
 - **Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, leaf) are for status only.
 - **Don't** hard-code a hex in a component or engine when a token exists.
 - **Don't** add decorative shadows or gradients to app chrome.
+- **Don't** set a kicker or eyebrow label above a heading, or a row of non-metric "stats" under a hero. The heading carries its own weight.

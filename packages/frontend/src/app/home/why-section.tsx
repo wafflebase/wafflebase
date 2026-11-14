@@ -59,7 +59,6 @@ export function WhySection() {
     <section className="bg-[color:var(--wb-bg)] py-16 md:py-20 px-6 md:px-8">
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          kicker="Why Wafflebase"
           title="A workspace that respects your data and your workflow."
           sub="Open source, self-hosted, and developer-first — no surprises, no lock-in."
         />

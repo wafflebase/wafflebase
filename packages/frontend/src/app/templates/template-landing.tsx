@@ -219,10 +219,6 @@ export function TemplateLanding() {
           </div>
 
           <div className="order-1 flex flex-col md:order-2">
-            <div className="mb-3 inline-flex items-center gap-2 font-code text-[11.5px] uppercase tracking-[0.14em] text-[color:var(--wb-syrup-deep)]">
-              <span className="size-1.5 rounded-full bg-[color:var(--wb-syrup)]" />
-              Template
-            </div>
             <h1
               className="m-0 font-display text-[clamp(28px,3.5vw,40px)] font-semibold leading-[1.1] tracking-[-0.01em] text-[color:var(--wb-ink)]"
               style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}

@@ -202,7 +202,6 @@ export function DeveloperSection() {
     >
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          kicker="Developers"
           title="Built for Developers"
           sub="Automate your workflow with REST API and CLI."
         />

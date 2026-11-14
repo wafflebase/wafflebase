@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils";
 
 type SectionHeadProps = {
-  kicker: string;
   title: string;
   sub?: string;
   align?: "center" | "left";
@@ -9,7 +8,6 @@ type SectionHeadProps = {
 };
 
 export function SectionHead({
-  kicker,
   title,
   sub,
   align = "center",
@@ -26,10 +24,6 @@ export function SectionHead({
         className,
       )}
     >
-      <div className="inline-flex items-center gap-2 mb-3 font-code text-[11.5px] uppercase tracking-[0.14em] text-[color:var(--wb-syrup-deep)]">
-        <span className="size-1.5 rounded-full bg-[color:var(--wb-syrup)]" />
-        {kicker}
-      </div>
       <h2
         className="font-display font-semibold text-[color:var(--wb-ink)] text-[clamp(28px,3.5vw,40px)] leading-[1.1] tracking-[-0.01em] m-0"
         style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}

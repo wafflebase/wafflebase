@@ -87,7 +87,6 @@ export function DemoSection() {
     >
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          kicker="Live demo"
           title="Try it live"
           sub="Edit cells, type formulas, see updates instantly. All three panes are real Wafflebase documents running in your browser."
         />

@@ -1,14 +1,4 @@
-import {
-  BarChart3,
-  FileText,
-  FunctionSquare,
-  LayoutTemplate,
-  MessageSquare,
-  NotebookPen,
-  Palette,
-  Presentation,
-} from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { FeatureGlyph, type GlyphKind } from "./primitives/feature-glyph";
 import { SectionHead } from "./primitives/section-head";
 
@@ -20,7 +10,6 @@ type HeroFeature = {
 };
 
 type SecondaryFeature = {
-  Icon: ComponentType<{ className?: string }>;
   title: string;
   description: string;
   href: string;
@@ -52,55 +41,47 @@ const HERO_FEATURES: HeroFeature[] = [
 
 const SECONDARY_FEATURES: SecondaryFeature[] = [
   {
-    Icon: FunctionSquare,
     title: "Google Sheets-Compatible Formulas",
     description:
       "440+ functions — SUM, VLOOKUP, IF — plus cross-sheet references",
     href: "/docs/sheets/formulas",
   },
   {
-    Icon: BarChart3,
     title: "Charts, Pivots & Live Data",
     description:
       "Visualize, aggregate, and query PostgreSQL or an Iceberg/Delta lakehouse",
     href: "/docs/sheets/charts",
   },
   {
-    Icon: FileText,
     title: "Page-Based Document Editor",
     description:
       "Paginated editor with rich tables, page breaks, and headers/footers",
     href: "/docs/docs-editor/writing-a-document",
   },
   {
-    Icon: MessageSquare,
     title: "Comments, Mentions & Spell Check",
     description: "Inline threads, @mentions, and live spell checking",
     href: "/docs/guide/collaboration",
   },
   {
-    Icon: Palette,
     title: "Themes, Layouts & Shapes",
     description:
       "23 built-in themes, Google-Slides-parity layouts, 137 shapes and 4 connector types",
     href: "/docs/slides/themes-and-layouts",
   },
   {
-    Icon: Presentation,
     title: "Animations & Presentation Mode",
     description:
       "Object and slide animations plus a full-screen keyboard-driven player",
     href: "/docs/slides/build-a-deck",
   },
   {
-    Icon: NotebookPen,
     title: "Markdown Notes & Infinite Boards",
     description:
       "A Markdown editor with live preview, and a boundless pan-and-zoom canvas",
     href: "/docs/notes/writing-a-note",
   },
   {
-    Icon: LayoutTemplate,
     title: "Templates, PDFs & Files",
     description:
       "Publish any document as a template — and keep PDFs, images, and files beside it",
@@ -116,13 +97,12 @@ export function FeaturesSection() {
     >
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          kicker="What's inside"
           title="Everything you need, nothing you don't."
           sub="Built for teams and developers who want full control over their data."
         />
 
         {/* Hero features — large cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-6 mb-6 md:mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-6 mb-10 md:mb-12">
           {HERO_FEATURES.map((feature) => (
             <FeatureCard key={feature.title} href={feature.href}>
               <div className="mb-4 -ml-1">
@@ -138,34 +118,32 @@ export function FeaturesSection() {
           ))}
         </div>
 
-        {/* Secondary features — compact row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-          {SECONDARY_FEATURES.map(({ Icon, title, description, href }) => (
-            <FeatureCard key={title} href={href} compact>
-              <div className="flex items-start gap-3">
-                <div
-                  className="shrink-0 mt-0.5 inline-flex items-center justify-center size-8 rounded-md"
-                  style={{
-                    background:
-                      "color-mix(in srgb, var(--wb-butter) 35%, transparent)",
-                    border:
-                      "1px solid color-mix(in srgb, var(--wb-syrup) 25%, transparent)",
-                  }}
-                >
-                  <Icon className="size-4 text-[color:var(--wb-syrup-deep)]" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="font-body font-semibold text-[14.5px] text-[color:var(--wb-ink)] m-0">
+        {/* Secondary features — ruled list */}
+        <ul className="grid grid-cols-1 md:grid-cols-2 md:gap-x-10 list-none m-0 p-0 border-b border-[color:var(--wb-rule)]">
+          {SECONDARY_FEATURES.map(({ title, description, href }) => (
+            <li key={title} className="border-t border-[color:var(--wb-rule)]">
+              <a
+                href={href}
+                className="group flex items-baseline justify-between gap-4 py-4 no-underline"
+              >
+                <span className="min-w-0">
+                  <span className="block font-body font-semibold text-[15px] text-[color:var(--wb-ink)] transition-colors group-hover:text-[color:var(--wb-syrup-deep)]">
                     {title}
-                  </h3>
-                  <p className="font-body text-[13px] leading-[1.5] text-[color:var(--wb-sub)] mt-0.5 m-0">
+                  </span>
+                  <span className="block font-body text-[14px] leading-[1.5] text-[color:var(--wb-sub)] mt-1">
                     {description}
-                  </p>
-                </div>
-              </div>
-            </FeatureCard>
+                  </span>
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="shrink-0 text-[color:var(--wb-sub)] transition-colors group-hover:text-[color:var(--wb-syrup-deep)]"
+                >
+                  →
+                </span>
+              </a>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
     </section>
   );
@@ -174,16 +152,13 @@ export function FeaturesSection() {
 type FeatureCardProps = {
   href: string;
   children: ReactNode;
-  compact?: boolean;
 };
 
-function FeatureCard({ href, children, compact = false }: FeatureCardProps) {
+function FeatureCard({ href, children }: FeatureCardProps) {
   return (
     <a
       href={href}
-      className={`block bg-[color:var(--wb-paper)] border border-[color:var(--wb-rule)] rounded-xl no-underline transition-all duration-200 hover:scale-[1.005] ${
-        compact ? "p-4" : "p-6 md:p-7"
-      }`}
+      className="block bg-[color:var(--wb-paper)] border border-[color:var(--wb-rule)] rounded-xl no-underline transition-all duration-200 hover:scale-[1.005] p-6 md:p-7"
       style={{
         boxShadow:
           "0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18)",
