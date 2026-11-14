@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Suspense, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { shouldRetryQuery } from "@/lib/query-retry";
 import { Loader } from "@/components/loader";
 
 import { PrivateRoute } from "./PrivateRoute";
@@ -89,7 +90,12 @@ const InviteAccept = lazyWithRetry(
 );
 
 function App() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: shouldRetryQuery } },
+      }),
+  );
 
   return (
     <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
