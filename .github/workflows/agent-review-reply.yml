@@ -232,7 +232,7 @@ jobs:
           if [ "$actual" != "$EXPECTED" ]; then
             cd "$RUNNER_TEMP"
             rm -rf "$RUNNER_TEMP/agent-tools"
-            echo "::error::The staged agent scripts changed while dependencies were installed. They were removed; no later step of this job runs them." >&2
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
             exit 1
           fi
 
@@ -250,6 +250,22 @@ jobs:
         run: |
           gh pr comment "$PR" --body "🛑 \`@claude\` could not start: installing this branch's dependencies did not complete, so the agent never ran and nothing was changed. The agent jobs install only registry packages pinned by the lockfile, with main's pnpm version and workspace settings — a branch that changes those, or adds a dependency from anywhere else, needs a person. The reason is the \`install-deps\` error in the [workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
 
+      # Checked again here, directly before the staged scripts are next run:
+      # nothing between the install and this step is trusted to have left them
+      # alone merely because an earlier check passed.
+      - name: Verify the staged agent scripts are unchanged
+        if: steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
       # WHICH POOL SLOT THIS JOB USES — see agent-implement.yml for the full rationale.
       # Without it this step is pinned to slot zero of the pool and one dead account
       # takes the job down (issue #883).

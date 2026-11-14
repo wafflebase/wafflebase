@@ -92,10 +92,10 @@ One script, `scripts/agent/install-deps.mjs` (with
 | Where pnpm writes | `modules-dir` and `virtual-store-dir` pinned inside the workspace; the store pinned to `$RUNNER_TEMP/agent-pnpm/store`, outside it. The same store is exported to later steps (`npm_config_store_dir` via `$GITHUB_ENV`) so a pnpm command the agent runs agrees with the install |
 | `pnpm-workspace.yaml` (projects, and in pnpm 10 settings) | Must be byte-identical to main's, shipped as `scripts/agent/install-deps.workspace.yaml` |
 | `pnpm.*` in the root `package.json` | Only the keys in `ALLOWED_PNPM_KEYS` (`overrides`); any other key is refused |
-| The shape of the tree | Refused before pnpm runs: any `node_modules` (a fresh checkout has none), any symbolic link that does not lead into the working tree — judged by its text as well as by what it resolves to, since a target under `/proc/self` is a different place for every process that follows it — a project directory that is itself a link, a second `.git`, a package manifest in YAML or JSON5 form, anything that cannot be listed. The workspace path itself must be absolute, without `..`, and not a link; `.git` must be a real directory |
+| The shape of the tree | Refused before pnpm runs: any `node_modules` (a fresh checkout has none), any symbolic link that does not lead into the working tree — followed one component at a time the way the kernel follows it, each link on the way resolved where it stands before the next `..` is applied, with every place passed through and the place reached required to be in the working tree; a target under `/proc`, `/dev` or `/sys` is refused by its text, since it is a different place for every process that follows it — a project directory that is itself a link, a second `.git`, a package manifest in YAML or JSON5 form, anything that cannot be listed. The workspace path itself must be absolute, without `..`, and not a link; `.git` must be a real directory |
 | `pnpm-lock.yaml` | Read by allow-list — see below |
 | `package.json` of every project | Read by allow-list — see below |
-| Afterwards | Every project's `node_modules` is a real directory whose entries resolve inside the workspace; nothing appeared beside the workspace or in `$RUNNER_TEMP` outside pnpm's own directory; the directory the script ran from is byte-for-byte what it was; `.git/hooks`, `.git/config` and `.git/info` are what they were; the package managers' configuration in the runner's home (`.npmrc`, `.yarnrc*`, `.pnpmrc`, `.config/pnpm`) is what it was; every symbolic link in the workspace — those the checkout brought as well as new ones — leads into the working tree, as written and as resolved; there is no second `.git`; nothing in the workspace is unlistable (what cannot be read is a refusal, never a skip); and a digest of the working tree, everything but `.git` and `node_modules`, is what it was. The runner computes all of this by reading files; it runs no other program in the workspace, git included |
+| Afterwards | Every project's `node_modules` is a real directory whose entries resolve inside the workspace; nothing appeared beside the workspace or in `$RUNNER_TEMP` outside pnpm's own directory; the directory the script ran from is byte-for-byte what it was; `.git/hooks`, `.git/config` and `.git/info` are what they were; the package managers' configuration in the runner's home (`.npmrc`, `.yarnrc*`, `.pnpmrc`, `.config/pnpm`) is what it was; every symbolic link in the workspace — those the checkout brought as well as new ones — leads into the working tree, as written and as resolved; there is no second `.git`; nothing in the workspace is unlistable (what cannot be read is a refusal, never a skip); and a digest of the working tree — everything but `.git` and the `node_modules` directory of each project the lockfile installs for; every path, mode, link target and file body, each length-prefixed so that two different trees cannot read as one — is what it was. Anything else named `node_modules` is part of the tree like any other entry. The runner computes all of this by reading files; it runs no other program in the workspace, git included |
 | Dependency caches | None: no `cache:` on any setup action in an agent workflow |
 | The checkout's credential | `persist-credentials: false` on the branch checkout: the token is not in `.git/config` while the install runs. The agent step configures its own push credential |
 
@@ -216,13 +216,27 @@ A script rather than a composite action: every job already has main's
 that exists instead of adding a second trusted checkout and a directory that has
 to outlive the job.
 
+### Between the install and the agent
+
+Two rules hold for the trusted steps that run after the install and before the
+agent, and the guard test enforces both:
+
+- **Nothing is written into the workspace.** A write there goes wherever the
+  tree leads it, whatever was checked before. The CI-fix job's download of the
+  failed run's reports goes to `$RUNNER_TEMP/harness-reports`, and
+  `summarize-ci.mjs` is pointed at it. Shell steps may redirect only to the
+  runner's own files (`$GITHUB_OUTPUT`, `$GITHUB_STEP_SUMMARY`, a named file
+  under `$RUNNER_TEMP`); they create, copy, move and remove nothing.
+- **The staged scripts are verified directly before every use**, not once.
+
 ### The digest
 
 Every later step of these jobs that holds a token runs a script from
 `$RUNNER_TEMP/agent-tools`, some of them under `always()`. The step before the
 install records a sha256 over that directory's names and contents as a **step
 output** — held by the runner, not by a file anything could rewrite — and the
-step after it recomputes it. On a mismatch the directory is removed and the job
+step after it recomputes it, as does a copy of that step placed directly
+before each later run of a staged script up to the agent. On a mismatch the directory is removed and the job
 fails, so no later step runs a script from it. The check is written in the
 workflow, not in the staged scripts, because a check cannot vouch for the
 directory it runs from.
@@ -294,6 +308,9 @@ registry through a proxy needs them added to `PASSED_ENV`, deliberately.
 
 Stated plainly, the property rests on these and on nothing else:
 
+- **Where a link leads is what the kernel says.** Locations are judged by
+  physical resolution (`realpath(3)`), never by simplifying a path's text
+  first: the two differ as soon as a `..` follows a link.
 - **Docker's isolation and the kernel under it.** The container's mount
   namespace is what keeps the install to the workspace and the store. A fault
   there is outside what this design defends.

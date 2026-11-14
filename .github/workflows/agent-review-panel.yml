@@ -1893,10 +1893,26 @@ jobs:
           if [ "$actual" != "$EXPECTED" ]; then
             cd "$RUNNER_TEMP"
             rm -rf "$RUNNER_TEMP/agent-tools"
-            echo "::error::The staged agent scripts changed while dependencies were installed. They were removed; no later step of this job runs them." >&2
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
             exit 1
           fi
 
+      # Checked again here, directly before the staged scripts are next run:
+      # nothing between the install and this step is trusted to have left them
+      # alone merely because an earlier check passed.
+      - name: Verify the staged agent scripts are unchanged
+        if: steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
       # Single-value state: a fix round is in flight → agent:fixing. Uses the
       # branch's own checkout (this job is author-side and already runs branch
       # code). Best-effort; advisory only.
@@ -1926,6 +1942,22 @@ jobs:
           echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
 
+      # Checked again here, directly before the staged scripts are next run:
+      # nothing between the install and this step is trusted to have left them
+      # alone merely because an earlier check passed.
+      - name: Verify the staged agent scripts are unchanged
+        if: steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
       # NO LIVE CREDENTIAL — page, and spend nothing.
       #
       # This is its own page because the `stalled` net cannot see it: skipping the

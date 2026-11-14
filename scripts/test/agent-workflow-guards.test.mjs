@@ -407,9 +407,59 @@ test("the staged scripts are fingerprinted before the install and checked right 
     tamper();
     const r = sh(verify, { EXPECTED: digest });
     assert.notEqual(r.status, 0, `${what}: the verify step passed`);
-    assert.match(r.stderr, /^::error::The staged agent scripts changed/m, what);
+    assert.match(r.stderr, /^::error::The staged agent scripts are not what was staged/m, what);
     assert.equal(existsSync(tools), false, `${what}: the staged directory is still there for later steps to run`);
   }
+});
+
+test("between the install and the agent, the staged scripts are verified before every use and nothing is written into the workspace", () => {
+  const VERIFY = "Verify the staged agent scripts are unchanged";
+  // A write a trusted step makes after the install lands wherever the tree
+  // leads it, so there are none: what such a step writes, it writes to the
+  // runner's own files. Each allowed target is one the branch cannot name.
+  const WRITES_TO = /(?:>>?)\s*("?\$GITHUB_OUTPUT"?|"?\$GITHUB_STEP_SUMMARY"?|"\$RUNNER_TEMP\/[\w.-]+"|&2|\/dev\/null)/g;
+  let uses = 0;
+  for (const [file, name] of INSTALLING_JOBS) {
+    const where = `${file} (job ${name})`;
+    const { steps } = job(file, name);
+    const installAt = steps.findIndex((s) => s.id === "install");
+    const agentAt = steps.findIndex((s) => s.uses?.startsWith(AGENT_ACTION));
+    assert.ok(installAt > 0 && agentAt > installAt, `${where}: no install before the agent`);
+    const verifyScript = steps[installAt + 1].script.trim();
+    for (let i = installAt + 1; i < agentAt; i++) {
+      const s = steps[i];
+      const label = `${where}: step "${s.name || s.uses}"`;
+      if (s.name === VERIFY) {
+        assert.equal(s.script.trim(), verifyScript, `${label} is not the same check as the one after the install`);
+        assert.match(s.cond, /steps\.tools\.outputs\.digest != ''$/, `${label} does not key on the recorded digest`);
+        continue;
+      }
+      // Every run of a staged script is directly preceded by the check.
+      if (/agent-tools/.test(s.text)) {
+        uses++;
+        assert.equal(steps[i - 1].name, VERIFY, `${label} runs a staged script without the check directly before it`);
+      }
+      // No action that writes files, except a download into the runner's temp directory.
+      if (s.uses) {
+        if (s.uses.startsWith("actions/download-artifact@")) {
+          assert.match(s.text, /^\s*path: \$\{\{ runner\.temp \}\}\/[\w-]+\/?\s*$/m, `${label} downloads into the workspace`);
+        } else {
+          assert.ok(s.uses.startsWith("actions/github-script@"), `${label} is an action this guard does not know to be free of workspace writes`);
+          assert.doesNotMatch(s.text, /writeFile|appendFile|mkdir|\bexec\b|io\.(cp|mv|rmRF)/, `${label} writes files or runs programs`);
+        }
+        continue;
+      }
+      // No shell step that creates, copies, moves or removes, and no redirect to anywhere else.
+      assert.doesNotMatch(s.script, /(^|[\s;&|(])(cp|mv|mkdir|touch|tee|rm|ln|chmod|git (config|add|commit|checkout|apply|stash|reset|clean))\s/m, `${label} changes files`);
+      const redirects = s.script.replace(/\$\{\{[^}]*\}\}/g, "").match(/(?:^|[^<>-])>>?\s*\S+/g) ?? [];
+      for (const r of redirects) {
+        assert.match(r, new RegExp(WRITES_TO.source), `${label} redirects output to ${r.trim()}`);
+      }
+    }
+  }
+  // fix: the picker; panel fix: set-state and the no-credential page; iterate:
+  // summarize, set-state and the picker; reply: the picker.
+  assert.equal(uses, 7, `found ${uses} uses of the staged scripts between the install and the agent`);
 });
 
 test("a refused install is reported where the job has no other way to say so", () => {
