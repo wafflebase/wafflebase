@@ -13,27 +13,48 @@ switch (W4) is the sync and nothing else. The sync itself is not part of it:
 
 ### W2 — conventions and decoupling
 
-- [ ] Run the arms' suites against yorkie's core (main `0fa3f92f`) in a
+- [x] Run the arms' suites against yorkie's core (main `0fa3f92f`) in a
       scratch copy, and fix every arm-side incompatibility here so the arms
       pass against either core
-- [ ] Root `.gitattributes` with the two `-text` lines the manifest needs
-- [ ] `docs/design/template.md` → `TEMPLATE.md` (the issue-to-PR prompt names
+- [x] Root `.gitattributes` with the two `-text` lines the manifest needs
+- [x] `docs/design/template.md` → `TEMPLATE.md` (the issue-to-PR prompt names
       it), and every reference
-- [ ] `scripts/ci/summarize-ci.mjs --dir <reports>` with the core's contract
+- [x] `scripts/ci/summarize-ci.mjs --dir <reports>` with the core's contract
       (silent, exit 3, unless a lane failed), and `ci.yml` uploading the lane
       reports as `ci-lane-reports` beside today's `harness-reports`
 
 ### W3 — the per-repository files
 
-- [ ] `.github/agent-harness/config.json` and `coverage-note.md`, from
+- [x] `.github/agent-harness/config.json` and `coverage-note.md`, from
       today's values; loads with yorkie's `config.mjs`
-- [ ] `.github/actions/agent-toolchain/`: the hardened install (#1142) as
+- [x] `.github/actions/agent-toolchain/`: the hardened install (#1142) as
       the toolchain action, plus the pinned pnpm download it needs once the
       workflows no longer set pnpm up; its tests beside it
-- [ ] `.github/agent-harness/repo.test.mjs`, `repo.snapshot.json`, `README.md`
-- [ ] Dry run of W4 in a scratch copy: sync, `npm ci && npm test && npm run
+- [x] `.github/agent-harness/repo.test.mjs`, `repo.snapshot.json`, `README.md`
+- [x] Dry run of W4 in a scratch copy: sync, `npm ci && npm test && npm run
       test:repo`, the arms lane, `scripts/test`; classify every failure
 
 ## Review
 
-(filled in as the work lands)
+- Arms against yorkie's core (main `0fa3f92f`), scratch copy, no
+  `node_modules`: 10 failures before (a removed `globToRegExp`, a
+  disclosure predicate that reads per clause, an unexported probe
+  vocabulary); 646 tests, 644 pass + 2 `todo` after. Against today's core:
+  643 pass, 3 skipped.
+- The probe's "permission denied" and "/login" are anchored to the
+  credential in the arm and in today's core, matching yorkie's pending
+  `agent-harness-probe-vocab`; against that core the vocabulary comparison
+  is enforced and passes.
+- The toolchain action is the #1142 install plus a pinned pnpm download.
+  Two changes were needed for the shared workflows: `.trusted-*` checkouts
+  at the workspace root are left out of the walks and a link into one is
+  refused, and the container sees an empty read-only directory over `.git`
+  and each trusted checkout. Mutations of each fail the suite; the
+  real-container test passes with Docker.
+- W4 dry run, synced from yorkie `agent-harness-probe-vocab` (`6a505b83`)
+  and main (`0fa3f92f`): `npm test` 1366/1367 (one load timeout, passes
+  alone) and 1370/1370, `test:repo` 27/27 on both, arms 647/647 and
+  645 + 2 `todo`. `scripts/test`: eleven guard failures in
+  `agent-workflow-guards.test.mjs`, the same on both cores, which W4 has to
+  resolve (most are the guard's shape for today's install steps).
+- actionlint 1.7.12: the base's 16 shellcheck notes, nothing new.
