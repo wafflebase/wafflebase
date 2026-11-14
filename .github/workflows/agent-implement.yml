@@ -96,10 +96,18 @@ jobs:
     # Scope the API key to a protected Environment so a maintainer can require
     # approval before any run spends budget (configure in repo settings).
     environment: agent
+    # THE JOB'S OWN TOKEN READS ONLY. Every write in this job goes through an App
+    # token minted for it; the job token reaches the agent's step all the same
+    # (the action hands it in), so it carries no write scope.
+    permissions:
+      contents: read
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
     outputs:
-      # For the `finish` job's no-PR report: whether the agent step failed.
+      # For `finish`: whether the commenter passed the write-access gate, set
+      # by a step that runs only after it.
+      admitted: ${{ steps.admitted.outputs.admitted }}
+      # For the `finish` job's no-PR report: the agent step's outcome.
       agent: ${{ steps.agent.outcome }}
     steps:
       # author_association in the `if` is a cheap pre-filter; this step is the
@@ -119,6 +127,13 @@ jobs:
             if (!['admin', 'maintain', 'write'].includes(data.permission)) {
               core.setFailed(`@${actor} lacks write access (permission: ${data.permission}); refusing to run.`);
             }
+
+      # Reached only when the write-access gate passed (or did not apply, on a
+      # dispatch). `finish` keys on it, so a refused commenter gets no report
+      # and no classification, as before `finish` minted its own token.
+      - name: Record that the commenter was admitted
+        id: admitted
+        run: echo "admitted=true" >> "$GITHUB_OUTPUT"
 
       # THE PRE-AGENT TOKEN: the two gates and the acknowledgement below, and
       # nothing else. Revoked by "Revoke the pre-agent token" before the agent
@@ -383,10 +398,9 @@ jobs:
           node "scripts/agent/pick-credential.mjs"
 
       # REVOKED BEFORE THE AGENT STARTS, so the gates' token is worthless by the
-      # time anything the agent controls runs in this job.
+      # time anything the agent controls runs in this job. Under the agent's own
+      # condition and FAIL-CLOSED: if the revocation fails, the agent is skipped.
       - name: Revoke the pre-agent token
-        if: always() && steps.app-token.outcome == 'success'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh api -X DELETE installation/token
@@ -427,13 +441,13 @@ jobs:
   # checkout that persists no credential, an App token minted here with only
   # what these steps use, and the agent's log read as data.
   #
-  # `always()`, keyed on the implement job having run: like the steps it
+  # `always()`, keyed on the commenter having been admitted: like the steps it
   # replaces, it reports a run that failed or was cancelled as well as one that
-  # finished. `environment: agent` for the classifier's API key, which appears
+  # finished, and stays silent for a commenter the write-access gate refused. `environment: agent` for the classifier's API key, which appears
   # in this job only.
   finish:
     needs: [implement]
-    if: always() && needs.implement.result != 'skipped'
+    if: always() && needs.implement.outputs.admitted == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: agent
@@ -503,7 +517,7 @@ jobs:
       #
       # Three-state honesty (the stalled-net rule): PR found → silent (the
       # normal flow posts the link); no PR found → the dead-run comment,
-      # worded by whether the agent step failed or merely ended; lookup FAILED
+      # worded by whether the agent step failed, ended or never started; lookup FAILED
       # → a comment that says the state could not be determined, never a
       # failure claim this run did not verify. issue_comment only, matching
       # the ack — a workflow_dispatch dry-run has no thread to update.
@@ -521,7 +535,9 @@ jobs:
           script: |
             const issue = context.payload.issue.number;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const failed = process.env.AGENT_OUTCOME === 'failure';
+            // The agent step's outcome; `skipped` or empty when it never started.
+            const how = { failure: 'failed', success: 'ended', cancelled: 'was cancelled' }[process.env.AGENT_OUTCOME]
+              ?? 'stopped before the agent started';
             // The same lookup metrics.mjs::resolvePrByIssue does over `gh pr
             // list`: an open PR whose head branch is `agent/<issue>-…`.
             let pr = null, lookupOk = true;
@@ -536,7 +552,7 @@ jobs:
             }
             if (lookupOk && pr) return; // the normal flow posts the PR link
             const body = lookupOk
-              ? `<!-- agent-implement-no-pr -->\n🛑 The run started by this command ${failed ? 'failed' : 'ended'} without opening a PR — `
+              ? `<!-- agent-implement-no-pr -->\n🛑 The run started by this command ${how} without opening a PR — `
                 + `no open \`agent/${issue}-*\` branch has one. See the [run](${runUrl}) and its \`claude-execution-output\` artifact `
                 + `for the transcript. Comment \`@claude fix\` to retry.`
               : `<!-- agent-implement-no-pr -->\n⚠️ The run started by this command has ended, but this step could not read the PR list `

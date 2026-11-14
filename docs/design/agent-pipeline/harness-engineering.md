@@ -1265,14 +1265,17 @@ Components:
   `agent/<issue#>-<slug>` branch. Structured spec via
   `.github/ISSUE_TEMPLATE/agent-task.yml`. The agent's job mints two App
   tokens: the gates' (branch protection, the acknowledgement), revoked before
-  the agent starts, and the agent's own (contents, pull requests, issues), the
-  only one its checkout persists. Everything after the agent that runs
+  the agent starts (a failed revocation skips the agent), and the agent's own
+  (contents, pull requests, issues), the only one its checkout persists; the
+  job's own token reads only. Everything after the agent that runs
   repository code or needs another credential — the session summary, the effort
   record, the no-PR report and the classifier, the workflow's only holder of
   `ANTHROPIC_API_KEY` — runs in a separate `finish` job on a fresh runner, from
   a sparse checkout of main that persists no credential, with the agent's log
-  read as data. `scripts/test/agent-workflow-guards.test.mjs` holds every agent
-  job to the same rule after its agent step.
+  read as data, and only for a commenter the write-access gate admitted.
+  `scripts/test/agent-workflow-guards.test.mjs` holds every agent job to the
+  same rule after its agent step, and every job that reads the agent's output
+  to running main's scripts only.
 - **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
   failure for an agent-managed branch (an `agent/` branch, or a human PR labelled
   `agent:managed` via `@claude loop`), `scripts/agent/summarize-ci.mjs` (Phase 21)
