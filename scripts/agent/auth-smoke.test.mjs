@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyFailure, describeFailure, EXIT, worstExit } from "./auth-smoke.mjs";
 import { redactSecrets } from "./redact.mjs";
+import { classifyProbeFailure } from "./pick-fix-credential.mjs";
 
 // This script had no test suite, and it is the FIRST thing an adopter runs —
 // so its diagnosis is the first thing they read. It reported "auth almost
@@ -156,4 +157,53 @@ test("classifyFailure: reads the RAW text, so redaction cannot change the verdic
     assert.equal(classifyFailure(text), kind);
     assert.equal(classifyFailure(redactSecrets(text, { extra: [] })), kind, `redaction changed: ${text}`);
   }
+});
+
+// One vocabulary, two thresholds. The fix-credential probe
+// (`pick-fix-credential.mjs`) classifies with a NARROWED copy of this
+// script's lists, because its "refused" latches a PR: where this pre-arm check
+// calls a 429 or an overload `quota` (the credential worked; retry), the probe
+// would page a human over a blip. It keeps a copy rather than importing it —
+// it runs from a staged copy of the shared core, which does not carry this
+// arm — so this test is what keeps the two lists one vocabulary: one message
+// for each pattern on either side.
+test("the fix-credential probe reads this vocabulary, narrowed to refusals that stay refused", () => {
+  // The same rejected credential reads the same in both.
+  for (const msg of [
+    "401 Unauthorized",
+    "403 Forbidden",
+    "unauthorized",
+    "authentication_error",
+    "authentication failed",
+    "Invalid API key",
+    "invalid token",
+    "invalid credential",
+    "expired token",
+    "expired credential",
+    "not authenticated",
+    "permission denied",
+    "Not logged in · Please run /login",
+    "Please run /login",
+    "see /login",
+  ]) {
+    assert.equal(classifyProbeFailure(msg), "auth", msg);
+    assert.equal(classifyFailure(msg), "auth", msg);
+  }
+  // A closed usage window is quota in both.
+  assert.equal(classifyProbeFailure("You've hit your session limit · resets 3am"), "quota");
+  assert.equal(classifyFailure("You've hit your session limit · resets 3am"), "quota");
+  // A transient refusal is quota to the pre-arm check and NOT a refusal there.
+  for (const msg of [
+    "429 Too Many Requests",
+    "rate limit exceeded",
+    "Overloaded (529)",
+    "quota exceeded, retry later",
+    "at capacity, retry later",
+    "too many requests",
+  ]) {
+    assert.equal(classifyFailure(msg), "quota", msg);
+    assert.equal(classifyProbeFailure(msg), "unknown", msg);
+  }
+  // A transient refusal that also carries auth words is still transient.
+  assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
 });

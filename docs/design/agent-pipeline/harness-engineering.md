@@ -3548,7 +3548,8 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
   a review.
 - **Probe before dispatch.** The fixer's credential is proven with a one-word
   query before the round is recorded (`pick-fix-credential.mjs --probe`). The
-  refusal vocabulary is `auth-smoke.mjs`'s, through its narrow `classifyRefusal`:
+  refusal vocabulary is `auth-smoke.mjs`'s, narrowed in the picker's own copy
+  (`classifyProbeFailure`; `auth-smoke.test.mjs` keeps the two lists alike):
   only a closed usage window or a rejected credential counts, so a transient 429
   or overload proceeds instead of latching the PR. The probe holds every pool
   secret, so it runs before the App token, the branch checkout and the install,
