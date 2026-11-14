@@ -1776,3 +1776,196 @@ test("no agent workflow caches dependencies, installs a branch inline, or sets p
   // Anti-vacuity: the four installing jobs and agent-implement.
   assert.ok(setups >= 5, `found only ${setups} pnpm/action-setup steps in agent workflows`);
 });
+
+// ---------------------------------------------------------------------------
+// AFTER THE AGENT. A job that runs `claude-code-action` hands the agent Bash,
+// Edit and Write over its workspace, and every later step of that job inherits
+// what the agent could change: the files, `.git/config`, `$GITHUB_ENV`,
+// `$GITHUB_PATH`. So after the agent step, a step may not run repository code
+// from the workspace, and may not hold a credential the agent was not given —
+// no secret at all, and no App token minted before the agent other than the
+// agent's own. Work that needs either belongs in a later job on a fresh runner
+// (`agent-implement.yml`'s `finish`).
+//
+// Staged copies (`$RUNNER_TEMP/agent-tools/…`) are not workspace code here: the
+// installing jobs' guards above hold where they come from.
+
+const MODEL_ACTION = "anthropics/claude-code-action@";
+const TOKEN_REF = /steps\.([\w-]+)\.outputs\.token/g;
+const STAGED_ARG = /^"?(?:\$RUNNER_TEMP|\$\{RUNNER_TEMP\}|\$\{\{\s*runner\.temp\s*\}\})\//;
+const RUNNERS = new Set(["node", "pnpm", "npm", "npx", "yarn", "bash", "sh", "python", "python3", "deno", "bun", "make", "source"]);
+
+/** The commands of a script that run code from the workspace. */
+function workspaceRuns(script) {
+  return codeRuns(script, { staged: false });
+}
+
+/** The commands of a script that run code from a file; with `staged: false`, not those under the runner's temp directory. */
+function codeRuns(script, { staged = true } = {}) {
+  // Quoted text is one word: a message in quotes is not a command, and a quoted
+  // path is still the path it names.
+  const quoted = [];
+  const flat = script.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, (q) => `@@Q${quoted.push(q) - 1}@@`);
+  const unquote = (w) => w.replace(/@@Q(\d+)@@/g, (_, i) => quoted[Number(i)]);
+  const found = [];
+  for (const raw of flat.split(/\n|;|&&|\|\||\||\$\(|`|\(|\)|\{|\}/)) {
+    const command = unquote(raw);
+    const words = raw.trim().split(/\s+/).filter(Boolean).map(unquote);
+    while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift(); // VAR=x prefixes
+    if (words.length === 0) continue;
+    const [cmd] = words;
+    if (/^(?:\.{1,2}\/|\/|"?\.?\/?scripts\/)/.test(cmd)) found.push(command.trim()); // ./x, ../x, scripts/x
+    else if (RUNNERS.has(cmd)) {
+      const target = words.slice(1).find((w) => !w.startsWith("-"));
+      if (["pnpm", "npm", "npx", "yarn", "make", "bun"].includes(cmd) || (target !== undefined && (staged || !STAGED_ARG.test(target)))) found.push(command.trim());
+    }
+  }
+  return found;
+}
+
+/** Every step after an agent step that runs workspace code or holds a credential the agent did not. */
+function postAgentProblems(wf) {
+  const problems = [];
+  for (const j of wf.jobs) {
+    const at = j.steps.findIndex((s) => s.uses?.startsWith(MODEL_ACTION));
+    if (at < 0) continue;
+    const minted = new Set(j.steps.slice(0, at).filter((s) => s.uses?.startsWith("actions/create-github-app-token@")).map((s) => s.id));
+    const given = new Set([...j.steps[at].text.matchAll(TOKEN_REF)].map((m) => m[1]));
+    for (const s of j.steps.slice(at + 1)) {
+      const where = `${wf.file} (job ${j.name}) "${s.name || s.uses || s.id}"`;
+      if (/\bsecrets\b|\bgithub\.token\b/.test(s.text)) problems.push(`${where} reads a secret after the agent`);
+      for (const [, id] of s.text.matchAll(TOKEN_REF)) {
+        if (minted.has(id) && !given.has(id)) problems.push(`${where} holds ${id}, an App token minted before the agent and not given to it`);
+      }
+      if (s.uses?.startsWith("./")) problems.push(`${where} runs a local action from the workspace`);
+      if (s.isRun) for (const c of workspaceRuns(s.script)) problems.push(`${where} runs workspace code: ${c}`);
+      // A builtin (`require('fs')`) is not repository code; a path is.
+      if (s.uses?.startsWith("actions/github-script@") && /\b(?:require|import)\s*\(\s*(?!["'`](?:node:)?[a-z_]+["'`])/.test(String(s.with.script ?? ""))) {
+        problems.push(`${where} loads a module from github-script`);
+      }
+    }
+  }
+  return problems;
+}
+
+// What this guard found already there when it was written, each to be moved
+// to a later job. Exact: an entry that no longer matches fails, so the list
+// can only shrink.
+const POST_AGENT_KNOWN = [
+  'agent-fix.yml (job fix) "Update loop status (on-demand fix)" reads a secret after the agent',
+  'agent-iterate-ci.yml (job iterate) "Update loop status (CI-fix outcome)" reads a secret after the agent',
+  'agent-review-panel.yml (job fix) "Page if the fix produced no commit" reads a secret after the agent',
+  'agent-review-panel.yml (job fix) "Update loop status (fix outcome)" reads a secret after the agent',
+  'agent-summarize.yml (job summarize) "Generate GitHub App token (post-only, issues:write)" reads a secret after the agent',
+];
+
+test("after the agent, no step runs workspace code or holds a credential the agent was not given", () => {
+  let agents = 0;
+  const found = [];
+  for (const f of agentWorkflows) {
+    const wf = parseWorkflow(WF_TEXT(f), f);
+    agents += wf.jobs.filter((j) => j.steps.some((s) => s.uses?.startsWith(MODEL_ACTION))).length;
+    found.push(...postAgentProblems(wf));
+  }
+  assert.deepEqual(found, POST_AGENT_KNOWN);
+  // implement, the three fixers, reply and summarize.
+  assert.ok(agents >= 6, `found only ${agents} jobs that run the agent`);
+});
+
+const POST_AGENT_FIXTURE = `name: post-agent fixture
+on: workflow_dispatch
+jobs:
+  work:
+    runs-on: ubuntu-latest
+    steps:
+      - id: pre
+        uses: actions/create-github-app-token@0000000000000000000000000000000000000001 # v1
+      - id: agent-token
+        uses: actions/create-github-app-token@0000000000000000000000000000000000000001 # v1
+      - id: agent
+        uses: anthropics/claude-code-action@0000000000000000000000000000000000000002 # v1
+        with:
+          github_token: \${{ steps.agent-token.outputs.token }}
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@0000000000000000000000000000000000000003 # v4
+        with:
+          name: log
+          path: \${{ runner.temp }}/log.json
+      - name: Staged
+        env:
+          GH_TOKEN: \${{ steps.agent-token.outputs.token }}
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
+`;
+const AT_END = '        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n';
+const POST_AGENT_MUTATIONS = {
+  workspace_node: ['        run: node ./scripts/agent/metrics.mjs record\n'],
+  workspace_node_bare_path: ['        run: node scripts/agent-arms/classify.mjs record\n'],
+  workspace_node_in_block: ['        run: |\n          [ -f x ] || exit 0\n          node ./scripts/agent/session-job-summary.mjs\n'],
+  workspace_pnpm: ['        run: pnpm test\n'],
+  workspace_script: ['        run: ./scripts/ci.sh\n'],
+  workspace_bash: ['        run: bash scripts/x.sh\n'],
+  local_action: ['        uses: ./.github/actions/setup\n'],
+  github_script_require: ["        uses: actions/github-script@0000000000000000000000000000000000000004 # v7\n        with:\n          script: require('./scripts/x.cjs')\n"],
+  github_script_import_workspace: ["        uses: actions/github-script@0000000000000000000000000000000000000004 # v7\n        with:\n          script: await import(`${process.env.GITHUB_WORKSPACE}/x.mjs`)\n"],
+  github_token_secret: ['        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: gh pr list\n'],
+  token_minted_after: ['        uses: actions/create-github-app-token@0000000000000000000000000000000000000001 # v1\n        with:\n          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}\n'],
+  anthropic_key: ['        env:\n          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n        run: echo\n'],
+  pre_agent_token: ['        env:\n          GH_TOKEN: ${{ steps.pre.outputs.token }}\n        run: gh api user\n'],
+  pre_agent_token_github_script: ["        uses: actions/github-script@0000000000000000000000000000000000000004 # v7\n        with:\n          github-token: ${{ steps.pre.outputs.token }}\n          script: core.info('x')\n"],
+};
+
+test("the after-the-agent guard refuses each named edit, and accepts the job as written", () => {
+  assert.deepEqual(postAgentProblems(parseWorkflow(POST_AGENT_FIXTURE, "fixture.yml")), []);
+  for (const [name, [step]] of Object.entries(POST_AGENT_MUTATIONS)) {
+    const text = POST_AGENT_FIXTURE.replace(AT_END, `${AT_END}      - name: m\n${step}`);
+    assert.notEqual(text, POST_AGENT_FIXTURE, name);
+    assert.ok(postAgentProblems(parseWorkflow(text, "fixture.yml")).length > 0, `${name} was accepted`);
+  }
+});
+
+test("agent-implement revokes the gates' token before the agent, and does its later work in a fresh job", () => {
+  const wf = parseWorkflow(WF_TEXT("agent-implement.yml"), "agent-implement.yml");
+  const { steps } = wf.jobs.find((j) => j.name === "implement");
+  const at = steps.findIndex((s) => s.uses?.startsWith(MODEL_ACTION));
+  const model = steps[at];
+  const tokenIds = steps.filter((s) => s.uses?.startsWith("actions/create-github-app-token@")).map((s) => s.id);
+  assert.deepEqual(tokenIds, ["app-token", "agent-token"]);
+  assert.match(model.text, /github_token:\s*\$\{\{\s*steps\.agent-token\.outputs\.token\s*\}\}/, "the agent gets its own token");
+  // The gates' token: never revoked by the action at job end, revoked by us before the agent.
+  const pre = steps.find((s) => s.id === "app-token");
+  assert.equal(pre.with["skip-token-revoke"], true);
+  const revokeAt = steps.findIndex((s) => s.isRun && /^gh api -X DELETE installation\/token$/.test(s.script.trim()) && /steps\.app-token\.outputs\.token/.test(s.text));
+  assert.ok(revokeAt >= 0 && revokeAt < at, "the pre-agent token is revoked before the agent");
+  const lastUse = steps.reduce((k, s, i) => (i !== revokeAt && /steps\.app-token\.outputs\.token/.test(s.text) ? i : k), -1);
+  assert.ok(lastUse < revokeAt, "a step uses the pre-agent token after it was revoked");
+  // The one credential in .git/config is the agent's own.
+  const checkout = steps.find((s) => s.uses?.startsWith("actions/checkout@"));
+  assert.match(checkout.text, /token:\s*\$\{\{\s*steps\.agent-token\.outputs\.token\s*\}\}/);
+  // After the agent: the log upload only.
+  assert.deepEqual(steps.slice(at + 1).map((s) => s.uses?.replace(/@.*/, "")), ["actions/upload-artifact"]);
+
+  // The fresh job: main's scripts, no persisted credential, its own token, the log as data.
+  const finish = wf.jobs.find((j) => j.name === "finish");
+  assert.ok(finish, "agent-implement.yml has no finish job");
+  assert.deepEqual(finish.raw.needs, ["implement"]);
+  const co = finish.steps.filter((s) => s.uses?.startsWith("actions/checkout@"));
+  assert.equal(co.length, 1);
+  assert.equal(co[0].with.ref, "main");
+  assert.equal(co[0].with["persist-credentials"], false);
+  assert.equal(co[0].with.path, undefined);
+  assert.deepEqual(String(co[0].with["sparse-checkout"]).trim().split("\n").sort(), ["scripts/agent", "scripts/agent-arms"]);
+  const dl = finish.steps.find((s) => s.uses?.startsWith("actions/download-artifact@"));
+  assert.equal(dl.with.path, "${{ runner.temp }}/agent-output");
+  for (const s of finish.steps.filter((x) => x.isRun)) {
+    for (const c of codeRuns(s.script)) {
+      assert.match(c, /^node \.\/scripts\/agent(-arms)?\/[\w-]+\.mjs( |$)/, `finish runs something other than main's scripts: ${c}`);
+    }
+  }
+  assert.equal(finish.steps.filter((s) => s.uses?.startsWith("actions/create-github-app-token@")).length, 1);
+  // The classifier's key, in the fresh job only.
+  for (const j of wf.jobs) {
+    const holds = j.steps.some((s) => /secrets\.ANTHROPIC_API_KEY/.test(s.text)) || /secrets\.ANTHROPIC_API_KEY/.test(JSON.stringify(j.raw.env ?? {}));
+    assert.equal(holds, j.name === "finish", `ANTHROPIC_API_KEY in job ${j.name}`);
+  }
+});
