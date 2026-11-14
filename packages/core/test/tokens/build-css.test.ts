@@ -21,8 +21,9 @@ describe('renderTokensCss', () => {
     expect(css).toMatch(/\.dark\s*\{/);
   });
 
-  it('emits the Butter & Maple palette variables under :root', () => {
-    expect(css).toMatch(/--wb-bg:\s*#FBF6EC;/);
+  it('emits the brand palette variables under :root', () => {
+    expect(css).toMatch(/--wb-bg:\s*#FAF9F6;/);
+    expect(css).toMatch(/--wb-wash:\s*#F1EEE8;/);
     expect(css).toMatch(/--wb-syrup:\s*#B8651A;/);
     expect(css).toMatch(/--wb-butter:\s*#F4C95D;/);
   });
@@ -38,12 +39,13 @@ describe('renderTokensCss', () => {
 
   it('emits dark-mode overrides', () => {
     expect(css).toMatch(/\.dark\s*\{[^}]*--background:\s*oklch\(0\.141/s);
-    expect(css).toMatch(/\.dark\s*\{[^}]*--wb-bg:\s*#1C1610;/s);
+    expect(css).toMatch(/\.dark\s*\{[^}]*--wb-bg:\s*#161615;/s);
+    expect(css).toMatch(/\.dark\s*\{[^}]*--wb-syrup-deep:\s*#E08A3A;/s);
   });
 
   it('preserves the terminal palette as a constant across both modes', () => {
     // Same value emitted in :root only (no dark override needed).
-    const matches = css.match(/--wb-terminal-bg:\s*#1C1610;/g);
+    const matches = css.match(/--wb-terminal-bg:\s*#161615;/g);
     expect(matches?.length).toBe(1);
   });
 

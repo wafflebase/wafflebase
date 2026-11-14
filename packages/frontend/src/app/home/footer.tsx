@@ -60,7 +60,7 @@ export function Footer() {
           <div className="flex flex-col gap-3">
             <a
               href="/"
-              className="inline-flex items-center gap-2.5 font-display font-semibold text-[19px] tracking-[-0.01em] text-[color:var(--wb-ink)] no-underline"
+              className="wordmark inline-flex items-center gap-2.5 text-[19px] text-[color:var(--wb-ink)] no-underline"
             >
               <WaffleLogo size={28} />
               Wafflebase

@@ -29,7 +29,8 @@ export interface TokenSources {
 
 function paletteBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
   const { palette } = src;
-  const n = mode === 'light' ? palette.neutrals.light : palette.neutrals.dark;
+  const n =
+    mode === 'light' ? palette.brandNeutrals.light : palette.brandNeutrals.dark;
   const syrupForMode = mode === 'light' ? palette.syrup : palette.syrupBright;
   const berryForMode = mode === 'light' ? palette.berry : palette.berryBright;
   const leafForMode = mode === 'light' ? palette.leaf : palette.leafBright;
@@ -39,8 +40,11 @@ function paletteBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--wb-ink', n.ink],
     ['--wb-sub', n.sub],
     ['--wb-rule', n.rule],
+    ['--wb-wash', n.wash],
     ['--wb-syrup', syrupForMode],
-    ['--wb-syrup-deep', mode === 'light' ? palette.syrupDeep : palette.butter],
+    // Dark mode's deep syrup is bright syrup, not butter: on the neutral
+    // charcoal a yellow headline line read as a second accent.
+    ['--wb-syrup-deep', mode === 'light' ? palette.syrupDeep : palette.syrupBright],
     ['--wb-butter', palette.butter],
     ['--wb-berry', berryForMode],
     ['--wb-leaf', leafForMode],

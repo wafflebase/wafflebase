@@ -1,0 +1,48 @@
+# Logo refresh — one mark everywhere
+
+The in-app mark (3×3 syrup squares on a butter tile, drawn from the
+`--wb-*` variables) lost its outline in dark mode, where `--wb-syrup-deep`
+flips to butter. The favicon was an unrelated Lucide `grid-2x2-plus` with a
+white stroke, invisible on a light browser tab. The docs site and README had
+no mark at all.
+
+## Plan
+
+- [x] Round 1: syrup tile + butter pockets + cream A1 pocket. Applied, then
+      rejected by the user as dated (two-tone tile of rounded squares reads
+      as a keypad / clip art).
+- [x] Benchmark (Anthropic, Notion, Linear, Vercel, Google Workspace,
+      Microsoft 365, Slack) and propose three one-color directions: Facet
+      (45° waffle grid), Pressed (tile with pocket holes), Selected Cell
+      (cell in a selection frame). Dropped on the way: `#` (Slack/hashtag),
+      W with a crossbar (reads as ₩), w + dot (reads as a person).
+- [x] User chose **A. Facet**.
+- [x] Wordmark font check: six candidates rendered in the lockup. Chose
+      Fraunces 500 at `opsz` 144, -0.025em (`.wordmark`); no new font load.
+- [x] `WaffleLogo` → Facet in `--wb-syrup`.
+- [x] `public/icon.svg` (with a dark-scheme rule), `public/apple-touch-icon.png`,
+      `<link rel="apple-touch-icon">`.
+- [x] Docs site: `themeConfig.logo`, favicon, nav title in the wordmark style.
+- [x] README header mark.
+- [x] DESIGN.md: Mark section, Wordmark type role, sidebar note.
+- [x] Verify: homepage nav light/dark, sign-in, docs nav light/dark rendered.
+- [x] No visual baseline covers the homepage, sign-in or sidebar.
+- [x] `pnpm verify:fast`
+- [x] Homepage bottom: replace the `BigWaffle` clip-art illustration in the
+      open-source panel with `RepoMap`, a ruled file tree of the real
+      `packages/*` (user asked for an infographic; first misread as the
+      area under the hero, then clarified). Rendered desktop light/dark +
+      390px mobile; `docs/design/homepage.md` updated.
+- [x] Color check: current palette + three directions mocked (Refined
+      Maple / Clay / Ink & Syrup); user took Refined Maple. Brand surfaces
+      move to `palette.brandNeutrals` (ivory / charcoal, `--wb-wash`); the
+      engines' `palette.neutrals` is untouched so document colors don't
+      change. Butter chips / thumbnails / icon tiles → `--wb-wash`; dark
+      `--wb-syrup-deep` → bright syrup; terminal → charcoal. New contrast
+      test covers ink / sub / deep syrup on bg, paper and wash.
+
+## Review
+
+Four copies of one geometry (component, favicon, touch icon, docs SVG) and
+two copies of the wordmark style (app `.wordmark`, docs nav title);
+DESIGN.md names all of them.

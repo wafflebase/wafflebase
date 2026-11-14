@@ -178,6 +178,19 @@
     font-synthesis-style: none;
   }
   /*
+   * The "Wafflebase" wordmark beside the mark: Fraunces at its display cut
+   * (opsz 144) and weight 500. Left to `font-optical-sizing: auto`, a 17–19px
+   * wordmark takes the chunky text cut, which read heavy and dated next to
+   * the one-color mark. Size and color stay with the caller.
+   */
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    font-variation-settings: "opsz" 144;
+    font-synthesis-style: none;
+  }
+  /*
    * DOM text selection matches the docs engine's canvas selection: a butter
    * wash, 35% light / 30% dark. Selected text takes the foreground color so
    * muted and syrup text stay readable on the wash (they fall under 4.5:1

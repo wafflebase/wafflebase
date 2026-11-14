@@ -51,14 +51,41 @@ export const palette = {
     },
   },
 
+  // Brand-surface neutrals — the `--wb-*` page, paper, ink and rules of the
+  // homepage, sign-in and template pages. Kept apart from `neutrals`, which
+  // the engines consume as *document* colors (docs default text, the
+  // formatting swatches, the Wafflebase slide theme): restyling the brand
+  // must not recolor anyone's content. Near-neutral on purpose, with only a
+  // trace of warmth — the yellow cream and brown roast they replace put
+  // every surface in the syrup's own hue family, so nothing stood apart.
+  // `wash` is the quiet chip / thumbnail / icon-tile fill that butter was.
+  brandNeutrals: {
+    light: {
+      bg: '#FAF9F6',
+      paper: '#FFFFFF',
+      ink: '#1C1B19',
+      sub: '#5F5B55',
+      rule: '#E7E4DE',
+      wash: '#F1EEE8',
+    },
+    dark: {
+      bg: '#161615',
+      paper: '#1F1F1D',
+      ink: '#F5F4F1',
+      sub: '#A8A49C',
+      rule: '#2E2D2A',
+      wash: '#2A2927',
+    },
+  },
+
   // Terminal — locked dark surface across both modes (preserves the
   // existing wb-terminal-bg / wb-terminal-fg behavior in index.css).
   // Its syntax hues are locked too: the mode-flipping `--wb-berry` /
   // `--wb-leaf` are the light-mode stops in light mode, 3.69:1 / 3.65:1 on
   // this roast. The bright stops are 6.25:1 / 8.80:1.
   terminal: {
-    bg: '#1C1610',
-    fg: '#FBF6EC',
+    bg: '#161615', // = brandNeutrals.dark.bg
+    fg: '#F5F4F1', // = brandNeutrals.dark.ink
     keyword: '#E27A7E', // = berryBright
     flag: '#A0C078', // = leafBright
   },
