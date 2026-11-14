@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| harden agent install (2026-11-14) | [20261114-harden-agent-install-todo.md](./active/20261114-harden-agent-install-todo.md) | [20261114-harden-agent-install-lessons.md](./active/20261114-harden-agent-install-lessons.md) |
 | remove eval subsystem (2026-11-13) | [20261113-remove-eval-subsystem-todo.md](./active/20261113-remove-eval-subsystem-todo.md) | [20261113-remove-eval-subsystem-lessons.md](./active/20261113-remove-eval-subsystem-lessons.md) |
 | sheets auto fit reload (2026-11-11) | [20261111-sheets-auto-fit-reload-todo.md](./active/20261111-sheets-auto-fit-reload-todo.md) | [20261111-sheets-auto-fit-reload-lessons.md](./active/20261111-sheets-auto-fit-reload-lessons.md) |
 | sheets link card close (2026-11-11) | [20261111-sheets-link-card-close-todo.md](./active/20261111-sheets-link-card-close-todo.md) | [20261111-sheets-link-card-close-lessons.md](./active/20261111-sheets-link-card-close-lessons.md) |
@@ -57,4 +58,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 632
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: remove eval subsystem (2026-11-13)
+Latest active task: harden agent install (2026-11-14)
