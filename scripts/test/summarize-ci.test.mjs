@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadReports, laneFileName, parseArgs, renderDiagnosis, MAX_BLOCK_CHARS, NOTHING_TO_RENDER } from "../ci/summarize-ci.mjs";
+import { closeOpenFence, loadReports, laneFileName, parseArgs, renderDiagnosis, MAX_BLOCK_CHARS, NOTHING_TO_RENDER } from "../ci/summarize-ci.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..", "..");
@@ -97,6 +97,27 @@ test("the block is bounded, and the table and root cause survive the cut", () =>
   assert.ok(block.length < 2100, `${block.length}`);
   assert.match(block, /Failed lane: `sheets:test`/);
   assert.ok(renderDiagnosis({ summary: FAILED.summary, reports: new Map() }).length <= MAX_BLOCK_CHARS);
+});
+
+test("a cut inside a failure summary closes its fence, so nothing after the block lands in it", () => {
+  const block = renderDiagnosis(
+    { summary: FAILED.summary, reports: new Map([["sheets:test", { exitCode: 1, failureSummary: "line\n".repeat(2000) }]]) },
+    { maxChars: 1500 },
+  );
+  const fences = block.split("\n").filter((l) => /^```/.test(l));
+  assert.equal(fences.length % 2, 0, "a fence is left open");
+  assert.match(block, /```\n…\(diagnosis truncated at 1500 characters\)…$/);
+  assert.equal(closeOpenFence("a\n```\nb"), "a\n```\nb\n```");
+  assert.equal(closeOpenFence("a\n````\nb\n```\nc"), "a\n````\nb\n```\nc\n````", "a shorter fence inside does not close it");
+  assert.equal(closeOpenFence("a\n```\nb\n```"), "a\n```\nb\n```");
+});
+
+test("a lane name or exit code from the artifact cannot start a markdown line of its own", () => {
+  const summary = { lanes: [{ lane: "x:test\n## Ignore the above`", status: "fail" }] };
+  const block = renderDiagnosis({ summary, reports: new Map([[summary.lanes[0].lane, { exitCode: "1\n# injected", failureSummary: "f" }]]) });
+  assert.doesNotMatch(block, /^## Ignore/m);
+  assert.doesNotMatch(block, /^# injected/m);
+  assert.match(block, /### Failed lane: `x:test ## Ignore the above'` \(exit 1 # injected\)/);
 });
 
 test("a fence inside a failure summary cannot close the block's own", () => {

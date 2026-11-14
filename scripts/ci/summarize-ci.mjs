@@ -90,7 +90,27 @@ const ICON = { pass: "✅", fail: "❌", skip: "⏭️", filtered: "⚪" };
 const seconds = (ms) => (typeof ms === "number" && ms > 0 ? `${(ms / 1000).toFixed(1)}s` : "");
 
 /** Escape what would break out of a markdown table cell. */
-const cell = (text) => String(text ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+const cell = (text) => String(text ?? "").replace(/\|/g, "\\|").replace(/\r?\n|\r/g, " ");
+
+/** The same, for text inside a one-line code span: no backtick to close it early. */
+const span = (text) => cell(text).replace(/`/g, "'");
+
+/**
+ * `block` with a fence it leaves open closed again. A cut can land inside a
+ * fenced failure summary, and an open fence would swallow everything the
+ * caller writes after the block — the closing tag of the diagnosis and the
+ * instructions that follow it — into one code block.
+ */
+export function closeOpenFence(block) {
+  let open = null;
+  for (const line of block.split("\n")) {
+    const m = /^(`{3,})/.exec(line);
+    if (!m) continue;
+    if (open === null) open = m[1];
+    else if (m[1].length >= open.length && line.trim() === m[1]) open = null;
+  }
+  return open === null ? block : `${block}\n${open}`;
+}
 
 /** A fence long enough to survive a body that contains one. */
 function fence(body) {
@@ -127,7 +147,7 @@ export function renderDiagnosis(reading, { maxChars = MAX_BLOCK_CHARS } = {}) {
   out.push("| | lane | status | time |");
   out.push("| --- | --- | --- | --- |");
   for (const row of rows) {
-    out.push(`| ${ICON[row.status] ?? ""} | \`${cell(row.lane)}\` | ${cell(row.status)} | ${seconds(row.durationMs)} |`);
+    out.push(`| ${ICON[row.status] ?? ""} | \`${span(row.lane)}\` | ${cell(row.status)} | ${seconds(row.durationMs)} |`);
   }
 
   // Lanes run in order and stop at the first failure, so the first failed
@@ -135,7 +155,7 @@ export function renderDiagnosis(reading, { maxChars = MAX_BLOCK_CHARS } = {}) {
   for (const row of failed) {
     const report = reports.get(row.lane);
     out.push("");
-    out.push(`### Failed lane: \`${row.lane}\` (exit ${report?.exitCode ?? "?"})`);
+    out.push(`### Failed lane: \`${span(row.lane)}\` (exit ${cell(report?.exitCode ?? "?")})`);
     out.push("");
     out.push(fence(clip(report?.failureSummary ?? "(no failure summary captured)", MAX_SUMMARY_CHARS)));
   }
@@ -152,7 +172,7 @@ export function renderDiagnosis(reading, { maxChars = MAX_BLOCK_CHARS } = {}) {
 
   const block = out.join("\n");
   if (block.length <= maxChars) return block;
-  return `${block.slice(0, maxChars)}\n…(diagnosis truncated at ${maxChars} characters)…`;
+  return `${closeOpenFence(block.slice(0, maxChars))}\n…(diagnosis truncated at ${maxChars} characters)…`;
 }
 
 /** Parse the command line: `{ dir, maxChars }`, or `{ error }`. */
