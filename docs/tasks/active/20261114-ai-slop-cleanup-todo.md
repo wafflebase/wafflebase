@@ -60,4 +60,19 @@ for the lot, with before/after screenshots.
 
 ## Review
 
-(filled in at the end)
+Six steps, one commit each, plus one commit of whole-branch review fixes.
+Every step got an independent review with a rotating lens (correctness,
+truthfulness, a11y/touch, security/docs); findings and fixes are logged in
+the lessons file.
+
+- `verify:fast` green on every commit.
+- `verify:browser:docker`: visual (220/220 after the baseline refresh) and
+  interaction pass. One hunt oracle (slides drag landing at y=718 vs 800)
+  failed once in Docker and passed on a local rerun of the same branch.
+- Google Fonts cache re-recorded (the `css2` URL gained the italic axis);
+  baselines updated, each changed one pixel-diffed against `main`: 88
+  encoding-only rewrites restored, 24 intended changes kept.
+- Before/after screenshots from `main` (`:5173`) and this branch (`:5181`)
+  against the same backend; hosted on the assets-only branch
+  `pr-assets/impeccable-slop-cleanup` for the PR body.
+- Known limitations are listed in the PR body.
