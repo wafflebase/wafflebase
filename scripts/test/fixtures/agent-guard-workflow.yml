@@ -1,0 +1,260 @@
+# A synthetic agent job for scripts/test/agent-workflow-guards.test.mjs.
+#
+# It has the shape of the four installing jobs - main checked out, the agent
+# scripts staged, the branch checked out, main's scripts staged beside it, a
+# digest recorded, the install, checks before each use of a staged script, the
+# agent - and nothing else. The guard's named workflow edits are applied to
+# this file, not to the real workflows, so renaming or moving a step there
+# never moves a test case. It is not a workflow: nothing runs it.
+name: guard fixture
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+env:
+  GH_REPO: ${{ github.repository }}
+  MAX_ATTEMPTS: "4"
+jobs:
+  iterate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    steps:
+      - name: Check out trusted main
+        uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Verify commenter has write access
+        uses: actions/github-script@0000000000000000000000000000000000000002 # v7.1.0
+        with:
+          retries: 3
+          script: |
+            const actor = context.payload.sender.login;
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner, repo: context.repo.repo, username: actor,
+            });
+            if (!['admin', 'maintain', 'write'].includes(data.permission)) {
+              core.setFailed(`@${actor} lacks write access`);
+            }
+      - name: Round guard
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md
+        run: node ./scripts/agent/review-round-guard.mjs "$PR"
+      - name: Stage the trusted agent scripts
+        run: cp -R ./scripts/agent "${{ runner.temp }}/agent-tools"
+      - name: Download the agent SDK
+        uses: actions/download-artifact@0000000000000000000000000000000000000003 # v4.3.0
+        with:
+          name: agent-sdk
+          path: /tmp/agent-sdk
+      - name: Unpack the agent SDK beside the trusted scripts
+        run: tar -xzf /tmp/agent-sdk/agent-sdk-node-modules.tgz -C "$RUNNER_TEMP/agent-tools"
+      - uses: pnpm/action-setup@0000000000000000000000000000000000000004 # v4.1.0
+        with:
+          version: 10.5.2
+      - uses: actions/setup-node@0000000000000000000000000000000000000005 # v4.4.0
+        with:
+          node-version: 22
+      - name: Check out the branch
+        uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Clear the path the trusted agent scripts are checked out to
+        run: rm -rf .trusted-agent
+      - name: Check out trusted main beside the branch
+        uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0
+        with:
+          ref: main
+          path: .trusted-agent
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Stage the trusted agent scripts beside the branch
+        run: |
+          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"
+          rm -rf .trusted-agent
+      - name: Attempts guard
+        id: attempts
+        uses: actions/github-script@0000000000000000000000000000000000000002 # v7.1.0
+        with:
+          retries: 3
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const max = parseInt(process.env.MAX_ATTEMPTS, 10);
+            const prs = await github.rest.pulls.list({ owner, repo, state: 'open' });
+            core.setOutput('pr', String(prs.data[0].number));
+            core.info(`limit ${max}`);
+      - name: Set state to blocked (paged)
+        if: steps.guard.outputs.paged == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.attempts.outputs.pr }}
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked
+      - name: Record a digest of the staged agent scripts
+        id: tools
+        if: steps.guard.outputs.proceed == 'true'
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          digest="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        id: install
+        if: steps.guard.outputs.proceed == 'true'
+        run: node "$RUNNER_TEMP/agent-tools/install-deps.mjs"
+      - name: Verify the staged agent scripts are unchanged
+        if: always() && steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
+      - name: Download harness reports from the failed CI run
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/download-artifact@0000000000000000000000000000000000000003 # v4.3.0
+        with:
+          name: harness-reports
+          path: ${{ runner.temp }}/harness-reports/
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+      - name: Re-verify the checked-out commit
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          EXPECTED: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          ACTUAL="$(git rev-parse HEAD)"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::The branch moved." >&2
+            exit 1
+          fi
+      - name: Record branch head before fix
+        id: before-fix
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
+      - name: Verify the staged agent scripts are unchanged
+        if: steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
+      - name: Summarize the failure
+        id: diag
+        if: steps.guard.outputs.proceed == 'true'
+        run: |
+          DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" "$RUNNER_TEMP/harness-reports")"
+          printf '%s\n' "$DIAG" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify the staged agent scripts are unchanged
+        if: steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
+      - name: Set state to fixing
+        if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.attempts.outputs.pr }}
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
+      - name: Verify the staged agent scripts are unchanged
+        if: steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
+      - name: Page that no credential is live
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.attempts.outputs.pr }}
+          CAPACITY: ${{ steps.attempts.outputs.capacity }}
+        run: |
+          {
+            printf '%s\n' '<!-- agent-review-paged -->'
+            # Markdown backticks in a single-quoted word are data.
+            printf '%s\n\n' 'Register more `CLAUDE_CODE_OAUTH_TOKEN_N` secrets.'
+            printf 'Credential capacity: %s\n' "${CAPACITY:-unknown}"
+          } > "$RUNNER_TEMP/no-credential.md"
+          gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"
+          node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
+      - name: Record the fix-round dispatch
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.attempts.outputs.pr }}
+          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md
+        run: |
+          test -s "$DISPATCH_FILE"
+          gh pr comment "$PR" --body-file "$DISPATCH_FILE"
+      - name: Verify the staged agent scripts are unchanged
+        if: steps.tools.outputs.digest != ''
+        env:
+          EXPECTED: ${{ steps.tools.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/agent-tools"
+          actual="$({ find . -print | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            cd "$RUNNER_TEMP"
+            rm -rf "$RUNNER_TEMP/agent-tools"
+            echo "::error::The staged agent scripts are not what was staged. They were removed; no later step of this job runs them." >&2
+            exit 1
+          fi
+      - name: Pick a credential from the pool
+        id: cred
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/pick-credential.mjs" ] || {
+            echo "pick-credential.mjs is not on main yet"
+            exit 0
+          }
+          node "$RUNNER_TEMP/agent-tools/pick-credential.mjs"
+      - name: Tell the pull request the install did not complete
+        if: failure() && steps.install.outcome == 'failure'
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.attempts.outputs.pr }}
+        run: gh pr comment "$PR" --body "The install did not complete; see the run."
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@0000000000000000000000000000000000000006 # v1
+        with:
+          prompt: Fix the failing check.

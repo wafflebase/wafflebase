@@ -31,6 +31,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -211,11 +212,9 @@ const BRANCH_REF =
   /^\s*ref:\s*\$\{\{\s*(github\.event\.workflow_run\.head_(branch|sha)|github\.event\.pull_request\.head\.(ref|sha)|steps\.[\w-]+\.outputs\.(head_)?(branch|sha|ref))/;
 
 /**
- * Lines with YAML comments dropped, so commented-out YAML neither satisfies nor
- * trips a guard — but not inside a block scalar (`run: |`, `script: |`), where
- * a line starting with `#` is part of the script. Dropping one there would
- * change what the guard reads: a quote closed on such a line would open
- * instead.
+ * Lines with YAML comments dropped, outside block scalars. Used only for the
+ * `text` of a step that the older guards match against; what a step runs, its
+ * condition and its environment come from the parsed document.
  */
 function dropComments(lines) {
   const kept = [];
@@ -235,100 +234,101 @@ function dropComments(lines) {
   return kept;
 }
 
-/**
- * The entries of the `env:` mapping that sits at `indent` among `lines` (the
- * key may also open a step: `- env:`). A mapping it cannot read — a flow
- * mapping, a non-key line — comes back as one entry named `<unreadable>`, so an
- * allow-list of names refuses it.
- */
-function envEntries(lines, indent) {
-  const entries = [];
-  const pad = " ".repeat(indent);
-  for (let i = 0; i < lines.length; i++) {
-    const head = new RegExp(`^(?:${pad}|${" ".repeat(Math.max(indent - 2, 0))}- )env:(.*)$`).exec(lines[i]);
-    if (!head) continue;
-    if (head[1].trim() !== "") entries.push({ key: "<unreadable>", value: head[1].trim() });
-    for (let j = i + 1; j < lines.length; j++) {
-      const l = lines[j];
-      if (l.trim() === "") continue;
-      const at = l.length - l.trimStart().length;
-      if (at <= indent) break;
-      if (at > indent + 2) continue; // the continuation of a value
-      const kv = /^\s*([A-Za-z_][A-Za-z0-9_]*):(?:\s(.*))?$/.exec(l);
-      entries.push(kv ? { key: kv[1], value: (kv[2] ?? "").trim() } : { key: "<unreadable>", value: l.trim() });
-    }
+// The YAML reader. The repository already depends on `yaml` (through
+// packages/cli); it is reached from there rather than added at the root.
+const YAML = (() => {
+  try {
+    return createRequire(path.join(REPO, "packages/cli/package.json"))("yaml");
+  } catch (e) {
+    throw new Error(`the workflow guards read YAML with \`yaml\`, a dependency of packages/cli — run pnpm install (${e.message})`);
   }
-  return entries;
-}
-
-/** The value of a step's own `key:` (not one inside its `with:` or `env:`), block scalars folded. */
-function stepValue(s, key) {
-  const re = new RegExp(`^(?: {6}- | {8})${key}:(.*)$`);
-  const at = s.findIndex((l) => re.test(l));
-  if (at === -1) return null;
-  const v = re.exec(s[at])[1].trim();
-  if (!/^[>|][-+]?$/.test(v)) return v;
-  const more = [];
-  for (let i = at + 1; i < s.length && (s[i].trim() === "" || /^ {10}/.test(s[i])); i++) more.push(s[i].trim());
-  return more.join(" ").trim();
-}
+})();
 
 /**
- * A workflow's text, read into what the guards need: its workflow-level `env:`
- * and `defaults:`, and its jobs — each with its header (the lines before
- * `steps:`) and its steps.
+ * The non-ASCII characters these workflows use today. Any other — and any
+ * control character but the newline — is refused before the file is parsed:
+ * a lone CR, U+2028 or U+2029 ends a line for one reader and not for another,
+ * and a look-alike letter reads as a command name it is not.
+ */
+const WORKFLOW_NON_ASCII = new Set(["—", "–", "…", "→", "≠", "⚠", "⏸", "️", "✅", "🛑", "🤖"]);
+
+/**
+ * What a workflow file holds, as the guards need it: the problems with its
+ * source that make it unsafe to read (refused characters, more than one
+ * document, a parse error, an anchor, alias, tag or merge key), its
+ * workflow-level `env` and `defaults`, and its jobs — each with its own keys
+ * and its steps. A step's fields come from the parsed document; its `text`
+ * (comments dropped) is the source of that step, kept for the guards that
+ * match lines.
  */
 function parseWorkflow(text, file) {
-  const lines = dropComments(text.split("\n"));
-  const jobsAt = lines.findIndex((l) => l === "jobs:");
-  const top = jobsAt === -1 ? lines : lines.slice(0, jobsAt);
-  const starts = jobsAt === -1 ? [] : lines.reduce((acc, l, i) => (i > jobsAt && /^ {2}[\w-]+:\s*$/.test(l) ? [...acc, i] : acc), []);
-  return {
-    file,
-    env: envEntries(top, 0),
-    defaults: top.some((l) => /^defaults:/.test(l)),
-    jobs: starts.map((from, k) => {
-      const body = lines.slice(from + 1, starts[k + 1] ?? lines.length);
-      const stepsAt = body.findIndex((l) => /^ {4}steps:\s*$/.test(l));
-      const header = stepsAt === -1 ? body : body.slice(0, stepsAt);
-      const steps = [];
-      for (const line of stepsAt === -1 ? [] : body.slice(stepsAt + 1)) {
-        if (/^ {6}- /.test(line)) steps.push([line]);
-        else if (steps.length > 0) steps.at(-1).push(line);
-      }
-      return {
-        file,
-        name: lines[from].trim().replace(/:$/, ""),
-        env: envEntries(header, 4),
-        defaults: header.some((l) => /^ {4}defaults:/.test(l)),
-        steps: steps.map((s) => {
-          const text = s.join("\n");
-          const runAt = s.findIndex((l) => /^(?: {6}- | {8})run:/.test(l));
-          return {
-            lines: s,
-            text,
-            name: stepValue(s, "name") ?? "",
-            id: stepValue(s, "id"),
-            cond: stepValue(s, "if") ?? "",
-            env: envEntries(s, 8),
-            // The step's own `uses:` only: a line of a `run:` block that reads
-            // `uses: …` must not turn the step into an action.
-            usesLine: s.find((l) => /^(?: {6}- | {8})uses:/.test(l)) ?? null,
-            uses: stepValue(s, "uses")?.split(/\s/)[0] || null,
-            isRun: runAt !== -1,
-            // A `run: |` block, dedented; or the one-line command.
-            script:
-              runAt === -1
-                ? null
-                : /run:\s*\|\s*$/.test(s[runAt])
-                  ? s.slice(runAt + 1).map((l) => l.replace(/^ {10}/, "")).join("\n")
-                  : s[runAt].replace(/^\s*(?:- )?run:\s*/, ""),
-            checksOutBranch: s.some((l) => BRANCH_REF.test(l)),
-          };
-        }),
-      };
-    }),
-  };
+  const problems = [];
+  let at = 0;
+  for (const c of text) {
+    const n = c.codePointAt(0);
+    if ((n < 0x20 && c !== "\n") || (n >= 0x7f && n <= 0x9f)) problems.push(`a control character U+${n.toString(16).padStart(4, "0").toUpperCase()} at offset ${at}`);
+    else if (n > 0x7f && !WORKFLOW_NON_ASCII.has(c)) problems.push(`a character this guard does not read (U+${n.toString(16).toUpperCase()}) at offset ${at}`);
+    at += c.length;
+  }
+  const docs = YAML.parseAllDocuments(text, { uniqueKeys: true });
+  if (docs.length !== 1) problems.push(`${docs.length} YAML documents, not one`);
+  const doc = docs[0];
+  for (const e of doc?.errors ?? []) problems.push(`YAML: ${e.message.split("\n")[0]}`);
+  const beforeStructure = problems.length;
+  if (doc) {
+    YAML.visit(doc, {
+      Alias: () => void problems.push("a YAML alias"),
+      Pair: (_, p) => void (YAML.isScalar(p.key) && p.key.value === "<<" && problems.push("a YAML merge key")),
+      Node: (_, node) => {
+        if (node.anchor) problems.push(`a YAML anchor (&${node.anchor})`);
+        if (node.tag) problems.push(`a YAML tag (${node.tag})`);
+      },
+    });
+  }
+  // Read whatever parsed: the source problems above are refusals for the
+  // guards that hold the installing jobs, not a reason for every other guard
+  // to see an empty file.
+  const structural = problems.length > beforeStructure; // an alias, anchor, merge key or tag
+  const readable = docs.length >= 1 && doc.errors.length === 0 && !structural && YAML.isMap(doc.contents);
+  const root = readable ? doc.toJS() : {};
+  const envOf = (v) => (v === undefined ? [] : isObject(v) ? Object.entries(v).map(([key, value]) => ({ key, value: String(value) })) : [{ key: "<unreadable>", value: String(v) }]);
+  const lineAt = (offset) => text.slice(text.lastIndexOf("\n", offset - 1) + 1, (text.indexOf("\n", offset) + 1 || text.length + 1) - 1);
+
+  const jobs = [];
+  const jobsNode = readable ? doc.get("jobs", true) : null;
+  if (YAML.isMap(jobsNode)) {
+    for (const pair of jobsNode.items) {
+      const name = String(pair.key?.value ?? pair.key);
+      const jobValue = root.jobs?.[name];
+      const job = isObject(jobValue) ? jobValue : {};
+      const stepsNode = YAML.isMap(pair.value) ? pair.value.get("steps", true) : null;
+      const steps = (YAML.isSeq(stepsNode) ? stepsNode.items : []).map((item, k) => {
+        const v = isObject(job.steps?.[k]) ? job.steps[k] : {};
+        const start = text.lastIndexOf("\n", item.range[0] - 1) + 1;
+        const lines = dropComments(text.slice(start, item.range[2]).split("\n"));
+        const usesNode = YAML.isMap(item) ? item.get("uses", true) : null;
+        return {
+          raw: v,
+          keys: YAML.isMap(item) ? Object.keys(v) : ["<not a mapping>"],
+          lines,
+          text: lines.join("\n"),
+          name: v.name === undefined ? "" : String(v.name),
+          id: v.id === undefined ? null : String(v.id),
+          cond: v.if === undefined ? "" : String(v.if),
+          env: envOf(v.env),
+          with: isObject(v.with) ? v.with : v.with === undefined ? {} : { "<unreadable>": v.with },
+          uses: typeof v.uses === "string" ? v.uses : null,
+          // The source line of `uses:`, for the version comment beside a pin.
+          usesLine: usesNode?.range ? lineAt(usesNode.range[0]) : null,
+          isRun: v.run !== undefined,
+          script: v.run === undefined ? null : typeof v.run === "string" ? v.run : JSON.stringify(v.run),
+          checksOutBranch: lines.some((l) => BRANCH_REF.test(l)),
+        };
+      });
+      jobs.push({ file, name, raw: job, env: envOf(job.env), steps });
+    }
+  }
+  return { file, problems, raw: root, env: envOf(root.env), jobs };
 }
 
 /** The jobs of a workflow file, each as its steps. */
@@ -739,6 +739,8 @@ function githubScriptProblems(code) {
   // GitHub substitutes these into the code before it runs, so the code that
   // runs is not the code read here.
   if (code.includes("${{")) problems.push("a GitHub expression inside the script");
+  const LINE_END = /[\n\r\u2028\u2029]/;
+  const LINE_ENDS = /[\n\r\u2028\u2029]/g;
   const valueEnd = (t) => t && ((t.t === "id" && !KEYWORDS.has(t.v)) || t.t === "num" || t.t === "str" || t.t === "tmplend" || t.v === ")" || t.v === "]");
 
   function lex(i, inTemplate) {
@@ -746,27 +748,28 @@ function githubScriptProblems(code) {
     while (i < code.length) {
       const c = code[i];
       const rest = code.slice(i, i + 4);
-      if (c === "\n") {
+      if (LINE_END.test(c)) {
         line++;
         i++;
-      } else if (c === " " || c === "\t" || c === "\r") {
+      } else if (c === " " || c === "\t") {
         i++;
       } else if (rest.startsWith("${{")) {
         problems.push("a GitHub expression inside the script");
         i += 3;
       } else if (rest.startsWith("//")) {
-        while (i < code.length && code[i] !== "\n") i++;
+        // JavaScript ends a line comment at any line terminator, not only \n.
+        while (i < code.length && !LINE_END.test(code[i])) i++;
       } else if (rest.startsWith("/*")) {
         const e = code.indexOf("*/", i + 2);
         if (e === -1) {
           problems.push("an unterminated comment");
           return code.length;
         }
-        line += (code.slice(i, e).match(/\n/g) ?? []).length;
+        line += (code.slice(i, e).match(LINE_ENDS) ?? []).length;
         i = e + 2;
       } else if (c === "'" || c === '"') {
         let j = i + 1;
-        for (; j < code.length && code[j] !== c && code[j] !== "\n"; j++) if (code[j] === "\\") j++;
+        for (; j < code.length && code[j] !== c && !LINE_END.test(code[j]); j++) if (code[j] === "\\") j++;
         if (code[j] !== c) {
           problems.push("an unterminated string");
           return code.length;
@@ -812,9 +815,9 @@ function githubScriptProblems(code) {
     for (; i < code.length; i++) {
       const c = code[i];
       if (c === "\\") {
-        if (code[i + 1] === "\n") line++;
+        if (LINE_END.test(code[i + 1] ?? "")) line++;
         i++;
-      } else if (c === "\n") line++;
+      } else if (LINE_END.test(c)) line++;
       else if (c === "`") return i + 1;
       else if (c === "$" && code[i + 1] === "{") {
         if (code[i + 2] === "{") problems.push("a GitHub expression inside the script");
@@ -833,12 +836,27 @@ function githubScriptProblems(code) {
   // as a name, a property or a key.
   const FORBIDDEN = new Set(["constructor", "prototype", "__proto__", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "Function", "eval", "require", "import", "export", "globalThis", "global", "window", "self", "module", "exports", "this", "new", "with", "function", "class", "var", "delete", "arguments", "Reflect", "Proxy", "call", "apply", "bind", "mainModule", "binding", "dlopen", "addPath", "exportVariable"]);
   // The calls and reads the workflows make in this stretch today.
-  const API_CALLS = new Set(["github.rest.pulls.list", "github.rest.issues.createComment", "github.paginate", "core.setOutput", "core.info", "core.warning", "core.summary.addRaw"]);
+  const API_CALLS = new Set([
+    "github.rest.pulls.list",
+    "github.rest.pulls.get",
+    "github.rest.issues.createComment",
+    "github.rest.issues.updateComment",
+    "github.rest.repos.getCollaboratorPermissionLevel",
+    "github.paginate",
+    "core.setOutput",
+    "core.setFailed",
+    "core.info",
+    "core.notice",
+    "core.warning",
+    "core.error",
+    "core.debug",
+    "core.summary.addRaw",
+  ]);
   const API_READS = new Set(["context.repo.owner", "context.repo.repo", "context.serverUrl", "context.runId", "github.rest.actions.listWorkflowRuns", "github.rest.issues.listComments"]);
   const apiRead = (p) => API_READS.has(p) || /^context\.payload(\.[A-Za-z_]\w*)+$/.test(p) || /^process\.env\.[A-Z][A-Z0-9_]*$/.test(p);
   const API_ROOTS = new Set(["github", "core", "context", "process"]);
-  const GLOBAL_CALLS = new Set(["String", "parseInt"]);
-  const VALUE_METHODS = new Set(["filter", "some", "includes"]);
+  const GLOBAL_CALLS = new Set(["String", "Number", "parseInt"]);
+  const VALUE_METHODS = new Set(["filter", "some", "includes", "startsWith"]);
   const OPEN = new Set(["(", "[", "{"]);
   const CLOSE = new Set([")", "]", "}"]);
   const isOpen = (t) => (t.t === "p" && OPEN.has(t.v)) || t.t === "tmplopen";
@@ -877,7 +895,19 @@ function githubScriptProblems(code) {
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];
     if (decl && depth === decl.depth && (t.v === ";" || t.line > toks[k - 1].line)) decl = null;
-    if (t.t === "id" && (t.v === "const" || t.v === "let")) {
+    if (t.t === "id" && (t.v === "const" || t.v === "let") && toks[k + 1]?.v === "{") {
+      // `const { a, b: c } = …`: each bound name is declared; a key that is
+      // renamed (`b:`) is a property name, not a binding.
+      const close = matching(k + 1);
+      for (let j = k + 2; j < close; j++) {
+        const u = toks[j];
+        if (u.t === "id" && toks[j + 1]?.v === ":") continue;
+        if (u.t === "id" && (toks[j + 1]?.v === "," || toks[j + 1]?.v === "}")) declare(j, "a destructured name");
+        else if (u.v !== "," && u.v !== ":") problems.push("a destructuring pattern this guard does not read");
+      }
+      if (toks[close + 1]?.v === "=") declaredAt.add(close);
+      decl = { depth };
+    } else if (t.t === "id" && (t.v === "const" || t.v === "let")) {
       declare(k + 1, "a declaration");
       decl = { depth };
       if (toks[k + 2]?.v === "=" && arrowAfter(k + 2)) arrows.add(toks[k + 1].v);
@@ -911,7 +941,8 @@ function githubScriptProblems(code) {
     if (isOpen(t)) stack.push(t.v ?? t.t);
     else if (isClose(t)) stack.pop();
     if (t.t === "p") {
-      if (["?.", "...", "++", "--", "+=", "-=", "*=", "%=", "**", "**=", "&&=", "||=", "??=", "<<", ">>", ">>>"].includes(t.v)) problems.push(`the operator ${t.v}`);
+      if (t.v === "?." && next?.t !== "id") problems.push("an optional call or bracket access (?.( / ?.[)");
+      if (["...", "++", "--", "+=", "-=", "*=", "%=", "**", "**=", "&&=", "||=", "??=", "<<", ">>", ">>>"].includes(t.v)) problems.push(`the operator ${t.v}`);
       if (t.v === "=" && !declaredAt.has(k - 1)) problems.push(`an assignment to ${prev?.v ?? prev?.t} outside a declaration`);
       if (t.v === "[" && valueEnd(prev) && !(next?.t === "num" && /^\d+$/.test(next.v) && toks[k + 2]?.v === "]")) problems.push(`a bracket access (${prev.v ?? prev.t}[…])`);
       continue;
@@ -922,10 +953,10 @@ function githubScriptProblems(code) {
       continue;
     }
     if (KEYWORDS.has(t.v)) continue;
-    if (prev?.v === ".") {
+    if (prev?.v === "." || prev?.v === "?.") {
       // A property of a value. API chains are consumed whole below, so what is
       // left is a property of something the script itself holds.
-      if (next?.v === "(" && !VALUE_METHODS.has(t.v) && !writeOk.has(k)) problems.push(`a call of .${t.v}()`);
+      if (next?.v === "(" && !VALUE_METHODS.has(t.v) && !writeOk.has(k)) problems.push(`a call of .${t.v}(); the methods allowed on the script's own values are ${[...VALUE_METHODS].join(", ")}`);
       continue;
     }
     if ((prev?.v === "{" || prev?.v === ",") && next?.v === ":" && stack.at(-1) === "{") continue; // an object key
@@ -940,12 +971,12 @@ function githubScriptProblems(code) {
       const p = chain.join(".");
       for (const name of chain) if (FORBIDDEN.has(name)) problems.push(`the name ${name}`);
       if (toks[j + 1]?.v === "(") {
-        if (!API_CALLS.has(p)) problems.push(`a call of ${p}(), which is not one of the calls this stretch makes`);
+        if (!API_CALLS.has(p)) problems.push(`a call of ${p}(); the calls allowed are ${[...API_CALLS].join(", ")}`);
         else if (p === "core.summary.addRaw") {
           const close = matching(j + 1);
           if (toks[close + 1]?.v === "." && toks[close + 2]?.v === "write" && toks[close + 3]?.v === "(") writeOk.add(close + 2);
         }
-      } else if (!apiRead(p)) problems.push(`a use of ${p}, which is not one of the reads this stretch makes`);
+      } else if (!apiRead(p)) problems.push(`a use of ${p}; the reads allowed are ${[...API_READS].join(", ")}, context.payload.* and process.env.<NAME>`);
       k = j;
       continue;
     }
@@ -964,6 +995,7 @@ test("githubScriptProblems reads today's github-script code and refuses what rea
     "const owner = context.repo.owner, repo = context.repo.repo;\nconst prs = await github.rest.pulls.list({ owner, repo, head: `${owner}:x` });\nconst pr = prs.data[0];\nif (!pr) { core.setOutput('proceed', 'false'); return; }",
     "const max = parseInt(process.env.MAX_ATTEMPTS, 10);\nconst runs = await github.paginate(github.rest.actions.listWorkflowRuns, { owner: 1, per_page: 100 });\nconst n = runs.filter(r => r.conclusion === 'failure').length;",
     "const s = async (md) => {\n  try { await core.summary.addRaw(md).write(); }\n  catch (e) { core.warning(`failed: ${e.message}`); }\n};\nawait s('x');",
+    "const { data: pr } = await github.rest.pulls.get({ pull_number: 1 });\ncore.setOutput('a', String(pr.head.ref.startsWith('agent/')));\nconst n = context.payload.issue?.number || Number(process.env.X);\ncore.notice(`n ${n}`);",
     "const L = ['a[bot]'];\nconst f = (c) => {\n  const user = (c || {}).user || {};\n  return L.includes(user.login) || String((c || {}).body ?? '').includes('x');\n};",
   ];
   for (const code of ok) assert.deepEqual(githubScriptProblems(code), [], code);
@@ -995,15 +1027,20 @@ test("githubScriptProblems reads today's github-script code and refuses what rea
     "const s = 'x'; s.at(0);",
     "github.request('GET /');",
     "context.repo.owner();",
+    "// note\u2028core.addPath('x');",
+    "// note\rcore.exportVariable('A', 'b');",
+    "const s = 'x'; s?.at(0);",
+    "const f = () => 1; f?.();",
   ]) {
     assert.ok(githubScriptProblems(bad).length > 0, `read without a problem: ${bad}`);
   }
 });
 
 // ---------------------------------------------------------------------------
-// From the branch checkout to the agent. Every trusted step in that stretch
-// runs with the branch's tree in the workspace, so whatever it writes there,
-// runs from there, or lets steer the steps after it, follows that tree.
+// From the job's first step to the agent. Every trusted step after the branch
+// checkout runs with the branch's tree in the workspace, so whatever it writes
+// there, runs from there, or lets steer the steps after it, follows that tree;
+// every step before it decides what the workspace holds when that starts.
 
 const VERIFY = "Verify the staged agent scripts are unchanged";
 const FIRST_COND = "always() && steps.tools.outputs.digest != ''";
@@ -1114,11 +1151,18 @@ const ARGUMENTS = {
         if (why) return why;
       } else if (/^"\$[A-Z_]+"$/.test(a) || /^\d+$/.test(a)) {
         if (++prs > 1) return "names more than one pull request";
+      } else if (/^\$[A-Z_]+$/.test(a)) {
+        return `the argument ${a}: quote the variable ("${a}"), so its value is one word`;
       } else return `the argument ${a}`;
     }
     return prs === 1 ? null : "names no pull request";
   },
-  node: (w) => (STAGED.test(w[1] ?? "") ? null : `runs ${w[1]}, which is not a staged script`),
+  // A staged script; before the branch is checked out, also main's own
+  // `./scripts/agent/*.mjs`, since the workspace is still main's tree.
+  node: (w, ctx) =>
+    STAGED.test(w[1] ?? "") || (ctx?.preBranch && /^\.\/scripts\/agent\/[a-z][a-z0-9-]*\.mjs$/.test(w[1] ?? ""))
+      ? null
+      : `runs ${w[1]}, which is not a staged script ("$RUNNER_TEMP/agent-tools/<name>.mjs")`,
 };
 function testShape(args) {
   for (const a of args) {
@@ -1137,36 +1181,24 @@ const REDIRECT_OK = (r) =>
   (r.op === ">&" && (r.target === "1" || r.target === "2")) ||
   ((r.op === ">" || r.op === ">>") && (['"$GITHUB_OUTPUT"', '"$GITHUB_STEP_SUMMARY"', "/dev/null"].includes(r.target) || TEMP_FILE.test(r.target)));
 
-/** A step's own keys, as written (`- key:` or two levels in). */
-const keysOf = (s) => s.lines.filter((l) => /^ {6}- |^ {8}\S/.test(l)).map((l) => /^(?: {6}- | {8})([\w-]+):/.exec(l)?.[1] ?? `<unreadable: ${l.trim()}>`);
-/** The keys of a step's `with:`, and the block under `script: |`. */
-function withOf(s) {
-  const at = s.lines.findIndex((l) => /^ {8}with:\s*$/.test(l));
-  if (at === -1) return { keys: [], lines: [], script: null };
-  const block = [];
-  for (const l of s.lines.slice(at + 1)) {
-    if (l.trim() !== "" && !/^ {10}/.test(l)) break;
-    block.push(l);
-  }
-  const keys = block.filter((l) => /^ {10}\S/.test(l)).map((l) => /^ {10}([\w-]+):/.exec(l)?.[1] ?? `<unreadable: ${l.trim()}>`);
-  const scriptAt = block.findIndex((l) => /^ {10}script:/.test(l));
-  let script = null;
-  if (scriptAt !== -1) {
-    if (/^ {10}script:\s*\|\s*$/.test(block[scriptAt])) {
-      const body = [];
-      for (const l of block.slice(scriptAt + 1)) {
-        if (l.trim() !== "" && !/^ {12}/.test(l)) break;
-        body.push(l.replace(/^ {12}/, ""));
-      }
-      script = body.join("\n");
-    } else script = false;
-  }
-  return { keys, lines: block.filter((l) => /^ {10}\S/.test(l)).map((l) => l.trim()), script };
-}
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const sameMapping = (a, b) => isObject(a) && Object.keys(a).length === Object.keys(b).length && Object.entries(b).every(([k, v]) => a[k] === v);
+/** Before the branch is in the workspace, the pinned run steps that copy main's scripts out of it. */
+const PRE_BRANCH_PINNED = ['cp -R ./scripts/agent "${{ runner.temp }}/agent-tools"', 'tar -xzf /tmp/agent-sdk/agent-sdk-node-modules.tgz -C "$RUNNER_TEMP/agent-tools"'];
+const PRE_BRANCH_ACTIONS = ["pnpm/action-setup@", "actions/setup-node@", "actions/create-github-app-token@"];
+const PRE_BRANCH_CHECKOUT_WITH = ["ref", "path", "sparse-checkout", "sparse-checkout-cone-mode", "persist-credentials", "fetch-depth", "token"];
 
 /**
- * Every way the trusted steps from the branch checkout to the agent leave the
- * allow-list, each tagged with the rule it breaks.
+ * Every way the trusted steps of an installing job, from its first step to the
+ * agent, leave the allow-list — each tagged with the rule it breaks.
+ *
+ * Two policies, split at the first `actions/checkout` of anything but `ref:
+ * main` (the branch checkout). Before it the workspace holds main's tree or
+ * nothing, and the steps may run main's own scripts, but nothing there may
+ * check anything else out, write outside a few runner directories, or set up
+ * anything that steers a later step: those steps are held to their own
+ * allow-list too, so the branch can only enter at that checkout. From it on,
+ * the strict allow-list below.
  *
  * @returns {{ problems: { rule: string, step: string, message: string }[], usesBefore: number, usesAfter: number }}
  */
@@ -1174,23 +1206,35 @@ function stretchProblems(wf, jobName) {
   const problems = [];
   const label = (s) => (s ? s.name || s.uses || s.id || "(unnamed)" : "(job)");
   const problem = (rule, s, message) => problems.push({ rule, step: label(s), message });
+  const none = () => ({ problems, usesBefore: 0, usesAfter: 0 });
+  // A source this guard cannot read the way GitHub reads it is refused
+  // before anything is read from it.
+  for (const p of wf.problems) problem("yaml-source", null, p);
+  if (wf.problems.length > 0) return none();
   const job = wf.jobs.find((j) => j.name === jobName);
-  if (!job) return { problems: [{ rule: "shape", step: "(job)", message: `${wf.file} has no job ${jobName}` }], usesBefore: 0, usesAfter: 0 };
+  if (!job) {
+    problem("shape", null, `${wf.file} has no job ${jobName}`);
+    return none();
+  }
   const { steps } = job;
-  const branchAt = steps.findIndex((s) => s.checksOutBranch);
+  const isCheckout = (s) => s.uses?.startsWith("actions/checkout@");
+  const branchAt = steps.findIndex((s) => isCheckout(s) && s.with.ref !== "main");
   const installAt = steps.findIndex((s) => s.id === "install");
   const agentAt = steps.findIndex((s) => s.uses?.startsWith(AGENT_ACTION));
   if (!(branchAt >= 0 && installAt > branchAt && agentAt > installAt)) {
-    problem("shape", null, "no branch checkout, then an install, then the agent");
-    return { problems, usesBefore: 0, usesAfter: 0 };
+    problem("shape", null, "no checkout of the branch, then an install, then the agent");
+    return none();
   }
 
   // What every step of the job inherits.
-  if (wf.defaults) problem("defaults", null, "the workflow sets defaults:, which changes how every run: step is run");
-  if (job.defaults) problem("defaults", null, "the job sets defaults:, which changes how every run: step is run");
+  if ("defaults" in wf.raw) problem("defaults", null, "the workflow sets defaults:, which changes how every run: step is run");
+  if ("defaults" in job.raw) problem("defaults", null, "the job sets defaults:, which changes how every run: step is run");
+  for (const k of ["container", "services"]) {
+    if (k in job.raw) problem("job-container", null, `the job sets ${k}:, which runs its steps (or beside them) with an image, options, volumes and env this guard does not read`);
+  }
   const envKey = (level, allowed, s) => ({ key }) => {
     if (NEVER_SET.test(key)) problem("env-key", s, `${level} env: sets ${key}, which steers how later commands are found or what they load`);
-    else if (!allowed.has(key)) problem("env-key", s, `${level} env: sets ${key}, which is not one of the names this stretch uses (${[...allowed].join(", ")})`);
+    else if (allowed && !allowed.has(key)) problem("env-key", s, `${level} env: sets ${key}, which is not one of the names this stretch uses (${[...allowed].join(", ")})`);
   };
   wf.env.forEach(envKey("workflow", WORKFLOW_ENV, null));
   job.env.forEach(envKey("job", JOB_ENV, null));
@@ -1217,86 +1261,22 @@ function stretchProblems(wf, jobName) {
     }
   }
 
-  let usesBefore = 0;
-  let usesAfter = 0;
-  for (let i = branchAt + 1; i < agentAt; i++) {
-    const s = steps[i];
-    const keys = keysOf(s);
-    const keyProblem = (allowed) => {
-      for (const k of keys) if (!allowed.includes(k)) problem(STEP_KEYS.has(k) ? "pinned-step" : "step-keys", s, `has the key ${k}`);
-    };
-    if (i === installAt) {
-      // Its command is held to its exact text by its own test; a `shell:`,
-      // `working-directory:` or `continue-on-error:` would change what that
-      // text does.
-      keyProblem(["name", "id", "if", "run"]);
-      continue;
-    }
-    for (const e of s.env) envKey("step", STEP_ENV, s)(e);
-
-    // The steps pinned to their text: the side-directory checkout of main and
-    // its staging, the record and every check.
-    const script = s.script?.trimEnd() ?? null;
-    const clear = /^rm -rf (\.trusted-[\w-]+)$/.exec(script ?? "");
-    const stage = /^cp -R (\.trusted-[\w-]+)\/scripts\/agent "\$\{\{ runner\.temp \}\}\/agent-tools"\nrm -rf (\.trusted-[\w-]+)$/.exec(script ?? "");
-    if (clear || (stage && stage[1] === stage[2])) {
-      keyProblem(["name", "run"]);
-      continue;
-    }
-    if (/^cp |agent-tools"?\s*$/m.test(script ?? "") && /\.trusted-/.test(script ?? "")) {
-      problem("pinned-step", s, "stages the agent scripts with something other than the copy and the removal");
-      continue;
-    }
-    if (s.uses?.startsWith("actions/checkout@")) {
-      const w = withOf(s);
-      const dir = w.lines.find((l) => /^path: \.trusted-[\w-]+$/.test(l))?.slice(6);
-      const want = ["ref: main", `path: ${dir}`, "sparse-checkout: scripts/agent", "sparse-checkout-cone-mode: false", "persist-credentials: false"];
-      if (!dir || [...w.lines].sort().join("\n") !== [...want].sort().join("\n")) problem("pinned-step", s, `checks out something other than main's scripts/agent into a .trusted-* directory: ${w.lines.join("; ")}`);
-      keyProblem(["name", "uses", "with"]);
-      continue;
-    }
-    if (s.id === "tools") {
-      if (script !== RECORD_SCRIPT) problem("pinned-step", s, "the record step is not the pinned script");
-      keyProblem(["name", "id", "if", "run"]);
-      continue;
-    }
-    if (s.name === VERIFY) {
-      if (script !== VERIFY_SCRIPT) problem("pinned-step", s, "the check is not the pinned script");
-      if (s.env.length !== 1 || s.env[0].key !== "EXPECTED" || s.env[0].value !== "${{ steps.tools.outputs.digest }}") problem("pinned-step", s, "the check is handed something other than EXPECTED: ${{ steps.tools.outputs.digest }}");
-      if (i > installAt + 1 && s.cond !== LATER_COND) problem("pinned-step", s, `a later check runs under ${s.cond}, not ${LATER_COND}`);
-      keyProblem(["name", "if", "env", "run"]);
-      continue;
-    }
-
-    for (const k of keys) if (!STEP_KEYS.has(k)) problem("step-keys", s, `has a key this guard does not read: ${k}`);
-    const wd = stepValue(s.lines, "working-directory");
-    if (wd !== null && wd !== "${{ runner.temp }}") problem("working-directory", s, `runs in ${wd}, not the runner's temp directory`);
-
-    if (s.uses && s.isRun) problem("shape", s, "both runs a script and uses an action");
-    if (s.uses) {
-      const w = withOf(s);
-      if (s.uses.startsWith("actions/download-artifact@")) {
-        if (!/^ {10}path: \$\{\{ runner\.temp \}\}\/[\w-]+\/?\s*$/m.test(s.text) || w.keys.filter((k) => k === "path").length !== 1) problem("download-path", s, "downloads somewhere other than one directory in the runner's temp directory");
-        for (const k of w.keys) if (!["name", "path", "run-id", "github-token"].includes(k)) problem("action", s, `download-artifact is given ${k}`);
-      } else if (s.uses.startsWith("actions/github-script@")) {
-        for (const k of w.keys) if (!["retries", "script"].includes(k)) problem("github-script", s, `github-script is given ${k}`);
-        if (typeof w.script !== "string") problem("github-script", s, "the script is not a literal block (script: |)");
-        else for (const p of githubScriptProblems(w.script)) problem("github-script", s, p);
-      } else {
-        problem("action", s, `${s.uses} is not an action this guard knows to stay out of the workspace`);
-      }
-      if (/agent-tool/.test(s.text)) problem("staged-name", s, "names the staged scripts");
-      continue;
-    }
-    if (!s.isRun) {
-      problem("shape", s, "neither runs a script nor uses an action");
-      continue;
-    }
-
+  const keyProblem = (s, allowed) => {
+    for (const k of s.keys) if (!allowed.includes(k)) problem(STEP_KEYS.has(k) ? "pinned-step" : "step-keys", s, `has the key ${k}`);
+  };
+  const githubScript = (s, inputs) => {
+    for (const k of Object.keys(s.with)) if (!inputs.includes(k)) problem("github-script", s, `github-script is given ${k}; the inputs allowed are ${inputs.join(", ")}`);
+    if (typeof s.with.script !== "string") problem("github-script", s, "the script is not a string");
+    else for (const p of githubScriptProblems(s.with.script)) problem("github-script", s, p);
+  };
+  /** A run step's shell, against the command allow-list; returns whether it runs node. */
+  const shell = (s, { preBranch }) => {
     const read = shellCommands(s.script);
     for (const p of read.problems) problem("shell-unreadable", s, p);
+    if (read.commands.every((c) => c.words.length === 0 && c.assigns.length === 0)) problem("shell-unreadable", s, "runs no command this guard can read");
     const written = new Set();
     const ctx = {
+      preBranch,
       bodyFile: (target) => {
         if (target === undefined) return "--body-file has no value";
         const direct = TEMP_FILE.exec(target);
@@ -1314,7 +1294,7 @@ function stretchProblems(wf, jobName) {
         const name = a.slice(0, a.indexOf("="));
         if (NEVER_SET.test(name)) problem("shell-assignment", s, `assigns ${name}, which steers how later commands are found or what they load`);
         else if (c.words.length > 0) problem("shell-assignment", s, `assigns ${name} as a prefix of ${c.words[0]}`);
-        else if (!SHELL_LOCALS.has(name)) problem("shell-assignment", s, `assigns ${name}, which is not one of the shell variables this stretch uses (${[...SHELL_LOCALS].join(", ")})`);
+        else if (!preBranch && !SHELL_LOCALS.has(name)) problem("shell-assignment", s, `assigns ${name}, which is not one of the shell variables this stretch uses (${[...SHELL_LOCALS].join(", ")})`);
       }
       for (const r of c.redirects) {
         if (!REDIRECT_OK(r)) problem("redirect-target", s, `redirects ${r.op} ${r.target}, which is not one of the runner's own files`);
@@ -1324,15 +1304,112 @@ function stretchProblems(wf, jobName) {
       if (c.words.length === 0) continue;
       const check = Object.hasOwn(ARGUMENTS, c.words[0]) ? ARGUMENTS[c.words[0]] : null;
       if (!check) {
-        problem("shell-command", s, `runs \`${c.words.join(" ")}\`, which is not on the list of commands allowed before the agent`);
+        problem("shell-command", s, `runs \`${c.words.join(" ")}\`, which is not on the list of commands allowed before the agent (${Object.keys(ARGUMENTS).join(", ")})`);
         continue;
       }
       const why = check(c.words, ctx);
       if (why) problem("shell-arguments", s, `\`${c.words.join(" ")}\`: ${why}`);
       if (c.words[0] === "node") runsNode = true;
     }
+    return runsNode;
+  };
+  const common = (s) => {
+    const wd = s.raw["working-directory"];
+    if (wd !== undefined && wd !== "${{ runner.temp }}") problem("working-directory", s, `runs in ${wd}, not the runner's temp directory`);
+    if (s.uses && s.isRun) problem("shape", s, "both runs a script and uses an action");
+    if (!s.uses && !s.isRun) problem("shape", s, "neither runs a script nor uses an action");
+  };
+
+  // Before the branch is in the workspace.
+  for (const s of steps.slice(0, branchAt)) {
+    for (const k of s.keys) if (!STEP_KEYS.has(k)) problem("step-keys", s, `has a key this guard does not read: ${k}`);
+    s.env.forEach(envKey("step", null, s));
+    common(s);
+    if (s.uses) {
+      if (isCheckout(s)) {
+        for (const k of Object.keys(s.with)) if (!PRE_BRANCH_CHECKOUT_WITH.includes(k)) problem("pre-branch-checkout", s, `a checkout of main is given ${k}`);
+      } else if (s.uses.startsWith("actions/download-artifact@")) {
+        if (!/^(\/tmp\/|\$\{\{ runner\.temp \}\}\/)[\w./-]+$/.test(String(s.with.path ?? "")) || /\.\./.test(String(s.with.path))) problem("download-path", s, "downloads into the workspace rather than /tmp or the runner's temp directory");
+      } else if (s.uses.startsWith("actions/github-script@")) {
+        githubScript(s, ["retries", "script", "github-token"]);
+      } else if (!PRE_BRANCH_ACTIONS.some((a) => s.uses.startsWith(a))) {
+        problem("action", s, `${s.uses} is not an action this guard knows to leave the workspace as main's`);
+      }
+      continue;
+    }
+    if (!s.isRun) continue;
+    if (PRE_BRANCH_PINNED.includes(s.script.trimEnd())) {
+      keyProblem(s, ["name", "id", "if", "run", "continue-on-error"]);
+      continue;
+    }
+    shell(s, { preBranch: true });
+  }
+
+  // From the branch checkout on.
+  let usesBefore = 0;
+  let usesAfter = 0;
+  for (let i = branchAt + 1; i < agentAt; i++) {
+    const s = steps[i];
+    s.env.forEach(envKey("step", STEP_ENV, s));
+    if (i === installAt) {
+      // Its command is held to its exact text by its own test; a `shell:`,
+      // `working-directory:` or `continue-on-error:` would change what that
+      // text does.
+      keyProblem(s, ["name", "id", "if", "run"]);
+      continue;
+    }
+
+    // The steps pinned to their text: the side-directory checkout of main and
+    // its staging, the record and every check.
+    const script = s.script?.trimEnd() ?? null;
+    const clear = /^rm -rf (\.trusted-[\w-]+)$/.exec(script ?? "");
+    const stage = /^cp -R (\.trusted-[\w-]+)\/scripts\/agent "\$\{\{ runner\.temp \}\}\/agent-tools"\nrm -rf (\.trusted-[\w-]+)$/.exec(script ?? "");
+    if (clear || (stage && stage[1] === stage[2])) {
+      keyProblem(s, ["name", "run"]);
+      continue;
+    }
+    if (/^cp |agent-tools"?\s*$/m.test(script ?? "") && /\.trusted-/.test(script ?? "")) {
+      problem("pinned-step", s, "stages the agent scripts with something other than the copy and the removal");
+      continue;
+    }
+    if (isCheckout(s)) {
+      const dir = /^\.trusted-[\w-]+$/.test(String(s.with.path ?? "")) ? s.with.path : null;
+      const want = { ref: "main", path: dir, "sparse-checkout": "scripts/agent", "sparse-checkout-cone-mode": false, "persist-credentials": false };
+      if (!dir || !sameMapping(s.with, want)) problem("pinned-step", s, `a checkout after the branch's must be main's scripts/agent into a .trusted-* directory, with exactly ${Object.keys(want).join(", ")}`);
+      keyProblem(s, ["name", "uses", "with"]);
+      continue;
+    }
+    if (s.id === "tools") {
+      if (script !== RECORD_SCRIPT) problem("pinned-step", s, "the record step is not the pinned script");
+      keyProblem(s, ["name", "id", "if", "run"]);
+      continue;
+    }
+    if (s.name === VERIFY) {
+      if (script !== VERIFY_SCRIPT) problem("pinned-step", s, "the check is not the pinned script");
+      if (s.env.length !== 1 || s.env[0].key !== "EXPECTED" || s.env[0].value !== "${{ steps.tools.outputs.digest }}") problem("pinned-step", s, "the check is handed something other than EXPECTED: ${{ steps.tools.outputs.digest }}");
+      if (i > installAt + 1 && s.cond !== LATER_COND) problem("pinned-step", s, `a later check runs under ${s.cond}, not ${LATER_COND}`);
+      keyProblem(s, ["name", "if", "env", "run"]);
+      continue;
+    }
+
+    for (const k of s.keys) if (!STEP_KEYS.has(k)) problem("step-keys", s, `has a key this guard does not read: ${k}`);
+    common(s);
+    if (s.uses) {
+      if (s.uses.startsWith("actions/download-artifact@")) {
+        if (!/^\$\{\{ runner\.temp \}\}\/[\w-]+\/?$/.test(String(s.with.path ?? ""))) problem("download-path", s, "downloads somewhere other than one directory in the runner's temp directory");
+        for (const k of Object.keys(s.with)) if (!["name", "path", "run-id", "github-token"].includes(k)) problem("action", s, `download-artifact is given ${k}`);
+      } else if (s.uses.startsWith("actions/github-script@")) {
+        githubScript(s, ["retries", "script", "github-token"]);
+      } else {
+        problem("action", s, `${s.uses} is not an action this guard knows to stay out of the workspace`);
+      }
+      if (/agent-tool/.test(s.text)) problem("staged-name", s, "names the staged scripts");
+      continue;
+    }
+    if (!s.isRun) continue;
+    const runsNode = shell(s, { preBranch: false });
     // Anything that names a staged script, however spelled, counts as using one.
-    if (runsNode || /agent-tool|RUNNER_TEMP[^\n]*\.m?js|runner\.temp[^\n]*\.m?js/.test(s.text)) {
+    if (runsNode || /agent-tool|RUNNER_TEMP[^\n]*\.m?js|runner\.temp[^\n]*\.m?js/.test(s.script)) {
       if (i < installAt) {
         // Before the install nothing of the branch's has run: the staged
         // copy is still what was staged.
@@ -1349,7 +1426,7 @@ function stretchProblems(wf, jobName) {
 
 const formatProblems = (ps) => ps.map((p) => `  [${p.rule}] ${p.step}: ${p.message}`).join("\n");
 
-test("from the branch checkout to the agent, trusted steps run only what is allowed, and each staged script only after its check", () => {
+test("from the job's first step to the agent, trusted steps run only what is allowed, and each staged script only after its check", () => {
   // AN ALLOW-LIST, NOT A LIST OF FORBIDDEN SPELLINGS. Every simple command of
   // every shell step is one of a few known to write nothing into the
   // workspace and run nothing from it, with arguments that keep it so; every
@@ -1359,7 +1436,8 @@ test("from the branch checkout to the agent, trusted steps run only what is allo
   // write into the workspace, and a github-script makes only the calls the
   // workflows make today. The steps that must run something else — the side
   // checkout of main and its staging, the digest record and checks — are
-  // pinned to their text.
+  // pinned to their text. Before the branch checkout, main's own scripts may
+  // run, but nothing may bring anything else into the workspace.
   let usesBefore = 0;
   let usesAfter = 0;
   for (const [file, name] of INSTALLING_JOBS) {
@@ -1370,45 +1448,89 @@ test("from the branch checkout to the agent, trusted steps run only what is allo
   }
   // After the install — fix: the picker; panel fix: set-state and the
   // no-credential page; iterate: summarize, set-state and the picker; reply:
-  // the picker. Before it — iterate's paged steps: metrics, set-state and
-  // loop-status.
+  // the picker. Between the branch checkout and the install — iterate's paged
+  // steps: metrics, set-state and loop-status.
   assert.equal(usesAfter, 7, `found ${usesAfter} uses of the staged scripts between the install and the agent`);
   assert.equal(usesBefore, 3, `found ${usesBefore} uses of the staged scripts between the branch checkout and the install`);
 });
 
-// Each of these is a workflow edit the guard must refuse, and the rule that
-// must refuse it. Most come from an adversarial review of the guard (m1–m21);
-// each one names the rule it is there for, so a failure says which rule let
-// it through.
-const IT = "agent-iterate-ci.yml";
-const SS = '        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n';
-const SS_ENV = "          PR: ${{ steps.guard.outputs.pr }}\n" + SS;
+// THE NAMED EDITS. Each is applied to a synthetic job of the same shape
+// (scripts/test/fixtures/agent-guard-workflow.yml), not to the real
+// workflows, so a step renamed or moved there never moves a case. The m* cases
+// come from an adversarial review of the guard, the B* cases from a second
+// one; each names the rule that must refuse it.
+const FIXTURE = readFileSync(path.join(REPO, "scripts/test/fixtures/agent-guard-workflow.yml"), "utf8");
+const FIXTURE_JOB = "iterate";
+
 const RB = '        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"\n';
-const rb = (...pre) => [IT, RB, "        run: |\n" + [...pre, 'echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"'].map((l) => `          ${l}\n`).join("")];
+/** Replace the head-recording step's one-line script with a block: these lines, then its own command. */
+const rb = (...pre) => [RB, "        run: |\n" + [...pre, 'echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"'].map((l) => `          ${l}\n`).join("")];
+const SS = '        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n';
+const SS_ENV = "          PR: ${{ steps.attempts.outputs.pr }}\n" + SS;
 const AT_BEFORE_FIX = "      - name: Record branch head before fix\n";
-const gs = (code) => [IT, AT_BEFORE_FIX, `      - name: m\n        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7\n        with:\n          script: |\n            ${code}\n${AT_BEFORE_FIX}`];
+const gs = (code) => [AT_BEFORE_FIX, `      - name: m\n        uses: actions/github-script@0000000000000000000000000000000000000002 # v7.1.0\n        with:\n          script: |\n            ${code}\n${AT_BEFORE_FIX}`];
 const AT_RECORD = "      - name: Record a digest of the staged agent scripts\n";
-const pre = (step) => [IT, AT_RECORD, `${step}${AT_RECORD}`];
-const IT_HEADER = '      cancel-in-progress: true\n    env:\n      WAFFLEBASE_AGENT_AUTONOMOUS: "true"\n';
-const SET_FIXING = "      - name: Set state → fixing\n        if: steps.guard.outputs.proceed == 'true'\n";
+const pre = (step) => [AT_RECORD, `${step}${AT_RECORD}`];
+const AT_BRANCH = "      - name: Check out the branch\n";
+const preBranch = (step) => [AT_BRANCH, `${step}${AT_BRANCH}`];
+const JOB_HEADER = '    env:\n      WAFFLEBASE_AGENT_AUTONOMOUS: "true"\n';
+const SET_FIXING = "      - name: Set state to fixing\n        if: steps.guard.outputs.proceed == 'true'\n";
+const MAXL = "            const max = parseInt(process.env.MAX_ATTEMPTS, 10);\n";
+const SUMLAST = "          printf '%s\\n' \"$DIAG\" >> \"$GITHUB_STEP_SUMMARY\"\n";
 
 const MUTATIONS = {
+  // The source must read the same way for this guard and for GitHub.
+  B3_lone_CR_hides_env_key: ["yaml-source", SUMLAST, SUMLAST + "          echo done\r        env:\r          BASH_ENV: ./evil.sh\n"],
+  B11_gs_U2028_ends_comment: ["yaml-source", MAXL, MAXL.trimEnd() + " // note\u2028            core.exportVariable('NODE_OPTIONS', '--require ./x.cjs');\n"],
+  B12_gs_CR_ends_comment: ["yaml-source", MAXL, MAXL.trimEnd() + " // note\r            core.exportVariable('NODE_OPTIONS', '--require ./x.cjs');\n"],
+  B13_cyrillic_node: ["yaml-source", ...rb("n\u043ede ./x.mjs")],
+  B6_merge_key: ["yaml-source", AT_BEFORE_FIX, "      - name: m\n        <<: *evil\n" + AT_BEFORE_FIX],
+  y1_anchor_and_alias: ["yaml-source", JOB_HEADER, '    env: &e\n      WAFFLEBASE_AGENT_AUTONOMOUS: "true"\n    outputs: *e\n'],
+  y2_tag: ["yaml-source", SS, "        run: !!str node \"$RUNNER_TEMP/agent-tools/set-state.mjs\" \"$PR\" fixing\n"],
+  y3_second_document: ["yaml-source", "name: guard fixture\n", "---\nname: x\n---\nname: guard fixture\n"],
+  y4_duplicate_key: ["yaml-source", SS, SS + '        run: node ./x.mjs\n'],
+  y5_tab: ["yaml-source", ...rb("echo\tx")],
+  // What a step runs is what YAML reads, not the first physical line.
+  B1_plain_scalar_continuation: ["shell-command", RB, RB + "          ; ./node_modules/.bin/evil\n"],
+  B1b_plain_cont_on_pinned_clear: ["shell-command", "        run: rm -rf .trusted-agent\n", "        run: rm -rf .trusted-agent\n          ; ./node_modules/.bin/evil\n"],
+  B2_block_header_comment: ["shell-command", RB, "        run: | # the remote tip, not HEAD\n          echo hi\n          ./node_modules/.bin/evil\n"],
+  B5_if_plain_continuation_always: ["staged-use-condition", SET_FIXING, SET_FIXING + "          || always()\n"],
+  B9_run_folded: ["shell-command", RB, "        run: >-\n          echo hi\n          ; ./node_modules/.bin/evil\n"],
+  B9b_run_literal_strip: ["shell-command", RB, "        run: |-\n          echo hi\n          ./node_modules/.bin/evil\n"],
+  B7_shell_python: ["step-keys", SET_FIXING, SET_FIXING + "        shell: python\n"],
+  g16_hash_line_closes_quote: ["shell-command", ...rb("echo '", "#'", "cp a b")],
+  g49_run_disguised_as_download: ["shell-command", ...rb("cp a b", "uses: actions/download-artifact@0000000000000000000000000000000000000003 # v4.3.0", "path: ${{ runner.temp }}/x")],
+  g55_operator_only_script: ["shell-unreadable", RB, "        run: '| # nothing'\n"],
+  // Where the branch enters, and what may run before it.
+  B4_unrecognised_branch_checkout_first: ["shell-command", ...preBranch("      - uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0\n        with:\n          ref: ${{ github.event.workflow_run.head_commit.id }}\n          persist-credentials: false\n      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: ./scripts/ci.sh\n")],
+  g56_second_branch_checkout: ["pinned-step", AT_RECORD, "      - uses: actions/checkout@0000000000000000000000000000000000000001 # v4.4.0\n        with:\n          ref: refs/pull/1/head\n" + AT_RECORD],
+  g57_pre_branch_gh_pr_checkout: ["shell-arguments", ...preBranch("      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: gh pr checkout 1\n")],
+  g58_pre_branch_git_checkout: ["shell-arguments", ...preBranch("      - name: m\n        run: git checkout FETCH_HEAD\n")],
+  g59_pre_branch_github_env: ["redirect-target", ...preBranch('      - name: m\n        run: echo "BASH_ENV=$PWD/x.sh" >> "$GITHUB_ENV"\n')],
+  g60_pre_branch_exportVariable: ["github-script", "              core.setFailed(`@${actor} lacks write access`);\n", "              core.setFailed(`@${actor} lacks write access`);\n            }\n            {\n              core.exportVariable('BASH_ENV', './x.sh');\n"],
+  g61_pre_branch_checkout_other_repo: ["pre-branch-checkout", "          ref: main\n          persist-credentials: false\n      - name: Verify commenter", "          ref: main\n          repository: someone/else\n          persist-credentials: false\n      - name: Verify commenter"],
+  g62_pre_branch_unknown_action: ["action", ...preBranch("      - uses: ./.github/actions/setup\n")],
+  g63_pre_branch_download_into_workspace: ["download-path", "          path: /tmp/agent-sdk\n", "          path: node_modules/.bin\n"],
+  g64_pre_branch_unpinned_stage: ["shell-command", '        run: cp -R ./scripts/agent "${{ runner.temp }}/agent-tools"\n', '        run: cp -R ./scripts/agent "$RUNNER_TEMP/agent-tools"\n'],
+  g65_pre_branch_env_BASH_ENV: ["env-key", "          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md\n        run: node ./scripts/agent/review-round-guard.mjs", "          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md\n          BASH_ENV: ./x.sh\n        run: node ./scripts/agent/review-round-guard.mjs"],
   // Assignments and env.
-  m1_assign_RUNNER_TEMP: ["shell-assignment", IT, SS, '        run: |\n          RUNNER_TEMP="$PWD"\n          node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n'],
-  m2_prefix_NODE_OPTIONS: ["shell-assignment", IT, SS, '        run: NODE_OPTIONS="--require ./x.cjs" node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n'],
-  m3_yaml_env_NODE_OPTIONS: ["env-key", IT, SS_ENV, "          PR: ${{ steps.guard.outputs.pr }}\n          NODE_OPTIONS: --require ./x.cjs\n" + SS],
-  m3b_yaml_env_RUNNER_TEMP: ["env-key", IT, SS_ENV, "          PR: ${{ steps.guard.outputs.pr }}\n          RUNNER_TEMP: ${{ github.workspace }}\n" + SS],
+  m1_assign_RUNNER_TEMP: ["shell-assignment", SS, '        run: |\n          RUNNER_TEMP="$PWD"\n          node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n'],
+  m2_prefix_NODE_OPTIONS: ["shell-assignment", SS, '        run: NODE_OPTIONS="--require ./x.cjs" node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing\n'],
+  m3_yaml_env_NODE_OPTIONS: ["env-key", SS_ENV, "          PR: ${{ steps.attempts.outputs.pr }}\n          NODE_OPTIONS: --require ./x.cjs\n" + SS],
+  m3b_yaml_env_RUNNER_TEMP: ["env-key", SS_ENV, "          PR: ${{ steps.attempts.outputs.pr }}\n          RUNNER_TEMP: ${{ github.workspace }}\n" + SS],
   m8_assign_PATH: ["shell-assignment", ...rb('PATH="$PWD/bin:$PATH"')],
   m9_assign_GITHUB_OUTPUT: ["shell-assignment", ...rb('GITHUB_OUTPUT="$PWD/node_modules/.bin/git"', 'echo x > "$GITHUB_OUTPUT"')],
   g1_assign_unlisted_local: ["shell-assignment", ...rb("y=1")],
   g2_assign_listed_local_as_prefix: ["shell-assignment", ...rb("DIAG=1 echo x")],
-  g3_job_env_NODE_OPTIONS: ["env-key", IT, IT_HEADER, IT_HEADER + "      NODE_OPTIONS: --require ./x.cjs\n"],
-  g4_workflow_env_BASH_ENV: ["env-key", IT, '  MAX_ATTEMPTS: "4"\n', '  MAX_ATTEMPTS: "4"\n  BASH_ENV: ./x.sh\n'],
-  g5_step_env_flow_mapping: ["env-key", IT, "        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" + SS_ENV, "        env: { NODE_OPTIONS: x }\n" + SS],
-  g6_verify_env_BASH_ENV: ["env-key", IT, "          EXPECTED: ${{ steps.tools.outputs.digest }}\n", "          EXPECTED: ${{ steps.tools.outputs.digest }}\n          BASH_ENV: ./x.sh\n"],
-  g7_job_defaults_shell: ["defaults", IT, IT_HEADER, IT_HEADER + "    defaults:\n      run:\n        shell: sh {0}\n"],
-  g8_working_directory_workspace: ["working-directory", IT, SET_FIXING, SET_FIXING + "        working-directory: ${{ github.workspace }}/x\n"],
-  g9_shell_key: ["step-keys", IT, SET_FIXING, SET_FIXING + "        shell: sh {0}\n"],
+  g3_job_env_NODE_OPTIONS: ["env-key", JOB_HEADER, JOB_HEADER + "      NODE_OPTIONS: --require ./x.cjs\n"],
+  g4_workflow_env_BASH_ENV: ["env-key", '  MAX_ATTEMPTS: "4"\n', '  MAX_ATTEMPTS: "4"\n  BASH_ENV: ./x.sh\n'],
+  g5_step_env_flow_mapping: ["env-key", "        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" + SS_ENV, "        env: { NODE_OPTIONS: x }\n" + SS],
+  g6_verify_env_BASH_ENV: ["env-key", "          EXPECTED: ${{ steps.tools.outputs.digest }}\n", "          EXPECTED: ${{ steps.tools.outputs.digest }}\n          BASH_ENV: ./x.sh\n"],
+  g7_job_defaults_shell: ["defaults", JOB_HEADER, JOB_HEADER + "    defaults:\n      run:\n        shell: sh {0}\n"],
+  B8_job_container_env: ["job-container", JOB_HEADER, JOB_HEADER + "    container:\n      image: node:22\n      env:\n        NODE_OPTIONS: --require ./x.cjs\n"],
+  g66_job_services: ["job-container", JOB_HEADER, JOB_HEADER + "    services:\n      x:\n        image: alpine\n        volumes:\n          - /home/runner/work:/w\n"],
+  g8_working_directory_workspace: ["working-directory", SET_FIXING, SET_FIXING + "        working-directory: ${{ github.workspace }}/x\n"],
+  g9_shell_key: ["step-keys", SET_FIXING, SET_FIXING + "        shell: sh {0}\n"],
   // What the lexer must not misread.
   m4_ansiC_quote: ["shell-unreadable", ...rb("echo $'\\'' ; cp -R src dst #'")],
   m5_prompt_P: ["shell-unreadable", ...rb("x='$(touch pwned)'", 'echo "${x@P}"')],
@@ -1419,9 +1541,7 @@ const MUTATIONS = {
   g14_old_arith: ["shell-unreadable", ...rb("echo $[1+1]")],
   g15_comment_in_substitution: ["shell-unreadable", ...rb('echo "$(# )', "cp a b", ')"')],
   m16_dollar_dq_ctl: ["shell-unreadable", ...rb('echo $"x"; cp a b')],
-  // A line starting with # inside a run: block is script, not YAML comment:
-  // dropping it would read `cp a b` as part of a quoted string.
-  g16_hash_line_closes_quote: ["shell-command", ...rb("echo '", "#'", "cp a b")],
+  B10_expr_in_run: ["shell-unreadable", RB, '        run: echo "${{ steps.attempts.outputs.pr }}" >> "$GITHUB_OUTPUT"\n'],
   // Commands and their arguments.
   m6_printf_v: ["shell-arguments", ...rb("printf -v 'a[$(touch pwned)]' x")],
   m7_test_v: ["shell-arguments", ...rb("test -v 'a[$(touch pwned)]'")],
@@ -1436,60 +1556,101 @@ const MUTATIONS = {
   g23_date_reads: ["shell-arguments", ...rb("date -f /proc/self/environ")],
   m18_gh_bodyfile: ["shell-arguments", ...rb("gh pr comment 1 --body-file /proc/self/environ")],
   g24_gh_bodyfile_unwritten: ["shell-arguments", ...rb('gh pr comment "$PR" --body-file "$RUNNER_TEMP/other.md"')],
-  g25_gh_bodyfile_panel_renamed: ["shell-arguments", "agent-review-panel.yml", 'gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"', 'gh pr comment "$PR" --body-file "$RUNNER_TEMP/elsewhere.md"'],
-  g26_rev_parse_option: ["shell-arguments", "agent-fix.yml", 'ACTUAL="$(git rev-parse HEAD)"', 'ACTUAL="$(git rev-parse --git-path hooks)"'],
+  g25_gh_bodyfile_renamed: ["shell-arguments", 'gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"', 'gh pr comment "$PR" --body-file "$RUNNER_TEMP/elsewhere.md"'],
+  g26_rev_parse_option: ["shell-arguments", 'ACTUAL="$(git rev-parse HEAD)"', 'ACTUAL="$(git rev-parse --git-path hooks)"'],
+  m19_preinstall_node_ws: ["shell-arguments", ...pre("      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: node scripts/verify-self.mjs\n")],
   m15_ctl_semicolon: ["shell-command", ...rb("echo x; cp a b")],
   g27_let: ["shell-command", ...rb("let x=1")],
   g28_cd: ["shell-command", ...rb("cd /")],
   g29_export: ["shell-command", ...rb("export DIAG")],
+  m20_preinstall_sh_ws: ["shell-command", ...pre("      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: ./scripts/ci.sh\n")],
+  m21_preinstall_npx: ["shell-command", ...pre("      - name: m\n        run: npx --yes tsx scripts/x.ts\n")],
   m14_ctl_GITHUB_ENV: ["redirect-target", ...rb('echo "X=1" >> "$GITHUB_ENV"')],
   g30_redirect_into_workspace: ["redirect-target", ...rb("echo x > node_modules/.bin/git")],
   // github-script.
-  m11_gs_addPath: ["github-script", ...gs("core.addPath('${{ github.workspace }}/node_modules/.bin');")],
+  m11_gs_addPath: ["github-script", ...gs("core.addPath('/home/runner/work/x/node_modules/.bin');")],
   m12_gs_BASH_ENV: ["github-script", ...gs("core.exportVariable('BASH_ENV', '/tmp/x.sh');")],
   m13_gs_ctor: ["github-script", ...gs("const P=[].constructor.constructor('return pro'+'cess')(); P.mainModule['req'+'uire']('f'+'s').writeFileSync('x','y');")],
   g31_gs_bracket: ["github-script", ...gs("core['addPath']('x');")],
   g32_gs_alias_root: ["github-script", ...gs("const c = core; c.addPath('x');")],
   g33_gs_process_env_write: ["github-script", ...gs("process.env.PATH = '/x';")],
   g34_gs_tagged_template: ["github-script", ...gs("String.raw`x`;")],
-  g35_gs_pre_install: ["github-script", IT, "            const max = parseInt(process.env.MAX_ATTEMPTS, 10);\n", "            const max = parseInt(process.env.MAX_ATTEMPTS, 10);\n            core.exportVariable('NODE_OPTIONS', '--require ./x.cjs');\n"],
-  g36_gs_extra_input: ["github-script", IT, "        id: guard\n        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0\n        with:\n", "        id: guard\n        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0\n        with:\n          github-token: ${{ secrets.OTHER_TOKEN }}\n"],
-  g37_other_action: ["action", IT, AT_BEFORE_FIX, "      - name: m\n        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n        with:\n          path: x\n          key: y\n" + AT_BEFORE_FIX],
-  g54_local_action_from_branch: ["action", IT, AT_RECORD, "      - name: m\n        uses: ./.github/actions/setup\n" + AT_RECORD],
-  g38_download_into_workspace: ["download-path", IT, "          path: ${{ runner.temp }}/harness-reports/\n", "          path: harness-reports/\n"],
-  // The stretch starts at the branch checkout, not at the install.
-  m19_preinstall_node_ws: ["shell-arguments", ...pre("      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: node scripts/verify-self.mjs\n")],
-  m20_preinstall_sh_ws: ["shell-command", ...pre("      - name: m\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: ./scripts/ci.sh\n")],
-  m21_preinstall_npx: ["shell-command", ...pre("      - name: m\n        run: npx --yes tsx scripts/x.ts\n")],
-  g39_preinstall_prefix_on_staged: ["shell-assignment", IT, '        run: node "$RUNNER_TEMP/agent-tools/metrics.mjs"', '        run: NODE_OPTIONS=--require=./x.cjs node "$RUNNER_TEMP/agent-tools/metrics.mjs"'],
-  g40_stage_with_extra_command: ["pinned-step", "agent-review-reply.yml", '          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"\n', '          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"\n          node .trusted-agent/x.mjs\n'],
-  g41_side_checkout_lfs: ["pinned-step", "agent-review-reply.yml", "          sparse-checkout: scripts/agent\n", "          sparse-checkout: scripts/agent\n          lfs: true\n"],
-  g42_record_script_extra: ["pinned-step", IT, '          echo "digest=$digest" >> "$GITHUB_OUTPUT"\n', '          echo "digest=$digest" >> "$GITHUB_OUTPUT"\n          node ./x.mjs\n'],
-  g43_record_continue_on_error: ["pinned-step", IT, "        id: tools\n", "        id: tools\n        continue-on-error: true\n"],
+  g35_gs_after_branch: ["github-script", MAXL, MAXL + "            core.exportVariable('NODE_OPTIONS', '--require ./x.cjs');\n"],
+  g36_gs_extra_input: ["github-script", "        id: attempts\n        uses: actions/github-script@0000000000000000000000000000000000000002 # v7.1.0\n        with:\n", "        id: attempts\n        uses: actions/github-script@0000000000000000000000000000000000000002 # v7.1.0\n        with:\n          result-encoding: json\n"],
+  g37_other_action: ["action", AT_BEFORE_FIX, "      - name: m\n        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n        with:\n          path: x\n          key: y\n" + AT_BEFORE_FIX],
+  g54_local_action_from_branch: ["action", ...pre("      - name: m\n        uses: ./.github/actions/setup\n")],
+  g38_download_into_workspace: ["download-path", "          path: ${{ runner.temp }}/harness-reports/\n", "          path: harness-reports/\n"],
+  // The pinned steps.
+  g39_preinstall_prefix_on_staged: ["shell-assignment", '        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked\n', '        run: NODE_OPTIONS=--require=./x.cjs node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked\n'],
+  g40_stage_with_extra_command: ["pinned-step", '          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"\n', '          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"\n          node .trusted-agent/x.mjs\n'],
+  g41_side_checkout_lfs: ["pinned-step", "          sparse-checkout: scripts/agent\n", "          sparse-checkout: scripts/agent\n          lfs: true\n"],
+  g42_record_script_extra: ["pinned-step", '          echo "digest=$digest" >> "$GITHUB_OUTPUT"\n', '          echo "digest=$digest" >> "$GITHUB_OUTPUT"\n          node ./x.mjs\n'],
+  g43_record_continue_on_error: ["pinned-step", "        id: tools\n", "        id: tools\n        continue-on-error: true\n"],
+  g52_install_shell: ["step-keys", "        id: install\n", "        id: install\n        shell: sh -c './x; node {0}'\n"],
+  g53_install_continue_on_error: ["pinned-step", "        id: install\n", "        id: install\n        continue-on-error: true\n"],
   // A staged script runs only when its check ran (or the install did not).
-  g44_use_under_always: ["staged-use-condition", IT, SET_FIXING, "      - name: Set state → fixing\n        if: always() && steps.guard.outputs.proceed == 'true'\n"],
-  g45_use_under_always_block_scalar: ["staged-use-condition", IT, SET_FIXING, "      - name: Set state → fixing\n        if: >-\n          always() &&\n          steps.guard.outputs.proceed == 'true'\n"],
-  g46_use_under_not_cancelled: ["staged-use-condition", IT, SET_FIXING, "      - name: Set state → fixing\n        if: ${{ !cancelled() }}\n"],
-  g47_install_condition_differs: ["staged-use-condition", IT, "        id: install\n        if: steps.guard.outputs.proceed == 'true'\n", "        id: install\n        if: steps.guard.outputs.proceed != 'false'\n"],
-  g49_run_disguised_as_download: ["shell-command", ...rb("cp a b", "uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0", "path: ${{ runner.temp }}/x")],
+  g44_use_under_always: ["staged-use-condition", SET_FIXING, "      - name: Set state to fixing\n        if: always() && steps.guard.outputs.proceed == 'true'\n"],
+  g45_use_under_always_block_scalar: ["staged-use-condition", SET_FIXING, "      - name: Set state to fixing\n        if: >-\n          always() &&\n          steps.guard.outputs.proceed == 'true'\n"],
+  g46_use_under_not_cancelled: ["staged-use-condition", SET_FIXING, "      - name: Set state to fixing\n        if: ${{ !cancelled() }}\n"],
+  g47_install_condition_differs: ["staged-use-condition", "        id: install\n        if: steps.guard.outputs.proceed == 'true'\n", "        id: install\n        if: steps.guard.outputs.proceed != 'false'\n"],
+  g48_use_without_check: ["staged-use-order", AT_BEFORE_FIX, '      - name: m\n        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" x\n' + AT_BEFORE_FIX],
   g50_gs_names_staged: ["staged-name", ...gs("core.info('agent-tools');")],
-  g51_first_check_not_always: ["check-after-install", IT, "        if: always() && steps.tools.outputs.digest != ''\n", "        if: steps.tools.outputs.digest != ''\n"],
-  g52_install_shell: ["step-keys", IT, "        id: install\n", "        id: install\n        shell: sh -c './x; node {0}'\n"],
-  g53_install_continue_on_error: ["pinned-step", IT, "        id: install\n", "        id: install\n        continue-on-error: true\n"],
-  g48_use_without_check: ["staged-use-order", IT, AT_BEFORE_FIX, '      - name: m\n        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" x\n' + AT_BEFORE_FIX],
+  g51_first_check_not_always: ["check-after-install", "        if: always() && steps.tools.outputs.digest != ''\n", "        if: steps.tools.outputs.digest != ''\n"],
 };
 
+// Edits the guard must ACCEPT: what a maintainer may reasonably write. Each
+// case is the fixture with one such edit; it must come back with no problem.
+const ACCEPTED = {
+  F1_notice_echo_step: [AT_BEFORE_FIX, "      - name: Announce\n        if: steps.guard.outputs.proceed == 'true'\n        env:\n          BRANCH: ${{ github.event.workflow_run.head_branch }}\n        run: echo \"::notice::Fixing CI on $BRANCH\"\n" + AT_BEFORE_FIX],
+  F2_core_notice: [MAXL, MAXL + "            core.notice(`max attempts: ${max}`);\n"],
+  F3_rename_step: [AT_BEFORE_FIX, "      - name: Record the remote branch head before the fix\n"],
+  F4_comment_in_run_block: [SUMLAST, "          # Keep the diagnosis for the job summary as well.\n" + SUMLAST],
+  F5_continue_on_error: ["        id: before-fix\n", "        id: before-fix\n        continue-on-error: true\n"],
+  F6_gh_pr_comment_step: [AT_BEFORE_FIX, "      - name: Tell the PR a fix is starting\n        if: steps.guard.outputs.proceed == 'true'\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n          PR: ${{ steps.attempts.outputs.pr }}\n        run: gh pr comment \"$PR\" --body \"CI failed; the fixer is starting.\"\n" + AT_BEFORE_FIX],
+  F8_timeout_minutes: ["        uses: actions/download-artifact@0000000000000000000000000000000000000003 # v4.3.0\n        with:\n          name: harness-reports\n", "        timeout-minutes: 5\n        uses: actions/download-artifact@0000000000000000000000000000000000000003 # v4.3.0\n        with:\n          name: harness-reports\n"],
+  F8b_timeout_after_run_block: [SUMLAST, SUMLAST + "        timeout-minutes: 5\n"],
+  F9_folded_run: [AT_BEFORE_FIX, "      - name: Announce\n        run: >-\n          echo \"::notice::a long\n          message\"\n" + AT_BEFORE_FIX],
+  F9b_strip_run: [AT_BEFORE_FIX, "      - name: Announce\n        run: |-\n          echo \"::notice::short\"\n" + AT_BEFORE_FIX],
+  F10_env_after_run_block: [AT_BEFORE_FIX, "      - name: Announce\n        run: |\n          echo \"::notice::Fixing CI on $BRANCH\"\n        env:\n          BRANCH: ${{ github.event.workflow_run.head_branch }}\n" + AT_BEFORE_FIX],
+  a1_block_header_comment_on_safe_step: [AT_BEFORE_FIX, "      - name: Announce\n        run: | # say what we fix\n          echo hi\n" + AT_BEFORE_FIX],
+  a2_core_error_and_debug: [MAXL, MAXL + "            core.debug('x');\n            core.error('y');\n"],
+};
+
+/** The fixture with one edit; a moved anchor is a broken case, said as such. */
+function editFixture(name, from, to) {
+  assert.ok(FIXTURE.includes(from), `fixture anchor moved: update the case ${name} (scripts/test/fixtures/agent-guard-workflow.yml no longer contains:\n${from})`);
+  return FIXTURE.replace(from, () => to);
+}
+
+test("the fixture job is one the guard accepts, so each case below changes one thing", () => {
+  const r = stretchProblems(parseWorkflow(FIXTURE, "fixture"), FIXTURE_JOB);
+  assert.deepEqual(r.problems, [], formatProblems(r.problems));
+  assert.ok(r.usesAfter >= 4 && r.usesBefore >= 1, `the fixture uses the staged scripts ${r.usesBefore} times before the install and ${r.usesAfter} after`);
+});
+
 test("each workflow edit the guard must refuse is refused, by the rule it names", async (t) => {
-  for (const [name, [rule, file, from, to]] of Object.entries(MUTATIONS)) {
+  for (const [name, [rule, from, to]] of Object.entries(MUTATIONS)) {
     await t.test(`${name} is refused by ${rule}`, () => {
-      const text = WF_TEXT(file);
-      assert.ok(text.includes(from), `${name}: the anchor is no longer in ${file}:\n${from}`);
-      const jobName = INSTALLING_JOBS.find(([f]) => f === file)[1];
-      const mutated = text.replace(from, () => to);
-      const { problems } = stretchProblems(parseWorkflow(mutated, file), jobName);
+      const { problems } = stretchProblems(parseWorkflow(editFixture(name, from, to), "fixture"), FIXTURE_JOB);
       assert.ok(problems.some((p) => p.rule === rule), `${name} was not refused by ${rule}:\n${formatProblems(problems) || "  (refused by nothing)"}`);
     });
   }
+});
+
+test("each edit a maintainer may reasonably make is accepted", async (t) => {
+  for (const [name, [from, to]] of Object.entries(ACCEPTED)) {
+    await t.test(name, () => {
+      const { problems } = stretchProblems(parseWorkflow(editFixture(name, from, to), "fixture"), FIXTURE_JOB);
+      assert.deepEqual(problems, [], `${name} was refused:\n${formatProblems(problems)}`);
+    });
+  }
+});
+
+test("the guard's messages say what to do", () => {
+  const run = (from, to) => formatProblems(stretchProblems(parseWorkflow(editFixture("message", from, to), "fixture"), FIXTURE_JOB).problems);
+  assert.match(run(MAXL, MAXL + "            core.setSecret('x');\n"), /the calls allowed are .*core\.info/);
+  assert.match(run(...rb('gh pr comment $PR --body "x"')), /quote the variable/);
+  assert.match(run(...rb("cp a b")), /commands allowed before the agent \(echo, /);
 });
 
 test("a refused install is reported where the job has no other way to say so", () => {
