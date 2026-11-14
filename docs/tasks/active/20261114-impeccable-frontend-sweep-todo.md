@@ -63,4 +63,4 @@ Shared primitives added before the fan-out:
 ## Review
 - [x] Parallel review lenses over the full diff, fixes applied
 - [x] `pnpm verify:fast` green, `/self-review` rounds logged in lessons (3 rounds, the bound)
-- [ ] PR opened
+- [x] PR opened — #1141
