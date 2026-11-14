@@ -14,6 +14,45 @@ const MINI_W = 200;
 const MINI_H = 150;
 const PAD = 80; // world-px breathing room around the scene bounds
 
+/*
+ * Surfaces come from the app tokens (index.css / @wafflebase/core tokens.css)
+ * so the overlay follows light and dark with the rest of the chrome. The
+ * fallbacks only matter where tokens.css is absent (unit tests, a bare host).
+ * The border colour is a longhand because jsdom rejects a whole cssText
+ * whose `border` shorthand carries a var().
+ */
+const TOGGLE_CSS = [
+  'display:inline-flex', 'align-items:center', 'gap:2px',
+  'font:500 12px/16px var(--font-body, system-ui, sans-serif)',
+  'padding:2px 6px 2px 8px', 'border-radius:calc(var(--radius, 4.8px) - 2px)',
+  'background:var(--popover, oklch(1 0 0))', 'color:var(--muted-foreground, oklch(0.552 0.016 285.938))',
+  'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))', 'cursor:pointer',
+].join(';');
+
+const PANEL_CSS = [
+  `width:${MINI_W}px`, `height:${MINI_H}px`,
+  'border-radius:var(--radius, 4.8px)', 'overflow:hidden',
+  'background:var(--card, oklch(1 0 0))',
+  'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))',
+  'box-shadow:0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
+].join(';');
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Tabler `chevron-down` / `chevron-right`, drawn in the toggle text color. */
+function chevron(expanded: boolean): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  for (const [k, v] of Object.entries({
+    width: '14', height: '14', viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', 'stroke-width': '2',
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true',
+  })) svg.setAttribute(k, v);
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', expanded ? 'M6 9l6 6l6 -6' : 'M9 6l6 6l-6 6');
+  svg.appendChild(path);
+  return svg;
+}
+
 export interface BoardMinimapDeps {
   store: SlidesStore;
   getHostSize: () => { w: number; h: number };
@@ -48,15 +87,10 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.setAttribute('aria-label', 'Toggle minimap');
-  toggle.style.cssText = 'font:12px system-ui;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.6);color:#fff;border:0;cursor:pointer';
+  toggle.style.cssText = TOGGLE_CSS;
 
   const panel = document.createElement('div');
-  panel.style.cssText = [
-    `width:${MINI_W}px`, `height:${MINI_H}px`,
-    'border-radius:6px', 'overflow:hidden',
-    'box-shadow:0 2px 8px rgba(0,0,0,.25)',
-    'background:rgba(127,127,127,.12)', 'backdrop-filter:blur(2px)',
-  ].join(';');
+  panel.style.cssText = PANEL_CSS;
 
   const canvas = document.createElement('canvas');
   // Chrome, not content: it sits inside the board container, so without this
@@ -91,7 +125,8 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
   const applyVisibility = () => {
     panel.style.display = visible ? 'block' : 'none';
-    toggle.textContent = visible ? 'Map ▾' : 'Map ▸';
+    toggle.replaceChildren(document.createTextNode('Map'), chevron(visible));
+    toggle.setAttribute('aria-expanded', String(visible));
   };
 
   const paintScene = () => {

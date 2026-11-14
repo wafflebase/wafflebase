@@ -13,6 +13,7 @@ import {
   IconNote,
   IconPhoto,
   IconGrid3x3,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -219,7 +220,7 @@ export function BoardToolbar({
                     gridKind === "none" && !gridSnap ? "opacity-50" : undefined
                   }
                 />
-                <span aria-hidden>▾</span>
+                <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
@@ -316,7 +317,7 @@ export function BoardToolbar({
               aria-label="Sticky note color"
               disabled={disabled || !editor}
             >
-              <span aria-hidden>▾</span>
+              <IconChevronDown size={12} aria-hidden="true" className="opacity-50" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent

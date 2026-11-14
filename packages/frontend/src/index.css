@@ -33,7 +33,13 @@
    */
   --text-2xs: 0.625rem;
   --text-2xs--line-height: 1.5;
-  --radius-sm: calc(var(--radius) - 4px);
+  /*
+   * Radius scale, ordered xs ≤ sm < md < lg < xl (DESIGN.md Shapes; source
+   * of truth packages/core/src/tokens/radius.ts). xs is pinned so Tailwind's
+   * default (2px) can never again sit above sm.
+   */
+  --radius-xs: 0.125rem;
+  --radius-sm: calc(var(--radius) - 2.4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
@@ -90,6 +96,18 @@
   --color-wb-butter: var(--wb-butter);
   --color-wb-berry: var(--wb-berry);
   --color-wb-leaf: var(--wb-leaf);
+}
+
+/*
+ * Font families. `tokens.css` already defines `--font-display`,
+ * `--font-body` and `--font-code` on `:root` with the real stacks, so this
+ * block only registers the names for the `font-*` utilities. `reference`
+ * keeps Tailwind from emitting its own `--font-display: var(--font-display)`
+ * into the theme layer — a self-reference that is a cycle (and so an invalid
+ * value) the moment it is the declaration that wins, and only lost to
+ * tokens.css by cascade order.
+ */
+@theme inline reference {
   /* stylelint-disable value-keyword-case */
   --font-display: var(--font-display);
   --font-body: var(--font-body);

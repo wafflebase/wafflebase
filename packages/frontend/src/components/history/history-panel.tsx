@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -213,7 +214,7 @@ export function HistoryPanel({
           onClick={onClose}
           aria-label="Close version history panel"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </Button>
       </header>
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { IconX } from "@tabler/icons-react";
 import { BUILT_IN_THEMES, type SlidesStore } from "@wafflebase/slides";
 import { applyBuiltInTheme, isThemeModified } from "./theme-panel-helpers";
 import { ThemeThumbnail } from "./theme-thumbnail";
@@ -150,9 +151,9 @@ export function ThemePanel({
           type="button"
           onClick={onClose}
           aria-label="Close theme panel"
-          className="rounded p-1 hover:bg-muted"
+          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="p-2">{tabs}</div>

@@ -72,7 +72,8 @@ typography:
     fontWeight: 400
     letterSpacing: "0.08em"
 rounded:
-  sm: "0.8px"
+  xs: "2px"
+  sm: "2.4px"
   md: "2.8px"
   lg: "4.8px"
   xl: "8.8px"
@@ -264,7 +265,7 @@ Flat by default. App surfaces separate by a 1px zinc rule and a tonal step (back
 
 ## Shapes
 
-Corners are barely softened in the app. The radius base is 0.3rem (4.8px): controls take `md` (2.8px), and cards and dialogs take `xl` (8.8px). The brand layer is rounder on purpose: pill CTAs and tag chips, 16px cards. Borders are always 1px. The waffle grid is the one decorative geometry and appears only as brand illustration.
+Corners are barely softened in the app. The radius base is 0.3rem (4.8px) and the scale is ordered `xs` 2px ≤ `sm` 2.4px < `md` 2.8px < `lg` 4.8px < `xl` 8.8px (source: `packages/core/src/tokens/radius.ts`, mirrored in `index.css`). Controls take `md`; cards, dialogs and alert dialogs take `xl`; `xs`/`sm` are for tiny marks (swatches, dialog close hit areas) that should read square-ish but not sharp. The brand layer is rounder on purpose: pill CTAs and tag chips, 16px cards. Borders are always 1px. The waffle grid is the one decorative geometry and appears only as brand illustration.
 
 ## Components
 

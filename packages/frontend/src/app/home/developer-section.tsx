@@ -124,10 +124,11 @@ function pushWord(word: string, tokens: Token[]) {
 }
 
 const TOKEN_CLASSES: Record<TokenType, string> = {
-  // Upright: JetBrains Mono's italic is not loaded, and the 38% tone alone
-  // already sets a comment apart from the command it annotates.
+  // Upright: JetBrains Mono's italic is not loaded, and the 50% tone alone
+  // already sets a comment apart from the command it annotates. 50% is the
+  // floor: 4.97:1 on the terminal background (38% was 3.4:1).
   comment:
-    "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_38%,transparent)]",
+    "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_50%,transparent)]",
   string: "text-[color:var(--wb-butter)]",
   flag: "text-[color:var(--wb-leaf)]",
   cmd: "text-[color:var(--wb-berry)] font-semibold",
@@ -252,8 +253,9 @@ export function DeveloperSection() {
                   style={{
                     background:
                       "color-mix(in srgb, var(--wb-terminal-fg) 8%, transparent)",
+                    // 58%: 5.3:1 on the chip over the tab bar (50% was 4.3:1).
                     color:
-                      "color-mix(in srgb, var(--wb-terminal-fg) 50%, transparent)",
+                      "color-mix(in srgb, var(--wb-terminal-fg) 58%, transparent)",
                   }}
                 >
                   {t.file}

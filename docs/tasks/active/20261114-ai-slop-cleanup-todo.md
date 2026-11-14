@@ -52,11 +52,11 @@ for the lot, with before/after screenshots.
 
 ## 6. Polish
 
-- [ ] Unicode glyph icons → Tabler (`×`, `↑↓✕`, gradient arrows, `Map ▾`)
-- [ ] Radius scale in order (`sm` ≠ 0.8px, `xs` ≤ `sm`), dialogs per DESIGN.md
-- [ ] Board minimap + slides autofit toggle from tokens, no decorative blur
-- [ ] Docs site: warning ≠ brand color, warm neutral tokens, dead `.VPHero` CSS
-- [ ] Leftovers: `sidebar.tsx` `hsl(oklch)`, `--font-display` self-reference, hover-only gallery CTA, raw type in review queue
+- [x] Unicode glyph icons → Tabler (`×`, `↑↓✕`, gradient arrows, `Map ▾`)
+- [x] Radius scale in order (`sm` ≠ 0.8px, `xs` ≤ `sm`), dialogs per DESIGN.md
+- [x] Board minimap + slides autofit toggle from tokens, no decorative blur
+- [x] Docs site: warning ≠ brand color, warm neutral tokens, dead `.VPHero` CSS
+- [x] Leftovers: `sidebar.tsx` `hsl(oklch)`, `--font-display` self-reference, hover-only gallery CTA, raw type in review queue
 
 ## Review
 

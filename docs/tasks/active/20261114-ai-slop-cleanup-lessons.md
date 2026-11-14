@@ -70,3 +70,12 @@
 - Fixed: DESIGN.md said mono covers "category/tag chips" but tag chips are
   sans; narrowed to the template category chip.
 
+### Step 6 — polish
+- Review: self + authenticated renders of the board minimap and slides
+  menu (the agent could not sign in); whole-branch review follows.
+- The brief's "sm ≈ 3px" would have sat above md (2.8px); the agent kept the
+  scale ordered (sm 2.4px) instead of following the number. Derive targets
+  from the ordering constraint, not a guess.
+- jsdom drops an entire inline style string when a `border` shorthand
+  contains `var()`; set `border-color` separately so tests see the rest.
+

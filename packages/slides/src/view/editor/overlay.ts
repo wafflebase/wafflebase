@@ -1510,6 +1510,9 @@ function makeConnectionSiteDot(
  * advances to `'none'`.
  */
 const AUTOFIT_TOGGLE_SIZE = 24; // host px
+const AUTOFIT_TOGGLE_BG = 'var(--popover, #ffffff)';
+const AUTOFIT_TOGGLE_HOVER_BG = 'var(--accent, #f4f4f5)';
+const AUTOFIT_TOGGLE_BORDER = '1px solid var(--border, #e4e4e7)';
 const AUTOFIT_TOGGLE_OFFSET = 6; // host px below the frame
 const AUTOFIT_ICON_SIZE = 16; // svg viewport drawn inside the button
 
@@ -1605,23 +1608,25 @@ function renderAutofitToggle(
   btn.style.justifyContent = 'center';
   btn.style.padding = '0';
   btn.style.margin = '0';
-  btn.style.border = '1px solid rgba(60, 64, 67, 0.2)';
-  btn.style.borderRadius = '4px';
-  btn.style.background = '#fff';
-  btn.style.color = 'rgb(60, 64, 67)'; // Google-grey-700-ish
+  // Themed from the app tokens like the slides context menu
+  // (context-menu.ts): popover surface, hairline border, accent on hover.
+  // Every value carries the light-popover fallback for a host that never
+  // loaded `tokens.css`; the frontend does, so the chip follows `.dark`.
+  btn.style.border = AUTOFIT_TOGGLE_BORDER;
+  btn.style.borderRadius = 'calc(var(--radius, 0.3rem) - 2px)';
+  btn.style.background = AUTOFIT_TOGGLE_BG;
+  btn.style.color = 'var(--popover-foreground, #09090b)';
   btn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.15)';
   btn.style.cursor = 'pointer';
   btn.style.boxSizing = 'border-box';
   btn.style.pointerEvents = 'auto';
   btn.style.userSelect = 'none';
-  btn.style.transition = 'background 80ms ease, border-color 80ms ease';
+  btn.style.transition = 'background 80ms ease';
   btn.addEventListener('mouseenter', () => {
-    btn.style.background = '#f1f3f4';
-    btn.style.borderColor = 'rgba(60, 64, 67, 0.35)';
+    btn.style.background = AUTOFIT_TOGGLE_HOVER_BG;
   });
   btn.addEventListener('mouseleave', () => {
-    btn.style.background = '#fff';
-    btn.style.borderColor = 'rgba(60, 64, 67, 0.2)';
+    btn.style.background = AUTOFIT_TOGGLE_BG;
   });
   // The editor attaches a `pointerdown` listener on the overlay itself
   // (editor.ts) that runs hit-test → select-or-clear. Without stopping

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { IconX } from '@tabler/icons-react';
 import type {
   Effects,
   Element,
@@ -369,9 +370,9 @@ export function FormatPanel({
           type="button"
           aria-label="Close format options"
           onClick={onClose}
-          className="rounded p-1 hover:bg-muted"
+          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="flex-1 overflow-y-auto">{content}</div>

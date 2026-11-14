@@ -9,6 +9,8 @@ import {
 } from "@wafflebase/sheets";
 import { toast } from "sonner";
 import {
+  IconArrowDown,
+  IconArrowUp,
   IconBold,
   IconItalic,
   IconDropletHalf2Filled,
@@ -406,7 +408,7 @@ export function ConditionalFormatPanel({
                     onClick={() => handleMoveRule(rule.id, -1)}
                     aria-label="Move rule up"
                   >
-                    <span className="text-sm leading-none">↑</span>
+                    <IconArrowUp size={14} />
                   </Button>
                   <Button
                     type="button"
@@ -417,7 +419,7 @@ export function ConditionalFormatPanel({
                     onClick={() => handleMoveRule(rule.id, 1)}
                     aria-label="Move rule down"
                   >
-                    <span className="text-sm leading-none">↓</span>
+                    <IconArrowDown size={14} />
                   </Button>
                   <Button
                     type="button"

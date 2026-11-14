@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -68,7 +69,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
           onClick={onClose}
           aria-label="Close comments panel"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </Button>
       </header>
 

@@ -374,7 +374,7 @@ function MarketingGalleryCard({
         )}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-3 bottom-3 rounded-full border border-[color:var(--wb-syrup-deep)] bg-[color:var(--wb-syrup)] px-3 py-1 text-[13px] font-medium text-primary-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="pointer-events-none absolute right-3 bottom-3 rounded-full border border-[color:var(--wb-syrup-deep)] bg-[color:var(--wb-syrup)] px-3 py-1 text-[13px] font-medium text-primary-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 pointer-coarse:opacity-100"
         >
           {selectLabel}
         </span>
