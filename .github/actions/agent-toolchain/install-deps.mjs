@@ -13,10 +13,17 @@
 // Those four jobs take this directory from `main`, checked out into
 // `.trusted-toolchain` inside the workspace, never from the branch (the
 // shared core's `config-wiring.test.mjs` holds them to it); `agent-implement.yml`
-// uses the workspace's own copy while the workspace is still `main`. A
-// `.trusted-*` checkout is not the branch's: the walks below leave it out, a
-// link into one is refused like a link into `.git`, and the container sees an
-// empty directory in its place.
+// uses the workspace's own copy while the workspace is still `main`. The ONE
+// `.trusted-*` checkout this file runs from is not the branch's: the walks
+// below leave it out and the container sees an empty directory in its place.
+// Any other `.trusted-*` entry is the branch's and is walked like the rest of
+// the tree; a link into ANY `.trusted-*` name is refused like a link into
+// `.git`.
+//
+// ONLY A LOCAL CONTAINER RUNTIME. `DOCKER_HOST` must be unset or a `unix://`
+// socket. A daemon over TCP may be reachable from the container's own network,
+// and its `--volume` paths would name another machine's filesystem than the
+// one the checks below read.
 //
 // It came from `scripts/agent/install-deps.mjs` (#1142), which today's
 // workflows still run from their staged copy of `scripts/agent`; that copy
@@ -175,25 +182,49 @@ const refuse = (message) => {
 const isInside = (root, target) => target === root || target.startsWith(root + path.sep);
 
 /**
- * A name at the workspace root that is not the branch's tree: its `.git`, and
- * a trusted checkout a workflow placed beside it (`.trusted-toolchain`, …).
- * Judged by name, as the workflows name them.
+ * A name at the workspace root that no link of the branch's may lead into: its
+ * `.git`, and every `.trusted-*` name — the workflows check trusted code out
+ * under such names. Judged by name, which is stricter than asking which of
+ * them is a checkout.
  */
 export const isShieldedName = (name) => name === ".git" || name.startsWith(".trusted-");
 
-/** Is `target` (an absolute path) inside the workspace's `.git` or a `.trusted-*` checkout? */
+/** Is `target` (an absolute path) inside the workspace's `.git` or under a `.trusted-*` name? */
 const isShielded = (root, target) => {
   if (!isInside(root, target) || target === root) return false;
   return isShieldedName(target.slice(root.length + 1).split(path.sep)[0]);
 };
 
 /**
- * A root entry the walks leave out: `.git`, and a `.trusted-*` that is a real
- * directory. A `.trusted-*` link is the branch's like any other link, and is
- * judged as one.
+ * The trusted checkout this file runs from, or `null`. When the action is used
+ * from main's copy checked out into the workspace (`.trusted-toolchain`), that
+ * directory is a checkout of its own: a real directory holding a real `.git`.
+ * Anything else under a `.trusted-*` name — a second such directory, one the
+ * branch tracks — is the branch's. Used from the workspace's own copy (the
+ * issue-to-PR job) or from outside the workspace, there is none.
+ *
+ * @returns {string | null}
  */
-const skippedAtRoot = (entry) =>
-  entry.name === ".git" || (entry.name.startsWith(".trusted-") && entry.isDirectory() && !entry.isSymbolicLink());
+export function runningCheckout(root, here = HERE) {
+  const rel = path.relative(root, here);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
+  const first = rel.split(path.sep)[0];
+  if (!first.startsWith(".trusted-")) return null;
+  const dir = path.join(root, first);
+  const stat = lstatSync(dir, { throwIfNoEntry: false });
+  const git = lstatSync(path.join(dir, ".git"), { throwIfNoEntry: false });
+  if (!stat?.isDirectory() || stat.isSymbolicLink() || !git?.isDirectory() || git.isSymbolicLink()) {
+    refuse(`install-deps.mjs runs from ${first}, which is not a checkout of its own (a real directory with a real .git)`);
+  }
+  return dir;
+}
+
+/**
+ * A root entry the walks leave out: `.git`, and the checkout this file runs
+ * from. Every other entry, `.trusted-*` names included, is walked.
+ */
+const skippedAtRoot = (root, own, entry) =>
+  entry.name === ".git" || (own !== null && path.join(root, entry.name) === own && entry.isDirectory() && !entry.isSymbolicLink());
 
 /** What a name mounted into the container may hold: nothing `--volume` reads as syntax. */
 const MOUNTABLE = /^[A-Za-z0-9._/-]+$/;
@@ -351,14 +382,14 @@ function judgeLink(root, dir, full) {
  * `node_modules`, no manifest in another format, and every symbolic link
  * leading — as written and as resolved — into the working tree.
  */
-function checkTree(root) {
+function checkTree(root, own) {
   const stack = [root];
   while (stack.length > 0) {
     const dir = stack.pop();
     for (const entry of entriesOf(root, dir)) {
       const full = path.join(dir, entry.name);
       const rel = path.relative(root, full);
-      if (dir === root && skippedAtRoot(entry)) continue;
+      if (dir === root && skippedAtRoot(root, own, entry)) continue;
       if (entry.name === "node_modules") {
         if (entry.isSymbolicLink()) {
           refuse(`${rel} is a symbolic link; the install refuses a symlinked node_modules`);
@@ -660,13 +691,13 @@ function checkInstalled(root, importers) {
  * written and as resolved, into the working tree; there is no second `.git`;
  * and there is nothing that cannot be listed.
  */
-function checkTreeAfter(root) {
+function checkTreeAfter(root, own) {
   const stack = [root];
   while (stack.length > 0) {
     const dir = stack.pop();
     for (const entry of entriesOf(root, dir)) {
       const full = path.join(dir, entry.name);
-      if (dir === root && skippedAtRoot(entry)) continue;
+      if (dir === root && skippedAtRoot(root, own, entry)) continue;
       const rel = path.relative(root, full);
       if (entry.name === ".git") refuse(`${rel} appeared during the install; a workspace has one .git`);
       if (entry.isSymbolicLink()) {
@@ -719,6 +750,10 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   const root = physical(workspace);
   if (root !== path.resolve(workspace)) refuse("the workspace path is, or passes through, a symbolic link");
   if (!MOUNTABLE.test(root)) refuse("the workspace path holds a character the container mounts cannot name");
+  const dockerHost = process.env.DOCKER_HOST;
+  if (dockerHost && !dockerHost.startsWith("unix://")) {
+    refuse("DOCKER_HOST names a container runtime that is not a local unix socket; the install runs only on a local daemon");
+  }
   const dirs = pnpmDirs(root);
 
   // BEFORE THE INSTALL. Nothing below this block runs unless all of it passes.
@@ -731,12 +766,11 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
     refuse("the workspace's .git is missing or is not a directory; the install runs on a checkout");
   }
   if (!lstatSync(ENTRY, { throwIfNoEntry: false })?.isFile()) refuse("install-deps-container.cjs is missing beside install-deps.mjs");
-  checkTree(root);
-  // The trusted checkouts beside the branch's tree, each covered in the
-  // container by an empty directory.
-  const shielded = entriesOf(root, root)
-    .filter((entry) => entry.name !== ".git" && skippedAtRoot(entry))
-    .map((entry) => path.join(root, entry.name));
+  // The checkout this file runs from, if it is one: left out of the walks and
+  // covered in the container by an empty directory.
+  const own = runningCheckout(root);
+  checkTree(root, own);
+  const shielded = own === null ? [] : [own];
   for (const dir of shielded) {
     if (!MOUNTABLE.test(dir)) refuse(`${path.basename(dir)} has a name the container mounts cannot name`);
   }
@@ -805,7 +839,7 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   if (homeConfigDigest() !== homeBefore) {
     refuse("a package manager's configuration in the runner's home changed during the install");
   }
-  checkTreeAfter(root);
+  checkTreeAfter(root, own);
   if (workingTreeDigest(root, importers) !== treeBefore) {
     refuse("the install changed the working tree outside node_modules");
   }

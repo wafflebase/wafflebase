@@ -52,6 +52,7 @@ import {
   dockerArgs,
   hashTree,
   isShieldedName,
+  runningCheckout,
 } from "../actions/agent-toolchain/install-deps.mjs";
 import { MANIFEST_KEYS, Refusal, checkLockfile, isAllowedSpecifier, parseStrictYaml } from "../actions/agent-toolchain/install-deps-lockfile.mjs";
 
@@ -184,7 +185,7 @@ function harness(t) {
    * leaves no `docker` on PATH, `launcher` puts pnpm on PATH the way pnpm
    * installs itself: a launcher script in a `.bin` beside the package.
    */
-  const run = (setup, { stub = {}, env = {}, staged = false, pnpmVersion = PNPM_VERSION, docker = true, launcher = false, action = null } = {}) => {
+  const run = (setup, { stub = {}, env = {}, staged = false, pnpmVersion = PNPM_VERSION, docker = true, launcher = false, action = null, checkout = null } = {}) => {
     const area = path.join(base, `case${++n}`);
     // The workspace sits in a directory of its own, so that anything appearing
     // beside it is the install's doing.
@@ -226,6 +227,19 @@ function harness(t) {
     const conf = { STUB_RAN: ran, STUB_EXTRA: ":", STUB_EXIT: "0", STUB_RT: rt, STUB_HOME: home, ...stub };
     writeFileSync(path.join(bin, "stub.conf"), Object.entries(conf).map(([k, v]) => `${k}='${v}'\n`).join(""));
     let script = SCRIPT;
+    if (checkout) {
+      // The action as the shared fix jobs use it: main's copy checked out into
+      // the workspace under `checkout` (`.trusted-toolchain`), a repository of
+      // its own, and run from there.
+      const actionDir = path.join(dir, checkout, ".github", "actions", "agent-toolchain");
+      mkdirSync(actionDir, { recursive: true });
+      mkdirSync(path.join(dir, checkout, ".git"), { recursive: true });
+      writeFileSync(path.join(dir, checkout, ".git", "config"), "[core]\n");
+      for (const f of SHIPPED) {
+        if (existsSync(path.join(ACTION, f))) cpSync(path.join(ACTION, f), path.join(actionDir, f));
+      }
+      script = path.join(actionDir, "install-deps.mjs");
+    }
     if (staged) {
       mkdirSync(path.join(rt, "agent-tools"));
       for (const f of SHIPPED) {
@@ -1427,43 +1441,84 @@ test("this repository's own lockfile and manifests are ones the agent jobs insta
 
 // --- what the action adds: the trusted checkouts beside the branch -------------------
 
-test("a trusted checkout in the workspace is not the branch's: not walked, covered in the container", (t) => {
+test("the trusted checkout the script runs from is not the branch's: not walked, covered in the container", (t) => {
   const { run, outside } = harness(t);
-  // What the shared workflows leave there: main's copy of this action, a
-  // checkout with a `.git` of its own. A second `.git` anywhere else is refused.
-  const ok = run((dir) => {
-    mkdirSync(path.join(dir, ".trusted-toolchain", ".git"), { recursive: true });
-    mkdirSync(path.join(dir, ".trusted-toolchain", ".github", "actions"), { recursive: true });
-    writeFileSync(path.join(dir, ".trusted-toolchain", ".git", "config"), "[core]\n");
-  });
+  // As the shared fix jobs run it: from main's copy in `.trusted-toolchain`,
+  // a checkout with a `.git` of its own — which, walked, would be refused as a
+  // second `.git`.
+  const ok = run(null, { checkout: ".trusted-toolchain" });
   assert.equal(ok.status, 0, ok.err);
   const args = readFileSync(ok.ran, "utf8").trim().split(" ");
   const empty = path.join(ok.rt, PNPM_DIR, EMPTY_DIR);
-  assert.ok(args.includes(`--volume=${empty}:${path.join(ok.dir, ".git")}:ro`));
-  assert.ok(args.includes(`--volume=${empty}:${path.join(ok.dir, ".trusted-toolchain")}:ro`));
+  assert.deepEqual(
+    args.filter((a) => a.startsWith(`--volume=${empty}:`)),
+    [`--volume=${empty}:${path.join(ok.dir, ".git")}:ro`, `--volume=${empty}:${path.join(ok.dir, ".trusted-toolchain")}:ro`],
+  );
   assert.ok(!args.some((a) => a.startsWith(`--volume=${path.join(ok.dir, ".git")}`)), "the real .git is mounted");
-  // The empty directory is the step's own and is gone afterwards.
-  assert.equal(existsSync(empty), false);
-  assert.ok(isShieldedName(".git") && isShieldedName(".trusted-x") && !isShieldedName("trusted") && !isShieldedName(".github"));
+  assert.equal(existsSync(empty), false, "the step's empty directory was left behind");
 
-  for (const [what, setup, message] of [
+  // From outside the workspace (or from the workspace's own copy, as the
+  // issue-to-PR job uses it), nothing but `.git` is shielded.
+  const plain = run(null);
+  assert.equal(plain.status, 0, plain.err);
+  assert.deepEqual(
+    readFileSync(plain.ran, "utf8").trim().split(" ").filter((a) => a.includes(`:${plain.dir}/.trusted`)),
+    [],
+  );
+
+  for (const [what, setup, options, message] of [
     [
-      "a link from the branch's tree into a trusted checkout",
+      // A `.trusted-*` directory the BRANCH carries is walked like the rest
+      // of its tree, beside the real checkout and without one.
+      "a branch .trusted-* directory with a link out of the workspace, beside the running checkout",
       (dir) => {
-        mkdirSync(path.join(dir, ".trusted-toolchain"));
-        writeFileSync(path.join(dir, ".trusted-toolchain", "action.yml"), "x");
-        symlinkSync("../../.trusted-toolchain/action.yml", path.join(dir, "packages", "a", "evil"));
+        mkdirSync(path.join(dir, ".trusted-other"));
+        symlinkSync(outside, path.join(dir, ".trusted-other", "out"));
       },
+      { checkout: ".trusted-toolchain" },
+      /\.trusted-other\/out is a symbolic link that resolves outside the workspace/,
+    ],
+    [
+      "a branch .trusted-* directory with a link out of the workspace, with no checkout",
+      (dir) => {
+        mkdirSync(path.join(dir, ".trusted-other"));
+        symlinkSync(outside, path.join(dir, ".trusted-other", "out"));
+      },
+      {},
+      /\.trusted-other\/out is a symbolic link that resolves outside the workspace/,
+    ],
+    [
+      "a branch .trusted-* directory holding a .git, with no checkout",
+      (dir) => mkdirSync(path.join(dir, ".trusted-toolchain", ".git"), { recursive: true }),
+      {},
+      /\.trusted-toolchain\/\.git is a second \.git/,
+    ],
+    [
+      "a link from the branch's tree into the running checkout",
+      (dir) => symlinkSync("../../.trusted-toolchain/.github", path.join(dir, "packages", "a", "evil")),
+      { checkout: ".trusted-toolchain" },
+      /into the repository's \.git or a trusted checkout/,
+    ],
+    [
+      "a link from the branch's tree into any .trusted-* name",
+      (dir) => {
+        mkdirSync(path.join(dir, ".trusted-other"));
+        writeFileSync(path.join(dir, ".trusted-other", "x"), "x");
+        symlinkSync("../../.trusted-other/x", path.join(dir, "packages", "a", "evil"));
+      },
+      {},
       /into the repository's \.git or a trusted checkout/,
     ],
     [
       "a .trusted-* name that is a link out of the workspace",
       (dir) => symlinkSync(outside, path.join(dir, ".trusted-elsewhere")),
+      {},
       /resolves outside the workspace/,
     ],
     [
-      "a .trusted-* directory below the root, which is the branch's",
+      "a branch .trusted-* directory below the root",
       (dir) => mkdirSync(path.join(dir, "packages", "a", ".trusted-x", ".git"), { recursive: true }),
+      {},
       /is a second \.git/,
     ],
     [
@@ -1474,14 +1529,53 @@ test("a trusted checkout in the workspace is not the branch's: not walked, cover
         mkdirSync(path.join(dir, ".trusted-x"));
         setLockfile(dir, "  packages/b: {}", "  packages/b: {}\n\n  .trusted-x: {}");
       },
+      {},
       /not a plain path under the workspace root: \.trusted-x/,
     ],
   ]) {
-    const r = run(setup);
+    const r = run(setup, options);
     assert.notEqual(r.status, 0, what);
     assert.equal(r.installed, false, `${what}: the install ran`);
     assert.match(r.err, message, what);
   }
+});
+
+test("runningCheckout: only a real checkout under a .trusted-* name, and only the one the script is in", (t) => {
+  const base = mkdtempSync(path.join(TMP, "running-checkout-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const root = path.join(base, "ws");
+  mkdirSync(path.join(root, ".trusted-toolchain", ".git"), { recursive: true });
+  mkdirSync(path.join(root, ".trusted-toolchain", ".github", "actions", "agent-toolchain"), { recursive: true });
+  mkdirSync(path.join(root, ".trusted-plain", "a"), { recursive: true });
+  mkdirSync(path.join(root, ".github", "actions", "agent-toolchain"), { recursive: true });
+  const at = (...p) => path.join(root, ...p);
+  assert.equal(runningCheckout(root, at(".trusted-toolchain", ".github", "actions", "agent-toolchain")), at(".trusted-toolchain"));
+  // The workspace's own copy (the issue-to-PR job), and anywhere outside it.
+  assert.equal(runningCheckout(root, at(".github", "actions", "agent-toolchain")), null);
+  assert.equal(runningCheckout(root, path.join(base, "elsewhere")), null);
+  assert.equal(runningCheckout(root, root), null);
+  // A `.trusted-*` directory with no `.git` of its own is not a checkout, and
+  // the script refuses to run from one.
+  assert.throws(() => runningCheckout(root, at(".trusted-plain", "a")), /not a checkout of its own/);
+  // Nor is one whose `.git` is a link.
+  mkdirSync(at(".trusted-linked"));
+  symlinkSync(at(".trusted-toolchain", ".git"), at(".trusted-linked", ".git"));
+  assert.throws(() => runningCheckout(root, at(".trusted-linked")), /not a checkout of its own/);
+  // A link into any of these names is refused by name.
+  assert.ok(isShieldedName(".git") && isShieldedName(".trusted-anything") && !isShieldedName("trusted") && !isShieldedName(".github"));
+});
+
+test("only a local container runtime: DOCKER_HOST is unset or a unix socket", (t) => {
+  const { run } = harness(t);
+  for (const host of ["tcp://10.0.0.1:2375", "ssh://user@host", "npipe:////./pipe/docker_engine", "http://x"]) {
+    const r = run(null, { env: { DOCKER_HOST: host } });
+    assert.notEqual(r.status, 0, host);
+    assert.equal(r.installed, false, `${host}: the install ran`);
+    assert.match(r.err, /DOCKER_HOST names a container runtime that is not a local unix socket/, host);
+  }
+  const local = run(null, { env: { DOCKER_HOST: "unix:///var/run/docker.sock" } });
+  assert.equal(local.status, 0, local.err);
+  assert.match(readFileSync(`${local.ran}.env`, "utf8"), /^DOCKER_HOST=unix:\/\/\/var\/run\/docker\.sock$/m);
 });
 
 // --- the action's own step: the pinned pnpm, and how install-deps.mjs is run ------
