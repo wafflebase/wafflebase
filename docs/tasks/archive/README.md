@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 632
+Total archived tasks: 633
 
-## 2026/11 (2 tasks)
+## 2026/11 (3 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| impeccable swap (2026-11-13) | [20261113-impeccable-swap-todo.md](./2026/11/20261113-impeccable-swap-todo.md) | [20261113-impeccable-swap-lessons.md](./2026/11/20261113-impeccable-swap-lessons.md) |
 | codepair workspace claims (2026-11-08) | [20261108-codepair-workspace-claims-todo.md](./2026/11/20261108-codepair-workspace-claims-todo.md) | [20261108-codepair-workspace-claims-lessons.md](./2026/11/20261108-codepair-workspace-claims-lessons.md) |
 | title live sync (2026-11-01) | [20261101-title-live-sync-todo.md](./2026/11/20261101-title-live-sync-todo.md) | [20261101-title-live-sync-lessons.md](./2026/11/20261101-title-live-sync-lessons.md) |
 

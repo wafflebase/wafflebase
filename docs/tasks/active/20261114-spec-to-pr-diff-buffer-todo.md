@@ -12,6 +12,12 @@ local path did not, so local and CI rounds reviewed different diffs.
 - [x] Regression test: a >1 MB deletion + an `.interp` file through the
       real `review` command; fails on the old code, passes now.
 
+- [x] Drop deleted files' bodies (`git diff -D`) in both the local writer
+      and `agent-review-panel.yml`. With the buffer fixed, #1132's round
+      still could not review: the 5.6 MB diff got HTTP 400 from the model
+      API and five lenses recorded an infra failure.
+- [x] Archive the #1132 (impeccable swap) task files.
+
 ## Review
 
 `spec-to-pr.test.mjs` 49/49; `pnpm lint:scripts` clean.

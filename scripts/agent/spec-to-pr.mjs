@@ -771,6 +771,11 @@ const REVIEW_DIFF_EXCLUDES = [
  * with `spawnSync git ENOBUFS` before any lens ran. CI never hit that because
  * its shell redirects to a file, so this mirrors the redirect, the filter, and
  * the fall-back to the unfiltered diff when the filter leaves nothing.
+ *
+ * `-D` (`--irreversible-delete`) keeps a deleted file's header and drops its
+ * body, as CI does. A lens cannot act on lines that no longer exist, and a
+ * removal branch otherwise ships every deleted line: #1132's 5.6 MB diff was
+ * refused by the model API, so no lens reviewed anything at all.
  */
 export function writeReviewDiff({ diffFile, changedFile, cwd = process.cwd() }) {
   const gitTo = (file, args) => {
@@ -782,8 +787,8 @@ export function writeReviewDiff({ diffFile, changedFile, cwd = process.cwd() }) 
     }
   };
   gitTo(changedFile, ["diff", "--name-only", "origin/main...HEAD"]);
-  gitTo(diffFile, ["diff", "origin/main...HEAD", "--", ".", ...REVIEW_DIFF_EXCLUDES]);
-  if (statSync(diffFile).size === 0) gitTo(diffFile, ["diff", "origin/main...HEAD"]);
+  gitTo(diffFile, ["diff", "-D", "origin/main...HEAD", "--", ".", ...REVIEW_DIFF_EXCLUDES]);
+  if (statSync(diffFile).size === 0) gitTo(diffFile, ["diff", "-D", "origin/main...HEAD"]);
 }
 
 export function panelArgs({ panel, diffFile, changedFile, baseSha, priorFile, rebuttals, lensesDir, outDir }) {

@@ -1187,8 +1187,8 @@ test("review --dry-run rejects a rebuttals file the real run would reject", () =
 test("review: a diff larger than a pipe buffer reaches the panel, built as CI builds it", () => {
   // A deletion-heavy branch used to die with `spawnSync git ENOBUFS`: the diff
   // was read back through `execFileSync`'s 1 MB default buffer. It is now
-  // streamed straight to the file, and filtered the way agent-review-panel.yml
-  // filters it, so a local round reviews the same body CI would.
+  // streamed straight to the file, and built the way agent-review-panel.yml
+  // builds it (excludes, `-D`), so a local round reviews the same body CI would.
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "spec-to-pr.mjs");
   const root = mkdtempSync(path.join(os.tmpdir(), "spec-to-pr-bigdiff-"));
   try {
@@ -1218,8 +1218,10 @@ test("review: a diff larger than a pipe buffer reaches the panel, built as CI bu
     const argv = JSON.parse(readFileSync(argvFile, "utf8"));
     const diff = readFileSync(argv[argv.indexOf("--diff-file") + 1], "utf8");
     const changed = readFileSync(argv[argv.indexOf("--changed-files") + 1], "utf8");
-    assert.ok(diff.length > 1024 * 1024, "the whole diff was written");
+    // The deletion is listed, but its 2 MB body is not shipped to the lenses.
     assert.match(diff, /deleted file mode/);
+    assert.match(diff, /big\.txt/);
+    assert.doesNotMatch(diff, /yyyyyyyy/);
     // Excluded from the body, as in CI, but still listed as changed.
     assert.doesNotMatch(diff, /tooling only/);
     assert.match(changed, /packages\/sheets\/antlr\/Formula\.interp/);
