@@ -579,17 +579,18 @@ test("agent-fix reports cost and outcome even when the agent step fails", () => 
   );
 });
 
-test("agent-fix installs the untrusted branch without running its lifecycle scripts", () => {
+test("agent-fix installs the untrusted branch through the trusted install and runs none of its build steps", () => {
   // This job checks out the PR branch (untrusted) with an App token already in the
-  // environment, so the branch's own install scripts must not run. `--ignore-scripts`
-  // blocks every dependency + workspace postinstall; the one first-party script the
-  // workspace genuinely needs — backend `prisma generate`, used by verify:fast — is
-  // re-run explicitly, off the code but not off the scripts.
+  // environment, so nothing the branch wrote may run before the agent does: not an
+  // install lifecycle script, and not a build step run on the branch's behalf either.
+  // `prisma generate` used to be re-run here after an `--ignore-scripts` install; it
+  // is a build step of the branch like any other, so the agent runs it as part of
+  // verifying and the prompt tells it to. The install itself is pinned for all four
+  // installing jobs by scripts/test/agent-workflow-guards.test.mjs.
   const wf = WF("agent-fix.yml");
-  assert.match(wf, /pnpm install --frozen-lockfile --ignore-scripts/, "install must skip lifecycle scripts");
-  assert.match(wf, /pnpm --filter @wafflebase\/backend exec prisma generate/, "the skipped prisma client must be regenerated");
-  // The setup action is SHA-pinned here specifically because it runs after the
-  // untrusted checkout with the token present.
+  assert.match(wf, /run: node "\$RUNNER_TEMP\/agent-tools\/install-deps\.mjs"/, "the install must be main's install-deps.mjs");
+  assert.doesNotMatch(wf, /^\s*run:.*prisma generate/m, "no step may generate the Prisma client on the branch's behalf");
+  assert.match(wf, /pnpm --filter @wafflebase\/backend exec prisma generate/, "the prompt must tell the agent to generate the Prisma client");
   assert.match(wf, /uses: pnpm\/action-setup@[0-9a-f]{40}/, "pnpm/action-setup must be SHA-pinned in this token-bearing job");
 });
 

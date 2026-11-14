@@ -194,14 +194,18 @@ test("no workflow runs the picker from an untrusted checkout", () => {
   }
 });
 
-test("agent-review-reply takes its trusted copy AFTER the branch checkout", () => {
+test("agent-review-reply takes its trusted copy AFTER the branch checkout, and runs it from outside the workspace", () => {
   // `actions/checkout` cleans its target path, so a root checkout running later would
-  // delete the `.trusted-cred` subdirectory and the `[ -f ]` guard would silently skip.
+  // delete the `.trusted-agent` subdirectory and the `[ -f ]` guard would silently skip.
+  // The copy is then staged in the runner's temp directory and the picker runs from
+  // there: a directory inside the workspace is one the branch's own tree can reach.
   const text = readFileSync(path.join(WORKFLOWS, "agent-review-reply.yml"), "utf8");
   const branch = text.indexOf("ref: ${{ steps.pr.outputs.ref }}");
-  const trusted = text.indexOf("path: .trusted-cred");
-  const picker = text.indexOf("node .trusted-cred/scripts/agent/pick-credential.mjs");
-  assert.ok(branch > 0 && trusted > 0 && picker > 0, "all three must be present");
+  const trusted = text.indexOf("path: .trusted-agent");
+  const staged = text.indexOf('cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"');
+  const picker = text.indexOf('node "$RUNNER_TEMP/agent-tools/pick-credential.mjs"');
+  assert.ok(branch > 0 && trusted > 0 && staged > 0 && picker > 0, "all four must be present");
   assert.ok(branch < trusted, "the trusted checkout must come after the branch checkout");
-  assert.ok(trusted < picker, "the trusted checkout must come before the picker runs");
+  assert.ok(trusted < staged && staged < picker, "the trusted copy must be staged before the picker runs");
+  assert.doesNotMatch(text, /node \.trusted/, "nothing is run from the side directory");
 });

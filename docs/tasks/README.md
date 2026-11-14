@@ -18,6 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| harden agent install (2026-11-14) | [20261114-harden-agent-install-todo.md](./active/20261114-harden-agent-install-todo.md) | [20261114-harden-agent-install-lessons.md](./active/20261114-harden-agent-install-lessons.md) |
+| impeccable frontend sweep (2026-11-14) | [20261114-impeccable-frontend-sweep-todo.md](./active/20261114-impeccable-frontend-sweep-todo.md) | [20261114-impeccable-frontend-sweep-lessons.md](./active/20261114-impeccable-frontend-sweep-lessons.md) |
+| logo refresh (2026-11-14) | [20261114-logo-refresh-todo.md](./active/20261114-logo-refresh-todo.md) | [20261114-logo-refresh-lessons.md](./active/20261114-logo-refresh-lessons.md) |
 | polish document list (2026-11-14) | [20261114-polish-document-list-todo.md](./active/20261114-polish-document-list-todo.md) | [20261114-polish-document-list-lessons.md](./active/20261114-polish-document-list-lessons.md) |
 | query fail fast (2026-11-14) | [20261114-query-fail-fast-todo.md](./active/20261114-query-fail-fast-todo.md) | [20261114-query-fail-fast-lessons.md](./active/20261114-query-fail-fast-lessons.md) |
 | spec to pr diff buffer (2026-11-14) | [20261114-spec-to-pr-diff-buffer-todo.md](./active/20261114-spec-to-pr-diff-buffer-todo.md) | [20261114-spec-to-pr-diff-buffer-lessons.md](./active/20261114-spec-to-pr-diff-buffer-lessons.md) |
@@ -59,4 +62,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 634
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: polish document list (2026-11-14)
+Latest active task: harden agent install (2026-11-14)
