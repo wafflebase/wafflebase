@@ -216,7 +216,7 @@ wafflebase docs get <doc-id>
 # Rename a document
 wafflebase docs rename <doc-id> "New Title"
 
-# Delete a document
+# Move a document to the trash
 wafflebase docs delete <doc-id>
 ```
 

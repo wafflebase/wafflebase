@@ -440,7 +440,19 @@ All document endpoints require JWT authentication.
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
 | `POST` | `/documents/:id/copy` | Duplicate a document into the same workspace + folder as `<title> (copy)` (any member — copying never touches the source) |
-| `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
+| `DELETE` | `/documents/:id` | Move to the trash (manager: workspace owner or author); `?permanent=true` deletes a trashed document for good, blob included (`404` while it is live) |
+| `POST` | `/documents/delete` | Bulk trash (`{ ids }`), or bulk permanent delete of trashed ids (`{ ids, permanent: true }`); manager of every id |
+| `POST` | `/documents/:id/restore` | Restore a trashed document (manager); `404` if it is not in the trash |
+| `GET` | `/workspaces/:wid/trash` | Trashed documents of a workspace, most recent first (member); rows carry `canManage` + `deletedAt` |
+
+**Trash.** Deleting a document moves it to the trash (`Document.deletedAt`)
+rather than destroying it, and a trashed document is invisible everywhere a live
+one is visible — every list, `GET /documents/:id`, share-link resolution, the
+Yorkie auth webhook (denied), templates, copy, file serving and all of
+`/api/v1` answer as if it did not exist (`404`). Share links and template
+listings survive and come back on restore; the blob is kept until the
+permanent delete. There is **no automatic purge** yet. Design:
+[`docs/design/document-trash.md`](../../docs/design/document-trash.md).
 
 ### Folders (`/workspaces/:workspaceId/folders`)
 
@@ -776,7 +788,8 @@ unaffected; their authority is workspace membership and document ownership.
 | `GET` | `/api/v1/workspaces/:wid/documents/:did` | Get document metadata |
 | `PATCH` | `/api/v1/workspaces/:wid/documents/:did` | Update document (`{ title }`) or file it (`{ folderId }`, `null` = root) |
 | `POST` | `/api/v1/workspaces/:wid/documents/:did/copy` | Duplicate as `<title> (copy)` |
-| `DELETE` | `/api/v1/workspaces/:wid/documents/:did` | Delete document |
+| `DELETE` | `/api/v1/workspaces/:wid/documents/:did` | Move to the trash; `?permanent=true` deletes a trashed document for good |
+| `POST` | `/api/v1/workspaces/:wid/documents/:did/restore` | Restore a trashed document |
 
 `PATCH` reads `title` and `folderId` independently — omitting `folderId` leaves
 the document where it is, and `null` returns it to the workspace root. A rename
@@ -960,6 +973,7 @@ blob with none (see
 | `authorID` | Int? | FK to User |
 | `workspaceId` | String | FK to Workspace (CASCADE) |
 | `folderId` | String? | FK to Folder (`SetNull`); null = workspace root |
+| `deletedAt` | DateTime? | Null while live; set when moved to the trash. `@@index([workspaceId, deletedAt])` |
 | `createdAt` | DateTime | Auto-set |
 | `updatedAt` | DateTime | Last-modified ordering, fed by the Yorkie event webhook |
 

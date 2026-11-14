@@ -222,5 +222,43 @@ describe('ShareLinkService', () => {
         GoneException,
       );
     });
+
+    it('returns a live link with its document', async () => {
+      const link = {
+        id: 'link-1',
+        documentId: DOC_ID,
+        expiresAt: null,
+        document: { id: DOC_ID, deletedAt: null },
+      };
+      prisma.shareLink.findUnique.mockResolvedValue(link);
+      await expect(service.findByToken('tok')).resolves.toBe(link);
+    });
+
+    // The trash closes every share-token path at this one choke point: the
+    // share page, file/image serving, the Yorkie auth webhook and analytics.
+    it('answers 404 for a link to a trashed document, even unexpired', async () => {
+      prisma.shareLink.findUnique.mockResolvedValue({
+        id: 'link-1',
+        documentId: DOC_ID,
+        expiresAt: null,
+        document: { id: DOC_ID, deletedAt: new Date() },
+      });
+      await expect(service.findByToken('tok')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('trashed documents', () => {
+    it('reads the document live-only when resolving capability', async () => {
+      prisma.document.findUnique.mockResolvedValue(null);
+      await expect(
+        service.create(DOC_ID, 'viewer', OWNER_ID, null),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.document.findUnique).toHaveBeenCalledWith({
+        where: { id: DOC_ID, deletedAt: null },
+      });
+      expect(prisma.shareLink.create).not.toHaveBeenCalled();
+    });
   });
 });

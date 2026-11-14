@@ -1779,3 +1779,88 @@ describe('editing while under review', () => {
 });
 
 const NEW_THUMB = '11111111-2222-3333-4444-555555555555.png';
+
+// A listing is a window onto its source document, so a trashed document
+// closes the window on every tier — unlisted included, whose id alone would
+// otherwise be enough — until the document is restored.
+describe('TemplateService with a trashed source document', () => {
+  const TRASHED = {
+    ...LISTING,
+    document: { ...DOC, deletedAt: new Date('2026-11-14T00:00:00Z') },
+  };
+
+  it('404s the preview of an unlisted listing, even for its manager', async () => {
+    const { service } = makeService({ listing: TRASHED });
+    await expect(service.findForViewer('tpl-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    await expect(service.findForViewer('tpl-1', 7)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('refuses to start a document from it', async () => {
+    const { service, documentCopyService } = makeService({
+      listing: TRASHED,
+      members: { 'ws-1:7': 'owner', 'ws-2:9': 'member' },
+    });
+    await expect(
+      service.use('tpl-1', 9, { workspaceId: 'ws-2' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.use('tpl-1', 7, { workspaceId: 'ws-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(documentCopyService.copy).not.toHaveBeenCalled();
+  });
+
+  it('constrains every gallery query to live documents', async () => {
+    const { service, prisma } = makeService({
+      members: { 'ws-1:9': 'member' },
+    });
+    await service.browse({ scope: 'workspace', workspaceId: 'ws-1' }, 9);
+    await service.browse({ scope: 'public' });
+    for (const [args] of prisma.templateListing.findMany.mock.calls) {
+      expect(args.where).toMatchObject({ document: { deletedAt: null } });
+    }
+  });
+
+  it('drops out of the reviewer queue and the report queue', async () => {
+    const { service, prisma } = makeService();
+    await service.listForReview();
+    await service.listReports();
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ document: { deletedAt: null } });
+    expect(
+      (
+        prisma.templateReport.findMany.mock.calls as unknown as Array<
+          [{ where: ListingFields }]
+        >
+      )[0][0].where,
+    ).toMatchObject({ listing: { document: { deletedAt: null } } });
+  });
+
+  it('cannot be reviewed', async () => {
+    const { service } = makeService({
+      listing: { ...TRASHED, status: 'pending' },
+    });
+    await expect(
+      service.review('tpl-1', 99, { decision: 'reject' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('is absent from the Share dialog lookup', async () => {
+    const { service } = makeService({ listing: TRASHED });
+    await expect(service.findByDocument('doc-1', 7)).resolves.toBeNull();
+  });
+
+  it('cannot be published or re-published', async () => {
+    const { service, prisma } = makeService({ document: null });
+    await expect(
+      service.publish('doc-1', 7, { visibility: 'unlisted' } as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.document.findUnique).toHaveBeenCalledWith({
+      where: { id: 'doc-1', deletedAt: null },
+    });
+  });
+});

@@ -51,6 +51,9 @@ wafflebase docs rename <doc-id> "New Title"
 wafflebase docs delete <doc-id>
 ```
 
+This moves the document to the workspace trash; it can be restored from the
+web app's Trash page.
+
 ## Dry-Run
 
 Use `--dry-run` for write and destructive operations:

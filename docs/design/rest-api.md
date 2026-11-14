@@ -190,7 +190,8 @@ POST   /api/v1/workspaces/:wid/documents              Create document
 GET    /api/v1/workspaces/:wid/documents/:did         Get document metadata
 PATCH  /api/v1/workspaces/:wid/documents/:did         Update document (title, folderId)
 POST   /api/v1/workspaces/:wid/documents/:did/copy    Duplicate as `<title> (copy)`
-DELETE /api/v1/workspaces/:wid/documents/:did         Delete document
+DELETE /api/v1/workspaces/:wid/documents/:did         Move to the trash (?permanent=true: delete for good)
+POST   /api/v1/workspaces/:wid/documents/:did/restore Restore a trashed document
 ```
 
 These delegate to the existing `DocumentService` for Prisma operations.
@@ -207,6 +208,16 @@ manager-only (workspace owner or the document's author), matching the web
 surface. An API-key caller is held to that same bar, resolved against the
 membership of the user who minted the key **as it stands now** — as it is on
 `DELETE`.
+
+`DELETE` moves the document to the trash rather than destroying it, the same
+contract as the web delete ([document-trash.md](document-trash.md)): a
+trashed document answers `404` on every v1 route — metadata, content, tabs,
+cells, comments, files — because they all resolve it through
+`DocumentService`'s live-only reads. Only the literal `?permanent=true` deletes
+the row and its blob, and only once it is in the trash — a live document is a
+`404`, so a permanent delete is always the second of two `DELETE`s. `POST .../restore` brings a trashed
+document back and is a `404` for one that is live. Both are manager-gated like
+`DELETE`. There is no v1 trash listing yet.
 
 `POST .../copy` runs `DocumentCopyService` — the same engine the web "Make a
 copy" uses, so every document type is covered by one implementation (see
@@ -523,8 +534,10 @@ spreadsheet.
 rather than introducing a second serving policy. Caps are unchanged: 50 MB,
 or 25 MB for image extensions.
 
-`DELETE /api/v1/workspaces/:wid/documents/:did` deletes the stored blob
-alongside the document row, matching the JWT delete.
+`DELETE /api/v1/workspaces/:wid/documents/:did?permanent=true` deletes the
+stored blob alongside the (already trashed) document row, matching the JWT
+delete. A plain
+`DELETE` only trashes the document, so its blob is kept for a restore.
 
 #### 5.8 Folders (workspace tree)
 

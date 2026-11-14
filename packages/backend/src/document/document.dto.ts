@@ -1,6 +1,7 @@
 import {
   ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -126,4 +127,10 @@ export class DeleteDocumentsDto {
   @ArrayNotEmpty()
   @IsUUID('all', { each: true })
   ids: string[];
+
+  // Omitted / false moves the documents to the trash; true deletes them for
+  // good (and their blobs). See docs/design/document-trash.md.
+  @IsOptional()
+  @IsBoolean()
+  permanent?: boolean;
 }

@@ -420,7 +420,7 @@ wafflebase
   │     ├── rename <doc-id> <title>          Rename a document
   │     ├── copy <doc-id>                    Duplicate as "<title> (copy)"
   │     ├── move <doc-id> [folder-id]        File it under a folder (omit → root)
-  │     ├── delete <doc-id>                  Delete a document
+  │     ├── delete <doc-id>                  Move a document to the trash
   │     ├── content <doc-id>
   │     │     [--format json|md|text]        (default: json)
   │     │     [--pages <range>]

@@ -219,7 +219,7 @@ export function registerDocsCommand(program: Command) {
 
   doc
     .command('delete <doc-id>')
-    .description('Delete a document')
+    .description('Move a document to the trash')
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {

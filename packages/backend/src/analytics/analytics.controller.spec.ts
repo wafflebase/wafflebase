@@ -313,6 +313,8 @@ describe('AnalyticsController analyticsEnabled', () => {
 });
 
 describe('AnalyticsController workspaceDashboard', () => {
+  let lastFindMany: jest.Mock;
+
   function setup(opts: { isMember: boolean; role?: string }) {
     const warehouse = {
       getWorkspaceAnalytics: (ids: string[]) =>
@@ -340,16 +342,15 @@ describe('AnalyticsController workspaceDashboard', () => {
           _ids: ids,
         }),
     } as unknown as AnalyticsWarehouseService;
-    const prisma = {
-      document: {
-        // d1 is authored by the caller (7), d2 by someone else.
-        findMany: () =>
-          Promise.resolve([
-            { id: 'd1', title: 'Budget', authorID: 7 },
-            { id: 'd2', title: 'Deck', authorID: 9 },
-          ]),
-      },
-    } as unknown as PrismaService;
+    const findMany = jest.fn(() =>
+      Promise.resolve([
+        { id: 'd1', title: 'Budget', authorID: 7 },
+        { id: 'd2', title: 'Deck', authorID: 9 },
+      ]),
+    );
+    // d1 is authored by the caller (7), d2 by someone else.
+    const prisma = { document: { findMany } } as unknown as PrismaService;
+    lastFindMany = findMany;
     const workspace = {
       resolveId: (idOrSlug: string) => Promise.resolve(idOrSlug),
       assertMember: () => {
@@ -392,6 +393,21 @@ describe('AnalyticsController workspaceDashboard', () => {
     const req = { user: { id: 7 } } as never;
     const res = await c.workspaceDashboard('ws-1', req, undefined, undefined);
     expect(res.byDocument.map((r) => r.canManage)).toEqual([true, false]);
+  });
+
+  it('ranks live documents only', async () => {
+    const c = setup({ isMember: true });
+    await c.workspaceDashboard(
+      'ws-1',
+      { user: { id: 7 } } as never,
+      undefined,
+      undefined,
+    );
+    expect(lastFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { workspaceId: 'ws-1', deletedAt: null },
+      }),
+    );
   });
 
   it('marks every row manageable for the workspace owner', async () => {
