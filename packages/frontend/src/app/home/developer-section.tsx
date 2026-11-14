@@ -124,8 +124,10 @@ function pushWord(word: string, tokens: Token[]) {
 }
 
 const TOKEN_CLASSES: Record<TokenType, string> = {
+  // Upright: JetBrains Mono's italic is not loaded, and the 38% tone alone
+  // already sets a comment apart from the command it annotates.
   comment:
-    "italic text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_38%,transparent)]",
+    "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_38%,transparent)]",
   string: "text-[color:var(--wb-butter)]",
   flag: "text-[color:var(--wb-leaf)]",
   cmd: "text-[color:var(--wb-berry)] font-semibold",

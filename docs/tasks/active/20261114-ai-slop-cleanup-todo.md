@@ -46,9 +46,9 @@ for the lot, with before/after screenshots.
 
 ## 5. Typeset
 
-- [ ] Load Fraunces italic for the hero `<em>` (no faux italic)
-- [ ] Document the 10px micro step; remove 8px; uppercase tracked micro-kickers → sentence case
-- [ ] Template gallery/landing: no mono as costume
+- [x] Load Fraunces italic for the hero `<em>` (no faux italic)
+- [x] Document the 10px micro step; remove 8px; uppercase tracked micro-kickers → sentence case
+- [x] Template gallery/landing: no mono as costume
 
 ## 6. Polish
 

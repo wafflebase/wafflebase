@@ -81,8 +81,8 @@ export interface ShapePickerProps {
 
 /**
  * "Shape ▾" toolbar control. Single trigger button opens a popover
- * with eight labelled categories — Shapes, Block Arrows, Banners,
- * Flowchart, Callouts, Equation, Stars, Action Buttons — laid out as
+ * with eight labelled categories — Shapes, Block arrows, Banners,
+ * Flowchart, Callouts, Equation, Stars, Action buttons — laid out as
  * 6-column grids of canvas previews. Connector "lines" live in the
  * sibling `<LinePicker />` (endpoint-anchored insertion UX is
  * different enough to warrant its own dropdown).
@@ -132,7 +132,7 @@ export function ShapePicker({
       >
         {SHAPE_PICKER_CATEGORIES.map((cat) => (
           <section key={cat.id} className="mb-2 last:mb-0">
-            <h4 className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h4 className="mb-1 px-1 text-xs font-medium text-muted-foreground">
               {cat.title}
             </h4>
             <div className="grid grid-cols-6 gap-1">

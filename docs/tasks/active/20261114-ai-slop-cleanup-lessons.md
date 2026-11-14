@@ -61,3 +61,12 @@
   sheet image still zooms the page; slides canvas menu has no menu roles
   (pre-existing); sheets cell editor stays 13px on iPhone landscape ≥768px.
 
+### Step 5 — typeset
+- Review: self (mostly class swaps); overflow risk from 33 `text-[11px]` →
+  `text-xs` deferred to the visual-golden diff at the end.
+- The hero `<em>` computes to weight 500, not the 600 the brief assumed —
+  load the italic for the *computed* weight, then guard with
+  `font-synthesis-style: none` so a missing face can't fake it again.
+- Fixed: DESIGN.md said mono covers "category/tag chips" but tag chips are
+  sans; narrowed to the template category chip.
+

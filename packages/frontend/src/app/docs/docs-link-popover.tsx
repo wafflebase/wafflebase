@@ -274,7 +274,7 @@ export function DocsLinkPopover({
             </button>
           </div>
           {applyError && (
-            <span role="alert" className="px-0.5 text-[11px] text-destructive">
+            <span role="alert" className="px-0.5 text-xs text-destructive">
               {applyError}
             </span>
           )}

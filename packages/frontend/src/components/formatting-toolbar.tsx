@@ -370,7 +370,7 @@ export function FormattingToolbar({
                 aria-label="Decrease decimal places"
               >
                 <IconDecimal size={16} />
-                <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
+                <span className="absolute mt-3.5 ml-3 text-2xs font-bold leading-none">
                   -
                 </span>
               </ToolbarButton>
@@ -386,7 +386,7 @@ export function FormattingToolbar({
                 aria-label="Increase decimal places"
               >
                 <IconDecimal size={16} />
-                <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
+                <span className="absolute mt-3.5 ml-3 text-2xs font-bold leading-none">
                   +
                 </span>
               </ToolbarButton>
@@ -729,7 +729,6 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <ToolbarButton
-                className="text-[11px] font-semibold"
                 onClick={handleToggleFunctionBrowser}
                 aria-label="Functions"
               >
@@ -759,7 +758,6 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <ToolbarButton
-                className="text-[11px] font-semibold"
                 onClick={handleInsertChart}
                 aria-label="Insert chart"
               >
@@ -784,9 +782,7 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <ToolbarButton
-                className={`text-[11px] font-semibold ${
-                  dataValidationActive ? "bg-muted" : ""
-                }`}
+                className={dataValidationActive ? "bg-muted" : ""}
                 onClick={onOpenDataValidation}
                 aria-pressed={dataValidationActive}
                 aria-label="Data validation"
@@ -800,7 +796,7 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
+                className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 hover:bg-muted"
                 onClick={handleOpenConditionalFormat}
                 aria-label="Conditional formatting"
               >

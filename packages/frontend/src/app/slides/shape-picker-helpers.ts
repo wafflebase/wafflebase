@@ -33,8 +33,8 @@ export type Category = {
  * pinned via `shape-picker.test.ts` invariants.
  *
  * Categories mirror the OOXML / Google Slides shape menu groups —
- * Shapes, Block Arrows, Banners, Flowchart, Callouts, Equation,
- * Stars, Action Buttons — and the ordering inside each category
+ * Shapes, Block arrows, Banners, Flowchart, Callouts, Equation,
+ * Stars, Action buttons — and the ordering inside each category
  * matches Google Slides so habits transfer. Each `kind` MUST be a
  * `ShapeKind` registered in `PATH_BUILDERS` (or, for action buttons,
  * an `ACTION_BUTTON_GLYPHS` entry). Every entry needs a label > 0
@@ -100,7 +100,7 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
   },
   {
     id: "block-arrows",
-    title: "Block Arrows",
+    title: "Block arrows",
     kinds: [
       { kind: "rightArrow", label: "Right arrow" },
       { kind: "leftArrow", label: "Left arrow" },
@@ -215,7 +215,7 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
   },
   {
     id: "action-buttons",
-    title: "Action Buttons",
+    title: "Action buttons",
     kinds: [
       { kind: "actionButtonBlank", label: "Blank action button" },
       { kind: "actionButtonBackPrevious", label: "Back action button" },

@@ -53,7 +53,7 @@ export function NotificationBell() {
         >
           <IconBell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground">
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs font-medium leading-none text-primary-foreground">
               {unreadCount > BADGE_CAP ? `${BADGE_CAP}+` : unreadCount}
             </span>
           )}

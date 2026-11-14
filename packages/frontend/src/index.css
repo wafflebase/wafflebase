@@ -25,6 +25,14 @@
 }
 
 @theme inline {
+  /*
+   * Micro (10px), one step under Label (`text-xs`, 12px): count badges,
+   * avatar initials, swatch captions. Never body copy, and never a label the
+   * user must read to act (DESIGN.md Typography). Line height 1.5 matches what
+   * the arbitrary 10px sizes it replaced inherited from preflight.
+   */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 1.5;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -120,6 +128,16 @@
   html,
   body {
     touch-action: manipulation;
+  }
+  /*
+   * The brand faces load only the italics they use (index.html), so never
+   * let the browser fake a missing one: a mechanically slanted Fraunces is a
+   * different, worse letterform than its true italic. Add the face to the
+   * font URL instead.
+   */
+  .font-display,
+  .font-code {
+    font-synthesis-style: none;
   }
   /*
    * DOM text selection matches the docs engine's canvas selection: a butter

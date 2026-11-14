@@ -272,7 +272,7 @@ export function HistoryPanel({
           !isLoading &&
           days.map((day) => (
             <section key={day.dayKey} className="border-b last:border-0">
-              <h3 className="px-4 pt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 className="px-4 pt-3 text-xs font-medium text-muted-foreground">
                 {formatDayHeading(day.dayKey)}
               </h3>
               <ul>
@@ -387,7 +387,7 @@ function HistoryEntryRow({
         </time>
       </div>
       {!isAutomatic && entry.meta.by === userId && (
-        <span className="text-[10px] text-muted-foreground">By you</span>
+        <span className="text-2xs text-muted-foreground">By you</span>
       )}
       <div className="flex gap-2">
         <Button

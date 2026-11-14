@@ -898,7 +898,7 @@ export function DocumentList({
                 {author.photo && (
                   <AvatarImage src={author.photo} alt={author.username} />
                 )}
-                <AvatarFallback className="text-[10px]">
+                <AvatarFallback className="text-2xs">
                   {author.username.slice(0, 2).toUpperCase() || "??"}
                 </AvatarFallback>
               </Avatar>

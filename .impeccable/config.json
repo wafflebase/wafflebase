@@ -29,6 +29,15 @@
         ],
         "createdAt": "2026-11-14T03:11:51.467Z",
         "reason": "Claude: Roboto is one entry in the platform system-font stack of the CLI's loopback callback page (pre-existing, not introduced here); DESIGN.md's app body is the system stack"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "packages/frontend/src/components/tab-bar.tsx"
+        ],
+        "createdAt": "2026-11-14T03:49:25.394Z",
+        "reason": "Claude, verified by two audit agents: border-b-2 active-tab underline on a rounded-t tab, not a side accent on a card"
       }
     ]
   }

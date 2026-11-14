@@ -201,14 +201,14 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
                 type="button"
                 aria-label={`Direction ${p.label}`}
                 onClick={() => setPreset(p.deg)}
-                className="h-5 w-5 rounded border border-border text-[11px] hover:bg-muted"
+                className="h-5 w-5 rounded border border-border text-xs hover:bg-muted"
               >
                 {p.label}
               </button>
             ),
           )}
         </div>
-        <label className="flex items-center gap-1 text-[11px]">
+        <label className="flex items-center gap-1 text-xs">
           <span className="text-muted-foreground">Angle</span>
           <input
             type="number"
@@ -227,7 +227,7 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
       </div>
 
       {/* Selected-stop row */}
-      <div className="flex items-center justify-between text-[11px]">
+      <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">Position</span>
         <input
           type="number"

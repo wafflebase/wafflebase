@@ -225,7 +225,7 @@ export function TemplateLanding() {
             >
               {t.title}
             </h1>
-            <p className="mt-3 mb-0 font-code text-[12px] tracking-[0.04em] text-[color:var(--wb-sub)]">
+            <p className="mt-3 mb-0 text-[13px] text-[color:var(--wb-sub)]">
               {t.author ? `Shared by ${t.author.username} · ` : ""}
               {label}
               {t.useCount > 0 &&
@@ -243,7 +243,7 @@ export function TemplateLanding() {
                 <div className="grid gap-2">
                   <Label
                     htmlFor="template-workspace"
-                    className="font-code text-[11.5px] uppercase tracking-[0.1em] text-[color:var(--wb-sub)]"
+                    className="text-[color:var(--wb-ink)]"
                   >
                     Workspace
                   </Label>

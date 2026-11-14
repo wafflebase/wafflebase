@@ -14,21 +14,23 @@ interface Props {
 }
 
 /**
- * Small comment-author avatar with two-letter username fallback.
+ * Small comment-author avatar with a username-initials fallback.
  * Shared between the popover thread card, the side panel row, and the
  * orphan card so the visual weight stays in sync across surfaces.
  */
 export function AuthorAvatar({ author, size = "sm" }: Props) {
   const sizeClass = size === "md" ? "h-5 w-5" : "h-4 w-4";
-  const fallbackClass = size === "md" ? "text-[9px]" : "text-[8px]";
+  // Initials sit at the Micro step (10px), the smallest legible size. Two
+  // letters at 10px overrun a 16px circle, so `sm` carries one.
+  const initials = author.username.slice(0, size === "md" ? 2 : 1);
 
   return (
     <Avatar className={`${sizeClass} shrink-0`}>
       {author.photo && (
         <AvatarImage src={author.photo} alt={author.username} />
       )}
-      <AvatarFallback className={fallbackClass}>
-        {author.username.slice(0, 2).toUpperCase()}
+      <AvatarFallback className="text-2xs">
+        {initials.toUpperCase()}
       </AvatarFallback>
     </Avatar>
   );

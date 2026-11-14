@@ -47,12 +47,12 @@ export function ThemedFontPicker({
   return (
     <div role="group" aria-label="Font picker" className="w-[208px]">
       {hint && (
-        <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+        <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
           {hint}
         </p>
       )}
 
-      <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="mb-1 px-0.5 text-xs font-medium text-muted-foreground">
         Theme fonts
       </p>
       <div className="mb-2 flex flex-col gap-1">
@@ -69,7 +69,7 @@ export function ThemedFontPicker({
           style={{ fontFamily: theme.fonts.heading }}
         >
           <span>Heading</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {theme.fonts.heading}
           </span>
         </button>
@@ -86,14 +86,14 @@ export function ThemedFontPicker({
           style={{ fontFamily: theme.fonts.body }}
         >
           <span>Body</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {theme.fonts.body}
           </span>
         </button>
       </div>
 
       <div className="border-t pt-2">
-        <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="mb-1 px-0.5 text-xs font-medium text-muted-foreground">
           System
         </p>
         {/* Plain list of toggle buttons (NOT a `role="listbox"`).

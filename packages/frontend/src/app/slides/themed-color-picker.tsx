@@ -114,7 +114,7 @@ export function ThemedColorPicker({
   return (
     <div role="group" aria-label="Color picker" className="w-[208px]">
       {hint && (
-        <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+        <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
           {hint}
         </p>
       )}
@@ -133,7 +133,7 @@ export function ThemedColorPicker({
         </button>
       )}
 
-      <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="mb-1 px-0.5 text-xs font-medium text-muted-foreground">
         Theme
       </p>
       <div className="mb-2 grid grid-cols-8 gap-1">
@@ -152,7 +152,7 @@ export function ThemedColorPicker({
 
       {recentColors && recentColors.length > 0 && (
         <>
-          <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="mb-1 px-0.5 text-xs font-medium text-muted-foreground">
             Recent
           </p>
           <div className="mb-2 grid grid-cols-8 gap-1">
@@ -172,7 +172,7 @@ export function ThemedColorPicker({
         </>
       )}
 
-      <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="mb-1 px-0.5 text-xs font-medium text-muted-foreground">
         Standard
       </p>
       <div className="mb-2 grid grid-cols-8 gap-1">
@@ -193,11 +193,11 @@ export function ThemedColorPicker({
       <div className="border-t pt-2">
         <label
           htmlFor={customColorId}
-          className="mb-1 flex cursor-pointer items-center justify-between px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+          className="mb-1 flex cursor-pointer items-center justify-between px-0.5 text-xs font-medium text-muted-foreground"
         >
           <span>Custom</span>
           {value?.kind === "srgb" && (
-            <span className="font-mono text-[10px] normal-case text-foreground">
+            <span className="font-mono text-foreground">
               {value.value.toUpperCase()}
             </span>
           )}
@@ -231,10 +231,10 @@ export function ThemedColorPicker({
         />
 
         {allowAlpha && (
-          <div data-alpha-control className="mt-2 px-0.5 text-[10px]">
-            <div className="mb-1 flex items-center justify-between font-medium uppercase tracking-wide text-muted-foreground">
+          <div data-alpha-control className="mt-2 px-0.5 text-xs">
+            <div className="mb-1 flex items-center justify-between font-medium text-muted-foreground">
               <span>Transparency</span>
-              <span className="font-mono normal-case text-foreground">
+              <span className="font-mono text-foreground">
                 {dragTransparency ?? colorTransparencyPercent(value)}%
               </span>
             </div>

@@ -811,7 +811,7 @@ export function DocsView({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-6 text-[10px]"
+                        className="h-6 text-2xs"
                         onClick={() => {
                           void comments.toggleResolved(t);
                         }}

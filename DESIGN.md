@@ -62,6 +62,10 @@ typography:
     fontFamily: "ui-sans-serif, system-ui, sans-serif"
     fontSize: "12px"
     fontWeight: 500
+  micro:
+    fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    fontSize: "10px"
+    lineHeight: 1.5
   label-mono:
     fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
     fontSize: "11.5px"
@@ -217,13 +221,18 @@ brand layer swaps the zinc for cream paper and walnut ink.
 **Character:** An old-style serif with optical sizing for the brand's voice, set tight and heavy. A plain sans does the work in the editors, and a mono marks code and tick-mark labels.
 
 ### Hierarchy
-- **Display** (600, clamp(40px, 6vw, 68px), 1.04, -0.025em): homepage hero only, with an italic syrup-deep second line.
+- **Display** (600, clamp(40px, 6vw, 68px), 1.04, -0.025em): homepage hero only, with an italic syrup-deep second line set in Fraunces' true italic at 500, the one italic face `index.html` loads. `.font-display` and `.font-code` set `font-synthesis-style: none`, so an italic at any other weight renders upright rather than browser-slanted: load the face before using it.
 - **Headline** (600, 28px, -0.02em): brand-surface page titles (sign-in, template landing). The sidebar wordmark uses the same face at 17px.
 - **Title** (600, 16px, 1): card and dialog titles in the app.
 - **Body** (400, 14px): all editor and workspace UI text. Inputs render at 16px on mobile, which prevents iOS zoom-on-focus.
 - **Body (brand)** (400, clamp(17px, 1.4vw, 19px), 1.55): homepage lead paragraphs, max ~560px measure.
 - **Label** (500, 12px): badges, small metadata.
-- **Label (mono)** (400, 11.5–13px, 0.08em, uppercase): footer column headings and category/tag chips. Never a kicker or eyebrow above a heading.
+- **Label (mono)** (400, 11.5–13px, 0.08em, uppercase): footer column headings and the template category chip. Free-form tag chips use the sans Label. Never a kicker or eyebrow above a heading.
+- **Micro** (`text-2xs`, 10px, line height 1.5): count badges, avatar initials, swatch captions. Never body copy, and never a label the user must read to act. Nothing in the app renders smaller.
+
+Section labels inside popovers and panels (Theme / Recent / Standard in the color picker, shape categories, pivot sections) are **Label**, sentence case, muted: not an uppercase tracked kicker. Uppercase belongs to real abbreviations and keyboard keys.
+
+**Brand scale.** Brand surfaces (homepage, sign-in, template gallery and landing) set their own pixel sizes rather than the app ramp: 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 16, 17, 19, 21 and 28px, plus the fluid `clamp(15px,1.2vw,17px)`, `clamp(17px,1.4vw,19px)`, `clamp(28px,3.5vw,40px)` and Display. Reuse one of these before adding a new value; app chrome uses only `text-2xs` / `text-xs` / `text-sm` / `text-base`, except the paragraph-style menu, whose items preview the sizes of the styles they apply.
 
 ### Named Rules
 **The Serif Is a Signature Rule.** Fraunces never appears inside an editor or on a control. It is the brand's voice, used for wordmarks and brand-surface headings only.

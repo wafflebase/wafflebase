@@ -266,7 +266,7 @@ export function FormatPanel({
               unit={unit}
               onCommit={commitSlideHeight}
             />
-            <p className="px-3 pb-3 text-[11px] text-muted-foreground">
+            <p className="px-3 pb-3 text-xs text-muted-foreground">
               Select an object to edit its format.
             </p>
           </>
