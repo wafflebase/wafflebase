@@ -347,7 +347,7 @@ precedence order — environment variables outrank every file, including
 
 1. **`packages/frontend/.env.production.local`** — the highest-precedence file,
    and gitignored, so your deployment's URLs never land in a commit. This is the
-   recommended way. Beware `.env.local`, the intuitive filename: it ranks
+   recommended way. Do not use `.env.local`: it ranks
    **below** `.env.production` and will not override it.
 2. **Environment variables on the build command** — Vite applies any `VITE_`
    variable already in `process.env` after every file, so these beat all four.

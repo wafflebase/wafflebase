@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -68,7 +69,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
           onClick={onClose}
           aria-label="Close comments panel"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </Button>
       </header>
 
@@ -94,7 +95,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
               <li key={t.id} className="border-b last:border-0">
                 <button
                   type="button"
-                  className="flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+                  className="focus-ring flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-muted/50"
                   onClick={() => onJumpTo(t)}
                   aria-label={`Jump to comment by ${root.author.username}`}
                 >
@@ -111,7 +112,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
                     {mentionBodyToPlainText(root.body).split("\n")[0].slice(0, 80)}
                   </p>
                   {renderAnchorLabel && (
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-2xs text-muted-foreground">
                       {renderAnchorLabel(t)}
                     </div>
                   )}
@@ -133,7 +134,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
 
         {tab === "open" && orphans.length > 0 && renderOrphan && (
           <section aria-label="Orphaned comments" className="border-t">
-            <h3 className="px-4 pt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="px-4 pt-3 text-xs font-medium text-muted-foreground">
               Orphaned
             </h3>
             <ul>
@@ -167,7 +168,7 @@ function TabButton({
     <button
       type="button"
       aria-pressed={active}
-      className={`flex-1 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+      className={`focus-ring flex-1 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
         active
           ? "border-primary text-primary"
           : "border-transparent text-muted-foreground hover:text-foreground"

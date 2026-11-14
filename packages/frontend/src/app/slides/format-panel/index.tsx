@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { IconX } from '@tabler/icons-react';
 import type {
   Effects,
   Element,
@@ -266,7 +267,7 @@ export function FormatPanel({
               unit={unit}
               onCommit={commitSlideHeight}
             />
-            <p className="px-3 pb-3 text-[11px] text-muted-foreground">
+            <p className="px-3 pb-3 text-xs text-muted-foreground">
               Select an object to edit its format.
             </p>
           </>
@@ -369,9 +370,9 @@ export function FormatPanel({
           type="button"
           aria-label="Close format options"
           onClick={onClose}
-          className="rounded p-1 hover:bg-muted"
+          className="focus-ring rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="flex-1 overflow-y-auto">{content}</div>

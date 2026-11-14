@@ -6,6 +6,7 @@ import {
   type SlidesDocument,
   renderThumbnail,
 } from '@wafflebase/slides';
+import { palette } from '@wafflebase/core/tokens';
 import {
   sceneBounds, fitScene, miniToWorld, viewportRectInMini, type MiniFit,
 } from './minimap-geometry';
@@ -14,12 +15,86 @@ const MINI_W = 200;
 const MINI_H = 150;
 const PAD = 80; // world-px breathing room around the scene bounds
 
+/*
+ * Surfaces come from the app tokens (index.css / @wafflebase/core tokens.css)
+ * so the overlay follows light and dark with the rest of the chrome. The
+ * fallbacks only matter where tokens.css is absent (unit tests, a bare host).
+ * The border colour is a longhand because jsdom rejects a whole cssText
+ * whose `border` shorthand carries a var().
+ */
+const TOGGLE_CSS = [
+  'display:inline-flex', 'align-items:center', 'justify-content:center', 'gap:2px',
+  // 16px line + 2px padding + 1px border measures 22px; the floor lifts it
+  // to the 24px minimum target (WCAG 2.5.8). Coarse pointers get 44px below.
+  'min-height:24px', 'box-sizing:border-box',
+  'font:500 12px/16px var(--font-body, system-ui, sans-serif)',
+  'padding:2px 6px 2px 8px', 'border-radius:calc(var(--radius, 4.8px) - 2px)',
+  'background:var(--popover, oklch(1 0 0))', 'color:var(--muted-foreground, oklch(0.552 0.016 285.938))',
+  'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))', 'cursor:pointer',
+].join(';');
+
+const PANEL_CSS = [
+  `width:${MINI_W}px`, `height:${MINI_H}px`,
+  'border-radius:var(--radius, 4.8px)', 'overflow:hidden',
+  'background:var(--card, oklch(1 0 0))',
+  'border:1px solid', 'border-color:var(--border, oklch(0.92 0.004 286.32))',
+  'box-shadow:0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
+].join(';');
+
+/*
+ * A fingertip target for the toggle. Inline styles cannot carry the
+ * `pointer: coarse` media query, so the mount decides once and passes it in.
+ */
+const TOGGLE_COARSE_CSS = ['min-height:44px', 'min-width:44px', 'padding:0 10px 0 12px'].join(';');
+
+/*
+ * The viewport rectangle is a selection-like frame over the scene, so it is
+ * drawn in the ring color: syrup in light, bright syrup in dark — the same
+ * stops `--ring` resolves to (packages/core/src/tokens/semantic.ts). Canvas
+ * takes the palette hex directly (DESIGN.md, the Canvas Hex Rule).
+ */
+export function viewportStrokeColor(theme: 'light' | 'dark'): string {
+  return theme === 'dark' ? palette.syrupBright : palette.syrup;
+}
+
+/**
+ * Whether the minimap starts open. On a phone the 200×150 panel covers about
+ * a quarter of the screen and sits over content the user came to see, so a
+ * narrow viewport or a coarse primary pointer starts it collapsed; the Map
+ * toggle still opens it. Falls back to open where `matchMedia` is missing
+ * (jsdom, SSR), which is the desktop default.
+ */
+export function defaultMinimapVisible(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return true;
+  return !window.matchMedia('(max-width: 767px), (pointer: coarse)').matches;
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Tabler `chevron-down` / `chevron-right`, drawn in the toggle text color. */
+function chevron(expanded: boolean): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  for (const [k, v] of Object.entries({
+    width: '14', height: '14', viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', 'stroke-width': '2',
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true',
+  })) svg.setAttribute(k, v);
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', expanded ? 'M6 9l6 6l6 -6' : 'M9 6l6 6l-6 6');
+  svg.appendChild(path);
+  return svg;
+}
+
 export interface BoardMinimapDeps {
   store: SlidesStore;
   getHostSize: () => { w: number; h: number };
   onNavigate: (worldCenter: Point) => void;
   dpr: number;
   initialVisible?: boolean;
+  /** Grow the toggle to a 44px touch target. */
+  coarsePointer?: boolean;
+  /** Current resolved theme, read at each paint. Defaults to light. */
+  getTheme?: () => 'light' | 'dark';
 }
 
 export interface BoardMinimap {
@@ -37,6 +112,7 @@ export interface BoardMinimap {
  */
 export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   const { store, getHostSize, onNavigate, dpr } = deps;
+  const getTheme = deps.getTheme ?? (() => 'light' as const);
   let visible = deps.initialVisible ?? true;
 
   const root = document.createElement('div');
@@ -48,15 +124,12 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.setAttribute('aria-label', 'Toggle minimap');
-  toggle.style.cssText = 'font:12px system-ui;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.6);color:#fff;border:0;cursor:pointer';
+  toggle.style.cssText = deps.coarsePointer
+    ? `${TOGGLE_CSS};${TOGGLE_COARSE_CSS}`
+    : TOGGLE_CSS;
 
   const panel = document.createElement('div');
-  panel.style.cssText = [
-    `width:${MINI_W}px`, `height:${MINI_H}px`,
-    'border-radius:6px', 'overflow:hidden',
-    'box-shadow:0 2px 8px rgba(0,0,0,.25)',
-    'background:rgba(127,127,127,.12)', 'backdrop-filter:blur(2px)',
-  ].join(';');
+  panel.style.cssText = PANEL_CSS;
 
   const canvas = document.createElement('canvas');
   // Chrome, not content: it sits inside the board container, so without this
@@ -91,7 +164,8 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
   const applyVisibility = () => {
     panel.style.display = visible ? 'block' : 'none';
-    toggle.textContent = visible ? 'Map ▾' : 'Map ▸';
+    toggle.replaceChildren(document.createTextNode('Map'), chevron(visible));
+    toggle.setAttribute('aria-expanded', String(visible));
   };
 
   const paintScene = () => {
@@ -128,7 +202,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
       const r = viewportRectInMini(lastVp, getHostSize(), lastFit);
       ctx.save();
       ctx.scale(dpr, dpr);
-      ctx.strokeStyle = '#2b7fff';
+      ctx.strokeStyle = viewportStrokeColor(getTheme());
       ctx.lineWidth = 1.5;
       ctx.strokeRect(r.x, r.y, r.w, r.h);
       ctx.restore();

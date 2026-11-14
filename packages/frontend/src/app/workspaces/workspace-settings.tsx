@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import {
   fetchWorkspace,
   fetchWorkspaces,
@@ -43,6 +44,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { LoadErrorState } from "@/components/load-error-state";
 
 /**
  * Renders the workspace settings page with name editing, members, and invites.
@@ -66,6 +68,8 @@ export default function WorkspaceSettings() {
     isLoading,
     isError,
     error,
+    refetch,
+    isFetching,
   } = useQuery<WorkspaceDetail>({
     queryKey: ["workspaces", workspaceId],
     queryFn: () => fetchWorkspace(workspaceId!),
@@ -104,7 +108,7 @@ export default function WorkspaceSettings() {
       }
       toast.success("Workspace updated");
     },
-    onError: () => toast.error("Failed to update workspace"),
+    onError: () => toast.error("Couldn't update the workspace"),
   });
 
   const createInviteMutation = useMutation({
@@ -113,9 +117,9 @@ export default function WorkspaceSettings() {
       queryClient.invalidateQueries({
         queryKey: ["workspaces", workspaceId, "invites"],
       });
-      toast.success("Invite created");
+      toast.success("Invite link created");
     },
-    onError: () => toast.error("Failed to create invite"),
+    onError: () => toast.error("Couldn't create the invite link"),
   });
 
   const revokeInviteMutation = useMutation({
@@ -124,9 +128,9 @@ export default function WorkspaceSettings() {
       queryClient.invalidateQueries({
         queryKey: ["workspaces", workspaceId, "invites"],
       });
-      toast.success("Invite revoked");
+      toast.success("Invite link revoked");
     },
-    onError: () => toast.error("Failed to revoke invite"),
+    onError: () => toast.error("Couldn't revoke the invite link"),
   });
 
   const removeMemberMutation = useMutation({
@@ -137,7 +141,7 @@ export default function WorkspaceSettings() {
       });
       toast.success("Member removed");
     },
-    onError: () => toast.error("Failed to remove member"),
+    onError: () => toast.error("Couldn't remove the member"),
   });
 
   // Every member mints and manages their own keys, so this is not gated on
@@ -164,7 +168,7 @@ export default function WorkspaceSettings() {
       setKeyName("");
       setRevealedKey(result);
     },
-    onError: () => toast.error("Failed to create API key"),
+    onError: () => toast.error("Couldn't create the API key"),
   });
 
   const revokeApiKeyMutation = useMutation({
@@ -175,7 +179,7 @@ export default function WorkspaceSettings() {
       });
       toast.success("API key revoked");
     },
-    onError: () => toast.error("Failed to revoke API key"),
+    onError: () => toast.error("Couldn't revoke the API key"),
   });
 
   const deleteMutation = useMutation({
@@ -193,7 +197,12 @@ export default function WorkspaceSettings() {
       toast.success("Workspace deleted");
     },
     onError: (err: Error) =>
-      toast.error(err.message || "Failed to delete workspace"),
+      toast.error(
+        userFacingError(
+          err,
+          "Couldn't delete the workspace. Try again in a moment.",
+        ),
+      ),
   });
 
   if (isLoading) {
@@ -220,10 +229,13 @@ export default function WorkspaceSettings() {
       return null;
     }
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-destructive text-lg">Failed to load workspace.</p>
-        <p className="text-sm text-muted-foreground">Please try again later.</p>
-      </div>
+      <LoadErrorState
+        title="Couldn't load the workspace."
+        error={error}
+        onRetry={() => void refetch()}
+        isRetrying={isFetching}
+        noAccessMessage="This workspace doesn't exist, or you no longer have access to it."
+      />
     );
   }
 
@@ -237,9 +249,9 @@ export default function WorkspaceSettings() {
 
   return (
     <div className="p-4 lg:p-6 max-w-2xl space-y-8">
-      {/* Workspace Name */}
+      {/* Workspace name */}
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Workspace Name</h2>
+        <h2 className="text-lg font-semibold">Workspace name</h2>
         <p className="text-sm text-muted-foreground">
           The display name of your workspace, visible to all members.
         </p>
@@ -372,7 +384,7 @@ export default function WorkspaceSettings() {
                 className="flex items-center gap-2"
               >
                 <Plus className="w-4 h-4" />
-                Create Invite
+                Create invite link
               </Button>
             </div>
             {invites.length > 0 ? (
@@ -434,20 +446,24 @@ export default function WorkspaceSettings() {
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">API Keys</h2>
+            <h2 className="text-lg font-semibold">API keys</h2>
             <p className="text-sm text-muted-foreground">
               {isOwner
                 ? "Create API keys for programmatic access via the CLI or REST API. As the workspace owner you can see and revoke every member's keys."
                 : "Create API keys for programmatic access via the CLI or REST API. A key acts as you, and only you and the workspace owner can see it."}
             </p>
           </div>
+          {/* One primary per screen (DESIGN.md, the One Accent Rule): an
+              owner also sees "Create invite link", which is the page's main
+              action, so this one steps down to outline beside it. */}
           <Button
             size="sm"
+            variant={isOwner ? "outline" : "default"}
             onClick={() => setCreateKeyDialogOpen(true)}
             className="flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            Create API Key
+            Create API key
           </Button>
         </div>
         {apiKeys.length > 0 ? (
@@ -459,7 +475,7 @@ export default function WorkspaceSettings() {
                   <TableHead>Key</TableHead>
                   {isOwner && <TableHead>Created by</TableHead>}
                   <TableHead>Created</TableHead>
-                  <TableHead>Last Used</TableHead>
+                  <TableHead>Last used</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -504,11 +520,11 @@ export default function WorkspaceSettings() {
         )}
       </section>
 
-      {/* Danger Zone */}
+      {/* Delete workspace */}
       {isOwner && <Separator />}
       {isOwner && (
           <section className="space-y-2">
-            <h2 className="text-lg font-semibold text-destructive">Danger Zone</h2>
+            <h2 className="text-lg font-semibold text-destructive">Delete workspace</h2>
             <div className="rounded-md border border-destructive/30 p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -591,7 +607,7 @@ export default function WorkspaceSettings() {
         </DialogContent>
       </Dialog>
 
-      {/* Create API Key dialog */}
+      {/* Create API key dialog */}
       <Dialog
         open={createKeyDialogOpen}
         onOpenChange={(open) => {
@@ -601,9 +617,9 @@ export default function WorkspaceSettings() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create API Key</DialogTitle>
+            <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
-              Enter a name to identify this key.
+              The key acts as you, with your access to this workspace.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -655,9 +671,9 @@ export default function WorkspaceSettings() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>API Key Created</DialogTitle>
+            <DialogTitle>API key created</DialogTitle>
             <DialogDescription>
-              Copy your key now. It will only be shown once.
+              Copy your key now. It is shown only once.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border bg-muted p-3">

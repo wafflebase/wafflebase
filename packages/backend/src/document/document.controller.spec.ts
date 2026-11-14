@@ -158,6 +158,8 @@ const WS = 'ws-1';
 const AUTHOR = 1;
 const OWNER = 2;
 const MEMBER = 3;
+const TRASHED_AT = new Date('2026-11-14T00:00:00Z');
+const BLOB_ID = '11111111-2222-3333-4444-555555555555.pdf';
 
 function reqAs(userId: number) {
   return { user: { id: userId } } as never;
@@ -167,10 +169,17 @@ describe('DocumentController delete/move/rename permissions', () => {
   let controller: DocumentController;
   let documentService: {
     document: jest.Mock;
+    documentIncludingTrashed: jest.Mock;
+    trashDocuments: jest.Mock;
+    restoreDocument: jest.Mock;
+    trashedDocument: jest.Mock;
+    purgeTrashedDocument: jest.Mock;
     deleteDocument: jest.Mock;
     updateDocument: jest.Mock;
     listDocumentsWithAuthor: jest.Mock;
+    listTrash: jest.Mock;
   };
+  let fileService: { delete: jest.Mock };
   let copyService: { copy: jest.Mock };
   let workspaceService: {
     assertMember: jest.Mock;
@@ -186,10 +195,34 @@ describe('DocumentController delete/move/rename permissions', () => {
         authorID: AUTHOR,
         fileId: null,
       }),
+      documentIncludingTrashed: jest.fn().mockResolvedValue({
+        id: 'doc-1',
+        workspaceId: WS,
+        authorID: AUTHOR,
+        fileId: null,
+        deletedAt: TRASHED_AT,
+      }),
+      trashDocuments: jest.fn().mockResolvedValue(1),
+      restoreDocument: jest.fn().mockResolvedValue({
+        id: 'doc-1',
+        workspaceId: WS,
+        authorID: AUTHOR,
+        deletedAt: null,
+      }),
+      trashedDocument: jest.fn().mockResolvedValue({
+        id: 'doc-1',
+        workspaceId: WS,
+        authorID: AUTHOR,
+        fileId: null,
+        deletedAt: TRASHED_AT,
+      }),
+      purgeTrashedDocument: jest.fn().mockResolvedValue(true),
       deleteDocument: jest.fn().mockResolvedValue({ id: 'doc-1' }),
       updateDocument: jest.fn().mockResolvedValue({ id: 'doc-1' }),
       listDocumentsWithAuthor: jest.fn(),
+      listTrash: jest.fn(),
     };
+    fileService = { delete: jest.fn().mockResolvedValue(undefined) };
     copyService = { copy: jest.fn() };
     workspaceService = {
       // Default: caller is a plain member. Individual tests override the role.
@@ -202,7 +235,7 @@ describe('DocumentController delete/move/rename permissions', () => {
       copyService as never,
       workspaceService as never,
       { getEditors: jest.fn().mockResolvedValue(new Map()) } as never,
-      { delete: jest.fn().mockResolvedValue(undefined) } as never,
+      fileService as never,
       { assertSameWorkspace: jest.fn() } as never,
     );
   });
@@ -213,14 +246,85 @@ describe('DocumentController delete/move/rename permissions', () => {
       await expect(
         controller.deleteDocument(reqAs(MEMBER), 'doc-1'),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(documentService.deleteDocument).not.toHaveBeenCalled();
+      expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
+      expect(documentService.trashDocuments).not.toHaveBeenCalled();
     });
 
-    it('lets the workspace owner delete any document', async () => {
+    it('lets the workspace owner move any document to the trash', async () => {
       workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
       await expect(
         controller.deleteDocument(reqAs(OWNER), 'doc-1'),
-      ).resolves.toMatchObject({ id: 'doc-1' });
+      ).resolves.toMatchObject({ id: 'doc-1', deletedAt: TRASHED_AT });
+      expect(documentService.trashDocuments).toHaveBeenCalledWith(['doc-1']);
+      // A soft delete keeps the row and its blob.
+      expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
+      expect(fileService.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes for good, blob included, with ?permanent=true', async () => {
+      workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
+      documentService.trashedDocument.mockResolvedValue({
+        id: 'doc-1',
+        workspaceId: WS,
+        authorID: AUTHOR,
+        fileId: BLOB_ID,
+        deletedAt: TRASHED_AT,
+      });
+      await controller.deleteDocument(reqAs(OWNER), 'doc-1', 'true');
+      expect(documentService.trashedDocument).toHaveBeenCalledWith({
+        id: 'doc-1',
+      });
+      expect(documentService.purgeTrashedDocument).toHaveBeenCalledWith(
+        'doc-1',
+      );
+      expect(documentService.trashDocuments).not.toHaveBeenCalled();
+      expect(fileService.delete).toHaveBeenCalledWith(BLOB_ID);
+    });
+
+    it('holds a permanent delete to the same manager gate', async () => {
+      workspaceService.assertMember.mockResolvedValue({ role: 'member' });
+      await expect(
+        controller.deleteDocument(reqAs(MEMBER), 'doc-1', 'true'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
+    });
+
+    // A stale Trash page must not destroy a document a collaborator restored
+    // after it loaded: a permanent delete only reaches the trash.
+    it('answers 404 for a permanent delete of a live document', async () => {
+      workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
+      documentService.trashedDocument.mockResolvedValue(null);
+      await expect(
+        controller.deleteDocument(reqAs(OWNER), 'doc-1', 'true'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
+      expect(documentService.deleteDocument).not.toHaveBeenCalled();
+      expect(fileService.delete).not.toHaveBeenCalled();
+    });
+
+    it('keeps the blob when a restore wins the race to the delete', async () => {
+      workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
+      documentService.trashedDocument.mockResolvedValue({
+        id: 'doc-1',
+        workspaceId: WS,
+        authorID: AUTHOR,
+        fileId: BLOB_ID,
+        deletedAt: TRASHED_AT,
+      });
+      documentService.purgeTrashedDocument.mockResolvedValue(false);
+      await expect(
+        controller.deleteDocument(reqAs(OWNER), 'doc-1', 'true'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(fileService.delete).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when trashing a document already in the trash', async () => {
+      // `document()` is live-only, so a trashed row reads as missing.
+      documentService.document.mockResolvedValue(null);
+      await expect(
+        controller.deleteDocument(reqAs(OWNER), 'doc-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(documentService.trashDocuments).not.toHaveBeenCalled();
     });
 
     it('lets the document author delete their own document', async () => {
@@ -242,6 +346,73 @@ describe('DocumentController delete/move/rename permissions', () => {
       await expect(
         controller.deleteDocument(reqAs(OWNER), 'doc-1'),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('restoreDocument', () => {
+    it('restores a trashed document for its author', async () => {
+      await expect(
+        controller.restoreDocument(reqAs(AUTHOR), 'doc-1'),
+      ).resolves.toMatchObject({ id: 'doc-1', deletedAt: null });
+      expect(documentService.restoreDocument).toHaveBeenCalledWith('doc-1');
+    });
+
+    it('forbids a plain member who does not own it', async () => {
+      await expect(
+        controller.restoreDocument(reqAs(MEMBER), 'doc-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(documentService.restoreDocument).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a live document', async () => {
+      documentService.documentIncludingTrashed.mockResolvedValue({
+        id: 'doc-1',
+        workspaceId: WS,
+        authorID: AUTHOR,
+        deletedAt: null,
+      });
+      await expect(
+        controller.restoreDocument(reqAs(AUTHOR), 'doc-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('answers 404 when the restore loses a race', async () => {
+      documentService.restoreDocument.mockResolvedValue(null);
+      await expect(
+        controller.restoreDocument(reqAs(AUTHOR), 'doc-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('findTrashByWorkspace', () => {
+    const trashedRow = (id: string, authorID: number) => ({
+      id,
+      type: 'sheet',
+      workspaceId: WS,
+      authorID,
+      updatedAt: new Date(0),
+      deletedAt: TRASHED_AT,
+    });
+
+    it('lists trashed rows with canManage and an ISO deletedAt', async () => {
+      documentService.listTrash.mockResolvedValue([
+        trashedRow('a', AUTHOR),
+        trashedRow('b', 999),
+      ]);
+      const rows = await controller.findTrashByWorkspace(WS, reqAs(AUTHOR));
+      expect(documentService.listTrash).toHaveBeenCalledWith(WS);
+      expect(rows.map((r) => [r.id, r.canManage, r.deletedAt])).toEqual([
+        ['a', true, TRASHED_AT.toISOString()],
+        ['b', false, TRASHED_AT.toISOString()],
+      ]);
+    });
+
+    it('is member-gated', async () => {
+      workspaceService.assertMember.mockRejectedValue(new ForbiddenException());
+      await expect(
+        controller.findTrashByWorkspace(WS, reqAs(999)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(documentService.listTrash).not.toHaveBeenCalled();
     });
   });
 
@@ -399,13 +570,31 @@ describe('DocumentController.moveDocuments', () => {
 describe('DocumentController.deleteDocuments', () => {
   function makeDeleteController(overrides: {
     docs?: Record<string, any>;
+    trashed?: Record<string, any>;
+    restoredMidway?: string[];
     memberRole?: string; // role for assertMember
   }) {
     const docs = overrides.docs ?? {};
+    const trashed = overrides.trashed ?? {};
     const documentService = {
       document: jest.fn(async ({ id }: { id: string }) => docs[id] ?? null),
+      documentIncludingTrashed: jest.fn(({ id }: { id: string }) =>
+        Promise.resolve(docs[id] ?? trashed[id] ?? null),
+      ),
+      trashedDocument: jest.fn(({ id }: { id: string }) =>
+        Promise.resolve(trashed[id] ?? null),
+      ),
       moveDocuments: jest.fn(),
-      deleteDocuments: jest.fn(async () => Object.keys(docs).length),
+      trashDocuments: jest.fn((ids: string[]) => Promise.resolve(ids.length)),
+      // Purges what is still in the trash at write time; `restoredMidway`
+      // simulates a collaborator's restore landing after the gate read.
+      purgeTrashedDocuments: jest.fn((ids: string[]) =>
+        Promise.resolve(
+          ids.filter(
+            (id) => trashed[id] && !overrides.restoredMidway?.includes(id),
+          ),
+        ),
+      ),
       deleteDocument: jest.fn(),
     };
     const copyService = { copy: jest.fn() };
@@ -426,10 +615,10 @@ describe('DocumentController.deleteDocuments', () => {
     return { controller, documentService, workspaceService, fileService };
   }
 
-  it('deletes all when the caller manages every id', async () => {
-    const { controller, documentService } = makeDeleteController({
+  it('trashes all when the caller manages every id', async () => {
+    const { controller, documentService, fileService } = makeDeleteController({
       docs: {
-        a: { id: 'a', workspaceId: 'ws1', authorID: 1, fileId: null },
+        a: { id: 'a', workspaceId: 'ws1', authorID: 1, fileId: BLOB_ID },
         b: { id: 'b', workspaceId: 'ws1', authorID: 1, fileId: null },
       },
     });
@@ -437,7 +626,95 @@ describe('DocumentController.deleteDocuments', () => {
       ids: ['a', 'b'],
     } as never);
     expect(res).toEqual({ deleted: ['a', 'b'] });
-    expect(documentService.deleteDocuments).toHaveBeenCalledWith(['a', 'b']);
+    expect(documentService.trashDocuments).toHaveBeenCalledWith(['a', 'b']);
+    expect(documentService.purgeTrashedDocuments).not.toHaveBeenCalled();
+    expect(fileService.delete).not.toHaveBeenCalled();
+  });
+
+  it('deletes trashed ids for good with permanent: true', async () => {
+    const { controller, documentService, fileService } = makeDeleteController({
+      trashed: {
+        a: {
+          id: 'a',
+          workspaceId: 'ws1',
+          authorID: 1,
+          fileId: null,
+          deletedAt: TRASHED_AT,
+        },
+        b: {
+          id: 'b',
+          workspaceId: 'ws1',
+          authorID: 1,
+          fileId: BLOB_ID,
+          deletedAt: TRASHED_AT,
+        },
+      },
+    });
+    const res = await controller.deleteDocuments(reqAs(1), {
+      ids: ['a', 'b'],
+      permanent: true,
+    });
+    expect(res).toEqual({ deleted: ['a', 'b'] });
+    expect(documentService.purgeTrashedDocuments).toHaveBeenCalledWith([
+      'a',
+      'b',
+    ]);
+    expect(documentService.trashDocuments).not.toHaveBeenCalled();
+    expect(fileService.delete).toHaveBeenCalledWith(BLOB_ID);
+  });
+
+  // Empty trash from a stale page: `a` is live again, so the whole request is
+  // refused before anything is destroyed.
+  it('refuses a permanent delete that names a live id', async () => {
+    const { controller, documentService, fileService } = makeDeleteController({
+      docs: {
+        a: { id: 'a', workspaceId: 'ws1', authorID: 1, fileId: BLOB_ID },
+      },
+      trashed: {
+        b: { id: 'b', workspaceId: 'ws1', authorID: 1, deletedAt: TRASHED_AT },
+      },
+    });
+    await expect(
+      controller.deleteDocuments(reqAs(1), {
+        ids: ['a', 'b'],
+        permanent: true,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(documentService.purgeTrashedDocuments).not.toHaveBeenCalled();
+    expect(fileService.delete).not.toHaveBeenCalled();
+  });
+
+  it('spares an id restored after the gate, blob included', async () => {
+    const { controller, fileService } = makeDeleteController({
+      trashed: {
+        a: {
+          id: 'a',
+          workspaceId: 'ws1',
+          authorID: 1,
+          fileId: BLOB_ID,
+          deletedAt: TRASHED_AT,
+        },
+        b: { id: 'b', workspaceId: 'ws1', authorID: 1, deletedAt: TRASHED_AT },
+      },
+      restoredMidway: ['a'],
+    });
+    const res = await controller.deleteDocuments(reqAs(1), {
+      ids: ['a', 'b'],
+      permanent: true,
+    });
+    expect(res).toEqual({ deleted: ['b'] });
+    expect(fileService.delete).not.toHaveBeenCalled();
+  });
+
+  it('refuses to trash an id that is already in the trash', async () => {
+    const { controller, documentService } = makeDeleteController({
+      docs: { a: { id: 'a', workspaceId: 'ws1', authorID: 1 } },
+      trashed: { b: { id: 'b', workspaceId: 'ws1', authorID: 1 } },
+    });
+    await expect(
+      controller.deleteDocuments(reqAs(1), { ids: ['a', 'b'] } as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(documentService.trashDocuments).not.toHaveBeenCalled();
   });
 
   it('rejects atomically when one id is not managed', async () => {
@@ -451,7 +728,7 @@ describe('DocumentController.deleteDocuments', () => {
     await expect(
       controller.deleteDocuments(reqAs(1), { ids: ['a', 'b'] } as never),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(documentService.deleteDocuments).not.toHaveBeenCalled();
+    expect(documentService.trashDocuments).not.toHaveBeenCalled();
   });
 });
 

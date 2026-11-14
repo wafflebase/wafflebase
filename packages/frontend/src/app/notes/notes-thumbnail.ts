@@ -17,6 +17,8 @@
  * with no image on it.
  */
 
+import { palette } from "@wafflebase/core/tokens";
+
 /**
  * Drawn at the encoder's own ceiling (`MAX_EDGE`, 1280) rather than below it.
  * At 800 the encoder had nothing to downscale, so a note card was the one type
@@ -41,12 +43,26 @@ export interface NoteThumbnailTheme {
   body: string;
 }
 
+/**
+ * The card is shown in the template gallery, a brand surface, so it is drawn
+ * as a sheet of the gallery's own paper (DESIGN.md: cream paper, walnut ink,
+ * cocoa sub) rather than a stock cool gray. Body text is 6.62:1 on the light
+ * paper and 6.85:1 on the dark one.
+ */
 export const NOTE_THUMBNAIL_THEMES: Record<
   "light" | "dark",
   NoteThumbnailTheme
 > = {
-  light: { background: "#ffffff", heading: "#111827", body: "#4b5563" },
-  dark: { background: "#0b0f19", heading: "#f3f4f6", body: "#9ca3af" },
+  light: {
+    background: palette.neutrals.light.paper,
+    heading: palette.neutrals.light.ink,
+    body: palette.neutrals.light.sub,
+  },
+  dark: {
+    background: palette.neutrals.dark.paper,
+    heading: palette.neutrals.dark.ink,
+    body: palette.neutrals.dark.sub,
+  },
 };
 
 /**

@@ -6,6 +6,7 @@ import { isAuthExpiredError } from "@/api/auth";
 import { Document, Folder } from "@/types/documents";
 import { DocumentList } from "@/app/documents/document-list";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadErrorState } from "@/components/load-error-state";
 
 /**
  * Renders the workspace-scoped documents page.
@@ -26,6 +27,8 @@ export default function WorkspaceDocuments() {
     isLoading,
     isError,
     error,
+    refetch,
+    isFetching,
   } = useQuery<Array<Document>>({
     queryKey: ["workspaces", workspaceId, "documents", folderId ?? "root"],
     queryFn: () => fetchWorkspaceDocuments(workspaceId!, folderId),
@@ -59,10 +62,13 @@ export default function WorkspaceDocuments() {
       return null;
     }
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-destructive text-lg">Failed to load documents.</p>
-        <p className="text-sm text-muted-foreground">Please try again later.</p>
-      </div>
+      <LoadErrorState
+        title="Couldn't load documents."
+        error={error}
+        onRetry={() => void refetch()}
+        isRetrying={isFetching}
+        noAccessMessage="This workspace doesn't exist, or you no longer have access to it."
+      />
     );
   }
 

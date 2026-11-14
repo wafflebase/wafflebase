@@ -14,6 +14,20 @@ export interface PresenterOptions {
   doc: SlidesDocument;
   startSlideId: string;
   onExit: () => void;
+  /**
+   * Whether the viewer asked the OS for reduced motion. Defaults to the
+   * `prefers-reduced-motion: reduce` media query; injectable so tests and
+   * non-browser hosts decide it directly. Read at each navigation, not
+   * once at mount, so toggling the setting mid-show applies on the next
+   * click. When true, slide transitions are cuts and object animations
+   * land on their final state (see `AnimationPlayerOptions`).
+   */
+  prefersReducedMotion?: () => boolean;
+}
+
+function mediaPrefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 /**
@@ -110,6 +124,8 @@ export function startPresenter(options: PresenterOptions): Presenter {
     currentSlideId: resolvedStartId,
     atEndScreen: false,
   };
+
+  const prefersReducedMotion = options.prefersReducedMotion ?? mediaPrefersReducedMotion;
 
   let disposed = false;
   let lastPaintKind: 'slide' | 'end' | null = null;
@@ -387,6 +403,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
         renderer.forceRender(slide, state.doc, undefined, states);
         lastPaintKind = 'slide';
       },
+      { reducedMotion: prefersReducedMotion },
     );
   }
 
@@ -450,7 +467,11 @@ export function startPresenter(options: PresenterOptions): Presenter {
       animPlayer = null;
 
       const t = nextSlide.transition;
-      if (t && t.type !== 'none' && t.durationMs > 0) {
+      // Reduced motion turns every transition into the cut below: a push
+      // or slide moves the whole viewport, the motion the OS setting is
+      // there to stop, and even a fade is replaced rather than kept so the
+      // slide change lands on the click.
+      if (t && t.type !== 'none' && t.durationMs > 0 && !prefersReducedMotion()) {
         // Play the cross-paint transition, then settle on the new slide
         // and arm its object-animation player.
         playTransition(fromSlide, nextSlide, t, () => {
@@ -459,7 +480,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
           paint();
         });
       } else {
-        // No transition — instant cut (original behavior).
+        // No transition (or reduced motion) — instant cut.
         animPlayer = buildPlayerFor(nextSlide);
         paint();
       }

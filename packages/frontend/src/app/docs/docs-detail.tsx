@@ -11,15 +11,9 @@ import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { SiteHeader } from "@/components/site-header";
+import { HeaderPanelToggle, SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
-import { Toggle } from "@/components/ui/toggle";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconMessage, IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
@@ -196,64 +190,47 @@ function DocsLayout({ documentId }: { documentId: string }) {
           editable={!previewing}
           syncStatus
           onRename={previewing ? undefined : handleRenameDocument}
-        >
-          <div className="flex items-center gap-2">
-            {/* The comments toggle is editing chrome, so a preview removes it
-                like the formatting toolbar — otherwise it is the one control
-                that could re-open the side panel *over* an open preview. */}
-            <EditingChrome previewing={previewing}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                    aria-label={
-                      commentsPanelOpen ? "Hide comments" : "Show comments"
-                    }
-                    pressed={commentsPanelOpen}
-                    onPressedChange={setCommentsPanelOpen}
-                  >
-                    <IconMessage size={16} />
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {commentsPanelOpen ? "Hide comments" : "Show comments"}
-                </TooltipContent>
-              </Tooltip>
-            </EditingChrome>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Toggle
-                  size="sm"
-                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                  aria-label={
-                    historyOpen ? "Hide version history" : "Show version history"
-                  }
-                  pressed={historyOpen}
-                  onPressedChange={setHistoryOpen}
-                >
-                  <IconHistory size={16} />
-                </Toggle>
-              </TooltipTrigger>
-              <TooltipContent>
-                {historyOpen ? "Hide version history" : "Show version history"}
-              </TooltipContent>
-            </Tooltip>
-            <DocsExportButton
-              editor={editor}
-              title={documentData?.title ?? "document"}
-            />
-            <ShareDialog documentId={documentId} />
-            {/* Same as the sheet host: the avatars are read-only and stay,
-                but the jump moves the LIVE editor behind the preview and
-                republishes this user's caret there. Omitting the callbacks
-                disables the trigger and drops the jump hint. */}
-            <UserPresence
-              onSelectPeer={previewing ? undefined : handleSelectPeer}
-              getJumpHint={previewing ? undefined : getJumpHint}
-            />
-          </div>
-        </SiteHeader>
+          actions={{
+            // The comments toggle is editing chrome, so a preview removes it
+            // like the formatting toolbar — otherwise it is the one control
+            // that could re-open the side panel *over* an open preview.
+            comments: (
+              <EditingChrome previewing={previewing}>
+                <HeaderPanelToggle
+                  icon={IconMessage}
+                  label="comments"
+                  pressed={commentsPanelOpen}
+                  onPressedChange={setCommentsPanelOpen}
+                />
+              </EditingChrome>
+            ),
+            history: (
+              <HeaderPanelToggle
+                icon={IconHistory}
+                label="version history"
+                pressed={historyOpen}
+                onPressedChange={setHistoryOpen}
+              />
+            ),
+            export: (
+              <DocsExportButton
+                editor={editor}
+                title={documentData?.title ?? "document"}
+              />
+            ),
+            share: <ShareDialog documentId={documentId} />,
+            // Same as the sheet host: the avatars are read-only and stay,
+            // but the jump moves the LIVE editor behind the preview and
+            // republishes this user's caret there. Omitting the callbacks
+            // disables the trigger and drops the jump hint.
+            presence: (
+              <UserPresence
+                onSelectPeer={previewing ? undefined : handleSelectPeer}
+                getJumpHint={previewing ? undefined : getJumpHint}
+              />
+            ),
+          }}
+        />
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           {/* Same arrangement as slides and notes, for the same reason: the
               formatting toolbar stays full-width above the panel row, and a

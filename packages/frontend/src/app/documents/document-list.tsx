@@ -1,3 +1,4 @@
+import { avatarInitials } from "@/components/avatar-size";
 import {
   FormEvent,
   MouseEvent,
@@ -8,13 +9,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Column,
   ColumnDef,
   ColumnFiltersState,
   OnChangeFn,
+  RowSelectionState,
   SortingState,
   VisibilityState,
   flexRender,
@@ -41,6 +43,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  SearchX,
   Trash2,
   X,
 } from "lucide-react";
@@ -88,7 +91,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { useDateFormat } from "@/lib/date-format-preference";
 import type { Document, DocumentType, Folder } from "@/types/documents";
 import {
   allManageable,
@@ -96,13 +98,12 @@ import {
   encodeDocDrag,
   isDocDrag,
 } from "./document-bulk";
+import { DateCell } from "./date-cell";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import { FolderBreadcrumb } from "./folder-breadcrumb";
 import { folderPath } from "./folder-path";
 import {
   compareDates,
-  formatFullDateTime,
-  formatListDate,
   getDocumentPath,
   isBlobBacked,
   lastModified,
@@ -116,7 +117,9 @@ import {
   deleteDocuments,
   moveDocuments,
   renameDocument,
+  restoreDocuments,
 } from "@/api/documents";
+import { userFacingError } from "@/api/http-error";
 import {
   createFolder,
   deleteFolder,
@@ -181,6 +184,52 @@ const rowCreated = (row: ListRow): string => row.item.createdAt;
 const DOC_KEY_PREFIX = "doc:";
 const FOLDER_KEY_PREFIX = "folder:";
 
+/**
+ * Per-column width and breakpoint classes, applied to the header cell and to
+ * every body cell alike.
+ *
+ * Applying them to the header too is what keeps the layout still when a
+ * filter empties the body: the column widths no longer depend on which rows
+ * happen to be rendered. The breakpoints are what keep the row menu on screen
+ * on a phone — Owner and Created drop below `md`, Modified below `sm`, so the
+ * checkbox, the title and the row menu are all that compete for 356px. The
+ * title takes whatever is left and truncates inside it (`max-w-0` is what lets
+ * a `table-layout: auto` cell shrink below its content).
+ */
+const COLUMN_CLASS: Record<string, string> = {
+  select: "w-10",
+  title: "w-full max-w-0 md:min-w-64",
+  owner: "hidden w-20 md:table-cell",
+  updatedAt: "hidden w-32 sm:table-cell",
+  createdAt: "hidden w-32 md:table-cell",
+  actions: "w-12",
+};
+
+/**
+ * A mixed delete trashes its documents, then deletes its folders, as separate
+ * requests. This is the second one failing after the first succeeded: it
+ * carries the ids that did reach the Trash, so they can still be undone.
+ */
+class FolderDeleteError extends Error {
+  constructor(
+    readonly trashedDocIds: string[],
+    readonly cause: unknown,
+  ) {
+    super("Couldn't delete the folder");
+    this.name = "FolderDeleteError";
+  }
+}
+
+/**
+ * The toast for documents that just moved to the Trash. Names the document
+ * when there is one, since "Moved to Trash" alone does not say which.
+ */
+function trashedMessage(titles: string[]): string {
+  return titles.length === 1
+    ? `Moved “${titles[0]}” to Trash`
+    : `Moved ${titles.length} documents to Trash`;
+}
+
 
 /**
  * Clickable column header that toggles this column's sort and shows the
@@ -218,21 +267,6 @@ function SortableHeader<TData>({
 }
 
 /**
- * A date cell's visible text: relative ("3 days ago") or an exact locale date
- * ("Jul 25"), per the user's Settings preference. The full localized date and
- * time is always the tooltip, so the exact timestamp stays reachable in either
- * format — and a missing or unparseable value renders an em dash in both.
- */
-export function DateCell({ value }: { value: string | undefined }) {
-  const format = useDateFormat();
-  return (
-    <div className="text-right font-medium" title={formatFullDateTime(value)}>
-      {formatListDate(value, format)}
-    </div>
-  );
-}
-
-/**
  * A right-aligned, time-based sortable column. Used by the Modified and
  * Created columns. Sorting compares the raw accessor values, so the order is
  * independent of how the cell chooses to display them.
@@ -262,11 +296,11 @@ const CREATE_ITEMS: ReadonlyArray<{
   title: string;
   label: string;
 }> = [
-  { type: "doc", title: "New Document", label: "New Document" },
-  { type: "sheet", title: "New Sheet", label: "New Sheet" },
-  { type: "slides", title: "New Presentation", label: "New Presentation" },
-  { type: "note", title: "New Note", label: "New Note" },
-  { type: "board", title: "Untitled board", label: "New Board" },
+  { type: "doc", title: "New Document", label: "New document" },
+  { type: "sheet", title: "New Sheet", label: "New sheet" },
+  { type: "slides", title: "New Presentation", label: "New presentation" },
+  { type: "note", title: "New Note", label: "New note" },
+  { type: "board", title: "Untitled board", label: "New board" },
 ];
 
 /**
@@ -333,7 +367,7 @@ function ImportMenuItems({
       */}
       {workspaceId && (
         <DropdownMenuItem onClick={onImportMiro}>
-          <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
+          <Frame className="mr-2 h-4 w-4 text-type-board" />
           Import from Miro…
         </DropdownMenuItem>
       )}
@@ -419,6 +453,8 @@ export function DocumentList({
           })
         : await createDocument(data),
     onSuccess: (doc) => navigate(getDocumentPath(doc)),
+    onError: (err) =>
+      toast.error(userFacingError(err, "Couldn't create the document. Try again.")),
   });
 
   // Route a picked batch through the upload queue instead of the old
@@ -467,15 +503,15 @@ export function DocumentList({
       if (item.status === "done") {
         scheduleListRefresh(item.workspaceId);
         if (item.warning) {
-          toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
+          toast.warning(`Imported "${item.fileName}". ${item.warning}`);
         }
       } else if (item.status === "error") {
         // "Upload" is wrong for a row that never had a file: an externally
         // driven import (Miro) fails at an import, not at an upload.
-        const verb = item.kind === "board" ? "Import" : "Upload";
+        const verb = item.kind === "board" ? "import" : "upload";
         toast.error(
-          `${verb} failed: ${item.fileName}${
-            item.reason ? ` — ${item.reason}` : ""
+          `Couldn't ${verb} ${item.fileName}${
+            item.reason ? `. ${item.reason}` : ""
           }`,
         );
       }
@@ -516,9 +552,58 @@ export function DocumentList({
     queryClient.invalidateQueries({ queryKey: ["workspaces"] });
   }, [queryClient]);
 
-  // Delete documents and folders in one confirm. Folders are deleted
-  // non-destructively server-side (their documents return to the workspace
-  // root), so a mixed selection is safe.
+  // Undo for a move to the Trash. Restoring puts each document back in its
+  // folder (or the workspace root if that folder is gone), so the list only
+  // needs a refetch.
+  const restoreDocumentsMutation = useMutation({
+    mutationFn: (ids: string[]) => restoreDocuments(ids),
+    onSuccess: (_res, ids) =>
+      toast.success(
+        ids.length === 1 ? "Document restored" : `${ids.length} documents restored`,
+      ),
+    onError: (err) =>
+      toast.error(
+        userFacingError(err, "Couldn't restore. Open Trash to try again."),
+      ),
+    // Settled, not success: a parallel restore that fails part-way has still
+    // brought some documents back.
+    onSettled: () => invalidateLists(),
+  });
+
+  // Tell the user what went to the Trash and offer the way back. Undo replaces
+  // a confirm: a move to the Trash loses nothing, so asking first would only
+  // slow down the common case (the Google Drive model).
+  const announceTrashed = (docIds: string[]) => {
+    const titles = docIds.map(
+      (id) => data.find((d) => String(d.id) === id)?.title ?? "Untitled",
+    );
+    toast.success(trashedMessage(titles), {
+      // Longer than the 4s default: the toast is the only way back short of
+      // opening the Trash, so it has to stay long enough to be read and used.
+      duration: 10_000,
+      action: {
+        label: "Undo",
+        onClick: () => restoreDocumentsMutation.mutate(docIds),
+      },
+    });
+  };
+
+  // Documents alone go straight to the Trash, with an undo toast.
+  const trashDocumentsMutation = useMutation({
+    mutationFn: (ids: string[]) => deleteDocuments(ids),
+    onSuccess: (_res, ids) => {
+      invalidateLists();
+      deselect(ids.map((id) => DOC_KEY_PREFIX + id));
+      announceTrashed(ids);
+    },
+    onError: (err) =>
+      toast.error(userFacingError(err, "Couldn't move to Trash. Try again.")),
+  });
+
+  // A selection that includes a folder goes through the confirm dialog, since
+  // deleting a folder is not undoable (its documents return to the workspace
+  // root; the folder itself is gone). The documents in it still go to the
+  // Trash and get the same undo.
   const deleteItemsMutation = useMutation({
     mutationFn: async ({
       docIds,
@@ -528,7 +613,13 @@ export function DocumentList({
       folderIds: string[];
     }) => {
       if (docIds.length) await deleteDocuments(docIds);
-      await Promise.all(folderIds.map((id) => deleteFolder(id)));
+      try {
+        await Promise.all(folderIds.map((id) => deleteFolder(id)));
+      } catch (cause) {
+        // The documents are already in the Trash by now; say so in the error
+        // so `onError` can still offer their Undo.
+        throw new FolderDeleteError(docIds, cause);
+      }
     },
     onSuccess: (_res, vars) => {
       invalidateLists();
@@ -537,11 +628,45 @@ export function DocumentList({
         ...vars.folderIds.map((id) => FOLDER_KEY_PREFIX + id),
       ]);
       setDeleting(null);
-      const total = vars.docIds.length + vars.folderIds.length;
-      toast.success(total > 1 ? `${total} items deleted` : "Deleted");
+      if (vars.docIds.length) {
+        announceTrashed(vars.docIds);
+      } else {
+        toast.success(
+          vars.folderIds.length > 1
+            ? `${vars.folderIds.length} folders deleted`
+            : "Folder deleted",
+        );
+      }
     },
-    onError: () => toast.error("Failed to delete"),
+    onError: (err) => {
+      if (err instanceof FolderDeleteError) {
+        if (err.trashedDocIds.length) announceTrashed(err.trashedDocIds);
+        toast.error(
+          userFacingError(err.cause, "Couldn't delete the folder. Try again."),
+        );
+      } else {
+        toast.error(
+          userFacingError(err, "Couldn't delete the selected items. Try again."),
+        );
+      }
+    },
+    // A partial failure has still changed the server: refetch either way.
+    onSettled: () => invalidateLists(),
   });
+
+  // Route a delete: straight to the Trash when only documents are involved,
+  // through the confirm when a folder is.
+  const requestDelete = (target: {
+    docIds: string[];
+    folderIds: string[];
+    title: string;
+  }) => {
+    if (target.folderIds.length === 0) {
+      trashDocumentsMutation.mutate(target.docIds);
+    } else {
+      setDeleting(target);
+    }
+  };
 
   const renameDocumentMutation = useMutation({
     mutationFn: async ({ id, title }: { id: string; title: string }) =>
@@ -550,6 +675,8 @@ export function DocumentList({
       invalidateLists();
       setRenamingDoc(null);
     },
+    onError: (err) =>
+      toast.error(userFacingError(err, "Couldn't rename the document. Try again.")),
   });
 
   // Duplicate documents. Each copy is an independent server-side operation
@@ -573,8 +700,11 @@ export function DocumentList({
     onError: (err) =>
       toast.error(
         err instanceof BulkCopyError && err.copied.length > 0
-          ? `Copied ${err.copied.length}, then failed`
-          : "Failed to copy",
+          ? `Copied ${err.copied.length}, then couldn't copy the rest`
+          : userFacingError(
+              err instanceof BulkCopyError ? err.cause : err,
+              "Couldn't copy the document. Try again.",
+            ),
       ),
     // Refetch on settled, not just on success: a bulk copy that fails partway
     // has already created the copies before it, and they must appear in the
@@ -614,10 +744,16 @@ export function DocumentList({
       const moved =
         vars.docIds.length +
         (vars.workspaceId === listWorkspaceId ? vars.folderIds.length : 0);
-      toast.success(moved > 1 ? `${moved} items moved` : "Moved");
+      toast.success(
+        moved > 1
+          ? `${moved} items moved`
+          : vars.docIds.length === 1
+            ? "Document moved"
+            : "Folder moved",
+      );
       if (vars.folderIds.length && vars.workspaceId !== listWorkspaceId) {
         toast.warning(
-          "Folders can't move to another workspace — only the documents moved.",
+          "Folders can't move to another workspace. Only the documents moved.",
         );
       }
       setMoving(null);
@@ -628,7 +764,10 @@ export function DocumentList({
         ...vars.folderIds.map((id) => FOLDER_KEY_PREFIX + id),
       ]);
     },
-    onError: () => toast.error("Failed to move"),
+    onError: (err) =>
+      toast.error(
+        userFacingError(err, "Couldn't move the selected items. Try again."),
+      ),
   });
 
   // Document-only move used by drag-and-drop onto a folder row and onto the
@@ -647,11 +786,12 @@ export function DocumentList({
       toast.success(
         vars.ids.length > 1
           ? `${vars.ids.length} documents moved`
-          : "Document moved successfully",
+          : "Document moved",
       );
       deselect(vars.ids.map((id) => DOC_KEY_PREFIX + id));
     },
-    onError: () => toast.error("Failed to move documents"),
+    onError: (err) =>
+      toast.error(userFacingError(err, "Couldn't move the documents. Try again.")),
   });
 
   const createFolderMutation = useMutation({
@@ -664,7 +804,8 @@ export function DocumentList({
       setCreatingFolder(false);
       setNewFolderName("");
     },
-    onError: () => toast.error("Failed to create folder"),
+    onError: (err) =>
+      toast.error(userFacingError(err, "Couldn't create the folder. Try again.")),
   });
 
   const renameFolderMutation = useMutation({
@@ -676,7 +817,8 @@ export function DocumentList({
       });
       setRenamingFolder(null);
     },
-    onError: () => toast.error("Failed to rename folder"),
+    onError: (err) =>
+      toast.error(userFacingError(err, "Couldn't rename the folder. Try again.")),
   });
 
   // Default to most-recently-modified first (Google-Drive-style). Folders are
@@ -705,7 +847,7 @@ export function DocumentList({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     kind: false,
   });
-  const [rowSelection, setRowSelection] = useState({});
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   // Reset the multi-selection when navigating to a different folder/workspace
   // so a stale selection can't leave the bulk bar showing disabled actions.
@@ -828,24 +970,46 @@ export function DocumentList({
         ),
       cell: ({ row }) => {
         const r = row.original;
+        // The title is the row's one real control: a link for a document (so
+        // it opens with Enter and in a new tab with a modifier), a button for
+        // a folder (which navigates in place). The row's own click handler is
+        // only a larger pointer target for the same action.
         if (r.kind === "folder") {
           return (
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{r.item.name}</span>
+              <button
+                type="button"
+                className="focus-ring min-w-0 truncate rounded-xs text-left"
+                title={r.item.name}
+                onClick={() => onNavigateFolder?.(r.item.id)}
+              >
+                {r.item.name}
+              </button>
             </div>
           );
         }
         const doc = r.item;
         const { Icon, color } = TYPE_META[doc.type];
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             {doc.type === "image" ? (
-              <ImageThumb documentId={String(doc.id)} />
+              <ImageThumb documentId={String(doc.id)} fileSize={doc.fileSize} />
             ) : (
               <Icon className={`h-4 w-4 shrink-0 ${color}`} />
             )}
-            <span className="capitalize">{doc.title}</span>
+            {/* Shown exactly as typed: the editor header and the folder rows
+                beside it do not re-case titles, so neither does the list. */}
+            <Link
+              to={getDocumentPath(doc)}
+              // The row is the drag source; a draggable link would start a
+              // URL drag of its own instead of the document drag.
+              draggable={false}
+              className="focus-ring min-w-0 truncate rounded-xs"
+              title={doc.title}
+            >
+              {doc.title}
+            </Link>
             {/* Live "currently editing" avatars sit next to the title rather
                 than in their own column. Presentational only — Title still
                 sorts by its own value. */}
@@ -879,8 +1043,8 @@ export function DocumentList({
                 {author.photo && (
                   <AvatarImage src={author.photo} alt={author.username} />
                 )}
-                <AvatarFallback className="text-[10px]">
-                  {author.username.slice(0, 2).toUpperCase() || "??"}
+                <AvatarFallback className="text-2xs">
+                  {avatarInitials(author.username)}
                 </AvatarFallback>
               </Avatar>
             </TooltipTrigger>
@@ -906,7 +1070,6 @@ export function DocumentList({
                   className="h-8 w-8 p-0"
                   aria-label={`Actions for ${folder.name}`}
                 >
-                  <span className="sr-only">Open menu</span>
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>
@@ -940,7 +1103,7 @@ export function DocumentList({
                   className="text-destructive focus:text-destructive"
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
-                    setDeleting({
+                    requestDelete({
                       docIds: [],
                       folderIds: [folder.id],
                       title: folder.name,
@@ -958,8 +1121,11 @@ export function DocumentList({
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <span className="sr-only">Open menu</span>
+              <Button
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                aria-label={`Actions for ${doc.title}`}
+              >
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
@@ -1020,7 +1186,7 @@ export function DocumentList({
                   className="text-destructive focus:text-destructive"
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
-                    setDeleting({
+                    requestDelete({
                       docIds: [String(doc.id)],
                       folderIds: [],
                       title: doc.title,
@@ -1028,7 +1194,7 @@ export function DocumentList({
                   }}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
+                  Move to Trash
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -1062,6 +1228,15 @@ export function DocumentList({
     },
   });
 
+  // An empty table means two different things: nothing is here, or the
+  // search / type filter hid everything that is. Only the first earns "New".
+  const titleQuery = String(table.getColumn("title")?.getFilterValue() ?? "");
+  const isFiltered = titleQuery.trim() !== "" || typeFilters.size > 0;
+  const clearFilters = () => {
+    table.getColumn("title")?.setFilterValue("");
+    setTypeFilters(new Set());
+  };
+
   const selectedKeys = Object.keys(rowSelection);
   const selectedDocIds = selectedKeys
     .filter((k) => k.startsWith(DOC_KEY_PREFIX))
@@ -1070,6 +1245,10 @@ export function DocumentList({
     .filter((k) => k.startsWith(FOLDER_KEY_PREFIX))
     .map((k) => k.slice(FOLDER_KEY_PREFIX.length));
   const selectedCount = selectedKeys.length;
+  const rowTitleForKey = (key: string) => {
+    const row = rows.find((r) => rowKey(r) === key);
+    return row ? rowTitle(row) : "1 item";
+  };
 
   // Resolve the selection against the FULL data set, not the filtered rows: a
   // type filter hides rows but does not deselect them, so gating the bulk
@@ -1156,7 +1335,7 @@ export function DocumentList({
         fileId: doc.fileId,
       });
     } catch {
-      toast.error(`Failed to download "${doc.title}"`);
+      toast.error(`Couldn't download "${doc.title}"`);
     }
   };
 
@@ -1198,7 +1377,7 @@ export function DocumentList({
                 {selectedCount} selected
               </span>
             </div>
-            <div className="flex w-full items-center gap-1 sm:w-auto sm:flex-1 sm:justify-end">
+            <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto sm:flex-1 sm:justify-end">
               {downloadableSelected.length > 0 && (
                 <Button variant="outline" onClick={handleBulkDownload}>
                   <Download className="mr-1 h-4 w-4" />
@@ -1235,22 +1414,25 @@ export function DocumentList({
               <Button
                 variant="outline"
                 className="text-destructive"
-                disabled={!selectedCanManage}
+                disabled={!selectedCanManage || trashDocumentsMutation.isPending}
                 title={
                   selectedCanManage
                     ? undefined
                     : "You can only delete documents you own"
                 }
                 onClick={() =>
-                  setDeleting({
+                  requestDelete({
                     docIds: selectedDocIds,
                     folderIds: selectedFolderIds,
-                    title: `${selectedCount} items`,
+                    title:
+                      selectedCount === 1
+                        ? rowTitleForKey(selectedKeys[0])
+                        : `${selectedCount} items`,
                   })
                 }
               >
                 <Trash2 className="mr-1 h-4 w-4" />
-                Delete
+                {selectedFolderIds.length > 0 ? "Delete" : "Move to Trash"}
               </Button>
               <Button
                 variant="ghost"
@@ -1384,7 +1566,10 @@ export function DocumentList({
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   return (
-                    <TableHead key={header.id}>
+                    <TableHead
+                      key={header.id}
+                      className={COLUMN_CLASS[header.column.id]}
+                    >
                       {header.isPlaceholder
                         ? null
                         : flexRender(
@@ -1406,10 +1591,7 @@ export function DocumentList({
                   <TableRow
                     key={row.id}
                     data-state={row.getIsSelected() && "selected"}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Open ${rowTitle(r)}`}
-                    className={`cursor-pointer hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+                    className={`cursor-pointer hover:bg-muted ${
                       isFolder && dragOverFolderId === r.item.id
                         ? "ring-2 ring-primary ring-inset"
                         : ""
@@ -1454,25 +1636,26 @@ export function DocumentList({
                           }
                         : undefined
                     }
+                    // Pointer-only enhancement: the whole row is a target for
+                    // the title's action. Keyboard and assistive tech reach the
+                    // title link/button itself, so the row is not a button.
                     onClick={(e: MouseEvent<HTMLElement>) => {
-                      if ((e.target as HTMLElement).closest("input, button")) {
+                      if (
+                        (e.target as HTMLElement).closest("input, button, a")
+                      ) {
                         return;
                       }
-                      if (isFolder) onNavigateFolder?.(r.item.id);
-                      else navigate(getDocumentPath(r.item));
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" && e.key !== " ") return;
-                      if ((e.target as HTMLElement).closest("input, button")) {
-                        return;
-                      }
-                      e.preventDefault();
+                      // A click that ends a text selection is not an open.
+                      if (window.getSelection()?.toString()) return;
                       if (isFolder) onNavigateFolder?.(r.item.id);
                       else navigate(getDocumentPath(r.item));
                     }}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        className={COLUMN_CLASS[cell.column.id]}
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
@@ -1488,9 +1671,22 @@ export function DocumentList({
                   colSpan={columns.length}
                   className="h-48"
                 >
+                  {isFiltered ? (
+                    <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                      <SearchX className="h-10 w-10 stroke-1" />
+                      <p className="text-sm font-medium">
+                        No documents match your filters
+                      </p>
+                      <Button size="sm" variant="outline" onClick={clearFilters}>
+                        Clear filters
+                      </Button>
+                    </div>
+                  ) : (
                   <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                     <FileText className="h-10 w-10 stroke-1" />
-                    <p className="text-sm font-medium">No documents yet</p>
+                    <p className="text-sm font-medium">
+                      {folderId ? "This folder is empty" : "No documents yet"}
+                    </p>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button size="sm">
@@ -1513,12 +1709,14 @@ export function DocumentList({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
+                  )}
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
       </div>
+      {table.getPageCount() > 1 && (
       <div className="flex items-center justify-end space-x-2 py-4">
         <div className="flex-1" />
         <div className="space-x-2">
@@ -1540,6 +1738,7 @@ export function DocumentList({
           </Button>
         </div>
       </div>
+      )}
 
       <Dialog
         open={renamingDoc !== null}
@@ -1547,7 +1746,7 @@ export function DocumentList({
           if (!open) setRenamingDoc(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <form
             onSubmit={(e: FormEvent) => {
               e.preventDefault();
@@ -1563,10 +1762,7 @@ export function DocumentList({
             }}
           >
             <DialogHeader>
-              <DialogTitle>Rename Document</DialogTitle>
-              <DialogDescription>
-                Enter a new name for this document.
-              </DialogDescription>
+              <DialogTitle>Rename document</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-2">
               <div className="grid gap-2">
@@ -1608,10 +1804,9 @@ export function DocumentList({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Move</DialogTitle>
+            <DialogTitle>Move &ldquo;{moving?.title}&rdquo;</DialogTitle>
             <DialogDescription>
-              Select a workspace and folder to move &ldquo;{moving?.title}
-              &rdquo; to.
+              Choose the workspace and folder to move it to.
               {moving && moving.folderIds.length > 0 && (
                 <>
                   {" "}
@@ -1706,17 +1901,23 @@ export function DocumentList({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete</DialogTitle>
-            <DialogDescription>
+            <DialogTitle>
               {deleting &&
               deleting.docIds.length + deleting.folderIds.length > 1
                 ? `Delete ${
                     deleting.docIds.length + deleting.folderIds.length
                   } items?`
-                : `Delete “${deleting?.title}”?`}{" "}
-              {deleting && deleting.folderIds.length > 0
-                ? "Documents inside deleted folders (and any subfolders' documents) move back to the workspace root — they are not deleted."
-                : "This action cannot be undone."}
+                : `Delete “${deleting?.title}”?`}
+            </DialogTitle>
+            {/* Only a selection with a folder reaches this dialog: documents
+                alone go straight to the Trash with an undo toast. */}
+            <DialogDescription>
+              {deleting && deleting.folderIds.length > 1
+                ? "The folders are deleted. Documents inside them, and inside their subfolders, move back to the workspace root."
+                : "The folder is deleted. Documents inside it, and inside its subfolders, move back to the workspace root."}
+              {deleting && deleting.docIds.length > 0
+                ? " The selected documents move to Trash, where you can restore them."
+                : ""}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1754,7 +1955,7 @@ export function DocumentList({
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>New folder</DialogTitle>
           </DialogHeader>
@@ -1800,7 +2001,7 @@ export function DocumentList({
           if (!open) setRenamingFolder(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Rename folder</DialogTitle>
           </DialogHeader>

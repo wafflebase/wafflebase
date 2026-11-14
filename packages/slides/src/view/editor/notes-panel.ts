@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from './chrome-colors';
 import type { Block } from '@wafflebase/docs';
 import type { SlidesStore } from '../../store/store';
 import type { SlidesEditor } from './editor';
@@ -134,7 +135,7 @@ function ensureNotesPanelStyles(): void {
   style.id = 'wfb-slides-notes-panel-styles';
   style.textContent =
     '.wfb-slides-notes-ta:focus-visible {' +
-    '  outline: 2px solid var(--ring, #3a7);' +
+    `  outline: 2px solid var(--ring, ${SELECTION_COLOR});` +
     '  outline-offset: -2px;' +
     '  border-radius: 2px;' +
     '}';

@@ -6,6 +6,7 @@ import { LoginForm } from "@/components/login-form";
 import { WaffleLogo } from "@/app/home/primitives/waffle-logo";
 import { RulerBackdrop } from "@/app/home/primitives/ruler-backdrop";
 import { ThemeToggle } from "@/app/home/primitives/theme-toggle";
+import { useBrandFonts } from "@/lib/brand-fonts";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
@@ -14,6 +15,7 @@ const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
  */
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
+  useBrandFonts();
   // Which providers this deployment actually has — Google is optional and
   // configured server-side. Starts false so the page renders GitHub straight
   // away rather than waiting on a request; the call never rejects, so an
@@ -21,7 +23,7 @@ export default function LoginPage() {
   const [googleEnabled, setGoogleEnabled] = useState(false);
 
   useEffect(() => {
-    document.title = "Login — Wafflebase";
+    document.title = "Sign in — Wafflebase";
   }, []);
 
   useEffect(() => {
@@ -42,7 +44,7 @@ export default function LoginPage() {
         <div className="flex justify-between items-center max-w-[1200px] mx-auto">
           <Link
             to="/"
-            className="inline-flex items-center gap-2.5 font-display font-semibold text-[19px] tracking-[-0.01em] text-[color:var(--wb-ink)] no-underline"
+            className="wordmark inline-flex items-center gap-2.5 text-[19px] text-[color:var(--wb-ink)] no-underline"
           >
             <WaffleLogo size={28} />
             Wafflebase
@@ -74,15 +76,6 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-[12.5px] font-code text-[color:var(--wb-sub)] mt-6">
-            <a
-              href={`${GITHUB_URL}/blob/main/LICENSE`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="no-underline hover:text-[color:var(--wb-ink)] transition-colors"
-            >
-              Apache-2.0
-            </a>
-            <span className="mx-2 opacity-50">·</span>
             <a
               href={GITHUB_URL}
               target="_blank"

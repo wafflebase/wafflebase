@@ -101,6 +101,24 @@ describe('ensureFontLink', () => {
     expect(fontLinks()).toHaveLength(0);
   });
 
+  test('an eager font waits for the bootstrap link instead of resolving at once', async () => {
+    // A PDF export awaits this before rasterising: resolving before the
+    // bootstrap stylesheet lands would paint the eager face in a fallback.
+    document.getElementById('wafflebase-google-fonts')?.remove();
+    let settled = false;
+    const done = ensureFontLink('Roboto').then(() => {
+      settled = true;
+    });
+    const bootstrap = document.getElementById('wafflebase-google-fonts');
+    expect(bootstrap).not.toBeNull();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    bootstrap!.dispatchEvent(new Event('load'));
+    await done;
+    expect(settled).toBe(true);
+    bootstrap!.remove();
+  });
+
   test('defaults to 400;700 weights for an unknown family', () => {
     ensureFontLink(FAKE_A);
     expect(fontLinks()[0].getAttribute('href')).toContain(
@@ -259,6 +277,22 @@ describe('ensurePreviewFontLink', () => {
    * cascade for every codepoint and strips glyphs (and the bold cut) off a face
    * that already had them.
    */
+  // The app shell paints Fraunces (the sidebar wordmark) and JetBrains Mono
+  // (`--font-code`) from the brand stylesheet. A `&text=` subset face for
+  // either has no `unicode-range` and wins the cascade, stripping every glyph
+  // the row did not preview. Previewing one loads the whole brand sheet.
+  test('previews a brand face by loading the brand stylesheet, never a subset', () => {
+    for (const family of ['Fraunces', 'JetBrains Mono']) {
+      ensurePreviewFontLink(family, family);
+    }
+    expect(previewLinks()).toHaveLength(0);
+    const brand = document.getElementById('wb-brand-fonts');
+    expect(brand).not.toBeNull();
+    for (const link of document.head.querySelectorAll('link')) {
+      if (link.id === 'wb-brand-fonts' || link.rel === 'preconnect') link.remove();
+    }
+  });
+
   describe('against a stylesheet this module did not inject', () => {
     const SHELL_HREF =
       'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap';
@@ -295,8 +329,10 @@ describe('ensurePreviewFontLink', () => {
     });
 
     test('a longer family name is not mistaken for a shorter one', () => {
-      appShellLink('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400&display=swap');
-      ensurePreviewFontLink('Inter', 'Inter');
+      // Not Inter/Inter Tight: Inter is an eager catalog face, so it never
+      // gets a preview link whatever the shell loads.
+      appShellLink('https://fonts.googleapis.com/css2?family=Lobster+Two:wght@400&display=swap');
+      ensurePreviewFontLink('Lobster', 'Lobster');
       expect(previewLinks()).toHaveLength(1);
     });
 

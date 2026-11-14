@@ -119,7 +119,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
       <input
         ref={inputRef}
         type="text"
-        className="h-7 w-48 rounded border-none bg-transparent px-1 text-sm outline-none focus:ring-0"
+        className="h-7 w-48 rounded border-none bg-transparent px-1 text-base md:text-sm outline-none focus:ring-0"
         placeholder="Find..."
         aria-label="Find in sheet"
         value={query}
@@ -135,7 +135,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            className="focus-ring rounded p-0.5 hover:bg-muted disabled:opacity-30"
             onClick={handlePrevious}
             disabled={total === 0}
             aria-label="Previous match"
@@ -149,7 +149,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            className="focus-ring rounded p-0.5 hover:bg-muted disabled:opacity-30"
             onClick={handleNext}
             disabled={total === 0}
             aria-label="Next match"
@@ -163,7 +163,7 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 hover:bg-muted"
+            className="focus-ring rounded p-0.5 hover:bg-muted"
             onClick={handleClose}
             aria-label="Close find bar"
           >

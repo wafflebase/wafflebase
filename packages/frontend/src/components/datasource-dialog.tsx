@@ -13,6 +13,7 @@ import {
   testWorkspaceDataSourceConfig,
 } from "@/api/workspaces";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import type { DataSource } from "@/types/datasource";
 import { toast } from "sonner";
 
@@ -64,13 +65,18 @@ export function DataSourceDialog({
         password,
         sslEnabled,
       });
-      toast.success("DataSource created");
+      toast.success("Data source created");
       onCreated(ds);
       resetForm();
       onOpenChange(false);
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Failed to create datasource");
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't create the data source. Check your network and try again.",
+        ),
+      );
     } finally {
       setSaving(false);
     }
@@ -88,13 +94,18 @@ export function DataSourceDialog({
         sslEnabled,
       });
       if (result.success) {
-        toast.success("Connection successful");
+        toast.success(`Connected to ${host}`);
       } else {
-        toast.error(`Connection failed: ${result.error}`);
+        toast.error(`Couldn't connect: ${result.error}`);
       }
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Failed to test connection");
+      toast.error(
+        userFacingError(
+          error,
+          "Couldn't run the connection test. Check your network and try again.",
+        ),
+      );
     } finally {
       setTesting(false);
     }
@@ -110,7 +121,7 @@ export function DataSourceDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New DataSource Connection</DialogTitle>
+          <DialogTitle>New data source connection</DialogTitle>
           <DialogDescription>
             Connect to an external PostgreSQL database.
           </DialogDescription>
@@ -138,7 +149,7 @@ export function DataSourceDialog({
             onClick={handleTest}
             disabled={testing || saving || !host || !database || !username}
           >
-            {testing ? "Testing..." : "Test Connection"}
+            {testing ? "Testing…" : "Test connection"}
           </Button>
           <Button
             onClick={handleSave}

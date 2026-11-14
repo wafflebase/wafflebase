@@ -59,7 +59,7 @@ export function createProgram(): Command {
 
   program
     .name('wafflebase')
-    .description('CLI for Wafflebase spreadsheet API')
+    .description('Read and edit Wafflebase documents from the terminal')
     .version(version)
     .option('--server <url>', 'Server URL')
     .option('--api-key <key>', 'API key')

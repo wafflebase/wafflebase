@@ -1,0 +1,89 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "packages/frontend/src/app/home/demo-section.tsx"
+        ],
+        "createdAt": "2026-11-14T02:31:52.761Z",
+        "reason": "Claude, verified by two audit agents: border-b-2 active-tab underline on a rounded-t tab, not a side accent on a card"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "packages/slides/src/view/editor/overlay.ts"
+        ],
+        "createdAt": "2026-11-14T02:55:30.822Z",
+        "reason": "Claude, verified in code and by the editor-chrome audit agent: zero-size CSS-border triangles drawing smart-guide arrowheads (overlay.ts ~1185-1216), not accent borders on a card"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "roboto",
+        "files": [
+          "packages/cli/src/commands/login.ts"
+        ],
+        "createdAt": "2026-11-14T03:11:51.467Z",
+        "reason": "Claude: Roboto is one entry in the platform system-font stack of the CLI's loopback callback page (pre-existing, not introduced here); DESIGN.md's app body is the system stack"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "packages/frontend/src/components/tab-bar.tsx"
+        ],
+        "createdAt": "2026-11-14T03:49:25.394Z",
+        "reason": "Claude, verified by two audit agents: border-b-2 active-tab underline on a rounded-t tab, not a side accent on a card"
+      },
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "files": [
+          "packages/frontend/tests/visual/fonts/fonts-googleapis-com-css2-family-Fraunces-ital-o-ac87b25b4b9f90c5.css"
+        ],
+        "createdAt": "2026-11-14T04:54:36.408Z",
+        "reason": "Claude: recorded Google Fonts response replayed by the visual lane (test fixture); Fraunces is the brand display face DESIGN.md commits to"
+      },
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "files": [
+          "packages/frontend/src/lib/brand-fonts.ts"
+        ],
+        "createdAt": "2026-11-14T07:37:16.727Z",
+        "reason": "agent: Fraunces is the brand display face pinned in DESIGN.md Typography; this file is its loader"
+      },
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "files": [
+          "packages/frontend/tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T10:57:39.878Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "lobster two",
+        "files": [
+          "packages/frontend/tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T10:57:39.893Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "lobster",
+        "files": [
+          "packages/frontend/tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T10:57:39.908Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      }
+    ]
+  }
+}

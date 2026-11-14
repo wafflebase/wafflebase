@@ -217,7 +217,7 @@ export function DocsLinkPopover({
             href={isSafeUrl(linkInfo.href) ? linkInfo.href : "#"}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex h-7 flex-1 items-center truncate rounded border bg-background px-2 text-xs text-blue-600 no-underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+            className="flex h-7 flex-1 items-center truncate rounded border bg-background px-2 text-xs text-link no-underline underline-offset-2 hover:underline"
             title={linkInfo.href}
             onClick={(e) => {
               e.stopPropagation();
@@ -256,7 +256,7 @@ export function DocsLinkPopover({
               ref={inputRef}
               type="url"
               aria-label="Link URL"
-              className="h-7 flex-1 rounded border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+              className="h-7 flex-1 rounded border bg-background px-2 text-base md:text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
               placeholder="Enter URL"
               value={editUrl}
               onChange={(e) => {
@@ -266,7 +266,7 @@ export function DocsLinkPopover({
               onKeyDown={handleKeyDown}
             />
             <button
-              className="inline-flex h-7 shrink-0 cursor-pointer items-center justify-center rounded bg-primary px-3 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="inline-flex h-7 shrink-0 cursor-pointer items-center justify-center rounded bg-primary px-3 text-xs text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
               onClick={handleApply}
               disabled={!editUrl.trim()}
             >
@@ -274,7 +274,7 @@ export function DocsLinkPopover({
             </button>
           </div>
           {applyError && (
-            <span role="alert" className="px-0.5 text-[11px] text-destructive">
+            <span role="alert" className="px-0.5 text-xs text-destructive">
               {applyError}
             </span>
           )}

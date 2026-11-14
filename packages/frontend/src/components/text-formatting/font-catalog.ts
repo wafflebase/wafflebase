@@ -17,6 +17,7 @@
 import { useEffect } from 'react';
 import { MAX_FONT_SIZE } from '@wafflebase/docs';
 import { FONT_CATALOG_DATA } from './font-catalog.data';
+import { BRAND_FONT_FAMILIES, loadBrandFonts } from '@/lib/brand-fonts';
 
 export type FontGroup =
   | 'Korean'
@@ -176,8 +177,9 @@ const fullLinkSettled = new WeakMap<HTMLLinkElement, Promise<void>>();
  *   - running under SSR (no `document`);
  *   - the family is a known SYSTEM font (`webFont: false`) — there is no
  *     web face to fetch;
- *   - the family is an `eager` web font already in the bootstrap link —
- *     a second request would be redundant;
+ *   - the family is an `eager` web font — it waits on the bootstrap link
+ *     instead (injecting it if no view has yet), since a second request
+ *     would be redundant;
  *   - a link for this family is already present (idempotent / HMR-safe).
  *
  * Unknown families (e.g. an arbitrary Google Font chosen from the full
@@ -187,7 +189,13 @@ export function ensureFontLink(family: string, weights?: string): Promise<void> 
   if (typeof document === 'undefined') return Promise.resolve();
   const entry = CATALOG_INDEX.get(family);
   if (entry && !entry.webFont) return Promise.resolve(); // system font: nothing to fetch
-  if (entry && entry.eager) return Promise.resolve(); // already in bootstrap link
+  // An eager face rides the bootstrap link. Callers that await this (a PDF
+  // export, applying a family) need that stylesheet connected, so make sure
+  // it was requested and wait for it rather than resolving at once.
+  if (entry && entry.eager) {
+    ensureGoogleFontsLink();
+    return bootstrapSettled ?? Promise.resolve();
+  }
   const existing = findFontLink(family);
   // Already requested. Its promise is normally there to await; a link with none
   // beside it survived an HMR module reload, and the request it made cannot be
@@ -285,14 +293,14 @@ function uniqueChars(text: string): string {
  *
  * `findFontLink` only sees links this module injected, and the catalog's
  * `eager` flag only describes `buildGoogleFontsHref`'s bootstrap link. Neither
- * knows about the app shell's own `<link>` in `packages/frontend/index.html`,
- * which loads `Inter`, `Fraunces` and `JetBrains Mono` in full — all three are
- * curated-catalog entries with `eager` absent. A subset link for one of them is
- * not merely redundant: `&text=` returns a face with no `unicode-range`, so
- * being declared later it wins the cascade for every codepoint and *removes*
- * glyphs (and the bold cut) from a family that already had them.
+ * knows about a stylesheet some other code added — the brand faces from
+ * `src/lib/brand-fonts.ts`, or a host page's own link. A subset link for a
+ * family already loaded in full is not merely redundant: `&text=` returns a
+ * face with no `unicode-range`, so being declared later it wins the cascade
+ * for every codepoint and *removes* glyphs (and the bold cut) from a family
+ * that already had them.
  *
- * Matched on the href rather than on a marker attribute, because the shell's
+ * Matched on the href rather than on a marker attribute, because a foreign
  * link carries none. Every `family=` segment is compared whole — a css2 URL
  * carries many, and `Inter` must not match `Inter+Tight` — against both
  * spellings of the space: the shell writes `JetBrains+Mono`,
@@ -358,9 +366,17 @@ export function ensurePreviewFontLink(
   if (entry && !entry.webFont) return; // system font: nothing to fetch
   if (entry && entry.eager) return; // already in bootstrap link
   if (findPreviewFontLink(family)) return;
-  // Covers `findFontLink`'s per-family links, the bootstrap link, AND the app
-  // shell's own `index.html` stylesheet — the last of which no attribute or
-  // catalog flag can see.
+  // The app shell paints the brand faces outside brand pages too (the sidebar
+  // wordmark, `--font-code`), so a subset of one would strip glyphs from the
+  // chrome. Load the whole brand sheet instead — one request, and a no-op
+  // once any brand surface has loaded it.
+  if (BRAND_FONT_FAMILIES.has(family)) {
+    loadBrandFonts(document);
+    return;
+  }
+  // Covers `findFontLink`'s per-family links, the bootstrap link, AND any
+  // stylesheet another module added — which no attribute or catalog flag can
+  // see.
   if (hasFullFamilyLink(family)) return; // fully loaded already: nothing to save
 
   const subset = uniqueChars(text);
@@ -385,6 +401,13 @@ export function ensurePreviewFontLink(
  * SSR-safe (no-op when `document` is undefined) and HMR-safe (guarded by
  * an id). Subsequent calls return immediately.
  */
+/**
+ * Settles once the bootstrap link this module injected has loaded or failed.
+ * Null when it was never injected here (SSR, or a link that survived an HMR
+ * reload), in which case there is nothing left to wait on.
+ */
+let bootstrapSettled: Promise<void> | null = null;
+
 export function ensureGoogleFontsLink(): void {
   if (typeof document === 'undefined') return;
   if (document.getElementById('wafflebase-google-fonts')) return;
@@ -394,6 +417,10 @@ export function ensureGoogleFontsLink(): void {
   link.id = 'wafflebase-google-fonts';
   link.rel = 'stylesheet';
   link.href = href;
+  bootstrapSettled = new Promise<void>((resolve) => {
+    link.addEventListener('load', () => resolve(), { once: true });
+    link.addEventListener('error', () => resolve(), { once: true });
+  });
   document.head.appendChild(link);
 }
 

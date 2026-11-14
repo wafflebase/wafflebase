@@ -345,7 +345,7 @@ describe("listDesignDocs", () => {
 
 describe("isAdvisory", () => {
   const advisory = [
-    { pattern: "^design-editor/", reason: "spec for an unbuilt package" },
+    { pattern: "^unbuilt-thing/", reason: "spec for an unbuilt package" },
     {
       doc: "slides/slides-toolbar-redesign.md",
       ref: "mixed-controls.tsx",
@@ -355,7 +355,7 @@ describe("isAdvisory", () => {
 
   it("downgrades every ref in a doc matched by pattern", () => {
     assert.equal(
-      isAdvisory("design-editor/design-editor-engine.md", "anything.ts", advisory),
+      isAdvisory("unbuilt-thing/unbuilt-thing-engine.md", "anything.ts", advisory),
       true,
     );
   });

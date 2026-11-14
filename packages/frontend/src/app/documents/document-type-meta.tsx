@@ -25,14 +25,14 @@ export const TYPE_META: Record<
   DocumentType,
   { label: string; Icon: ComponentType<{ className?: string }>; color: string }
 > = {
-  sheet: { label: "Sheets", Icon: Sheet, color: "text-green-600" },
-  doc: { label: "Docs", Icon: FileText, color: "text-blue-500" },
-  note: { label: "Notes", Icon: NotebookPen, color: "text-purple-500" },
-  slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
-  pdf: { label: "PDFs", Icon: IconFileTypePdf, color: "text-red-500" },
-  image: { label: "Images", Icon: ImageIcon, color: "text-pink-500" },
-  board: { label: "Boards", Icon: Frame, color: "text-fuchsia-600" },
-  file: { label: "Files", Icon: FileIcon, color: "text-slate-500" },
+  sheet: { label: "Sheets", Icon: Sheet, color: "text-type-sheet" },
+  doc: { label: "Docs", Icon: FileText, color: "text-type-doc" },
+  note: { label: "Notes", Icon: NotebookPen, color: "text-type-note" },
+  slides: { label: "Slides", Icon: Presentation, color: "text-type-slides" },
+  pdf: { label: "PDFs", Icon: IconFileTypePdf, color: "text-type-pdf" },
+  image: { label: "Images", Icon: ImageIcon, color: "text-type-image" },
+  board: { label: "Boards", Icon: Frame, color: "text-type-board" },
+  file: { label: "Files", Icon: FileIcon, color: "text-type-file" },
 };
 
 /** Document types offered in the filter menus, in display order. */

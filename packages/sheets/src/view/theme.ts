@@ -7,7 +7,7 @@ export const LightTheme = {
   customBorderColor: '#000000',
   cellBGColor: '#FFFFFF',
   cellTextColor: '#000000',
-  cellLinkColor: '#1A73E8',
+  cellLinkColor: palette.link,
   // Butter & Maple — active cell ring uses syrup, selection fill uses
   // butter, header chip uses solid butter. Matches the homepage MiniSpreadsheet.
   activeCellColor: palette.syrup,
@@ -26,9 +26,17 @@ export const LightTheme = {
   peerCursor6: '#DDA0DD',
   peerCursor7: '#98D8C8',
   peerCursor8: '#A78BFA',
-  resizeHandleColor: '#1A73E8',
-  headerSelectedBGColor: 'rgba(26, 115, 232, 0.3)',
-  dropIndicatorColor: '#1A73E8',
+  // Handles, drop guides and the whole-row/column header follow the one
+  // accent (syrup) instead of Google blue, so the grid agrees with the
+  // docs/slides selection chrome. The fully selected header is a syrup tint,
+  // deeper than the solid butter of a partly selected one, so selecting a
+  // whole column reads as the stronger state.
+  resizeHandleColor: palette.syrup,
+  headerSelectedBGColor: `rgba(${palette.syrupRgb}, 0.45)`,
+  // A neutral hover for header-embedded buttons (filter), weaker than the
+  // pressed state's selection wash.
+  headerButtonHoverBGColor: 'rgba(0, 0, 0, 0.08)',
+  dropIndicatorColor: palette.syrup,
   freezeLineColor: '#BBBBBB',
   freezeHandleColor: '#9E9E9E',
   freezeHandleHoverColor: '#5F6368',
@@ -38,7 +46,8 @@ export const LightTheme = {
   formulaRange4: '#27AE60',
   formulaRange5: '#F39C12',
   formulaRange6: '#00ACC1',
-  filterRangeBorderColor: '#1A73E8',
+  // The filter frame is chrome, not a reference color: the one accent.
+  filterRangeBorderColor: palette.syrup,
   searchHighlightColor: 'rgba(255, 200, 0, 0.35)',
   searchCurrentColor: 'rgba(255, 150, 0, 0.55)',
 };
@@ -48,7 +57,7 @@ export const DarkTheme = {
   customBorderColor: '#FFFFFF',
   cellBGColor: '#1E1E1E',
   cellTextColor: '#FFFFFF',
-  cellLinkColor: '#8AB4F8',
+  cellLinkColor: palette.linkBright,
   // Butter & Maple — dark variant. Syrup brightens to maple-amber, butter
   // stays gold so the header chip reads against the dark grid.
   activeCellColor: palette.syrupBright,
@@ -66,9 +75,10 @@ export const DarkTheme = {
   peerCursor6: '#E17055',
   peerCursor7: '#81ECEC',
   peerCursor8: '#A78BFA',
-  resizeHandleColor: '#8AB4F8',
-  headerSelectedBGColor: 'rgba(138, 180, 248, 0.3)',
-  dropIndicatorColor: '#8AB4F8',
+  resizeHandleColor: palette.syrupBright,
+  headerSelectedBGColor: `rgba(${palette.syrupRgb}, 0.55)`,
+  headerButtonHoverBGColor: 'rgba(255, 255, 255, 0.10)',
+  dropIndicatorColor: palette.syrupBright,
   freezeLineColor: '#5A5A5A',
   freezeHandleColor: '#8E8E8E',
   freezeHandleHoverColor: '#CCCCCC',
@@ -78,7 +88,7 @@ export const DarkTheme = {
   formulaRange4: '#66BB6A',
   formulaRange5: '#FFB74D',
   formulaRange6: '#4DD0E1',
-  filterRangeBorderColor: '#8AB4F8',
+  filterRangeBorderColor: palette.syrupBright,
   searchHighlightColor: 'rgba(255, 200, 0, 0.35)',
   searchCurrentColor: 'rgba(255, 150, 0, 0.55)',
 };

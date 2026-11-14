@@ -81,3 +81,34 @@ describe('AnimationPlayer', () => {
     expect(rs.get('e2')?.hidden).toBe(true);
   });
 });
+
+describe('AnimationPlayer — reduced motion', () => {
+  it('lands each step on its final state in the advancing call', () => {
+    const onFrame = vi.fn();
+    const steps = [mkStep('e1', 500), mkStep('e2', 500)];
+    const p = new AnimationPlayer(steps, size, onFrame, { reducedMotion: () => true });
+    expect(p.advance()).toBe(true);
+    // Settled already: no tick needed and nothing left animating.
+    expect(p.isAnimating).toBe(false);
+    const frame: Map<string, AnimState> = onFrame.mock.calls.at(-1)![0];
+    expect(frame.get('e1')?.opacity).toBeCloseTo(1);
+    expect(frame.get('e1')?.hidden).toBe(false);
+    // The next click starts (and settles) the next step, not a skip-to-end.
+    p.advance();
+    expect(p.isLastStep).toBe(true);
+    expect(p.done).toBe(true);
+  });
+
+  it('reads the preference per step, so a mid-show toggle applies next click', () => {
+    let reduced = false;
+    const steps = [mkStep('e1', 500), mkStep('e2', 500)];
+    const p = new AnimationPlayer(steps, size, () => {}, { reducedMotion: () => reduced });
+    p.advance();
+    expect(p.isAnimating).toBe(true);
+    p.tick(0); p.tick(500);
+    reduced = true;
+    p.advance();
+    expect(p.isAnimating).toBe(false);
+    expect(p.done).toBe(true);
+  });
+});

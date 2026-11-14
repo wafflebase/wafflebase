@@ -5,7 +5,8 @@ import {
   MIRO_ITEM_LABEL,
   type MiroImportRunnerDeps,
 } from "@/app/documents/miro-import-runner";
-import type { MiroImportProgress } from "@/api/miro";
+import { MiroImportStreamError, type MiroImportProgress } from "@/api/miro";
+import { HttpError } from "@/api/http-error";
 import type { UploadItem } from "@/app/documents/upload-queue";
 
 /**
@@ -267,7 +268,9 @@ describe("startMiroImport — terminal states", () => {
     const { finished } = await startMiroImport(INPUT, {
       ...happyDeps({
         readStream: (async () => {
-          throw new Error("Miro rate limit reached — try again in a minute");
+          throw new MiroImportStreamError(
+            "Miro rate limit reached — try again in a minute",
+          );
         }) as never,
       }),
       ...queue.deps,
@@ -301,7 +304,9 @@ describe("startMiroImport — terminal states", () => {
     expect(deleteDoc).toHaveBeenCalledWith("doc-9");
     expect(queue.item).toMatchObject({
       status: "error",
-      reason: "Yorkie attach failed",
+      // "Yorkie attach failed" is developer text, so the row says what failed
+      // instead of forwarding it.
+      reason: "Couldn't import the Miro board",
       // The document is gone, so the row must stop claiming one — dismissing
       // it would otherwise try to delete the same id a second time.
       docId: undefined,
@@ -313,17 +318,17 @@ describe("startMiroImport — terminal states", () => {
     const { finished } = await startMiroImport(INPUT, {
       ...happyDeps({
         applyContent: (async () => {
-          throw new Error("Yorkie attach failed");
+          throw new HttpError("This board is too large to import", 413);
         }) as never,
         deleteDoc: (async () => {
-          throw new Error("delete blew up");
+          throw new HttpError("delete blew up", 403);
         }) as never,
       }),
       ...queue.deps,
     });
     await finished;
 
-    expect(queue.item?.reason).toBe("Yorkie attach failed");
+    expect(queue.item?.reason).toBe("This board is too large to import");
   });
 
   it("removes the row on an expired session instead of reporting a failure", async () => {

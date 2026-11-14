@@ -218,7 +218,7 @@ export function FontFamilyPicker({
                 type="button"
                 aria-label="Font"
                 disabled={disabled}
-                className="inline-flex h-7 min-w-[112px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                className="focus-ring inline-flex h-7 min-w-[112px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 data-text-edit-keepalive
               >
                 <span className="truncate" style={{ fontFamily: value }}>
@@ -254,7 +254,7 @@ export function FontFamilyPicker({
         >
           {recents.length > 0 && (
             <div>
-              <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
                 Recent
               </DropdownMenuLabel>
               {recents.map((family) => {
@@ -295,7 +295,7 @@ export function FontFamilyPicker({
             return (
               <div key={group}>
                 {(recents.length > 0 || gi > 0) && <DropdownMenuSeparator />}
-                <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
                   {group}
                 </DropdownMenuLabel>
                 {entries.map((entry) => (

@@ -139,7 +139,7 @@ export function LakehouseView({ tabId, readOnly = false }: LakehouseViewProps) {
         setCanvasError(
           errorMessage(
             initializationError,
-            'Failed to initialize lakehouse grid',
+            "Couldn't set up the lakehouse grid",
           ),
         );
       });
@@ -185,7 +185,7 @@ export function LakehouseView({ tabId, readOnly = false }: LakehouseViewProps) {
           return;
         }
         setHistoryError(
-          errorMessage(historyFetchError, 'Failed to load commit history'),
+          errorMessage(historyFetchError, "Couldn't load the commit history"),
         );
       })
       .finally(() => {
@@ -231,7 +231,7 @@ export function LakehouseView({ tabId, readOnly = false }: LakehouseViewProps) {
             sheetRef.current === currentSheet
           ) {
             setCanvasError(
-              errorMessage(reloadError, 'Failed to clear lakehouse grid'),
+              errorMessage(reloadError, "Couldn't clear the lakehouse grid"),
             );
           }
         });
@@ -296,7 +296,7 @@ export function LakehouseView({ tabId, readOnly = false }: LakehouseViewProps) {
           return;
         }
         setReadError(
-          errorMessage(readFailure, 'Failed to read lakehouse table'),
+          errorMessage(readFailure, "Couldn't read the lakehouse table"),
         );
       })
       .finally(() => {

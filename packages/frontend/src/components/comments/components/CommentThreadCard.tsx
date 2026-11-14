@@ -42,9 +42,9 @@ type Props<A extends CommentAnchor> = {
  * popover and the side panel. Anchor-agnostic.
  *
  * Layout matches the sheets popover: Resolve is a small icon on the
- * root header, Edit/Delete are behind a hover-revealed "more" menu, and
- * the reply box is always present so a single click on a marker is
- * enough to start typing.
+ * root header, Edit/Delete are behind a "more" menu that is dimmed at
+ * rest and brightens on hover or focus, and the reply box is always
+ * present so a single click on a marker is enough to start typing.
  */
 export function CommentThreadCard<A extends CommentAnchor>({
   thread,
@@ -69,8 +69,8 @@ export function CommentThreadCard<A extends CommentAnchor>({
     } catch {
       toast.error(
         thread.resolved
-          ? "Couldn't reopen this thread. Please try again."
-          : "Couldn't resolve this thread. Please try again.",
+          ? "Couldn't reopen this thread. Try again."
+          : "Couldn't resolve this thread. Try again.",
       );
     } finally {
       setResolving(false);
@@ -81,7 +81,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
     try {
       await onDelete(commentId);
     } catch {
-      toast.error("Couldn't delete this comment. Please try again.");
+      toast.error("Couldn't delete this comment. Try again.");
     }
   };
 
@@ -109,7 +109,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-6 w-6 p-0"
+                className="h-6 w-6 p-0 pointer-coarse:h-11 pointer-coarse:w-11"
                 disabled={resolving}
                 onClick={() => {
                   void handleResolveToggle();
@@ -122,14 +122,18 @@ export function CommentThreadCard<A extends CommentAnchor>({
             )}
 
             {canEditOrDelete && (
-              <div className="invisible group-hover:visible group-focus-within:visible">
+              // Quiet at rest, full on hover or focus — but never hidden:
+              // `visibility: hidden` would drop the trigger out of the Tab
+              // order, and a fingertip has no hover to reveal it with, so a
+              // coarse pointer always gets it at full strength and full size.
+              <div className="opacity-40 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      className="h-6 w-6 p-0 pointer-coarse:h-11 pointer-coarse:w-11"
                       aria-label="More actions"
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />

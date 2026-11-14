@@ -250,8 +250,8 @@ tsconfig `paths` (so sheets/docs/slides/board/cli resolve through `dist/`); the
 frontend aliases the five engines to `src/` in `packages/frontend/vite.config.ts` and does *not*
 alias core (so its lanes need only `core:build`); the backend's jest
 `moduleNameMapper` maps every workspace import, core included, to `src/` (so
-`backend:test` needs no build, while `backend:build` does); and `notes` and
-`design-editor` declare no workspace dependency at all.
+`backend:test` needs no build, while `backend:build` does); and `notes` declares
+no workspace dependency at all.
 
 `pnpm verify:fast` is unchanged and remains the `pre-commit` gate. `verify:self`
 no longer shells out to it — the duplicated `pnpm core build` in that chain is
@@ -469,11 +469,10 @@ full suite. A new package, a new top-level directory, or a file nobody classifie
 is therefore covered by default, with no catch-all rule to remember. Never invert
 this into a list of paths that *do* trigger things.
 
-**Two workspace packages are inert, and listing one takes a second edit.**
-`packages/documentation` (the VitePress site) and `packages/design-editor` (the
-dev-only Vite plugin) are leaves: no manifest in the workspace depends on either,
-and `packages/frontend/vite.config.ts` does not register the plugin, so neither
-can reach the engines, the frontend, or the heavy jobs.
+**One workspace package is inert, and listing one takes a second edit.**
+`packages/documentation` (the VitePress site) is a leaf: no manifest in the
+workspace depends on it, so it cannot reach the engines, the frontend, or the
+heavy jobs.
 
 The second edit is the trap. An inert match **short-circuits** the `packages/`
 classification in `classify`, so an inert package never enters `changedPkgs`,
@@ -482,37 +481,20 @@ lane selecting on `pkgs` alone becomes **unreachable**, and so does `anyPkg`.
 Left there, the entry would make the package skippable *and* untested, which is
 strictly worse than not listing it: the lane still exists, still looks like
 coverage, and never runs. So each inert package's entry carries a tag its lanes
-also claim, and `scripts/test/verify-self-lanes.test.mjs` asserts that every tag
-in `ci.inert` is claimed by some lane.
+also claim — `documentation` is claimed by `documentation:build` — and
+`scripts/test/verify-self-lanes.test.mjs` asserts that every tag in `ci.inert` is
+claimed by some lane.
 
-**How many lanes have to claim the tag is a per-package question**, and the
-answer differs for these two:
-
-| Package | In `knip.json`? | Tag claimed by |
-| --- | --- | --- |
-| `documentation` | no | `documentation:build` |
-| `design-editor` | **yes** (added by #819) | `design-editor:build`, `design-editor:check`, `design-sandbox:check` **and** `verify:entropy` |
-
-`design-editor` needs the second claimant because knip analyses it, so its
-dead-code pass is a gate a change there can genuinely fail — and `anyPkg`, which
-is how `verify:entropy` normally gets selected, cannot see an inert package. With
-only `design-editor:check` claiming the tag, dead code added under
-`packages/design-editor/` would pass its PR and first fail on `main`'s push run.
-That cost the four engine builds in entropy's `needs`; a design-editor change
-selects 8 of 32 lanes and still skips both heavy jobs — checkable against the
-lane graph, which is the point of stating it as a number.
-
-`design-editor:build` is a claimant of the same tag for a different reason, and
-the reason runs the OTHER way: since #966 the package's `exports["."]` names its
-built plugin entry under `dist/plugin/`, so every consumer needs that build —
-including
-knip, which loads `packages/design-sandbox/vite.config.ts` to discover its
-plugins. Entropy therefore `needs` it on **any** package change, not only on a
-tagged one, and the tag is what lets a design-editor-only change reach it at all.
-A `needs` edge into an inert package's build lane is the shape to reach for
-whenever an inert package starts publishing a built entry: the general rule when
-listing a package inert: **enumerate every gate that can currently fail on it,
-and check each one's route in is a tag rather than `pkgs` or `anyPkg`.**
+**How many lanes have to claim the tag is a per-package question.** A package
+`knip.json` analyses has a dead-code gate a change there can genuinely fail, and
+`anyPkg` — how `verify:entropy` is normally selected — cannot see an inert
+package, so entropy has to claim its tag too; a package that publishes a built
+entry other gates load needs a `needs` edge into its build lane. `documentation`
+is in neither position. The general rule when listing a package inert:
+**enumerate every gate that can currently fail on it, and check each one's route
+in is a tag rather than `pkgs` or `anyPkg`.** (The design-editor package was the
+second inert package, and the worked example of both cases, until it was removed
+on 2026-11-13; see `git log`.)
 
 **Five unrelated failures all mean "run everything"** — no diff base, an
 unreadable event payload, a failed `git diff`, an empty diff, a corrupt
@@ -3528,93 +3510,10 @@ different mechanism.
 
 ### Phase 32: Human-Reported Defects (Debug Report)
 
-Phases 26 and 31 built hunters that generate their own candidates. This phase adds the
-channel they cannot cover: **the defect a person noticed**. Full design in
-[debug-report.md](debug-report.md); what belongs to the harness is below.
-
-**The reporter is not asked to translate.** Phase 24's intake expects a brief with
-reproduction steps and a location; producing one costs more than noticing the defect did,
-which is why most noticed defects are never filed. Here the reporter supplies a point on
-the screen and one sentence, and an agent produces the issue text — drafted at PREVIEW
-time, so what the person confirms is the text that will be filed. The three additions to
-`scripts/agent/` are an intake step (redact → dedupe → route), a verification step
-(two-way delegation) and a PR-assembly step (grouping, one item per commit, size
-disclosure); they arrive with the pipeline itself, later in the rollout.
-
-**Nothing is filed without confirmation, and `hunt-ui` still files nothing.** The
-`report-*` scripts act only on items a person confirmed in the panel; the hunters'
-autonomous findings do not enter this path. That keeps the rule
-[hunter-usage.md](hunter-usage.md) states — no filing stage on the hunters — intact
-while giving confirmed human reports a filing route.
-
-**Verification splits by what the report can support, and failure lowers the
-destination rather than discarding the report.** A report with reproduction steps
-becomes a synthesised plan for `hunt-ui.mjs replay`; an appearance report has neither
-prediction nor plan, so it skips replay and is gated by a new `visual-intent` lens
-instead — one `lenses.json` row plus one prompt, whose inputs are the reporter's
-sentence and the baseline / actual / diff PNGs `verify-visual-browser.mjs` already emits.
-It judges whether the after state satisfies the sentence AND whether the diff exceeded
-the report's scope; the second fires more often. When replay says "not reproduced" the
-report is filed as an issue carrying BOTH the expectation and the failed replay — the
-documented failure mode where a reader's scope is wider than the action means a failed
-replay is not proof the observation was wrong, and resolving that discrepancy is a
-person's job, not the pipeline's.
-
-**Grouping is governed by homogeneity, not count.** Two padding fixes pass or fail
-together; a padding fix and a formula-engine bug do not. Items touching one file are
-forced into one PR (separate PRs would conflict), items of one `kind` and risk class are
-electively grouped, and `logic` items are never grouped. The pipeline may SPLIT a
-proposed group and may never MERGE across kinds — splitting is always safe.
-
-**Isolation outranks same-file merging**, which matters because the two rules
-genuinely conflict: two `logic` items in one file satisfy both. Independent review of a
-behaviour change is the stronger guarantee, so they stay separate and the file overlap
-is REPORTED as a conflict — land one, rebase the other — rather than silently merged
-into a PR the isolation rule forbids. Caps: 8 items per group, 5 PRs per session, with
-overflow queued and visible rather than dropped.
-
-**The grouping proposal is made without repository access, so the delta must be
-reported.** Elective coupling needs only the items; forced coupling needs a checkout. A
-PR shaped differently from what the person approved, with no stated reason, breaks trust
-before it breaks anything else — so the results round-trip records
-`proposed 2 PRs → actual 3 (reason)`, and a silent adjustment is a defect in this phase,
-not an implementation detail.
-
-**Credentials split by blast radius, not by convenience.** Drafting is tool-free and
-output-only, so its key can live with the app (worst case: wasted tokens and a rejected
-draft — no privileged action for an injection to reach). Verification, code location and
-PR authorship need a checkout and the `verify:*` lanes, so that credential stays with the
-repository and the repository PULLS reports with a read-only `ApiKey`. The app never
-pushes; a compromised app cannot create a commit.
-
-**`agent:candidate` cannot be granted by this path, and is not.** The gate requires the
-label AND a non-Bot author, so an Actions-opened issue does not open it even when
-labelled. The checkbox records intent: a local run applies the label, Actions mode
-renders a checklist in the issue body. Intent conveyed, gate unweakened.
-
-**The intake lane files nothing by itself, and the separation is structural.**
-`report-intake.mjs` emits a plan; `report-verify.mjs` prints the lane commands rather
-than running them; `report-to-pr.mjs` assembles branches, commits and bodies and spawns
-no process at all — a test asserts that rather than trusting it. Opening a PR stays
-`spec-to-pr.mjs handoff`, taken after a person has read the assembly. The payoff is that
-`--dry-run` is the SAME code path as a real run, not a second one that drifts from it.
-
-`report-bundle.mjs` re-validates a bundle at the disk boundary and cannot share code
-with the browser's parser — `scripts/agent/` is a separate npm install, the same
-constraint behind the UI hunter's subprocess runner. Shared fixtures under
-`scripts/agent/fixtures/debug-report/`, loaded by both suites, are what keep the two
-from drifting.
-
-Status: SP0 spike run 2026-08-21 (throwaway; four findings recorded in
-[debug-report.md](debug-report.md), three of which changed the capture design). Shipped
-as a four-PR stack: 1a core model/session/store/`HostAdapter`; 1b capture, engine
-locators and the overlay; 2 the preview panel, drafting and the dev transport; 3 the
-`scripts/agent/` intake lane and the `visual-intent` lens. Each stage took one
-`/code-review` round, and both of the first two rounds found real defects in the path
-that had just been wired — including a drafting endpoint that could never have
-succeeded, which its own unit tests could not see because they tested the
-implementation rather than the wiring. Still to come: SP1.5 auto-detection and the SP2
-deployed mailbox.
+Shipped 2026-08-24 → 2026-08-25 as an in-app reporter (the debug-report package)
+plus a report-* intake lane under scripts/agent, then **removed on 2026-11-13** together
+with the design editor, in favour of Impeccable. The heading stays so phase numbers
+remain stable; the design and its reasoning are in `git log`.
 
 ### Phase 33: The review loop converges on what it already judged
 
@@ -3749,6 +3648,7 @@ Harness policy is managed in `harness.config.json`:
 Frontend chunk environment overrides:
 - `FRONTEND_CHUNK_LIMIT_KB`
 - `FRONTEND_CHUNK_COUNT_LIMIT`
+- `FRONTEND_EAGER_LIMIT_KB` (entry + modulepreloaded bytes from `dist/index.html`)
 
 Entropy detectors default to enabled; set `"enabled": false` to disable
 individually for debugging. Dependency freshness `failOnCritical` fails the

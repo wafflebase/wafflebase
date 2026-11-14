@@ -47,12 +47,12 @@ export function ThemedFontPicker({
   return (
     <div role="group" aria-label="Font picker" className="w-[208px]">
       {hint && (
-        <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+        <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
           {hint}
         </p>
       )}
 
-      <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="mb-1 px-0.5 text-xs font-medium text-muted-foreground">
         Theme fonts
       </p>
       <div className="mb-2 flex flex-col gap-1">
@@ -61,7 +61,7 @@ export function ThemedFontPicker({
           aria-label="Heading font"
           aria-pressed={headingSelected}
           onClick={() => onChange(makeRoleFont("heading"))}
-          className={`flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
+          className={`focus-ring flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
             headingSelected
               ? "border-foreground ring-2 ring-ring/50"
               : "border-border"
@@ -69,7 +69,7 @@ export function ThemedFontPicker({
           style={{ fontFamily: theme.fonts.heading }}
         >
           <span>Heading</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {theme.fonts.heading}
           </span>
         </button>
@@ -78,7 +78,7 @@ export function ThemedFontPicker({
           aria-label="Body font"
           aria-pressed={bodySelected}
           onClick={() => onChange(makeRoleFont("body"))}
-          className={`flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
+          className={`focus-ring flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
             bodySelected
               ? "border-foreground ring-2 ring-ring/50"
               : "border-border"
@@ -86,14 +86,14 @@ export function ThemedFontPicker({
           style={{ fontFamily: theme.fonts.body }}
         >
           <span>Body</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {theme.fonts.body}
           </span>
         </button>
       </div>
 
       <div className="border-t pt-2">
-        <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="mb-1 px-0.5 text-xs font-medium text-muted-foreground">
           System
         </p>
         {/* Plain list of toggle buttons (NOT a `role="listbox"`).
@@ -111,7 +111,7 @@ export function ThemedFontPicker({
                   aria-pressed={selected}
                   aria-label={family}
                   onClick={() => onChange(makeFamilyFont(family))}
-                  className={`flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted ${
+                  className={`focus-ring flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted ${
                     selected ? "bg-muted text-foreground" : "text-foreground"
                   }`}
                   style={{ fontFamily: family }}

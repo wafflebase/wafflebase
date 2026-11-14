@@ -10,7 +10,7 @@ export async function fetchFolders(workspaceId: string): Promise<Folder[]> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${seg(workspaceId)}/folders`
   );
-  await assertOk(response, "Failed to fetch folders");
+  await assertOk(response, "Couldn't load folders");
   return response.json();
 }
 
@@ -30,7 +30,7 @@ export async function createFolder(
     }
   );
 
-  await assertOk(response, "Failed to create folder");
+  await assertOk(response, "Couldn't create the folder");
 
   return response.json();
 }
@@ -48,7 +48,7 @@ export async function renameFolder(id: string, name: string): Promise<Folder> {
     }
   );
 
-  await assertOk(response, "Failed to rename folder");
+  await assertOk(response, "Couldn't rename the folder");
 
   return response.json();
 }
@@ -70,7 +70,7 @@ export async function moveFolder(
     }
   );
 
-  await assertOk(response, "Failed to move folder");
+  await assertOk(response, "Couldn't move the folder");
 
   return response.json();
 }
@@ -86,5 +86,5 @@ export async function deleteFolder(id: string): Promise<void> {
     }
   );
 
-  await assertOk(response, "Failed to delete folder");
+  await assertOk(response, "Couldn't delete the folder");
 }

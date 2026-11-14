@@ -73,7 +73,7 @@ export function MobileEditPanel({
         <textarea
           ref={textareaRef}
           aria-label={`Edit cell ${cellRef}`}
-          className="min-w-0 flex-1 resize-none rounded border bg-background px-2 py-1 text-sm leading-5 outline-none focus:ring-1 focus:ring-ring"
+          className="min-w-0 flex-1 resize-none rounded border bg-background px-2 py-1 text-base leading-5 outline-none focus:ring-1 focus:ring-ring"
           rows={1}
           value={value}
           onChange={(e) => {

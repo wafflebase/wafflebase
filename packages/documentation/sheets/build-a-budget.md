@@ -1,6 +1,6 @@
 # Build a Budget Spreadsheet
 
-In this guide, you'll build a monthly budget tracker from scratch. Along the way, you'll learn how to use formulas, format numbers, and organize your data.
+Build a monthly budget tracker from scratch, using formulas, number formats, and conditional logic.
 
 ## 1. Set Up the Structure
 
@@ -61,7 +61,7 @@ Your spreadsheet should now look like this:
 
 ## 4. Use Conditional Logic
 
-Let's add a **Status** column that says "Over" when you've exceeded the budget and "OK" otherwise. In **E1**, type `Status`. In **E2**, enter:
+Add a **Status** column that says "Over" when you've exceeded the budget and "OK" otherwise. In **E1**, type `Status`. In **E2**, enter:
 
 ```
 =IF(D2 < 0, "Over", "OK")

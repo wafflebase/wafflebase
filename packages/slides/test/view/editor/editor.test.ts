@@ -3331,9 +3331,9 @@ describe('Editor snap to grid (host-supplied step)', () => {
       li.textContent?.includes('Snap to grid'),
     ) as HTMLElement;
     expect(item).toBeTruthy();
-    // `selected: true` draws the check-mark column, so the label alone
-    // is not the text content — the toggle state is visible.
-    expect(item.textContent).toContain('✓');
+    // `selected: true` draws the check column, so the toggle state is
+    // visible (and named for assistive tech) beside the label.
+    expect(item.querySelector('svg[aria-label="Selected"]')).toBeTruthy();
     item.click();
     expect(run).toHaveBeenCalledTimes(1);
   });

@@ -313,7 +313,7 @@ export function DocsPageSetupDialog({
             {/* One alert line for both: the form's own validation, and the
                 rejection the engine reported when validation missed it. */}
             {(error ?? applyError) && (
-              <p role="alert" className="text-sm text-red-500">
+              <p role="alert" className="text-sm text-destructive">
                 {error ?? applyError}
               </p>
             )}

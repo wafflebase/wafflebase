@@ -131,7 +131,14 @@ model Document {
   notifications Notification[]
   templateListing TemplateListing?
 
+  // Trash. Null = live; set = moved to the trash at that time. A trashed
+  // document is invisible everywhere a live one is visible — reads go through
+  // `LIVE_DOCUMENT` / `DocumentService`, see docs/design/document-trash.md.
+  // Restoring clears it; a permanent delete removes the row.
+  deletedAt DateTime?
+
   @@index([workspaceId, folderId])
+  @@index([workspaceId, deletedAt])
 }
 
 model Folder {

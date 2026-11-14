@@ -89,7 +89,7 @@ function loadImageDimensions(
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Failed to load image"));
+      reject(new Error("The file isn't a readable image"));
     };
     img.src = url;
   });

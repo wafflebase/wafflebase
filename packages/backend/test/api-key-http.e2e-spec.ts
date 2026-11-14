@@ -89,6 +89,65 @@ describeDb('API Key HTTP integration', () => {
     await moduleRef.close();
   });
 
+  // docs/design/document-trash.md — v1 DELETE trashes, restore brings it
+  // back, ?permanent=true destroys; a trashed document 404s on every read.
+  it('trashes, restores, and permanently deletes through /api/v1', async () => {
+    const owner = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
+    const doc = await prisma.document.create({
+      data: { title: 'v1 trash', authorID: owner.id, workspaceId: workspace.id },
+    });
+    const { body: key } = await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/api-keys`)
+      .set('Cookie', authCookie(owner))
+      .send({ name: 'trash key' })
+      .expect(201);
+    const auth = `Bearer ${key.key as string}`;
+    const base = `/api/v1/workspaces/${workspace.id}/documents`;
+
+    await request(app.getHttpServer())
+      .delete(`${base}/${doc.id}`)
+      .set('Authorization', auth)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`${base}/${doc.id}`)
+      .set('Authorization', auth)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get(`${base}/${doc.id}/tabs`)
+      .set('Authorization', auth)
+      .expect(404);
+    const list = await request(app.getHttpServer())
+      .get(base)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(list.body).toHaveLength(0);
+
+    await request(app.getHttpServer())
+      .post(`${base}/${doc.id}/restore`)
+      .set('Authorization', auth)
+      .expect(201);
+    await request(app.getHttpServer())
+      .get(`${base}/${doc.id}`)
+      .set('Authorization', auth)
+      .expect(200);
+
+    // Live again, so a permanent delete is refused until it is re-trashed.
+    await request(app.getHttpServer())
+      .delete(`${base}/${doc.id}?permanent=true`)
+      .set('Authorization', auth)
+      .expect(404);
+    await request(app.getHttpServer())
+      .delete(`${base}/${doc.id}`)
+      .set('Authorization', auth)
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete(`${base}/${doc.id}?permanent=true`)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(await prisma.document.findUnique({ where: { id: doc.id } })).toBeNull();
+  });
+
   it('full lifecycle: create, list, use as Bearer token, revoke', async () => {
     const owner = await createUser();
     const workspace = await createWorkspace(prisma, owner.id);

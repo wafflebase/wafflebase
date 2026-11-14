@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   INestApplication,
+  NotFoundException,
   ValidationPipe,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -25,18 +26,36 @@ const MEMBER = 3;
 describe('ApiV1DocumentsController.remove permissions', () => {
   let controller: ApiV1DocumentsController;
   let documentService: {
-    getDocumentOrThrow: jest.Mock;
-    deleteDocument: jest.Mock;
+    document: jest.Mock;
+    documentIncludingTrashed: jest.Mock;
+    trashDocuments: jest.Mock;
+    restoreDocument: jest.Mock;
+    trashedDocument: jest.Mock;
+    purgeTrashedDocument: jest.Mock;
   };
   let workspaceService: { assertMember: jest.Mock };
   let fileService: { delete: jest.Mock };
 
+  const live = {
+    id: 'doc-1',
+    workspaceId: WS,
+    authorID: AUTHOR,
+    deletedAt: null,
+  };
+  const trashedAt = new Date('2026-11-14T00:00:00Z');
+
   beforeEach(() => {
     documentService = {
-      getDocumentOrThrow: jest
+      document: jest.fn().mockResolvedValue(live),
+      documentIncludingTrashed: jest
         .fn()
-        .mockResolvedValue({ id: 'doc-1', workspaceId: WS, authorID: AUTHOR }),
-      deleteDocument: jest.fn().mockResolvedValue({ id: 'doc-1' }),
+        .mockResolvedValue({ ...live, deletedAt: trashedAt }),
+      trashDocuments: jest.fn().mockResolvedValue(1),
+      restoreDocument: jest.fn().mockResolvedValue(live),
+      trashedDocument: jest
+        .fn()
+        .mockResolvedValue({ ...live, deletedAt: trashedAt }),
+      purgeTrashedDocument: jest.fn().mockResolvedValue(true),
     };
     workspaceService = {
       assertMember: jest.fn().mockResolvedValue({ role: 'member' }),
@@ -60,21 +79,25 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     await expect(
       controller.remove(WS, 'doc-1', req(MEMBER)),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(documentService.deleteDocument).not.toHaveBeenCalled();
+    expect(documentService.trashDocuments).not.toHaveBeenCalled();
+    expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
   });
 
-  it('lets the workspace owner delete any document', async () => {
+  it('lets the workspace owner trash any document', async () => {
     workspaceService.assertMember.mockResolvedValue({ role: 'owner' });
     await expect(
       controller.remove(WS, 'doc-1', req(OWNER)),
-    ).resolves.toMatchObject({ id: 'doc-1' });
+    ).resolves.toMatchObject({ id: 'doc-1', deletedAt: trashedAt });
+    expect(documentService.trashDocuments).toHaveBeenCalledWith(['doc-1']);
+    expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
   });
 
-  it('lets the document author delete their own document', async () => {
+  it('lets the document author trash their own document', async () => {
     workspaceService.assertMember.mockResolvedValue({ role: 'member' });
     await expect(
       controller.remove(WS, 'doc-1', req(AUTHOR)),
     ).resolves.toMatchObject({ id: 'doc-1' });
+    expect(documentService.trashDocuments).toHaveBeenCalledWith(['doc-1']);
   });
 
   it('lets an API key minted by an owner delete any document', async () => {
@@ -93,41 +116,122 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     await expect(
       controller.remove(WS, 'doc-1', req(MEMBER, true, ['read', 'write'])),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(documentService.deleteDocument).not.toHaveBeenCalled();
+    expect(documentService.trashDocuments).not.toHaveBeenCalled();
+    expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
   });
 
   // A read-scoped key is refused before this handler runs — see
   // `api-key-write-scope.guard.spec.ts`, which covers every mutating method
   // and asserts the guard is mounted on this controller.
 
-  it('deletes the stored blob alongside a blob-backed document', async () => {
-    const fileId = '11111111-2222-3333-4444-555555555555.zip';
-    documentService.getDocumentOrThrow.mockResolvedValue({
-      id: 'doc-1',
-      workspaceId: WS,
-      authorID: AUTHOR,
-      fileId,
-    });
-    await controller.remove(WS, 'doc-1', req(AUTHOR));
-    expect(fileService.delete).toHaveBeenCalledWith(fileId);
+  it('answers 404 when trashing a document that is already in the trash', async () => {
+    documentService.document.mockResolvedValue(null);
+    await expect(
+      controller.remove(WS, 'doc-1', req(AUTHOR)),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(documentService.trashDocuments).not.toHaveBeenCalled();
   });
 
-  it('does not attempt a blob delete for a CRDT document', async () => {
+  it('keeps the blob when a blob-backed document is only trashed', async () => {
+    documentService.document.mockResolvedValue({
+      ...live,
+      fileId: '11111111-2222-3333-4444-555555555555.zip',
+    });
     await controller.remove(WS, 'doc-1', req(AUTHOR));
     expect(fileService.delete).not.toHaveBeenCalled();
   });
 
-  it('still deletes the document when blob cleanup fails', async () => {
-    documentService.getDocumentOrThrow.mockResolvedValue({
+  it('permanently deletes a trashed document and its blob with ?permanent=true', async () => {
+    const fileId = '11111111-2222-3333-4444-555555555555.zip';
+    documentService.trashedDocument.mockResolvedValue({
+      ...live,
+      deletedAt: trashedAt,
+      fileId,
+    });
+    await controller.remove(WS, 'doc-1', req(AUTHOR), 'true');
+    expect(documentService.trashedDocument).toHaveBeenCalledWith({
       id: 'doc-1',
       workspaceId: WS,
-      authorID: AUTHOR,
+    });
+    expect(documentService.purgeTrashedDocument).toHaveBeenCalledWith('doc-1');
+    expect(documentService.trashDocuments).not.toHaveBeenCalled();
+    expect(fileService.delete).toHaveBeenCalledWith(fileId);
+  });
+
+  it('treats any permanent value other than "true" as a trash', async () => {
+    await controller.remove(WS, 'doc-1', req(AUTHOR), '1');
+    expect(documentService.trashDocuments).toHaveBeenCalled();
+    expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
+  });
+
+  it('does not attempt a blob delete for a CRDT document', async () => {
+    await controller.remove(WS, 'doc-1', req(AUTHOR), 'true');
+    expect(fileService.delete).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for a permanent delete of a live document', async () => {
+    documentService.trashedDocument.mockResolvedValue(null);
+    await expect(
+      controller.remove(WS, 'doc-1', req(AUTHOR), 'true'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(documentService.purgeTrashedDocument).not.toHaveBeenCalled();
+    expect(fileService.delete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the blob when a restore wins the race to the delete', async () => {
+    documentService.trashedDocument.mockResolvedValue({
+      ...live,
+      deletedAt: trashedAt,
+      fileId: '11111111-2222-3333-4444-555555555555.zip',
+    });
+    documentService.purgeTrashedDocument.mockResolvedValue(false);
+    await expect(
+      controller.remove(WS, 'doc-1', req(AUTHOR), 'true'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(fileService.delete).not.toHaveBeenCalled();
+  });
+
+  it('still deletes the document when blob cleanup fails', async () => {
+    documentService.trashedDocument.mockResolvedValue({
+      ...live,
+      deletedAt: trashedAt,
       fileId: '11111111-2222-3333-4444-555555555555.zip',
     });
     fileService.delete.mockRejectedValue(new Error('s3 down'));
     await expect(
-      controller.remove(WS, 'doc-1', req(AUTHOR)),
+      controller.remove(WS, 'doc-1', req(AUTHOR), 'true'),
     ).resolves.toMatchObject({ id: 'doc-1' });
+  });
+
+  describe('restore', () => {
+    it('restores a trashed document for its manager', async () => {
+      await expect(
+        controller.restore(WS, 'doc-1', req(AUTHOR)),
+      ).resolves.toMatchObject({ id: 'doc-1', deletedAt: null });
+      expect(documentService.restoreDocument).toHaveBeenCalledWith('doc-1');
+    });
+
+    it('answers 404 for a live document', async () => {
+      documentService.documentIncludingTrashed.mockResolvedValue(live);
+      await expect(
+        controller.restore(WS, 'doc-1', req(AUTHOR)),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(documentService.restoreDocument).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a missing document', async () => {
+      documentService.documentIncludingTrashed.mockResolvedValue(null);
+      await expect(
+        controller.restore(WS, 'doc-1', req(AUTHOR)),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('forbids a plain member who does not own the document', async () => {
+      await expect(
+        controller.restore(WS, 'doc-1', req(MEMBER)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(documentService.restoreDocument).not.toHaveBeenCalled();
+    });
   });
 });
 

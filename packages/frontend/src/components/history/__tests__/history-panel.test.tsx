@@ -160,17 +160,32 @@ describe('HistoryPanel', () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByText(/couldn't load older versions: denied/i),
+        screen.getByText(
+          "Couldn't load older versions. Check your connection and try again.",
+        ),
       ).toBeInTheDocument(),
     );
+    // The RPC's own text is developer text, not a sentence for the reader.
+    expect(screen.queryByText(/denied/i)).not.toBeInTheDocument();
     expect(screen.getByText('Launch copy')).toBeInTheDocument();
   });
 
   it('renders a load failure as an error, not as an empty timeline', () => {
     hookState = { ...baseState, days: [], error: new Error('denied') };
     renderPanel();
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Couldn't load version history.",
+    );
+    expect(screen.queryByText(/denied/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/no versions yet/i)).not.toBeInTheDocument();
+  });
+
+  it('offers a retry after a failed load', async () => {
+    hookState = { ...baseState, days: [], error: new Error('denied') };
+    renderPanel();
+    refresh.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('shows the empty state only when the load succeeded with nothing', () => {
@@ -191,9 +206,12 @@ describe('HistoryPanel', () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByText(/couldn't restore this version: permission denied/i),
+        screen.getByText(
+          "Couldn't restore this version. Check your connection and try again.",
+        ),
       ).toBeInTheDocument(),
     );
+    expect(screen.queryByText(/permission denied/i)).not.toBeInTheDocument();
   });
 
   // "Name current version" was the last action here that could fail in
@@ -213,9 +231,12 @@ describe('HistoryPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() =>
       expect(
-        screen.getByText(/couldn't name this version: permission denied/i),
+        screen.getByText(
+          "Couldn't name this version. Check your connection and try again.",
+        ),
       ).toBeInTheDocument(),
     );
+    expect(screen.queryByText(/permission denied/i)).not.toBeInTheDocument();
   });
 
   it('clears the box and reports nothing when naming succeeds', async () => {

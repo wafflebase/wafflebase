@@ -60,13 +60,13 @@ function CollapsibleSection({
     <section className="space-y-2">
       <button
         type="button"
-        className="flex w-full cursor-pointer items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+        className="flex w-full cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
         onClick={() => setOpen(!open)}
       >
         {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
         {title}
         {count > 0 && (
-          <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+          <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs font-bold text-primary-foreground">
             {count}
           </span>
         )}
@@ -373,7 +373,7 @@ export function PivotEditorPanel({
 
         {/* Show Totals */}
         <section className="space-y-2">
-          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+          <Label className="text-xs text-muted-foreground">
             Totals
           </Label>
           <div className="space-y-2">

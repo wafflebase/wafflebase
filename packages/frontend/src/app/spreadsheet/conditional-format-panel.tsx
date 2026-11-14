@@ -9,6 +9,8 @@ import {
 } from "@wafflebase/sheets";
 import { toast } from "sonner";
 import {
+  IconArrowDown,
+  IconArrowUp,
   IconBold,
   IconItalic,
   IconDropletHalf2Filled,
@@ -329,7 +331,7 @@ export function ConditionalFormatPanel({
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-6">
         <div className="flex items-center justify-between">
-          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+          <Label className="text-xs text-muted-foreground">
             Rules
           </Label>
           <Button type="button" size="sm" className="gap-1" onClick={handleAddRule}>
@@ -361,7 +363,7 @@ export function ConditionalFormatPanel({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded bg-muted px-1 text-[10px] font-semibold">
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded bg-muted px-1 text-2xs font-semibold">
                           {index + 1}
                         </span>
                         <p className="truncate text-sm font-medium">
@@ -390,7 +392,7 @@ export function ConditionalFormatPanel({
                           />
                         )}
                       </div>
-                      <p className="text-[10px] text-muted-foreground">
+                      <p className="text-2xs text-muted-foreground">
                         {summarizeStyle(rule)}
                       </p>
                     </div>
@@ -406,7 +408,7 @@ export function ConditionalFormatPanel({
                     onClick={() => handleMoveRule(rule.id, -1)}
                     aria-label="Move rule up"
                   >
-                    <span className="text-sm leading-none">↑</span>
+                    <IconArrowUp size={14} />
                   </Button>
                   <Button
                     type="button"
@@ -417,7 +419,7 @@ export function ConditionalFormatPanel({
                     onClick={() => handleMoveRule(rule.id, 1)}
                     aria-label="Move rule down"
                   >
-                    <span className="text-sm leading-none">↓</span>
+                    <IconArrowDown size={14} />
                   </Button>
                   <Button
                     type="button"

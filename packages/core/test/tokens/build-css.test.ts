@@ -21,26 +21,31 @@ describe('renderTokensCss', () => {
     expect(css).toMatch(/\.dark\s*\{/);
   });
 
-  it('emits the Butter & Maple palette variables under :root', () => {
-    expect(css).toMatch(/--wb-bg:\s*#FBF6EC;/);
+  it('emits the brand palette variables under :root', () => {
+    expect(css).toMatch(/--wb-bg:\s*#FAF9F6;/);
+    expect(css).toMatch(/--wb-wash:\s*#F1EEE8;/);
     expect(css).toMatch(/--wb-syrup:\s*#B8651A;/);
     expect(css).toMatch(/--wb-butter:\s*#F4C95D;/);
   });
 
   it('emits the semantic variables expected by the @theme block', () => {
     expect(css).toMatch(/--background:\s*oklch\(1 0 0\);/);
-    expect(css).toMatch(/--primary:\s*#B8651A;/);
+    expect(css).toMatch(/--primary:\s*#9E5614;/);
+    expect(css).toMatch(/--primary-hover:\s*#8A4A12;/);
+    expect(css).toMatch(/--input-border:\s*oklch\(0\.64 /);
     expect(css).toMatch(/--ring:\s*#B8651A;/);
+    expect(css).toMatch(/--link:\s*#1967D2;/);
   });
 
   it('emits dark-mode overrides', () => {
     expect(css).toMatch(/\.dark\s*\{[^}]*--background:\s*oklch\(0\.141/s);
-    expect(css).toMatch(/\.dark\s*\{[^}]*--wb-bg:\s*#1C1610;/s);
+    expect(css).toMatch(/\.dark\s*\{[^}]*--wb-bg:\s*#161615;/s);
+    expect(css).toMatch(/\.dark\s*\{[^}]*--wb-syrup-deep:\s*#E08A3A;/s);
   });
 
   it('preserves the terminal palette as a constant across both modes', () => {
     // Same value emitted in :root only (no dark override needed).
-    const matches = css.match(/--wb-terminal-bg:\s*#1C1610;/g);
+    const matches = css.match(/--wb-terminal-bg:\s*#161615;/g);
     expect(matches?.length).toBe(1);
   });
 
@@ -59,9 +64,8 @@ describe('renderTokensCss', () => {
 });
 
 /**
- * `renderTokensCss()` was un-parameterized until the design-editor bridge needed
- * to render the same stylesheet from PATCHED sources without writing them to
- * disk. These cover the seam that refactor introduced.
+ * `renderTokensCssFrom()` renders the same stylesheet from PATCHED sources
+ * without writing them to disk. These cover that seam.
  */
 describe('renderTokensCssFrom', () => {
   it('is byte-identical to renderTokensCss() when given the module\'s own sources', () => {
@@ -89,27 +93,19 @@ describe('renderTokensCssFrom', () => {
   });
 
   /**
-   * THE CONSTRAINT THAT FORCES `preview-tokens.mts` TO EXIST.
-   *
-   * `semantic.ts` binds `primary: palette.syrup` at MODULE EVALUATION, so any
+   * `semantic.ts` binds `ring: palette.syrup` at MODULE EVALUATION, so any
    * `semantic` map handed to this function already carries a RESOLVED colour.
    * Object substitution therefore cannot move a semantic role — only
-   * re-evaluating `semantic.ts` against a patched `palette.ts` can.
-   *
-   * That is why the preview worker writes patched SOURCE TEXT to a fresh
-   * scratch directory and re-imports all four modules, rather than passing
-   * objects: a query-string cache bust on `semantic.ts` alone would still
-   * resolve the cached `palette` and return pre-edit colours silently.
-   *
-   * If this test ever starts failing, the token model has changed to late-bound
-   * references and the worker's scratch-directory machinery may be removable.
+   * re-evaluating `semantic.ts` against a patched `palette.ts` can. A caller
+   * that wants a palette edit to reach semantic roles has to patch both.
    */
   it('does NOT re-resolve semantic roles from a patched palette object', () => {
     const patched = renderTokensCssFrom({
       ...OWN,
       palette: { ...palette, syrup: '#0000FF' },
     });
-    expect(patched).toMatch(/--primary:\s*#B8651A;/);
+    // `ring` binds `palette.syrup` the same way `primary` once did.
+    expect(patched).toMatch(/--ring:\s*#B8651A;/);
   });
 
   it('moves a semantic role when the semantic map itself is patched', () => {

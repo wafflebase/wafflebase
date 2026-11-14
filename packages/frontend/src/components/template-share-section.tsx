@@ -23,6 +23,7 @@ import {
   type TemplateVisibility,
 } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import { imageUrl, postSharedImage } from "@/api/images";
 import { captureThumbnail, hasThumbnailSource } from "@/lib/thumbnail-capture";
 
@@ -148,7 +149,10 @@ export function TemplateShareSection({
       .catch((error) => {
         if (cancelled || isAuthExpiredError(error)) return;
         toast.error(
-          error instanceof Error ? error.message : "Failed to load template",
+          userFacingError(
+            error,
+            "Couldn't load the template settings. Close and reopen Share to try again.",
+          ),
         );
       })
       .finally(() => {
@@ -166,7 +170,7 @@ export function TemplateShareSection({
   /**
    * Clipboard failures are reported separately from the mutation that preceded
    * them. A denied clipboard permission after a successful publish would
-   * otherwise surface as "Failed to publish template" while the listing is
+   * otherwise surface as "Couldn't publish the template" while the listing is
    * already live — telling the user the opposite of what happened.
    */
   const copyToClipboard = async (url: string, ok: string): Promise<void> => {
@@ -174,7 +178,7 @@ export function TemplateShareSection({
       await navigator.clipboard.writeText(url);
       toast.success(ok);
     } catch {
-      toast.error("Could not copy the link. Copy it from the address bar.");
+      toast.error("Couldn't copy the link. Copy it from the address bar.");
     }
   };
 
@@ -205,7 +209,10 @@ export function TemplateShareSection({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to publish template",
+        userFacingError(
+          error,
+          "Couldn't publish the template. Check your connection and try again.",
+        ),
       );
     } finally {
       setBusy(false);
@@ -228,11 +235,13 @@ export function TemplateShareSection({
       // Every refusal here is something the publisher can act on — the tier is
       // not open yet, the deployment has not enabled the Yorkie auth webhook,
       // the listing is already under review — so the server's own sentence is
-      // more useful than a generic one.
+      // more useful than a generic one. `userFacingError` keeps those (they
+      // are 4xx) and drops only developer text.
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to submit this template",
+        userFacingError(
+          error,
+          "Couldn't submit this template for review. Check your connection and try again.",
+        ),
       );
     } finally {
       setBusy(false);
@@ -249,7 +258,10 @@ export function TemplateShareSection({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to unpublish template",
+        userFacingError(
+          error,
+          "Couldn't unpublish the template. Check your connection and try again.",
+        ),
       );
     } finally {
       setBusy(false);
@@ -312,7 +324,7 @@ export function TemplateShareSection({
               <div className="bg-muted/50 rounded-md border px-3 py-2 text-xs">
                 <p className="font-medium">
                   {listing.status === "pending"
-                    ? "Submitted to the public gallery — awaiting review"
+                    ? "Submitted to the public gallery, awaiting review"
                     : listing.status === "rejected"
                       ? "Not accepted into the public gallery"
                       : "Removed from the gallery by a reviewer"}
@@ -468,7 +480,9 @@ function TemplateMetaEditor({
     try {
       const thumbnailId = await captureThumbnailId(documentId);
       if (!thumbnailId) {
-        toast.error("Could not capture a preview of this document");
+        toast.error(
+          "Couldn't capture a preview of this document. Wait for it to finish loading and try again.",
+        );
         return;
       }
       onSaved(await updateTemplate(listing.id, { thumbnailId }));
@@ -476,7 +490,10 @@ function TemplateMetaEditor({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to update the preview",
+        userFacingError(
+          error,
+          "Couldn't update the preview. Check your connection and try again.",
+        ),
       );
     } finally {
       setCapturing(false);
@@ -511,7 +528,10 @@ function TemplateMetaEditor({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to update template",
+        userFacingError(
+          error,
+          "Couldn't save the template. Check your connection and try again.",
+        ),
       );
     } finally {
       setSaving(false);
@@ -532,7 +552,7 @@ function TemplateMetaEditor({
               className="h-full w-full object-contain"
             />
           ) : (
-            <div className="text-muted-foreground flex h-full w-full items-center justify-center text-[10px]">
+            <div className="text-muted-foreground flex h-full w-full items-center justify-center text-2xs">
               No preview
             </div>
           )}

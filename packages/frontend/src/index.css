@@ -25,7 +25,21 @@
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
+  /*
+   * Micro (10px), one step under Label (`text-xs`, 12px): count badges,
+   * avatar initials, swatch captions. Never body copy, and never a label the
+   * user must read to act (DESIGN.md Typography). Line height 1.5 matches what
+   * the arbitrary 10px sizes it replaced inherited from preflight.
+   */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 1.5;
+  /*
+   * Radius scale, ordered xs ≤ sm < md < lg < xl (DESIGN.md Shapes; source
+   * of truth packages/core/src/tokens/radius.ts). xs is pinned so Tailwind's
+   * default (2px) can never again sit above sm.
+   */
+  --radius-xs: 0.125rem;
+  --radius-sm: calc(var(--radius) - 2.4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
@@ -37,6 +51,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -45,9 +60,14 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
+  --color-success: var(--success);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-input-border: var(--input-border);
   --color-ring: var(--ring);
+  --color-link: var(--link);
+  --color-selected: var(--selected);
+  --color-selected-foreground: var(--selected-foreground);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -61,6 +81,14 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-type-sheet: var(--type-sheet);
+  --color-type-doc: var(--type-doc);
+  --color-type-note: var(--type-note);
+  --color-type-slides: var(--type-slides);
+  --color-type-pdf: var(--type-pdf);
+  --color-type-image: var(--type-image);
+  --color-type-board: var(--type-board);
+  --color-type-file: var(--type-file);
   --color-wb-bg: var(--wb-bg);
   --color-wb-paper: var(--wb-paper);
   --color-wb-ink: var(--wb-ink);
@@ -71,6 +99,35 @@
   --color-wb-butter: var(--wb-butter);
   --color-wb-berry: var(--wb-berry);
   --color-wb-leaf: var(--wb-leaf);
+}
+
+/*
+ * The focus contract from DESIGN.md: a 3px 50%-syrup ring plus a syrup
+ * border, on keyboard focus only. `Button`/`Input` carry it in their cva
+ * bases; raw `<button>`s and hand-built controls opt in with `focus-ring`.
+ * The outline is transparent rather than `none`: forced-colors mode drops
+ * box-shadows and repaints the outline in a system color, so it is the only
+ * focus indicator left there.
+ */
+@utility focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  &:focus-visible {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+}
+
+/*
+ * Font families. `tokens.css` already defines `--font-display`,
+ * `--font-body` and `--font-code` on `:root` with the real stacks, so this
+ * block only registers the names for the `font-*` utilities. `reference`
+ * keeps Tailwind from emitting its own `--font-display: var(--font-display)`
+ * into the theme layer — a self-reference that is a cycle (and so an invalid
+ * value) the moment it is the declaration that wins, and only lost to
+ * tokens.css by cascade order.
+ */
+@theme inline reference {
   /* stylelint-disable value-keyword-case */
   --font-display: var(--font-display);
   --font-body: var(--font-body);
@@ -82,7 +139,122 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /*
+   * Browser surfaces — the parts the page does not draw still follow the
+   * palette (DESIGN.md: syrup carries focus and native controls; butter
+   * washes a selection). The syrup caret lives on the `Input` primitive, not
+   * here: a global one reached the sheets cell editor and formula bar, where
+   * it vanished on orange and brown cell fills.
+   *
+   * `color-scheme` follows the theme class rather than the OS, so native
+   * scrollbars, form controls and date pickers go dark with `.dark` and stay
+   * light when a dark-OS user picks the light theme.
+   *
+   * `touch-action: manipulation` keeps pan and pinch zoom but drops
+   * double-tap zoom, which used to steal a sheet cell's double-tap-to-edit.
+   * It replaces the viewport's `user-scalable=no` (index.html), which also
+   * killed pinch zoom (WCAG 1.4.4). Editor surfaces that run their own pinch
+   * or pan narrow it further to `none` on themselves.
+   */
+  :root {
+    color-scheme: light;
+    accent-color: var(--primary);
+  }
+  .dark {
+    color-scheme: dark;
+  }
+  html,
+  body {
+    touch-action: manipulation;
+  }
+  /*
+   * The brand faces load only the italics they use (src/lib/brand-fonts.ts), so never
+   * let the browser fake a missing one: a mechanically slanted Fraunces is a
+   * different, worse letterform than its true italic. Add the face to the
+   * font URL instead.
+   */
+  .font-display,
+  .font-code {
+    font-synthesis-style: none;
+  }
+  /*
+   * The "Wafflebase" wordmark beside the mark: Fraunces at its display cut
+   * (opsz 144) and weight 500. Left to `font-optical-sizing: auto`, a 17–19px
+   * wordmark takes the chunky text cut, which read heavy and dated next to
+   * the one-color mark. Size and color stay with the caller.
+   */
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    font-variation-settings: "opsz" 144;
+    font-synthesis-style: none;
+  }
+  /*
+   * DOM text selection matches the docs engine's canvas selection: a butter
+   * wash, 35% light / 30% dark. Selected text takes the foreground color so
+   * muted and syrup text stay readable on the wash (they fall under 4.5:1
+   * keeping their own); body text is 16.97:1 light / 9.27:1 dark. Surfaces
+   * that stay dark in both themes (the homepage terminal) opt back into
+   * their own ink with `data-selection="dark"`. The canvas editors paint
+   * their own selection and CodeMirror's `drawSelection` hides the native
+   * one; the PDF text layer overrides this with a more specific rule.
+   */
+  ::selection {
+    background-color: color-mix(in srgb, var(--wb-butter) 35%, transparent);
+    color: var(--foreground);
+  }
+  [data-selection="dark"] ::selection {
+    color: var(--wb-terminal-fg);
+  }
+  .dark ::selection,
+  .dark::selection {
+    background-color: color-mix(in srgb, var(--wb-butter) 30%, transparent);
+  }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Reduced motion */
+/*
+ * Intentional alternatives for `prefers-reduced-motion: reduce`, not a
+ * blanket kill: opacity still fades, so a menu or dialog does not snap into
+ * place with no cue at all, but nothing travels, grows or shrinks on the
+ * way. Unlayered on purpose: it must outrank the utilities layer whatever
+ * a call site's selector specificity, and a rule here never applies unless
+ * the viewer asked for it.
+ *
+ * - tw-animate (`animate-in` / `animate-out`, every dialog, sheet, popover,
+ *   dropdown, context menu and tooltip): zero the enter/exit transform
+ *   inputs. The keyframes read these variables, so the zoom-in-95 and
+ *   slide-in-from-* classes become identity transforms and only the fade
+ *   is left. A side sheet therefore fades in where it lands.
+ * - Brand surfaces: the use-case and template cards' 2px hover lift, the
+ *   feature card's 1.005 scale and the pill CTA's 1px lift become still.
+ *   The CTA keeps its darker `primary-hover` fill; the lift on the cards was
+ *   decoration, and they read as hoverable from the cursor alone.
+ *
+ * Canvas motion lives in the engines: presentation transitions and object
+ * animations honor the same query in packages/slides (presenter.ts).
+ */
+@media (prefers-reduced-motion: reduce) {
+  [class*="animate-in"],
+  [class*="animate-out"] {
+    --tw-enter-scale: 1;
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-enter-rotate: 0;
+    --tw-exit-scale: 1;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+    --tw-exit-rotate: 0;
+  }
+  [class~="hover:-translate-y-0.5"]:hover,
+  [class~="hover:-translate-y-px"]:hover {
+    translate: none;
+  }
+  [class~="hover:scale-[1.005]"]:hover {
+    scale: none;
   }
 }

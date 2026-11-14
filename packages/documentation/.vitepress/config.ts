@@ -12,6 +12,8 @@ const env = loadEnv(mode, path.resolve(docsRoot, ".."), "VITE_");
 const gaId = env.VITE_GA_ID;
 
 const head: HeadConfig[] = [
+  // `head` hrefs are not rewritten with `base`, unlike `themeConfig.logo`.
+  ["link", { rel: "icon", type: "image/svg+xml", href: "/docs/logo.svg" }],
   ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
   [
     "link",
@@ -49,7 +51,7 @@ if (gaId) {
 export default defineConfig({
   title: "Wafflebase Docs",
   description:
-    "Documentation for Wafflebase — collaborative spreadsheets, documents, and presentations",
+    "How to use and self-host Wafflebase: spreadsheets, documents, presentations, notes, and boards",
   base: "/docs/",
 
   // This package's own README is developer notes, not a site page. Without
@@ -66,6 +68,7 @@ export default defineConfig({
   },
 
   themeConfig: {
+    logo: "/logo.svg",
     siteTitle: "Wafflebase",
     logoLink: { link: "/", target: "_self" },
 
@@ -162,7 +165,6 @@ export default defineConfig({
         text: "Developers",
         items: [
           { text: "Self-Hosting", link: "/developers/self-hosting" },
-          { text: "Design Editor", link: "/developers/design-editor" },
           { text: "REST API", link: "/developers/rest-api" },
           { text: "CLI", link: "/developers/cli" },
         ],

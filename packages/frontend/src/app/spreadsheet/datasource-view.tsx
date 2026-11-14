@@ -1,6 +1,7 @@
 import { initialize, ReadOnlyStore, Spreadsheet } from "@wafflebase/sheets";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
+import { Textarea } from "@/components/ui/textarea";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { executeDataSourceQuery } from "@/api/datasources";
@@ -87,7 +88,7 @@ export function DataSourceView({
     const root = doc.getRoot();
     const tab = root.tabs[tabId];
     if (!tab?.datasourceId) {
-      setQueryError("No datasource connected to this tab");
+      setQueryError("No data source connected to this tab");
       return;
     }
 
@@ -137,7 +138,7 @@ export function DataSourceView({
   if (error) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <div className="text-red-500">{error.message}</div>
+        <div className="text-destructive">{error.message}</div>
       </div>
     );
   }
@@ -146,9 +147,9 @@ export function DataSourceView({
     <div className="flex h-full w-full flex-col">
       {/* SQL Editor */}
       <div className="border-b p-2 shrink-0">
-        <textarea
+        <Textarea
           aria-label="SQL query"
-          className="w-full h-24 p-2 font-mono text-sm border rounded resize-y bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          className="h-24 resize-y p-2 font-mono"
           placeholder="SELECT * FROM users LIMIT 100"
           value={query}
           onChange={(e) => {

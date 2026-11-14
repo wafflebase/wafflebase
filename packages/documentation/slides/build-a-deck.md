@@ -1,10 +1,10 @@
 # Build a Deck
 
-In this guide, you'll build a short three-slide deck from scratch. Along the way, you'll pick a theme, use a layout, add text and a shape, and present the deck full-screen.
+Build a three-slide deck from scratch: pick a theme, use a layout, add text and a shape, and present it full-screen.
 
 ## 1. Create a New Presentation
 
-From your workspace, click **New** → **New Presentation**. You'll get a deck with one slide — an empty canvas, using the **Blank** layout — and a thumbnail strip on the left.
+From your workspace, click **New** → **New presentation**. You'll get a deck with one slide — an empty canvas, using the **Blank** layout — and a thumbnail strip on the left.
 
 ## 2. Pick a Theme
 

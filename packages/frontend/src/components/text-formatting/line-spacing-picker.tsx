@@ -80,7 +80,7 @@ export function LineSpacingPicker({
               type="button"
               aria-label="Line spacing"
               disabled={disabled}
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:opacity-50"
+              className="focus-ring inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:opacity-50"
             >
               <IconLineHeight size={16} />
             </button>
@@ -116,7 +116,7 @@ export function LineSpacingPicker({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commitCustom}
-              className="h-7 w-full rounded border border-border bg-background px-2 text-sm outline-none"
+              className="h-7 w-full rounded border border-border bg-background px-2 text-base md:text-sm outline-none"
             />
           </form>
         ) : (

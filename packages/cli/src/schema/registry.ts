@@ -167,7 +167,7 @@ const registry: CommandSchema[] = [
   },
   {
     name: 'docs.delete',
-    description: 'Delete a document',
+    description: 'Move a document to the trash',
     safety: 'destructive',
     parameters: {
       'doc-id': { type: 'string', required: true, description: 'Document ID' },

@@ -9,7 +9,7 @@ boundless plane.
 
 1. Open your workspace
 2. Click the **New** dropdown button
-3. Select **New Board**
+3. Select **New board**
 
 The board opens with an empty canvas and appears in your workspace document
 list.

@@ -11,9 +11,10 @@ interface Props {
 }
 
 /**
- * The dropdown body: header with "Mark all read", then the rows. Selecting a
- * row marks just that one read and navigates if it has a destination — which
- * `notificationHref` decides from the type, not from the rows it carries.
+ * The dropdown body: header with "Mark all read" (only while something is
+ * unread), then the rows. Selecting a row marks just that one read and
+ * navigates if it has a destination — which `notificationHref` decides from
+ * the type, not from the rows it carries.
  */
 export function NotificationList({ onNavigate }: Props) {
   const navigate = useNavigate();
@@ -32,17 +33,23 @@ export function NotificationList({ onNavigate }: Props) {
 
   return (
     <div className="flex max-h-[26rem] w-80 flex-col">
-      <div className="flex items-center justify-between border-b px-3 py-2">
+      {/* A fixed height, so the row does not shrink when the action leaves. */}
+      <div className="flex h-11 items-center justify-between border-b px-3">
         <span className="text-sm font-medium">Notifications</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          disabled={!hasUnread || markRead.isPending}
-          onClick={() => markRead.mutate(undefined)}
-        >
-          Mark all read
-        </Button>
+        {/* Absent rather than disabled when there is nothing to mark: a
+            greyed-out action in an empty inbox reads as broken, and an
+            explicit "nothing to do" is what "You are all caught up" says. */}
+        {hasUnread && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={markRead.isPending}
+            onClick={() => markRead.mutate(undefined)}
+          >
+            Mark all read
+          </Button>
+        )}
       </div>
 
       {/* One page, no "load more". `fetchNotifications` takes a cursor and the
@@ -56,7 +63,7 @@ export function NotificationList({ onNavigate }: Props) {
         )}
         {isError && (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-            Could not load notifications.
+            Couldn't load notifications.
           </p>
         )}
         {!isLoading && !isError && notifications?.length === 0 && (

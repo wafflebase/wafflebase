@@ -349,6 +349,17 @@ export function useMobileSheetGestures({
       handleDragging = false;
     };
 
+    // This hook owns one-finger pan and two-finger pinch on the grid, so the
+    // browser must own neither. The viewport no longer sets
+    // `user-scalable=no` (WCAG 1.4.4), which used to be what stopped a pinch
+    // on the grid from zooming the whole page underneath the sheet's own
+    // zoom; `touch-action: none` declares that ownership up front instead of
+    // relying on every `touchmove` arriving cancelable. Scoped to the mobile
+    // mount — on a tablet the hook is off and the grid's native touch scroll
+    // (and `manipulation` from the host) is the only way to move it.
+    const previousTouchAction = container.style.touchAction;
+    container.style.touchAction = "none";
+
     container.addEventListener("touchstart", onTouchStart, { passive: true });
     container.addEventListener("touchmove", onTouchMove, { passive: false });
     container.addEventListener("touchend", onTouchEnd, { passive: false });
@@ -361,6 +372,7 @@ export function useMobileSheetGestures({
       container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("touchend", onTouchEnd);
       container.removeEventListener("touchcancel", onTouchCancel);
+      container.style.touchAction = previousTouchAction;
     };
   }, [containerRef, enabled, isMobile, sheetRef]);
 }

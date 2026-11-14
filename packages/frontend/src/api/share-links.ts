@@ -65,7 +65,7 @@ export async function createShareLink(
       body: JSON.stringify({ role, expiration }),
     }
   );
-  await assertOk(response, "Failed to create share link");
+  await assertOk(response, "Couldn't create the share link");
   return response.json();
 }
 
@@ -78,7 +78,7 @@ export async function getShareLinks(
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(documentId)}/share-links`
   );
-  await assertOk(response, "Failed to fetch share links");
+  await assertOk(response, "Couldn't load share links");
   return response.json();
 }
 
@@ -90,7 +90,7 @@ export async function deleteShareLink(id: string): Promise<void> {
     `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${seg(id)}`,
     { method: "DELETE" }
   );
-  await assertOk(response, "Failed to delete share link");
+  await assertOk(response, "Couldn't revoke the share link");
 }
 
 /**

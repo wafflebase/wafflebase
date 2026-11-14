@@ -39,7 +39,7 @@ import { FolderService } from '../folder/folder.service';
 
 // `folderId` is part of the row via the `...d` spread below (the `Document`
 // model now carries it — see `document.dto.ts` / Task 1's Prisma migration).
-type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
+type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt' | 'deletedAt'> & {
   editors?: PresenceUser[];
   // Last-modified time (ISO). Sourced from the Postgres `Document.updatedAt`
   // column, which the Yorkie `DocumentRootChanged` event webhook advances on
@@ -51,7 +51,19 @@ type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
   // the document's author (see `resolveDocManager`). Lets the client gate the
   // Delete/Move menu items without re-deriving roles per workspace.
   canManage: boolean;
+  // When the document was moved to the trash (ISO), or null while it is live.
+  // Only the trash list ever carries a non-null value.
+  deletedAt: string | null;
 };
+
+/**
+ * `?permanent=true` on `DELETE /documents/:id`. Only the literal `true`
+ * opts into a hard delete, so a typo falls back to the recoverable trash
+ * rather than destroying the document.
+ */
+function isPermanent(value: string | undefined): boolean {
+  return value === 'true';
+}
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -80,6 +92,7 @@ export class DocumentController {
       const item: DocumentListItem = {
         ...d,
         updatedAt: d.updatedAt.toISOString(),
+        deletedAt: d.deletedAt ? d.deletedAt.toISOString() : null,
         canManage: isDocumentManager(
           roleByWorkspace.get(d.workspaceId),
           d.authorID,
@@ -156,6 +169,28 @@ export class DocumentController {
       where: { workspaceId, folderId: folderId ?? null },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
+    return this.attachMeta(docs, new Map([[workspaceId, member.role]]), userId);
+  }
+
+  /**
+   * The workspace's trash: every trashed document, most recently trashed
+   * first, in the same row shape as the workspace list. Member-gated like
+   * that list — a member could see these documents before they were trashed.
+   * `canManage` says which rows the caller may restore or delete for good.
+   */
+  @Get('workspaces/:workspaceId/trash')
+  async findTrashByWorkspace(
+    @Param('workspaceId') workspaceIdOrSlug: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<DocumentListItem[]> {
+    const userId = Number(req.user.id);
+    const workspaceId =
+      await this.workspaceService.resolveId(workspaceIdOrSlug);
+    const member = await this.workspaceService.assertMember(
+      workspaceId,
+      userId,
+    );
+    const docs = await this.documentService.listTrash(workspaceId);
     return this.attachMeta(docs, new Map([[workspaceId, member.role]]), userId);
   }
 
@@ -369,12 +404,26 @@ export class DocumentController {
     });
   }
 
+  /**
+   * Move a document to the trash, or with `?permanent=true` delete it for
+   * good. Both are manager-gated. Each reaches only one side of the trash: a
+   * soft delete only live documents (trashing an already-trashed one is a
+   * 404), a permanent delete only trashed ones (a live id is a 404). The
+   * latter is what keeps a stale Trash page from destroying a document a
+   * collaborator restored after it loaded — and the condition is re-checked
+   * in the delete itself, so a restore that lands between the read and the
+   * write still wins.
+   */
   @Delete('documents/:id')
   async deleteDocument(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
+    @Query('permanent') permanent?: string,
   ): Promise<DocumentModel> {
-    const doc = await this.documentService.document({ id });
+    const hard = isPermanent(permanent);
+    const doc = hard
+      ? await this.documentService.trashedDocument({ id })
+      : await this.documentService.document({ id });
     if (!doc) {
       throw new NotFoundException('Document not found');
     }
@@ -383,20 +432,59 @@ export class DocumentController {
         'Only the workspace owner or document owner can delete this document',
       );
     }
-    const deleted = await this.documentService.deleteDocument({ id });
-    if (doc.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
-      // Best-effort: a failed blob cleanup must not fail the delete, but log
-      // it so an orphaned object has operational visibility.
-      await this.fileService.delete(doc.fileId).catch((err) => {
-        console.warn(
-          `[DocumentController] Failed to delete blob ${doc.fileId}:`,
-          err instanceof Error ? err.message : err,
-        );
+    if (!hard) {
+      await this.documentService.trashDocuments([id]);
+      const trashed = await this.documentService.documentIncludingTrashed({
+        id,
       });
+      if (!trashed) throw new NotFoundException('Document not found');
+      return trashed;
     }
-    return deleted;
+    if (!(await this.documentService.purgeTrashedDocument(id))) {
+      // Restored or purged by somebody else between the read and the write.
+      throw new NotFoundException('Document not found in trash');
+    }
+    await this.deleteBlobs([doc]);
+    return doc;
   }
 
+  /**
+   * Restore a trashed document. Manager-gated, the same tier that trashed it.
+   * A live or missing id is a 404. A document whose folder was deleted while
+   * it sat in the trash comes back at the workspace root (`folderId` was
+   * already `SetNull`ed by the folder delete).
+   */
+  @Post('documents/:id/restore')
+  async restoreDocument(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ): Promise<DocumentModel> {
+    const doc = await this.documentService.documentIncludingTrashed({ id });
+    if (!doc || doc.deletedAt === null) {
+      throw new NotFoundException('Document not found in trash');
+    }
+    if (!(await this.resolveDocManager(doc, Number(req.user.id)))) {
+      throw new ForbiddenException(
+        'Only the workspace owner or document owner can restore this document',
+      );
+    }
+    const restored = await this.documentService.restoreDocument(id);
+    if (!restored) {
+      // Restored or purged by somebody else between the read and the write.
+      throw new NotFoundException('Document not found in trash');
+    }
+    return restored;
+  }
+
+  /**
+   * Bulk counterpart of `DELETE /documents/:id`: trash by default, delete for
+   * good with `{ permanent: true }`. Atomic in its gate — any missing or
+   * non-manageable id rejects the whole request before any write. For a
+   * permanent delete a live id counts as missing: only the trash can be
+   * emptied. Each destruction is then its own compare-and-set, so an id
+   * restored after the gate survives, and `deleted` names only the ids that
+   * were actually destroyed.
+   */
   @Post('documents/delete')
   async deleteDocuments(
     @Req() req: AuthenticatedRequest,
@@ -406,8 +494,13 @@ export class DocumentController {
     if (body.ids.length === 0) {
       throw new BadRequestException('No documents specified');
     }
+    const hard = body.permanent === true;
     const docs = await Promise.all(
-      body.ids.map((id) => this.documentService.document({ id })),
+      body.ids.map((id) =>
+        hard
+          ? this.documentService.trashedDocument({ id })
+          : this.documentService.document({ id }),
+      ),
     );
     const denied: string[] = [];
     for (let i = 0; i < docs.length; i++) {
@@ -421,9 +514,25 @@ export class DocumentController {
         `Cannot delete documents you do not manage: ${denied.join(', ')}`,
       );
     }
-    await this.documentService.deleteDocuments(body.ids);
-    // Best-effort blob cleanup for file-backed docs (parity with the single
-    // delete); a failed cleanup must not fail the delete.
+    if (!hard) {
+      await this.documentService.trashDocuments(body.ids);
+      return { deleted: body.ids };
+    }
+    const purged = await this.documentService.purgeTrashedDocuments(body.ids);
+    const purgedIds = new Set(purged);
+    await this.deleteBlobs(docs.filter((doc) => doc && purgedIds.has(doc.id)));
+    return { deleted: purged };
+  }
+
+  /**
+   * Best-effort blob cleanup after a permanent delete. A trashed document
+   * keeps its blob (it can be restored), so this runs only once the row is
+   * gone. A failed cleanup must not fail the delete, but is logged so an
+   * orphaned object has operational visibility.
+   */
+  private async deleteBlobs(
+    docs: Array<Pick<DocumentModel, 'fileId'> | null>,
+  ): Promise<void> {
     for (const doc of docs) {
       if (doc?.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
         await this.fileService.delete(doc.fileId).catch((err) => {
@@ -434,6 +543,5 @@ export class DocumentController {
         });
       }
     }
-    return { deleted: body.ids };
   }
 }

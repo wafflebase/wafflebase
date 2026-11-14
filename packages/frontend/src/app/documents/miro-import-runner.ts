@@ -1,11 +1,13 @@
 import { mapMiroItems } from "@wafflebase/board";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import {
+  MiroImportStreamError,
   openMiroImportStream,
   readMiroImportStream,
   type MiroImportProgress,
 } from "@/api/miro";
-import { deleteDocument } from "@/api/documents";
+import { discardDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { resolveImageUrl } from "@/app/spreadsheet/image-upload";
 import { applyImportedContent } from "./apply-imported-content";
@@ -48,7 +50,19 @@ import {
 export const MIRO_ITEM_LABEL = "Miro board";
 const MIRO_DOCUMENT_TITLE = "Imported Miro board";
 
-const FALLBACK_ERROR = "Failed to import the Miro board";
+// No trailing period: the panel appends "Start the import again to retry."
+const FALLBACK_ERROR = "Couldn't import the Miro board";
+
+/**
+ * The row's reason. An in-band stream error carries the server's own sentence
+ * ("Miro rate limit reached — try again in a minute") and an HTTP refusal goes
+ * through `userFacingError`; anything else — a Yorkie attach failure, a
+ * `TypeError` from the mapper — is developer text.
+ */
+function importFailureReason(err: unknown): string {
+  if (err instanceof MiroImportStreamError && err.message) return err.message;
+  return userFacingError(err, FALLBACK_ERROR);
+}
 
 export interface MiroImportRunnerDeps {
   openStream: typeof openMiroImportStream;
@@ -60,7 +74,7 @@ export interface MiroImportRunnerDeps {
     payload: { title: string; type: "board"; folderId?: string },
   ) => Promise<{ id: string; type?: string }>;
   applyContent: typeof applyImportedContent;
-  deleteDoc: typeof deleteDocument;
+  deleteDoc: typeof discardDocument;
   getDocumentPath: typeof getDocumentPath;
   enqueue: typeof enqueueExternal;
   patch: typeof patchItem;
@@ -76,7 +90,7 @@ const defaultDeps: MiroImportRunnerDeps = {
   resolveImageUrl,
   createDoc: createWorkspaceDocument,
   applyContent: applyImportedContent,
-  deleteDoc: deleteDocument,
+  deleteDoc: discardDocument,
   getDocumentPath,
   enqueue: enqueueExternal,
   patch: patchItem,
@@ -233,7 +247,7 @@ async function drive(
     deps.patch(itemId, {
       status: "error",
       detail: undefined,
-      reason: err instanceof Error ? err.message : FALLBACK_ERROR,
+      reason: importFailureReason(err),
     });
     deps.settle(itemId);
   }

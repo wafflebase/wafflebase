@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { outlineOf } from "./notes-thumbnail";
+import { palette } from "@wafflebase/core/tokens";
+import { NOTE_THUMBNAIL_THEMES, outlineOf } from "./notes-thumbnail";
 
 describe("outlineOf", () => {
   it("marks headings and strips their markers", () => {
@@ -67,5 +68,18 @@ describe("outlineOf", () => {
     // thirteen lines of it.
     const md = `${"x".repeat(100_000)}\n# never reached`;
     expect(outlineOf(md)).toHaveLength(1);
+  });
+});
+
+describe("NOTE_THUMBNAIL_THEMES", () => {
+  it("draws on the brand paper, not a stock cool gray", () => {
+    for (const mode of ["light", "dark"] as const) {
+      const n = palette.neutrals[mode];
+      expect(NOTE_THUMBNAIL_THEMES[mode]).toEqual({
+        background: n.paper,
+        heading: n.ink,
+        body: n.sub,
+      });
+    }
   });
 });

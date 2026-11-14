@@ -113,7 +113,7 @@ function SortableTab({
         <input
           ref={inputRef}
           aria-label="Rename tab"
-          className="w-20 bg-transparent border-b border-primary text-sm outline-none"
+          className="w-20 bg-transparent border-b border-primary text-base md:text-sm outline-none"
           value={editValue}
           onChange={(e) => onEditValueChange(e.target.value)}
           onBlur={onCommitRename}
@@ -287,15 +287,15 @@ export function TabBar({
           <DropdownMenuContent align="start">
             <DropdownMenuItem onClick={() => onAddTab("sheet")}>
               <IconTable className="size-4" />
-              New Sheet
+              New sheet
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAddTab("datasource")}>
               <IconDatabase className="size-4" />
-              New DataSource
+              New data source
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAddTab("lakehouse")}>
               <IconBuildingWarehouse className="size-4" />
-              New Lakehouse
+              New lakehouse
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

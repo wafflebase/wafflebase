@@ -26,12 +26,29 @@
   --vp-c-brand-3: #8a4a12;
   --vp-c-brand-soft: rgba(184, 101, 26, 0.14);
 
+  /*
+   * Neutrals — VitePress's cool slate greys (`gray-*`, which `default-*`
+   * points at: info/note blocks, alt buttons, switches, code-group tabs)
+   * re-tinted to the oat rule and cocoa ink, so no blue-grey surface sits
+   * on the paper.
+   */
+  --vp-c-gray-1: #ddcfb3;
+  --vp-c-gray-2: #e8dcc4;
+  --vp-c-gray-3: #f0e7d3;
+  --vp-c-gray-soft: rgba(107, 88, 74, 0.1);
+
   /* Status accents */
   --vp-c-tip-1: #5a7a3a;
   --vp-c-tip-2: #5a7a3a;
   --vp-c-tip-soft: rgba(90, 122, 58, 0.14);
-  --vp-c-warning-1: #b8651a;
-  --vp-c-warning-2: #8a4a12;
+  /*
+   * Warning is deep butter, not syrup: syrup is the link and action colour,
+   * and warning code/links in syrup read as more links. #7a5a00 holds 5.1:1
+   * on the warning code chip (butter soft over butter soft on paper).
+   */
+  --vp-c-warning-1: #7a5a00;
+  --vp-c-warning-2: #5e4500;
+  --vp-c-warning-3: #5e4500;
   --vp-c-warning-soft: rgba(244, 201, 93, 0.22);
   --vp-c-danger-1: #c2484c;
   --vp-c-danger-2: #c2484c;
@@ -78,11 +95,18 @@
   --vp-c-brand-3: #f4c95d;
   --vp-c-brand-soft: rgba(224, 138, 58, 0.18);
 
+  --vp-c-gray-1: #5a4a38;
+  --vp-c-gray-2: #4a3c2c;
+  --vp-c-gray-3: #3a2e1f;
+  --vp-c-gray-soft: rgba(181, 164, 138, 0.14);
+
   --vp-c-tip-1: #a0c078;
   --vp-c-tip-2: #a0c078;
   --vp-c-tip-soft: rgba(160, 192, 120, 0.16);
+  /* Butter holds 4.9:1 on the dark warning code chip. */
   --vp-c-warning-1: #f4c95d;
-  --vp-c-warning-2: #f4c95d;
+  --vp-c-warning-2: #f8da8c;
+  --vp-c-warning-3: #f8da8c;
   --vp-c-warning-soft: rgba(244, 201, 93, 0.18);
   --vp-c-danger-1: #e27a7e;
   --vp-c-danger-2: #e27a7e;
@@ -104,17 +128,46 @@
 .vp-doc h1,
 .vp-doc h2,
 .vp-doc h3,
-.vp-doc h4,
-.VPHero .name,
-.VPHero .text {
+.vp-doc h4 {
   font-family:
     "Fraunces", ui-serif, Georgia, "Times New Roman", Times, serif;
   font-feature-settings: "ss01" on, "ss02" on;
   letter-spacing: -0.01em;
 }
 
-.vp-doc h1,
-.VPHero .name {
+.vp-doc h1 {
   letter-spacing: -0.025em;
   font-weight: 600;
+}
+
+/*
+ * Browser surfaces — the parts the theme does not draw still follow the
+ * palette. Selection is the brand wash with `text-1` ink, so muted and
+ * brand text stay readable on it; focus is the app's 3px 50%-syrup ring
+ * (VitePress's base leaves `outline: 4px auto -webkit-focus-ring-color`);
+ * scrollbars are a cocoa thumb on the page, not the OS grey.
+ */
+::selection {
+  background-color: color-mix(in srgb, var(--vp-c-brand-1) 22%, transparent);
+  color: var(--vp-c-text-1);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--vp-c-brand-1) 50%, transparent);
+  outline-offset: 2px;
+}
+
+html {
+  scrollbar-color: color-mix(in srgb, var(--vp-c-text-3) 55%, transparent)
+    transparent;
+}
+
+/* The wordmark in the nav: the same Fraunces display cut as the app's
+   `.wordmark` (packages/frontend/src/index.css). */
+.VPNavBarTitle .title {
+  font-family: "Fraunces", ui-serif, Georgia, serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  font-variation-settings: "opsz" 144;
 }

@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TemplateGallery } from "@/app/templates/template-gallery";
 import { createFromTemplate } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import { getDocumentPath } from "@/app/documents/document-list-utils";
 import type { DocumentType } from "@/types/documents";
 
@@ -56,9 +57,10 @@ export function NewFromTemplateDialog({
       .catch((error) => {
         if (isAuthExpiredError(error)) return;
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to create a document from this template",
+          userFacingError(
+            error,
+            "Couldn't create a document from this template. Check your connection and try again.",
+          ),
         );
       })
       .finally(() => setCreating(false));
@@ -68,7 +70,7 @@ export function NewFromTemplateDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>New from template</DialogTitle>
+          <DialogTitle>New document from a template</DialogTitle>
           <DialogDescription>
             Start a document from a template. You get your own copy, here in
             this workspace.

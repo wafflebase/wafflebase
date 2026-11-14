@@ -115,7 +115,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
               <IconAlignLeft size={16} className="mr-2" />
               Left
             </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {modKey}+⇧L
             </span>
           </DropdownMenuCheckboxItem>
@@ -130,7 +130,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
               <IconAlignCenter size={16} className="mr-2" />
               Center
             </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {modKey}+⇧E
             </span>
           </DropdownMenuCheckboxItem>
@@ -145,7 +145,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
               <IconAlignRight size={16} className="mr-2" />
               Right
             </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {modKey}+⇧R
             </span>
           </DropdownMenuCheckboxItem>
@@ -160,7 +160,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
               <IconAlignJustified size={16} className="mr-2" />
               Justify
             </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {modKey}+⇧J
             </span>
           </DropdownMenuCheckboxItem>

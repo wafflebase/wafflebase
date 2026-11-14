@@ -28,6 +28,7 @@ import {
   WorkspaceAnalytics,
 } from './analytics.types';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
+import { LIVE_DOCUMENT } from '../document/live-document';
 
 interface IngestBody {
   shareToken: string;
@@ -161,7 +162,7 @@ export class AnalyticsController {
   ): Promise<DocumentAnalytics> {
     const userId = Number((req as unknown as { user: { id: number } }).user.id);
     const doc = await this.prisma.document.findUnique({
-      where: { id: documentId },
+      where: { id: documentId, ...LIVE_DOCUMENT },
     });
     if (!doc) throw new NotFoundException('Document not found');
     const membership = await this.prisma.workspaceMember.findUnique({
@@ -222,8 +223,10 @@ export class AnalyticsController {
     const member = await this.workspace.assertMember(workspaceId, userId);
 
     // Postgres owns the doc set + titles; StarRocks only knows document_id.
+    // Trashed documents drop out of the ranking with the rest of the
+    // workspace's live surfaces (see live-document.ts).
     const docs = await this.prisma.document.findMany({
-      where: { workspaceId },
+      where: { workspaceId, ...LIVE_DOCUMENT },
       select: { id: true, title: true, authorID: true },
     });
     const meta = new Map(docs.map((d) => [d.id, d]));

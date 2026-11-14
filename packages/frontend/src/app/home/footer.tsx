@@ -60,7 +60,7 @@ export function Footer() {
           <div className="flex flex-col gap-3">
             <a
               href="/"
-              className="inline-flex items-center gap-2.5 font-display font-semibold text-[19px] tracking-[-0.01em] text-[color:var(--wb-ink)] no-underline"
+              className="wordmark inline-flex items-center gap-2.5 text-[19px] text-[color:var(--wb-ink)] no-underline"
             >
               <WaffleLogo size={28} />
               Wafflebase
@@ -116,7 +116,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="border-t border-[color:var(--wb-rule)] pt-6 flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center">
           <span className="font-code text-[12px] text-[color:var(--wb-sub)]">
-            © {new Date().getFullYear()} Wafflebase · Apache-2.0
+            © {new Date().getFullYear()} Wafflebase
           </span>
           <a
             href={GITHUB_URL}

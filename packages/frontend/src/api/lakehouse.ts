@@ -25,7 +25,7 @@ export async function fetchWorkspaceLakehouseSources(
     `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/lakehouse-sources`,
     { signal },
   );
-  await assertOk(res, 'Failed to fetch lakehouse sources');
+  await assertOk(res, "Couldn't load lakehouse connections");
   return res.json();
 }
 
@@ -41,7 +41,7 @@ export async function createWorkspaceLakehouseSource(
       body: JSON.stringify(payload),
     },
   );
-  await assertOk(res, 'Failed to create lakehouse source');
+  await assertOk(res, "Couldn't create the lakehouse connection");
   return res.json();
 }
 
@@ -50,7 +50,7 @@ export async function fetchLakehouseSource(
   signal?: AbortSignal,
 ): Promise<LakehouseSource> {
   const res = await fetchWithAuth(sourceUrl(id), { signal });
-  await assertOk(res, 'Failed to fetch lakehouse source');
+  await assertOk(res, "Couldn't load the lakehouse connection");
   return res.json();
 }
 
@@ -63,13 +63,13 @@ export async function updateLakehouseSource(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  await assertOk(res, 'Failed to update lakehouse source');
+  await assertOk(res, "Couldn't update the lakehouse connection");
   return res.json();
 }
 
 export async function deleteLakehouseSource(id: string): Promise<void> {
   const res = await fetchWithAuth(sourceUrl(id), { method: 'DELETE' });
-  await assertOk(res, 'Failed to delete lakehouse source');
+  await assertOk(res, "Couldn't delete the lakehouse connection");
 }
 
 export async function testWorkspaceLakehouseSource(
@@ -86,7 +86,7 @@ export async function testWorkspaceLakehouseSource(
       signal,
     },
   );
-  await assertOk(res, 'Failed to test lakehouse source');
+  await assertOk(res, "Couldn't test the lakehouse connection");
   return res.json();
 }
 
@@ -105,7 +105,7 @@ export async function testLakehouseSource(
       : {}),
     signal,
   });
-  await assertOk(res, 'Failed to test lakehouse source');
+  await assertOk(res, "Couldn't test the lakehouse connection");
   return res.json();
 }
 
@@ -114,7 +114,7 @@ export async function fetchLakehouseHistory(
   signal?: AbortSignal,
 ): Promise<LakehouseHistoryEntry[]> {
   const res = await fetchWithAuth(`${sourceUrl(id)}/history`, { signal });
-  await assertOk(res, 'Failed to fetch lakehouse history');
+  await assertOk(res, "Couldn't load the commit history");
   return res.json();
 }
 
@@ -129,6 +129,6 @@ export async function readLakehouseSource(
     body: JSON.stringify(asOf ? { asOf } : {}),
     signal,
   });
-  await assertOk(res, 'Failed to read lakehouse table');
+  await assertOk(res, "Couldn't read the lakehouse table");
   return res.json();
 }

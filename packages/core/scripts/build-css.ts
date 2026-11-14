@@ -13,12 +13,9 @@ type Block = Array<[string, string]>;
 /**
  * The four token sources this generator reads.
  *
- * Parameterized so the design-editor bridge can render `tokens.css` from PATCHED
- * sources without writing them to disk — that is how a staged token edit
- * previews on `--wb-*` consumers and in the canvas engines
- * (`POST /__design-editor/preview-tokens`). The alternative was porting the
- * mode-conditional logic below into the sandbox client, which would make the
- * preview's colour maths a second implementation of this emitter, free to drift.
+ * Parameterized so a caller (and the tests) can render `tokens.css` from
+ * PATCHED sources without writing them to disk, through the same emitter the
+ * build uses rather than a second implementation of its mode-conditional logic.
  *
  * `renderTokensCss()` keeps the module's own imports as the sources, so the CLI
  * path and every existing caller are byte-for-byte unchanged.
@@ -32,7 +29,8 @@ export interface TokenSources {
 
 function paletteBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
   const { palette } = src;
-  const n = mode === 'light' ? palette.neutrals.light : palette.neutrals.dark;
+  const n =
+    mode === 'light' ? palette.brandNeutrals.light : palette.brandNeutrals.dark;
   const syrupForMode = mode === 'light' ? palette.syrup : palette.syrupBright;
   const berryForMode = mode === 'light' ? palette.berry : palette.berryBright;
   const leafForMode = mode === 'light' ? palette.leaf : palette.leafBright;
@@ -42,8 +40,11 @@ function paletteBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--wb-ink', n.ink],
     ['--wb-sub', n.sub],
     ['--wb-rule', n.rule],
+    ['--wb-wash', n.wash],
     ['--wb-syrup', syrupForMode],
-    ['--wb-syrup-deep', mode === 'light' ? palette.syrupDeep : palette.butter],
+    // Dark mode's deep syrup is bright syrup, not butter: on the neutral
+    // charcoal a yellow headline line read as a second accent.
+    ['--wb-syrup-deep', mode === 'light' ? palette.syrupDeep : palette.syrupBright],
     ['--wb-butter', palette.butter],
     ['--wb-berry', berryForMode],
     ['--wb-leaf', leafForMode],
@@ -61,6 +62,7 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--popover-foreground', m.popoverForeground],
     ['--primary', m.primary],
     ['--primary-foreground', m.primaryForeground],
+    ['--primary-hover', m.primaryHover],
     ['--secondary', m.secondary],
     ['--secondary-foreground', m.secondaryForeground],
     ['--muted', m.muted],
@@ -69,9 +71,14 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--accent-foreground', m.accentForeground],
     ['--destructive', m.destructive],
     ['--warning', m.warning],
+    ['--success', m.success],
     ['--border', m.border],
     ['--input', m.input],
+    ['--input-border', m.inputBorder],
     ['--ring', m.ring],
+    ['--link', m.link],
+    ['--selected', m.selected],
+    ['--selected-foreground', m.selectedForeground],
     ['--chart-1', m.chart1],
     ['--chart-2', m.chart2],
     ['--chart-3', m.chart3],
@@ -85,6 +92,14 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--sidebar-accent-foreground', m.sidebarAccentForeground],
     ['--sidebar-border', m.sidebarBorder],
     ['--sidebar-ring', m.sidebarRing],
+    ['--type-sheet', m.typeSheet],
+    ['--type-doc', m.typeDoc],
+    ['--type-note', m.typeNote],
+    ['--type-slides', m.typeSlides],
+    ['--type-pdf', m.typePdf],
+    ['--type-image', m.typeImage],
+    ['--type-board', m.typeBoard],
+    ['--type-file', m.typeFile],
   ];
 }
 
@@ -94,6 +109,8 @@ function rootOnlyBlock(src: TokenSources): Block {
     // Terminal palette is locked across both modes (matches existing index.css).
     ['--wb-terminal-bg', src.palette.terminal.bg],
     ['--wb-terminal-fg', src.palette.terminal.fg],
+    ['--wb-terminal-keyword', src.palette.terminal.keyword],
+    ['--wb-terminal-flag', src.palette.terminal.flag],
     // Font families — listed once, do not change between modes.
     ['--font-display', src.typography.display],
     ['--font-body', src.typography.body],
@@ -114,7 +131,7 @@ export function tokenBlocks(src: TokenSources): { light: Block; dark: Block } {
   };
 }
 
-/** Render `tokens.css` from explicit sources (used by the design-editor preview). */
+/** Render `tokens.css` from explicit sources. */
 export function renderTokensCssFrom(src: TokenSources): string {
   const { light, dark } = tokenBlocks(src);
   return [

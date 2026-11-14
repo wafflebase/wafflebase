@@ -1,3 +1,9 @@
+import {
+  CELL_RANGE_FILL,
+  HOVER_OUTLINE,
+  SELECTION_COLOR,
+  SELECTION_FAINT,
+} from './chrome-colors';
 import type { ConnectorElement, Endpoint } from '../../model/connector';
 import type { AutofitMode, Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
@@ -342,7 +348,7 @@ export function renderOverlay(
 
   // (Table outer-frame ghost is painted AFTER the selection handles
   // below so the dashed outline + translucent fill aren't masked by
-  // the solid-#3a7 selection frame that paints at the same position
+  // the solid syrup selection frame that paints at the same position
   // when the editor swaps in the ghost frame for handle alignment.)
 
   // Connector affordance (Task 13): blue dots over the nearest shape's
@@ -516,8 +522,8 @@ function makeEndpointHandle(
   // Filled circle when attached, hollow circle when free — matches the
   // visual language of the connection-points overlay so the user can
   // tell at a glance whether the endpoint is "sticking" to a shape.
-  el.style.background = attached ? '#3a7' : '#fff';
-  el.style.border = '1px solid #3a7';
+  el.style.background = attached ? SELECTION_COLOR : '#fff';
+  el.style.border = `1px solid ${SELECTION_COLOR}`;
   el.style.borderRadius = '50%';
   // `crosshair` matches the connector-insert tool: in both cases the
   // user is targeting a point in the slide that will become an
@@ -552,7 +558,7 @@ function renderAxisAlignedHandles(
   frame.style.height = `${height}px`;
   frame.style.pointerEvents = 'none';
   frame.style.boxSizing = 'border-box';
-  frame.style.border = '1px solid #3a7';
+  frame.style.border = `1px solid ${SELECTION_COLOR}`;
   overlay.appendChild(frame);
 
   const positions: Array<[string, number, number]> = [
@@ -709,7 +715,7 @@ function renderRotatedHandles(
   outline.style.transformOrigin = 'center';
   outline.style.pointerEvents = 'none';
   outline.style.boxSizing = 'border-box';
-  outline.style.border = '1px solid #3a7';
+  outline.style.border = `1px solid ${SELECTION_COLOR}`;
   overlay.appendChild(outline);
 
   // Eight resize handles at the rotated corners / edge midpoints. The
@@ -753,7 +759,7 @@ function makeHoverHighlight(
   div.style.top = `${frame.y * scale + panY}px`;
   div.style.width = `${frame.w * scale}px`;
   div.style.height = `${frame.h * scale}px`;
-  div.style.border = '1px solid rgba(26, 115, 232, 0.5)';
+  div.style.border = `1px solid ${HOVER_OUTLINE}`;
   div.style.boxSizing = 'border-box';
   div.style.pointerEvents = 'none';
   if (frame.rotation !== 0) {
@@ -842,13 +848,13 @@ function makeCellRangeRect(
 ): HTMLDivElement {
   const div = document.createElement('div');
   positionRect(div, frame, scale, panX, panY);
-  div.style.background = 'rgba(26, 115, 232, 0.18)';
+  div.style.background = CELL_RANGE_FILL;
   div.dataset.slidesCellRange = 'true';
   return div;
 }
 
-// Faint dash of the selection accent #3a7 (= #33aa77 = rgb 51,170,119).
-const OUTLINE_BORDER = '1px dashed rgba(51, 170, 119, 0.5)';
+// Faint dash of the selection accent.
+const OUTLINE_BORDER = `1px dashed ${SELECTION_FAINT}`;
 
 /**
  * Render a handle-less, non-interactive dashed rectangle at a world
@@ -1039,8 +1045,9 @@ function makeHandle(
   el.style.top = `${cy - HANDLE_SIZE / 2}px`;
   el.style.width = `${HANDLE_SIZE}px`;
   el.style.height = `${HANDLE_SIZE}px`;
-  el.style.background = kind === 'rotate' ? '#fff' : '#3a7';
-  el.style.border = kind === 'rotate' ? '1px solid #3a7' : '1px solid #fff';
+  el.style.background = kind === 'rotate' ? '#fff' : SELECTION_COLOR;
+  el.style.border =
+    kind === 'rotate' ? `1px solid ${SELECTION_COLOR}` : '1px solid #fff';
   el.style.borderRadius = kind === 'rotate' ? '50%' : '0';
   el.style.cursor = handleCursor(kind, rotation);
   return el;
@@ -1477,7 +1484,7 @@ function makeConnectionSiteDot(
   el.style.top = `${cy - size / 2}px`;
   el.style.width = `${size}px`;
   el.style.height = `${size}px`;
-  el.style.background = '#3a7';
+  el.style.background = SELECTION_COLOR;
   el.style.border = '1px solid #fff';
   el.style.borderRadius = '50%';
   el.style.boxSizing = 'border-box';
@@ -1503,6 +1510,9 @@ function makeConnectionSiteDot(
  * advances to `'none'`.
  */
 const AUTOFIT_TOGGLE_SIZE = 24; // host px
+const AUTOFIT_TOGGLE_BG = 'var(--popover, #ffffff)';
+const AUTOFIT_TOGGLE_HOVER_BG = 'var(--accent, #f4f4f5)';
+const AUTOFIT_TOGGLE_BORDER = '1px solid var(--border, #e4e4e7)';
 const AUTOFIT_TOGGLE_OFFSET = 6; // host px below the frame
 const AUTOFIT_ICON_SIZE = 16; // svg viewport drawn inside the button
 
@@ -1598,23 +1608,25 @@ function renderAutofitToggle(
   btn.style.justifyContent = 'center';
   btn.style.padding = '0';
   btn.style.margin = '0';
-  btn.style.border = '1px solid rgba(60, 64, 67, 0.2)';
-  btn.style.borderRadius = '4px';
-  btn.style.background = '#fff';
-  btn.style.color = 'rgb(60, 64, 67)'; // Google-grey-700-ish
+  // Themed from the app tokens like the slides context menu
+  // (context-menu.ts): popover surface, hairline border, accent on hover.
+  // Every value carries the light-popover fallback for a host that never
+  // loaded `tokens.css`; the frontend does, so the chip follows `.dark`.
+  btn.style.border = AUTOFIT_TOGGLE_BORDER;
+  btn.style.borderRadius = 'calc(var(--radius, 0.3rem) - 2px)';
+  btn.style.background = AUTOFIT_TOGGLE_BG;
+  btn.style.color = 'var(--popover-foreground, #09090b)';
   btn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.15)';
   btn.style.cursor = 'pointer';
   btn.style.boxSizing = 'border-box';
   btn.style.pointerEvents = 'auto';
   btn.style.userSelect = 'none';
-  btn.style.transition = 'background 80ms ease, border-color 80ms ease';
+  btn.style.transition = 'background 80ms ease';
   btn.addEventListener('mouseenter', () => {
-    btn.style.background = '#f1f3f4';
-    btn.style.borderColor = 'rgba(60, 64, 67, 0.35)';
+    btn.style.background = AUTOFIT_TOGGLE_HOVER_BG;
   });
   btn.addEventListener('mouseleave', () => {
-    btn.style.background = '#fff';
-    btn.style.borderColor = 'rgba(60, 64, 67, 0.2)';
+    btn.style.background = AUTOFIT_TOGGLE_BG;
   });
   // The editor attaches a `pointerdown` listener on the overlay itself
   // (editor.ts) that runs hit-test → select-or-clear. Without stopping

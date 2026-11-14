@@ -66,12 +66,19 @@ vi.mock('@/components/app-sidebar', () => ({
 }));
 
 vi.mock('@/components/site-header', () => ({
-  SiteHeader: ({ title, children }: { title: string; children: ReactNode }) => (
+  SiteHeader: ({
+    title,
+    actions,
+  }: {
+    title: string;
+    actions?: Record<string, ReactNode>;
+  }) => (
     <header>
       <span>{title}</span>
-      {children}
+      {Object.values(actions ?? {})}
     </header>
   ),
+  HeaderPanelToggle: () => null,
 }));
 
 vi.mock('@/components/share-dialog', () => ({
@@ -180,7 +187,7 @@ describe('DocumentDetail lakehouse tab creation', () => {
       },
     );
     fireEvent.click(
-      await screen.findByRole('menuitem', { name: /New Lakehouse/ }),
+      await screen.findByRole('menuitem', { name: /New lakehouse/ }),
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /Orders/ }));

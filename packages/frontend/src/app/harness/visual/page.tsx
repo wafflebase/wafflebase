@@ -20,6 +20,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Theme } from "@wafflebase/sheets";
 import { useEffect } from "react";
+import { useBrandFonts } from "@/lib/brand-fonts";
 import { ChartVisualScenarios } from "./chart-scenarios";
 import { DocsVisualScenarios } from "./docs-scenarios";
 import { FormatVisualScenarios } from "./format-scenarios";
@@ -100,6 +101,10 @@ function statusBadgeVariant(status: string): "default" | "secondary" {
 }
 
 export default function VisualHarnessPage() {
+  // The goldens were captured with the brand faces loaded app-wide, and the
+  // visual lane's font floor (scripts/verify-visual-browser.mjs) still waits
+  // for them, so this page opts in like a brand route does.
+  useBrandFonts();
   const theme: Theme = useThemeFromSearchParams();
   const section = useSectionFromSearchParams();
 

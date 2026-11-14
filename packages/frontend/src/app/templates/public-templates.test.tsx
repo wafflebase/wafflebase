@@ -122,7 +122,7 @@ describe("PublicTemplates", () => {
     // have to work. `returnTo` is the property worth pinning — signing in from
     // the gallery has to come back to the gallery, not drop the visitor at a
     // workspace root. The CTA moved into the shared nav; that must not lose it.
-    const signIn = screen.getAllByRole("link", { name: /get started/i })[0];
+    const signIn = screen.getAllByRole("link", { name: /^sign in$/i })[0];
     expect(signIn.getAttribute("href")).toBe("/login?returnTo=%2Ftemplates");
   });
 

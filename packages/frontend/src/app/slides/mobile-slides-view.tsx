@@ -466,16 +466,19 @@ export function MobileSlidesView({
   if (error) {
     return (
       <div role="alert" className="p-4 text-sm text-destructive">
-        Failed to load deck.
+        Couldn't load deck.
       </div>
     );
   }
 
   return (
     <>
+      {/* The letterbox around the slide is chrome, so it takes the muted
+          tonal step of the theme rather than a pure black that reads as a
+          hole in a light UI. The slide keeps its own background. */}
       <div
         ref={canvasHostRef}
-        className="flex flex-1 items-center justify-center bg-black"
+        className="flex flex-1 items-center justify-center bg-muted"
         style={{
           minHeight: 0,
           // edit: canvas owns horizontal pointer (drag-to-move), so
@@ -664,7 +667,7 @@ function ThumbnailStrip({
               className="block bg-white"
               style={{ width: THUMB_W, height: thumbH }}
             />
-            <span className="text-[10px] tabular-nums text-muted-foreground">
+            <span className="text-2xs tabular-nums text-muted-foreground">
               {idx + 1}
             </span>
           </button>
@@ -684,7 +687,7 @@ function ThumbnailStrip({
           >
             <IconPlus size={20} />
           </div>
-          <span className="text-[10px] tabular-nums text-muted-foreground">
+          <span className="text-2xs tabular-nums text-muted-foreground">
             +
           </span>
         </button>

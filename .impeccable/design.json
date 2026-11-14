@@ -1,0 +1,1396 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-14T07:38:55.611Z",
+  "title": "Design System: Wafflebase",
+  "extensions": {
+    "colorMeta": {
+      "syrup": {
+        "role": "primary",
+        "displayName": "Maple Syrup",
+        "canonical": "#B8651A",
+        "tonalRamp": [
+          "#3A1E07",
+          "#5C300C",
+          "#8A4A12",
+          "#B8651A",
+          "#D07E33",
+          "#E08A3A",
+          "#F0B57A",
+          "#FAE3C8"
+        ]
+      },
+      "syrup-strong": {
+        "role": "primary",
+        "displayName": "Strong Syrup",
+        "canonical": "#9E5614",
+        "tonalRamp": [
+          "oklch(0.15 0.06 56.5)",
+          "oklch(0.26 0.103 56.5)",
+          "oklch(0.37 0.12 56.5)",
+          "oklch(0.48 0.12 56.5)",
+          "oklch(0.6 0.12 56.5)",
+          "oklch(0.72 0.112 56.5)",
+          "oklch(0.84 0.064 56.5)",
+          "oklch(0.95 0.02 56.5)"
+        ]
+      },
+      "syrup-deep": {
+        "role": "primary",
+        "displayName": "Deep Syrup",
+        "canonical": "#8A4A12",
+        "tonalRamp": [
+          "oklch(0.15 0.051 55.7)",
+          "oklch(0.26 0.089 55.7)",
+          "oklch(0.37 0.103 55.7)",
+          "oklch(0.48 0.103 55.7)",
+          "oklch(0.6 0.103 55.7)",
+          "oklch(0.72 0.096 55.7)",
+          "oklch(0.84 0.055 55.7)",
+          "oklch(0.95 0.017 55.7)"
+        ]
+      },
+      "syrup-bright": {
+        "role": "primary",
+        "displayName": "Bright Syrup",
+        "canonical": "#E08A3A",
+        "tonalRamp": [
+          "oklch(0.15 0.066 59.9)",
+          "oklch(0.26 0.115 59.9)",
+          "oklch(0.37 0.133 59.9)",
+          "oklch(0.48 0.133 59.9)",
+          "oklch(0.6 0.133 59.9)",
+          "oklch(0.72 0.124 59.9)",
+          "oklch(0.84 0.071 59.9)",
+          "oklch(0.95 0.022 59.9)"
+        ]
+      },
+      "syrup-bright-pressed": {
+        "role": "primary",
+        "displayName": "Pressed Bright Syrup",
+        "canonical": "#C97A30",
+        "tonalRamp": [
+          "oklch(0.15 0.065 59.8)",
+          "oklch(0.26 0.113 59.8)",
+          "oklch(0.37 0.131 59.8)",
+          "oklch(0.48 0.131 59.8)",
+          "oklch(0.6 0.131 59.8)",
+          "oklch(0.72 0.122 59.8)",
+          "oklch(0.84 0.069 59.8)",
+          "oklch(0.95 0.022 59.8)"
+        ]
+      },
+      "butter": {
+        "role": "secondary",
+        "displayName": "Butter",
+        "canonical": "#F4C95D",
+        "tonalRamp": [
+          "#4A3A10",
+          "#7A6018",
+          "#B08A2A",
+          "#D9AE45",
+          "#F4C95D",
+          "#F8DA8A",
+          "#FBE8B6",
+          "#FDF5DE"
+        ]
+      },
+      "berry": {
+        "role": "tertiary",
+        "displayName": "Berry",
+        "canonical": "#C2484C",
+        "tonalRamp": [
+          "#3D1416",
+          "#6A2226",
+          "#963338",
+          "#C2484C",
+          "#D5666A",
+          "#E27A7E",
+          "#EFB0B2",
+          "#F9E1E2"
+        ]
+      },
+      "berry-bright": {
+        "role": "tertiary",
+        "displayName": "Berry (dark mode)",
+        "canonical": "#E27A7E",
+        "tonalRamp": [
+          "oklch(0.15 0.061 18.5)",
+          "oklch(0.26 0.106 18.5)",
+          "oklch(0.37 0.122 18.5)",
+          "oklch(0.48 0.122 18.5)",
+          "oklch(0.6 0.122 18.5)",
+          "oklch(0.72 0.114 18.5)",
+          "oklch(0.84 0.065 18.5)",
+          "oklch(0.95 0.02 18.5)"
+        ]
+      },
+      "leaf": {
+        "role": "tertiary",
+        "displayName": "Leaf",
+        "canonical": "#5A7A3A",
+        "tonalRamp": [
+          "#1C2712",
+          "#2F411D",
+          "#44602B",
+          "#5A7A3A",
+          "#7D9C58",
+          "#A0C078",
+          "#C8DCAE",
+          "#ECF3E2"
+        ]
+      },
+      "leaf-bright": {
+        "role": "tertiary",
+        "displayName": "Leaf (dark mode)",
+        "canonical": "#A0C078",
+        "tonalRamp": [
+          "oklch(0.15 0.049 128.1)",
+          "oklch(0.26 0.085 128.1)",
+          "oklch(0.37 0.098 128.1)",
+          "oklch(0.48 0.098 128.1)",
+          "oklch(0.6 0.098 128.1)",
+          "oklch(0.72 0.091 128.1)",
+          "oklch(0.84 0.052 128.1)",
+          "oklch(0.95 0.016 128.1)"
+        ]
+      },
+      "cream-bg": {
+        "role": "neutral",
+        "displayName": "Cream",
+        "canonical": "#FBF6EC",
+        "tonalRamp": [
+          "oklch(0.15 0.007 84.6)",
+          "oklch(0.26 0.012 84.6)",
+          "oklch(0.37 0.014 84.6)",
+          "oklch(0.48 0.014 84.6)",
+          "oklch(0.6 0.014 84.6)",
+          "oklch(0.72 0.013 84.6)",
+          "oklch(0.84 0.007 84.6)",
+          "oklch(0.95 0.002 84.6)"
+        ]
+      },
+      "cream-paper": {
+        "role": "neutral",
+        "displayName": "Cream Paper",
+        "canonical": "#FFFDF7",
+        "tonalRamp": [
+          "oklch(0.15 0.004 91.5)",
+          "oklch(0.26 0.007 91.5)",
+          "oklch(0.37 0.008 91.5)",
+          "oklch(0.48 0.008 91.5)",
+          "oklch(0.6 0.008 91.5)",
+          "oklch(0.72 0.007 91.5)",
+          "oklch(0.84 0.004 91.5)",
+          "oklch(0.95 0.001 91.5)"
+        ]
+      },
+      "walnut-ink": {
+        "role": "neutral",
+        "displayName": "Walnut Ink",
+        "canonical": "#2A1E12",
+        "tonalRamp": [
+          "oklch(0.15 0.013 65.9)",
+          "oklch(0.26 0.023 65.9)",
+          "oklch(0.37 0.027 65.9)",
+          "oklch(0.48 0.027 65.9)",
+          "oklch(0.6 0.027 65.9)",
+          "oklch(0.72 0.025 65.9)",
+          "oklch(0.84 0.014 65.9)",
+          "oklch(0.95 0.004 65.9)"
+        ]
+      },
+      "cocoa-sub": {
+        "role": "neutral",
+        "displayName": "Cocoa",
+        "canonical": "#6B584A",
+        "tonalRamp": [
+          "oklch(0.15 0.016 58.2)",
+          "oklch(0.26 0.027 58.2)",
+          "oklch(0.37 0.032 58.2)",
+          "oklch(0.48 0.032 58.2)",
+          "oklch(0.6 0.032 58.2)",
+          "oklch(0.72 0.029 58.2)",
+          "oklch(0.84 0.017 58.2)",
+          "oklch(0.95 0.005 58.2)"
+        ]
+      },
+      "oat-rule": {
+        "role": "neutral",
+        "displayName": "Oat Rule",
+        "canonical": "#E8DCC4",
+        "tonalRamp": [
+          "oklch(0.15 0.016 84.6)",
+          "oklch(0.26 0.028 84.6)",
+          "oklch(0.37 0.033 84.6)",
+          "oklch(0.48 0.033 84.6)",
+          "oklch(0.6 0.033 84.6)",
+          "oklch(0.72 0.031 84.6)",
+          "oklch(0.84 0.018 84.6)",
+          "oklch(0.95 0.005 84.6)"
+        ]
+      },
+      "roast-bg": {
+        "role": "neutral",
+        "displayName": "Roast",
+        "canonical": "#1C1610",
+        "tonalRamp": [
+          "oklch(0.15 0.007 66.8)",
+          "oklch(0.26 0.012 66.8)",
+          "oklch(0.37 0.014 66.8)",
+          "oklch(0.48 0.014 66.8)",
+          "oklch(0.6 0.014 66.8)",
+          "oklch(0.72 0.013 66.8)",
+          "oklch(0.84 0.008 66.8)",
+          "oklch(0.95 0.002 66.8)"
+        ]
+      },
+      "roast-paper": {
+        "role": "neutral",
+        "displayName": "Roast Paper",
+        "canonical": "#241D14",
+        "tonalRamp": [
+          "oklch(0.15 0.009 73.6)",
+          "oklch(0.26 0.016 73.6)",
+          "oklch(0.37 0.019 73.6)",
+          "oklch(0.48 0.019 73.6)",
+          "oklch(0.6 0.019 73.6)",
+          "oklch(0.72 0.017 73.6)",
+          "oklch(0.84 0.01 73.6)",
+          "oklch(0.95 0.003 73.6)"
+        ]
+      },
+      "roast-sub": {
+        "role": "neutral",
+        "displayName": "Roast Sub",
+        "canonical": "#B5A48A",
+        "tonalRamp": [
+          "oklch(0.15 0.02 78.5)",
+          "oklch(0.26 0.034 78.5)",
+          "oklch(0.37 0.039 78.5)",
+          "oklch(0.48 0.039 78.5)",
+          "oklch(0.6 0.039 78.5)",
+          "oklch(0.72 0.037 78.5)",
+          "oklch(0.84 0.021 78.5)",
+          "oklch(0.95 0.007 78.5)"
+        ]
+      },
+      "roast-rule": {
+        "role": "neutral",
+        "displayName": "Roast Rule",
+        "canonical": "#3A2E1F",
+        "tonalRamp": [
+          "oklch(0.15 0.015 72.5)",
+          "oklch(0.26 0.025 72.5)",
+          "oklch(0.37 0.029 72.5)",
+          "oklch(0.48 0.029 72.5)",
+          "oklch(0.6 0.029 72.5)",
+          "oklch(0.72 0.027 72.5)",
+          "oklch(0.84 0.015 72.5)",
+          "oklch(0.95 0.005 72.5)"
+        ]
+      },
+      "on-syrup": {
+        "role": "neutral",
+        "displayName": "Warm Off-White (on syrup)",
+        "canonical": "#FFFAF0",
+        "tonalRamp": [
+          "oklch(0.15 0.007 84.6)",
+          "oklch(0.26 0.012 84.6)",
+          "oklch(0.37 0.014 84.6)",
+          "oklch(0.48 0.014 84.6)",
+          "oklch(0.6 0.014 84.6)",
+          "oklch(0.72 0.013 84.6)",
+          "oklch(0.84 0.007 84.6)",
+          "oklch(0.95 0.002 84.6)"
+        ]
+      },
+      "link": {
+        "role": "neutral",
+        "displayName": "Link",
+        "canonical": "#1967D2",
+        "tonalRamp": [
+          "oklch(0.15 0.09 258.3)",
+          "oklch(0.26 0.155 258.3)",
+          "oklch(0.37 0.181 258.3)",
+          "oklch(0.48 0.181 258.3)",
+          "oklch(0.6 0.181 258.3)",
+          "oklch(0.72 0.168 258.3)",
+          "oklch(0.84 0.096 258.3)",
+          "oklch(0.95 0.031 258.3)"
+        ]
+      },
+      "link-bright": {
+        "role": "neutral",
+        "displayName": "Link (dark mode)",
+        "canonical": "#8AB4F8",
+        "tonalRamp": [
+          "oklch(0.15 0.054 259.8)",
+          "oklch(0.26 0.093 259.8)",
+          "oklch(0.37 0.108 259.8)",
+          "oklch(0.48 0.108 259.8)",
+          "oklch(0.6 0.108 259.8)",
+          "oklch(0.72 0.101 259.8)",
+          "oklch(0.84 0.057 259.8)",
+          "oklch(0.95 0.018 259.8)"
+        ]
+      },
+      "app-background": {
+        "role": "neutral",
+        "displayName": "Zinc Paper",
+        "canonical": "oklch(1 0 0)",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.26 0 0)",
+          "oklch(0.37 0 0)",
+          "oklch(0.48 0 0)",
+          "oklch(0.6 0 0)",
+          "oklch(0.72 0 0)",
+          "oklch(0.84 0 0)",
+          "oklch(0.95 0 0)"
+        ]
+      },
+      "app-foreground": {
+        "role": "neutral",
+        "displayName": "Zinc Ink",
+        "canonical": "oklch(0.141 0.005 285.823)",
+        "tonalRamp": [
+          "oklch(0.15 0.002 285.8)",
+          "oklch(0.26 0.004 285.8)",
+          "oklch(0.37 0.005 285.8)",
+          "oklch(0.48 0.005 285.8)",
+          "oklch(0.6 0.005 285.8)",
+          "oklch(0.72 0.004 285.8)",
+          "oklch(0.84 0.003 285.8)",
+          "oklch(0.95 0.001 285.8)"
+        ]
+      },
+      "app-muted": {
+        "role": "neutral",
+        "displayName": "Zinc Wash",
+        "canonical": "oklch(0.967 0.001 286.375)",
+        "tonalRamp": [
+          "oklch(0.15 0 286.4)",
+          "oklch(0.26 0.001 286.4)",
+          "oklch(0.37 0.001 286.4)",
+          "oklch(0.48 0.001 286.4)",
+          "oklch(0.6 0.001 286.4)",
+          "oklch(0.72 0.001 286.4)",
+          "oklch(0.84 0.001 286.4)",
+          "oklch(0.95 0 286.4)"
+        ]
+      },
+      "app-muted-foreground": {
+        "role": "neutral",
+        "displayName": "Zinc Sub",
+        "canonical": "oklch(0.552 0.016 285.938)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 285.9)",
+          "oklch(0.26 0.013 285.9)",
+          "oklch(0.37 0.015 285.9)",
+          "oklch(0.48 0.015 285.9)",
+          "oklch(0.6 0.015 285.9)",
+          "oklch(0.72 0.014 285.9)",
+          "oklch(0.84 0.008 285.9)",
+          "oklch(0.95 0.003 285.9)"
+        ]
+      },
+      "app-border": {
+        "role": "neutral",
+        "displayName": "Zinc Rule",
+        "canonical": "oklch(0.92 0.004 286.32)",
+        "tonalRamp": [
+          "oklch(0.15 0.002 286.3)",
+          "oklch(0.26 0.003 286.3)",
+          "oklch(0.37 0.004 286.3)",
+          "oklch(0.48 0.004 286.3)",
+          "oklch(0.6 0.004 286.3)",
+          "oklch(0.72 0.004 286.3)",
+          "oklch(0.84 0.002 286.3)",
+          "oklch(0.95 0.001 286.3)"
+        ]
+      },
+      "app-input-border": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "canonical": "oklch(0.64 0.016 285.938)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 285.9)",
+          "oklch(0.26 0.014 285.9)",
+          "oklch(0.37 0.016 285.9)",
+          "oklch(0.48 0.016 285.9)",
+          "oklch(0.6 0.016 285.9)",
+          "oklch(0.72 0.015 285.9)",
+          "oklch(0.84 0.008 285.9)",
+          "oklch(0.95 0.003 285.9)"
+        ]
+      },
+      "app-sidebar": {
+        "role": "neutral",
+        "displayName": "Sidebar Zinc",
+        "canonical": "oklch(0.985 0 0)",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.26 0 0)",
+          "oklch(0.37 0 0)",
+          "oklch(0.48 0 0)",
+          "oklch(0.6 0 0)",
+          "oklch(0.72 0 0)",
+          "oklch(0.84 0 0)",
+          "oklch(0.95 0 0)"
+        ]
+      },
+      "app-background-dark": {
+        "role": "neutral",
+        "displayName": "Zinc Paper (dark)",
+        "canonical": "oklch(0.141 0.005 285.823)",
+        "tonalRamp": [
+          "oklch(0.15 0.002 285.8)",
+          "oklch(0.26 0.004 285.8)",
+          "oklch(0.37 0.005 285.8)",
+          "oklch(0.48 0.005 285.8)",
+          "oklch(0.6 0.005 285.8)",
+          "oklch(0.72 0.004 285.8)",
+          "oklch(0.84 0.003 285.8)",
+          "oklch(0.95 0.001 285.8)"
+        ]
+      },
+      "app-card-dark": {
+        "role": "neutral",
+        "displayName": "Zinc Card (dark)",
+        "canonical": "oklch(0.21 0.006 285.885)",
+        "tonalRamp": [
+          "oklch(0.15 0.003 285.9)",
+          "oklch(0.26 0.005 285.9)",
+          "oklch(0.37 0.006 285.9)",
+          "oklch(0.48 0.006 285.9)",
+          "oklch(0.6 0.006 285.9)",
+          "oklch(0.72 0.005 285.9)",
+          "oklch(0.84 0.003 285.9)",
+          "oklch(0.95 0.001 285.9)"
+        ]
+      },
+      "app-muted-dark": {
+        "role": "neutral",
+        "displayName": "Zinc Wash (dark)",
+        "canonical": "oklch(0.274 0.006 286.033)",
+        "tonalRamp": [
+          "oklch(0.15 0.003 286)",
+          "oklch(0.26 0.005 286)",
+          "oklch(0.37 0.006 286)",
+          "oklch(0.48 0.006 286)",
+          "oklch(0.6 0.006 286)",
+          "oklch(0.72 0.005 286)",
+          "oklch(0.84 0.003 286)",
+          "oklch(0.95 0.001 286)"
+        ]
+      },
+      "app-foreground-dark": {
+        "role": "neutral",
+        "displayName": "Zinc Ink (dark)",
+        "canonical": "oklch(0.985 0 0)",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.26 0 0)",
+          "oklch(0.37 0 0)",
+          "oklch(0.48 0 0)",
+          "oklch(0.6 0 0)",
+          "oklch(0.72 0 0)",
+          "oklch(0.84 0 0)",
+          "oklch(0.95 0 0)"
+        ]
+      },
+      "app-muted-foreground-dark": {
+        "role": "neutral",
+        "displayName": "Zinc Sub (dark)",
+        "canonical": "oklch(0.705 0.015 286.067)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 286.1)",
+          "oklch(0.26 0.012 286.1)",
+          "oklch(0.37 0.014 286.1)",
+          "oklch(0.48 0.014 286.1)",
+          "oklch(0.6 0.014 286.1)",
+          "oklch(0.72 0.013 286.1)",
+          "oklch(0.84 0.008 286.1)",
+          "oklch(0.95 0.002 286.1)"
+        ]
+      },
+      "app-border-dark": {
+        "role": "neutral",
+        "displayName": "Zinc Rule (dark)",
+        "canonical": "oklch(1 0 0 / 10%)",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.26 0 0)",
+          "oklch(0.37 0 0)",
+          "oklch(0.48 0 0)",
+          "oklch(0.6 0 0)",
+          "oklch(0.72 0 0)",
+          "oklch(0.84 0 0)",
+          "oklch(0.95 0 0)"
+        ]
+      },
+      "app-input-border-dark": {
+        "role": "neutral",
+        "displayName": "Control Edge (dark mode)",
+        "canonical": "oklch(0.52 0.016 285.938)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 285.9)",
+          "oklch(0.26 0.014 285.9)",
+          "oklch(0.37 0.016 285.9)",
+          "oklch(0.48 0.016 285.9)",
+          "oklch(0.6 0.016 285.9)",
+          "oklch(0.72 0.015 285.9)",
+          "oklch(0.84 0.008 285.9)",
+          "oklch(0.95 0.003 285.9)"
+        ]
+      },
+      "selected": {
+        "role": "secondary",
+        "displayName": "Selected Wash",
+        "canonical": "rgba(244, 201, 93, 0.30)",
+        "tonalRamp": [
+          "#4A3A10",
+          "#7A6018",
+          "#B08A2A",
+          "#D9AE45",
+          "#F4C95D",
+          "#F8DA8A",
+          "#FBE8B6",
+          "#FDF5DE"
+        ]
+      },
+      "selected-foreground": {
+        "role": "secondary",
+        "displayName": "Selected Ink (Deep Syrup)",
+        "canonical": "#8A4A12",
+        "tonalRamp": [
+          "oklch(0.15 0.051 55.7)",
+          "oklch(0.26 0.089 55.7)",
+          "oklch(0.37 0.103 55.7)",
+          "oklch(0.48 0.103 55.7)",
+          "oklch(0.6 0.103 55.7)",
+          "oklch(0.72 0.096 55.7)",
+          "oklch(0.84 0.055 55.7)",
+          "oklch(0.95 0.017 55.7)"
+        ]
+      },
+      "selected-dark": {
+        "role": "secondary",
+        "displayName": "Selected Wash (dark)",
+        "canonical": "rgba(244, 201, 93, 0.18)",
+        "tonalRamp": [
+          "#4A3A10",
+          "#7A6018",
+          "#B08A2A",
+          "#D9AE45",
+          "#F4C95D",
+          "#F8DA8A",
+          "#FBE8B6",
+          "#FDF5DE"
+        ]
+      },
+      "selected-foreground-dark": {
+        "role": "secondary",
+        "displayName": "Selected Ink (Butter, dark)",
+        "canonical": "#F4C95D",
+        "tonalRamp": [
+          "oklch(0.15 0.064 87.5)",
+          "oklch(0.26 0.111 87.5)",
+          "oklch(0.37 0.128 87.5)",
+          "oklch(0.48 0.128 87.5)",
+          "oklch(0.6 0.128 87.5)",
+          "oklch(0.72 0.119 87.5)",
+          "oklch(0.84 0.068 87.5)",
+          "oklch(0.95 0.021 87.5)"
+        ]
+      },
+      "destructive": {
+        "role": "tertiary",
+        "displayName": "Destructive Red",
+        "canonical": "oklch(0.577 0.245 27.325)",
+        "tonalRamp": [
+          "oklch(0.15 0.116 27.3)",
+          "oklch(0.26 0.202 27.3)",
+          "oklch(0.37 0.233 27.3)",
+          "oklch(0.48 0.233 27.3)",
+          "oklch(0.6 0.233 27.3)",
+          "oklch(0.72 0.217 27.3)",
+          "oklch(0.84 0.124 27.3)",
+          "oklch(0.95 0.039 27.3)"
+        ]
+      },
+      "destructive-dark": {
+        "role": "tertiary",
+        "displayName": "Destructive Red (dark)",
+        "canonical": "oklch(0.704 0.191 22.216)",
+        "tonalRamp": [
+          "oklch(0.15 0.091 22.2)",
+          "oklch(0.26 0.157 22.2)",
+          "oklch(0.37 0.181 22.2)",
+          "oklch(0.48 0.181 22.2)",
+          "oklch(0.6 0.181 22.2)",
+          "oklch(0.72 0.169 22.2)",
+          "oklch(0.84 0.097 22.2)",
+          "oklch(0.95 0.03 22.2)"
+        ]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Warning Amber",
+        "canonical": "oklch(0.555 0.163 48.998)",
+        "tonalRamp": [
+          "oklch(0.15 0.077 49)",
+          "oklch(0.26 0.134 49)",
+          "oklch(0.37 0.155 49)",
+          "oklch(0.48 0.155 49)",
+          "oklch(0.6 0.155 49)",
+          "oklch(0.72 0.145 49)",
+          "oklch(0.84 0.083 49)",
+          "oklch(0.95 0.026 49)"
+        ]
+      },
+      "warning-dark": {
+        "role": "tertiary",
+        "displayName": "Warning Amber (dark)",
+        "canonical": "oklch(0.769 0.188 70.08)",
+        "tonalRamp": [
+          "oklch(0.15 0.089 70.1)",
+          "oklch(0.26 0.155 70.1)",
+          "oklch(0.37 0.179 70.1)",
+          "oklch(0.48 0.179 70.1)",
+          "oklch(0.6 0.179 70.1)",
+          "oklch(0.72 0.167 70.1)",
+          "oklch(0.84 0.095 70.1)",
+          "oklch(0.95 0.03 70.1)"
+        ]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Success (Leaf)",
+        "canonical": "#5A7A3A",
+        "tonalRamp": [
+          "oklch(0.15 0.047 130.9)",
+          "oklch(0.26 0.081 130.9)",
+          "oklch(0.37 0.094 130.9)",
+          "oklch(0.48 0.094 130.9)",
+          "oklch(0.6 0.094 130.9)",
+          "oklch(0.72 0.087 130.9)",
+          "oklch(0.84 0.05 130.9)",
+          "oklch(0.95 0.016 130.9)"
+        ]
+      },
+      "success-dark": {
+        "role": "tertiary",
+        "displayName": "Success (Leaf, dark)",
+        "canonical": "#A0C078",
+        "tonalRamp": [
+          "oklch(0.15 0.049 128.1)",
+          "oklch(0.26 0.085 128.1)",
+          "oklch(0.37 0.098 128.1)",
+          "oklch(0.48 0.098 128.1)",
+          "oklch(0.6 0.098 128.1)",
+          "oklch(0.72 0.091 128.1)",
+          "oklch(0.84 0.052 128.1)",
+          "oklch(0.95 0.016 128.1)"
+        ]
+      },
+      "chart-1": {
+        "role": "tertiary",
+        "displayName": "Chart 1 (syrup)",
+        "canonical": "#B8651A",
+        "tonalRamp": [
+          "oklch(0.15 0.064 56.3)",
+          "oklch(0.26 0.11 56.3)",
+          "oklch(0.37 0.127 56.3)",
+          "oklch(0.48 0.127 56.3)",
+          "oklch(0.6 0.127 56.3)",
+          "oklch(0.72 0.119 56.3)",
+          "oklch(0.84 0.068 56.3)",
+          "oklch(0.95 0.021 56.3)"
+        ]
+      },
+      "chart-2": {
+        "role": "tertiary",
+        "displayName": "Chart 2 (denim)",
+        "canonical": "oklch(0.50 0.12 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.057 250)",
+          "oklch(0.26 0.099 250)",
+          "oklch(0.37 0.114 250)",
+          "oklch(0.48 0.114 250)",
+          "oklch(0.6 0.114 250)",
+          "oklch(0.72 0.106 250)",
+          "oklch(0.84 0.061 250)",
+          "oklch(0.95 0.019 250)"
+        ]
+      },
+      "chart-3": {
+        "role": "tertiary",
+        "displayName": "Chart 3 (teal)",
+        "canonical": "oklch(0.58 0.10 185)",
+        "tonalRamp": [
+          "oklch(0.15 0.048 185)",
+          "oklch(0.26 0.082 185)",
+          "oklch(0.37 0.095 185)",
+          "oklch(0.48 0.095 185)",
+          "oklch(0.6 0.095 185)",
+          "oklch(0.72 0.089 185)",
+          "oklch(0.84 0.051 185)",
+          "oklch(0.95 0.016 185)"
+        ]
+      },
+      "chart-4": {
+        "role": "tertiary",
+        "displayName": "Chart 4 (rose)",
+        "canonical": "oklch(0.58 0.15 355)",
+        "tonalRamp": [
+          "oklch(0.15 0.071 355)",
+          "oklch(0.26 0.123 355)",
+          "oklch(0.37 0.142 355)",
+          "oklch(0.48 0.142 355)",
+          "oklch(0.6 0.142 355)",
+          "oklch(0.72 0.133 355)",
+          "oklch(0.84 0.076 355)",
+          "oklch(0.95 0.024 355)"
+        ]
+      },
+      "chart-5": {
+        "role": "tertiary",
+        "displayName": "Chart 5 (olive gold)",
+        "canonical": "oklch(0.64 0.12 95)",
+        "tonalRamp": [
+          "oklch(0.15 0.057 95)",
+          "oklch(0.26 0.099 95)",
+          "oklch(0.37 0.114 95)",
+          "oklch(0.48 0.114 95)",
+          "oklch(0.6 0.114 95)",
+          "oklch(0.72 0.106 95)",
+          "oklch(0.84 0.061 95)",
+          "oklch(0.95 0.019 95)"
+        ]
+      },
+      "chart-1-dark": {
+        "role": "tertiary",
+        "displayName": "Chart 1 (syrup, dark)",
+        "canonical": "#E08A3A",
+        "tonalRamp": [
+          "oklch(0.15 0.066 59.9)",
+          "oklch(0.26 0.115 59.9)",
+          "oklch(0.37 0.133 59.9)",
+          "oklch(0.48 0.133 59.9)",
+          "oklch(0.6 0.133 59.9)",
+          "oklch(0.72 0.124 59.9)",
+          "oklch(0.84 0.071 59.9)",
+          "oklch(0.95 0.022 59.9)"
+        ]
+      },
+      "chart-2-dark": {
+        "role": "tertiary",
+        "displayName": "Chart 2 (denim, dark)",
+        "canonical": "oklch(0.72 0.11 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.052 250)",
+          "oklch(0.26 0.091 250)",
+          "oklch(0.37 0.104 250)",
+          "oklch(0.48 0.104 250)",
+          "oklch(0.6 0.104 250)",
+          "oklch(0.72 0.098 250)",
+          "oklch(0.84 0.056 250)",
+          "oklch(0.95 0.017 250)"
+        ]
+      },
+      "chart-3-dark": {
+        "role": "tertiary",
+        "displayName": "Chart 3 (teal, dark)",
+        "canonical": "oklch(0.74 0.10 185)",
+        "tonalRamp": [
+          "oklch(0.15 0.048 185)",
+          "oklch(0.26 0.082 185)",
+          "oklch(0.37 0.095 185)",
+          "oklch(0.48 0.095 185)",
+          "oklch(0.6 0.095 185)",
+          "oklch(0.72 0.089 185)",
+          "oklch(0.84 0.051 185)",
+          "oklch(0.95 0.016 185)"
+        ]
+      },
+      "chart-4-dark": {
+        "role": "tertiary",
+        "displayName": "Chart 4 (rose, dark)",
+        "canonical": "oklch(0.72 0.13 355)",
+        "tonalRamp": [
+          "oklch(0.15 0.062 355)",
+          "oklch(0.26 0.107 355)",
+          "oklch(0.37 0.123 355)",
+          "oklch(0.48 0.123 355)",
+          "oklch(0.6 0.123 355)",
+          "oklch(0.72 0.115 355)",
+          "oklch(0.84 0.066 355)",
+          "oklch(0.95 0.021 355)"
+        ]
+      },
+      "chart-5-dark": {
+        "role": "tertiary",
+        "displayName": "Chart 5 (olive gold, dark)",
+        "canonical": "oklch(0.86 0.13 90)",
+        "tonalRamp": [
+          "oklch(0.15 0.062 90)",
+          "oklch(0.26 0.107 90)",
+          "oklch(0.37 0.123 90)",
+          "oklch(0.48 0.123 90)",
+          "oklch(0.6 0.123 90)",
+          "oklch(0.72 0.115 90)",
+          "oklch(0.84 0.066 90)",
+          "oklch(0.95 0.021 90)"
+        ]
+      },
+      "type-sheet": {
+        "role": "tertiary",
+        "displayName": "Sheet type (leaf)",
+        "canonical": "#5A7A3A",
+        "tonalRamp": [
+          "oklch(0.15 0.047 130.9)",
+          "oklch(0.26 0.081 130.9)",
+          "oklch(0.37 0.094 130.9)",
+          "oklch(0.48 0.094 130.9)",
+          "oklch(0.6 0.094 130.9)",
+          "oklch(0.72 0.087 130.9)",
+          "oklch(0.84 0.05 130.9)",
+          "oklch(0.95 0.016 130.9)"
+        ]
+      },
+      "type-doc": {
+        "role": "tertiary",
+        "displayName": "Doc type (denim)",
+        "canonical": "oklch(0.52 0.12 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.057 250)",
+          "oklch(0.26 0.099 250)",
+          "oklch(0.37 0.114 250)",
+          "oklch(0.48 0.114 250)",
+          "oklch(0.6 0.114 250)",
+          "oklch(0.72 0.106 250)",
+          "oklch(0.84 0.061 250)",
+          "oklch(0.95 0.019 250)"
+        ]
+      },
+      "type-note": {
+        "role": "tertiary",
+        "displayName": "Note type (cocoa)",
+        "canonical": "#6B584A",
+        "tonalRamp": [
+          "oklch(0.15 0.016 58.2)",
+          "oklch(0.26 0.027 58.2)",
+          "oklch(0.37 0.032 58.2)",
+          "oklch(0.48 0.032 58.2)",
+          "oklch(0.6 0.032 58.2)",
+          "oklch(0.72 0.029 58.2)",
+          "oklch(0.84 0.017 58.2)",
+          "oklch(0.95 0.005 58.2)"
+        ]
+      },
+      "type-slides": {
+        "role": "tertiary",
+        "displayName": "Slides type (teal)",
+        "canonical": "oklch(0.55 0.09 195)",
+        "tonalRamp": [
+          "oklch(0.15 0.043 195)",
+          "oklch(0.26 0.074 195)",
+          "oklch(0.37 0.085 195)",
+          "oklch(0.48 0.085 195)",
+          "oklch(0.6 0.085 195)",
+          "oklch(0.72 0.08 195)",
+          "oklch(0.84 0.046 195)",
+          "oklch(0.95 0.014 195)"
+        ]
+      },
+      "type-pdf": {
+        "role": "tertiary",
+        "displayName": "Pdf type (berry)",
+        "canonical": "#C2484C",
+        "tonalRamp": [
+          "oklch(0.15 0.074 21.7)",
+          "oklch(0.26 0.129 21.7)",
+          "oklch(0.37 0.149 21.7)",
+          "oklch(0.48 0.149 21.7)",
+          "oklch(0.6 0.149 21.7)",
+          "oklch(0.72 0.139 21.7)",
+          "oklch(0.84 0.079 21.7)",
+          "oklch(0.95 0.025 21.7)"
+        ]
+      },
+      "type-image": {
+        "role": "tertiary",
+        "displayName": "Image type (rose)",
+        "canonical": "oklch(0.56 0.15 355)",
+        "tonalRamp": [
+          "oklch(0.15 0.071 355)",
+          "oklch(0.26 0.123 355)",
+          "oklch(0.37 0.142 355)",
+          "oklch(0.48 0.142 355)",
+          "oklch(0.6 0.142 355)",
+          "oklch(0.72 0.133 355)",
+          "oklch(0.84 0.076 355)",
+          "oklch(0.95 0.024 355)"
+        ]
+      },
+      "type-board": {
+        "role": "tertiary",
+        "displayName": "Board type (sticky-note gold)",
+        "canonical": "oklch(0.62 0.12 95)",
+        "tonalRamp": [
+          "oklch(0.15 0.057 95)",
+          "oklch(0.26 0.099 95)",
+          "oklch(0.37 0.114 95)",
+          "oklch(0.48 0.114 95)",
+          "oklch(0.6 0.114 95)",
+          "oklch(0.72 0.106 95)",
+          "oklch(0.84 0.061 95)",
+          "oklch(0.95 0.019 95)"
+        ]
+      },
+      "type-file": {
+        "role": "tertiary",
+        "displayName": "File type (zinc)",
+        "canonical": "oklch(0.552 0.016 285.938)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 285.9)",
+          "oklch(0.26 0.013 285.9)",
+          "oklch(0.37 0.015 285.9)",
+          "oklch(0.48 0.015 285.9)",
+          "oklch(0.6 0.015 285.9)",
+          "oklch(0.72 0.014 285.9)",
+          "oklch(0.84 0.008 285.9)",
+          "oklch(0.95 0.003 285.9)"
+        ]
+      },
+      "type-sheet-dark": {
+        "role": "tertiary",
+        "displayName": "Sheet type (leaf, dark)",
+        "canonical": "#A0C078",
+        "tonalRamp": [
+          "oklch(0.15 0.049 128.1)",
+          "oklch(0.26 0.085 128.1)",
+          "oklch(0.37 0.098 128.1)",
+          "oklch(0.48 0.098 128.1)",
+          "oklch(0.6 0.098 128.1)",
+          "oklch(0.72 0.091 128.1)",
+          "oklch(0.84 0.052 128.1)",
+          "oklch(0.95 0.016 128.1)"
+        ]
+      },
+      "type-doc-dark": {
+        "role": "tertiary",
+        "displayName": "Doc type (denim, dark)",
+        "canonical": "oklch(0.74 0.10 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.048 250)",
+          "oklch(0.26 0.082 250)",
+          "oklch(0.37 0.095 250)",
+          "oklch(0.48 0.095 250)",
+          "oklch(0.6 0.095 250)",
+          "oklch(0.72 0.089 250)",
+          "oklch(0.84 0.051 250)",
+          "oklch(0.95 0.016 250)"
+        ]
+      },
+      "type-note-dark": {
+        "role": "tertiary",
+        "displayName": "Note type (cocoa, dark)",
+        "canonical": "#B5A48A",
+        "tonalRamp": [
+          "oklch(0.15 0.02 78.5)",
+          "oklch(0.26 0.034 78.5)",
+          "oklch(0.37 0.039 78.5)",
+          "oklch(0.48 0.039 78.5)",
+          "oklch(0.6 0.039 78.5)",
+          "oklch(0.72 0.037 78.5)",
+          "oklch(0.84 0.021 78.5)",
+          "oklch(0.95 0.007 78.5)"
+        ]
+      },
+      "type-slides-dark": {
+        "role": "tertiary",
+        "displayName": "Slides type (teal, dark)",
+        "canonical": "oklch(0.76 0.09 195)",
+        "tonalRamp": [
+          "oklch(0.15 0.043 195)",
+          "oklch(0.26 0.074 195)",
+          "oklch(0.37 0.085 195)",
+          "oklch(0.48 0.085 195)",
+          "oklch(0.6 0.085 195)",
+          "oklch(0.72 0.08 195)",
+          "oklch(0.84 0.046 195)",
+          "oklch(0.95 0.014 195)"
+        ]
+      },
+      "type-pdf-dark": {
+        "role": "tertiary",
+        "displayName": "Pdf type (berry, dark)",
+        "canonical": "#E27A7E",
+        "tonalRamp": [
+          "oklch(0.15 0.061 18.5)",
+          "oklch(0.26 0.106 18.5)",
+          "oklch(0.37 0.122 18.5)",
+          "oklch(0.48 0.122 18.5)",
+          "oklch(0.6 0.122 18.5)",
+          "oklch(0.72 0.114 18.5)",
+          "oklch(0.84 0.065 18.5)",
+          "oklch(0.95 0.02 18.5)"
+        ]
+      },
+      "type-image-dark": {
+        "role": "tertiary",
+        "displayName": "Image type (rose, dark)",
+        "canonical": "oklch(0.75 0.12 355)",
+        "tonalRamp": [
+          "oklch(0.15 0.057 355)",
+          "oklch(0.26 0.099 355)",
+          "oklch(0.37 0.114 355)",
+          "oklch(0.48 0.114 355)",
+          "oklch(0.6 0.114 355)",
+          "oklch(0.72 0.106 355)",
+          "oklch(0.84 0.061 355)",
+          "oklch(0.95 0.019 355)"
+        ]
+      },
+      "type-board-dark": {
+        "role": "tertiary",
+        "displayName": "Board type (sticky-note gold, dark)",
+        "canonical": "#F4C95D",
+        "tonalRamp": [
+          "oklch(0.15 0.064 87.5)",
+          "oklch(0.26 0.111 87.5)",
+          "oklch(0.37 0.128 87.5)",
+          "oklch(0.48 0.128 87.5)",
+          "oklch(0.6 0.128 87.5)",
+          "oklch(0.72 0.119 87.5)",
+          "oklch(0.84 0.068 87.5)",
+          "oklch(0.95 0.021 87.5)"
+        ]
+      },
+      "type-file-dark": {
+        "role": "tertiary",
+        "displayName": "File type (zinc, dark)",
+        "canonical": "oklch(0.705 0.015 286.067)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 286.1)",
+          "oklch(0.26 0.012 286.1)",
+          "oklch(0.37 0.014 286.1)",
+          "oklch(0.48 0.014 286.1)",
+          "oklch(0.6 0.014 286.1)",
+          "oklch(0.72 0.013 286.1)",
+          "oklch(0.84 0.008 286.1)",
+          "oklch(0.95 0.002 286.1)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Homepage hero only; the italic second line is Fraunces true italic at 500, the one italic face loaded. Brand faces load only on brand routes (/, /login, /templates, /t/:id) via src/lib/brand-fonts.ts with display=swap."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Brand-surface page titles (sign-in, template landing); the sidebar wordmark uses the same face at 17px."
+      },
+      "section-title": {
+        "displayName": "Section title",
+        "purpose": "Settings and workspace-settings section headings; the largest app-chrome text outside an analytics stat figure (24px)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card and dialog titles in the app."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All editor and workspace UI text in the system stack (brand faces are not loaded on app routes); inputs render at 16px on mobile."
+      },
+      "body-brand": {
+        "displayName": "Body (brand)",
+        "purpose": "Homepage lead paragraphs, ~560px measure."
+      },
+      "title-brand": {
+        "displayName": "Title (brand)",
+        "purpose": "Homepage feature- and use-case-card titles (use-case cards in Fraunces); the brand nav and footer wordmarks use Fraunces at the same size."
+      },
+      "body-brand-sm": {
+        "displayName": "Body (brand, small)",
+        "purpose": "Template-landing descriptions, feature-list titles, the large pill button."
+      },
+      "caption-brand": {
+        "displayName": "Caption (brand)",
+        "purpose": "Card links, interop captions, template metadata."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Badges, small metadata, popover section labels (sentence case, muted)."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Count badges, avatar initials, swatch captions (text-2xs). Never body copy, never a label the user must read to act; nothing in the app renders smaller."
+      },
+      "label-mono": {
+        "displayName": "Label (mono)",
+        "purpose": "Uppercase footer column headings and the template category chip. Never a kicker or eyebrow above a heading."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Button and toggle labels, one weight step above Body so a control reads as actionable without color."
+      }
+    },
+    "shadows": [
+      {
+        "name": "hairline-lift",
+        "value": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        "purpose": "Buttons, outline toggles and inputs at rest (shadow-xs)."
+      },
+      {
+        "name": "card-rest",
+        "value": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+        "purpose": "App cards and the floating sidebar variant (shadow-sm)."
+      },
+      {
+        "name": "popover",
+        "value": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+        "purpose": "Popovers, dropdown and context menus, find bars (shadow-md)."
+      },
+      {
+        "name": "dialog",
+        "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "purpose": "Dialogs and floating editor panels (shadow-lg)."
+      },
+      {
+        "name": "toast",
+        "value": "0px 4px 12px rgba(0, 0, 0, 0.1)",
+        "purpose": "Sonner toasts (library default, kept); surface, text and border are the popover tokens."
+      },
+      {
+        "name": "brand-card",
+        "value": "0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18)",
+        "purpose": "Homepage feature/use-case/interop cards and template cards."
+      },
+      {
+        "name": "brand-panel",
+        "value": "0 1px 0 rgba(42,30,18,0.04), 0 30px 60px -32px rgba(42,30,18,0.18)",
+        "purpose": "Homepage open-source panel; the sign-in card uses 0.22."
+      },
+      {
+        "name": "brand-primary-bevel",
+        "value": "0 1px 0 var(--wb-syrup-deep), inset 0 1px 0 color-mix(in srgb, white 25%, transparent)",
+        "purpose": "Pressed-syrup edge on the brand pill CTA."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent)",
+        "purpose": "Every app control on :focus-visible, with a syrup border."
+      },
+      {
+        "name": "brand-focus-ring",
+        "value": "0 0 0 2px var(--wb-bg), 0 0 0 4px color-mix(in srgb, var(--wb-syrup) 40%, transparent)",
+        "purpose": "Brand pill buttons on :focus-visible (2px ring, 2px cream offset)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Tailwind transition default: hover, focus and color changes on buttons, toggles, inputs, badges."
+      },
+      {
+        "name": "overlay-enter-exit",
+        "value": "150ms ease; fade 0→1 + zoom 95%→100%",
+        "purpose": "tw-animate animate-in/out on tooltips, popovers and menus; side menus also slide 8px."
+      },
+      {
+        "name": "dialog-enter-exit",
+        "value": "200ms ease; fade + zoom 95%",
+        "purpose": "Dialog content and overlay (duration-200)."
+      },
+      {
+        "name": "sidebar-collapse",
+        "value": "200ms linear",
+        "purpose": "Sidebar width, label margin and opacity when collapsing to the icon rail; motion-reduce:transition-none."
+      },
+      {
+        "name": "brand-hover",
+        "value": "150ms (use-case cards, pill buttons) / 200ms (feature cards)",
+        "purpose": "Brand card lift (-2px) or 1.005 scale, and the pill button 1px lift."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce): tw-animate enter/exit scale and translate zeroed; brand hover lifts and scale removed",
+        "purpose": "Overlays (dialogs, sheets, popovers, menus, tooltips) keep only the opacity fade; brand cards and the pill CTA stay still on hover (the CTA keeps its primary-hover fill). Slides presentation motion honors the same query in packages/slides."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      },
+      {
+        "name": "pointer-coarse",
+        "value": "(pointer: coarse)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one syrup action on an app screen.",
+      "html": "<button class=\"ds-btn-primary\">Share</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 8px 16px; border: 1px solid transparent; border-radius: var(--radius-md, 2.8px); background: var(--primary, #9E5614); color: var(--primary-foreground, #FFFAF0); font: 500 14px/1 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); cursor: pointer; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { background: var(--primary-hover, #8A4A12); } .ds-btn-primary:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary actions beside a primary.",
+      "html": "<button class=\"ds-btn-outline\">Cancel</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 8px 16px; border: 1px solid var(--border, oklch(0.92 0.004 286.32)); border-radius: var(--radius-md, 2.8px); background: var(--background, #fff); color: var(--foreground, oklch(0.141 0.005 285.823)); font: 500 14px/1 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); cursor: pointer; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-outline:hover { background: var(--accent, oklch(0.967 0.001 286.375)); color: var(--accent-foreground, oklch(0.21 0.006 285.885)); } .ds-btn-outline:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); }"
+    },
+    {
+      "name": "Toolbar Button",
+      "kind": "custom",
+      "refersTo": "toolbar-button",
+      "description": "28px icon and menu triggers in editor toolbars, grouped by 20px separators.",
+      "html": "<div class=\"ds-toolbar\"><button class=\"ds-tb-btn\" aria-label=\"Undo\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 0 11H11\"/></svg></button><span class=\"ds-tb-sep\" role=\"separator\"></span><button class=\"ds-tb-btn ds-tb-menu\">Arial <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 9 6 6 6-6\"/></svg></button><button class=\"ds-tb-btn ds-tb-menu\">11 <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 9 6 6 6-6\"/></svg></button></div>",
+      "css": ".ds-toolbar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; border-bottom: 1px solid var(--border, oklch(0.92 0.004 286.32)); background: var(--background, #fff); white-space: nowrap; } .ds-tb-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: none; border-radius: var(--radius-md, 2.8px); background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); font: 14px ui-sans-serif, system-ui, sans-serif; cursor: pointer; } .ds-tb-btn:hover { background: var(--muted, oklch(0.967 0.001 286.375)); } .ds-tb-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-tb-menu { width: auto; padding: 0 6px; gap: 2px; } .ds-tb-sep { width: 1px; height: 20px; margin: 0 8px; background: color-mix(in srgb, var(--muted-foreground, oklch(0.552 0.016 285.938)) 40%, transparent); } @media (pointer: coarse) { .ds-toolbar { gap: 4px; padding: 6px 8px; } .ds-tb-btn { min-width: 44px; min-height: 44px; } }"
+    },
+    {
+      "name": "Toggle",
+      "kind": "button",
+      "refersTo": "toggle-on",
+      "description": "Pressed-state control (Bold, Italic, tool pickers). On is the butter selected wash; hover is the neutral zinc wash, so the two never look alike.",
+      "html": "<div class=\"ds-toggle-row\"><button class=\"ds-toggle\" aria-pressed=\"true\" aria-label=\"Bold\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8\"/></svg></button><button class=\"ds-toggle\" aria-pressed=\"false\" aria-label=\"Italic\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><line x1=\"19\" x2=\"10\" y1=\"4\" y2=\"4\"/><line x1=\"14\" x2=\"5\" y1=\"20\" y2=\"20\"/><line x1=\"15\" x2=\"9\" y1=\"4\" y2=\"20\"/></svg></button><button class=\"ds-toggle\" aria-pressed=\"false\" aria-label=\"Underline\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 4v6a6 6 0 0 0 12 0V4\"/><line x1=\"4\" x2=\"20\" y1=\"20\" y2=\"20\"/></svg></button></div>",
+      "css": ".ds-toggle-row { display: inline-flex; gap: 2px; padding: 4px; background: var(--background, #fff); } .ds-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; min-width: 36px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-md, 2.8px); background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); font: 500 14px ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-toggle:hover { background: var(--muted, oklch(0.967 0.001 286.375)); color: var(--muted-foreground, oklch(0.552 0.016 285.938)); } .ds-toggle[aria-pressed=\"true\"] { background: var(--selected, rgba(244, 201, 93, 0.30)); color: var(--selected-foreground, #8A4A12); } .ds-toggle:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); }"
+    },
+    {
+      "name": "Tooltip",
+      "kind": "custom",
+      "refersTo": "tooltip",
+      "description": "Inverted-ink label naming a control. Ink, never syrup: a tooltip is not the action.",
+      "html": "<div class=\"ds-tip-demo\"><button class=\"ds-tb-btn-tip\" aria-label=\"Bold\" aria-describedby=\"ds-tip-1\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8\"/></svg></button><div class=\"ds-tooltip\" role=\"tooltip\" id=\"ds-tip-1\">Bold (⌘B)<span class=\"ds-tooltip-arrow\"></span></div></div>",
+      "css": ".ds-tip-demo { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px; } .ds-tb-btn-tip { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: var(--radius-md, 2.8px); background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); cursor: pointer; } .ds-tb-btn-tip:hover { background: var(--muted, oklch(0.967 0.001 286.375)); } .ds-tb-btn-tip:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-tooltip { position: relative; order: 2; width: fit-content; padding: 6px 12px; border-radius: var(--radius-md, 2.8px); background: var(--foreground, oklch(0.141 0.005 285.823)); color: var(--background, #fff); font: 12px/16px ui-sans-serif, system-ui, sans-serif; text-wrap: balance; animation: ds-tip-in 150ms ease; } .ds-tooltip-arrow { position: absolute; top: 0; left: 50%; width: 10px; height: 10px; background: var(--foreground, oklch(0.141 0.005 285.823)); border-radius: 2px; transform: translate(-50%, calc(-50% + 2px)) rotate(45deg); } @keyframes ds-tip-in { from { opacity: 0; transform: scale(0.95) translateY(-8px); } }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Single-line field for dialogs and panels.",
+      "html": "<input class=\"ds-input\" placeholder=\"Document title\" aria-label=\"Document title\" />",
+      "css": ".ds-input { height: 36px; width: 240px; min-width: 0; padding: 4px 12px; border: 1px solid var(--input-border, oklch(0.64 0.016 285.938)); border-radius: var(--radius-md, 2.8px); background: transparent; color: var(--foreground, oklch(0.141 0.005 285.823)); caret-color: var(--primary, #9E5614); font: 14px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); } .ds-input:focus-visible { outline: none; border-color: var(--ring, #B8651A); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #B8651A) 50%, transparent); } .ds-input[aria-invalid=\"true\"] { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); } @media (max-width: 767px) { .ds-input { font-size: 16px; } }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Sonner via components/ui/sonner.tsx: the resolved app theme, popover surface and border, lg corners. An error toast names what failed and what to do next.",
+      "html": "<div class=\"ds-toast\" role=\"status\"><div class=\"ds-toast-title\">Couldn’t share the document</div><div class=\"ds-toast-desc\">Check your connection and try again.</div></div>",
+      "css": ".ds-toast { display: flex; flex-direction: column; gap: 2px; width: 356px; padding: 16px; border: 1px solid var(--border, oklch(0.92 0.004 286.32)); border-radius: var(--radius, 4.8px); background: var(--popover, #fff); color: var(--popover-foreground, oklch(0.141 0.005 285.823)); box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1); font: 13px ui-sans-serif, system-ui, sans-serif; } .ds-toast-title { font-weight: 500; line-height: 1.5; } .ds-toast-desc { color: var(--muted-foreground, oklch(0.552 0.016 285.938)); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Grouped content in workspace and settings screens.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><div class=\"ds-card-title\">API keys</div><div class=\"ds-card-desc\">Keys authenticate the CLI and /api/v1 as you.</div></div><div class=\"ds-card-content\">2 active keys</div></div>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: 24px; width: 320px; padding: 24px 0; border: 1px solid var(--border, oklch(0.92 0.004 286.32)); border-radius: var(--radius-xl, 8.8px); background: var(--card, #fff); color: var(--card-foreground, oklch(0.141 0.005 285.823)); box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); font-family: ui-sans-serif, system-ui, sans-serif; } .ds-card-header { display: grid; gap: 6px; padding: 0 24px; } .ds-card-title { font-weight: 600; font-size: 16px; line-height: 1; } .ds-card-desc { font-size: 14px; color: var(--muted-foreground, oklch(0.552 0.016 285.938)); } .ds-card-content { padding: 0 24px; font-size: 14px; }"
+    },
+    {
+      "name": "Sidebar Item",
+      "kind": "nav",
+      "refersTo": "sidebar-item-active",
+      "description": "Workspace sidebar entry: neutral zinc hover, butter selected wash with deep-syrup text when active.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><div class=\"ds-nav-brand\">Wafflebase</div><a class=\"ds-nav-item is-active\" href=\"#\" aria-current=\"page\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/></svg><span>Documents</span></a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M3 9h18\"/><path d=\"M9 21V9\"/></svg><span>Templates</span></a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1\"/></svg><span>Settings</span></a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 4px; width: 220px; padding: 8px; background: var(--sidebar, oklch(0.985 0 0)); color: var(--sidebar-foreground, oklch(0.141 0.005 285.823)); font: 14px ui-sans-serif, system-ui, sans-serif; } .ds-nav-brand { padding: 8px; font: 600 17px/1 var(--font-display, Fraunces, ui-serif, Georgia, serif); letter-spacing: -0.01em; } .ds-nav-item { display: flex; align-items: center; gap: 8px; height: 32px; padding: 8px; border-radius: var(--radius-md, 2.8px); color: inherit; text-decoration: none; outline: none; } .ds-nav-item:hover { background: var(--muted, oklch(0.967 0.001 286.375)); } .ds-nav-item:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sidebar-ring, #B8651A) 50%, transparent); } .ds-nav-item.is-active { background: var(--sidebar-accent, rgba(244, 201, 93, 0.30)); color: var(--sidebar-accent-foreground, #8A4A12); font-weight: 500; }"
+    },
+    {
+      "name": "Brand Pill Button",
+      "kind": "button",
+      "refersTo": "brand-button-primary",
+      "description": "Primary and ghost CTAs on brand surfaces only (homepage, sign-in, templates).",
+      "html": "<div class=\"ds-brand-row\"><button class=\"ds-brand-btn\">Start a workspace <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></button><button class=\"ds-brand-btn-ghost\">Read the docs</button></div>",
+      "css": ".ds-brand-row { display: flex; gap: 12px; padding: 16px; background: var(--wb-bg, #FBF6EC); } .ds-brand-btn, .ds-brand-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border-radius: 9999px; font: 500 14px var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); white-space: nowrap; cursor: pointer; outline: none; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-brand-btn { border: 1px solid var(--wb-syrup-deep, #8A4A12); background: var(--primary, #9E5614); color: var(--primary-foreground, #FFFAF0); box-shadow: 0 1px 0 var(--wb-syrup-deep, #8A4A12), inset 0 1px 0 color-mix(in srgb, white 25%, transparent); } .ds-brand-btn:hover { background: var(--primary-hover, #8A4A12); transform: translateY(-1px); } .ds-brand-btn-ghost { border: 1px solid var(--wb-rule, #E8DCC4); background: transparent; color: var(--wb-ink, #2A1E12); } .ds-brand-btn-ghost:hover { background: color-mix(in srgb, var(--wb-rule, #E8DCC4) 40%, transparent); } .ds-brand-btn:focus-visible, .ds-brand-btn-ghost:focus-visible { box-shadow: 0 0 0 2px var(--wb-bg, #FBF6EC), 0 0 0 4px color-mix(in srgb, var(--wb-syrup, #B8651A) 40%, transparent); }"
+    },
+    {
+      "name": "Brand Feature Card",
+      "kind": "card",
+      "refersTo": "brand-card",
+      "description": "Cream-paper use-case card on the homepage; Fraunces title, syrup-deep caption link, lifts 2px on hover.",
+      "html": "<a class=\"ds-brand-card\" href=\"#\"><div class=\"ds-brand-card-title\">Query your own database</div><p class=\"ds-brand-card-body\">A SQL tab reads straight from PostgreSQL into a read-only grid.</p><span class=\"ds-brand-card-link\">See how it works</span></a>",
+      "css": ".ds-brand-card { display: flex; flex-direction: column; gap: 12px; width: 300px; padding: 28px 24px 24px; border: 1px solid var(--wb-rule, #E8DCC4); border-radius: 16px; background: var(--wb-paper, #FFFDF7); color: var(--wb-ink, #2A1E12); text-decoration: none; box-shadow: 0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18); outline: none; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-brand-card:hover { transform: translateY(-2px); } .ds-brand-card:focus-visible { box-shadow: 0 0 0 2px var(--wb-bg, #FBF6EC), 0 0 0 4px color-mix(in srgb, var(--wb-syrup, #B8651A) 40%, transparent); } .ds-brand-card-title { font: 600 19px/1.3 var(--font-display, Fraunces, ui-serif, Georgia, serif); letter-spacing: -0.015em; text-wrap: balance; } .ds-brand-card-body { margin: 0; font: 15px/1.55 var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); color: var(--wb-sub, #6B584A); } .ds-brand-card-link { margin-top: auto; padding-top: 8px; font: 500 13px var(--font-body, Inter, ui-sans-serif, system-ui, sans-serif); color: var(--wb-syrup-deep, #8A4A12); } .ds-brand-card-link:hover { text-decoration: underline; text-underline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Ruled Ledger",
+    "overview": "Wafflebase is a set of ledgers: grids, pages, slides and boards laid out on precise rules, where the document is the subject and everything around it is ruling and margin. The editors are dense, exact and quiet. Chrome sits on neutral zinc, thin borders do the work that shadows would do elsewhere, and controls stay small (28px toolbar targets, 36px form controls) so the canvas gets the room.\n\nWarmth is the ledger's binding, not its pages. The Butter & Maple palette (syrup, butter, cream paper, walnut ink) and the Fraunces display face set the brand surfaces: the homepage, sign-in, the template gallery and the sidebar wordmark. Inside the editors that warmth survives only as the syrup accent on the primary action, focus ring and selection frames, and as the butter wash on whatever is chosen (the active sidebar item, a pressed toggle). That split is deliberate, and new work keeps it.\n\nThe ruler is the recurring motif: the homepage's word-ruler backdrop, the docs and slides rulers, the grid itself, and mono uppercase labels set like tick marks.",
+    "keyCharacteristics": [
+      "Two layers on one token source (`@wafflebase/core/tokens`): neutral editor chrome, warm brand surfaces.",
+      "One accent, syrup, carrying every \"this is the action\" signal.",
+      "Flat by default: borders and tonal steps before shadows.",
+      "Small, exact controls; Google-suite-familiar placement inside the editors.",
+      "Light and dark are paired token for token; neither is an afterthought."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong; the same goes for two primary buttons in one view (workspace settings keeps \"Create invite link\" primary and steps \"Create API key\" down to outline beside it). Hyperlink blue is the sole exception, and only on actual URLs. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Ledgers Rule",
+        "body": "Editor and workspace screens use the zinc semantic tokens (`bg-background`, `text-foreground`, `border`). Brand surfaces use the `--wb-*` tokens. Don't mix them on one surface.",
+        "section": "colors"
+      },
+      {
+        "name": "The Canvas Hex Rule",
+        "body": "Brand colors are authored as hex because the Canvas engines assign them straight to `fillStyle`. Add a new brand color to `packages/core/src/tokens/palette.ts`, never inline in an engine.",
+        "section": "colors"
+      },
+      {
+        "name": "The Serif Is a Signature Rule",
+        "body": "Fraunces never appears inside an editor or on a control. It is the brand's voice, used for wordmarks and brand-surface headings only.",
+        "section": "typography"
+      },
+      {
+        "name": "The Document Owns Its Fonts Rule",
+        "body": "Text inside a sheet, doc or slide uses the document's own font picker (the curated family list and Google Fonts catalog), never the UI stack.",
+        "section": "typography"
+      },
+      {
+        "name": "The Rule Before Shadow Rule",
+        "body": "Reach for a 1px border or a tonal step first. A shadow means the element floats above the canvas (menu, popover, dialog, drag ghost), not that it's important.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** take every color from `@wafflebase/core/tokens` (semantic classes in the app, `--wb-*` on brand surfaces), in both light and dark.",
+      "**Do** keep editor controls at 28px (toolbar) and 36px (forms) on fine pointers, and let them grow to 44px on coarse pointers.",
+      "**Do** use the 3px 50%-syrup focus ring for every focusable control.",
+      "**Do** separate panels with 1px rules and tonal steps before considering a shadow.",
+      "**Do** place and behave like the Google suite in the editors (menus, toolbar order, shortcuts)."
+    ],
+    "donts": [
+      "**Don't** use Fraunces (beyond the sidebar wordmark), cream paper or pill buttons inside an editor or workspace screen.",
+      "**Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, success) are for status only, and raw Tailwind hues (`text-red-500`, `bg-zinc-300`) never stand in for them.",
+      "**Don't** hard-code a hex in a component or engine when a token exists.",
+      "**Don't** add decorative shadows or gradients to app chrome.",
+      "**Don't** set a kicker or eyebrow label above a heading, or a row of non-metric \"stats\" under a hero. The heading carries its own weight."
+    ]
+  }
+}

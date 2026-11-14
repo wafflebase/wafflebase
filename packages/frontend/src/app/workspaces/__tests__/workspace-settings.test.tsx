@@ -4,11 +4,15 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
+import { toast } from "sonner";
+
 import WorkspaceSettings from "@/app/workspaces/workspace-settings";
+import { HttpError } from "@/api/http-error";
 import { fetchMe } from "@/api/auth";
 import {
   fetchWorkspace,
   fetchInvites,
+  deleteWorkspace,
   removeMember,
   fetchApiKeys,
   createApiKey,
@@ -19,6 +23,10 @@ import type {
   WorkspaceDetail,
   WorkspaceInvite,
 } from "@/api/workspaces";
+
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
+}));
 
 vi.mock("@/api/auth", () => ({
   fetchMe: vi.fn(),
@@ -156,7 +164,7 @@ describe("WorkspaceSettings owner-only controls", () => {
       within(memberRow(OWNER.user.email)).queryByLabelText("Remove member"),
     ).toBeNull();
 
-    expect(screen.getByText("Create Invite")).toBeTruthy();
+    expect(screen.getByText("Create invite link")).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByLabelText("Revoke invite")).toBeTruthy(),
     );
@@ -184,7 +192,7 @@ describe("WorkspaceSettings owner-only controls", () => {
       within(memberRow(OWNER.user.email)).queryByLabelText("Remove member"),
     ).toBeNull();
 
-    expect(screen.queryByText("Create Invite")).toBeNull();
+    expect(screen.queryByText("Create invite link")).toBeNull();
     expect(screen.queryByText("Invites")).toBeNull();
     expect(screen.queryByLabelText("Revoke invite")).toBeNull();
     expect(vi.mocked(fetchInvites)).not.toHaveBeenCalled();
@@ -252,8 +260,8 @@ describe("WorkspaceSettings API keys", () => {
     // member too — the server is what narrows the list to their own keys.
     await waitFor(() => expect(keyRow(MEMBER_KEY.name)).toBeTruthy());
     expect(vi.mocked(fetchApiKeys)).toHaveBeenCalledWith("acme");
-    expect(screen.getByText("API Keys")).toBeTruthy();
-    expect(screen.getByText("Create API Key")).toBeTruthy();
+    expect(screen.getByText("API keys")).toBeTruthy();
+    expect(screen.getByText("Create API key")).toBeTruthy();
 
     expect(
       screen.queryByRole("columnheader", { name: "Created by" }),
@@ -270,8 +278,8 @@ describe("WorkspaceSettings API keys", () => {
     });
     renderAs(MEMBER.user.id);
 
-    await waitFor(() => expect(screen.getByText("Create API Key")).toBeTruthy());
-    await userEvent.click(screen.getByText("Create API Key"));
+    await waitFor(() => expect(screen.getByText("Create API key")).toBeTruthy());
+    await userEvent.click(screen.getByText("Create API key"));
     await userEvent.type(screen.getByLabelText("API key name"), "Laptop");
     await userEvent.click(screen.getByText("Create"));
 
@@ -300,5 +308,58 @@ describe("WorkspaceSettings API keys", () => {
         MEMBER_KEY.id,
       ),
     );
+  });
+});
+
+describe("WorkspaceSettings action hierarchy and errors", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** Primary = the syrup fill; outline buttons carry `border` instead. */
+  const isPrimary = (el: HTMLElement) =>
+    el.closest("button")?.className.split(/\s+/).includes("bg-primary");
+
+  it("gives an owner one primary create action, not two", async () => {
+    renderAs(OWNER.user.id);
+    const invite = await screen.findByText("Create invite link");
+    const apiKeyButton = screen.getByText("Create API key");
+    expect(isPrimary(invite)).toBe(true);
+    expect(isPrimary(apiKeyButton)).toBe(false);
+  });
+
+  it("keeps Create API key primary for a member, where it stands alone", async () => {
+    renderAs(MEMBER.user.id);
+    const apiKeyButton = await screen.findByText("Create API key");
+    expect(isPrimary(apiKeyButton)).toBe(true);
+  });
+
+  async function failDelete(error: Error) {
+    vi.mocked(deleteWorkspace).mockRejectedValue(error);
+    renderAs(OWNER.user.id);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Delete this workspace" }),
+    );
+    await userEvent.type(screen.getByLabelText(/to confirm/), WORKSPACE.name);
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /delete/i }),
+    );
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
+    return vi.mocked(toast.error).mock.calls[0][0];
+  }
+
+  it("never toasts developer text when deleting fails", async () => {
+    const message = await failDelete(new TypeError("Failed to fetch"));
+    expect(message).toBe(
+      "Couldn't delete the workspace. Try again in a moment.",
+    );
+  });
+
+  it("shows the server's own refusal when it is written for a reader", async () => {
+    const message = await failDelete(
+      new HttpError("Only the workspace owner can delete it.", 403),
+    );
+    expect(message).toBe("Only the workspace owner can delete it.");
   });
 });

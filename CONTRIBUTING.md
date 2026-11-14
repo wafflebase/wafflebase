@@ -88,31 +88,24 @@ Setup, prerequisites, and the dev server are documented in the
 [backend README](packages/backend/README.md). Don't duplicate them here
 — if those instructions are wrong, fix them at the source.
 
-## Design editor (dev-only)
+## Design tooling
 
-The design editor is a development-only tool for editing wafflebase's
-design system — component JSX and design tokens — by rendering the app's
-**real** routes and writing edits back into source. It never ships to
-production. See [`packages/design-editor`](packages/design-editor/README.md)
-(the generic Vite plugin) and
-[`packages/design-sandbox`](packages/design-sandbox/README.md)
-(wafflebase's own instance) for architecture, and the
-[Design Editor design docs](docs/design/README.md#design-editor) for the
-rationale.
+UI design work uses [Impeccable](https://impeccable.style) (Apache-2.0),
+committed under `.claude/skills/impeccable/` so every checkout has the
+same commands. With `pnpm dev` running:
 
-Run it against wafflebase's own routes:
+- `/impeccable audit` — review a screen for design and accessibility issues
+- `/impeccable polish` — tighten spacing, type, and color on what you touched
+- `/impeccable live` — pick elements in the running dev server and iterate on
+  variants; an accepted variant is written back to source. A session injects a
+  script into `packages/frontend/index.html` and removes it on stop, so do not
+  commit `index.html` mid-session
+- `.claude/skills/impeccable/scripts/impeccable detect packages/frontend/src` —
+  agent-free anti-pattern scan through the committed, checksum-pinned launcher
 
-```bash
-pnpm design-sandbox dev
-```
-
-The editor shell is a prebuilt bundle that `@wafflebase/design-editor`
-serves under `/__design-editor/`; the sandbox's `predev` builds it
-automatically before starting Vite. A missing shell bundle is what
-produces the `design-editor shell asset not found … was the package
-built?` 404. If you change **design-editor** source (not sandbox source),
-restart the dev server so the shell rebuilds — `predev` only runs on
-start.
+Project context lives in `PRODUCT.md` and `DESIGN.md` once
+`/impeccable init` and `/impeccable document` have been run; keep them
+current rather than repeating it in prompts.
 
 ## Verification gates
 
@@ -308,7 +301,8 @@ A few things bite first-time contributors:
   you.
 - **Frontend chunk budgets** are enforced by `verify:self`. Defaults
   live in `harness.config.json`; override locally with
-  `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT` only when
+  `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT` /
+  `FRONTEND_EAGER_LIMIT_KB` only when
   intentionally landing larger bundles.
 
 ## Reporting security issues

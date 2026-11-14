@@ -476,7 +476,12 @@ jobs:
           # `Formula.g4` (the hand-written grammar) is never excluded. Lockfiles
           # are never excluded either: supply-chain relevant, and measured at 0%
           # of every agent PR diff to date.
-          git diff origin/main...HEAD -- . \
+          #
+          # `-D` drops a deleted file's body and keeps its header: a lens cannot
+          # act on lines that no longer exist, and a removal PR otherwise sends
+          # every one of them (#1132's 5.6 MB diff was refused by the model API,
+          # so no lens ran). spec-to-pr.mjs `writeReviewDiff` mirrors this step.
+          git diff -D origin/main...HEAD -- . \
             ':(exclude)packages/sheets/antlr/*.interp' \
             ':(exclude)packages/sheets/antlr/*.tokens' > /tmp/pr.diff
           # A regeneration-only change filters down to nothing, and the panel
@@ -484,7 +489,7 @@ jobs:
           # that only ever pages for a genuinely empty change, never because
           # the filter ate the whole thing.
           if [ ! -s /tmp/pr.diff ]; then
-            git diff origin/main...HEAD > /tmp/pr.diff
+            git diff -D origin/main...HEAD > /tmp/pr.diff
           fi
 
       # THE PR-DIFF FINGERPRINT: `git patch-id --verbatim` of the PR's own diff.

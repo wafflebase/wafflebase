@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { WbButton } from "@/app/home/primitives/wb-button";
 import { cn } from "@/lib/utils";
+import { useBrandFonts } from "@/lib/brand-fonts";
 
 /** `Select` has no empty-string value, so "no facet" needs a sentinel. */
 const ANY = "__any__";
@@ -69,6 +70,11 @@ export function TemplateGallery({
   emptyHint?: string;
   skin?: GallerySkin;
 }) {
+  // The gallery is a brand surface wherever it mounts — the public
+  // /templates page, the workspace Templates tab, the new-from-template
+  // dialog — so it asks for the brand faces itself rather than relying on
+  // the route.
+  useBrandFonts();
   const marketing = skin === "marketing";
   const [type, setType] = useState(ANY);
   const [category, setCategory] = useState(ANY);
@@ -202,9 +208,27 @@ export function TemplateGallery({
         </div>
       ) : query.isError ? (
         isAuthExpiredError(query.error) ? null : (
-          <p className="text-destructive text-sm">
-            Failed to load templates. Please try again.
-          </p>
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-destructive text-sm">Couldn't load templates.</p>
+            {marketing ? (
+              <WbButton
+                variant="ghost"
+                onClick={() => void query.refetch()}
+                disabled={query.isFetching}
+              >
+                Try again
+              </WbButton>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void query.refetch()}
+                disabled={query.isFetching}
+              >
+                Try again
+              </Button>
+            )}
+          </div>
         )
       ) : items.length === 0 ? (
         <div
@@ -333,10 +357,7 @@ function MarketingGalleryCard({
       style={{ boxShadow: PAPER_SHADOW }}
     >
       <div
-        className="relative aspect-[16/10] w-full overflow-hidden border-b border-[color:var(--wb-rule)]"
-        style={{
-          background: "color-mix(in srgb, var(--wb-butter) 22%, transparent)",
-        }}
+        className="relative aspect-[16/10] w-full overflow-hidden border-b border-[color:var(--wb-rule)] bg-[color:var(--wb-wash)]"
       >
         {thumbnail ? (
           <img
@@ -356,7 +377,7 @@ function MarketingGalleryCard({
         )}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-3 bottom-3 rounded-full border border-[color:var(--wb-syrup-deep)] bg-[color:var(--wb-syrup)] px-3 py-1 font-code text-[11.5px] tracking-[0.04em] text-[#FFFAF0] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="pointer-events-none absolute right-3 bottom-3 rounded-full border border-[color:var(--wb-syrup-deep)] bg-[color:var(--wb-syrup)] px-3 py-1 text-[13px] font-medium text-primary-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 pointer-coarse:opacity-100"
         >
           {selectLabel}
         </span>
@@ -369,7 +390,7 @@ function MarketingGalleryCard({
         >
           {card.title}
         </h3>
-        <p className="m-0 truncate font-code text-[11.5px] tracking-[0.04em] text-[color:var(--wb-sub)]">
+        <p className="m-0 truncate text-[12px] text-[color:var(--wb-sub)]">
           {label}
           {card.author ? ` · ${card.author.username}` : ""}
           {card.useCount > 0
@@ -387,11 +408,7 @@ function MarketingGalleryCard({
           <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
             {card.category && (
               <span
-                className="rounded-full px-2.5 py-1 font-code text-[11px] uppercase tracking-[0.1em] text-[color:var(--wb-syrup-deep)]"
-                style={{
-                  background:
-                    "color-mix(in srgb, var(--wb-butter) 30%, transparent)",
-                }}
+                className="rounded-full bg-[color:var(--wb-wash)] px-2.5 py-1 font-code text-[11.5px] uppercase tracking-[0.1em] text-[color:var(--wb-syrup-deep)]"
               >
                 {card.category}
               </span>

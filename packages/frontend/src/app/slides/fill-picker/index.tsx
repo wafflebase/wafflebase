@@ -64,7 +64,7 @@ export function FillPicker({
           role="tab"
           aria-selected={tab === 'solid'}
           onClick={toSolid}
-          className={`flex-1 rounded px-2 py-1 text-xs ${tab === 'solid' ? 'bg-background shadow' : ''}`}
+          className={`focus-ring flex-1 rounded px-2 py-1 text-xs ${tab === 'solid' ? 'bg-background shadow' : ''}`}
         >
           Solid
         </button>
@@ -72,7 +72,7 @@ export function FillPicker({
           role="tab"
           aria-selected={tab === 'gradient'}
           onClick={toGradient}
-          className={`flex-1 rounded px-2 py-1 text-xs ${tab === 'gradient' ? 'bg-background shadow' : ''}`}
+          className={`focus-ring flex-1 rounded px-2 py-1 text-xs ${tab === 'gradient' ? 'bg-background shadow' : ''}`}
         >
           Gradient
         </button>

@@ -52,7 +52,7 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
       title={label}
       data-active={active || undefined}
       onClick={() => onSelect(kind)}
-      className="flex size-8 cursor-pointer items-center justify-center rounded text-foreground hover:bg-accent data-[active=true]:bg-accent"
+      className="focus-ring flex size-8 cursor-pointer items-center justify-center rounded text-foreground hover:bg-accent data-[active=true]:bg-selected"
     >
       <canvas ref={ref} className="size-6" />
     </button>
@@ -81,8 +81,8 @@ export interface ShapePickerProps {
 
 /**
  * "Shape ▾" toolbar control. Single trigger button opens a popover
- * with eight labelled categories — Shapes, Block Arrows, Banners,
- * Flowchart, Callouts, Equation, Stars, Action Buttons — laid out as
+ * with eight labelled categories — Shapes, Block arrows, Banners,
+ * Flowchart, Callouts, Equation, Stars, Action buttons — laid out as
  * 6-column grids of canvas previews. Connector "lines" live in the
  * sibling `<LinePicker />` (endpoint-anchored insertion UX is
  * different enough to warrant its own dropdown).
@@ -104,11 +104,11 @@ export function ShapePicker({
       type="button"
       aria-label="Shape"
       // data-state mirrors the Toggle component so the pressed
-      // visual (bg-accent / text-accent-foreground) matches the
+      // visual (bg-selected / text-selected-foreground) matches the
       // Select / Text Toggles next to it.
       data-state={activeKind !== null ? "on" : "off"}
       disabled={disabled}
-      className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+      className="focus-ring inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-selected data-[state=on]:text-selected-foreground disabled:pointer-events-none disabled:opacity-50"
     >
       <IconShape size={16} />
     </button>
@@ -132,7 +132,7 @@ export function ShapePicker({
       >
         {SHAPE_PICKER_CATEGORIES.map((cat) => (
           <section key={cat.id} className="mb-2 last:mb-0">
-            <h4 className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h4 className="mb-1 px-1 text-xs font-medium text-muted-foreground">
               {cat.title}
             </h4>
             <div className="grid grid-cols-6 gap-1">

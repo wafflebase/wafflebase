@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { userFacingError } from '@/api/http-error';
 
 /**
  * A single in-flight restore, shared by every version-history surface on the
@@ -32,6 +33,27 @@ import { useSyncExternalStore } from 'react';
  * handler captured before that re-render would still read the stale `false`.
  */
 let inFlight = false;
+
+/**
+ * The refusal `restore` throws when another restore holds the lock. Its own
+ * class, because its message is written for the reader — unlike a Yorkie RPC
+ * rejection, which is developer text.
+ */
+export class RestoreInProgressError extends Error {
+  constructor() {
+    super('A restore is already in progress.');
+    this.name = 'RestoreInProgressError';
+  }
+}
+
+/** The sentence both restore entry points show when `restore` rejects. */
+export function restoreErrorMessage(err: unknown): string {
+  if (err instanceof RestoreInProgressError) return err.message;
+  return userFacingError(
+    err,
+    "Couldn't restore this version. Check your connection and try again.",
+  );
+}
 
 const listeners = new Set<() => void>();
 

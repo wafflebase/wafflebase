@@ -1,9 +1,10 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Suspense, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
+import { shouldRetryQuery } from "@/lib/query-retry";
 import { Loader } from "@/components/loader";
 
 import { PrivateRoute } from "./PrivateRoute";
@@ -59,14 +60,6 @@ const DocsHarnessPage = lazyWithRetry(() => import("@/app/harness/docs/page"));
 const HuntHarnessPage = import.meta.env.DEV
   ? lazyWithRetry(() => import("@/app/harness/hunt/page"))
   : null;
-/**
- * The debug-report overlay. DEV-gated for the same chunk-graph reason as above,
- * and because the deployed transport does not exist yet (SP2 in
- * `docs/design/agent-pipeline/debug-report.md`).
- */
-const DebugReportMount = import.meta.env.DEV
-  ? lazyWithRetry(() => import("./debug/mount"))
-  : null;
 const DocsDetail = lazyWithRetry(() => import("@/app/docs/docs-detail"));
 const SlidesDetail = lazyWithRetry(() => import("@/app/slides/slides-detail"));
 const FileDetail = lazyWithRetry(() => import("@/app/files/file-detail"));
@@ -89,6 +82,9 @@ const WorkspaceAnalytics = lazyWithRetry(
 const WorkspaceTemplates = lazyWithRetry(
   () => import("@/app/workspaces/workspace-templates"),
 );
+const WorkspaceTrash = lazyWithRetry(
+  () => import("@/app/documents/trash-page"),
+);
 const WorkspaceDataSources = lazyWithRetry(
   () => import("@/app/workspaces/workspace-datasources"),
 );
@@ -97,7 +93,12 @@ const InviteAccept = lazyWithRetry(
 );
 
 function App() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: shouldRetryQuery } },
+      }),
+  );
 
   return (
     <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
@@ -110,9 +111,6 @@ function App() {
                 (docs/design/sync-status.md). */}
             <NavigationGuardProvider>
               <AnalyticsTracker />
-              <Suspense fallback={null}>
-                {DebugReportMount && <DebugReportMount />}
-              </Suspense>
               <Suspense fallback={<Loader />}>
                 <Routes>
                   <Route element={<PublicRoute />}>
@@ -149,6 +147,10 @@ function App() {
                       <Route
                         path="/w/:workspaceId/datasources"
                         element={<WorkspaceDataSources />}
+                      />
+                      <Route
+                        path="/w/:workspaceId/trash"
+                        element={<WorkspaceTrash />}
                       />
                       <Route
                         path="/w/:workspaceId/analytics"

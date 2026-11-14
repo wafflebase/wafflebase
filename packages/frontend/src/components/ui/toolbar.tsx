@@ -2,6 +2,7 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { useOverflowEdges } from "@/components/ui/use-overflow-edges";
 
 /**
  * Root container for a horizontal toolbar strip.
@@ -60,23 +61,44 @@ import { cn } from "@/lib/utils";
  * wrapping layout, not a sizing tweak.
  *
  * Controls rendered into a portal — everything inside a dropdown, a
- * popover or a bottom sheet — are outside this subtree and keep their
- * own sizing. That is a real remaining gap on the mobile slides
- * surface, where most controls live in sheets; see
- * docs/design/slides/slides-mobile.md.
+ * popover or a bottom sheet — are outside this subtree. Menu items and
+ * the `Button` / `Toggle` / `Switch` primitives carry their own coarse
+ * floors for that reason; a hand-rolled control inside a sheet still
+ * keeps its own sizing. See docs/design/slides/slides-mobile.md.
+ *
+ * A strip that scrolls says so: whichever edge has content past it fades
+ * out over 24px (`data-overflow`, kept current by `useOverflowEdges`).
+ * Without it a phone shows the strip cut off at the right edge with no
+ * sign that the rest — on Docs, the "More formatting" menu itself — is a
+ * swipe away. A toolbar that fits carries no attribute and looks exactly
+ * as before, which is every desktop editor at a normal width.
  */
 function Toolbar({
   className,
   children,
   touchTargets = "scroll",
+  ref,
   ...props
 }: React.ComponentProps<"div"> & {
   touchTargets?: "scroll" | "fit";
 }) {
+  const overflowRef = useOverflowEdges<HTMLDivElement>();
+  const setRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      overflowRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [overflowRef, ref],
+  );
   return (
     <div
+      ref={setRef}
       className={cn(
         "flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap",
+        "data-[overflow=end]:[mask-image:linear-gradient(to_right,#000_calc(100%-24px),transparent)]",
+        "data-[overflow=start]:[mask-image:linear-gradient(to_left,#000_calc(100%-24px),transparent)]",
+        "data-[overflow=both]:[mask-image:linear-gradient(to_right,transparent,#000_24px,#000_calc(100%-24px),transparent)]",
         "pointer-coarse:gap-1 pointer-coarse:py-1.5",
         "pointer-coarse:[&_button]:min-h-11",
         touchTargets === "scroll" && [
@@ -104,13 +126,15 @@ function ToolbarSeparator({
   ...props
 }: React.ComponentProps<typeof Separator>) {
   // bg-border (--border at oklch 0.92) is too faint to read as a divider
-  // against the toolbar background. Bump the contrast so the vertical line
-  // is actually visible between button groups.
+  // against the toolbar background, so the line takes 40% of the muted
+  // foreground instead: ≈#c6c6ca on white and ≈#45454b on the dark
+  // background — the zinc-300 / zinc-700 it replaces, but from a token that
+  // follows the theme on its own.
   return (
     <Separator
       {...props}
       orientation="vertical"
-      className={cn("mx-2 !h-5 bg-zinc-300 dark:bg-zinc-700", className)}
+      className={cn("mx-2 !h-5 bg-muted-foreground/40", className)}
     />
   );
 }

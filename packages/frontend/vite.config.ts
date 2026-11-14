@@ -7,15 +7,6 @@ import {
 } from "fs";
 import { createRequire } from "module";
 import path from "path";
-// Imported by relative path, not as `@wafflebase/debug-report/plugin`, and
-// that is load-bearing. Vite's config bundler externalizes every bare
-// specifier — it resolves the id to an absolute path and marks it external —
-// so a bare import here would hand `src/plugin/index.ts` to Node itself.
-// Node can only load TypeScript from 22.18, where type stripping became the
-// default, which silently made 22.14-22.17 unable to run `pnpm dev`,
-// `frontend:test` or `frontend:build` at all. A relative specifier is bundled
-// by esbuild instead, so any Node 22 works.
-import { debugReportPlugin } from "../debug-report/src/plugin/index.ts";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -208,9 +199,25 @@ function manualChunks(id: string): string | undefined {
     return "vendor-ui";
   }
 
+  // `@wafflebase/core` (resolved through the workspace symlink to
+  // `packages/core/dist/`) and Vite's own `__vitePreload` helper are tiny
+  // modules that the entry imports AND every engine imports. With no rule
+  // here Rollup parks each one inside whichever engine chunk claims it first,
+  // and the entry then has to statically import that engine to reach it:
+  // `__vitePreload` landed in `slides-editor-engine`, `seg` (core/url) in
+  // `sheet-core`, and `dist/index.html` modulepreloaded the slides, sheet
+  // and formula bundles (~1 MB gzip) on every route, the homepage included.
+  // Giving them a home in the eager `vendor-app` chunk keeps the entry's
+  // static graph free of engines. `verify:frontend:chunks` guards the result
+  // with its eager-bytes budget. The core rule takes all of
+  // `@wafflebase/core`, which is fine while core is small; an engine-only
+  // subpath added later (e.g. `/ooxml`) belongs in its engine's chunk, not
+  // here, or it becomes eager on every route.
   if (
     normalizedId.includes("node_modules/@tanstack") ||
-    normalizedId.includes("node_modules/react-router")
+    normalizedId.includes("node_modules/react-router") ||
+    normalizedId.includes("/packages/core/") ||
+    normalizedId.includes("vite/preload-helper")
   ) {
     return "vendor-app";
   }
@@ -307,10 +314,6 @@ function manualChunks(id: string): string | undefined {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    // Dev-only: writes confirmed reports into `.wb-reports/` and hosts the
-    // drafting call, so the model credential stays in this process and never
-    // reaches the browser (`docs/design/agent-pipeline/debug-report.md`).
-    debugReportPlugin({ repoRoot: path.resolve(__dirname, "../..") }),
     gaSnippet(),
     antlr4tsAssertShim(),
     pdfjsAssets(),
@@ -376,20 +379,6 @@ export default defineConfig({
       "@wafflebase/notes": path.resolve(__dirname, "../notes/src/index.ts"),
       "@wafflebase/slides": path.resolve(__dirname, "../slides/src/index.ts"),
       "@wafflebase/board": path.resolve(__dirname, "../board/src/index.ts"),
-      // The `/react` alias comes FIRST: Vite matches these in order, so the
-      // bare-name entry would otherwise swallow the subpath.
-      "@wafflebase/debug-report/testing": path.resolve(
-        __dirname,
-        "../debug-report/src/testing/index.ts",
-      ),
-      "@wafflebase/debug-report/react": path.resolve(
-        __dirname,
-        "../debug-report/src/ui/index.ts",
-      ),
-      "@wafflebase/debug-report": path.resolve(
-        __dirname,
-        "../debug-report/src/index.ts",
-      ),
       util: utilShimPath,
       assert: assertShimPath,
     },

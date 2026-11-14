@@ -132,7 +132,7 @@
           },
           "delete": {
             "safety": "destructive",
-            "description": "Delete a document"
+            "description": "Move a document to the trash"
           },
           "export": {
             "valueOptions": [

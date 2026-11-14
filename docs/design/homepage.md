@@ -24,8 +24,8 @@ custom waffle-themed illustrations.
   inside a tabbed demo card.
 - Provide developers with REST API and CLI code examples in a tabbed dark
   card.
-- Preserve the existing auth flow ("Get Started Free" → `/login`, or
-  "Go to Workspace" if already signed in).
+- Preserve the existing auth flow ("Start a workspace" → `/login`, or
+  "Go to workspace" if already signed in).
 - Support light/dark theme via a single sun/moon toggle in the header,
   honoring `prefers-color-scheme` on first visit.
 
@@ -71,7 +71,7 @@ Typography (Google Fonts, loaded via `index.html`):
 |---|---|---|
 | Fraunces (500/600/700) | Display headings, stat values | `font-display` |
 | Inter (400/500/600/700) | Body | `font-body` |
-| JetBrains Mono (400/500) | Code, kickers, file names | `font-code` |
+| JetBrains Mono (400/500) | Code, file names, footer headings, template category chip | `font-code` |
 
 Headings use `font-feature-settings: 'ss01' on, 'ss02' on` (rounded `g`,
 alternate `a`) and tightened tracking (`-0.025em` h1, `-0.01em` h2).
@@ -85,14 +85,14 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 | Order | Section | Purpose |
 |---|---|---|
 | 1 | NavBar | Sticky header, waffle logo, nav links, theme toggle, primary CTA |
-| 2 | Hero | Single-column centered layout: eyebrow + Fraunces H1 + sub + CTA pair + 4 product stats |
+| 2 | Hero | Single-column centered layout: Fraunces H1 + sub + CTA pair |
 | 3 | DemoSection | Sheets / Docs / Slides tab card — three tabs embed live `/shared/{token}` iframes (Docs + Slides tabs lazy-mount on first activation) with theme sync via `postMessage` |
-| 4 | FeaturesSection | 3 hero cards with waffle-pocket glyphs + 6 compact secondary cards (3×2, product-balanced: 2 Sheets / 2 Docs / 2 Slides) |
+| 4 | FeaturesSection | 3 hero cards with waffle-pocket glyphs + a ruled two-column list of secondary features (title, one line, arrow; no icon tiles) |
 | 5 | UseCasesSection | 3 scenarios (Internal tools / Customer dashboards / Specs & launch plans) |
 | 6 | InteropSection | Import/Export format matrix — "no lock-in" paper cards |
 | 7 | WhySection | Comparison table vs Google Workspace inside a paper card |
 | 8 | DeveloperSection | Single dark code card with REST API / CLI tabs |
-| 9 | OpenSourceSection | Apache-2.0 callout with `<BigWaffle>` illustration + Star/Contribute CTAs |
+| 9 | OpenSourceSection | Apache-2.0 callout with `<RepoMap>` infographic + Star/Contribute CTAs |
 | 10 | Footer | Brand block + 3 link columns + bottom copyright row |
 
 #### NavBar
@@ -100,25 +100,24 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 Sticky header (`top-0 z-50`), backdrop-blur, `--wb-bg` at 80% opacity. Border-bottom
 appears only after `scrollY > 8` (subtle scroll affordance). 28×28 `<WaffleLogo>` +
 Fraunces "Wafflebase" wordmark. Links: Features / Documentation / GitHub.
-Right: `<ThemeToggle>` (sun/moon icon) + primary `<WbButton>` ("Get Started" or
-"Go to Workspace" depending on auth).
+Right: `<ThemeToggle>` (sun/moon icon) + primary `<WbButton>` ("Sign in" or
+"Go to workspace" depending on auth).
 
 #### Hero
 
 Single column, centered, max-width 920px, padded `pt-20 md:pt-28 pb-14 md:pb-20`.
 
-- Butter pill eyebrow `{VERSION_LABEL} · Apache-2.0 · Self-hosted` (leaf glow
-  dot). `VERSION_LABEL` is derived at build time from the injected
-  `__APP_VERSION__` (major.minor of the root package.json), e.g. `v0.6`.
-- Fraunces `clamp(40, 6vw, 68)px` H1: "The Office Suite *You Can Own*"
-  (italic + syrup-deep emphasis on the trailing phrase). `max-w-[20ch]`
+- Fraunces `clamp(40, 6vw, 68)px` H1: "The office suite *you can own*"
+  (true italic 500 + syrup-deep emphasis on the trailing phrase; the italic
+  face is loaded explicitly and synthesis is off). `max-w-[20ch]`
   accommodates the shorter title without orphan wraps.
 - Sub copy 17–19px, max-width 560px:
-  "Sheets, Docs, and Slides. Real-time collaboration, REST API, fully
-  self-hosted."
-- CTA pair: primary "Get Started Free →" (or "Go to Workspace →" if signed in)
+  "Sheets, Docs, Slides, Notes and Boards, edited together in real time.
+  Run it on your own servers and script it with the REST API and CLI."
+- CTA pair: primary "Start a workspace →" (or "Go to workspace →" if signed in)
   + ghost "View on GitHub →".
-- 4 stats: Apache-2.0 / Self-hosted / REST + CLI / Real-time, centered.
+- No eyebrow above the H1 and no stats row under it: both read as template
+  scaffolding (DESIGN.md bans kickers outright).
 - `<RulerBackdrop>` motif behind the copy (opacity 0.55 light / 0.4 dark).
 
 Live product preview lives in the DemoSection directly below — the hero stays
@@ -212,11 +211,16 @@ documentation →" depending on the active tab.
 
 `--wb-paper` rounded card with grid layout: copy on the left
 (left-aligned `<SectionHead>`, badges, primary "★ Star on GitHub" + ghost
-"Contribute →" buttons), `<BigWaffle>` illustration on the right.
+"Contribute →" buttons), `<RepoMap>` infographic on the right.
 
-The `<BigWaffle>` is a 240×240 SVG: 4×4 syrup pockets with shading gradient,
-butter pat with knife-slice marks, syrup pour from top-right with three drip
-landings.
+`<RepoMap>` backs the headline's claim with the repository itself: the
+`wafflebase/wafflebase` root under the Facet mark, then a ruled file tree of
+the real `packages/*` directories in three groups — Editors (sheets, docs,
+slides, notes, board; filled pockets), Server and app (backend, frontend) and
+Tools (cli, core; outlined pockets). Package names are mono because they are
+code. It replaced `<BigWaffle>`, a butter-and-syrup waffle illustration that
+read as clip art next to the one-color mark. Keep its rows in step with the
+monorepo.
 
 #### Footer
 
@@ -272,11 +276,11 @@ packages/frontend/src/app/home/
 └── primitives/
     ├── waffle-logo.tsx                      # 28×28 logo SVG
     ├── ruler-backdrop.tsx                   # Hero word-ruler motif
-    ├── big-waffle.tsx                       # OSS section illustration
+    ├── repo-map.tsx                         # OSS section infographic
     ├── feature-glyph.tsx                    # 5-kind feature icon set
     ├── theme-toggle.tsx                     # Sun/moon icon button
     ├── wb-button.tsx                        # Pill-shape primary/ghost buttons
-    └── section-head.tsx                     # Kicker + h2 + sub (center/left)
+    └── section-head.tsx                     # h2 + sub (center/left), no kicker
 ```
 
 ### Dependencies

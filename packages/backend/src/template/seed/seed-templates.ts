@@ -199,6 +199,15 @@ async function seedOne(
     );
   }
 
+  // A trashed seed document would otherwise read as `exists` and be
+  // (re)written into a row no surface shows — say so instead.
+  if (existing?.deletedAt) {
+    throw new Error(
+      `${seed.slug} is in the trash. Restore it, or delete it permanently, ` +
+        'before seeding again.',
+    );
+  }
+
   if (!existing) {
     await ctx.prisma.document.create({
       data: {

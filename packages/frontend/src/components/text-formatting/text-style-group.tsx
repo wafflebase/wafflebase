@@ -95,7 +95,7 @@ export function TextStyleGroup({
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             <button
-              className="inline-flex h-7 min-w-[100px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              className="focus-ring inline-flex h-7 min-w-[100px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Text style"
               disabled={disabled || !editor}
               data-text-edit-keepalive
@@ -139,7 +139,7 @@ export function TextStyleGroup({
           >
             <span className={opt.className}>{opt.label}</span>
             {opt.shortcut && (
-              <span className="ml-4 text-[11px] text-muted-foreground">
+              <span className="ml-4 text-xs text-muted-foreground">
                 {modKey}+{opt.shortcut}
               </span>
             )}

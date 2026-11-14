@@ -136,7 +136,7 @@ export function ThemeBuilderPanel({
           <button
             type="button"
             onClick={() => applyBuiltInTheme(store, theme.id)}
-            className="shrink-0 rounded px-1.5 py-0.5 text-[11px] hover:bg-muted"
+            className="focus-ring shrink-0 rounded px-1.5 py-0.5 text-xs hover:bg-muted"
           >
             Reset to original
           </button>
@@ -202,13 +202,13 @@ export function ThemeBuilderPanel({
             <button
               type="button"
               onClick={resetMasterFill}
-              className="ml-auto rounded px-1.5 py-0.5 text-[11px] hover:bg-muted"
+              className="focus-ring ml-auto rounded px-1.5 py-0.5 text-xs hover:bg-muted"
             >
               Match theme
             </button>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Applies to slides that haven&apos;t set their own background.
         </p>
       </section>
@@ -221,11 +221,11 @@ export function ThemeBuilderPanel({
           <button
             type="button"
             onClick={onEditLayouts}
-            className="rounded border px-2 py-1.5 text-xs font-medium hover:bg-muted"
+            className="focus-ring rounded border px-2 py-1.5 text-xs font-medium hover:bg-muted"
           >
             Edit layout positions
           </button>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Drag a layout&apos;s placeholders on the canvas. Changes flow to
             slides using that layout.
           </p>

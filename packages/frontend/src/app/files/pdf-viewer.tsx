@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { applyTextLayerBox, textLayerBox } from "./pdf-text-layer.ts";
+import { HttpError, userFacingError } from "@/api/http-error";
 // Use the legacy build: it ships polyfills (e.g. `Uint8Array.prototype.toHex`,
 // which pdf.js calls when computing document fingerprints during
 // getDocument()). The modern build assumes those TC39 APIs exist and throws
@@ -25,6 +26,8 @@ type TextLayerLike = { render: () => Promise<unknown>; cancel: () => void };
 // specifier from N pages at once is N concurrent resolutions of one module.
 type PdfjsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
+const LOAD_FAILED = "Couldn't open this PDF. Reload the page to try again.";
+
 /**
  * Fetch the PDF while reporting download progress. Streams the body when the
  * server provides `Content-Length`; otherwise falls back to a single read and
@@ -35,7 +38,7 @@ async function fetchPdf(
   onProgress: (fraction: number | null) => void,
 ): Promise<ArrayBuffer> {
   const res = await fetch(url, { credentials: "include" });
-  if (!res.ok) throw new Error(`Failed to load PDF (${res.status})`);
+  if (!res.ok) throw new HttpError(LOAD_FAILED, res.status);
   const total = Number(res.headers?.get?.("Content-Length")) || 0;
   if (!res.body || !total) {
     onProgress(null);
@@ -135,7 +138,9 @@ export function PdfViewer({
         setStatus("ready");
       } catch (e) {
         if (!cancelled) {
-          setErrorMsg(e instanceof Error ? e.message : "PDF error");
+          // pdf.js rejects with parser text ("Invalid PDF structure"), which
+          // is not written for a reader — only an HTTP refusal is shown as is.
+          setErrorMsg(userFacingError(e, LOAD_FAILED));
           setStatus("error");
         }
       }
@@ -156,7 +161,7 @@ export function PdfViewer({
   }, [fileUrl]);
 
   if (status === "error") {
-    return <div className="p-8 text-center text-red-500">{errorMsg}</div>;
+    return <div className="p-8 text-center text-destructive">{errorMsg}</div>;
   }
 
   return (

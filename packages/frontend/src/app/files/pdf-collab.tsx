@@ -501,7 +501,7 @@ function PdfPendingComposer({
       {quote && (
         <p
           data-testid="pdf-pending-quote"
-          className="mb-2 line-clamp-3 border-l-2 border-yellow-400 pl-2 text-xs text-muted-foreground"
+          className="mb-2 line-clamp-3 rounded-sm bg-selected px-2 py-1 text-xs text-selected-foreground"
         >
           {quote}
         </p>

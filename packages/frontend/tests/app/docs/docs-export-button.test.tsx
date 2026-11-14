@@ -121,7 +121,12 @@ describe('DocsExportButton', () => {
     fireEvent.click(await screen.findByText('Markdown (.md)'));
 
     await waitFor(() => expect(errorToast).toHaveBeenCalled());
-    expect(String(errorToast.mock.calls[0][0])).toContain('disk on fire');
+    // The library's wording stays in the console; the toast names the
+    // document and the recovery.
+    expect(String(errorToast.mock.calls[0][0])).toBe(
+      'Couldn\'t export "Report". Try again.',
+    );
+    expect(String(errorToast.mock.calls[0][0])).not.toContain('disk on fire');
     expect(logged).toHaveBeenCalled();
     await waitFor(() =>
       expect(

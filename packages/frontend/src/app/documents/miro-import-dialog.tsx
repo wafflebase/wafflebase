@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { isAuthExpiredError } from "@/api/auth";
+import { userFacingError } from "@/api/http-error";
 import { startMiroImport } from "./miro-import-runner";
 
 interface MiroImportDialogProps {
@@ -77,8 +78,13 @@ export function MiroImportDialog({
       // to import" on the way out is noise about the wrong problem.
       if (isAuthExpiredError(err)) return;
       // Keep the dialog open so the pasted values aren't lost.
+      // A refused token or board URL is a 4xx whose text names the problem;
+      // anything else is a network failure the user can only retry.
       setError(
-        err instanceof Error ? err.message : "Failed to import the Miro board",
+        userFacingError(
+          err,
+          "Couldn't start the import. Check your connection and try again.",
+        ),
       );
     } finally {
       setBusy(false);
@@ -90,7 +96,7 @@ export function MiroImportDialog({
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Import from Miro</DialogTitle>
+            <DialogTitle>Import a Miro board</DialogTitle>
             <DialogDescription>
               Paste a Miro access token and the board URL. The token is used for
               this import only — it is never stored. Once the import starts it
@@ -124,7 +130,7 @@ export function MiroImportDialog({
                 required
               />
             </div>
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
           <DialogFooter>
             <Button

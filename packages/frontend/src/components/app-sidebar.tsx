@@ -99,7 +99,7 @@ export function AppSidebar({
             >
               <Link to="/" className="gap-2">
                 <WaffleLogo size={22} />
-                <span className="font-display text-[17px] font-semibold tracking-[-0.01em]">
+                <span className="wordmark text-[17px]">
                   Wafflebase
                 </span>
               </Link>
@@ -142,7 +142,7 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={items.main} />
+        <NavMain items={items.main} workspace={currentWorkspace} />
         <NavSecondary items={items.secondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>

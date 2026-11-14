@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import { isDocumentManager } from '../document/document-access';
+import { isLiveDocument, LIVE_DOCUMENT } from '../document/live-document';
 
 const SHARE_LINK_ROLES = ['viewer', 'editor'] as const;
 type ShareLinkRole = (typeof SHARE_LINK_ROLES)[number];
@@ -47,8 +48,10 @@ export class ShareLinkService {
     documentId: string,
     userId: number,
   ): Promise<ShareCapability> {
+    // A trashed document's links can be neither minted nor listed: the
+    // document answers 404 everywhere until it is restored.
     const doc = await this.prisma.document.findUnique({
-      where: { id: documentId },
+      where: { id: documentId, ...LIVE_DOCUMENT },
     });
     if (!doc) {
       throw new NotFoundException('Document not found');
@@ -105,7 +108,12 @@ export class ShareLinkService {
       include: { document: true },
     });
 
-    if (!link) {
+    // A link to a trashed document resolves exactly like a link that never
+    // existed. This is the one choke point every share-token path goes
+    // through (share page, file / image serving, the Yorkie auth webhook,
+    // analytics beacons), so the trash closes all of them here. The link row
+    // itself survives, so restoring the document revives its links.
+    if (!link || !isLiveDocument(link.document)) {
       throw new NotFoundException('Share link not found');
     }
 

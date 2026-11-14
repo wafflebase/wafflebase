@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
+import { userFacingError } from "@/api/http-error";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -264,11 +265,16 @@ export function SlidesView({
           });
           clearPendingImport(documentId);
         } catch (err) {
+          // The error comes out of the CRDT update, not from anything the
+          // reader can act on, so it goes to the console and the toast
+          // names the recovery: the staged import survives a throw (see
+          // above), so a reload retries it.
           console.error("Failed to apply pending PPTX import", err);
           toast.error(
-            err instanceof Error
-              ? `Failed to load imported deck: ${err.message}`
-              : "Failed to load imported deck.",
+            userFacingError(
+              err,
+              "Couldn't load the imported deck. Reload the page to try again.",
+            ),
           );
         }
       }
@@ -376,7 +382,7 @@ export function SlidesView({
     resizerLine.style.transition = "background 120ms";
     resizer.appendChild(resizerLine);
     resizer.addEventListener("mouseenter", () => {
-      resizerLine.style.background = "var(--primary, #3a7)";
+      resizerLine.style.background = "var(--primary)";
       resizerLine.style.width = "2px";
     });
     resizer.addEventListener("mouseleave", () => {
@@ -642,7 +648,7 @@ export function SlidesView({
     notesResizerLine.style.transition = "background 120ms";
     notesResizer.appendChild(notesResizerLine);
     notesResizer.addEventListener("mouseenter", () => {
-      notesResizerLine.style.background = "var(--primary, #3a7)";
+      notesResizerLine.style.background = "var(--primary)";
       notesResizerLine.style.height = "2px";
     });
     notesResizer.addEventListener("mouseleave", () => {
@@ -1333,7 +1339,7 @@ export function SlidesView({
   if (error) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <div className="text-red-500">{error.message}</div>
+        <div className="text-destructive">{error.message}</div>
       </div>
     );
   }

@@ -43,9 +43,9 @@ export function pluralizeSkipLabel(type: string, count: number): string {
 export function describeSkip(type: string, count: number): string | null {
   switch (type) {
     case "connector-free-end":
-      return `${pluralizeSkipLabel("connector", count)} skipped — not attached at both ends in Miro`;
+      return `${pluralizeSkipLabel("connector", count)} skipped: not attached at both ends in Miro`;
     case "connector":
-      return `${pluralizeSkipLabel("connector", count)} skipped — their target was not imported`;
+      return `${pluralizeSkipLabel("connector", count)} skipped: their target was not imported`;
     default:
       return null;
   }
@@ -69,17 +69,17 @@ export function describeNote(note: MiroImportNote): string {
       // Nothing broke here: the board carried more image data than one import
       // is allowed to move, so the rest was left behind. Worded apart from
       // `image-failed` because the user's next step is different.
-      return `${note.count} image(s) skipped — the board exceeds the per-import image limit`;
+      return `${note.count} image(s) skipped: the board exceeds the per-import image limit`;
     case "truncated":
       // The fraction is the whole point. "truncated at 10000" reads the same
       // whether the board lost two items or half of itself, and a board that
       // lost half is one the user has to know about before they start working
       // in the copy.
       return note.total !== undefined && note.total > note.count
-        ? `only ${note.count} of ${note.total} ${what} were imported — the board is over the import limit`
+        ? `only ${note.count} of ${note.total} ${what} were imported, because the board is over the import limit`
         : `${what} truncated at the import limit (${note.count})`;
     case "stalled":
-      return `${what} may be incomplete — Miro stopped returning results after ${note.count}`;
+      return `${what} may be incomplete: Miro stopped returning results after ${note.count}`;
     default:
       return `${note.reason} (${what}: ${note.count})`;
   }
@@ -104,7 +104,7 @@ export function describeApproximation(kind: string, count: number): string {
       // common cause — a malformed parent reference, a parent cycle, and
       // anything descended from either land here too, with the frame itself
       // present. So the wording names the unresolved frame, not a missing one.
-      return `${count} item(s) may be misplaced — their Miro frame could not be resolved`;
+      return `${count} item(s) may be misplaced: their Miro frame could not be resolved`;
     case "arrowhead-kind":
       // Miro's ERD crow's-foot notation has no counterpart among the board's
       // arrowhead kinds, so the line keeps a head but not the right one.

@@ -10,13 +10,14 @@ import { UploadPanel } from "@/app/documents/upload-panel";
 
 /** Declarative route → title mapping. First match wins. */
 const ROUTE_TITLES: Array<{ path: string; title: string }> = [
-  { path: "/w/:workspaceId/datasources", title: "Data Sources" },
+  { path: "/w/:workspaceId/datasources", title: "Data sources" },
   { path: "/w/:workspaceId/analytics", title: "Analytics" },
-  { path: "/w/:workspaceId/analytics/:id", title: "Document Analytics" },
+  { path: "/w/:workspaceId/analytics/:id", title: "Document analytics" },
   { path: "/w/:workspaceId/templates", title: "Templates" },
   { path: "/w/:workspaceId/settings", title: "Settings" },
+  { path: "/w/:workspaceId/trash", title: "Trash" },
   { path: "/w/:workspaceId", title: "Documents" },
-  { path: "/datasources", title: "Data Sources" },
+  { path: "/datasources", title: "Data sources" },
   { path: "/settings", title: "Settings" },
   { path: "/documents", title: "Documents" },
   { path: "/", title: "Documents" },

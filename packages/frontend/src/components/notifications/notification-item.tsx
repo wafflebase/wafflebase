@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { avatarInitials } from "@/components/avatar-size";
 import type { Notification } from "@/api/notifications";
 import { formatRelativeTime } from "@/app/documents/document-list-utils";
 import { notificationHref, notificationSentence } from "./notification-text";
@@ -29,8 +30,8 @@ export function NotificationItem({ notification, onSelect }: Props) {
         {actor?.photo && (
           <AvatarImage src={actor.photo} alt={actor.username} />
         )}
-        <AvatarFallback className="text-[9px]">
-          {(actor?.username ?? "?").slice(0, 2).toUpperCase()}
+        <AvatarFallback className="text-2xs">
+          {avatarInitials(actor?.username ?? "")}
         </AvatarFallback>
       </Avatar>
 
@@ -43,7 +44,7 @@ export function NotificationItem({ notification, onSelect }: Props) {
             {notification.preview}
           </p>
         )}
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {formatRelativeTime(notification.createdAt)}
         </p>
       </div>

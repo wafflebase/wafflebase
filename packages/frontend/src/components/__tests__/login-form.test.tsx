@@ -39,7 +39,7 @@ describe("LoginForm", () => {
       const alert = screen.getByRole("alert");
       expect(alert.textContent).toContain("expired");
       expect(alert.textContent).toContain("another tab");
-      expect(alert.textContent).toContain("try again");
+      expect(alert.textContent).toContain("Sign in again");
       // The retry path has to survive the error, or the message is advice
       // the page cannot take.
       expect(

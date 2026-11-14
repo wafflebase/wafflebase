@@ -10,16 +10,16 @@ PostgreSQL; see [Lakehouse tables](#lakehouse-tables) for the other.
 
 ## Connect a database
 
-1. Click the **+** at the end of the tab bar. The menu offers **New Sheet**,
-   **New DataSource**, and **New Lakehouse** — choose **New DataSource**.
-2. The **Select DataSource** dialog lists the connections your workspace
+1. Click the **+** at the end of the tab bar. The menu offers **New sheet**,
+   **New data source**, and **New lakehouse** — choose **New data source**.
+2. The **Select data source** dialog lists the connections your workspace
    already has. Pick one to reuse it, or create a new connection and fill in
    its details:
    - **Name** — a label for the connection
    - **Host** and **Port** (defaults to `5432`)
    - **Database**, **Username**, and **Password**
    - **SSL** — toggle on if your database requires it
-3. Click **Test Connection** to confirm the credentials work, then save.
+3. Click **Test connection** to confirm the credentials work, then save.
 
 A new tab is added with a database icon to distinguish it from sheet tabs.
 
@@ -51,7 +51,7 @@ clause when exploring large tables.
 
 ## Lakehouse tables
 
-The third entry in the **+** menu, **New Lakehouse**, reads a table sitting in
+The third entry in the **+** menu, **New lakehouse**, reads a table sitting in
 object storage instead of connecting to a database server. Choose the **table
 format** — **Apache Iceberg** or **Delta Lake** — and the **storage** that holds
 it: Amazon S3, an S3-compatible service, Google Cloud Storage, Azure Blob /

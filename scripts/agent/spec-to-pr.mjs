@@ -41,7 +41,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -752,6 +752,45 @@ export function prepareRoundInputs({ dir, prior, rebuttalsPath }) {
  * treats a missing `--prior-findings` as "first round" and an empty one as "the
  * previous round found nothing", and those are different claims.
  */
+/**
+ * Pathspecs CI leaves out of the diff BODY (`agent-review-panel.yml`, "Compute
+ * diff + changed files"): ANTLR tooling output nothing loads at runtime. The
+ * changed-files list stays unfiltered there and here, because it decides which
+ * lenses are required.
+ */
+const REVIEW_DIFF_EXCLUDES = [
+  ":(exclude)packages/sheets/antlr/*.interp",
+  ":(exclude)packages/sheets/antlr/*.tokens",
+];
+
+/**
+ * Write the review round's diff and changed-file list the way CI does.
+ *
+ * Streamed to the files rather than read back through `execFileSync`: a
+ * deletion-heavy branch overflowed its 1 MB default buffer and the round died
+ * with `spawnSync git ENOBUFS` before any lens ran. CI never hit that because
+ * its shell redirects to a file, so this mirrors the redirect, the filter, and
+ * the fall-back to the unfiltered diff when the filter leaves nothing.
+ *
+ * `-D` (`--irreversible-delete`) keeps a deleted file's header and drops its
+ * body, as CI does. A lens cannot act on lines that no longer exist, and a
+ * removal branch otherwise ships every deleted line: #1132's 5.6 MB diff was
+ * refused by the model API, so no lens reviewed anything at all.
+ */
+export function writeReviewDiff({ diffFile, changedFile, cwd = process.cwd() }) {
+  const gitTo = (file, args) => {
+    const fd = openSync(file, "w");
+    try {
+      execFileSync("git", args, { cwd, stdio: ["ignore", fd, "pipe"] });
+    } finally {
+      closeSync(fd);
+    }
+  };
+  gitTo(changedFile, ["diff", "--name-only", "origin/main...HEAD"]);
+  gitTo(diffFile, ["diff", "-D", "origin/main...HEAD", "--", ".", ...REVIEW_DIFF_EXCLUDES]);
+  if (statSync(diffFile).size === 0) gitTo(diffFile, ["diff", "-D", "origin/main...HEAD"]);
+}
+
 export function panelArgs({ panel, diffFile, changedFile, baseSha, priorFile, rebuttals, lensesDir, outDir }) {
   return [
     panel,
@@ -1154,8 +1193,7 @@ function cmdReview(args) {
 
   try {
     git(["fetch", "origin", "main"]);
-    writeFileSync(diffFile, execFileSync("git", ["diff", "origin/main...HEAD"], { encoding: "utf8" }));
-    writeFileSync(changedFile, execFileSync("git", ["diff", "--name-only", "origin/main...HEAD"], { encoding: "utf8" }));
+    writeReviewDiff({ diffFile, changedFile });
   } catch (e) {
     return fail(`could not build the working diff: ${e.message}`);
   }

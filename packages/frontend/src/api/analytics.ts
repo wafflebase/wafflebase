@@ -127,6 +127,6 @@ export async function getDocumentAnalytics(
   const res = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(documentId)}/analytics${suffix}`,
   );
-  await assertOk(res, "Failed to load analytics");
+  await assertOk(res, "Couldn't load analytics");
   return res.json();
 }

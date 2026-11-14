@@ -35,9 +35,8 @@ export function InteropSection() {
     <section className="bg-[color:var(--wb-bg)] py-16 md:py-20 px-6 md:px-8">
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          kicker="No lock-in"
-          title="Bring your files — and take them with you."
-          sub="Import what you already have and export what you make. Wafflebase speaks the formats your team already uses, so your data is never trapped."
+          title="Bring Office files in, take them back out"
+          sub="XLSX imports keep their styles, and Sheets also reads CSV, JSON and Parquet. Docs and Slides export back to DOCX and PPTX, or to PDF."
         />
 
         <div className="max-w-[760px] mx-auto grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6">
@@ -74,11 +73,7 @@ function InteropCard({ Glyph, title, caption, formats }: InteropCardProps) {
     >
       <div className="flex items-center gap-3">
         <div
-          className="inline-flex items-center justify-center size-9 rounded-lg"
-          style={{
-            background: "color-mix(in srgb, var(--wb-butter) 35%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--wb-syrup) 25%, transparent)",
-          }}
+          className="inline-flex items-center justify-center size-9 rounded-lg bg-[color:var(--wb-wash)] border border-[color:var(--wb-rule)]"
         >
           <Glyph className="size-[18px] text-[color:var(--wb-syrup-deep)]" />
         </div>

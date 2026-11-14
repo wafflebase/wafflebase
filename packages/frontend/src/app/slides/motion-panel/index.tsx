@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { IconX } from '@tabler/icons-react';
 import type { SlidesEditor, SlidesStore } from '@wafflebase/slides';
 import { AnimationSection } from './animation-section';
 import { TransitionSection } from './transition-section';
@@ -74,9 +75,9 @@ export function MotionPanel({
           type="button"
           aria-label="Close motion panel"
           onClick={onClose}
-          className="rounded p-1 hover:bg-muted"
+          className="focus-ring rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="flex-1 overflow-y-auto">{content}</div>

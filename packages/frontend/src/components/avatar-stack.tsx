@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   AVATAR_INITIALS_CLASS,
   AVATAR_SIZE_CLASS,
+  avatarInitials,
   type AvatarSize,
 } from "@/components/avatar-size";
 
@@ -54,7 +55,7 @@ export function AvatarStack({
           >
             {user.photo && <AvatarImage src={user.photo} alt={user.username} />}
             <AvatarFallback className={initialsClass}>
-              {user.username.slice(0, 2).toUpperCase() || "??"}
+              {avatarInitials(user.username)}
             </AvatarFallback>
           </Avatar>
         );

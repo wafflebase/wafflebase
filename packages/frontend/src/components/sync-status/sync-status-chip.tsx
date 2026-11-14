@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   IconAlertTriangle,
@@ -43,6 +43,37 @@ const ICONS: Record<SyncState, typeof IconCheck> = {
   reconnecting: IconRefresh,
   'not-saved': IconAlertTriangle,
 };
+
+/**
+ * Spoken rather than shown, so each says what the one-word chip leaves to its
+ * colour and tooltip. `saving` is never announced.
+ */
+const ANNOUNCEMENTS: Record<SyncState, string | null> = {
+  saved: 'Saved. Your changes reached the server.',
+  saving: null,
+  reconnecting: 'Connection lost. Reconnecting…',
+  'not-saved': "Not saved. Your recent changes haven't reached the server.",
+};
+
+/** The two states worth interrupting a screen-reader user for. */
+const ALARMS: ReadonlySet<SyncState> = new Set(['reconnecting', 'not-saved']);
+
+/**
+ * What a screen reader should hear when the state changes to `next`, or
+ * `null` for a change that should pass silently.
+ *
+ * The chip used to be its own live region, so every `Saving…` / `Saved` flip
+ * while someone typed was read aloud — a running commentary on a healthy
+ * document. Only a move *into* trouble is news, plus the one recovery that
+ * answers it: `Saved` after a `Reconnecting…` or `Not saved`. `alarmed` is
+ * whether such a state has been announced since the last recovery, because
+ * the way back usually passes through `Saving…` first.
+ */
+function announcementFor(next: SyncState, alarmed: boolean): string | null {
+  if (ALARMS.has(next)) return ANNOUNCEMENTS[next];
+  if (next === 'saved' && alarmed) return ANNOUNCEMENTS.saved;
+  return null;
+}
 
 function tooltipFor(state: SyncState, pendingSince: Date | null): string {
   switch (state) {
@@ -154,7 +185,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
           // advice. Telling someone whose connection is fine that it dropped
           // sends them to debug the wrong thing.
           description: connected
-            ? "The server rejected your recent changes, so they haven't been saved. Keep this tab open — closing it will lose them."
+            ? "The server rejected your recent changes, so they haven't been saved. Keep this tab open. Closing it will lose them."
             : "Your connection dropped and recent changes haven't reached the server. Keep this tab open; they'll sync when the connection returns.",
         });
       }, TOAST_DELAY_MS);
@@ -191,34 +222,70 @@ export function SyncStatusChip({ className }: { className?: string }) {
     [],
   );
 
+  // The announcement, kept apart from the visible chip so the chip can show
+  // every state while the live region speaks only for the ones that matter.
+  // The baseline is `saved`, so a document that opens already disconnected
+  // is announced like one that disconnects later.
+  const [announcement, setAnnouncement] = useState<{
+    text: string;
+    urgent: boolean;
+  } | null>(null);
+  const announced = useRef<{ state: SyncState; alarmed: boolean }>({
+    state: 'saved',
+    alarmed: false,
+  });
+
+  useEffect(() => {
+    const prev = announced.current;
+    if (prev.state === state) return;
+    const text = announcementFor(state, prev.alarmed);
+    announced.current = {
+      state,
+      alarmed: ALARMS.has(state) || (prev.alarmed && state !== 'saved'),
+    };
+    // A silent move clears the region, so the next alarm is a fresh change
+    // even when its text matches the last one (Reconnecting… → Saving… →
+    // Reconnecting…). Removing text is not itself announced.
+    setAnnouncement(text ? { text, urgent: state === 'not-saved' } : null);
+  }, [state]);
+
   const Icon = ICONS[state];
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          role="status"
-          aria-live={stranded ? 'assertive' : 'polite'}
-          // Radix adds no tabIndex to a bare span, which would leave the
-          // tooltip hover-only — and the tooltip is where the "this tab is the
-          // only copy" wording lives.
-          tabIndex={0}
-          className={cn(
-            'flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs whitespace-nowrap',
-            stranded
-              ? 'text-destructive font-medium'
-              : 'text-muted-foreground',
-            // The steady state is the least interesting thing in the header,
-            // so it yields its room first when there is none to spare.
-            state === 'saved' && 'hidden sm:flex',
-            className,
-          )}
-        >
-          <Icon size={14} aria-hidden />
-          {LABELS[state]}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{tooltipFor(state, pendingSince)}</TooltipContent>
-    </Tooltip>
+    <>
+      {/* Always mounted: a live region only speaks for changes made after it
+          is in the tree. `Not saved` goes to the assertive one because it is
+          the state where closing the tab destroys work. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {announcement && !announcement.urgent ? announcement.text : ''}
+      </span>
+      <span role="alert" aria-live="assertive" className="sr-only">
+        {announcement?.urgent ? announcement.text : ''}
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            // Radix adds no tabIndex to a bare span, which would leave the
+            // tooltip hover-only — and the tooltip is where the "this tab is the
+            // only copy" wording lives.
+            tabIndex={0}
+            className={cn(
+              'flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs whitespace-nowrap focus-ring',
+              stranded
+                ? 'text-destructive font-medium'
+                : 'text-muted-foreground',
+              // The steady state is the least interesting thing in the header,
+              // so it yields its room first when there is none to spare.
+              state === 'saved' && 'hidden sm:flex',
+              className,
+            )}
+          >
+            <Icon size={14} aria-hidden />
+            {LABELS[state]}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{tooltipFor(state, pendingSince)}</TooltipContent>
+      </Tooltip>
+    </>
   );
 }

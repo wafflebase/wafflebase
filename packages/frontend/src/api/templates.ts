@@ -104,7 +104,7 @@ export async function browseTemplates(
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/templates?${params.toString()}`
   );
-  await assertOk(response, "Failed to load templates");
+  await assertOk(response, "Couldn't load templates");
   return response.json();
 }
 
@@ -137,7 +137,7 @@ export async function publishTemplate(
       body: JSON.stringify(input),
     }
   );
-  await assertOk(response, "Failed to publish template");
+  await assertOk(response, "Couldn't publish the template");
   return response.json();
 }
 
@@ -148,8 +148,12 @@ export async function getDocumentTemplate(
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(documentId)}/template`
   );
-  await assertOk(response, "Failed to load template");
-  return response.json();
+  await assertOk(response, "Couldn't load the template");
+  // An unpublished document answers `200` with an empty body — Nest
+  // serializes a handler's `null` as nothing at all — so `response.json()`
+  // would throw "Unexpected end of JSON input" on every Share dialog open.
+  const body = (await response.text()).trim();
+  return body ? (JSON.parse(body) as TemplateListing | null) : null;
 }
 
 export async function updateTemplate(
@@ -164,7 +168,7 @@ export async function updateTemplate(
       body: JSON.stringify(input),
     }
   );
-  await assertOk(response, "Failed to update template");
+  await assertOk(response, "Couldn't update the template");
   return response.json();
 }
 
@@ -174,7 +178,7 @@ export async function unpublishTemplate(id: string): Promise<void> {
     `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}`,
     { method: "DELETE" }
   );
-  await assertOk(response, "Failed to unpublish template");
+  await assertOk(response, "Couldn't unpublish the template");
 }
 
 /**
@@ -227,7 +231,7 @@ export async function reportTemplate(
       body: JSON.stringify({ reason, ...(note ? { note } : {}) }),
     }
   );
-  await assertOk(response, "Failed to report this template");
+  await assertOk(response, "Couldn't report this template");
 }
 
 /** Open reports, for the review queue. */
@@ -235,7 +239,7 @@ export async function listTemplateReports(): Promise<TemplateReport[]> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/reports`
   );
-  await assertOk(response, "Failed to load reports");
+  await assertOk(response, "Couldn't load reports");
   return response.json();
 }
 
@@ -252,7 +256,7 @@ export async function resolveTemplateReport(
       body: JSON.stringify({ outcome }),
     }
   );
-  await assertOk(response, "Failed to close this report");
+  await assertOk(response, "Couldn't close this report");
 }
 
 /**
@@ -271,7 +275,7 @@ export async function submitTemplateForReview(
       body: JSON.stringify({ acceptLicense: true }),
     }
   );
-  await assertOk(response, "Failed to submit this template for review");
+  await assertOk(response, "Couldn't submit this template for review");
   return response.json();
 }
 
@@ -284,7 +288,7 @@ export async function listTemplatesForReview(): Promise<TemplateListing[]> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/review`
   );
-  await assertOk(response, "Failed to load the review queue");
+  await assertOk(response, "Couldn't load the review queue");
   return response.json();
 }
 
@@ -311,7 +315,7 @@ export async function reviewTemplate(
       }),
     }
   );
-  await assertOk(response, "Failed to record this decision");
+  await assertOk(response, "Couldn't record this decision");
   return response.json();
 }
 
@@ -329,6 +333,6 @@ export async function createFromTemplate(
       body: JSON.stringify({ workspaceId, ...(folderId ? { folderId } : {}) }),
     }
   );
-  await assertOk(response, "Failed to create a document from this template");
+  await assertOk(response, "Couldn't create a document from this template");
   return response.json();
 }
