@@ -1,3 +1,5 @@
+<img src="packages/frontend/public/icon.svg" alt="" width="56" height="56">
+
 # Wafflebase
 
 Wafflebase is a web-based collaborative office suite — spreadsheets, word

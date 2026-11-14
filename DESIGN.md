@@ -346,13 +346,14 @@ brand layer swaps the zinc for cream paper and walnut ink.
 
 ### Hierarchy
 - **Display** (600, clamp(40px, 6vw, 68px), 1.04, -0.025em): homepage hero only, with an italic syrup-deep second line set in Fraunces' true italic at 500, the one italic face `index.html` loads. `.font-display` and `.font-code` set `font-synthesis-style: none`, so an italic at any other weight renders upright rather than browser-slanted: load the face before using it.
-- **Headline** (600, 28px, -0.02em): brand-surface page titles (sign-in, template landing). The sidebar wordmark uses the same face at 17px.
+- **Headline** (600, 28px, -0.02em): brand-surface page titles (sign-in, template landing).
+- **Wordmark** (500, display cut `opsz` 144, -0.025em): the "Wafflebase" lockup, 19px on brand surfaces and 17px in the sidebar. See Components → Mark.
 - **Section title** (600, 18px): settings and workspace-settings section headings, the largest app-chrome text outside an analytics stat figure (24px).
 - **Title** (600, 16px, 1): card and dialog titles in the app.
 - **Body** (400, 14px): all editor and workspace UI text. Inputs render at 16px on mobile, which prevents iOS zoom-on-focus.
 - **Control** (500, 14px): button and toggle labels, one weight step above Body so a control reads as actionable without color.
 - **Body (brand)** (400, clamp(17px, 1.4vw, 19px), 1.55): homepage lead paragraphs, max ~560px measure.
-- **Title (brand)** (600, 19px, 1.3): homepage feature- and use-case-card titles (the use-case cards in Fraunces); the brand nav and footer wordmarks use Fraunces at the same size.
+- **Title (brand)** (600, 19px, 1.3): homepage feature- and use-case-card titles (the use-case cards in Fraunces); the brand nav and footer wordmarks take the Wordmark style at the same size.
 - **Body (brand, small)** (400, 15px, 1.55): template-landing descriptions, feature-list titles, the large pill button.
 - **Caption (brand)** (400, 13px): card links, interop captions, template metadata.
 - **Label** (500, 12px): badges, small metadata.
@@ -436,7 +437,14 @@ Precise and restrained.
 - **Style:** 12px medium label, 2px 8px padding, 2.8px corners. Default is syrup on off-white; secondary, outline and destructive variants follow the button roles.
 
 ### Navigation
-- **Sidebar:** near-white zinc (`sidebar`), with the display-stack wordmark at 17px (Fraunces once a brand page has loaded it this session, the `ui-serif, Georgia` fallback otherwise). The active item is a butter wash with deep-syrup text and the hover a neutral wash. It collapses to an icon rail.
+- **Sidebar:** near-white zinc (`sidebar`), with the mark and `.wordmark` at 17px (Fraunces once a brand page has loaded it this session, the `ui-serif, Georgia` fallback otherwise). The active item is a butter wash with deep-syrup text and the hover a neutral wash. It collapses to an icon rail.
+
+### Mark
+- **Form:** "Facet": a waffle's 3×3 grid of pockets turned 45°, nine rounded diamonds (5.6 units, 1.4 gap, 1-unit corners) in a 32-unit box. One color, no outline, no container tile: the waffle is the grid, and turning it makes it a mark rather than a spreadsheet icon or an app launcher.
+- **Color:** `--wb-syrup`, so it lifts to bright syrup in dark mode. A one-color mark keeps its shape and only changes value, so following the theme is safe; a multi-tone mark would lose its internal contrast doing the same. The favicon does the same with a `prefers-color-scheme` rule inside the SVG. The apple-touch icon is the inverse: cream-paper diamonds on a full-bleed strong-syrup square.
+- **Sources:** `WaffleLogo` (`src/app/home/primitives/waffle-logo.tsx`) for the homepage nav and footer, sign-in, and the sidebar (22px); `public/icon.svg` (favicon), `public/apple-touch-icon.png` (180px), and `packages/documentation/public/logo.svg` (docs-site nav and favicon) draw the same geometry. Change one, change all.
+- **Wordmark:** `.wordmark` (`src/index.css`): Fraunces 500 at its display cut (`"opsz" 144`), -0.025em. Left to automatic optical sizing, a 17–19px wordmark takes Fraunces' chunky text cut, which reads heavy and dated next to a one-color mark. The docs site sets the same on `.VPNavBarTitle .title`.
+- **Lockup:** mark left of the wordmark, 28px beside 19px (22px beside 17px in the sidebar), 8–10px apart.
 
 ### Brand pill button (brand surfaces only)
 - **Style:** fully rounded, Inter 14–15px medium, the `primary` fill/label pair (strong syrup light, bright syrup dark) with a deep-syrup border and bevel. It hovers darker to `primary-hover` and lifts 1px. The ghost variant is an oat-rule outline on walnut ink.

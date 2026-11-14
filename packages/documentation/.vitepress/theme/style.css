@@ -161,3 +161,13 @@ html {
   scrollbar-color: color-mix(in srgb, var(--vp-c-text-3) 55%, transparent)
     transparent;
 }
+
+/* The wordmark in the nav: the same Fraunces display cut as the app's
+   `.wordmark` (packages/frontend/src/index.css). */
+.VPNavBarTitle .title {
+  font-family: "Fraunces", ui-serif, Georgia, serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  font-variation-settings: "opsz" 144;
+}

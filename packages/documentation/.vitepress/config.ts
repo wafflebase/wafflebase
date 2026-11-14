@@ -12,6 +12,8 @@ const env = loadEnv(mode, path.resolve(docsRoot, ".."), "VITE_");
 const gaId = env.VITE_GA_ID;
 
 const head: HeadConfig[] = [
+  // `head` hrefs are not rewritten with `base`, unlike `themeConfig.logo`.
+  ["link", { rel: "icon", type: "image/svg+xml", href: "/docs/logo.svg" }],
   ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
   [
     "link",
@@ -66,6 +68,7 @@ export default defineConfig({
   },
 
   themeConfig: {
+    logo: "/logo.svg",
     siteTitle: "Wafflebase",
     logoLink: { link: "/", target: "_self" },
 

@@ -46,7 +46,7 @@ export function NavBar({
       <div className="flex justify-between items-center max-w-[1200px] mx-auto">
         <Link
           to="/"
-          className="flex items-center gap-2.5 text-[19px] font-display font-semibold text-[color:var(--wb-ink)] tracking-[-0.01em] no-underline"
+          className="wordmark flex items-center gap-2.5 text-[19px] text-[color:var(--wb-ink)] no-underline"
         >
           <WaffleLogo size={28} />
           Wafflebase

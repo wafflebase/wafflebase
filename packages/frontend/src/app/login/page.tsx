@@ -44,7 +44,7 @@ export default function LoginPage() {
         <div className="flex justify-between items-center max-w-[1200px] mx-auto">
           <Link
             to="/"
-            className="inline-flex items-center gap-2.5 font-display font-semibold text-[19px] tracking-[-0.01em] text-[color:var(--wb-ink)] no-underline"
+            className="wordmark inline-flex items-center gap-2.5 text-[19px] text-[color:var(--wb-ink)] no-underline"
           >
             <WaffleLogo size={28} />
             Wafflebase
