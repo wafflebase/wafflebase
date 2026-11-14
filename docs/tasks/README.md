@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| move agent arms (2026-11-15) | [20261115-move-agent-arms-todo.md](./active/20261115-move-agent-arms-todo.md) | [20261115-move-agent-arms-lessons.md](./active/20261115-move-agent-arms-lessons.md) |
 | tighten agent guard (2026-11-15) | [20261115-tighten-agent-guard-todo.md](./active/20261115-tighten-agent-guard-todo.md) | [20261115-tighten-agent-guard-lessons.md](./active/20261115-tighten-agent-guard-lessons.md) |
 | harden agent install (2026-11-14) | [20261114-harden-agent-install-todo.md](./active/20261114-harden-agent-install-todo.md) | [20261114-harden-agent-install-lessons.md](./active/20261114-harden-agent-install-lessons.md) |
 | impeccable frontend sweep (2026-11-14) | [20261114-impeccable-frontend-sweep-todo.md](./active/20261114-impeccable-frontend-sweep-todo.md) | [20261114-impeccable-frontend-sweep-lessons.md](./active/20261114-impeccable-frontend-sweep-lessons.md) |
@@ -63,4 +64,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 634
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: tighten agent guard (2026-11-15)
+Latest active task: move agent arms (2026-11-15)
