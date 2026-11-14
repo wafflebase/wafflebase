@@ -315,7 +315,14 @@ export function isAllowedSpecifier(specifier) {
  * @returns {string[]} the projects it installs for, relative to the root
  */
 export function checkLockfile(text) {
-  const doc = parseStrictYaml(text);
+  let doc;
+  try {
+    doc = parseStrictYaml(text);
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    // Whatever else goes wrong reading it is a refusal like any other.
+    refuse(`pnpm-lock.yaml could not be read in the plain form pnpm writes (${error.name})`);
+  }
   only(doc, TOP_LEVEL, "the lockfile");
   if (doc.get("lockfileVersion") !== "9.0") refuse("pnpm-lock.yaml is not lockfileVersion '9.0'");
   if (doc.has("settings")) {
@@ -475,7 +482,7 @@ export function checkProjects(root, importers) {
   for (const importer of importers) {
     const dir = path.join(root, importer);
     const where = importer === "." ? "package.json" : `${importer}/package.json`;
-    if (!existsSync(dir) || realpathSync(dir) !== dir) {
+    if (!existsSync(dir) || realpathSync.native(dir) !== dir) {
       refuse(`pnpm-lock.yaml names the project ${importer}, which is not a plain directory of this checkout`);
     }
     const text = readBranchFile(path.join(dir, "package.json"), where, MANIFEST_MAX).toString("utf8");

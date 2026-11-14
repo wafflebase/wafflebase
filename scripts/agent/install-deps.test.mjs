@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  lstatSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -186,8 +187,10 @@ test("an ordinary tree installs: in a container, with nothing of the job's envir
       // A directory of that name is set aside and put back as well.
       mkdirSync(path.join(dir, "packages", "b", ".npmrc"));
       writeFileSync(path.join(dir, "packages", "b", ".npmrc", "inner"), "x");
-      // A link that stays inside the workspace is not refused.
+      // Links that stay inside the workspace are not refused: a plain one, one
+      // through another, one that goes up and comes down inside.
       symlinkSync("pnpm-lock.yaml", path.join(dir, "alias"));
+      assert.equal(spawnSync("sh", ["-c", INSIDE_LINKS], { cwd: dir }).status, 0);
       // `overrides` is the one pnpm setting main carries.
       setManifest(dir, (m) => {
         m.pnpm = { overrides: { "x@<1": "1.0.0" } };
@@ -306,6 +309,26 @@ test("the container is given the workspace, its store and the workflow's pnpm, a
   assert.deepEqual([...DOCKER_ENV].sort(), ["DOCKER_HOST", "PATH"]);
 });
 
+/**
+ * LINKS THAT READ ONE WAY AND RESOLVE ANOTHER. `p/q/up` leads to the directory
+ * two above it. A path that goes through it and then `..` is, read as text, a
+ * path under `p/` — where a directory of the right name is waiting — and,
+ * followed the way a file is actually opened, a path beside the workspace.
+ * Each shape is a shell fragment run in the workspace root.
+ */
+const TWIN_SHAPES = {
+  "through a link, then up": 'mkdir -p p/q p/sib/tools && ln -s ../.. p/q/up && ln -s p/q/up/../../sib/tools via',
+  "through an absolute link, then up": 'mkdir -p p/q p/sib/tools && ln -s "$PWD" p/q/up && ln -s p/q/up/../sib/tools via',
+  "three levels": 'mkdir -p p/q/r p/q/sib/tools p/sib/tools && ln -s ../../.. p/q/r/up && ln -s p/q/r/up/../../sib/tools via',
+  "ending on the way up": 'mkdir -p p/q p/sib && ln -s ../.. p/q/up && ln -s p/q/up/../.. via',
+  "with a dot after the link": 'mkdir -p p/q p/sib/tools && ln -s ../.. p/q/up && ln -s p/q/up/./../../sib/tools via',
+  "with doubled separators": 'mkdir -p p/q p/sib/tools && ln -s ../.. p/q/up && ln -s p/q/up//..//..//sib/tools via',
+  "to a file that is not there yet": 'mkdir -p p/q p/sib && ln -s ../.. p/q/up && ln -s p/q/up/../../sib/new-file via',
+  "through two links": 'mkdir -p p/q p/sib/tools && ln -s .. p/q/one && ln -s q/one/.. p/two && ln -s p/two/../sib/tools via',
+};
+/** Links that stay in the working tree however they are read. */
+const INSIDE_LINKS = 'mkdir -p in/deep && echo x > in/deep/f && ln -s in/deep plain && ln -s plain/f through && ln -s ../in/deep in/back && ln -s back/../deep/f in/twice';
+
 /** Run every case, expecting a refusal before pnpm is reached. */
 function expectRefused(t, cases) {
   const { outside, run } = harness(t);
@@ -404,6 +427,11 @@ test("a tree the install cannot keep inside the workspace is refused before pnpm
       /via is a symbolic link that resolves outside the workspace/,
     ],
     ["a link into .git as written, to something that is not there", (dir) => symlinkSync(".git/hooks/later", path.join(dir, "later")), /later is a symbolic link into the repository's \.git/],
+    ...Object.entries(TWIN_SHAPES).map(([name, shape]) => [
+      `a link that reads as inside and resolves beside the workspace: ${name}`,
+      (dir) => assert.equal(spawnSync("sh", ["-c", shape], { cwd: dir }).status, 0, shape),
+      /via is a symbolic link that resolves outside the workspace/,
+    ]),
     ["a second .git", (dir) => mkdirSync(path.join(dir, "packages", "a", ".git")), /packages\/a\/\.git is a second \.git/],
     ["a directory that cannot be listed", (dir) => { mkdirSync(path.join(dir, "closed", "in"), { recursive: true }); chmodSync(path.join(dir, "closed"), 0o311); }, /closed cannot be listed \(EACCES\); the install does not skip what it cannot read/],
     ["no .git", (dir) => rmSync(path.join(dir, ".git"), { recursive: true }), /\.git is missing or is not a directory/],
@@ -621,6 +649,15 @@ test("a project manifest with a field the install does not know, or a name or pa
   ]);
 });
 
+test("a lockfile the reader cannot get through at all is a refusal like any other", (t) => {
+  const { run } = harness(t);
+  const r = run((dir) => writeFileSync(path.join(dir, "pnpm-lock.yaml"), `lockfileVersion: '9.0'\ndeprecated: ${"a ".repeat(30 * 1024 * 1024)}b\n`));
+  assert.notEqual(r.status, 0);
+  assert.match(r.err, /^::error::install-deps: pnpm-lock\.yaml/m);
+  assert.doesNotMatch(r.err, /\n\s+at /, "the script died with a stack trace instead of refusing");
+  assert.equal(r.installed, false);
+});
+
 test("the strict reader builds the tree a YAML parser would, for the forms it accepts", () => {
   const plain = (v) => (v instanceof Map ? Object.fromEntries([...v].map(([k, x]) => [k, plain(x)])) : v);
   assert.deepEqual(
@@ -823,6 +860,27 @@ test("after the install, anything that left the workspace fails the step", (t) =
     assert.notEqual(link.status, 0, change);
     assert.match(link.err, /is a symbolic link out of the workspace's working tree after the install/, change);
   }
+  // … and by following it the way a file is opened, also when the link it
+  // goes through was made during the install.
+  for (const [name, shape] of Object.entries(TWIN_SHAPES)) {
+    const twin = extra(shape);
+    assert.notEqual(twin.status, 0, name);
+    assert.match(twin.err, /^::error::install-deps: via is a symbolic link out of the workspace's working tree after the install/m, name);
+  }
+  assert.equal(extra(`cd node_modules && ${INSIDE_LINKS}`).status, 0);
+  // A path cannot be followed up out of a place that is not there: such a
+  // link leads wherever that place later turns out to be.
+  const odd = extra("ln -s nowhere/../packages node_modules/odd");
+  assert.match(odd.err, /node_modules\/odd is a symbolic link out of the workspace's working tree after the install/);
+  // Anything named node_modules that is not a project's own install directory
+  // is part of the working tree like any other entry.
+  for (const change of ["echo x > packages/node_modules", "mkdir -p src/node_modules/.bin && echo x > src/node_modules/.bin/tool", "echo x > packages/b/node_modules"]) {
+    assert.match(extra(change).err, /^::error::install-deps: the install changed the working tree outside node_modules/m, change);
+  }
+  // Any mode bit of a tracked file or directory.
+  for (const change of ["chmod 666 packages/a/package.json", "chmod 777 packages/b"]) {
+    assert.match(extra(change).err, /the install changed the working tree outside node_modules/, change);
+  }
   // A file git would ignore is still a change to the working tree.
   const ignored = run((dir) => writeFileSync(path.join(dir, ".gitignore"), "*.log\n"), { stub: { STUB_EXTRA: "echo x > packages/a/build.log" } });
   assert.match(ignored.err, /^::error::install-deps: the install changed the working tree outside node_modules/m);
@@ -858,13 +916,34 @@ test("after the install, anything that left the workspace fails the step", (t) =
   // … even to somewhere inside the workspace.
   const inward = extra("ln -s ../b packages/a/node_modules");
   assert.notEqual(inward.status, 0);
-  assert.match(inward.err, /packages\/a\/node_modules is a symbolic link after the install/);
+  assert.match(inward.err, /the install changed the working tree outside node_modules|packages\/a\/node_modules is a symbolic link after the install/);
 
   // An installed entry, scoped or not, that resolves outside.
   for (const entry of ["dep", "@scope/dep"]) {
     const escaped = extra(`mkdir -p node_modules/@scope && ln -s ${outside} node_modules/${entry}`);
     assert.notEqual(escaped.status, 0, entry);
     assert.match(escaped.err, /is a symbolic link out of the workspace's working tree after the install/, entry);
+  }
+});
+
+test("hashTree cannot be made to read two different trees as one", (t) => {
+  // A file whose bytes spell out "…then a directory, then a file in it" is
+  // not the same tree as that directory and that file.
+  const base = mkdtempSync(path.join(TMP, "install-deps-inject-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const one = path.join(base, "one");
+  const two = path.join(base, "two");
+  mkdirSync(one);
+  mkdirSync(path.join(two, "b"), { recursive: true });
+  writeFileSync(path.join(two, "a"), "A");
+  writeFileSync(path.join(two, "b", "c"), "C");
+  const mode = (f) => String(lstatSync(f).mode & 0o7777);
+  const m = mode(path.join(two, "a"));
+  const dm = mode(path.join(two, "b"));
+  // The body a file would need under a separator-only encoding, and under this one.
+  for (const body of [`A\0d\0b\0f\0b/c\0-\0C`, `A\0dir\0b\0${dm}\0file\0b/c\0${m}\0C`, `A3:dir1:b${dm.length}:${dm}4:file3:b/c${m.length}:${m}1:C`]) {
+    writeFileSync(path.join(one, "a"), body);
+    assert.notEqual(hashTree(one), hashTree(two), JSON.stringify(body));
   }
 });
 

@@ -168,39 +168,97 @@ function entriesOf(root, dir) {
 }
 
 /**
- * Where a symbolic link leads, judged twice: BY ITS TEXT and by what it
- * resolves to. The text matters because resolution depends on who asks — a
- * target under `/proc/self` is a different place for every process — so a link
- * is acceptable only if, read as written from its own directory, it stays in
- * the working tree; and, if it resolves here, it resolves there too.
+ * Where a path resolves, PHYSICALLY — the way the kernel does it: one
+ * component at a time, following each symbolic link where it stands before
+ * the next component is applied, so a `..` after a link goes up from where
+ * the link leads and not from where it sits. (Resolving the text first and
+ * the links afterwards gives a different answer for the same path.)
+ *
+ * @returns {string} the resolved path; throws if a component does not exist
+ */
+const physical = (file) => realpathSync.native(file);
+
+/**
+ * Where a symbolic link leads, judged by following its text one component at a
+ * time, exactly as a later reader would: every place the path passes through,
+ * and the place it ends, must be in the working tree. A target under a process
+ * or device path is a different place for every process and is refused by its
+ * text. The answer does not depend on who asks or from which directory.
  *
  * @returns {"special" | "outside" | "git" | "dangling" | null}
  */
 function judgeLink(root, dir, full) {
   const gitDir = path.join(root, ".git");
+  let missing = false;
+  let hops = 0;
+  /** Apply `text` from `at`; returns where it ends, or a verdict. */
+  const follow = (at, text) => {
+    if (++hops > 64) return "outside";
+    if (path.isAbsolute(text)) {
+      if (text.split("/").some((part) => part === "proc" || part === "dev" || part === "sys")) return "special";
+      // An absolute target has to name the workspace itself, as written, and
+      // is then followed from there like any other.
+      if (text !== root && !text.startsWith(root + path.sep)) return "outside";
+      at = root;
+      text = text.slice(root.length);
+    }
+    for (const part of text.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") {
+        // Nothing can be resolved upwards from a place that is not there.
+        if (missing) return "outside";
+        at = path.dirname(at);
+      } else if (missing) {
+        at = path.join(at, part);
+      } else {
+        const next = path.join(at, part);
+        let stat;
+        try {
+          stat = lstatSync(next, { throwIfNoEntry: false });
+        } catch {
+          return "outside";
+        }
+        if (!stat) {
+          missing = true;
+          at = next;
+        } else if (stat.isSymbolicLink()) {
+          let inner;
+          try {
+            inner = readlinkSync(next);
+          } catch {
+            return "outside";
+          }
+          const ended = follow(at, inner);
+          if (ended === "special" || ended === "outside" || ended === "git") return ended;
+          at = ended;
+        } else {
+          at = next;
+        }
+      }
+      if (!isInside(root, at)) return "outside";
+      if (isInside(gitDir, at)) return "git";
+    }
+    return at;
+  };
   let text;
   try {
     text = readlinkSync(full);
   } catch {
     return "outside";
   }
-  if (path.isAbsolute(text) && text.split("/").some((part) => part === "proc" || part === "dev" || part === "sys")) return "special";
-  // Step by step, so a path that climbs out and comes back in is out.
-  let asWritten = path.isAbsolute(text) ? path.parse(text).root : dir;
-  for (const part of text.split("/")) {
-    if (part === "" || part === ".") continue;
-    asWritten = part === ".." ? path.dirname(asWritten) : path.join(asWritten, part);
-    if (!path.isAbsolute(text) && !isInside(root, asWritten)) return "outside";
-  }
-  if (!isInside(root, asWritten)) return "outside";
-  if (isInside(gitDir, asWritten)) return "git";
+  const ended = follow(dir, text);
+  if (ended === "special" || ended === "outside" || ended === "git") return ended;
+  if (!isInside(root, ended)) return "outside";
+  if (isInside(gitDir, ended)) return "git";
+  if (missing) return "dangling";
+  // And the kernel's own answer, which must be the same place.
   let resolved;
   try {
-    resolved = realpathSync(full);
+    resolved = physical(full);
   } catch {
     return "dangling";
   }
-  if (!isInside(root, resolved)) return "outside";
+  if (resolved !== ended || !isInside(root, resolved)) return "outside";
   if (isInside(gitDir, resolved)) return "git";
   return null;
 }
@@ -291,7 +349,7 @@ function pnpmDirs(root) {
   if (!runnerTemp || !path.isAbsolute(runnerTemp) || !existsSync(runnerTemp)) {
     refuse("RUNNER_TEMP is not set to an existing directory; the install keeps pnpm's store there");
   }
-  const temp = realpathSync(runnerTemp);
+  const temp = physical(runnerTemp);
   if (isInside(root, temp) || isInside(temp, root)) {
     refuse("RUNNER_TEMP and the workspace contain one another; pnpm's store must be outside the workspace");
   }
@@ -370,28 +428,34 @@ function gitControlDigest(root) {
 }
 
 /**
- * A digest of a directory: every entry's path and kind, every file's bytes and
- * whether it is executable, every link's target. Nothing is followed, and an
- * entry that cannot be read is a refusal.
+ * A digest of a directory: every entry's path, kind and mode, every file's
+ * bytes, every link's target. Each field goes in with its length in front, so
+ * two different trees cannot produce the same sequence of bytes. Nothing is
+ * followed, and an entry that cannot be read is a refusal.
  *
- * @param {(rel: string, name: string) => boolean} [skip] entries to leave out
+ * @param {(rel: string, entry: import("node:fs").Dirent) => boolean} [skip] entries to leave out
  */
 export function hashTree(dir, skip = () => false) {
   const hash = createHash("sha256");
+  const put = (...fields) => {
+    for (const field of fields) {
+      const bytes = Buffer.isBuffer(field) ? field : Buffer.from(String(field), "utf8");
+      hash.update(`${bytes.length}:`);
+      hash.update(bytes);
+    }
+  };
   const walk = (rel) => {
     const entries = entriesOf(dir, path.join(dir, rel)).sort((a, b) => (a.name < b.name ? -1 : 1));
     for (const entry of entries) {
       const child = path.join(rel, entry.name);
-      if (skip(child, entry.name)) continue;
+      if (skip(child, entry)) continue;
       const full = path.join(dir, child);
       try {
-        if (entry.isSymbolicLink()) hash.update(`l\0${child}\0${readlinkSync(full)}\0`);
-        else if (entry.isDirectory()) hash.update(`d\0${child}\0`);
-        else if (entry.isFile()) {
-          hash.update(`f\0${child}\0${lstatSync(full).mode & 0o111 ? "x" : "-"}\0`);
-          hash.update(readFileSync(full));
-          hash.update("\0");
-        } else hash.update(`?\0${child}\0`);
+        const mode = lstatSync(full).mode & 0o7777;
+        if (entry.isSymbolicLink()) put("link", child, readlinkSync(full));
+        else if (entry.isDirectory()) put("dir", child, mode);
+        else if (entry.isFile()) put("file", child, mode, readFileSync(full));
+        else put("other", child, mode);
       } catch (error) {
         if (error instanceof Refusal) throw error;
         refuse(`${child} cannot be read (${error.code ?? error.message}); the install does not skip what it cannot read`);
@@ -405,12 +469,15 @@ export function hashTree(dir, skip = () => false) {
 
 /**
  * A digest of the working tree as the checkout left it: everything but `.git`
- * and the `node_modules` directories an install adds. Taken before and after —
- * an install changes nothing else. Read from the files themselves; no other
- * program is asked.
+ * and the `node_modules` DIRECTORY of each project the lockfile installs for —
+ * the places an install writes. Anything else named `node_modules`, a file or
+ * a directory somewhere no project is, is part of the tree like any other
+ * entry. Taken before and after: an install changes nothing else. Read from
+ * the files themselves; no other program is asked.
  */
-function workingTreeDigest(root) {
-  return hashTree(root, (rel, name) => rel === ".git" || name === "node_modules");
+function workingTreeDigest(root, importers) {
+  const installed = new Set(importers.map((importer) => path.normalize(path.join(importer, "node_modules"))));
+  return hashTree(root, (rel, entry) => rel === ".git" || (entry.isDirectory() && installed.has(rel)));
 }
 
 /**
@@ -426,7 +493,7 @@ function locatePnpm(root, name) {
     if (!dir || !path.isAbsolute(dir)) continue;
     const candidate = path.join(dir, name);
     if (lstatSync(candidate, { throwIfNoEntry: false }) && existsSync(candidate)) {
-      found = realpathSync(candidate);
+      found = physical(candidate);
       break;
     }
   }
@@ -447,7 +514,7 @@ function locatePnpm(root, name) {
   if (manifest?.name !== "pnpm" && path.basename(path.dirname(found)) === ".bin") {
     const beside = path.join(path.dirname(found), "..", "pnpm");
     if (existsSync(beside)) {
-      dir = realpathSync(beside);
+      dir = physical(beside);
       manifest = readManifest(dir);
     }
   }
@@ -473,7 +540,7 @@ function checkInstalled(root, importers) {
       if (!existsSync(p)) continue;
       const rel = path.relative(root, p) || ".";
       if (lstatSync(p).isSymbolicLink()) refuse(`${rel} is a symbolic link after the install`);
-      if (!isInside(root, realpathSync(p))) refuse(`${rel} resolves outside the workspace after the install`);
+      if (!isInside(root, physical(p))) refuse(`${rel} resolves outside the workspace after the install`);
     }
     if (!existsSync(modules)) continue;
     const entries = [];
@@ -491,7 +558,7 @@ function checkInstalled(root, importers) {
       const full = path.join(modules, name);
       let target;
       try {
-        target = realpathSync(full);
+        target = physical(full);
       } catch {
         refuse(`${path.relative(root, full)} does not resolve after the install`);
       }
@@ -560,7 +627,7 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   if (!path.isAbsolute(workspace) || workspace.split(path.sep).includes("..") || !existsSync(workspace)) {
     refuse("the workspace is not an existing absolute path without `..`");
   }
-  const root = realpathSync(workspace);
+  const root = physical(workspace);
   if (root !== path.resolve(workspace)) refuse("the workspace path is, or passes through, a symbolic link");
   const dirs = pnpmDirs(root);
 
@@ -584,7 +651,7 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   const toolsBefore = hashTree(HERE);
   const gitBefore = gitControlDigest(root);
   const homeBefore = homeConfigDigest();
-  const treeBefore = workingTreeDigest(root);
+  const treeBefore = workingTreeDigest(root, importers);
 
   // THE INSTALL. From here on the runner writes NOTHING under the workspace:
   // setting the branch's `.npmrc` files aside and putting them back is done
@@ -633,7 +700,7 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
     refuse("a package manager's configuration in the runner's home changed during the install");
   }
   checkTreeAfter(root);
-  if (workingTreeDigest(root) !== treeBefore) {
+  if (workingTreeDigest(root, importers) !== treeBefore) {
     refuse("the install changed the working tree outside node_modules");
   }
   if (status !== 0) return status;
