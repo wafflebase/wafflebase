@@ -56,13 +56,17 @@ function useDemoAvailability(): Availability {
 }
 
 /**
- * The live demo, rendered only once its documents are known to resolve.
- * Nothing renders while checking, so a deployment without them never flashes
- * the frame before it disappears.
+ * The live demo, collapsed only once its documents are known not to resolve.
+ *
+ * It renders while checking on purpose. The section sits right under the
+ * hero, so waiting for the check before rendering made every later section
+ * jump down on the deployment where the documents exist — every visit to
+ * wafflebase.io. A deployment without them collapses the section once
+ * instead, which is the case that can afford the shift.
  */
 export function DemoSection() {
   const availability = useDemoAvailability();
-  if (availability !== "available") return null;
+  if (availability === "unavailable") return null;
   return <LiveDemo />;
 }
 

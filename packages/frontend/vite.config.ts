@@ -209,7 +209,10 @@ function manualChunks(id: string): string | undefined {
   // and formula bundles (~1 MB gzip) on every route, the homepage included.
   // Giving them a home in the eager `vendor-app` chunk keeps the entry's
   // static graph free of engines. `verify:frontend:chunks` guards the result
-  // with its eager-bytes budget.
+  // with its eager-bytes budget. The core rule takes all of
+  // `@wafflebase/core`, which is fine while core is small; an engine-only
+  // subpath added later (e.g. `/ooxml`) belongs in its engine's chunk, not
+  // here, or it becomes eager on every route.
   if (
     normalizedId.includes("node_modules/@tanstack") ||
     normalizedId.includes("node_modules/react-router") ||

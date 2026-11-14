@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,6 +31,7 @@ vi.mock("@/api/folders", async (importOriginal) => ({
 }));
 
 import { deleteDocuments, restoreDocuments } from "@/api/documents";
+import { deleteFolder } from "@/api/folders";
 import { DocumentList } from "@/app/documents/document-list";
 import type { Document } from "@/types/documents";
 
@@ -70,6 +71,7 @@ describe("DocumentList delete → Trash", () => {
     toastError.mockReset();
     vi.mocked(deleteDocuments).mockClear();
     vi.mocked(restoreDocuments).mockClear();
+    vi.mocked(deleteFolder).mockClear();
   });
 
   it("moves a document to the Trash without a confirm, and Undo restores it", async () => {
@@ -131,5 +133,61 @@ describe("DocumentList delete → Trash", () => {
       await screen.findByRole("dialog", { name: "Delete “Archive”?" }),
     ).toBeTruthy();
     expect(deleteDocuments).not.toHaveBeenCalled();
+  });
+
+  const archive = {
+    id: "f-1",
+    name: "Archive",
+    parentId: null,
+    authorID: null,
+    createdAt: "2026-11-01T00:00:00.000Z",
+  };
+
+  it("deletes a folder only after the confirm, without an Undo", async () => {
+    renderList({
+      data: [],
+      workspaceId: "ws-1",
+      folders: [archive],
+      onNavigateFolder: () => {},
+    });
+
+    openMenu("Actions for Archive");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete “Archive”?" });
+    expect(deleteFolder).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteFolder).toHaveBeenCalledWith("f-1"));
+    expect(deleteDocuments).not.toHaveBeenCalled();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [message, options] = toastSuccess.mock.calls[0];
+    expect(message).toBe("Folder deleted");
+    expect(options?.action).toBeUndefined();
+  });
+
+  it("trashes the documents of a mixed selection and undoes only them", async () => {
+    renderList({
+      data: [doc("d1", "Roadmap"), doc("d2", "Budget")],
+      workspaceId: "ws-1",
+      folders: [archive],
+      onNavigateFolder: () => {},
+    });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Archive" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Roadmap" }));
+    // A folder in the selection turns the bulk action back into a confirmed
+    // "Delete" rather than "Move to Trash".
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(deleteDocuments).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteDocuments).toHaveBeenCalledWith(["d1"]));
+    await waitFor(() => expect(deleteFolder).toHaveBeenCalledWith("f-1"));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [message, options] = toastSuccess.mock.calls[0];
+    expect(message).toBe("Moved “Roadmap” to Trash");
+    options.action.onClick();
+    await waitFor(() => expect(restoreDocuments).toHaveBeenCalledWith(["d1"]));
   });
 });

@@ -48,7 +48,7 @@ const CANNOT_MANAGE =
 
 /** What "Delete forever" destroys, named so the confirm is not a formality. */
 const LOSS =
-  "Its content, comments, version history and share links are deleted. This can't be undone.";
+  "It can no longer be opened, restored or reached through its share links. This can't be undone.";
 
 /**
  * A row action that explains itself when the viewer may not use it. A
@@ -282,7 +282,7 @@ export default function TrashPage() {
             <AlertDialogDescription>
               {confirming?.kind === "one"
                 ? LOSS
-                : `This deletes ${manageable.length === 1 ? "1 document" : `${manageable.length} documents`} forever, with their content, comments, version history and share links. This can't be undone.${
+                : `This deletes ${manageable.length === 1 ? "1 document" : `${manageable.length} documents`} forever: they can no longer be opened, restored or reached through their share links. This can't be undone.${
                     manageable.length < trash.length
                       ? " Documents you can't manage stay in the Trash."
                       : ""

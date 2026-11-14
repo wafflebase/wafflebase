@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { WbButton } from "@/app/home/primitives/wb-button";
 import { cn } from "@/lib/utils";
+import { useBrandFonts } from "@/lib/brand-fonts";
 
 /** `Select` has no empty-string value, so "no facet" needs a sentinel. */
 const ANY = "__any__";
@@ -69,6 +70,11 @@ export function TemplateGallery({
   emptyHint?: string;
   skin?: GallerySkin;
 }) {
+  // The gallery is a brand surface wherever it mounts — the public
+  // /templates page, the workspace Templates tab, the new-from-template
+  // dialog — so it asks for the brand faces itself rather than relying on
+  // the route.
+  useBrandFonts();
   const marketing = skin === "marketing";
   const [type, setType] = useState(ANY);
   const [category, setCategory] = useState(ANY);

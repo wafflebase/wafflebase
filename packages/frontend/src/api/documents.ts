@@ -1,5 +1,4 @@
 import type { Document, DocumentType } from "@/types/documents";
-import { toast } from "sonner";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
 import { seg } from "./url";
@@ -150,7 +149,8 @@ export async function copyDocuments(ids: string[]): Promise<Document[]> {
 /**
  * Moves a document to its workspace's Trash. Soft: the row keeps its content
  * and can be brought back with {@link restoreDocument}; only
- * {@link deleteDocumentForever} destroys it.
+ * {@link deleteDocumentForever} destroys it. Silent — the caller decides what
+ * to tell the user (the documents list toasts with an Undo action).
  */
 export async function deleteDocument(id: string): Promise<void> {
   const response = await fetchWithAuth(
@@ -159,13 +159,7 @@ export async function deleteDocument(id: string): Promise<void> {
       method: "DELETE",
     }
   );
-
-  if (response.ok) {
-    toast.success("Moved to Trash");
-  } else {
-    toast.error("Couldn't delete the document");
-    await assertOk(response, "Couldn't delete the document");
-  }
+  await assertOk(response, "Couldn't move the document to the Trash");
 }
 
 /**
@@ -185,18 +179,11 @@ export async function deleteDocumentForever(id: string): Promise<void> {
 
 /**
  * Silently removes a document nobody asked for, such as the half-created
- * orphan of a failed import: trash it, then delete it from the Trash. Unlike
- * {@link deleteDocument} it shows no "Moved to Trash" toast, and unlike a bare
- * {@link deleteDocumentForever} it works on a live document.
+ * orphan of a failed import: trash it, then delete it from the Trash, since a
+ * bare {@link deleteDocumentForever} refuses a live document.
  */
 export async function discardDocument(id: string): Promise<void> {
-  const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(id)}`,
-    {
-      method: "DELETE",
-    }
-  );
-  await assertOk(response, "Couldn't delete the document");
+  await deleteDocument(id);
   await deleteDocumentForever(id);
 }
 

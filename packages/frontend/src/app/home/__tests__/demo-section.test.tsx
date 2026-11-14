@@ -18,10 +18,13 @@ beforeEach(() => {
 });
 
 describe("DemoSection", () => {
-  it("renders nothing while the demo documents are being checked", () => {
+  // The demo sits right under the hero: appearing only after the check
+  // resolved pushed every later section down on wafflebase.io, where the
+  // check always succeeds. It holds its place while checking instead.
+  it("renders the demo while the demo documents are being checked", () => {
     resolveShareLink.mockReturnValue(new Promise(() => {}));
-    const { container } = render(<DemoSection />);
-    expect(container).toBeEmptyDOMElement();
+    render(<DemoSection />);
+    expect(screen.getByText("Try it live")).toBeInTheDocument();
   });
 
   it("renders the live demo once every demo document resolves", async () => {

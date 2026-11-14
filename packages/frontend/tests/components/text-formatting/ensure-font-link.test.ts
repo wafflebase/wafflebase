@@ -277,6 +277,22 @@ describe('ensurePreviewFontLink', () => {
    * cascade for every codepoint and strips glyphs (and the bold cut) off a face
    * that already had them.
    */
+  // The app shell paints Fraunces (the sidebar wordmark) and JetBrains Mono
+  // (`--font-code`) from the brand stylesheet. A `&text=` subset face for
+  // either has no `unicode-range` and wins the cascade, stripping every glyph
+  // the row did not preview. Previewing one loads the whole brand sheet.
+  test('previews a brand face by loading the brand stylesheet, never a subset', () => {
+    for (const family of ['Fraunces', 'JetBrains Mono']) {
+      ensurePreviewFontLink(family, family);
+    }
+    expect(previewLinks()).toHaveLength(0);
+    const brand = document.getElementById('wb-brand-fonts');
+    expect(brand).not.toBeNull();
+    for (const link of document.head.querySelectorAll('link')) {
+      if (link.id === 'wb-brand-fonts' || link.rel === 'preconnect') link.remove();
+    }
+  });
+
   describe('against a stylesheet this module did not inject', () => {
     const SHELL_HREF =
       'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap';

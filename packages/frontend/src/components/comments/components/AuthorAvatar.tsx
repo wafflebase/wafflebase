@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { CommentAuthor } from "@/types/comments";
+import { avatarInitials } from "@/components/avatar-size";
 
 type Size = "sm" | "md";
 
@@ -21,8 +22,10 @@ interface Props {
 export function AuthorAvatar({ author, size = "sm" }: Props) {
   const sizeClass = size === "md" ? "h-5 w-5" : "h-4 w-4";
   // Initials sit at the Micro step (10px), the smallest legible size. Two
-  // letters at 10px overrun a 16px circle, so `sm` carries one.
-  const initials = author.username.slice(0, size === "md" ? 2 : 1);
+  // letters at 10px overrun a 16px circle, so `sm` carries only the first of
+  // the shared rule's letters.
+  const all = avatarInitials(author.username);
+  const initials = size === "md" ? all : Array.from(all)[0];
 
   return (
     <Avatar className={`${sizeClass} shrink-0`}>
@@ -30,7 +33,7 @@ export function AuthorAvatar({ author, size = "sm" }: Props) {
         <AvatarImage src={author.photo} alt={author.username} />
       )}
       <AvatarFallback className="text-2xs">
-        {initials.toUpperCase()}
+        {initials}
       </AvatarFallback>
     </Avatar>
   );

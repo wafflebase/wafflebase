@@ -78,7 +78,7 @@ export function HeaderPanelToggle({
       <TooltipTrigger asChild>
         <Toggle
           size="sm"
-          className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+          className="h-8 w-8 min-w-8 cursor-pointer border p-0 pointer-coarse:min-w-11"
           aria-label={name}
           pressed={pressed}
           onPressedChange={onPressedChange}

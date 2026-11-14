@@ -1,3 +1,4 @@
+import { avatarInitials } from "@/components/avatar-size";
 import {
   FormEvent,
   MouseEvent,
@@ -1012,7 +1013,7 @@ export function DocumentList({
                   <AvatarImage src={author.photo} alt={author.username} />
                 )}
                 <AvatarFallback className="text-2xs">
-                  {author.username.slice(0, 2).toUpperCase() || "??"}
+                  {avatarInitials(author.username)}
                 </AvatarFallback>
               </Avatar>
             </TooltipTrigger>

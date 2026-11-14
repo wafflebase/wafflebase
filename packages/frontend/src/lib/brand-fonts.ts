@@ -10,11 +10,13 @@ import { useEffect } from "react";
  * them. It also made a self-hosted install call a third party on every load.
  * Now nothing is requested until a brand route is shown.
  *
- * The app shell has one brand-face use left: the sidebar wordmark
- * (`font-display`). It is deliberately not worth a font request on app
- * routes, so there it renders in the stack's serif fallback (`ui-serif,
- * Georgia`) — unless a brand page already loaded the faces earlier in the
- * same session, since the stylesheet stays in the document once added.
+ * Inside the app, the template gallery is a brand surface too (the
+ * workspace Templates tab and the new-from-template dialog), so
+ * `TemplateGallery` calls `useBrandFonts()` itself. The other brand-face use
+ * in the app shell is the sidebar wordmark (`font-display`), deliberately not
+ * worth a font request on app routes: it renders in the stack's serif
+ * fallback (`ui-serif, Georgia`) unless a brand surface already loaded the
+ * faces earlier in the session, since the stylesheet stays once added.
  *
  * Fraunces italic is loaded for 500 only: the hero's second line
  * (hero-section.tsx, `font-medium italic`) is the one italic display text. A
@@ -24,6 +26,18 @@ import { useEffect } from "react";
  */
 export const BRAND_FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap";
+
+/**
+ * The families `BRAND_FONTS_HREF` loads in full. The app shell paints two of
+ * them outside brand pages (`.font-display`, `--font-code`), so the font
+ * catalog must never preview one with a `&text=` subset — see
+ * `ensurePreviewFontLink`.
+ */
+export const BRAND_FONT_FAMILIES: ReadonlySet<string> = new Set([
+  "Fraunces",
+  "Inter",
+  "JetBrains Mono",
+]);
 
 const STYLESHEET_ID = "wb-brand-fonts";
 

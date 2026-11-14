@@ -235,8 +235,15 @@ first wins and the other is a `404`.
   that delete a document now trash it, and its blob stays. The response shape
   is unchanged and the document disappears from every read exactly as before,
   so a caller that only checks the status sees no difference; one that needs
-  the bytes gone passes `?permanent=true`.
+  the bytes gone follows with `DELETE …?permanent=true`, which only reaches a
+  document already in the trash.
 - **A trashed document's Yorkie session already open.** A client attached
   before the trash keeps its local copy; the webhook refuses its next
   `PushPull`, so it can neither read new changes nor write. That is the same
   behavior a revoked share link already has.
+- **A leaked share link cannot be revoked from the trash.** Share-link
+  routes resolve the document first and answer `404` for a trashed one, so
+  while it sits in the trash its links can be neither listed nor revoked, and
+  restoring it revives them as they were. The links do not work while it is
+  trashed, which is the property that matters; to kill one for good, delete
+  the document forever, or restore it and revoke the link.

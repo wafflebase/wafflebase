@@ -4,9 +4,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * The default `deleteDoc` both import paths use to clean up an orphaned,
  * half-created document.
  *
- * `deleteDocument` is a soft delete that toasts "Moved to Trash", so using it
- * here parked every failed import in the Trash and showed a success toast next
- * to the import error, and `deleteDocumentForever` alone 404s on a live
+ * `deleteDocument` is a soft delete, so using it here parked every failed
+ * import in the Trash, and `deleteDocumentForever` alone 404s on a live
  * document. Cleanup must remove the orphan permanently and silently through
  * `discardDocument`, so these tests leave `deleteDoc` un-injected and assert which API
  * helper the production default reaches.

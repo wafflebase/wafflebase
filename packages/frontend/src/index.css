@@ -102,6 +102,23 @@
 }
 
 /*
+ * The focus contract from DESIGN.md: a 3px 50%-syrup ring plus a syrup
+ * border, on keyboard focus only. `Button`/`Input` carry it in their cva
+ * bases; raw `<button>`s and hand-built controls opt in with `focus-ring`.
+ * The outline is transparent rather than `none`: forced-colors mode drops
+ * box-shadows and repaints the outline in a system color, so it is the only
+ * focus indicator left there.
+ */
+@utility focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  &:focus-visible {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+}
+
+/*
  * Font families. `tokens.css` already defines `--font-display`,
  * `--font-body` and `--font-code` on `:root` with the real stacks, so this
  * block only registers the names for the `font-*` utilities. `reference`
@@ -110,19 +127,6 @@
  * value) the moment it is the declaration that wins, and only lost to
  * tokens.css by cascade order.
  */
-/*
- * The focus contract from DESIGN.md: a 3px 50%-syrup ring plus a syrup
- * border, on keyboard focus only. `Button`/`Input` carry it in their cva
- * bases; raw `<button>`s and hand-built controls opt in with `focus-ring`.
- */
-@utility focus-ring {
-  outline: none;
-  &:focus-visible {
-    border-color: var(--ring);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
-  }
-}
-
 @theme inline reference {
   /* stylelint-disable value-keyword-case */
   --font-display: var(--font-display);

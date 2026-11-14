@@ -104,7 +104,7 @@ describe("TrashPage", () => {
       name: "Delete “Roadmap” forever?",
     });
     expect(dialog.textContent).toMatch(
-      /content, comments, version history and share links/,
+      /can no longer be opened, restored or reached through its share links/,
     );
     expect(deleteDocumentForever).not.toHaveBeenCalled();
     // Cancel holds the initial focus, so a stray Enter does not destroy.

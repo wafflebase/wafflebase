@@ -56,6 +56,33 @@
         ],
         "createdAt": "2026-11-14T07:37:16.727Z",
         "reason": "agent: Fraunces is the brand display face pinned in DESIGN.md Typography; this file is its loader"
+      },
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "files": [
+          "packages/frontend/tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T10:57:39.878Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "lobster two",
+        "files": [
+          "packages/frontend/tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T10:57:39.893Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "lobster",
+        "files": [
+          "packages/frontend/tests/components/text-formatting/ensure-font-link.test.ts"
+        ],
+        "createdAt": "2026-11-14T10:57:39.908Z",
+        "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
       }
     ]
   }
