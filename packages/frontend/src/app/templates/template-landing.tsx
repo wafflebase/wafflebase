@@ -196,11 +196,7 @@ export function TemplateLanding() {
             }}
           >
             <div
-              className="flex aspect-[16/10] w-full items-center justify-center"
-              style={{
-                background:
-                  "color-mix(in srgb, var(--wb-butter) 22%, transparent)",
-              }}
+              className="flex aspect-[16/10] w-full items-center justify-center bg-[color:var(--wb-wash)]"
             >
               {t.thumbnailId && !thumbnailBroken ? (
                 <img

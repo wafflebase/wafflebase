@@ -33,6 +33,13 @@ no mark at all.
       `packages/*` (user asked for an infographic; first misread as the
       area under the hero, then clarified). Rendered desktop light/dark +
       390px mobile; `docs/design/homepage.md` updated.
+- [x] Color check: current palette + three directions mocked (Refined
+      Maple / Clay / Ink & Syrup); user took Refined Maple. Brand surfaces
+      move to `palette.brandNeutrals` (ivory / charcoal, `--wb-wash`); the
+      engines' `palette.neutrals` is untouched so document colors don't
+      change. Butter chips / thumbnails / icon tiles → `--wb-wash`; dark
+      `--wb-syrup-deep` → bright syrup; terminal → charcoal. New contrast
+      test covers ink / sub / deep syrup on bg, paper and wash.
 
 ## Review
 

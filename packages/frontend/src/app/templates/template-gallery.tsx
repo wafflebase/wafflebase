@@ -357,10 +357,7 @@ function MarketingGalleryCard({
       style={{ boxShadow: PAPER_SHADOW }}
     >
       <div
-        className="relative aspect-[16/10] w-full overflow-hidden border-b border-[color:var(--wb-rule)]"
-        style={{
-          background: "color-mix(in srgb, var(--wb-butter) 22%, transparent)",
-        }}
+        className="relative aspect-[16/10] w-full overflow-hidden border-b border-[color:var(--wb-rule)] bg-[color:var(--wb-wash)]"
       >
         {thumbnail ? (
           <img
@@ -411,11 +408,7 @@ function MarketingGalleryCard({
           <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
             {card.category && (
               <span
-                className="rounded-full px-2.5 py-1 font-code text-[11.5px] uppercase tracking-[0.1em] text-[color:var(--wb-syrup-deep)]"
-                style={{
-                  background:
-                    "color-mix(in srgb, var(--wb-butter) 30%, transparent)",
-                }}
+                className="rounded-full bg-[color:var(--wb-wash)] px-2.5 py-1 font-code text-[11.5px] uppercase tracking-[0.1em] text-[color:var(--wb-syrup-deep)]"
               >
                 {card.category}
               </span>

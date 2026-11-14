@@ -29,13 +29,7 @@ export function OpenSourceSection() {
               {BADGES.map((b) => (
                 <span
                   key={b}
-                  className="font-code text-[12px] tracking-[0.04em] px-3 py-1.5 rounded-full text-[color:var(--wb-syrup-deep)]"
-                  style={{
-                    background:
-                      "color-mix(in srgb, var(--wb-butter) 30%, transparent)",
-                    border:
-                      "1px solid color-mix(in srgb, var(--wb-syrup) 30%, transparent)",
-                  }}
+                  className="font-code text-[12px] tracking-[0.04em] px-3 py-1.5 rounded-full text-[color:var(--wb-ink)] bg-[color:var(--wb-wash)] border border-[color:var(--wb-rule)]"
                 >
                   {b}
                 </span>

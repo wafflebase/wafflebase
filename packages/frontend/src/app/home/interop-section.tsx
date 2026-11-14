@@ -73,11 +73,7 @@ function InteropCard({ Glyph, title, caption, formats }: InteropCardProps) {
     >
       <div className="flex items-center gap-3">
         <div
-          className="inline-flex items-center justify-center size-9 rounded-lg"
-          style={{
-            background: "color-mix(in srgb, var(--wb-butter) 35%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--wb-syrup) 25%, transparent)",
-          }}
+          className="inline-flex items-center justify-center size-9 rounded-lg bg-[color:var(--wb-wash)] border border-[color:var(--wb-rule)]"
         >
           <Glyph className="size-[18px] text-[color:var(--wb-syrup-deep)]" />
         </div>

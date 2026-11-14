@@ -28,6 +28,8 @@ describe('WCAG AA contrast', () => {
       semantic.light.popover,
       palette.neutrals.light.bg,
       palette.neutrals.light.paper,
+      palette.brandNeutrals.light.bg,
+      palette.brandNeutrals.light.paper,
     ],
     dark: [
       semantic.dark.background,
@@ -35,6 +37,8 @@ describe('WCAG AA contrast', () => {
       semantic.dark.popover,
       palette.neutrals.dark.bg,
       palette.neutrals.dark.paper,
+      palette.brandNeutrals.dark.bg,
+      palette.brandNeutrals.dark.paper,
     ],
   };
 
@@ -102,6 +106,19 @@ describe('WCAG AA contrast', () => {
     const ratio = contrastRatio(palette.neutrals.light.ink, palette.butter);
     expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL);
   });
+
+  it.each(['light', 'dark'] as const)(
+    'brand ink, sub and deep-syrup text pass AA on page, paper and wash in %s mode',
+    (theme) => {
+      const n = palette.brandNeutrals[theme];
+      const deep = theme === 'light' ? palette.syrupDeep : palette.syrupBright;
+      for (const surface of [n.bg, n.paper, n.wash]) {
+        expect(contrastRatio(n.ink, surface)).toBeGreaterThanOrEqual(AA_NORMAL);
+        expect(contrastRatio(n.sub, surface)).toBeGreaterThanOrEqual(AA_NORMAL);
+        expect(contrastRatio(deep, surface)).toBeGreaterThanOrEqual(AA_NORMAL);
+      }
+    },
+  );
 
   it.each(['fg', 'keyword', 'flag'] as const)(
     'terminal %s passes AA on the locked terminal background',

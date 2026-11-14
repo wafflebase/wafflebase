@@ -5,18 +5,19 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
 
 :root {
   --radius: 0.3rem;
-  --wb-terminal-bg: #1C1610;
-  --wb-terminal-fg: #FBF6EC;
+  --wb-terminal-bg: #161615;
+  --wb-terminal-fg: #F5F4F1;
   --wb-terminal-keyword: #E27A7E;
   --wb-terminal-flag: #A0C078;
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --wb-bg: #FBF6EC;
-  --wb-paper: #FFFDF7;
-  --wb-ink: #2A1E12;
-  --wb-sub: #6B584A;
-  --wb-rule: #E8DCC4;
+  --wb-bg: #FAF9F6;
+  --wb-paper: #FFFFFF;
+  --wb-ink: #1C1B19;
+  --wb-sub: #5F5B55;
+  --wb-rule: #E7E4DE;
+  --wb-wash: #F1EEE8;
   --wb-syrup: #B8651A;
   --wb-syrup-deep: #8A4A12;
   --wb-butter: #F4C95D;
@@ -71,13 +72,14 @@ exports[`renderTokensCss > renders the whole stylesheet identically 1`] = `
 }
 
 .dark {
-  --wb-bg: #1C1610;
-  --wb-paper: #241D14;
-  --wb-ink: #FBF6EC;
-  --wb-sub: #B5A48A;
-  --wb-rule: #3A2E1F;
+  --wb-bg: #161615;
+  --wb-paper: #1F1F1D;
+  --wb-ink: #F5F4F1;
+  --wb-sub: #A8A49C;
+  --wb-rule: #2E2D2A;
+  --wb-wash: #2A2927;
   --wb-syrup: #E08A3A;
-  --wb-syrup-deep: #F4C95D;
+  --wb-syrup-deep: #E08A3A;
   --wb-butter: #F4C95D;
   --wb-berry: #E27A7E;
   --wb-leaf: #A0C078;

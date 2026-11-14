@@ -22,3 +22,7 @@
   I read "첫화면 하단" as under the hero and asked about the live demo;
   the user meant the BigWaffle in the last panel. Screenshot the whole
   page and point at the candidate before asking about the wrong one.
+- **A brand palette token can be a document color.** `palette.neutrals`
+  fed the docs default text, formatting swatches and a slide theme, so
+  restyling the brand by editing it would have recolored content. Grep a
+  token's consumers before changing its value; split a brand-only set.

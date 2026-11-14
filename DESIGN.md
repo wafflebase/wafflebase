@@ -12,15 +12,18 @@ colors:
   berry-bright: "#E27A7E"
   leaf: "#5A7A3A"
   leaf-bright: "#A0C078"
-  cream-bg: "#FBF6EC"
-  cream-paper: "#FFFDF7"
-  walnut-ink: "#2A1E12"
-  cocoa-sub: "#6B584A"
-  oat-rule: "#E8DCC4"
-  roast-bg: "#1C1610"
-  roast-paper: "#241D14"
-  roast-sub: "#B5A48A"
-  roast-rule: "#3A2E1F"
+  ivory-bg: "#FAF9F6"
+  ivory-paper: "#FFFFFF"
+  ink: "#1C1B19"
+  stone-sub: "#5F5B55"
+  stone-rule: "#E7E4DE"
+  stone-wash: "#F1EEE8"
+  charcoal-bg: "#161615"
+  charcoal-paper: "#1F1F1D"
+  charcoal-ink: "#F5F4F1"
+  charcoal-sub: "#A8A49C"
+  charcoal-rule: "#2E2D2A"
+  charcoal-wash: "#2A2927"
   on-syrup: "#FFFAF0"
   link: "#1967D2"
   link-bright: "#8AB4F8"
@@ -253,12 +256,12 @@ components:
   brand-button-primary-hover:
     backgroundColor: "{colors.syrup-deep}"
   brand-button-ghost:
-    textColor: "{colors.walnut-ink}"
+    textColor: "{colors.ink}"
     rounded: "{rounded.pill}"
     padding: "9px 16px"
   brand-card:
-    backgroundColor: "{colors.cream-paper}"
-    textColor: "{colors.walnut-ink}"
+    backgroundColor: "{colors.ivory-paper}"
+    textColor: "{colors.ink}"
     rounded: "{rounded.brand-card}"
     padding: "28px 24px 24px"
 ---
@@ -277,7 +280,7 @@ controls stay small (28px toolbar targets, 36px form controls) so the canvas
 gets the room.
 
 Warmth is the ledger's binding, not its pages. The Butter & Maple palette
-(syrup, butter, cream paper, walnut ink) and the Fraunces display face set
+(syrup on near-neutral ivory and ink) and the Fraunces display face set
 the brand surfaces: the homepage, sign-in, the template gallery and the
 sidebar wordmark. Inside the editors that warmth survives only as the syrup
 accent on the primary action, focus ring and selection frames, and as the
@@ -298,11 +301,11 @@ tick marks.
 ## Colors
 
 A cool, near-colorless working surface with a single warm syrup accent; the
-brand layer swaps the zinc for cream paper and walnut ink.
+brand layer swaps the zinc for warm-neutral ivory and ink.
 
 ### Primary
-- **Maple Syrup** (syrup): the one accent as a *graphic*. Focus rings, selection frames and handles in every editor (the sheets active cell, filter range frame, formula references and object layer, docs image selection and drag guides, slides handles and lasso), chart series 1, the brand illustrations. It is 4.27:1 on white, enough for a 3:1 mark and not for words, so it never carries text. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
-- **Strong Syrup** (syrup-strong): the one accent wherever it carries words, the `primary` token in light mode. Primary button and badge fills (5.32:1 under on-syrup), the brand pill CTA, and `text-primary` (5.53:1 on white, 5.14:1 on cream). Dark mode's `primary` stays syrup-bright under roast text (6.71:1).
+- **Maple Syrup** (syrup): the one accent as a *graphic*. Focus rings, selection frames and handles in every editor (the sheets active cell, filter range frame, formula references and object layer, docs image selection and drag guides, slides handles and lasso), chart series 1, the brand illustrations. It is 4.27:1 on white, enough for a 3:1 mark and not for words, so it never carries text. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on charcoal surfaces.
+- **Strong Syrup** (syrup-strong): the one accent wherever it carries words, the `primary` token in light mode. Primary button and badge fills (5.32:1 under on-syrup), the brand pill CTA, and `text-primary` (5.53:1 on white, 5.26:1 on ivory). Dark mode's `primary` stays syrup-bright under roast text (6.71:1).
 - **Deep Syrup** (syrup-deep): the light-mode `primary-hover` (6.58:1 under on-syrup), the active sidebar item's text, and brand chip and footer-heading labels. Dark mode's `primary-hover` is **Pressed Bright Syrup** (syrup-bright-pressed, 5.39:1 under roast). Hover always presses *darker*: a translucent `bg-primary/90` fades toward the page and lightens a light-mode fill, so primary controls use `hover:bg-primary-hover`.
 
 ### Secondary
@@ -311,7 +314,7 @@ brand layer swaps the zinc for cream paper and walnut ink.
 ### Tertiary
 - **Berry** (berry / berry-bright): brand-surface error and emphasis (the homepage's ✕ marks and code-sample keywords), and a swatch in the formatting palette and the Wafflebase slide theme. It is the `type-pdf` hue too.
 - **Leaf** (leaf / leaf-bright): success signals, such as the homepage's ✓ marks. In the app it is the `success` token (`text-success`; 4.91:1 light, 9.76:1 dark) and the `type-sheet` hue.
-- **Terminal hues**: the homepage code sample sits on a roast panel in both themes, so its keywords and flags use the locked `--wb-terminal-keyword` (berry-bright, 6.25:1) and `--wb-terminal-flag` (leaf-bright, 8.80:1), never the theme-flipping `--wb-berry` / `--wb-leaf`, whose light stops are 3.69:1 / 3.65:1 there.
+- **Terminal hues**: the homepage code sample sits on a charcoal panel in both themes, so its keywords and flags use the locked `--wb-terminal-keyword` (berry-bright, 6.25:1) and `--wb-terminal-flag` (leaf-bright, 8.80:1), never the theme-flipping `--wb-berry` / `--wb-leaf`, whose light stops are 3.69:1 / 3.65:1 there.
 
 ### Data and identity
 - **Chart series** (`chart-1`…`chart-5`): syrup, denim, teal, rose, olive gold, each with a lifted dark-mode stop. No purple, none equal to a status token, every series ≥3:1 on `background`. Only the analytics trend chart consumes them today; document charts inside sheets and slides keep their own palettes.
@@ -325,9 +328,11 @@ brand layer swaps the zinc for cream paper and walnut ink.
 - **Zinc Wash** (app-muted) / **Zinc Sub** (app-muted-foreground): hover fills, secondary text, placeholders.
 - **Zinc Rule** (app-border): every hairline in the app: toolbars, panels, cards.
 - **Control Edge** (app-input-border / app-input-border-dark, the `input-border` token): the boundary of a form control — `Input`, `Textarea`, the `Select` trigger, a `Switch`'s off track. A hairline is ~1.3:1 and fine between regions; a control's edge tells you where to click, so it clears WCAG 1.4.11's 3:1 (3.37:1 light on `background`, 3.60:1 dark, 3.21:1 on a dark popover).
-- **Cream** (cream-bg) / **Cream Paper** (cream-paper): brand-surface page and raised paper.
-- **Walnut Ink** (walnut-ink) / **Cocoa** (cocoa-sub) / **Oat Rule** (oat-rule): brand-surface text, secondary text and borders.
-- **Roast** (roast-bg, roast-paper, roast-sub, roast-rule): the brand layer's dark pair. The app's dark chrome stays on zinc (app-background-dark, app-card-dark, app-muted-dark, app-foreground-dark, app-muted-foreground-dark, app-border-dark).
+- **Ivory** (ivory-bg) / **Ivory Paper** (ivory-paper): brand-surface page and raised paper. Near-neutral with a trace of warmth; the yellow cream it replaced put every surface in syrup's own hue family, so nothing stood apart.
+- **Ink** (ink) / **Stone** (stone-sub) / **Stone Rule** (stone-rule): brand-surface text, secondary text and borders.
+- **Stone Wash** (stone-wash / charcoal-wash, `--wb-wash`): the quiet fill for brand chips, template thumbnails and icon tiles, where butter used to sit. Ink, sub and deep-syrup text all clear 4.5:1 on it.
+- **Charcoal** (charcoal-bg, charcoal-paper, charcoal-ink, charcoal-sub, charcoal-rule): the brand layer's dark pair, a neutral charcoal rather than brown roast; dark mode's `--wb-syrup-deep` is bright syrup, not butter.
+- These are `palette.brandNeutrals` in `@wafflebase/core/tokens`, separate from `palette.neutrals` (the old cream/walnut values), which the engines still use as *document* colors — docs default text, the formatting swatches, the Wafflebase slide theme. Restyling the brand must not recolor content. The app's dark chrome stays on zinc (app-background-dark, app-card-dark, app-muted-dark, app-foreground-dark, app-muted-foreground-dark, app-border-dark).
 
 ### Named Rules
 **The One Accent Rule.** Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong; the same goes for two primary buttons in one view (workspace settings keeps "Create invite link" primary and steps "Create API key" down to outline beside it). Hyperlink blue is the sole exception, and only on actual URLs. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.
@@ -459,7 +464,7 @@ Precise and restrained.
 - **Do** place and behave like the Google suite in the editors (menus, toolbar order, shortcuts).
 
 ### Don't:
-- **Don't** use Fraunces (beyond the sidebar wordmark), cream paper or pill buttons inside an editor or workspace screen.
+- **Don't** use Fraunces (beyond the sidebar wordmark), ivory brand surfaces or pill buttons inside an editor or workspace screen.
 - **Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, success) are for status only, and raw Tailwind hues (`text-red-500`, `bg-zinc-300`) never stand in for them.
 - **Don't** hard-code a hex in a component or engine when a token exists.
 - **Don't** add decorative shadows or gradients to app chrome.
