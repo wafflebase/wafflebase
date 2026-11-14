@@ -5,12 +5,12 @@
 // wholesale, leaving `no-undef` — the rule the whole config exists for — disabled.
 // `eslint scripts` still exited 0, so the only symptom was silence.
 //
-// EVERY IMPORT OF THE CONFIG IS DYNAMIC, and that is not stylistic. `agent:tests`
-// runs with `scripts/agent/node_modules` ABSENT (see ask.test.mjs's third-party
-// import invariant), and the config legitimately needs `@eslint/js` and `globals`.
-// A static import would make this file's dependencies the whole lane's, so they are
-// loaded inside the tests and their absence SKIPS rather than fails — the same shape
-// as the SDK-dependent probe test elsewhere in this suite.
+// EVERY IMPORT OF THE CONFIG IS DYNAMIC, and that is not stylistic. The config
+// legitimately needs `@eslint/js` and `globals`, which only the root workspace
+// install provides. A static import would make this file's dependencies the whole
+// lane's, so they are loaded inside the tests and their absence SKIPS rather than
+// fails. (This suite lived in `scripts/agent/` until wafflebase's own files moved
+// out of the shared harness core; what it tests is this repository's config.)
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

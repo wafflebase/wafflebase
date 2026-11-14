@@ -1,4 +1,4 @@
-// Do the tests in this directory actually RUN in CI?
+// Do the agent harness's tests actually RUN in CI?
 //
 // They once did not. `verify-self.mjs`'s `agent:tests` lane was
 // `cd scripts/agent && node --test *.test.mjs` — a FLAT shell glob, which matches
@@ -15,8 +15,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const VERIFY_SELF = path.join(AGENT_DIR, "..", "verify-self.mjs");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const VERIFY_SELF = path.join(HERE, "..", "verify-self.mjs");
 
 function laneCmd() {
   const src = readFileSync(VERIFY_SELF, "utf8");
@@ -120,7 +120,7 @@ test("every agent workflow's github-script steps set retries", () => {
   //
   // Asserted rather than documented because the DEFAULT is the dangerous value:
   // a newly added step inherits zero retries and nothing complains.
-  const dir = path.join(AGENT_DIR, "..", "..", ".github", "workflows");
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
   const files = readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"));
   assert.ok(files.length > 0, "no agent-*.yml workflows found — re-point this test rather than deleting it");
 

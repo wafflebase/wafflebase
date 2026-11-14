@@ -2879,7 +2879,7 @@ Three notes on the shape:
   failure mode of losing it is this lint silently not running — the exact shape of
   the gap it closes.
 
-The config is itself under test (`scripts/agent/lint-config.test.mjs`). That is not
+The config is itself under test (`scripts/test/lint-config.test.mjs`). That is not
 belt-and-braces: the first version spread `js.configs.recommended` and then set
 `rules`, which **replaced** the recommended set and left `no-undef` disabled.
 `eslint scripts` still exited 0. A config that lints nothing reports success, so
