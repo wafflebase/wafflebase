@@ -29,6 +29,15 @@
         ],
         "createdAt": "2026-11-14T07:39:32.604Z",
         "reason": "agent: font-family strings are URL-parsing test fixtures, not UI type"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "src/app/home/demo-section.tsx"
+        ],
+        "createdAt": "2026-11-14T11:24:28.825Z",
+        "reason": "agent: 2px bottom border marks the active tab on a top-rounded tab, not a card accent stripe (verified in critique B, 2026-11-14)"
       }
     ]
   }

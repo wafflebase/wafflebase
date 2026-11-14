@@ -1824,29 +1824,44 @@ describe('TemplateService with a trashed source document', () => {
     }
   });
 
-  it('drops out of the reviewer queue and the report queue', async () => {
+  it('drops out of the submission queue but stays in the report queue', async () => {
+    // Trashing the source must not hide a report from the reviewer: the
+    // publisher controls the trash, so a queue that dropped trashed listings
+    // would let them park reported content out of sight and restore it later.
     const { service, prisma } = makeService();
     await service.listForReview();
     await service.listReports();
     expect(
       prisma.templateListing.findMany.mock.calls[0][0].where,
     ).toMatchObject({ document: { deletedAt: null } });
-    expect(
-      (
-        prisma.templateReport.findMany.mock.calls as unknown as Array<
-          [{ where: ListingFields }]
-        >
-      )[0][0].where,
-    ).toMatchObject({ listing: { document: { deletedAt: null } } });
+    const reportWhere = (
+      prisma.templateReport.findMany.mock.calls as unknown as Array<
+        [{ where: Record<string, unknown> }]
+      >
+    )[0][0].where;
+    expect(reportWhere).toEqual({ status: 'open' });
   });
 
-  it('cannot be reviewed', async () => {
+  it('cannot be approved or rejected', async () => {
     const { service } = makeService({
       listing: { ...TRASHED, status: 'pending' },
     });
     await expect(
       service.review('tpl-1', 99, { decision: 'reject' }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  // The takedown is the one decision a trashed source must not block: the
+  // listing and its reports survive the trash, the publisher alone can
+  // restore, and a restore brings the listing back as it was.
+  it('can still be taken down, revoking its preview link', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...TRASHED, visibility: 'public', status: 'listed' },
+    });
+    await service.review('tpl-1', 99, { decision: 'takedown', note: 'abuse' });
+    expect(prisma.shareLink.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'link-1' },
+    });
   });
 
   it('is absent from the Share dialog lookup', async () => {

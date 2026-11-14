@@ -613,7 +613,15 @@ export class TemplateService {
       where: { id },
       include: LISTING_INCLUDE,
     });
-    if (!listing || !isLiveDocument(listing.document)) {
+    // A takedown stays recordable on a trashed source; approve and reject do
+    // not. The publisher controls the trash and alone can restore, and a
+    // restore brings the listing back as it was — so refusing a takedown here
+    // would let them freeze one by trashing the document and reviving it once
+    // the reviewer moved on.
+    if (
+      !listing ||
+      (dto.decision !== 'takedown' && !isLiveDocument(listing.document))
+    ) {
       throw new NotFoundException('Template not found');
     }
     assertDecisionAllowed(listing.status, dto.decision);
@@ -794,9 +802,10 @@ export class TemplateService {
   /** Open reports, oldest first, with the listing each one is about. */
   async listReports(): Promise<TemplateReportView[]> {
     const rows = await this.prisma.templateReport.findMany({
-      // A listing whose document is in the trash is out of every queue: its
-      // preview token resolves to nothing until the document is restored.
-      where: { status: 'open', listing: { document: LIVE_DOCUMENT } },
+      // Trashed sources stay in this queue on purpose (see `review`): their
+      // preview resolves to nothing until restored, but a takedown can still
+      // be recorded against them.
+      where: { status: 'open' },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: REVIEW_QUEUE_LIMIT,
       include: { listing: { include: LISTING_INCLUDE } },

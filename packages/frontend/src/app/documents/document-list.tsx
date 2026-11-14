@@ -206,6 +206,21 @@ const COLUMN_CLASS: Record<string, string> = {
 };
 
 /**
+ * A mixed delete trashes its documents, then deletes its folders, as separate
+ * requests. This is the second one failing after the first succeeded: it
+ * carries the ids that did reach the Trash, so they can still be undone.
+ */
+class FolderDeleteError extends Error {
+  constructor(
+    readonly trashedDocIds: string[],
+    readonly cause: unknown,
+  ) {
+    super("Couldn't delete the folder");
+    this.name = "FolderDeleteError";
+  }
+}
+
+/**
  * The toast for documents that just moved to the Trash. Names the document
  * when there is one, since "Moved to Trash" alone does not say which.
  */
@@ -598,7 +613,13 @@ export function DocumentList({
       folderIds: string[];
     }) => {
       if (docIds.length) await deleteDocuments(docIds);
-      await Promise.all(folderIds.map((id) => deleteFolder(id)));
+      try {
+        await Promise.all(folderIds.map((id) => deleteFolder(id)));
+      } catch (cause) {
+        // The documents are already in the Trash by now; say so in the error
+        // so `onError` can still offer their Undo.
+        throw new FolderDeleteError(docIds, cause);
+      }
     },
     onSuccess: (_res, vars) => {
       invalidateLists();
@@ -617,10 +638,20 @@ export function DocumentList({
         );
       }
     },
-    onError: (err) =>
-      toast.error(
-        userFacingError(err, "Couldn't delete the selected items. Try again."),
-      ),
+    onError: (err) => {
+      if (err instanceof FolderDeleteError) {
+        if (err.trashedDocIds.length) announceTrashed(err.trashedDocIds);
+        toast.error(
+          userFacingError(err.cause, "Couldn't delete the folder. Try again."),
+        );
+      } else {
+        toast.error(
+          userFacingError(err, "Couldn't delete the selected items. Try again."),
+        );
+      }
+    },
+    // A partial failure has still changed the server: refetch either way.
+    onSettled: () => invalidateLists(),
   });
 
   // Route a delete: straight to the Trash when only documents are involved,

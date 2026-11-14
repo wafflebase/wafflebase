@@ -32,3 +32,15 @@
   touch, the trash doc names the unrevokable-link case.
   Lesson: removing a global stylesheet breaks every module that assumed it —
   grep for the file name in comments (`index.html`) before deleting a link.
+- Round 3 (security/docs): 4 blockers, all fixed — no round 4 (the bound).
+  security — trashing a source froze a pending takedown (review 404'd, the
+  report queue hid it) and restore revived it; takedown is now allowed on a
+  trashed source and the report queue is ungated, documented as the one
+  exception to the invariant. correctness — a mixed delete whose folder step
+  failed after its documents were trashed showed only an error and never
+  refetched; it now keeps their Undo and refetches on settle. test-adequacy —
+  the analytics dashboard's live-document guard is now tested against a stub
+  that honors `where` (mutation-checked), and the `focus-ring` utility is
+  compiled with Tailwind in a test.
+  Lesson: an invariant ("trashed = invisible") applied to moderation paths
+  becomes an evasion tool; ask who controls the state before gating on it.

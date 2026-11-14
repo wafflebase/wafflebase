@@ -190,4 +190,31 @@ describe("DocumentList delete → Trash", () => {
     options.action.onClick();
     await waitFor(() => expect(restoreDocuments).toHaveBeenCalledWith(["d1"]));
   });
+
+  // The documents are trashed first and the folder second, as two requests.
+  // When the second fails the first has still happened: its documents get
+  // their Undo, and the failure is reported for the folder alone.
+  it("keeps the Undo for trashed documents when the folder delete fails", async () => {
+    vi.mocked(deleteFolder).mockRejectedValueOnce(new Error("boom"));
+    renderList({
+      data: [doc("d1", "Roadmap")],
+      workspaceId: "ws-1",
+      folders: [archive],
+      onNavigateFolder: () => {},
+    });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Archive" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Roadmap" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls[0][0])).toMatch(/folder/i);
+    expect(toastSuccess).toHaveBeenCalled();
+    const [message, options] = toastSuccess.mock.calls[0];
+    expect(message).toBe("Moved “Roadmap” to Trash");
+    options.action.onClick();
+    await waitFor(() => expect(restoreDocuments).toHaveBeenCalledWith(["d1"]));
+  });
 });

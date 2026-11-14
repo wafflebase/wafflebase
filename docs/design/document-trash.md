@@ -161,8 +161,9 @@ Every path that reads a document, and how it is gated:
 | Comment notification report | `LIVE_DOCUMENT` → `404` |
 | Template publish / update / submit / unpublish | `assertManager` with `LIVE_DOCUMENT` → `404` |
 | Template preview (`findForViewer`), use, report | `isLiveDocument(listing.document)` → `404` |
-| Template gallery (`browse`), reviewer queue, report queue | `document: LIVE_DOCUMENT` in the query |
-| Template review | `isLiveDocument(listing.document)` → `404` |
+| Template gallery (`browse`), reviewer (submission) queue | `document: LIVE_DOCUMENT` in the query |
+| Template report queue | **not gated** — a report on a trashed source stays visible (see below) |
+| Template review | approve / reject: `isLiveDocument(listing.document)` → `404`; **takedown is allowed** on a trashed source |
 | Share dialog template lookup (`findByDocument`) | `isLiveDocument` → `null` |
 | `DocumentCopyService.copy` | `assertLiveDocument(source)` — defense in depth |
 | `/api/v1` documents list / get / copy / patch | `DocumentService` (live-only) |
@@ -195,9 +196,17 @@ Nothing related to a document is deleted when it is trashed, only hidden:
 - **Share links** keep their rows. They resolve to `404` while the document is
   trashed and work again after a restore, with the same tokens and expiry.
 - **Template listings** keep their rows and their review state. The listing
-  leaves every gallery and queue and its preview 404s, for its manager too —
+  leaves every gallery and the submission queue and its preview 404s, for its
+  manager too —
   the listing is a window onto the document. Restoring the document brings it
   back as it was; a permanent delete cascades it away (`onDelete: Cascade`).
+- **Moderation is the one exception to the invariant.** The publisher controls
+  the trash and alone can restore, and a restore brings a listing back as it
+  was. If trashing hid a listing from reviewers, a publisher could freeze a
+  pending takedown by trashing the source and restoring it once the reviewer
+  moved on. So the report queue keeps reports on trashed sources, and a
+  takedown can be recorded against one (revoking its preview link and writing
+  the `removed` tombstone); approve and reject still require a live source.
 - **Notifications** already delivered stay in the recipient's inbox. They are
   history, the recipient was a member when they were sent, and following one
   lands on the document's not-found state rather than a crash. New comment
