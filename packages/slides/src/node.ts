@@ -75,11 +75,14 @@ export {
 } from './model/band-numerics';
 
 export type {
+  ChartElement,
+  ChartKind,
   Crop,
   Element,
   ElementBase,
   ElementInit,
   ElementType,
+  FreeformCommand,
   Frame,
   ImageElement,
   ShapeElement,
@@ -90,6 +93,7 @@ export type {
   TextElement,
 } from './model/element';
 export { generateId, isBlocksEmpty, isElementEmpty } from './model/element';
+export type { ConnectorElement, ConnectorRouting } from './model/connector';
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
@@ -126,6 +130,15 @@ export {
   computeConnectorFrame,
   resolveEndpoint,
 } from './view/canvas/connector-frame';
+// Connection sites and the per-kind shape text rectangles — pure data and
+// geometry (no DOM), used by the backend's slide composition builders to
+// attach connectors to the right side of a shape and to size the text a
+// shape can hold. Kept in sync with `src/index.ts`.
+export {
+  connectionSitesForKind,
+  siteWorldPos,
+} from './view/canvas/connection-sites';
+export { GENERATED_SHAPE_TEXT_RECTS as SHAPE_TEXT_RECT_FRACTIONS } from './view/canvas/shapes/shape-text-rects.generated';
 
 // Curve-bend clamp constants — `YorkieSlidesStore.updateConnectorCurveBend`
 // clamps incoming bend through these, so the integration suite (which

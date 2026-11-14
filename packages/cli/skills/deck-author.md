@@ -77,13 +77,23 @@ space, coloured by **theme roles** so it follows the deck's theme:
 | --- | --- |
 | `kicker(text, {x?, y?, w?, uppercase?, color?})` | an eyebrow/overline label above a title |
 | `calloutCard({title?, body, box?, tail?, fill?, accent?})` | a callout / note card (`tail: false` = plain rounded card) |
-| `codeBlock(code, {x?, y?, w?, fontSize?, panel?, color?})` | a monospace code panel; newlines kept, height sized from the line count |
+| `codeBlock(code, {x?, y?, w?, fontSize?, fontFamily?, panel?, color?})` | a monospace code panel; newlines kept, height sized from the line count; code with Hangul switches to `Nanum Gothic Coding` (Courier has no Hangul) |
 | `table(headers, rows, {x?, y?, w?, fontSize?, columnWidths?})` | a native table; ragged rows padded, header-less when `headers` is `[]`; `columnWidths` are slide px (not fractions), each ≥ 2 × `fontSize` |
-| `bigNumberCard(number, label, {box?, accent?})` | a single-metric KPI card (`number` is a string: `"98%"`, `"$4.2M"`) |
+| `bigNumberCard(number, label, {box?, accent?})` | a single-metric KPI card (`number` is a string: `"98%"`, `"$4.2M"`, `"87건"`); the figure shrinks to stay on one line |
+| `flow(nodes, edges?, {box?, direction?, gap?, laneGap?, node?, fontSize?, minFontSize?, accent?, line?})` | a boxes-and-arrows flow / architecture diagram from native shapes + attached connectors; a node is a label or `{label, shape?, fill?, step?, lane?}` (`shape`: `roundRect`, `rect`, `ellipse`, `diamond`, `can` = database, `hexagon`); `lane` makes branches; edges `[from, to]` or `{from, to, dashed}`, default `0→1→2…` |
+| `chart(kind, categories, series, {box?, title?, legend?, valueLabels?, format?, fontSize?, native?})` | a `bar` / `column` / `line` chart drawn from native shapes (rects, a stroked path, text) so it survives PPTX export; `series` is `[{name?, values, color?}]`, values ≥ 0 |
+| `icon(name, {box?, color?, background?})` | a line icon as a theme-coloured vector shape: `check`, `cross`, `warning`, `info`, `user`, `users`, `code`, `database`, `server`, `cloud`, `document`, `chart`, `arrow-right`, `lightbulb`, `clock`, `lock` (`ICON_NAMES`); `background` puts it on a disc |
 | `footer(text, {right?})` | a footer rule + caption (+ right-aligned label) — the only piece allowed below `FOOTER_TOP` |
 | `diagram(svg, {src?, alt?, box?})` | an SVG figure as a fitted, centred image |
 
 Every composition also takes `id` (an id prefix, unique per slide).
+`fontSize` is in **points** (painted at `pt × 4/3` px); `textWidthPx(text,
+pt, bold?)` estimates a string's width in slide px for your own arithmetic.
+
+A slide that is all cards, tables and code reads like a report. Prefer a
+picture when the content has one: a process or architecture → `flow`, a
+trend or comparison → `chart`, a list of parallel points → short items
+each led by an `icon`, a single result → `bigNumberCard`.
 Helpers and constants: `addElements(slide, ...parts)` appends compositions
 in paint order (later = on top); `frameOf(els)` returns a composition's
 bounding box so the next piece stacks by arithmetic; `MARGIN` (80),
@@ -94,8 +104,12 @@ What the builders guarantee, and what they do not:
 - A builder **throws** rather than emit a frame outside the safe area
   (`MARGIN` on each side, above `FOOTER_TOP`); `codeBlock` also throws when
   a line would not fit the width, `table` when it would reach the footer,
-  `diagram` when the SVG has neither a `viewBox` nor `width`/`height`. A
-  thrown error is a layout bug caught before anything is written.
+  `diagram` when the SVG has neither a `viewBox` nor `width`/`height`,
+  `bigNumberCard` when the figure does not fit on one line even at 32pt,
+  `flow` when a label does not fit its node at `minFontSize` or the grid
+  leaves nodes too small, `chart` when a category label does not fit its
+  slot or a value is negative. A thrown error is a layout bug caught before
+  anything is written.
 - They do **not** detect collisions with each other — stack them with
   `frameOf`. The linter (step 3) is what catches overlap.
 - Their output passes `assertValidSlidesBody` (the validator `PUT
@@ -108,8 +122,12 @@ slides with `addElements(doc.slides[i], ...)`, and print the document as
 JSON from a short TypeScript script (run with the backend's `tsx`, e.g.
 `pnpm --filter @wafflebase/backend exec tsx build-deck.ts > deck.json`).
 
-**Figures.** `diagram()` needs the SVG text for its aspect ratio either way.
-Then:
+**Figures.** Reach for `flow`, `chart` and `icon` first: they are native
+shapes, so they follow the theme, stay editable and export to PPTX as
+shapes. (`chart(..., {native: true})` emits the model's chart element
+instead, which paints in the app and in PDF but is **dropped by PPTX
+export**.) Use `diagram()` for a figure those cannot draw; it needs the SVG
+text for its aspect ratio either way. Then:
 
 - small SVGs: omit `src` and the SVG is embedded as a `data:` URI;
 - anything larger: upload a **raster** copy and pass the returned `url` as
