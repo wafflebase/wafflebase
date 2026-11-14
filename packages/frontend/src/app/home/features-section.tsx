@@ -130,7 +130,7 @@ export function FeaturesSection() {
                   <span className="block font-body font-semibold text-[15px] text-[color:var(--wb-ink)] transition-colors group-hover:text-[color:var(--wb-syrup-deep)]">
                     {title}
                   </span>
-                  <span className="block font-body text-[14px] leading-[1.5] text-[color:var(--wb-sub)] mt-1">
+                  <span className="block font-body text-[14px] leading-[1.5] text-[color:var(--wb-sub)] mt-1 text-pretty">
                     {description}
                   </span>
                 </span>

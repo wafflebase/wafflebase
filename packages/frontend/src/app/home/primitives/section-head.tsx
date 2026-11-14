@@ -33,7 +33,7 @@ export function SectionHead({
       {sub && (
         <p
           className={cn(
-            "text-[clamp(15px,1.2vw,17px)] leading-[1.55] text-[color:var(--wb-sub)] max-w-[640px] mt-4 mb-0",
+            "text-[clamp(15px,1.2vw,17px)] leading-[1.55] text-[color:var(--wb-sub)] max-w-[640px] mt-4 mb-0 text-pretty",
             isLeft ? "mx-0" : "mx-auto",
           )}
         >

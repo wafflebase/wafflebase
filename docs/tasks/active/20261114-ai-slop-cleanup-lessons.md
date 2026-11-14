@@ -79,3 +79,20 @@
 - jsdom drops an entire inline style string when a `border` shorthand
   contains `var()`; set `border-color` separately so tests see the rest.
 
+### Final whole-branch review (security + docs + coherence)
+- Nothing blocking; security clean (no `innerHTML`, constant SVG paths,
+  constant `var()` fallbacks).
+- Fixed: step 4's slides menu item radius still used the 0.8px `sm` that
+  step 6 removed; `docs/design/homepage.md` still described the eyebrow,
+  stats row, kicker and card grid; two `::selection` comments contradicted
+  their own rules; an `index.html` comment named the wrong property.
+  Lesson: when several steps edit one surface, re-read the earlier step's
+  constants after the later step changes the scale they were copied from.
+- Screenshot pipeline: the CORS shim injected the session cookie into
+  signed-out contexts too, so the "after" homepage silently redirected to
+  the documents list. Inject credentials only where the shot is meant to be
+  signed in, and look at every composite before publishing it.
+- The visual lane serves Google Fonts from a recorded cache keyed by URL;
+  changing the `css2` query (step 5's italic axis) needs
+  `pnpm frontend test:visual:browser:docker:record` before `:update`.
+

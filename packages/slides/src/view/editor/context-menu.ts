@@ -168,7 +168,7 @@ export function showContextMenu(
     // 44px, the smallest target every touch platform's guidance accepts.
     li.style.padding = coarse ? '13px 8px' : '6px 8px';
     li.style.lineHeight = coarse ? '18px' : '20px';
-    li.style.borderRadius = 'calc(var(--radius, 0.3rem) - 4px)';
+    li.style.borderRadius = 'calc(var(--radius, 0.3rem) - 2.4px)';
     li.style.cursor = item.disabled ? 'default' : 'pointer';
     if (item.disabled) {
       li.style.opacity = '0.5';

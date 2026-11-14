@@ -159,18 +159,14 @@
   }
   /*
    * DOM text selection matches the docs engine's canvas selection: a butter
-   * wash, 35% light / 30% dark (docs/src/view/theme.ts paints 30 / 35 on its
-   * paper). Selected text keeps its own color: pinning it to `foreground`
-   * turned the always-dark homepage terminal's light text near-black on the
-   * wash (2.77:1). Body text stays 16.97:1 light / 9.27:1 dark on the wash.
-   * The canvas editors paint their own selection and CodeMirror's
-   * `drawSelection` hides the native one, so neither is affected; the PDF
-   * text layer overrides this with a more specific rule.
+   * wash, 35% light / 30% dark. Selected text takes the foreground color so
+   * muted and syrup text stay readable on the wash (they fall under 4.5:1
+   * keeping their own); body text is 16.97:1 light / 9.27:1 dark. Surfaces
+   * that stay dark in both themes (the homepage terminal) opt back into
+   * their own ink with `data-selection="dark"`. The canvas editors paint
+   * their own selection and CodeMirror's `drawSelection` hides the native
+   * one; the PDF text layer overrides this with a more specific rule.
    */
-  /* Selected text takes the foreground color, so muted and syrup text stay
-     readable on the wash (they fall under 4.5:1 keeping their own color).
-     Surfaces that stay dark in both themes opt back into their own ink with
-     `data-selection="dark"`. */
   ::selection {
     background-color: color-mix(in srgb, var(--wb-butter) 35%, transparent);
     color: var(--foreground);
