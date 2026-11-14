@@ -303,7 +303,7 @@ export function LakehouseDialog({
     } catch (error) {
       if (operationSequenceRef.current !== operation) return;
       if (isAuthExpiredError(error)) return;
-      toast.error(errorMessage(error, 'Failed to save lakehouse connection'));
+      toast.error(errorMessage(error, "Couldn't save the lakehouse connection"));
     } finally {
       if (operationSequenceRef.current === operation) {
         setSaving(false);
@@ -322,14 +322,14 @@ export function LakehouseDialog({
         : await testWorkspaceLakehouseSource(workspaceId, createPayload(form));
       if (operationSequenceRef.current !== operation) return;
       if (result.success) {
-        toast.success('Connection successful');
+        toast.success('Connected');
       } else {
-        toast.error(result.error || 'Connection failed');
+        toast.error(result.error || "Couldn't connect");
       }
     } catch (error) {
       if (operationSequenceRef.current !== operation) return;
       if (isAuthExpiredError(error)) return;
-      toast.error(errorMessage(error, 'Failed to test lakehouse connection'));
+      toast.error(errorMessage(error, "Couldn't test the lakehouse connection"));
     } finally {
       if (operationSequenceRef.current === operation) {
         setTesting(false);
@@ -353,7 +353,7 @@ export function LakehouseDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {source ? 'Edit Lakehouse Connection' : 'New Lakehouse Connection'}
+            {source ? 'Edit lakehouse connection' : 'New lakehouse connection'}
           </DialogTitle>
           <DialogDescription>
             Connect directly to an Iceberg metadata file or Delta table root.
@@ -721,10 +721,10 @@ export function LakehouseDialog({
               disabled={!canSubmit || testing || saving}
               onClick={() => void handleTest()}
             >
-              {testing ? 'Testing...' : 'Test Connection'}
+              {testing ? 'Testing…' : 'Test connection'}
             </Button>
             <Button type="submit" disabled={!canSubmit || testing || saving}>
-              {saving ? 'Saving...' : source ? 'Save Changes' : 'Save'}
+              {saving ? 'Saving...' : source ? 'Save changes' : 'Save'}
             </Button>
           </div>
         </form>

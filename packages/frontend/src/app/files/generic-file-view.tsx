@@ -28,7 +28,7 @@ export function GenericFileView({
       <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-lg border bg-background p-8 text-center">
         <div className="relative">
           <FileIcon className="h-20 w-20 text-muted-foreground" strokeWidth={1} />
-          <span className="absolute inset-x-0 bottom-4 text-[10px] font-semibold tracking-wider text-muted-foreground">
+          <span className="absolute inset-x-0 bottom-4 text-2xs font-semibold tracking-wider text-muted-foreground">
             {ext}
           </span>
         </div>

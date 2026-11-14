@@ -57,7 +57,7 @@ export async function downloadDocumentFile(doc: {
   fileId?: string;
 }): Promise<void> {
   const res = await fetchWithAuth(fileUrl(doc.id));
-  if (!res.ok) throw new Error(`Failed to download (${res.status})`);
+  if (!res.ok) throw new Error(`Couldn't download the file (${res.status})`);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

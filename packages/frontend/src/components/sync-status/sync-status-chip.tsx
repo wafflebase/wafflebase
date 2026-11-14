@@ -154,7 +154,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
           // advice. Telling someone whose connection is fine that it dropped
           // sends them to debug the wrong thing.
           description: connected
-            ? "The server rejected your recent changes, so they haven't been saved. Keep this tab open — closing it will lose them."
+            ? "The server rejected your recent changes, so they haven't been saved. Keep this tab open. Closing it will lose them."
             : "Your connection dropped and recent changes haven't reached the server. Keep this tab open; they'll sync when the connection returns.",
         });
       }, TOAST_DELAY_MS);

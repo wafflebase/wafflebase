@@ -267,8 +267,8 @@ export function SlidesView({
           console.error("Failed to apply pending PPTX import", err);
           toast.error(
             err instanceof Error
-              ? `Failed to load imported deck: ${err.message}`
-              : "Failed to load imported deck.",
+              ? `Couldn't load the imported deck: ${err.message}`
+              : "Couldn't load the imported deck",
           );
         }
       }
@@ -376,7 +376,7 @@ export function SlidesView({
     resizerLine.style.transition = "background 120ms";
     resizer.appendChild(resizerLine);
     resizer.addEventListener("mouseenter", () => {
-      resizerLine.style.background = "var(--primary, #3a7)";
+      resizerLine.style.background = "var(--primary)";
       resizerLine.style.width = "2px";
     });
     resizer.addEventListener("mouseleave", () => {
@@ -642,7 +642,7 @@ export function SlidesView({
     notesResizerLine.style.transition = "background 120ms";
     notesResizer.appendChild(notesResizerLine);
     notesResizer.addEventListener("mouseenter", () => {
-      notesResizerLine.style.background = "var(--primary, #3a7)";
+      notesResizerLine.style.background = "var(--primary)";
       notesResizerLine.style.height = "2px";
     });
     notesResizer.addEventListener("mouseleave", () => {
@@ -1333,7 +1333,7 @@ export function SlidesView({
   if (error) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <div className="text-red-500">{error.message}</div>
+        <div className="text-destructive">{error.message}</div>
       </div>
     );
   }

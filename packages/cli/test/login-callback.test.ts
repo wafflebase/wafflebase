@@ -548,7 +548,7 @@ describe('wafflebase login', () => {
     expect(exit).toHaveBeenCalledWith(2);
 
     expect(notices).toContain(
-      'Failed to fetch workspaces (HTTP 502). Try again with `wafflebase login`.',
+      "Couldn't fetch workspaces (HTTP 502). Try again with `wafflebase login`.",
     );
     expect(notices.filter((n) => n.startsWith('{'))).toHaveLength(0);
   });

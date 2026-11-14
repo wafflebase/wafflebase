@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -68,7 +69,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
           onClick={onClose}
           aria-label="Close comments panel"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </Button>
       </header>
 
@@ -111,7 +112,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
                     {mentionBodyToPlainText(root.body).split("\n")[0].slice(0, 80)}
                   </p>
                   {renderAnchorLabel && (
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-2xs text-muted-foreground">
                       {renderAnchorLabel(t)}
                     </div>
                   )}
@@ -133,7 +134,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
 
         {tab === "open" && orphans.length > 0 && renderOrphan && (
           <section aria-label="Orphaned comments" className="border-t">
-            <h3 className="px-4 pt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="px-4 pt-3 text-xs font-medium text-muted-foreground">
               Orphaned
             </h3>
             <ul>

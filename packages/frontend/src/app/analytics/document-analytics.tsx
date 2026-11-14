@@ -65,7 +65,7 @@ export function DocumentAnalyticsPage() {
         </div>
       );
     }
-    return <div className="p-6">Failed to load analytics.</div>;
+    return <div className="p-6">Couldn't load analytics.</div>;
   }
   if (!data) return null;
   if (!data.enabled) {

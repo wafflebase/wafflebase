@@ -202,9 +202,27 @@ export function TemplateGallery({
         </div>
       ) : query.isError ? (
         isAuthExpiredError(query.error) ? null : (
-          <p className="text-destructive text-sm">
-            Failed to load templates. Please try again.
-          </p>
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-destructive text-sm">Couldn't load templates.</p>
+            {marketing ? (
+              <WbButton
+                variant="ghost"
+                onClick={() => void query.refetch()}
+                disabled={query.isFetching}
+              >
+                Try again
+              </WbButton>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void query.refetch()}
+                disabled={query.isFetching}
+              >
+                Try again
+              </Button>
+            )}
+          </div>
         )
       ) : items.length === 0 ? (
         <div
@@ -356,7 +374,7 @@ function MarketingGalleryCard({
         )}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-3 bottom-3 rounded-full border border-[color:var(--wb-syrup-deep)] bg-[color:var(--wb-syrup)] px-3 py-1 font-code text-[11.5px] tracking-[0.04em] text-primary-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="pointer-events-none absolute right-3 bottom-3 rounded-full border border-[color:var(--wb-syrup-deep)] bg-[color:var(--wb-syrup)] px-3 py-1 text-[13px] font-medium text-primary-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 pointer-coarse:opacity-100"
         >
           {selectLabel}
         </span>
@@ -369,7 +387,7 @@ function MarketingGalleryCard({
         >
           {card.title}
         </h3>
-        <p className="m-0 truncate font-code text-[11.5px] tracking-[0.04em] text-[color:var(--wb-sub)]">
+        <p className="m-0 truncate text-[12px] text-[color:var(--wb-sub)]">
           {label}
           {card.author ? ` · ${card.author.username}` : ""}
           {card.useCount > 0
@@ -387,7 +405,7 @@ function MarketingGalleryCard({
           <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
             {card.category && (
               <span
-                className="rounded-full px-2.5 py-1 font-code text-[11px] uppercase tracking-[0.1em] text-[color:var(--wb-syrup-deep)]"
+                className="rounded-full px-2.5 py-1 font-code text-[11.5px] uppercase tracking-[0.1em] text-[color:var(--wb-syrup-deep)]"
                 style={{
                   background:
                     "color-mix(in srgb, var(--wb-butter) 30%, transparent)",

@@ -229,7 +229,7 @@ export async function fetchLoginSession(
   if (!meRes.ok) {
     throw loginHttpError(
       meRes.status,
-      `Failed to fetch user info (HTTP ${meRes.status}).`,
+      `Couldn't fetch user info (HTTP ${meRes.status}).`,
     );
   }
 
@@ -244,7 +244,7 @@ export async function fetchLoginSession(
   if (!wsRes.ok) {
     throw loginHttpError(
       wsRes.status,
-      `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
+      `Couldn't fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
     );
   }
 
@@ -857,7 +857,7 @@ export function startCallbackServer(
 <body>
   <div class="card">
     <h2>Sign-in was refused</h2>
-    <p>Return to your terminal — it says what to do next.</p>
+    <p>Return to your terminal. It says what to do next.</p>
   </div>
 </body>
 </html>`);
@@ -902,7 +902,7 @@ export function startCallbackServer(
 <body>
   <div class="card">
     <div class="icon">&#10003;</div>
-    <h2>Login successful!</h2>
+    <h2>Signed in</h2>
     <p>You can close this tab and return to the terminal.</p>
   </div>
 </body>
@@ -935,7 +935,7 @@ export function startCallbackServer(
         const addr = srv.address();
         if (!addr || typeof addr === 'string') {
           srv.close();
-          reject(new Error('Failed to start callback server'));
+          reject(new Error("Couldn't start the callback server"));
           return;
         }
         boundPort = addr.port;

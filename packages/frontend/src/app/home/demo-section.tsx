@@ -87,7 +87,6 @@ export function DemoSection() {
     >
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          kicker="Live demo"
           title="Try it live"
           sub="Edit cells, type formulas, see updates instantly. All three panes are real Wafflebase documents running in your browser."
         />
@@ -196,8 +195,8 @@ export function DemoSection() {
               {tab === "sheet"
                 ? "Tip: double-click a cell to edit. Totals recompute on the same engine."
                 : tab === "doc"
-                  ? "Tip: edit any paragraph or heading — changes sync in real time."
-                  : "Tip: arrow keys navigate — ⌘/Ctrl+Enter to present."}
+                  ? "Tip: edit any paragraph or heading. Changes sync in real time."
+                  : "Tip: arrow keys navigate. ⌘/Ctrl+Enter presents."}
             </span>
             <span className="shrink-0">{`wafflebase@${__APP_VERSION__}`}</span>
           </div>

@@ -126,7 +126,7 @@ describe('LakehouseDialog', () => {
     );
     fillDefaultSource();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
 
     await waitFor(() => expect(api.testWorkspace).toHaveBeenCalledTimes(1));
     expect(api.testWorkspace).toHaveBeenCalledWith('workspace-1', {
@@ -161,7 +161,7 @@ describe('LakehouseDialog', () => {
     fireEvent.change(screen.getByLabelText('Name'), {
       target: { value: 'Renamed Events' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
 
     await waitFor(() => expect(api.testExisting).toHaveBeenCalledTimes(1));
     expect(api.testExisting).toHaveBeenCalledWith(
@@ -196,7 +196,7 @@ describe('LakehouseDialog', () => {
       },
     );
     expect(
-      screen.getByRole('button', { name: 'Test Connection' }),
+      screen.getByRole('button', { name: 'Test connection' }),
     ).toHaveProperty('disabled', true);
 
     fireEvent.change(screen.getByLabelText('Access key'), {
@@ -205,7 +205,7 @@ describe('LakehouseDialog', () => {
     fireEvent.change(screen.getByLabelText('Secret key'), {
       target: { value: 'rotated-secret' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
 
     await waitFor(() => expect(api.testExisting).toHaveBeenCalledTimes(1));
     expect(api.testExisting).toHaveBeenCalledWith(
@@ -240,13 +240,13 @@ describe('LakehouseDialog', () => {
     expect(bucket.getAttribute('aria-invalid')).toBe('true');
     expect(bucket.getAttribute('aria-describedby')).toBe(alert.id);
     expect(
-      screen.getByRole('button', { name: 'Test Connection' }),
+      screen.getByRole('button', { name: 'Test connection' }),
     ).toHaveProperty('disabled', true);
 
     fireEvent.change(bucket, { target: { value: 'warehouse' } });
     expect(screen.queryByRole('alert')).toBeNull();
     expect(
-      screen.getByRole('button', { name: 'Test Connection' }),
+      screen.getByRole('button', { name: 'Test connection' }),
     ).toHaveProperty('disabled', false);
   });
 
@@ -308,9 +308,9 @@ describe('LakehouseDialog', () => {
     });
 
     expect(
-      screen.getByRole('button', { name: 'Test Connection' }),
+      screen.getByRole('button', { name: 'Test connection' }),
     ).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: 'Save Changes' })).toHaveProperty(
+    expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty(
       'disabled',
       true,
     );
@@ -343,7 +343,7 @@ describe('LakehouseDialog', () => {
         'Changing an Azure account name requires a fresh account key or SAS token.',
       ),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Save Changes' })).toHaveProperty(
+    expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty(
       'disabled',
       true,
     );
@@ -351,7 +351,7 @@ describe('LakehouseDialog', () => {
     fireEvent.change(screen.getByLabelText('Account key'), {
       target: { value: 'fresh-key' },
     });
-    expect(screen.getByRole('button', { name: 'Save Changes' })).toHaveProperty(
+    expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty(
       'disabled',
       false,
     );
@@ -376,7 +376,7 @@ describe('LakehouseDialog', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(api.update).toHaveBeenCalledTimes(1));
     expect(api.update).toHaveBeenCalledWith(

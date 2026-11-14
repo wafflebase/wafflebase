@@ -256,7 +256,7 @@ export function DocsLinkPopover({
               ref={inputRef}
               type="url"
               aria-label="Link URL"
-              className="h-7 flex-1 rounded border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+              className="h-7 flex-1 rounded border bg-background px-2 text-base md:text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
               placeholder="Enter URL"
               value={editUrl}
               onChange={(e) => {
@@ -274,7 +274,7 @@ export function DocsLinkPopover({
             </button>
           </div>
           {applyError && (
-            <span role="alert" className="px-0.5 text-[11px] text-destructive">
+            <span role="alert" className="px-0.5 text-xs text-destructive">
               {applyError}
             </span>
           )}

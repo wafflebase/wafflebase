@@ -1,4 +1,5 @@
 import { useEffect, useId, useReducer, useRef, useState } from "react";
+import { IconX } from "@tabler/icons-react";
 import { toast } from "sonner";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
 import { useSlideBackground } from "./use-slide-background";
@@ -84,7 +85,7 @@ export function BackgroundSidePanel({
     } catch (err) {
       if (requestId !== uploadRequestRef.current) return;
       console.error("Failed to upload background image", err);
-      toast.error("Failed to upload image");
+      toast.error("Couldn't upload the image. Try again.");
     }
   };
 
@@ -219,9 +220,9 @@ export function BackgroundSidePanel({
           type="button"
           aria-label="Close background options"
           onClick={onClose}
-          className="rounded p-1 hover:bg-muted"
+          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          ×
+          <IconX size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="flex-1 overflow-y-auto">{content}</div>

@@ -29,7 +29,7 @@ export function NotificationItem({ notification, onSelect }: Props) {
         {actor?.photo && (
           <AvatarImage src={actor.photo} alt={actor.username} />
         )}
-        <AvatarFallback className="text-[9px]">
+        <AvatarFallback className="text-2xs">
           {(actor?.username ?? "?").slice(0, 2).toUpperCase()}
         </AvatarFallback>
       </Avatar>
@@ -43,7 +43,7 @@ export function NotificationItem({ notification, onSelect }: Props) {
             {notification.preview}
           </p>
         )}
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {formatRelativeTime(notification.createdAt)}
         </p>
       </div>

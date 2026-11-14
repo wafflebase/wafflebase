@@ -12,10 +12,10 @@ export interface ContextMenuItem {
   disabled?: boolean;
   /**
    * Opt this item into a radio-group display: when set to `true` or
-   * `false`, the menu draws a check-mark column (`✓` for selected
-   * items, three spaces for non-selected items so labels stay
+   * `false`, the menu draws a fixed-width check column (a check icon
+   * for selected items, an empty slot for the rest so labels stay
    * column-aligned). Items that leave the field `undefined` render
-   * without any prefix, so unrelated action items in the same menu
+   * without the column, so unrelated action items in the same menu
    * are not visually shifted. Has no effect on `run()` semantics.
    */
   selected?: boolean;
@@ -47,6 +47,45 @@ function isCoarsePointer(): boolean {
   return window.matchMedia('(pointer: coarse)').matches;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * The leading 16px slot of a radio-group row: Tabler's `IconCheck` when
+ * selected, empty otherwise. Drawn with `currentColor` so it follows the
+ * row's text through hover and theme. The check carries an accessible name
+ * because it replaced a `✓` text glyph that screen readers announced as
+ * part of the row; the empty slot is decoration.
+ */
+function createCheckSlot(selected: boolean): HTMLSpanElement {
+  const slot = document.createElement('span');
+  slot.style.display = 'inline-flex';
+  slot.style.flex = '0 0 16px';
+  slot.style.width = '16px';
+  slot.style.height = '16px';
+  slot.style.alignItems = 'center';
+  slot.style.justifyContent = 'center';
+  if (!selected) {
+    slot.setAttribute('aria-hidden', 'true');
+    return slot;
+  }
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Selected');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', 'M5 12l5 5l10 -10');
+  svg.appendChild(path);
+  slot.appendChild(svg);
+  return slot;
+}
+
 export function showContextMenu(
   host: HTMLElement,
   items: readonly ContextMenuItem[],
@@ -61,16 +100,24 @@ export function showContextMenu(
   const menu = document.createElement('ul');
   menu.className = 'wfb-slides-context-menu';
   menu.style.position = 'fixed';
-  menu.style.background = '#2a2a2a';
-  menu.style.border = '1px solid #444';
-  menu.style.borderRadius = '4px';
-  menu.style.padding = '4px 0';
+  // Themed from the app's tokens so it reads as the same family as the
+  // Radix menus (`components/ui/context-menu.tsx`): popover surface,
+  // hairline border, 4px inset, md shadow, accent hover. The slides package
+  // ships no stylesheet, so every value is a custom property with a
+  // fallback — the light popover look — for a host that never loaded
+  // `tokens.css`. The frontend does load it, so the menu follows `.dark`
+  // like every other menu.
+  menu.style.background = 'var(--popover, #ffffff)';
+  menu.style.color = 'var(--popover-foreground, #09090b)';
+  menu.style.border = '1px solid var(--border, #e4e4e7)';
+  menu.style.borderRadius = 'calc(var(--radius, 0.3rem) - 2px)';
+  menu.style.padding = '4px';
   menu.style.margin = '0';
   menu.style.listStyle = 'none';
   menu.style.zIndex = '9999';
   menu.style.minWidth = coarse ? '220px' : '180px';
-  menu.style.fontFamily = 'system-ui, sans-serif';
-  menu.style.fontSize = coarse ? '15px' : '13px';
+  menu.style.fontFamily = 'var(--font-body, system-ui, sans-serif)';
+  menu.style.fontSize = coarse ? '15px' : '14px';
   // A long menu (the table one runs past a dozen entries) at touch row
   // height can be taller than a phone. Cap it and let it scroll rather
   // than letting the viewport clamp below push entries off-screen.
@@ -85,42 +132,56 @@ export function showContextMenu(
   // for.
   menu.style.maxHeight = `${Math.max(0, window.innerHeight - 2 * MENU_VIEWPORT_MARGIN)}px`;
   menu.style.overflowY = 'auto';
-  menu.style.color = '#ddd';
-  menu.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.5)';
+  // Tailwind's `shadow-md`, which the Radix menus use.
+  menu.style.boxShadow =
+    '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)';
 
   for (const item of items) {
     if (item.label === '---') {
       const sep = document.createElement('li');
-      sep.style.borderTop = '1px solid #444';
-      sep.style.margin = '4px 0';
+      sep.style.borderTop = '1px solid var(--border, #e4e4e7)';
+      // Bleed across the menu's 4px inset, as the Radix separator does.
+      sep.style.margin = '4px -4px';
       menu.appendChild(sep);
       continue;
     }
     const li = document.createElement('li');
     // Per-item radio group: items opt in by setting `selected` to a
-    // boolean. Action items leave it undefined and render with no
-    // prefix, so a single radio group inside the menu doesn't leak
-    // the column onto unrelated entries.
-    li.textContent = item.selected === undefined
-      ? item.label
-      : item.selected
-        ? `✓ ${item.label}`
-        : `   ${item.label}`;
-    // 13px padding around a 15px line lands the row at ~44px without a
-    // `min-height` + flex centering pass, which would change how the
-    // radio-column prefix (`'✓ '` / `'   '`) lays out.
-    li.style.padding = coarse ? '13px 16px' : '6px 16px';
+    // boolean and get a fixed-width leading slot, checked or empty, so
+    // the group's labels stay aligned. Action items leave it undefined
+    // and render with no slot, so a single radio group inside the menu
+    // doesn't leak the column onto unrelated entries.
+    if (item.selected === undefined) {
+      li.textContent = item.label;
+    } else {
+      li.style.display = 'flex';
+      li.style.alignItems = 'center';
+      li.style.gap = '8px';
+      li.dataset.selected = String(item.selected);
+      li.appendChild(createCheckSlot(item.selected));
+      const label = document.createElement('span');
+      label.textContent = item.label;
+      li.appendChild(label);
+    }
+    // Rows match the Radix item (6px × 8px around a 20px line = 32px) on
+    // a mouse. On a fingertip 13px around an 18px line lands the row at
+    // 44px, the smallest target every touch platform's guidance accepts.
+    li.style.padding = coarse ? '13px 8px' : '6px 8px';
+    li.style.lineHeight = coarse ? '18px' : '20px';
+    li.style.borderRadius = 'calc(var(--radius, 0.3rem) - 2.4px)';
     li.style.cursor = item.disabled ? 'default' : 'pointer';
     if (item.disabled) {
       li.style.opacity = '0.5';
     } else {
       li.addEventListener('pointerenter', () => {
-        li.style.background = '#3a7';
-        li.style.color = '#fff';
+        // Hover is the neutral accent wash, as in the Radix menus — never
+        // the syrup accent, which is reserved for the action.
+        li.style.background = 'var(--accent, #f4f4f5)';
+        li.style.color = 'var(--accent-foreground, #18181b)';
       });
       li.addEventListener('pointerleave', () => {
         li.style.background = 'transparent';
-        li.style.color = '#ddd';
+        li.style.color = '';
       });
       li.addEventListener('click', (e) => {
         e.stopPropagation();

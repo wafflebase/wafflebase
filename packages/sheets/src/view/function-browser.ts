@@ -7,6 +7,7 @@ import {
   listFunctionCategories,
 } from '../formula/function-catalog';
 import { Theme, getThemeColor } from './theme';
+import { fitTouchInputFont } from './utils/touch-input-font';
 
 export class FunctionBrowser {
   private theme: Theme;
@@ -97,6 +98,7 @@ export class FunctionBrowser {
     this.searchInput.style.borderRadius = '4px';
     this.searchInput.style.outline = 'none';
     this.searchInput.style.font = '13px Arial';
+    fitTouchInputFont(this.searchInput);
     this.searchInput.style.color = getThemeColor(this.theme, 'cellTextColor');
     this.searchInput.style.backgroundColor = getThemeColor(this.theme, 'cellBGColor');
     controls.appendChild(this.searchInput);

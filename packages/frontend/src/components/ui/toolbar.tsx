@@ -104,13 +104,15 @@ function ToolbarSeparator({
   ...props
 }: React.ComponentProps<typeof Separator>) {
   // bg-border (--border at oklch 0.92) is too faint to read as a divider
-  // against the toolbar background. Bump the contrast so the vertical line
-  // is actually visible between button groups.
+  // against the toolbar background, so the line takes 40% of the muted
+  // foreground instead: ≈#c6c6ca on white and ≈#45454b on the dark
+  // background — the zinc-300 / zinc-700 it replaces, but from a token that
+  // follows the theme on its own.
   return (
     <Separator
       {...props}
       orientation="vertical"
-      className={cn("mx-2 !h-5 bg-zinc-300 dark:bg-zinc-700", className)}
+      className={cn("mx-2 !h-5 bg-muted-foreground/40", className)}
     />
   );
 }

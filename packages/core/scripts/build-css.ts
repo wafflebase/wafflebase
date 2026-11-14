@@ -66,9 +66,12 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--accent-foreground', m.accentForeground],
     ['--destructive', m.destructive],
     ['--warning', m.warning],
+    ['--success', m.success],
     ['--border', m.border],
     ['--input', m.input],
     ['--ring', m.ring],
+    ['--selected', m.selected],
+    ['--selected-foreground', m.selectedForeground],
     ['--chart-1', m.chart1],
     ['--chart-2', m.chart2],
     ['--chart-3', m.chart3],
@@ -82,6 +85,14 @@ function semanticBlock(src: TokenSources, mode: 'light' | 'dark'): Block {
     ['--sidebar-accent-foreground', m.sidebarAccentForeground],
     ['--sidebar-border', m.sidebarBorder],
     ['--sidebar-ring', m.sidebarRing],
+    ['--type-sheet', m.typeSheet],
+    ['--type-doc', m.typeDoc],
+    ['--type-note', m.typeNote],
+    ['--type-slides', m.typeSlides],
+    ['--type-pdf', m.typePdf],
+    ['--type-image', m.typeImage],
+    ['--type-board', m.typeBoard],
+    ['--type-file', m.typeFile],
   ];
 }
 

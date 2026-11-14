@@ -60,7 +60,7 @@ export function ImageThumb({ documentId }: { documentId: string }) {
       {src && !failed ? (
         <img src={src} alt="" className="h-full w-full object-cover" />
       ) : (
-        <ImageIcon className="h-4 w-4 text-pink-500" />
+        <ImageIcon className="h-4 w-4 text-type-image" />
       )}
     </div>
   );

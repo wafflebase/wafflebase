@@ -21,7 +21,7 @@ export default function LoginPage() {
   const [googleEnabled, setGoogleEnabled] = useState(false);
 
   useEffect(() => {
-    document.title = "Login — Wafflebase";
+    document.title = "Sign in — Wafflebase";
   }, []);
 
   useEffect(() => {
@@ -74,15 +74,6 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-[12.5px] font-code text-[color:var(--wb-sub)] mt-6">
-            <a
-              href={`${GITHUB_URL}/blob/main/LICENSE`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="no-underline hover:text-[color:var(--wb-ink)] transition-colors"
-            >
-              Apache-2.0
-            </a>
-            <span className="mx-2 opacity-50">·</span>
             <a
               href={GITHUB_URL}
               target="_blank"

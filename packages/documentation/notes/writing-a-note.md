@@ -10,7 +10,7 @@ collaboration as every other document type.
 
 1. Open your workspace
 2. Click the **New** dropdown button
-3. Select **New Note**
+3. Select **New note**
 
 A blank note opens with the editor and preview side by side.
 

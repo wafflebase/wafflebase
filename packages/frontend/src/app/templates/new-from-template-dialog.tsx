@@ -58,7 +58,7 @@ export function NewFromTemplateDialog({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to create a document from this template",
+            : "Couldn't create a document from this template",
         );
       })
       .finally(() => setCreating(false));

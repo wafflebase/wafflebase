@@ -96,7 +96,7 @@ export function NavBar({
           <ThemeToggle className="hidden md:inline-flex" />
           <WbButton asChild variant="primary" className="hidden md:inline-flex">
             <Link to={workspacePath ?? signInTo}>
-              {workspacePath ? "Go to Workspace" : "Get Started"}
+              {workspacePath ? "Go to workspace" : "Sign in"}
             </Link>
           </WbButton>
           {/* Mobile hamburger */}
@@ -159,7 +159,7 @@ export function NavBar({
                 to={workspacePath ?? signInTo}
                 onClick={() => setOpen(false)}
               >
-                {workspacePath ? "Go to Workspace" : "Get Started"}
+                {workspacePath ? "Go to workspace" : "Sign in"}
               </Link>
             </WbButton>
           </div>

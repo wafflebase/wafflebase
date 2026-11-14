@@ -211,7 +211,7 @@ export function DocsFindBar({
         <input
           ref={searchInputRef}
           type="text"
-          className="flex-1 rounded border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 rounded border bg-background px-2 py-1 text-base md:text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
           placeholder="Find"
           aria-label="Find"
           value={query}
@@ -297,7 +297,7 @@ export function DocsFindBar({
         <div className="flex items-center gap-1">
           <input
             type="text"
-            className="flex-1 rounded border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+            className="flex-1 rounded border bg-background px-2 py-1 text-base md:text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             placeholder="Replace"
             aria-label="Replace with"
             value={replacement}

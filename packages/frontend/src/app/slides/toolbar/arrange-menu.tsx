@@ -185,6 +185,6 @@ export function ArrangeMenu({
 /** Keyboard shortcut label displayed on the right side of a menu item. */
 function Shortcut({ children }: { children: React.ReactNode }) {
   return (
-    <span className="ml-auto text-[11px] text-muted-foreground">{children}</span>
+    <span className="ml-auto text-xs text-muted-foreground">{children}</span>
   );
 }

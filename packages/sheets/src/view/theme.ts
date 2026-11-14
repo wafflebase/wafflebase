@@ -26,9 +26,17 @@ export const LightTheme = {
   peerCursor6: '#DDA0DD',
   peerCursor7: '#98D8C8',
   peerCursor8: '#A78BFA',
-  resizeHandleColor: '#1A73E8',
-  headerSelectedBGColor: 'rgba(26, 115, 232, 0.3)',
-  dropIndicatorColor: '#1A73E8',
+  // Handles, drop guides and the whole-row/column header follow the one
+  // accent (syrup) instead of Google blue, so the grid agrees with the
+  // docs/slides selection chrome. The fully selected header is a syrup tint,
+  // deeper than the solid butter of a partly selected one, so selecting a
+  // whole column reads as the stronger state.
+  resizeHandleColor: palette.syrup,
+  headerSelectedBGColor: `rgba(${palette.syrupRgb}, 0.45)`,
+  // A neutral hover for header-embedded buttons (filter), weaker than the
+  // pressed state's selection wash.
+  headerButtonHoverBGColor: 'rgba(0, 0, 0, 0.08)',
+  dropIndicatorColor: palette.syrup,
   freezeLineColor: '#BBBBBB',
   freezeHandleColor: '#9E9E9E',
   freezeHandleHoverColor: '#5F6368',
@@ -66,9 +74,10 @@ export const DarkTheme = {
   peerCursor6: '#E17055',
   peerCursor7: '#81ECEC',
   peerCursor8: '#A78BFA',
-  resizeHandleColor: '#8AB4F8',
-  headerSelectedBGColor: 'rgba(138, 180, 248, 0.3)',
-  dropIndicatorColor: '#8AB4F8',
+  resizeHandleColor: palette.syrupBright,
+  headerSelectedBGColor: `rgba(${palette.syrupRgb}, 0.55)`,
+  headerButtonHoverBGColor: 'rgba(255, 255, 255, 0.10)',
+  dropIndicatorColor: palette.syrupBright,
   freezeLineColor: '#5A5A5A',
   freezeHandleColor: '#8E8E8E',
   freezeHandleHoverColor: '#CCCCCC',

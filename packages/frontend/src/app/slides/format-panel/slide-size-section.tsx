@@ -106,7 +106,7 @@ export function SlideSizeSection({ heightPx, unit, onCommit }: SlideSizeSectionP
           }}
         />
       </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">
+      <p className="mt-2 text-xs text-muted-foreground">
         Applies to the whole presentation. Existing content is scaled to fit.
       </p>
     </section>

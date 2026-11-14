@@ -56,7 +56,7 @@ export function NotificationList({ onNavigate }: Props) {
         )}
         {isError && (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-            Could not load notifications.
+            Couldn't load notifications.
           </p>
         )}
         {!isLoading && !isError && notifications?.length === 0 && (

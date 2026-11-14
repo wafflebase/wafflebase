@@ -314,7 +314,7 @@ export async function parseCsvFile(
           if (rowlessBytes > maxRowlessBytes) {
             fail(
               new Error(
-                "This file does not look like a table — no row could be read. " +
+                "This file does not look like a table. No row could be read. " +
                   "Check for an unterminated quote.",
               ),
               parser,

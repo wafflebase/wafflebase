@@ -13,7 +13,7 @@ export const AVATAR_SIZE_CLASS = {
 } as const;
 
 export const AVATAR_INITIALS_CLASS = {
-  24: "text-[10px]",
+  24: "text-2xs",
   32: "text-xs",
 } as const;
 

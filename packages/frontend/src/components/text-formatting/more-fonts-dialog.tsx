@@ -257,7 +257,7 @@ export function MoreFontsDialog({
                       style={{ fontFamily: entry.family }}
                     >
                       <span className="truncate">{entry.label}</span>
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                      <span className="shrink-0 text-xs text-muted-foreground">
                         {entry.group}
                       </span>
                     </button>

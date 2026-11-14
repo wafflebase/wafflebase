@@ -5,7 +5,7 @@ import { WbButton } from "./primitives/wb-button";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
-const BADGES = ["Apache-2.0", "TypeScript", "Self-Hosted"];
+const BADGES = ["Apache-2.0", "TypeScript", "Self-hosted"];
 
 export function OpenSourceSection() {
   return (
@@ -22,9 +22,8 @@ export function OpenSourceSection() {
             <SectionHead
               align="left"
               className="mb-7"
-              kicker="Open source"
-              title="Free. Apache-2.0. Yours to host."
-              sub="Wafflebase is open-source under the Apache-2.0 license. Contributions, issues, and forks are welcome from everyone."
+              title="The whole suite is open source"
+              sub="Every editor, the backend and the CLI live in one public repository. Issues, pull requests and forks are open to anyone."
             />
             <div className="flex flex-wrap gap-2.5 mb-7">
               {BADGES.map((b) => (

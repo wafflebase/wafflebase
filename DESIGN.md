@@ -62,13 +62,18 @@ typography:
     fontFamily: "ui-sans-serif, system-ui, sans-serif"
     fontSize: "12px"
     fontWeight: 500
+  micro:
+    fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    fontSize: "10px"
+    lineHeight: 1.5
   label-mono:
     fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
     fontSize: "11.5px"
     fontWeight: 400
     letterSpacing: "0.08em"
 rounded:
-  sm: "0.8px"
+  xs: "2px"
+  sm: "2.4px"
   md: "2.8px"
   lg: "4.8px"
   xl: "8.8px"
@@ -179,15 +184,19 @@ A cool, near-colorless working surface with a single warm syrup accent; the
 brand layer swaps the zinc for cream paper and walnut ink.
 
 ### Primary
-- **Maple Syrup** (syrup): the one accent. Primary buttons, focus rings, text selection, chart series 1, active sidebar item. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
-- **Deep Syrup** (syrup-deep): pressed/hover state of the brand primary button, the active sidebar item's text, and brand eyebrows.
+- **Maple Syrup** (syrup): the one accent. Primary buttons, focus rings, selection frames and handles in every editor (sheets object layer, docs image selection and drag guides, slides handles and lasso), chart series 1. In dark mode it becomes **Bright Syrup** (syrup-bright) so it holds contrast on roast surfaces.
+- **Deep Syrup** (syrup-deep): pressed/hover state of the brand primary button, the active sidebar item's text, and brand chip and footer-heading labels.
 
 ### Secondary
-- **Butter** (butter): highlight, never text. Sidebar active-item wash (30% light / 18% dark), brand eyebrow pills, the waffle illustrations.
+- **Butter** (butter): highlight, never text on light surfaces. The **selected** wash (`bg-selected`, 30% light / 18% dark, with `text-selected-foreground` = syrup-deep / butter at 5.99:1 / 8.81:1) marks every "this one is chosen" state: the sidebar's active item, a pressed `Toggle`, a picked shape or line. It is never the hover, which stays the zinc `accent`/`muted` wash, so on and hovered look different. A lighter butter wash (16–35% by engine and mode) is the cell, text and slide-table range selection in the engines; a whole selected row or column header deepens to a syrup tint. Also brand tag and badge chips and the waffle illustrations.
 
 ### Tertiary
 - **Berry** (berry / berry-bright): brand-surface error and emphasis, and the sheet engine's reference highlights.
-- **Leaf** (leaf / leaf-bright): live and success signals, such as the homepage's "live" dot.
+- **Leaf** (leaf / leaf-bright): live and success signals, such as the homepage's "live" dot. In the app it is the `success` token (`text-success`; 4.91:1 light, 9.76:1 dark).
+
+### Data and identity
+- **Chart series** (`chart-1`…`chart-5`): syrup, denim, teal, rose, olive gold, each with a lifted dark-mode stop. No purple, none equal to a status token, every series ≥3:1 on `background`. Only the analytics trend chart consumes them today; document charts inside sheets and slides keep their own palettes.
+- **Document types** (`type-sheet`, `type-doc`, `type-note`, `type-slides`, `type-pdf`, `type-image`, `type-board`, `type-file`): one identity hue per type for list icons and menus — leaf, denim, cocoa, teal, berry, rose, sticky-note gold, zinc. Nothing purple and nothing in syrup's orange band, each ≥3:1 on `background` in both modes.
 
 ### Neutral
 - **Zinc Paper** (app-background) and **Zinc Ink** (app-foreground): editor chrome, dialogs and popovers in light mode.
@@ -198,7 +207,7 @@ brand layer swaps the zinc for cream paper and walnut ink.
 - **Roast** (roast-bg, roast-paper, roast-sub, roast-rule): the brand layer's dark pair. The app's dark chrome stays on zinc (app-background-dark, app-card-dark, app-muted-dark).
 
 ### Named Rules
-**The One Accent Rule.** Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong.
+**The One Accent Rule.** Syrup is the only chromatic signal in editor chrome. If two things on a toolbar are syrup, one of them is wrong. Tooltips are ink (`bg-foreground text-background`), not syrup: a tooltip names a control, it is not the action.
 
 **The Two Ledgers Rule.** Editor and workspace screens use the zinc semantic tokens (`bg-background`, `text-foreground`, `border`). Brand surfaces use the `--wb-*` tokens. Don't mix them on one surface.
 
@@ -213,13 +222,18 @@ brand layer swaps the zinc for cream paper and walnut ink.
 **Character:** An old-style serif with optical sizing for the brand's voice, set tight and heavy. A plain sans does the work in the editors, and a mono marks code and tick-mark labels.
 
 ### Hierarchy
-- **Display** (600, clamp(40px, 6vw, 68px), 1.04, -0.025em): homepage hero only, with an italic syrup-deep second line.
+- **Display** (600, clamp(40px, 6vw, 68px), 1.04, -0.025em): homepage hero only, with an italic syrup-deep second line set in Fraunces' true italic at 500, the one italic face `index.html` loads. `.font-display` and `.font-code` set `font-synthesis-style: none`, so an italic at any other weight renders upright rather than browser-slanted: load the face before using it.
 - **Headline** (600, 28px, -0.02em): brand-surface page titles (sign-in, template landing). The sidebar wordmark uses the same face at 17px.
 - **Title** (600, 16px, 1): card and dialog titles in the app.
 - **Body** (400, 14px): all editor and workspace UI text. Inputs render at 16px on mobile, which prevents iOS zoom-on-focus.
 - **Body (brand)** (400, clamp(17px, 1.4vw, 19px), 1.55): homepage lead paragraphs, max ~560px measure.
 - **Label** (500, 12px): badges, small metadata.
-- **Label (mono)** (400, 11.5–13px, 0.08em, uppercase): brand eyebrows, stat captions, section numbers.
+- **Label (mono)** (400, 11.5–13px, 0.08em, uppercase): footer column headings and the template category chip. Free-form tag chips use the sans Label. Never a kicker or eyebrow above a heading.
+- **Micro** (`text-2xs`, 10px, line height 1.5): count badges, avatar initials, swatch captions. Never body copy, and never a label the user must read to act. Nothing in the app renders smaller.
+
+Section labels inside popovers and panels (Theme / Recent / Standard in the color picker, shape categories, pivot sections) are **Label**, sentence case, muted: not an uppercase tracked kicker. Uppercase belongs to real abbreviations and keyboard keys.
+
+**Brand scale.** Brand surfaces (homepage, sign-in, template gallery and landing) set their own pixel sizes rather than the app ramp: 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 16, 17, 19, 21 and 28px, plus the fluid `clamp(15px,1.2vw,17px)`, `clamp(17px,1.4vw,19px)`, `clamp(28px,3.5vw,40px)` and Display. Reuse one of these before adding a new value; app chrome uses only `text-2xs` / `text-xs` / `text-sm` / `text-base`, except the paragraph-style menu, whose items preview the sizes of the styles they apply.
 
 ### Named Rules
 **The Serif Is a Signature Rule.** Fraunces never appears inside an editor or on a control. It is the brand's voice, used for wordmarks and brand-surface headings only.
@@ -251,7 +265,7 @@ Flat by default. App surfaces separate by a 1px zinc rule and a tonal step (back
 
 ## Shapes
 
-Corners are barely softened in the app. The radius base is 0.3rem (4.8px): controls take `md` (2.8px), and cards and dialogs take `xl` (8.8px). The brand layer is rounder on purpose: pill CTAs and eyebrow chips, 16px cards. Borders are always 1px. The waffle grid is the one decorative geometry and appears only as brand illustration.
+Corners are barely softened in the app. The radius base is 0.3rem (4.8px) and the scale is ordered `xs` 2px ≤ `sm` 2.4px < `md` 2.8px < `lg` 4.8px < `xl` 8.8px (source: `packages/core/src/tokens/radius.ts`, mirrored in `index.css`). Controls take `md`; cards, dialogs and alert dialogs take `xl`; `xs`/`sm` are for tiny marks (swatches, dialog close hit areas) that should read square-ish but not sharp. The brand layer is rounder on purpose: pill CTAs and tag chips, 16px cards. Borders are always 1px. The waffle grid is the one decorative geometry and appears only as brand illustration.
 
 ## Components
 
@@ -298,6 +312,7 @@ Precise and restrained.
 
 ### Don't:
 - **Don't** use Fraunces, cream paper or pill buttons inside an editor or workspace screen.
-- **Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, leaf) are for status only.
+- **Don't** introduce a second accent color in editor chrome; status colors (destructive, warning, success) are for status only, and raw Tailwind hues (`text-red-500`, `bg-zinc-300`) never stand in for them.
 - **Don't** hard-code a hex in a component or engine when a token exists.
 - **Don't** add decorative shadows or gradients to app chrome.
+- **Don't** set a kicker or eyebrow label above a heading, or a row of non-metric "stats" under a hero. The heading carries its own weight.

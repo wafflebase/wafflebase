@@ -102,7 +102,7 @@ describe('LakehouseSelector', () => {
       />,
     );
     await screen.findByRole('button', { name: /Orders/ });
-    fireEvent.click(screen.getByRole('button', { name: 'New Connection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New connection' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close create mock' }));
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
 

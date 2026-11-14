@@ -11,17 +11,17 @@ Lakehouse connections live alongside database connections; see
 
 ## Create a Lakehouse Tab
 
-1. Click the **+** at the end of the tab bar and choose **New Lakehouse**.
-2. The **Select Lakehouse** dialog lists the Lakehouse connections your
+1. Click the **+** at the end of the tab bar and choose **New lakehouse**.
+2. The **Select lakehouse** dialog lists the Lakehouse connections your
    workspace already has. Click one to select it and click **Select**
-   (double-clicking a connection does both), or click **New Connection** to set
+   (double-clicking a connection does both), or click **New connection** to set
    one up.
 
 The new tab is named after the connection and carries a warehouse icon.
 
 ## Set Up a Connection
 
-**New Lakehouse Connection** asks for:
+**New lakehouse connection** asks for:
 
 - **Name** — a label for the connection.
 - **Table format** — **Apache Iceberg** or **Delta Lake**.
@@ -33,7 +33,7 @@ The new tab is named after the connection and carries a warehouse icon.
   **Delta table root** depending on the format you picked.
 - Credentials for the storage backend.
 
-Click **Test Connection** to check it without saving, then **Save**.
+Click **Test connection** to check it without saving, then **Save**.
 
 ### Storage backends
 
@@ -160,7 +160,7 @@ the data you're willing to show all of them.
 
 - Wafflebase reads the table directly from its metadata; it never sends SQL you
   wrote, and the connection has no query field.
-- Connections are created from the **Select Lakehouse** dialog. There is
+- Connections are created from the **Select lakehouse** dialog. There is
   currently no screen in the app for editing or deleting a Lakehouse connection
   once it has been saved.
 - The tab reads the one table its connection names. Browsing a catalog for

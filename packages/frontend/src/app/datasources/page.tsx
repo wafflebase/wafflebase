@@ -4,6 +4,7 @@ import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { DataSourceList } from "./datasource-list";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadErrorState } from "@/components/load-error-state";
 
 /**
  * Renders the data sources page.
@@ -14,6 +15,8 @@ export default function DataSourcesPage() {
     isLoading,
     isError,
     error,
+    refetch,
+    isFetching,
   } = useQuery<Array<DataSource>>({
     queryKey: ["datasources"],
     queryFn: fetchDataSources,
@@ -43,10 +46,12 @@ export default function DataSourcesPage() {
       return null;
     }
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-destructive text-lg">Failed to load datasources.</p>
-        <p className="text-sm text-muted-foreground">Please try again later.</p>
-      </div>
+      <LoadErrorState
+        title="Couldn't load data sources."
+        error={error}
+        onRetry={() => void refetch()}
+        isRetrying={isFetching}
+      />
     );
   }
 

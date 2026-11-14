@@ -211,7 +211,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const handleUploadImage = useCallback(
     async (file: File): Promise<string | null> => {
       if (!workspaceId) {
-        toast.error("Still loading this note's workspace — try again.");
+        toast.error("Still loading this note's workspace. Try again in a moment.");
         return null;
       }
       try {

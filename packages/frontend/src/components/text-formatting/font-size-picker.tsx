@@ -182,7 +182,7 @@ export function FontSizePicker({
             // toolbar root's blanket rule reaches `button` only, which
             // is exactly the gap: this control is a bordered pill whose
             // middle is not a button.
-            className="h-7 w-8 pointer-coarse:h-11 pointer-coarse:w-12 pointer-coarse:text-sm bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+            className="h-7 w-8 pointer-coarse:h-11 pointer-coarse:w-12 pointer-coarse:text-base bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
           />
         </DropdownMenuTrigger>
         <button

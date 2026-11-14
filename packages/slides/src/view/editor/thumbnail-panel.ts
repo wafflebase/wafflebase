@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from './chrome-colors';
 import type { Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_WIDTH, deckSlideHeight } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
@@ -213,7 +214,7 @@ export function mountThumbnailPanel(
       const isCurrent = id === currentId;
       s.item.classList.toggle('current', isCurrent);
       s.item.style.borderColor = isCurrent
-        ? 'var(--primary, #3a7)'
+        ? `var(--primary, ${SELECTION_COLOR})`
         : 'var(--border, #444)';
     }
   };
@@ -461,7 +462,7 @@ export function mountThumbnailPanel(
       // current slide. Theme tokens follow the host frontend's
       // light/dark mode (fallbacks for theme-less hosts like jsdom).
       const borderColor = isCurrent
-        ? 'var(--primary, #3a7)'
+        ? `var(--primary, ${SELECTION_COLOR})`
         : 'var(--border, #444)';
       item.style.border = `${BORDER_PX}px solid ${borderColor}`;
       item.style.marginBottom = '8px';

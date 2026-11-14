@@ -177,7 +177,7 @@ export function UserPresence({
                         {user.photo && (
                           <AvatarImage src={user.photo} alt={user.username} />
                         )}
-                        <AvatarFallback className="text-[10px]">
+                        <AvatarFallback className="text-2xs">
                           {user.username.slice(0, 2).toUpperCase() || "??"}
                         </AvatarFallback>
                       </Avatar>

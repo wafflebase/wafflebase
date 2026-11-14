@@ -35,7 +35,7 @@ async function fetchPdf(
   onProgress: (fraction: number | null) => void,
 ): Promise<ArrayBuffer> {
   const res = await fetch(url, { credentials: "include" });
-  if (!res.ok) throw new Error(`Failed to load PDF (${res.status})`);
+  if (!res.ok) throw new Error(`Couldn't load the PDF (${res.status})`);
   const total = Number(res.headers?.get?.("Content-Length")) || 0;
   if (!res.body || !total) {
     onProgress(null);
@@ -135,7 +135,7 @@ export function PdfViewer({
         setStatus("ready");
       } catch (e) {
         if (!cancelled) {
-          setErrorMsg(e instanceof Error ? e.message : "PDF error");
+          setErrorMsg(e instanceof Error ? e.message : "Couldn't load the PDF");
           setStatus("error");
         }
       }
@@ -156,7 +156,7 @@ export function PdfViewer({
   }, [fileUrl]);
 
   if (status === "error") {
-    return <div className="p-8 text-center text-red-500">{errorMsg}</div>;
+    return <div className="p-8 text-center text-destructive">{errorMsg}</div>;
   }
 
   return (

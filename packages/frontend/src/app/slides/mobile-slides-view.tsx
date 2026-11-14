@@ -466,7 +466,7 @@ export function MobileSlidesView({
   if (error) {
     return (
       <div role="alert" className="p-4 text-sm text-destructive">
-        Failed to load deck.
+        Couldn't load deck.
       </div>
     );
   }
@@ -664,7 +664,7 @@ function ThumbnailStrip({
               className="block bg-white"
               style={{ width: THUMB_W, height: thumbH }}
             />
-            <span className="text-[10px] tabular-nums text-muted-foreground">
+            <span className="text-2xs tabular-nums text-muted-foreground">
               {idx + 1}
             </span>
           </button>
@@ -684,7 +684,7 @@ function ThumbnailStrip({
           >
             <IconPlus size={20} />
           </div>
-          <span className="text-[10px] tabular-nums text-muted-foreground">
+          <span className="text-2xs tabular-nums text-muted-foreground">
             +
           </span>
         </button>

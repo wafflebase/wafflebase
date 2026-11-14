@@ -5,6 +5,7 @@ import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { DataSourceList } from "@/app/datasources/datasource-list";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadErrorState } from "@/components/load-error-state";
 
 /**
  * Renders the workspace-scoped data sources page.
@@ -17,6 +18,8 @@ export default function WorkspaceDataSources() {
     isLoading,
     isError,
     error,
+    refetch,
+    isFetching,
   } = useQuery<Array<DataSource>>({
     queryKey: ["workspaces", workspaceId, "datasources"],
     queryFn: () => fetchWorkspaceDataSources(workspaceId!),
@@ -47,10 +50,13 @@ export default function WorkspaceDataSources() {
       return null;
     }
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-destructive text-lg">Failed to load datasources.</p>
-        <p className="text-sm text-muted-foreground">Please try again later.</p>
-      </div>
+      <LoadErrorState
+        title="Couldn't load data sources."
+        error={error}
+        onRetry={() => void refetch()}
+        isRetrying={isFetching}
+        noAccessMessage="This workspace doesn't exist, or you no longer have access to it."
+      />
     );
   }
 

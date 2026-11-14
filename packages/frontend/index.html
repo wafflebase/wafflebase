@@ -3,13 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- No maximum-scale / user-scalable=no: pinch zoom must stay available
+         (WCAG 1.4.4). Double-tap zoom, which used to steal a sheet cell's
+         double-tap-to-edit, is turned off by `touch-action: manipulation` in
+         the base layer of src/index.css, and every editor surface that runs
+         its own pinch or pan declares `touch-action: none` on itself. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Wafflebase</title>
+    <meta
+      name="description"
+      content="Sheets, Docs, Slides, Notes and Boards, edited together in real time. Run it on your own servers and script it with the REST API and CLI."
+    />
+    <!-- The app's own background token per scheme (tokens.css --background). -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Wafflebase" />
+    <meta property="og:title" content="Wafflebase" />
+    <meta
+      property="og:description"
+      content="Sheets, Docs, Slides, Notes and Boards, edited together in real time. Run it on your own servers and script it with the REST API and CLI."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Wafflebase" />
+    <meta
+      name="twitter:description"
+      content="Sheets, Docs, Slides, Notes and Boards, edited together in real time. Run it on your own servers and script it with the REST API and CLI."
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fraunces italic is loaded for 500 only: the hero's second line
+         (hero-section.tsx, `font-medium italic`) is the one italic display
+         text. A new italic weight needs its own `1,9..144,<wght>` tuple here;
+         `.font-display` sets `font-synthesis-style: none`, so a missing face renders
+         upright instead of as a browser-slanted fake. -->
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     />
     <!-- Start Single Page Apps for GitHub Pages -->
     <script type="text/javascript">

@@ -413,7 +413,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImag
       await saveMyDocStyles(editor.getDocStyles());
       toast.success("Saved as your default styles");
     } catch {
-      toast.error("Failed to save default styles");
+      toast.error("Couldn't save default styles");
     }
   }, [editor]);
 
@@ -424,7 +424,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImag
       editor.setDocStyles(styles);
       toast.success("Applied your default styles");
     } catch {
-      toast.error("Failed to load default styles");
+      toast.error("Couldn't load default styles");
     }
   }, [editor]);
 
@@ -695,19 +695,19 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImag
           >
             <DropdownMenuCheckboxItem checked={slimAlignment === "left"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "left"; }}>
               <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
+              <span className="text-xs text-muted-foreground">{modKey}+⇧L</span>
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={slimAlignment === "center"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "center"; }}>
               <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
+              <span className="text-xs text-muted-foreground">{modKey}+⇧E</span>
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={slimAlignment === "right"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "right"; }}>
               <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+              <span className="text-xs text-muted-foreground">{modKey}+⇧R</span>
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={slimAlignment === "justify"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "justify"; }}>
               <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
+              <span className="text-xs text-muted-foreground">{modKey}+⇧J</span>
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>

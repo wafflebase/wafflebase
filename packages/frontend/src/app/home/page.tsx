@@ -20,7 +20,7 @@ export default function HomePage({
   const { hash } = useLocation();
 
   useEffect(() => {
-    document.title = "Wafflebase — The Open-Source Office Suite You Can Own";
+    document.title = "Wafflebase — the open-source office suite you can own";
   }, []);
 
   // Arriving from `/templates` at `/#features`: the browser resolved the hash

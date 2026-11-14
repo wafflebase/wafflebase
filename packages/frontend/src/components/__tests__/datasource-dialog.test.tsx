@@ -83,7 +83,7 @@ describe("DataSourceDialog", () => {
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        "Connection failed: connect ECONNREFUSED",
+        "Couldn't connect: connect ECONNREFUSED",
       ),
     );
     expect(toast.success).not.toHaveBeenCalled();

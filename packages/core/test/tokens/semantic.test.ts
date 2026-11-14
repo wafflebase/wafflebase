@@ -35,6 +35,9 @@ describe('semantic tokens', () => {
       'accentForeground',
       'destructive',
       'warning',
+      'success',
+      'selected',
+      'selectedForeground',
       'border',
       'input',
       'ring',
@@ -85,7 +88,7 @@ describe('semantic tokens', () => {
    * retuning a background is caught here instead of silently invalidating a
    * hardcoded expectation.
    */
-  it.each(['warning', 'destructive'] as const)(
+  it.each(['warning', 'destructive', 'success'] as const)(
     '%s clears WCAG AA against the background of both themes',
     (token) => {
       for (const theme of ['light', 'dark'] as const) {

@@ -54,7 +54,7 @@ type MiroImportEvent =
   | ({ type: "result" } & MiroImportResult)
   | { type: "error"; message: string };
 
-const FALLBACK_ERROR = "Failed to import the Miro board";
+const FALLBACK_ERROR = "Couldn't import the Miro board";
 
 /**
  * Ask the backend to read a Miro board on the user's behalf, and wait until
@@ -161,7 +161,7 @@ export async function readMiroImportStream(
     // proxy timeout, a killed worker. Silently resolving with an empty board
     // would import an empty document and call it a success.
     throw new MiroImportStreamError(
-      "The Miro import ended before it finished — please try again",
+      "The Miro import ended before it finished. Try again",
     );
   }
   return state.result;

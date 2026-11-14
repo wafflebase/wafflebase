@@ -176,7 +176,7 @@ export function ImageViewer({
   return (
     <div className="relative flex flex-1 items-center justify-center overflow-auto bg-muted/30">
       {error ? (
-        <p className="text-sm text-muted-foreground">Failed to load image.</p>
+        <p className="text-sm text-muted-foreground">Couldn't load image.</p>
       ) : src ? (
         <img
           src={src}

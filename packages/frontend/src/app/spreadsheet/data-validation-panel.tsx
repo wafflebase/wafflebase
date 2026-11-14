@@ -365,7 +365,7 @@ export function DataValidationPanel({
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-6">
         <div className="flex items-center justify-between">
-          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+          <Label className="text-xs text-muted-foreground">
             Rules
           </Label>
           <Button

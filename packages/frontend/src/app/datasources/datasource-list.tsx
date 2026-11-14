@@ -71,11 +71,11 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
       if (resolvedWorkspaceId) {
         queryClient.invalidateQueries({ queryKey: ["workspaces", resolvedWorkspaceId, "datasources"] });
       }
-      toast.success("DataSource deleted");
+      toast.success("Data source deleted");
     },
     onError: (error) => {
       if (isAuthExpiredError(error)) return;
-      toast.error("Failed to delete datasource");
+      toast.error("Couldn't delete the data source");
     },
   });
 
@@ -86,14 +86,14 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
       const result = await testDataSourceConnection(id);
       setTestResults((prev) => ({ ...prev, [id]: result.success }));
       if (result.success) {
-        toast.success("Connection successful");
+        toast.success("Connected");
       } else {
-        toast.error(`Connection failed: ${result.error}`);
+        toast.error(`Couldn't connect: ${result.error}`);
       }
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       setTestResults((prev) => ({ ...prev, [id]: false }));
-      toast.error("Failed to test connection");
+      toast.error("Couldn't test the connection");
     } finally {
       setTestingId(null);
     }
@@ -144,7 +144,7 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
           );
         }
         if (result === true) {
-          return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+          return <CheckCircle2 className="h-4 w-4 text-success" />;
         }
         if (result === false) {
           return <XCircle className="h-4 w-4 text-destructive" />;
@@ -185,7 +185,7 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
                 }}
               >
                 <Plug className="mr-2 h-4 w-4" />
-                Test Connection
+                Test connection
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={(e: MouseEvent<HTMLElement>) => {
@@ -256,7 +256,7 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
           className="flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
-          New DataSource
+          New data source
         </Button>
       </div>
       <div className="rounded-md border">
@@ -308,7 +308,7 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
                       onClick={() => setShowCreate(true)}
                     >
                       <Plus className="w-4 h-4 mr-1" />
-                      New DataSource
+                      New data source
                     </Button>
                   </div>
                 </TableCell>

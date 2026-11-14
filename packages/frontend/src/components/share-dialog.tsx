@@ -94,7 +94,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
         // their viewer-only default and the backend remains the real gate, so
         // the user can retry rather than facing a permanently disabled button.
         toast.error(
-          error instanceof Error ? error.message : "Failed to load share links",
+          error instanceof Error ? error.message : "Couldn't load share links",
         );
       })
       .finally(() => {
@@ -128,7 +128,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to create share link",
+        error instanceof Error ? error.message : "Couldn't create the share link",
       );
     } finally {
       setLoading(false);
@@ -148,7 +148,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       toast.success("Share link revoked");
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Failed to revoke share link");
+      toast.error("Couldn't revoke the share link");
     }
   };
 
@@ -171,9 +171,9 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       </Tooltip>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Share Document</DialogTitle>
+          <DialogTitle>Share document</DialogTitle>
           <DialogDescription>
-            Create a link to share this document with others.
+            Anyone with the link can open this document without signing in.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
@@ -277,7 +277,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
         </div>
         <div className="flex justify-end">
           <Button onClick={handleCreate} disabled={loading || !loaded}>
-            {loading ? "Creating..." : "Create Link"}
+            {loading ? "Creating..." : "Create link"}
           </Button>
         </div>
       </DialogContent>

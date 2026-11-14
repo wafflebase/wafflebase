@@ -52,6 +52,45 @@ describe('createBoardMinimap', () => {
     mm.dispose();
   });
 
+  it('draws the toggle state as an icon, not a glyph', () => {
+    const mm = createBoardMinimap({
+      store: fakeStore(),
+      getHostSize: () => ({ w: 800, h: 600 }),
+      onNavigate: vi.fn(),
+      dpr: 1,
+    });
+    const toggle = mm.element.querySelector('button') as HTMLButtonElement;
+    expect(toggle.textContent).toBe('Map');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const path = () => toggle.querySelector('svg path')?.getAttribute('d');
+    const expanded = path();
+    toggle.click();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(path()).not.toBe(expanded);
+    mm.dispose();
+  });
+
+  it('paints its surfaces from the theme tokens, without a blur', () => {
+    const mm = createBoardMinimap({
+      store: fakeStore(),
+      getHostSize: () => ({ w: 800, h: 600 }),
+      onNavigate: vi.fn(),
+      dpr: 1,
+    });
+    const toggle = mm.element.querySelector('button') as HTMLButtonElement;
+    const panel = mm.element.querySelector('div') as HTMLElement;
+    const css = (el: HTMLElement) => el.getAttribute('style') ?? '';
+    expect(css(toggle)).toContain('var(--popover');
+    expect(css(toggle)).toContain('var(--muted-foreground');
+    expect(css(toggle)).toContain('var(--border');
+    expect(css(panel)).toContain('var(--card');
+    expect(css(panel)).toContain('var(--border');
+    for (const el of [toggle, panel]) {
+      expect(css(el)).not.toMatch(/backdrop-filter|#fff;|rgba\(0, ?0, ?0, ?\.6\)/);
+    }
+    mm.dispose();
+  });
+
   it('repaintScene / repaintViewport do not throw with an empty scene', () => {
     const mm = createBoardMinimap({
       store: fakeStore(),

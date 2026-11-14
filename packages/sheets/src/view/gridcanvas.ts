@@ -1063,7 +1063,7 @@ export class GridCanvas {
     if (active || hovered) {
       ctx.fillStyle = active
         ? this.getThemeColor('selectionBGColor')
-        : this.getThemeColor('headerSelectedBGColor');
+        : this.getThemeColor('headerButtonHoverBGColor');
       ctx.fillRect(left, top, buttonWidth, buttonHeight);
     }
 

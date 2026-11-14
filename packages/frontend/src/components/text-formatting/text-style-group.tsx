@@ -139,7 +139,7 @@ export function TextStyleGroup({
           >
             <span className={opt.className}>{opt.label}</span>
             {opt.shortcut && (
-              <span className="ml-4 text-[11px] text-muted-foreground">
+              <span className="ml-4 text-xs text-muted-foreground">
                 {modKey}+{opt.shortcut}
               </span>
             )}

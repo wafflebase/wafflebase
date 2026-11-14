@@ -45,7 +45,7 @@ describe("DocumentAnalyticsPage error states", () => {
     await waitFor(() =>
       expect(screen.getByText(/don't have permission/i)).toBeTruthy(),
     );
-    expect(screen.queryByText(/failed to load analytics/i)).toBeNull();
+    expect(screen.queryByText(/couldn.t load analytics/i)).toBeNull();
   });
 
   it("falls back to the generic message on a non-403 failure", async () => {
@@ -54,7 +54,7 @@ describe("DocumentAnalyticsPage error states", () => {
     );
     renderPage();
     await waitFor(() =>
-      expect(screen.getByText(/failed to load analytics/i)).toBeTruthy(),
+      expect(screen.getByText(/couldn.t load analytics/i)).toBeTruthy(),
     );
     expect(screen.queryByText(/don't have permission/i)).toBeNull();
   });
@@ -63,7 +63,7 @@ describe("DocumentAnalyticsPage error states", () => {
     vi.mocked(getDocumentAnalytics).mockRejectedValue(new Error("network"));
     renderPage();
     await waitFor(() =>
-      expect(screen.getByText(/failed to load analytics/i)).toBeTruthy(),
+      expect(screen.getByText(/couldn.t load analytics/i)).toBeTruthy(),
     );
   });
 });

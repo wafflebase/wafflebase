@@ -117,7 +117,7 @@ export function TemplateLanding() {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Failed to create a document from this template",
+          : "Couldn't create a document from this template",
       );
     } finally {
       setCreating(false);
@@ -219,17 +219,13 @@ export function TemplateLanding() {
           </div>
 
           <div className="order-1 flex flex-col md:order-2">
-            <div className="mb-3 inline-flex items-center gap-2 font-code text-[11.5px] uppercase tracking-[0.14em] text-[color:var(--wb-syrup-deep)]">
-              <span className="size-1.5 rounded-full bg-[color:var(--wb-syrup)]" />
-              Template
-            </div>
             <h1
               className="m-0 font-display text-[clamp(28px,3.5vw,40px)] font-semibold leading-[1.1] tracking-[-0.01em] text-[color:var(--wb-ink)]"
               style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
             >
               {t.title}
             </h1>
-            <p className="mt-3 mb-0 font-code text-[12px] tracking-[0.04em] text-[color:var(--wb-sub)]">
+            <p className="mt-3 mb-0 text-[13px] text-[color:var(--wb-sub)]">
               {t.author ? `Shared by ${t.author.username} · ` : ""}
               {label}
               {t.useCount > 0 &&
@@ -247,7 +243,7 @@ export function TemplateLanding() {
                 <div className="grid gap-2">
                   <Label
                     htmlFor="template-workspace"
-                    className="font-code text-[11.5px] uppercase tracking-[0.1em] text-[color:var(--wb-sub)]"
+                    className="text-[color:var(--wb-ink)]"
                   >
                     Workspace
                   </Label>
@@ -330,7 +326,7 @@ export function TemplateLanding() {
                         toast.error(
                           error instanceof Error
                             ? error.message
-                            : "Failed to report this template",
+                            : "Couldn't report this template",
                         );
                       } finally {
                         setReporting(false);

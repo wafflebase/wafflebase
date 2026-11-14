@@ -60,7 +60,7 @@ export function ShortcutsHelpDialog({
             if (!entries || entries.length === 0) return null;
             return (
               <section key={category}>
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                <h3 className="text-sm font-semibold text-muted-foreground mb-2">
                   {category}
                 </h3>
                 <ul className="space-y-1">

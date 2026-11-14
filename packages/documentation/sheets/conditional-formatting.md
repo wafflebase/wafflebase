@@ -151,7 +151,7 @@ panel.
   rewrites its cells without touching the rules. But a rule stays anchored to
   the cells you gave it, so a pivot that changes shape can leave a rule
   covering the wrong part of the output.
-- **DataSource and Lakehouse tabs** — not supported. Those tabs render a
+- **Data source and lakehouse tabs** — not supported. Those tabs render a
   read-only result grid with no formatting toolbar, so there's no way to open
   the panel on them. Shape the data in SQL instead, or copy the results into a
   sheet tab and format it there.

@@ -62,13 +62,13 @@ describe("shape-picker categories", () => {
   it("each category has a human-readable title", () => {
     const expected: Record<string, string> = {
       shapes: "Shapes",
-      "block-arrows": "Block Arrows",
+      "block-arrows": "Block arrows",
       banners: "Banners",
       flowchart: "Flowchart",
       callouts: "Callouts",
       equation: "Equation",
       stars: "Stars",
-      "action-buttons": "Action Buttons",
+      "action-buttons": "Action buttons",
     };
     for (const cat of SHAPE_PICKER_CATEGORIES) {
       expect(cat.title).toBe(expected[cat.id]);

@@ -696,7 +696,7 @@ export function DocsView({
   if (error) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <div className="text-red-500">{error.message}</div>
+        <div className="text-destructive">{error.message}</div>
       </div>
     );
   }
@@ -811,7 +811,7 @@ export function DocsView({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-6 text-[10px]"
+                        className="h-6 text-2xs"
                         onClick={() => {
                           void comments.toggleResolved(t);
                         }}

@@ -1,4 +1,15 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  IconArrowDown,
+  IconArrowDownLeft,
+  IconArrowDownRight,
+  IconArrowLeft,
+  IconArrowRight,
+  IconArrowUp,
+  IconArrowUpLeft,
+  IconArrowUpRight,
+  type Icon,
+} from '@tabler/icons-react';
 import type { GradientFill, GradientStop, ThemeColor, Theme } from '@wafflebase/slides';
 import { resolveColor } from '@wafflebase/slides';
 import { ThemedColorPicker } from '../themed-color-picker';
@@ -22,16 +33,16 @@ import {
  * intuitive positions. `deg` is clockwise from +x (0 = left→right), matching
  * the stored `GradientFill.angle` after `degToRad`.
  */
-const LINEAR_PRESETS: ({ label: string; deg: number } | null)[] = [
-  { label: '↖', deg: 225 },
-  { label: '↑', deg: 270 },
-  { label: '↗', deg: 315 },
-  { label: '←', deg: 180 },
+const LINEAR_PRESETS: ({ label: string; icon: Icon; deg: number } | null)[] = [
+  { label: 'up-left', icon: IconArrowUpLeft, deg: 225 },
+  { label: 'up', icon: IconArrowUp, deg: 270 },
+  { label: 'up-right', icon: IconArrowUpRight, deg: 315 },
+  { label: 'left', icon: IconArrowLeft, deg: 180 },
   null,
-  { label: '→', deg: 0 },
-  { label: '↙', deg: 135 },
-  { label: '↓', deg: 90 },
-  { label: '↘', deg: 45 },
+  { label: 'right', icon: IconArrowRight, deg: 0 },
+  { label: 'down-left', icon: IconArrowDownLeft, deg: 135 },
+  { label: 'down', icon: IconArrowDown, deg: 90 },
+  { label: 'down-right', icon: IconArrowDownRight, deg: 45 },
 ];
 
 /** Pixels the pointer must move before a marker press counts as a drag
@@ -172,7 +183,7 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
         aria-label="Gradient stops"
         aria-valuenow={cur ? Math.round(cur.pos * 100) : 0}
         onPointerDown={onTrackPointerDown}
-        className="relative h-6 w-full cursor-copy rounded border border-border"
+        className="relative h-6 w-full cursor-copy touch-none rounded border border-border"
         style={{ background: cssGradient }}
       >
         {stops.map((s, i) => (
@@ -201,14 +212,14 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
                 type="button"
                 aria-label={`Direction ${p.label}`}
                 onClick={() => setPreset(p.deg)}
-                className="h-5 w-5 rounded border border-border text-[11px] hover:bg-muted"
+                className="flex h-5 w-5 items-center justify-center rounded border border-border hover:bg-muted"
               >
-                {p.label}
+                <p.icon size={12} aria-hidden="true" />
               </button>
             ),
           )}
         </div>
-        <label className="flex items-center gap-1 text-[11px]">
+        <label className="flex items-center gap-1 text-xs">
           <span className="text-muted-foreground">Angle</span>
           <input
             type="number"
@@ -227,7 +238,7 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
       </div>
 
       {/* Selected-stop row */}
-      <div className="flex items-center justify-between text-[11px]">
+      <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">Position</span>
         <input
           type="number"

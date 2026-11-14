@@ -30,7 +30,11 @@ export const HANDLES: readonly HandlePosition[] = [
 ];
 
 export const HANDLE_SIZE = 8;
-export const SELECTION_COLOR = "#1a73e8";
+// Syrup, the one accent that carries selection (DESIGN.md). The token rather
+// than a palette hex, because this frame is DOM and `--primary` already swaps
+// to bright syrup in dark mode — the same pair the grid's active-cell ring
+// (`activeCellColor`) paints.
+export const SELECTION_COLOR = "var(--primary)";
 const MIN_OBJECT_SIZE = 20;
 
 export const HANDLE_CURSORS: Record<HandlePosition, string> = {

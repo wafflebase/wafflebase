@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { RotateCw } from "lucide-react";
 import { fetchDocuments } from "@/api/documents";
 import { isAuthExpiredError } from "@/api/auth";
 import { Document } from "@/types/documents";
 import { DocumentList } from "@/app/documents/document-list";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadErrorState } from "@/components/load-error-state";
 
 /**
  * Renders the documents page entry component.
@@ -17,6 +16,7 @@ export default function Page() {
     isError,
     error,
     refetch,
+    isFetching,
   } = useQuery<Array<Document>>({
     queryKey: ["documents"],
     queryFn: fetchDocuments,
@@ -49,16 +49,12 @@ export default function Page() {
       return null;
     }
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <p className="text-destructive text-lg">Failed to load documents.</p>
-        <p className="text-sm text-muted-foreground">
-          Something went wrong. Please try again.
-        </p>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RotateCw className="mr-1 h-4 w-4" />
-          Retry
-        </Button>
-      </div>
+      <LoadErrorState
+        title="Couldn't load documents."
+        error={error}
+        onRetry={() => void refetch()}
+        isRetrying={isFetching}
+      />
     );
   }
 

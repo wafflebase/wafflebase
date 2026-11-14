@@ -1,3 +1,4 @@
+import { LASSO_FILL, SELECTION_COLOR } from './chrome-colors';
 import type {
   AutofitMode,
   Crop,
@@ -5527,8 +5528,8 @@ class SlidesEditorImpl implements SlidesEditor {
   private startLasso(clientX: number, clientY: number): void {
     const rectEl = document.createElement('div');
     rectEl.style.position = 'absolute';
-    rectEl.style.border = '1px dashed #3a7';
-    rectEl.style.background = 'rgba(58, 168, 119, 0.1)';
+    rectEl.style.border = `1px dashed ${SELECTION_COLOR}`;
+    rectEl.style.background = LASSO_FILL;
     rectEl.style.pointerEvents = 'none';
     this.options.overlay.appendChild(rectEl);
 

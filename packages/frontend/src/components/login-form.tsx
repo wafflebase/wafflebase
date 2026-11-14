@@ -26,11 +26,11 @@ import { WbButton } from "@/app/home/primitives/wb-button";
 const LOGIN_ERRORS = new Map<string, string>([
   [
     "oauth_state",
-    "That sign-in link expired or was started in another tab. Please try again.",
+    "That sign-in link expired or was started in another tab. Sign in again.",
   ],
   [
     "login_state",
-    "That sign-in link expired or was started in another tab. Please try again.",
+    "That sign-in link expired or was started in another tab. Sign in again.",
   ],
   // The provider handed back a profile the callback cannot sign in with. It
   // is reported here rather than as a backend 401 for the same reason as the
@@ -52,7 +52,7 @@ const LOGIN_ERRORS = new Map<string, string>([
 
 /** Shown for a code this build does not recognise, so none is silent. */
 const GENERIC_LOGIN_ERROR =
-  "That sign-in could not be completed. Please try again.";
+  "That sign-in could not be completed. Sign in again.";
 
 /**
  * Renders the LoginForm component.
@@ -97,12 +97,12 @@ export function LoginForm({
           className="font-display font-semibold text-[28px] tracking-[-0.02em] text-[color:var(--wb-ink)] m-0"
           style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
         >
-          Welcome back
+          Sign in to Wafflebase
         </h1>
         <p className="text-balance text-[14.5px] leading-[1.55] text-[color:var(--wb-sub)] m-0">
           {googleEnabled
-            ? "Sign in with your GitHub or Google account to get started."
-            : "Sign in with your GitHub account to get started."}
+            ? "Use your GitHub or Google account. Signing in for the first time creates your workspace."
+            : "Use your GitHub account. Signing in for the first time creates your workspace."}
         </p>
       </div>
       {message && (

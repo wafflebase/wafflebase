@@ -49,7 +49,7 @@ if (gaId) {
 export default defineConfig({
   title: "Wafflebase Docs",
   description:
-    "Documentation for Wafflebase — collaborative spreadsheets, documents, and presentations",
+    "How to use and self-host Wafflebase: spreadsheets, documents, presentations, notes, and boards",
   base: "/docs/",
 
   // This package's own README is developer notes, not a site page. Without

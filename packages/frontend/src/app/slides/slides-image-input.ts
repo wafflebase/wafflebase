@@ -98,7 +98,7 @@ export function setupSlidesImagePaths(deps: SlidesImagePathDeps): () => void {
       // the way out (matches the app's other mutation error paths).
       if (isAuthExpiredError(err)) return;
       console.error('Failed to insert image', err);
-      toast.error('Failed to insert image');
+      toast.error("Couldn't insert the image. Try again.");
     });
   };
 

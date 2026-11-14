@@ -26,7 +26,7 @@ export async function createDataSource(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  await assertOk(res, "Failed to create datasource");
+  await assertOk(res, "Couldn't create the data source");
   return res.json();
 }
 
@@ -35,7 +35,7 @@ export async function createDataSource(payload: {
  */
 export async function fetchDataSources(): Promise<DataSource[]> {
   const res = await fetchWithAuth(BASE);
-  await assertOk(res, "Failed to fetch datasources");
+  await assertOk(res, "Couldn't load data sources");
   return res.json();
 }
 
@@ -44,7 +44,7 @@ export async function fetchDataSources(): Promise<DataSource[]> {
  */
 export async function fetchDataSource(id: string): Promise<DataSource> {
   const res = await fetchWithAuth(`${BASE}/${seg(id)}`);
-  await assertOk(res, "Failed to fetch datasource");
+  await assertOk(res, "Couldn't load the data source");
   return res.json();
 }
 
@@ -68,7 +68,7 @@ export async function updateDataSource(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  await assertOk(res, "Failed to update datasource");
+  await assertOk(res, "Couldn't update the data source");
   return res.json();
 }
 
@@ -79,7 +79,7 @@ export async function deleteDataSource(id: string): Promise<void> {
   const res = await fetchWithAuth(`${BASE}/${seg(id)}`, {
     method: "DELETE",
   });
-  await assertOk(res, "Failed to delete datasource");
+  await assertOk(res, "Couldn't delete the data source");
 }
 
 /**
@@ -91,7 +91,7 @@ export async function testDataSourceConnection(
   const res = await fetchWithAuth(`${BASE}/${seg(id)}/test`, {
     method: "POST",
   });
-  await assertOk(res, "Failed to test connection");
+  await assertOk(res, "Couldn't test the connection");
   return res.json();
 }
 

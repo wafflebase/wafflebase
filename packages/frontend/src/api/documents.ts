@@ -23,7 +23,7 @@ export async function createDocument(payload: {
     }
   );
 
-  await assertOk(response, "Failed to create document");
+  await assertOk(response, "Couldn't create the document");
 
   return response.json();
 }
@@ -35,7 +35,7 @@ export async function fetchDocuments(): Promise<Array<Document>> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents`
   );
-  await assertOk(response, "Failed to fetch documents");
+  await assertOk(response, "Couldn't load documents");
   return await response.json();
 }
 
@@ -46,7 +46,7 @@ export async function fetchDocument(id: string): Promise<Document> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(id)}`
   );
-  await assertOk(response, "Failed to fetch document");
+  await assertOk(response, "Couldn't load the document");
   const document = await response.json();
   if (!document) {
     throw new Error("Document not found");
@@ -70,7 +70,7 @@ export async function renameDocument(
     }
   );
 
-  await assertOk(response, "Failed to rename document");
+  await assertOk(response, "Couldn't rename the document");
 
   return response.json();
 }
@@ -93,7 +93,7 @@ export async function moveDocument(
     }
   );
 
-  await assertOk(response, "Failed to move document");
+  await assertOk(response, "Couldn't move the document");
 
   return response.json();
 }
@@ -113,7 +113,7 @@ export async function copyDocument(id: string): Promise<Document> {
     }
   );
 
-  await assertOk(response, "Failed to copy document");
+  await assertOk(response, "Couldn't copy the document");
 
   return response.json();
 }
@@ -130,7 +130,7 @@ export class BulkCopyError extends Error {
     readonly copied: Document[],
     readonly cause: unknown
   ) {
-    super(cause instanceof Error ? cause.message : "Failed to copy documents");
+    super(cause instanceof Error ? cause.message : "Couldn't copy documents");
     this.name = "BulkCopyError";
   }
 }
@@ -159,10 +159,10 @@ export async function deleteDocument(id: string): Promise<void> {
   );
 
   if (response.ok) {
-    toast.success("Document deleted successfully");
+    toast.success("Document deleted");
   } else {
-    toast.error("Failed to delete document");
-    await assertOk(response, "Failed to delete document");
+    toast.error("Couldn't delete the document");
+    await assertOk(response, "Couldn't delete the document");
   }
 }
 
@@ -183,7 +183,7 @@ export async function moveDocuments(
       body: JSON.stringify({ ids, ...target }),
     }
   );
-  await assertOk(response, "Failed to move documents");
+  await assertOk(response, "Couldn't move documents");
   return response.json();
 }
 
@@ -201,6 +201,6 @@ export async function deleteDocuments(
       body: JSON.stringify({ ids }),
     }
   );
-  await assertOk(response, "Failed to delete documents");
+  await assertOk(response, "Couldn't delete documents");
   return response.json();
 }

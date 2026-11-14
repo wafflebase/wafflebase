@@ -156,7 +156,7 @@ describe("WorkspaceSettings owner-only controls", () => {
       within(memberRow(OWNER.user.email)).queryByLabelText("Remove member"),
     ).toBeNull();
 
-    expect(screen.getByText("Create Invite")).toBeTruthy();
+    expect(screen.getByText("Create invite link")).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByLabelText("Revoke invite")).toBeTruthy(),
     );
@@ -184,7 +184,7 @@ describe("WorkspaceSettings owner-only controls", () => {
       within(memberRow(OWNER.user.email)).queryByLabelText("Remove member"),
     ).toBeNull();
 
-    expect(screen.queryByText("Create Invite")).toBeNull();
+    expect(screen.queryByText("Create invite link")).toBeNull();
     expect(screen.queryByText("Invites")).toBeNull();
     expect(screen.queryByLabelText("Revoke invite")).toBeNull();
     expect(vi.mocked(fetchInvites)).not.toHaveBeenCalled();
@@ -252,8 +252,8 @@ describe("WorkspaceSettings API keys", () => {
     // member too — the server is what narrows the list to their own keys.
     await waitFor(() => expect(keyRow(MEMBER_KEY.name)).toBeTruthy());
     expect(vi.mocked(fetchApiKeys)).toHaveBeenCalledWith("acme");
-    expect(screen.getByText("API Keys")).toBeTruthy();
-    expect(screen.getByText("Create API Key")).toBeTruthy();
+    expect(screen.getByText("API keys")).toBeTruthy();
+    expect(screen.getByText("Create API key")).toBeTruthy();
 
     expect(
       screen.queryByRole("columnheader", { name: "Created by" }),
@@ -270,8 +270,8 @@ describe("WorkspaceSettings API keys", () => {
     });
     renderAs(MEMBER.user.id);
 
-    await waitFor(() => expect(screen.getByText("Create API Key")).toBeTruthy());
-    await userEvent.click(screen.getByText("Create API Key"));
+    await waitFor(() => expect(screen.getByText("Create API key")).toBeTruthy());
+    await userEvent.click(screen.getByText("Create API key"));
     await userEvent.type(screen.getByLabelText("API key name"), "Laptop");
     await userEvent.click(screen.getByText("Create"));
 

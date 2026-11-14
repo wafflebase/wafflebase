@@ -133,7 +133,7 @@ export function UploadPanel() {
                 // absence of a retry control just reads as a missing feature.
                 <p className="mt-0.5 text-xs text-destructive">
                   {item.reason}
-                  {!isRetryable(item) && " — start the import again to retry."}
+                  {!isRetryable(item) && ". Start the import again to retry."}
                 </p>
               )}
               {item.warning && (

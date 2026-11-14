@@ -80,17 +80,17 @@ terms but cannot be edited or deleted at all: the app has no screen for it. See
 **Settings** in the sidebar opens `/w/<workspace>/settings`. It's a single page
 of sections:
 
-- **Workspace Name** — the display name, visible to all members
+- **Workspace name** — the display name, visible to all members
 - **Workspace URL** — the slug after `/w/`. Changing it updates all links, and
   the settings page reloads at the new address
 - **Members** — everyone in the workspace, with their username, email, and role
 - **Invites** — *owners only*
-- **API Keys** — everyone, scoped to what you may see
-- **Danger Zone** — *owners only*
+- **API keys** — everyone, scoped to what you may see
+- **Delete workspace** — *owners only*
 
-A member sees every section except **Invites** and **Danger Zone**.
+A member sees every section except **Invites** and **Delete workspace**.
 
-::: tip What each role sees under API Keys
+::: tip What each role sees under API keys
 A member sees only the keys they minted themselves, and can create more and
 revoke their own. An owner sees every key in the workspace and can revoke any
 of them, with an extra **Created by** column naming each key's minter — that
@@ -110,7 +110,7 @@ rather than a disabled field.
 Only an owner can invite.
 
 1. Open **Settings** for the workspace
-2. Under **Invites**, click **Create Invite**
+2. Under **Invites**, click **Create invite link**
 3. A row appears in the table. Use the copy icon to put the link on your
    clipboard
 4. Send that link however you like
@@ -125,7 +125,7 @@ working for more than one person until you revoke it. Treat an invite link like 
 password.
 :::
 
-The **Create Invite** button always creates a *member* invite that never expires
+The **Create invite link** button always creates a *member* invite that never expires
 — which is why the **Expires** column reads **Never**. Invites with a different
 role or an expiry can be created through the REST API, but not from this screen.
 
@@ -191,7 +191,7 @@ Decide who should be an owner before you invite them.
 
 ## Delete a Workspace
 
-Under **Danger Zone**, **Delete this workspace** asks you to type the
+Under **Delete workspace**, **Delete this workspace** asks you to type the
 workspace's name to confirm. Deleting it permanently removes its documents,
 folders, datasources, invites, API keys, and membership list. There is no
 undo, and no trash to recover from.

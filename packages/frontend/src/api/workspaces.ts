@@ -38,7 +38,7 @@ export interface WorkspaceInvite {
  */
 export async function fetchWorkspaces(): Promise<Workspace[]> {
   const res = await fetchWithAuth(BASE);
-  await assertOk(res, "Failed to fetch workspaces");
+  await assertOk(res, "Couldn't load workspaces");
   return res.json();
 }
 
@@ -47,7 +47,7 @@ export async function fetchWorkspaces(): Promise<Workspace[]> {
  */
 export async function fetchWorkspace(id: string): Promise<WorkspaceDetail> {
   const res = await fetchWithAuth(`${BASE}/${seg(id)}`);
-  await assertOk(res, "Failed to fetch workspace");
+  await assertOk(res, "Couldn't load the workspace");
   return res.json();
 }
 
@@ -62,7 +62,7 @@ export async function createWorkspace(data: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  await assertOk(res, "Failed to create workspace");
+  await assertOk(res, "Couldn't create the workspace");
   return res.json();
 }
 
@@ -78,7 +78,7 @@ export async function updateWorkspace(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  await assertOk(res, "Failed to update workspace");
+  await assertOk(res, "Couldn't update the workspace");
   return res.json();
 }
 
@@ -89,7 +89,7 @@ export async function deleteWorkspace(id: string): Promise<void> {
   const res = await fetchWithAuth(`${BASE}/${seg(id)}`, {
     method: "DELETE",
   });
-  await assertOk(res, "Failed to delete workspace");
+  await assertOk(res, "Couldn't delete the workspace");
 }
 
 /**
@@ -103,7 +103,7 @@ export async function removeMember(
     `${BASE}/${seg(workspaceId)}/members/${seg(String(userId))}`,
     { method: "DELETE" },
   );
-  await assertOk(res, "Failed to remove member");
+  await assertOk(res, "Couldn't remove the member");
 }
 
 /**
@@ -118,7 +118,7 @@ export async function createInvite(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data || {}),
   });
-  await assertOk(res, "Failed to create invite");
+  await assertOk(res, "Couldn't create the invite link");
   return res.json();
 }
 
@@ -129,7 +129,7 @@ export async function fetchInvites(
   workspaceId: string,
 ): Promise<WorkspaceInvite[]> {
   const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/invites`);
-  await assertOk(res, "Failed to fetch invites");
+  await assertOk(res, "Couldn't load invite links");
   return res.json();
 }
 
@@ -144,7 +144,7 @@ export async function revokeInvite(
     `${BASE}/${seg(workspaceId)}/invites/${seg(inviteId)}`,
     { method: "DELETE" },
   );
-  await assertOk(res, "Failed to revoke invite");
+  await assertOk(res, "Couldn't revoke the invite link");
 }
 
 /**
@@ -157,7 +157,7 @@ export async function acceptInvite(
     `${import.meta.env.VITE_BACKEND_API_URL}/invites/${seg(token)}/accept`,
     { method: "POST" },
   );
-  await assertOk(res, "Failed to accept invite");
+  await assertOk(res, "Couldn't accept the invite");
   return res.json();
 }
 
@@ -189,7 +189,7 @@ export interface ApiKeyCreateResponse {
  */
 export async function fetchApiKeys(workspaceId: string): Promise<ApiKey[]> {
   const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/api-keys`);
-  await assertOk(res, "Failed to fetch API keys");
+  await assertOk(res, "Couldn't load API keys");
   return res.json();
 }
 
@@ -205,7 +205,7 @@ export async function createApiKey(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  await assertOk(res, "Failed to create API key");
+  await assertOk(res, "Couldn't create the API key");
   return res.json();
 }
 
@@ -219,7 +219,7 @@ export async function revokeApiKey(
   const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/api-keys/${seg(keyId)}`, {
     method: "DELETE",
   });
-  await assertOk(res, "Failed to revoke API key");
+  await assertOk(res, "Couldn't revoke the API key");
 }
 
 /**
@@ -232,7 +232,7 @@ export async function fetchWorkspaceDocuments(
 ): Promise<Document[]> {
   const qs = folderId ? `?folderId=${encodeURIComponent(folderId)}` : "";
   const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/documents${qs}`);
-  await assertOk(res, "Failed to fetch documents");
+  await assertOk(res, "Couldn't load documents");
   return res.json();
 }
 
@@ -277,7 +277,7 @@ export async function getWorkspaceAnalytics(
   if (range?.to) qs.set("to", range.to);
   const suffix = qs.toString() ? `?${qs}` : "";
   const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/analytics${suffix}`);
-  await assertOk(res, "Failed to load analytics");
+  await assertOk(res, "Couldn't load analytics");
   return res.json();
 }
 
@@ -300,7 +300,7 @@ export async function createWorkspaceDocument(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  await assertOk(res, "Failed to create document");
+  await assertOk(res, "Couldn't create the document");
   return res.json();
 }
 
@@ -309,7 +309,7 @@ export async function createWorkspaceDocument(
  */
 export async function fetchWorkspaceDataSources(workspaceId: string) {
   const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/datasources`);
-  await assertOk(res, "Failed to fetch datasources");
+  await assertOk(res, "Couldn't load data sources");
   return res.json();
 }
 
@@ -325,7 +325,7 @@ export async function createWorkspaceDataSource(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  await assertOk(res, "Failed to create datasource");
+  await assertOk(res, "Couldn't create the data source");
   return res.json();
 }
 
@@ -348,6 +348,6 @@ export async function testWorkspaceDataSourceConfig(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  await assertOk(res, "Failed to test connection");
+  await assertOk(res, "Couldn't test the connection");
   return res.json();
 }

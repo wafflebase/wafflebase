@@ -54,6 +54,7 @@ import {
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
 import { toTextRange, setTextRange } from './utils/textrange';
+import { fitTouchInputFont } from './utils/touch-input-font';
 import {
   runKeyRules,
   isModPressed,
@@ -2659,6 +2660,7 @@ export class Worksheet {
       search.style.borderRadius = '4px';
       search.style.background = 'transparent';
       search.style.color = 'inherit';
+      fitTouchInputFont(search);
       search.oninput = () => {
         if (!this.filterPanelState) return;
         this.filterPanelState.search = search.value;
@@ -2776,6 +2778,7 @@ export class Worksheet {
       operator.style.borderRadius = '4px';
       operator.style.background = 'transparent';
       operator.style.color = 'inherit';
+      fitTouchInputFont(operator);
 
       const conditionOptions: Array<{
         value: FilterCondition['op'];
@@ -2821,6 +2824,7 @@ export class Worksheet {
         input.style.borderRadius = '4px';
         input.style.background = 'transparent';
         input.style.color = 'inherit';
+        fitTouchInputFont(input);
         input.oninput = () => {
           if (!this.filterPanelState) return;
           this.filterPanelState.condition = {

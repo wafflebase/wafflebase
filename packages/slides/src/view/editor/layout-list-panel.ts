@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from './chrome-colors';
 import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import { renderLayoutPreview } from '../canvas/layout-preview';
 import type { SlidesStore } from '../../store/store';
@@ -54,7 +55,7 @@ export function mountLayoutListPanel(
       row.dataset.selected = String(on);
       row.setAttribute('aria-selected', String(on));
       row.style.outline = on
-        ? '2px solid var(--primary, #3a7)'
+        ? `2px solid var(--primary, ${SELECTION_COLOR})`
         : '1px solid var(--border, #444)';
     }
   }
