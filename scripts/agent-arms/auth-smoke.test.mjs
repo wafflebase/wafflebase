@@ -175,24 +175,51 @@ test("classifyFailure: reads the RAW text, so redaction cannot change the verdic
 // onto yorkie's copy. yorkie's main at 0fa3f92f keeps its lists private, with
 // a narrower auth list and no transient-first rule; yorkie's change that
 // exports both lists (with this ordering and these patterns) is not merged
-// yet. Against a core without the exported lists, the comparisons it cannot
-// pass are reported as `todo`, naming what differs, instead of failing: they
-// are a difference in the core to settle upstream, not in this arm. Against a
-// core that exports both lists — this repository's today, and yorkie's once
-// that change lands — every one of them is enforced.
+// yet. Against a core that exports both lists — this repository's today, and
+// yorkie's once that change lands — the two copies are compared in full.
+// Against one that does not, the test below pins EXACTLY what that core does
+// today, so any change to it — an export under another name, one list
+// without the other, a different answer — fails here and is looked at,
+// rather than passing quietly.
 const PROBE_LISTS = Array.isArray(probe.AUTH) && Array.isArray(probe.TRANSIENT);
-const UPSTREAM_GAP = PROBE_LISTS
-  ? false
-  : "the shared core's probe keeps its vocabulary private, has a narrower auth list and lets auth words beat a transient signal";
 
-test("the fix-credential probe's lists are this script's, pattern for pattern", { todo: UPSTREAM_GAP }, () => {
-  // Exact, not by example: a pattern added, widened or narrowed in one copy
-  // classifies the examples below the same and would pass them.
-  const key = (list) => list.map((re) => `${re.source}/${re.flags}`).sort();
-  assert.ok(QUOTA.includes(SESSION_LIMIT_RE), "the quota list no longer holds the pipeline's own session-limit rule");
-  assert.deepEqual(key(QUOTA.filter((re) => re !== SESSION_LIMIT_RE)), key(probe.TRANSIENT ?? []), "the transient-capacity lists differ");
-  assert.deepEqual(key(AUTH), key(probe.AUTH ?? []), "the auth lists differ");
-});
+if (PROBE_LISTS) {
+  test("the fix-credential probe's lists are this script's, pattern for pattern", () => {
+    // Exact, not by example: a pattern added, widened or narrowed in one copy
+    // classifies the examples below the same and would pass them.
+    const key = (list) => list.map((re) => `${re.source}/${re.flags}`).sort();
+    assert.ok(QUOTA.includes(SESSION_LIMIT_RE), "the quota list no longer holds the pipeline's own session-limit rule");
+    assert.deepEqual(key(QUOTA.filter((re) => re !== SESSION_LIMIT_RE)), key(probe.TRANSIENT), "the transient-capacity lists differ");
+    assert.deepEqual(key(AUTH), key(probe.AUTH), "the auth lists differ");
+  });
+
+  test("the fix-credential probe: the rest of the auth words, and a transient signal beats them", () => {
+    for (const msg of ["not authenticated", "permission denied", "see /login"]) {
+      assert.equal(classifyProbeFailure(msg), "auth", msg);
+      assert.equal(classifyFailure(msg), "auth", msg);
+    }
+    // A transient refusal that also carries auth words is still transient: a
+    // 429 that says "unauthorized" must not latch a PR.
+    assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
+  });
+} else {
+  test("the shared core's probe is still yorkie main 0fa3f92f's, exactly: no exported lists, auth beating a 429", () => {
+    const changed = "the shared core's probe changed — if it now exports AUTH and TRANSIENT the full comparison above applies; otherwise read the change and update this record";
+    assert.equal(probe.AUTH, undefined, changed);
+    assert.equal(probe.TRANSIENT, undefined, changed);
+    // What it answers today where this script's vocabulary differs. The first
+    // is the one that matters: a 429 that says "unauthorized" reads as a
+    // rejected credential there, refusing the slot and paging the PR.
+    for (const [msg, answer] of [
+      ["429 rate limited: unauthorized burst", "auth"],
+      ["not authenticated", "unknown"],
+      ["permission denied", "unknown"],
+      ["see /login", "unknown"],
+    ]) {
+      assert.equal(classifyProbeFailure(msg), answer, `${changed}: ${msg}`);
+    }
+  });
+}
 
 test("the fix-credential probe reads this vocabulary, narrowed to refusals that stay refused", () => {
   // The same rejected credential reads the same in both.
@@ -228,16 +255,6 @@ test("the fix-credential probe reads this vocabulary, narrowed to refusals that 
     assert.equal(classifyFailure(msg), "quota", msg);
     assert.equal(classifyProbeFailure(msg), "unknown", msg);
   }
-});
-
-test("the fix-credential probe: the rest of the auth words, and a transient signal beats them", { todo: UPSTREAM_GAP }, () => {
-  for (const msg of ["not authenticated", "permission denied", "see /login"]) {
-    assert.equal(classifyProbeFailure(msg), "auth", msg);
-    assert.equal(classifyFailure(msg), "auth", msg);
-  }
-  // A transient refusal that also carries auth words is still transient: a
-  // 429 that says "unauthorized" must not latch a PR.
-  assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
 });
 
 test("the runner's own faults in the stderr tail are not a refusal, in either reading", () => {
