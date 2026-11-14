@@ -66,13 +66,13 @@ export async function fetchNotifications(
   const url = new URL(base());
   if (before) url.searchParams.set("before", before);
   const response = await fetchWithAuth(url.toString());
-  await assertOk(response, "Failed to fetch notifications");
+  await assertOk(response, "Couldn't load notifications");
   return response.json();
 }
 
 export async function fetchUnreadCount(): Promise<number> {
   const response = await fetchWithAuth(`${base()}/unread-count`);
-  await assertOk(response, "Failed to fetch unread count");
+  await assertOk(response, "Couldn't load the unread count");
   const body: { count: number } = await response.json();
   return body.count;
 }
@@ -84,7 +84,7 @@ export async function markNotificationsRead(ids?: string[]): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(ids ? { ids } : {}),
   });
-  await assertOk(response, "Failed to mark notifications read");
+  await assertOk(response, "Couldn't mark notifications as read");
 }
 
 /**
@@ -99,5 +99,5 @@ export async function reportCommentNotification(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  await assertOk(response, "Failed to report comment notification");
+  await assertOk(response, "Couldn't report comment notification");
 }

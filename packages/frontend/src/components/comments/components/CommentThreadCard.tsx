@@ -69,8 +69,8 @@ export function CommentThreadCard<A extends CommentAnchor>({
     } catch {
       toast.error(
         thread.resolved
-          ? "Couldn't reopen this thread. Please try again."
-          : "Couldn't resolve this thread. Please try again.",
+          ? "Couldn't reopen this thread. Try again."
+          : "Couldn't resolve this thread. Try again.",
       );
     } finally {
       setResolving(false);
@@ -81,7 +81,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
     try {
       await onDelete(commentId);
     } catch {
-      toast.error("Couldn't delete this comment. Please try again.");
+      toast.error("Couldn't delete this comment. Try again.");
     }
   };
 

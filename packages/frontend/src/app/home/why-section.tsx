@@ -1,20 +1,6 @@
-import { Check, Minus, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { SectionHead } from "./primitives/section-head";
-
-function LimitedBadge() {
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-code text-[color:var(--wb-syrup-deep)]"
-      style={{
-        background: "color-mix(in srgb, var(--wb-butter) 30%, transparent)",
-      }}
-    >
-      <Minus className="size-3" aria-hidden="true" />
-      Limited
-    </span>
-  );
-}
 
 function CheckMark() {
   return <Check className="size-4 text-[color:var(--wb-leaf)]" />;
@@ -28,29 +14,24 @@ function CrossMark() {
 
 const rows: { label: string; wafflebase: ReactNode; others: ReactNode }[] = [
   {
-    label: "Self-hosted & own your data",
+    label: "Spreadsheets, documents and presentations",
+    wafflebase: <CheckMark />,
+    others: <CheckMark />,
+  },
+  {
+    label: "Real-time co-editing and comments",
+    wafflebase: <CheckMark />,
+    others: <CheckMark />,
+  },
+  {
+    label: "Runs on servers you control",
     wafflebase: <CheckMark />,
     others: <CrossMark />,
   },
   {
-    label: "REST API & CLI",
+    label: "Source code you can read and change",
     wafflebase: <CheckMark />,
-    others: <LimitedBadge />,
-  },
-  {
-    label: "Real-time collaboration",
-    wafflebase: <CheckMark />,
-    others: <CheckMark />,
-  },
-  {
-    label: "Sheets, Docs, Slides, Notes & Boards in one app",
-    wafflebase: <CheckMark />,
-    others: <CheckMark />,
-  },
-  {
-    label: "Free & open source",
-    wafflebase: <CheckMark />,
-    others: <LimitedBadge />,
+    others: <CrossMark />,
   },
 ];
 
@@ -59,8 +40,8 @@ export function WhySection() {
     <section className="bg-[color:var(--wb-bg)] py-16 md:py-20 px-6 md:px-8">
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          title="A workspace that respects your data and your workflow."
-          sub="Open source, self-hosted, and developer-first — no surprises, no lock-in."
+          title="How it compares with Google Workspace"
+          sub="Both edit spreadsheets, documents and presentations together in real time. Only Wafflebase runs on your own servers."
         />
 
         <div

@@ -267,8 +267,8 @@ export function SlidesView({
           console.error("Failed to apply pending PPTX import", err);
           toast.error(
             err instanceof Error
-              ? `Failed to load imported deck: ${err.message}`
-              : "Failed to load imported deck.",
+              ? `Couldn't load the imported deck: ${err.message}`
+              : "Couldn't load the imported deck",
           );
         }
       }

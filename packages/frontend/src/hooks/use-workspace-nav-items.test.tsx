@@ -57,7 +57,7 @@ describe("useWorkspaceNavItems", () => {
     expect(titles(result.current)).toEqual([
       "Documents",
       "Templates",
-      "Data Sources",
+      "Data sources",
       "Settings",
     ]);
     expect(result.current.main.map((i) => i.url)).toEqual([
@@ -82,7 +82,7 @@ describe("useWorkspaceNavItems", () => {
     expect(titles(result.current)).toEqual([
       "Documents",
       "Templates",
-      "Data Sources",
+      "Data sources",
       "Analytics",
       "Settings",
     ]);

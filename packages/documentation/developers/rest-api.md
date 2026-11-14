@@ -16,8 +16,8 @@ The guard routes on the header: a bearer token starting with `wfb_` goes to the 
 ### Creating an API Key
 
 1. Go to your workspace settings
-2. Navigate to **API Keys**
-3. Click **Create API Key** and give it a name
+2. Navigate to **API keys**
+3. Click **Create API key** and give it a name
 4. Copy the key (it starts with `wfb_`) — it is shown only once
 
 ### Using the API Key
@@ -653,7 +653,7 @@ PUT  /api/v1/workspaces/:wid/documents/:did/tabs/:tid/freeze
 
 Both default to `0` when absent, so `PUT {}` unfreezes.
 
-The bound is **1,000 per axis, not the grid's** — the frozen quadrants are painted in full on every frame with no viewport clipping, so a deeper freeze is not a large freeze, it is a tab that never paints again and whose freeze menu the user can no longer reach to undo it. Above it is a `400`.
+The bound is **1,000 per axis, not the grid's** — the frozen quadrants are painted in full on every frame with no viewport clipping, so a deeper freeze stops the tab from painting at all, and the user can no longer reach the freeze menu to undo it. Above it is a `400`.
 
 `PUT` **may store a boundary past the one you asked for.** A merged block that straddles a frozen boundary is not drawable, so the write snaps the line out past any block it would cut in half — the same thing the editor's own freeze does. The response is the boundary that was actually stored, so compare it with what you sent rather than assuming they match. When a block is tall enough that snapping past it would exceed the 1,000 ceiling, that axis is **released to `0`** instead: no boundary straddles nothing.
 

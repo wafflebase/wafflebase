@@ -74,7 +74,7 @@ export function LakehouseSelector({
           setLoadError(
             error instanceof Error
               ? error.message
-              : 'Failed to load lakehouse sources',
+              : "Couldn't load lakehouse connections",
           );
         })
         .finally(() => {
@@ -124,7 +124,7 @@ export function LakehouseSelector({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Select Lakehouse</DialogTitle>
+            <DialogTitle>Select lakehouse</DialogTitle>
             <DialogDescription>
               Choose an Iceberg or Delta connection for this read-only tab.
             </DialogDescription>
@@ -198,7 +198,7 @@ export function LakehouseSelector({
               onClick={() => setShowCreate(true)}
             >
               <IconPlus className="size-4" />
-              New Connection
+              New connection
             </Button>
             <Button
               type="button"

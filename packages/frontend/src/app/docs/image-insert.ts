@@ -73,10 +73,10 @@ export function loadImageDimensions(
       if (img.naturalWidth > 0 && img.naturalHeight > 0) {
         resolve({ width: img.naturalWidth, height: img.naturalHeight });
       } else {
-        reject(new Error("Image has zero dimensions"));
+        reject(new Error("The URL points to an empty image."));
       }
     };
-    img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+    img.onerror = () => reject(new Error("Check the URL and try again."));
     img.src = url;
   });
 }
@@ -109,7 +109,7 @@ function loadFileDimensions(
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Failed to read image"));
+      reject(new Error("The file isn't a readable image"));
     };
     img.src = url;
   });
@@ -157,8 +157,8 @@ export async function insertImageFromFile(
     console.error("Image insert failed", err);
     toast.error(
       err instanceof Error
-        ? `Image upload failed: ${err.message}`
-        : "Image upload failed",
+        ? `Couldn't upload the image: ${err.message}`
+        : "Couldn't upload the image",
     );
   }
 }
@@ -206,8 +206,8 @@ export async function insertImageFromUrl(
     console.error("Image URL insert failed", err);
     toast.error(
       err instanceof Error
-        ? `Couldn't load image: ${err.message}`
-        : "Couldn't load image",
+        ? `Couldn't load the image. ${err.message}`
+        : "Couldn't load the image",
     );
     return false;
   }

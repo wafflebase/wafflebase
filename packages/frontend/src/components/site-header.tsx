@@ -98,7 +98,7 @@ export function SiteHeader({
       // `PATCH` leaves the row it is read from unchanged.
       void (async () => onRename(trimmed))().catch((err: unknown) => {
         const reason = err instanceof Error ? err.message : String(err);
-        toast.error(`Could not rename to "${trimmed}"`, {
+        toast.error(`Couldn't rename to "${trimmed}"`, {
           description: reason,
         });
       });

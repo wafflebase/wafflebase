@@ -84,7 +84,7 @@ export function BackgroundSidePanel({
     } catch (err) {
       if (requestId !== uploadRequestRef.current) return;
       console.error("Failed to upload background image", err);
-      toast.error("Failed to upload image");
+      toast.error("Couldn't upload the image. Try again.");
     }
   };
 

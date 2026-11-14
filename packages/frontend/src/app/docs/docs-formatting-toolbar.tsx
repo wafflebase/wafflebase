@@ -413,7 +413,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImag
       await saveMyDocStyles(editor.getDocStyles());
       toast.success("Saved as your default styles");
     } catch {
-      toast.error("Failed to save default styles");
+      toast.error("Couldn't save default styles");
     }
   }, [editor]);
 
@@ -424,7 +424,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', uploadImag
       editor.setDocStyles(styles);
       toast.success("Applied your default styles");
     } catch {
-      toast.error("Failed to load default styles");
+      toast.error("Couldn't load default styles");
     }
   }, [editor]);
 

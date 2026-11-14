@@ -16,7 +16,7 @@ export default function InviteAccept() {
       .then(({ workspaceId }) =>
         navigate(`/w/${workspaceId}`, { replace: true }),
       )
-      .catch((err) => setError(err.message || "Failed to accept invite"));
+      .catch((err) => setError(err.message || "Couldn't accept the invite"));
   }, [token, navigate]);
 
   if (error) {

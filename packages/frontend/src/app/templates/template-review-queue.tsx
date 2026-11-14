@@ -16,6 +16,7 @@ import { Loader } from "@/components/loader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SharedDocumentByToken } from "@/app/shared/shared-document";
+import { typeMeta } from "@/app/documents/document-type-meta";
 
 /**
  * What each decision is called once it is done. A table rather than
@@ -83,7 +84,7 @@ export function TemplateReviewQueue() {
     onError: (error: unknown) => {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to close this report"
+        error instanceof Error ? error.message : "Couldn't close this report"
       );
     },
   });
@@ -112,7 +113,7 @@ export function TemplateReviewQueue() {
     onError: (error: unknown) => {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to record this decision"
+        error instanceof Error ? error.message : "Couldn't record this decision"
       );
     },
   });
@@ -149,13 +150,14 @@ export function TemplateReviewQueue() {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center gap-3 px-6 py-24 text-center">
         <h1 className="text-xl font-semibold">
-          {forbidden ? "Not a template reviewer" : "Couldn’t load the queue"}
+          {forbidden ? "Not a template reviewer" : "Couldn't load the review queue"}
         </h1>
-        <p className="text-muted-foreground text-sm">
-          {forbidden
-            ? "Reviewing the public template gallery is limited to the accounts named in this deployment’s reviewer allowlist."
-            : "The review queue could not be loaded. This is usually temporary."}
-        </p>
+        {forbidden && (
+          <p className="text-muted-foreground text-sm">
+            Reviewing the public template gallery is limited to the accounts
+            named in this deployment's reviewer allowlist.
+          </p>
+        )}
         {!forbidden && (
           <Button size="sm" variant="secondary" onClick={() => queue.refetch()}>
             Try again
@@ -193,8 +195,8 @@ export function TemplateReviewQueue() {
                     className="h-full w-full object-contain"
                   />
                 ) : (
-                  <span className="text-muted-foreground text-xs uppercase">
-                    {t.documentType}
+                  <span className="text-muted-foreground text-xs">
+                    {typeMeta(t.documentType).label}
                   </span>
                 )}
               </div>
@@ -204,7 +206,7 @@ export function TemplateReviewQueue() {
                   <p className="truncate font-medium">{t.title}</p>
                   <p className="text-muted-foreground text-sm">
                     {t.author ? `by ${t.author.username} · ` : ""}
-                    {t.documentType}
+                    {typeMeta(t.documentType).label}
                     {t.category ? ` · ${t.category}` : ""}
                   </p>
                 </div>

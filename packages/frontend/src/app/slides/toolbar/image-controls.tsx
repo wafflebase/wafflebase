@@ -81,7 +81,7 @@ export function ImageControls({
         });
       } catch (err) {
         console.error('Failed to replace image', err);
-        toast.error('Failed to replace image');
+        toast.error("Couldn't replace the image. Try again.");
       }
     };
     input.click();

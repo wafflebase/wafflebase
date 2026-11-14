@@ -60,8 +60,8 @@ describe("summarizeImport", () => {
     })!;
     expect(summary).toBe(
       "32 tables skipped; " +
-        "915 connectors skipped — not attached at both ends in Miro; " +
-        "229 connectors skipped — their target was not imported",
+        "915 connectors skipped: not attached at both ends in Miro; " +
+        "229 connectors skipped: their target was not imported",
     );
     expect(summary).not.toMatch(/imported skipped/);
   });
@@ -201,7 +201,7 @@ describe("describeSkip", () => {
   // These carry their own "skipped" because they cannot be grouped with the
   // item types, which share one trailing "skipped" between them.
   it("returns a complete clause for a reason key", () => {
-    expect(describeSkip("connector-free-end", 2)).toMatch(/ skipped /);
+    expect(describeSkip("connector-free-end", 2)).toMatch(/ skipped: /);
   });
 
   it("declines an ordinary item type, leaving it to the grouped list", () => {

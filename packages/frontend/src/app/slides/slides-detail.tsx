@@ -384,7 +384,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
         await insertImageOnSlide({ store, slideId, file, upload: uploadFn });
       } catch (err) {
         console.error("Failed to insert image", err);
-        toast.error("Failed to insert image");
+        toast.error("Couldn't insert the image. Try again.");
       }
     };
     input.click();
@@ -481,7 +481,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             {layoutEditTarget && (
               <div className="flex items-center justify-between gap-2 border-b bg-muted/50 px-4 py-1.5 text-xs">
                 <span className="text-muted-foreground">
-                  Editing layout placeholders — drag to reposition. Changes
+                  Editing layout placeholders. Drag to reposition. Changes
                   apply to slides using that layout.
                 </span>
                 <button
@@ -766,7 +766,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
         await insertImageOnSlide({ store, slideId, file, upload: uploadFn });
       } catch (err) {
         console.error("Failed to insert image", err);
-        toast.error("Failed to insert image");
+        toast.error("Couldn't insert the image. Try again.");
       }
     };
     input.click();

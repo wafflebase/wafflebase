@@ -148,7 +148,7 @@ export function TemplateShareSection({
       .catch((error) => {
         if (cancelled || isAuthExpiredError(error)) return;
         toast.error(
-          error instanceof Error ? error.message : "Failed to load template",
+          error instanceof Error ? error.message : "Couldn't load the template",
         );
       })
       .finally(() => {
@@ -166,7 +166,7 @@ export function TemplateShareSection({
   /**
    * Clipboard failures are reported separately from the mutation that preceded
    * them. A denied clipboard permission after a successful publish would
-   * otherwise surface as "Failed to publish template" while the listing is
+   * otherwise surface as "Couldn't publish the template" while the listing is
    * already live — telling the user the opposite of what happened.
    */
   const copyToClipboard = async (url: string, ok: string): Promise<void> => {
@@ -174,7 +174,7 @@ export function TemplateShareSection({
       await navigator.clipboard.writeText(url);
       toast.success(ok);
     } catch {
-      toast.error("Could not copy the link. Copy it from the address bar.");
+      toast.error("Couldn't copy the link. Copy it from the address bar.");
     }
   };
 
@@ -205,7 +205,7 @@ export function TemplateShareSection({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to publish template",
+        error instanceof Error ? error.message : "Couldn't publish the template",
       );
     } finally {
       setBusy(false);
@@ -232,7 +232,7 @@ export function TemplateShareSection({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Failed to submit this template",
+          : "Couldn't submit this template",
       );
     } finally {
       setBusy(false);
@@ -249,7 +249,7 @@ export function TemplateShareSection({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to unpublish template",
+        error instanceof Error ? error.message : "Couldn't unpublish the template",
       );
     } finally {
       setBusy(false);
@@ -312,7 +312,7 @@ export function TemplateShareSection({
               <div className="bg-muted/50 rounded-md border px-3 py-2 text-xs">
                 <p className="font-medium">
                   {listing.status === "pending"
-                    ? "Submitted to the public gallery — awaiting review"
+                    ? "Submitted to the public gallery, awaiting review"
                     : listing.status === "rejected"
                       ? "Not accepted into the public gallery"
                       : "Removed from the gallery by a reviewer"}
@@ -468,7 +468,7 @@ function TemplateMetaEditor({
     try {
       const thumbnailId = await captureThumbnailId(documentId);
       if (!thumbnailId) {
-        toast.error("Could not capture a preview of this document");
+        toast.error("Couldn't capture a preview of this document");
         return;
       }
       onSaved(await updateTemplate(listing.id, { thumbnailId }));
@@ -476,7 +476,7 @@ function TemplateMetaEditor({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to update the preview",
+        error instanceof Error ? error.message : "Couldn't update the preview",
       );
     } finally {
       setCapturing(false);
@@ -511,7 +511,7 @@ function TemplateMetaEditor({
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
-        error instanceof Error ? error.message : "Failed to update template",
+        error instanceof Error ? error.message : "Couldn't update the template",
       );
     } finally {
       setSaving(false);

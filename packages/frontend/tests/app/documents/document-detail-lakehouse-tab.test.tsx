@@ -180,7 +180,7 @@ describe('DocumentDetail lakehouse tab creation', () => {
       },
     );
     fireEvent.click(
-      await screen.findByRole('menuitem', { name: /New Lakehouse/ }),
+      await screen.findByRole('menuitem', { name: /New lakehouse/ }),
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /Orders/ }));

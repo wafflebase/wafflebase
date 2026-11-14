@@ -89,7 +89,7 @@ export function FileShell({
         queryClient.invalidateQueries({ queryKey: ["documents"] });
       } catch (error) {
         if (isAuthExpiredError(error)) return;
-        toast.error("Failed to rename document");
+        toast.error("Couldn't rename the document");
       }
     },
     [documentId, queryClient],

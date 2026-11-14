@@ -27,14 +27,14 @@ for the lot, with before/after screenshots.
 
 ## 3. Clarify — copy
 
-- [ ] "Failed to X" → "Couldn't X", with cause/recovery where known
-- [ ] "Please try again later." → a real retry where one exists
-- [ ] Sentence case for dialog titles, menus, nav, settings headings
-- [ ] One spelling: "data source"; "Sign in / Sign out"
-- [ ] Drop "successfully" and title-restating dialog descriptions
-- [ ] Homepage: replace aphorisms with concrete claims; CTA names the action
-- [ ] Login: no "Welcome back" for first-time visitors
-- [ ] CLI root description; docs-site tutorial intros
+- [x] "Failed to X" → "Couldn't X", with cause/recovery where known
+- [x] "Please try again later." → a real retry where one exists
+- [x] Sentence case for dialog titles, menus, nav, settings headings
+- [x] One spelling: "data source"; "Sign in / Sign out"
+- [x] Drop "successfully" and title-restating dialog descriptions
+- [x] Homepage: replace aphorisms with concrete claims; CTA names the action
+- [x] Login: no "Welcome back" for first-time visitors
+- [x] CLI root description; docs-site tutorial intros
 
 ## 4. Harden — browser surfaces and accessibility
 

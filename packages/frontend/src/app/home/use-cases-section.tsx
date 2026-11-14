@@ -9,17 +9,17 @@ type UseCase = {
 const USE_CASES: UseCase[] = [
   {
     title: "Replace the 'export to Excel, edit, paste back' loop",
-    body: "A SQL tab reads straight from PostgreSQL into a read-only grid, right beside your editable tabs — press Execute for fresh rows instead of exporting another CSV.",
+    body: "A SQL tab reads straight from PostgreSQL into a read-only grid, right beside your editable tabs. Press Execute for fresh rows instead of exporting another CSV.",
     href: "/docs/sheets/datasources",
   },
   {
     title: "Ship the deck on your brand, not Google's",
-    body: "Four-tier theme system, Google-Slides-parity layouts, and a self-hosted store — your team's decks live where your data lives.",
+    body: "Four-tier theme system, Google-Slides-parity layouts, and a self-hosted store, so your team's decks live where your data lives.",
     href: "/docs/slides/build-a-deck",
   },
   {
     title: "Roll the spec back to the version everyone signed off on",
-    body: "Every sheet, doc, slide, note and board keeps a dated timeline of its 50 most recent versions — name the current state as you ship it, and restoring one saves today's state first.",
+    body: "Every sheet, doc, slide, note and board keeps a dated timeline of its 50 most recent versions. Name the current state as you ship it; restoring an older one saves today's state first.",
     href: "/docs/guide/collaboration#version-history",
   },
 ];
@@ -29,8 +29,8 @@ export function UseCasesSection() {
     <section className="bg-[color:var(--wb-bg)] py-16 md:py-20 px-6 md:px-8">
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          title="Built to live inside the workflow you already have."
-          sub="Query your own database, self-host the whole stack, roll back to the version you named — Wafflebase keeps your data where you want it."
+          title="Three jobs it handles"
+          sub="Query your own database instead of exporting CSVs, keep decks on your own servers, and roll a document back to the version you named."
         />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-6">
@@ -44,7 +44,7 @@ export function UseCasesSection() {
               }}
             >
               <h3
-                className="font-display font-semibold text-[21px] leading-[1.2] tracking-[-0.015em] text-[color:var(--wb-ink)] m-0"
+                className="font-display font-semibold text-[21px] leading-[1.2] tracking-[-0.015em] text-balance text-[color:var(--wb-ink)] m-0"
                 style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
               >
                 {u.title}

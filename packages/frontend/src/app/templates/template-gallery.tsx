@@ -202,9 +202,27 @@ export function TemplateGallery({
         </div>
       ) : query.isError ? (
         isAuthExpiredError(query.error) ? null : (
-          <p className="text-destructive text-sm">
-            Failed to load templates. Please try again.
-          </p>
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-destructive text-sm">Couldn't load templates.</p>
+            {marketing ? (
+              <WbButton
+                variant="ghost"
+                onClick={() => void query.refetch()}
+                disabled={query.isFetching}
+              >
+                Try again
+              </WbButton>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void query.refetch()}
+                disabled={query.isFetching}
+              >
+                Try again
+              </Button>
+            )}
+          </div>
         )
       ) : items.length === 0 ? (
         <div

@@ -251,8 +251,8 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       console.error("Failed to apply pending XLSX import", error);
       toast.error(
         error instanceof Error
-          ? `Failed to load imported workbook: ${error.message}`
-          : "Failed to load imported workbook.",
+          ? `Couldn't load the imported workbook: ${error.message}`
+          : "Couldn't load the imported workbook",
       );
     } finally {
       clearPendingImport(documentId);
@@ -434,7 +434,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       const tabName = getUniqueTabName(
         root.tabs,
         ds.name,
-        "DataSource",
+        "Data source",
       );
 
       doc.update((r) => {

@@ -466,7 +466,7 @@ export function MobileSlidesView({
   if (error) {
     return (
       <div role="alert" className="p-4 text-sm text-destructive">
-        Failed to load deck.
+        Couldn't load deck.
       </div>
     );
   }

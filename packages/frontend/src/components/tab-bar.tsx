@@ -287,15 +287,15 @@ export function TabBar({
           <DropdownMenuContent align="start">
             <DropdownMenuItem onClick={() => onAddTab("sheet")}>
               <IconTable className="size-4" />
-              New Sheet
+              New sheet
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAddTab("datasource")}>
               <IconDatabase className="size-4" />
-              New DataSource
+              New data source
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAddTab("lakehouse")}>
               <IconBuildingWarehouse className="size-4" />
-              New Lakehouse
+              New lakehouse
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

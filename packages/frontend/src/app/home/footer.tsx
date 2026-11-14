@@ -116,7 +116,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="border-t border-[color:var(--wb-rule)] pt-6 flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center">
           <span className="font-code text-[12px] text-[color:var(--wb-sub)]">
-            © {new Date().getFullYear()} Wafflebase · Apache-2.0
+            © {new Date().getFullYear()} Wafflebase
           </span>
           <a
             href={GITHUB_URL}

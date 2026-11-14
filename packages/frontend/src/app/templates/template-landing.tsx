@@ -117,7 +117,7 @@ export function TemplateLanding() {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Failed to create a document from this template",
+          : "Couldn't create a document from this template",
       );
     } finally {
       setCreating(false);
@@ -326,7 +326,7 @@ export function TemplateLanding() {
                         toast.error(
                           error instanceof Error
                             ? error.message
-                            : "Failed to report this template",
+                            : "Couldn't report this template",
                         );
                       } finally {
                         setReporting(false);

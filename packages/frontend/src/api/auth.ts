@@ -97,11 +97,11 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
   }
 
   if (res && !res.ok && !suppressFailure) {
-    throw new Error("Failed to log out");
+    throw new Error("Couldn't sign out");
   }
 
   if (showSuccessToast && res?.ok) {
-    toast.success("Logged out successfully");
+    toast.success("Signed out");
   }
 
   if (redirect) {

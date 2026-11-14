@@ -245,7 +245,7 @@ export function NotesView({
   if (error) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        Failed to load note.
+        Couldn't load note.
       </div>
     );
   }

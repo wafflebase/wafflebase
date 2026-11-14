@@ -78,7 +78,7 @@ export function MiroImportDialog({
       if (isAuthExpiredError(err)) return;
       // Keep the dialog open so the pasted values aren't lost.
       setError(
-        err instanceof Error ? err.message : "Failed to import the Miro board",
+        err instanceof Error ? err.message : "Couldn't import the Miro board",
       );
     } finally {
       setBusy(false);

@@ -26,3 +26,19 @@
   (`aria-pressed`, computed bg) before blaming a token.
 - Known/visible, intentional: sidebar sub-item icons lose their syrup tint.
 
+### Step 3 — clarify
+- Split across two agents on disjoint paths (app copy + CLI / brand + docs);
+  both still touched `login-form.tsx` — the edits merged, but declare shared
+  files up front next time.
+- Review (truthfulness lens, independent agent) found 3 blockers, all fixed:
+  the features sub claimed comments + version history for every type
+  (comments exist in sheets/docs/PDF only; history in the five CRDT types),
+  "the whole stack ships as one Docker image" (backend only), and the docs
+  site still named ~30 UI labels this step renamed.
+  Lesson: a copy rewrite that removes slop can *add* claims; fact-check each
+  new sentence against code, and grep the docs for every UI label you rename.
+- Non-blocking, fixed: hero said "servers you run" on a page the hosted
+  deployment also serves; three leftover "Failed to"; four dialogs now opt
+  out of a description explicitly (`aria-describedby={undefined}`); new
+  `LoadErrorState` test.
+

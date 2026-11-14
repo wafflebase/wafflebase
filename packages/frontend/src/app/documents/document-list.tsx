@@ -263,11 +263,11 @@ const CREATE_ITEMS: ReadonlyArray<{
   title: string;
   label: string;
 }> = [
-  { type: "doc", title: "New Document", label: "New Document" },
-  { type: "sheet", title: "New Sheet", label: "New Sheet" },
-  { type: "slides", title: "New Presentation", label: "New Presentation" },
-  { type: "note", title: "New Note", label: "New Note" },
-  { type: "board", title: "Untitled board", label: "New Board" },
+  { type: "doc", title: "New Document", label: "New document" },
+  { type: "sheet", title: "New Sheet", label: "New sheet" },
+  { type: "slides", title: "New Presentation", label: "New presentation" },
+  { type: "note", title: "New Note", label: "New note" },
+  { type: "board", title: "Untitled board", label: "New board" },
 ];
 
 /**
@@ -468,15 +468,15 @@ export function DocumentList({
       if (item.status === "done") {
         scheduleListRefresh(item.workspaceId);
         if (item.warning) {
-          toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
+          toast.warning(`Imported "${item.fileName}". ${item.warning}`);
         }
       } else if (item.status === "error") {
         // "Upload" is wrong for a row that never had a file: an externally
         // driven import (Miro) fails at an import, not at an upload.
-        const verb = item.kind === "board" ? "Import" : "Upload";
+        const verb = item.kind === "board" ? "import" : "upload";
         toast.error(
-          `${verb} failed: ${item.fileName}${
-            item.reason ? ` — ${item.reason}` : ""
+          `Couldn't ${verb} ${item.fileName}${
+            item.reason ? `. ${item.reason}` : ""
           }`,
         );
       }
@@ -539,9 +539,15 @@ export function DocumentList({
       ]);
       setDeleting(null);
       const total = vars.docIds.length + vars.folderIds.length;
-      toast.success(total > 1 ? `${total} items deleted` : "Deleted");
+      toast.success(
+        total > 1
+          ? `${total} items deleted`
+          : vars.docIds.length === 1
+            ? "Document deleted"
+            : "Folder deleted",
+      );
     },
-    onError: () => toast.error("Failed to delete"),
+    onError: () => toast.error("Couldn't delete the selected items"),
   });
 
   const renameDocumentMutation = useMutation({
@@ -574,8 +580,8 @@ export function DocumentList({
     onError: (err) =>
       toast.error(
         err instanceof BulkCopyError && err.copied.length > 0
-          ? `Copied ${err.copied.length}, then failed`
-          : "Failed to copy",
+          ? `Copied ${err.copied.length}, then couldn't copy the rest`
+          : "Couldn't copy the document",
       ),
     // Refetch on settled, not just on success: a bulk copy that fails partway
     // has already created the copies before it, and they must appear in the
@@ -615,10 +621,16 @@ export function DocumentList({
       const moved =
         vars.docIds.length +
         (vars.workspaceId === listWorkspaceId ? vars.folderIds.length : 0);
-      toast.success(moved > 1 ? `${moved} items moved` : "Moved");
+      toast.success(
+        moved > 1
+          ? `${moved} items moved`
+          : vars.docIds.length === 1
+            ? "Document moved"
+            : "Folder moved",
+      );
       if (vars.folderIds.length && vars.workspaceId !== listWorkspaceId) {
         toast.warning(
-          "Folders can't move to another workspace — only the documents moved.",
+          "Folders can't move to another workspace. Only the documents moved.",
         );
       }
       setMoving(null);
@@ -629,7 +641,7 @@ export function DocumentList({
         ...vars.folderIds.map((id) => FOLDER_KEY_PREFIX + id),
       ]);
     },
-    onError: () => toast.error("Failed to move"),
+    onError: () => toast.error("Couldn't move the selected items"),
   });
 
   // Document-only move used by drag-and-drop onto a folder row and onto the
@@ -648,11 +660,11 @@ export function DocumentList({
       toast.success(
         vars.ids.length > 1
           ? `${vars.ids.length} documents moved`
-          : "Document moved successfully",
+          : "Document moved",
       );
       deselect(vars.ids.map((id) => DOC_KEY_PREFIX + id));
     },
-    onError: () => toast.error("Failed to move documents"),
+    onError: () => toast.error("Couldn't move the documents"),
   });
 
   const createFolderMutation = useMutation({
@@ -665,7 +677,7 @@ export function DocumentList({
       setCreatingFolder(false);
       setNewFolderName("");
     },
-    onError: () => toast.error("Failed to create folder"),
+    onError: () => toast.error("Couldn't create the folder"),
   });
 
   const renameFolderMutation = useMutation({
@@ -677,7 +689,7 @@ export function DocumentList({
       });
       setRenamingFolder(null);
     },
-    onError: () => toast.error("Failed to rename folder"),
+    onError: () => toast.error("Couldn't rename the folder"),
   });
 
   // Default to most-recently-modified first (Google-Drive-style). Folders are
@@ -1172,7 +1184,7 @@ export function DocumentList({
         fileId: doc.fileId,
       });
     } catch {
-      toast.error(`Failed to download "${doc.title}"`);
+      toast.error(`Couldn't download "${doc.title}"`);
     }
   };
 
@@ -1593,7 +1605,7 @@ export function DocumentList({
           if (!open) setRenamingDoc(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <form
             onSubmit={(e: FormEvent) => {
               e.preventDefault();
@@ -1609,10 +1621,7 @@ export function DocumentList({
             }}
           >
             <DialogHeader>
-              <DialogTitle>Rename Document</DialogTitle>
-              <DialogDescription>
-                Enter a new name for this document.
-              </DialogDescription>
+              <DialogTitle>Rename document</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-2">
               <div className="grid gap-2">
@@ -1761,7 +1770,7 @@ export function DocumentList({
                   } items?`
                 : `Delete “${deleting?.title}”?`}{" "}
               {deleting && deleting.folderIds.length > 0
-                ? "Documents inside deleted folders (and any subfolders' documents) move back to the workspace root — they are not deleted."
+                ? "Documents inside deleted folders (and any subfolders' documents) move back to the workspace root. They are not deleted."
                 : "This action cannot be undone."}
             </DialogDescription>
           </DialogHeader>
@@ -1800,7 +1809,7 @@ export function DocumentList({
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>New folder</DialogTitle>
           </DialogHeader>
@@ -1846,7 +1855,7 @@ export function DocumentList({
           if (!open) setRenamingFolder(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Rename folder</DialogTitle>
           </DialogHeader>

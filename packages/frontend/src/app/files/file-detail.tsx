@@ -43,7 +43,7 @@ function DownloadFileButton({
         try {
           await downloadDocumentFile({ id: documentId, title, fileId });
         } catch {
-          toast.error("Failed to download");
+          toast.error("Couldn't download the file");
         }
       }}
     >

@@ -21,7 +21,7 @@ describe('TabBar', () => {
       pointerType: 'mouse',
     });
     fireEvent.click(
-      await screen.findByRole('menuitem', { name: /New Lakehouse/ }),
+      await screen.findByRole('menuitem', { name: /New lakehouse/ }),
     );
 
     expect(onAddTab).toHaveBeenCalledWith('lakehouse');

@@ -57,7 +57,7 @@ export function DataSourceSelector({
       <Dialog open={open && !showCreate} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Select DataSource</DialogTitle>
+            <DialogTitle>Select data source</DialogTitle>
             <DialogDescription>
               Choose an existing connection or create a new one.
             </DialogDescription>
@@ -69,7 +69,7 @@ export function DataSourceSelector({
               </div>
             ) : datasources.length === 0 ? (
               <div className="text-sm text-muted-foreground text-center py-4">
-                No datasources yet. Create one to get started.
+                No data sources yet. Create one to get started.
               </div>
             ) : (
               <div className="grid gap-2">
@@ -110,7 +110,7 @@ export function DataSourceSelector({
               onClick={() => setShowCreate(true)}
             >
               <IconPlus className="size-4" />
-              New Connection
+              New connection
             </Button>
             <Button
               disabled={!selectedId}

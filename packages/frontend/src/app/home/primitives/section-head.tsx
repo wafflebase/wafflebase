@@ -25,7 +25,7 @@ export function SectionHead({
       )}
     >
       <h2
-        className="font-display font-semibold text-[color:var(--wb-ink)] text-[clamp(28px,3.5vw,40px)] leading-[1.1] tracking-[-0.01em] m-0"
+        className="font-display font-semibold text-[color:var(--wb-ink)] text-[clamp(28px,3.5vw,40px)] leading-[1.1] tracking-[-0.01em] text-balance m-0"
         style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
       >
         {title}

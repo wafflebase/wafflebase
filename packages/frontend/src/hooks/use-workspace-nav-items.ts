@@ -43,7 +43,7 @@ export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
       return {
         main: [
           { title: "Documents", url: "/documents", icon: IconFolder },
-          { title: "Data Sources", url: "/datasources", icon: IconDatabase },
+          { title: "Data sources", url: "/datasources", icon: IconDatabase },
           { title: "Settings", url: "/settings", icon: IconSettings },
         ],
         secondary: [],
@@ -56,7 +56,7 @@ export function useWorkspaceNavItems(workspaceSlug?: string): NavItems {
         { title: "Documents", url: root, icon: IconFolder },
         { title: "Templates", url: `${root}/templates`, icon: IconLayoutGrid },
         {
-          title: "Data Sources",
+          title: "Data sources",
           url: `${root}/datasources`,
           icon: IconDatabase,
         },

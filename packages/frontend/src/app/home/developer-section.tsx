@@ -202,8 +202,8 @@ export function DeveloperSection() {
     >
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          title="Built for Developers"
-          sub="Automate your workflow with REST API and CLI."
+          title="Script it with the REST API and CLI"
+          sub="The wafflebase CLI and the /api/v1 endpoints edit the same documents your team has open, so a script or an agent works alongside people."
         />
 
         <div

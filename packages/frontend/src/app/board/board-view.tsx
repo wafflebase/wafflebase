@@ -464,7 +464,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           // slides toolbar's `handleImagePick` — `insertImageOnSlide`
           // itself never toasts, so the toolbar-click caller must.
           console.error("Failed to insert image", err);
-          toast.error("Failed to insert image");
+          toast.error("Couldn't insert the image. Try again.");
         });
       };
     }

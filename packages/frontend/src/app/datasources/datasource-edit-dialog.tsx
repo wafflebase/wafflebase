@@ -4,7 +4,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DataSourceFormFields } from "@/components/datasource-form-fields";
@@ -65,11 +64,11 @@ export function DataSourceEditDialog({
       if (sslEnabled !== datasource.sslEnabled) payload.sslEnabled = sslEnabled;
 
       await updateDataSource(datasource.id, payload);
-      toast.success("DataSource updated");
+      toast.success("Data source updated");
       onSaved();
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Failed to update datasource");
+      toast.error("Couldn't update the data source");
     } finally {
       setSaving(false);
     }
@@ -81,13 +80,13 @@ export function DataSourceEditDialog({
     try {
       const result = await testDataSourceConnection(datasource.id);
       if (result.success) {
-        toast.success("Connection successful");
+        toast.success(`Connected to ${datasource.host}`);
       } else {
-        toast.error(`Connection failed: ${result.error}`);
+        toast.error(`Couldn't connect: ${result.error}`);
       }
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Failed to test connection");
+      toast.error("Couldn't test the connection");
     } finally {
       setTesting(false);
     }
@@ -95,12 +94,9 @@ export function DataSourceEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>Edit DataSource</DialogTitle>
-          <DialogDescription>
-            Update the connection settings for this datasource.
-          </DialogDescription>
+          <DialogTitle>Edit data source</DialogTitle>
         </DialogHeader>
         <DataSourceFormFields
           idPrefix="edit-ds"
@@ -122,13 +118,13 @@ export function DataSourceEditDialog({
         />
         <div className="flex justify-between">
           <Button variant="outline" onClick={handleTest} disabled={testing}>
-            {testing ? "Testing..." : "Test Connection"}
+            {testing ? "Testing…" : "Test connection"}
           </Button>
           <Button
             onClick={handleSave}
             disabled={saving || !name || !host || !database || !username}
           >
-            {saving ? "Saving..." : "Save Changes"}
+            {saving ? "Saving..." : "Save changes"}
           </Button>
         </div>
       </DialogContent>

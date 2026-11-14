@@ -18,73 +18,73 @@ type SecondaryFeature = {
 const HERO_FEATURES: HeroFeature[] = [
   {
     glyph: "sync",
-    title: "Real-Time Collaboration",
+    title: "Real-time collaboration",
     description:
-      "CRDT-powered concurrent editing — sheets, docs, slides, notes, and boards all take simultaneous edits without conflicts or data loss.",
+      "Every editor syncs through Yorkie CRDTs, so simultaneous edits to a sheet, doc, deck, note or board merge without conflicts.",
     href: "/docs/guide/collaboration",
   },
   {
     glyph: "embed",
-    title: "REST API & CLI",
+    title: "REST API and CLI",
     description:
-      "Read and write cells programmatically. Automate reports, sync data pipelines, or build integrations.",
+      "Read and write cells, render a doc as Markdown, or let an agent edit the same document your team has open.",
     href: "/docs/developers/rest-api",
   },
   {
     glyph: "reactive",
-    title: "Self-Hosted & Open Source",
+    title: "Self-hosted and open source",
     description:
-      "Apache-2.0 licensed. Deploy on your infrastructure, keep full control of your data, customize freely.",
+      "Run the whole stack on your own infrastructure, and your documents stay there.",
     href: "/docs/developers/self-hosting",
   },
 ];
 
 const SECONDARY_FEATURES: SecondaryFeature[] = [
   {
-    title: "Google Sheets-Compatible Formulas",
+    title: "Google Sheets-compatible formulas",
     description:
-      "440+ functions — SUM, VLOOKUP, IF — plus cross-sheet references",
+      "440+ functions, including SUM, VLOOKUP and IF, plus cross-sheet references",
     href: "/docs/sheets/formulas",
   },
   {
-    title: "Charts, Pivots & Live Data",
+    title: "Charts, pivots and live data",
     description:
       "Visualize, aggregate, and query PostgreSQL or an Iceberg/Delta lakehouse",
     href: "/docs/sheets/charts",
   },
   {
-    title: "Page-Based Document Editor",
+    title: "Page-based document editor",
     description:
       "Paginated editor with rich tables, page breaks, and headers/footers",
     href: "/docs/docs-editor/writing-a-document",
   },
   {
-    title: "Comments, Mentions & Spell Check",
+    title: "Comments, mentions and spell check",
     description: "Inline threads, @mentions, and live spell checking",
     href: "/docs/guide/collaboration",
   },
   {
-    title: "Themes, Layouts & Shapes",
+    title: "Themes, layouts and shapes",
     description:
       "23 built-in themes, Google-Slides-parity layouts, 137 shapes and 4 connector types",
     href: "/docs/slides/themes-and-layouts",
   },
   {
-    title: "Animations & Presentation Mode",
+    title: "Animations and presentation mode",
     description:
       "Object and slide animations plus a full-screen keyboard-driven player",
     href: "/docs/slides/build-a-deck",
   },
   {
-    title: "Markdown Notes & Infinite Boards",
+    title: "Markdown notes and infinite boards",
     description:
       "A Markdown editor with live preview, and a boundless pan-and-zoom canvas",
     href: "/docs/notes/writing-a-note",
   },
   {
-    title: "Templates, PDFs & Files",
+    title: "Templates, PDFs and files",
     description:
-      "Publish any document as a template — and keep PDFs, images, and files beside it",
+      "Publish any document as a template, and keep PDFs, images and other files beside it",
     href: "/docs/guide/templates",
   },
 ];
@@ -97,8 +97,8 @@ export function FeaturesSection() {
     >
       <div className="max-w-[1200px] mx-auto">
         <SectionHead
-          title="Everything you need, nothing you don't."
-          sub="Built for teams and developers who want full control over their data."
+          title="Sheets, docs, slides, notes and boards in one workspace"
+          sub="Every sheet, doc, deck, note and board shares the same sharing links and version history."
         />
 
         {/* Hero features — large cards */}

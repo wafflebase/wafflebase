@@ -39,7 +39,7 @@ export function PublicTemplates() {
         <div className="relative z-10 mx-auto max-w-[1200px]">
           <SectionHead
             title="Start from something someone already built."
-            sub="Documents people have published for anyone to start from. Using one gives you your own copy — the original is never changed."
+            sub="Documents people have published for anyone to start from. Using one gives you your own copy; the original never changes."
           />
 
           <TemplateGallery

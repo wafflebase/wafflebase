@@ -1,23 +1,27 @@
 # Getting Started
 
-This guide walks you through creating your first sheet or document in Wafflebase.
+Sign in, create a sheet, and try each editor in a few minutes.
 
 ## Sign In
 
-Go to [wafflebase.io](https://wafflebase.io) and click **Get Started**. Sign in with your GitHub account.
+Go to [wafflebase.io](https://wafflebase.io) and click **Sign in**. Use your
+GitHub account, or Google if the deployment offers it. Your first sign-in
+creates a workspace for you.
 
 ## Create a Sheet or Document
 
 After signing in, you'll see your workspace. Click the **New** dropdown button to choose what to create:
 
-- **New Document** — A word-processor-style editor for writing and formatting text
-- **New Sheet** — A spreadsheet for structured data, formulas, and charts
-- **New Presentation** — A slide deck with themes, layouts, and shapes
-- **New Note** — A Markdown editor with a live preview for quick notes and docs
-- **New Board** — An infinite canvas for sticky notes, shapes, and images
+| Menu entry | What it creates |
+|---|---|
+| **New document** | A word-processor-style editor for writing and formatting text |
+| **New sheet** | A spreadsheet for structured data, formulas, and charts |
+| **New presentation** | A slide deck with themes, layouts, and shapes |
+| **New note** | A Markdown editor with a live preview |
+| **New board** | An infinite canvas for sticky notes, shapes, and images |
 
 To bring existing work in, the same menu has a single **Upload files…** entry.
-Pick as many files as you like — Wafflebase reads each file's extension and
+Pick as many files as you like. Wafflebase reads each file's extension and
 creates the matching document: a spreadsheet from `.xlsx` or `.csv`, a document
 from `.docx`, a presentation from `.pptx`, a viewer for a `.pdf` or an image,
 and a stored file for anything else. Dragging files onto the
@@ -29,7 +33,7 @@ and **Import from Miro…**.
 
 ## Try a Sheet
 
-Select **New Sheet** to create a blank spreadsheet. Let's build a simple contact list. Click on cell **A1** and type the following data, pressing `Tab` to move right and `Enter` to move to the next row:
+Select **New sheet** to create a blank spreadsheet, then build a simple contact list. Click on cell **A1** and type the following data, pressing `Tab` to move right and `Enter` to move to the next row:
 
 |   | A | B | C |
 |---|---|---|---|
@@ -56,13 +60,13 @@ Your document starts with one tab called **Sheet1**. Click the **+** button next
 
 ## Try a Document
 
-Select **New Document** to open a blank page. Start typing — the editor works like a word processor. Use the toolbar to apply formatting such as **bold**, *italic*, and text alignment.
+Select **New document** to open a blank page and start typing. Use the toolbar to apply formatting such as **bold**, *italic*, and text alignment.
 
 For a full walkthrough, see the [Writing a Document](/docs-editor/writing-a-document) guide.
 
 ## Try a Note
 
-Select **New Note** for a Markdown editor with a live preview. Type Markdown on
+Select **New note** for a Markdown editor with a live preview. Type Markdown on
 the left and watch it render on the right:
 
 ```markdown
@@ -76,32 +80,32 @@ For more, see the [Writing a Note](/notes/writing-a-note) guide.
 
 ## What's Next
 
-**Sheets:**
-- [Build a Budget Spreadsheet](/sheets/build-a-budget) — Learn formulas, formatting, and layout
-- [Formulas](/sheets/formulas) — Full list of supported functions
-- [Charts & Pivot Tables](/sheets/charts) — Visualize your data
-- [Data Validation](/sheets/data-validation) — Checkboxes, dropdowns, and input rules
-- [External Datasources](/sheets/datasources) — Query a database from a tab
-- [Keyboard Shortcuts](/sheets/keyboard-shortcuts) — Speed up your workflow
+**Sheets**
+- [Build a Budget Spreadsheet](/sheets/build-a-budget): formulas, number formats, and layout in one worked example
+- [Formulas](/sheets/formulas): every supported function
+- [Charts & Pivot Tables](/sheets/charts)
+- [Data Validation](/sheets/data-validation): checkboxes, dropdowns, and input rules
+- [External Datasources](/sheets/datasources): query a database from a tab
+- [Keyboard Shortcuts](/sheets/keyboard-shortcuts)
 
-**Docs:**
-- [Writing a Document](/docs-editor/writing-a-document) — Text editing, formatting, and page layout
-- [Keyboard Shortcuts](/docs-editor/keyboard-shortcuts) — Document editor shortcuts
+**Docs**
+- [Writing a Document](/docs-editor/writing-a-document): text, formatting, tables, and page layout
+- [Keyboard Shortcuts](/docs-editor/keyboard-shortcuts)
 
-**Slides:**
-- [Build a Deck](/slides/build-a-deck) — Slides, text boxes, shapes, and images
-- [Themes & Layouts](/slides/themes-and-layouts) — Consistent colors, fonts, and placeholders
-- [Keyboard Shortcuts](/slides/keyboard-shortcuts) — Presentation editor shortcuts
+**Slides**
+- [Build a Deck](/slides/build-a-deck): a three-slide deck with a theme, a shape, and presentation mode
+- [Themes & Layouts](/slides/themes-and-layouts)
+- [Keyboard Shortcuts](/slides/keyboard-shortcuts)
 
-**Notes & Board:**
-- [Writing a Note](/notes/writing-a-note) — Markdown editor with live preview
-- [Using the Board](/board/using-the-board) — Infinite canvas with sticky notes and shapes
+**Notes & Board**
+- [Writing a Note](/notes/writing-a-note)
+- [Using the Board](/board/using-the-board)
 
-**PDF & Files:**
-- [Viewing PDFs](/pdf/viewing-pdfs) — Upload, read, and comment on PDF files
-- [Viewing Images](/pdf/viewing-images) — Store and view images alongside your documents
-- [Organizing with Folders](/pdf/organizing-with-folders) — Group documents inside a workspace
+**PDF & Files**
+- [Viewing PDFs](/pdf/viewing-pdfs): upload, read, and comment on PDF files
+- [Viewing Images](/pdf/viewing-images)
+- [Organizing with Folders](/pdf/organizing-with-folders)
 
-**Common:**
-- [Collaboration & Sharing](/guide/collaboration) — Share and edit together in real time
-- [Import & Export](/guide/import-export) — Which formats come in, and what goes out
+**Common**
+- [Collaboration & Sharing](/guide/collaboration)
+- [Import & Export](/guide/import-export): which formats come in, and what goes out

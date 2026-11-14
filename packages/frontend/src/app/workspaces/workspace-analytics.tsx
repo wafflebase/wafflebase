@@ -36,7 +36,7 @@ export function WorkspaceAnalyticsPage() {
   });
 
   if (isLoading) return <Loader />;
-  if (error) return <div className="p-6">Failed to load analytics.</div>;
+  if (error) return <div className="p-6">Couldn't load analytics.</div>;
   if (!data) return null;
   if (!data.enabled) {
     return (

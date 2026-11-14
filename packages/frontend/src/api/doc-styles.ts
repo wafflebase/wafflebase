@@ -12,7 +12,7 @@ export async function fetchMyDocStyles(): Promise<DocStyles> {
     { method: "GET", credentials: "include" }
   );
   if (!res.ok) {
-    throw new Error("Failed to load default styles");
+    throw new Error("Couldn't load default styles");
   }
   const body = (await res.json()) as { styles?: DocStyles };
   return body.styles ?? {};
@@ -29,6 +29,6 @@ export async function saveMyDocStyles(styles: DocStyles): Promise<void> {
     }
   );
   if (!res.ok) {
-    throw new Error("Failed to save default styles");
+    throw new Error("Couldn't save default styles");
   }
 }

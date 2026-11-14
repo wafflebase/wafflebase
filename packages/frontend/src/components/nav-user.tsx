@@ -95,7 +95,7 @@ export function NavUser({ user }: { user: User }) {
             </DropdownMenuCheckboxItem>
             <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
               <IconLogout />
-              Log out
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

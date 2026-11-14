@@ -19,23 +19,24 @@ export function HeroSection({
             className="font-display font-semibold text-[color:var(--wb-ink)] leading-[1.04] tracking-[-0.025em] text-[clamp(40px,6vw,68px)] m-0 mb-6"
             style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
           >
-            <span className="block">The Office Suite</span>
+            <span className="block">The office suite</span>
             <em className="block font-medium italic text-[color:var(--wb-syrup-deep)]">
-              You Can Own
+              you can own
             </em>
           </h1>
 
           {/* Sub */}
-          <p className="text-[color:var(--wb-sub)] leading-[1.55] text-[clamp(17px,1.4vw,19px)] max-w-[560px] m-0 mb-10">
-            Sheets, Docs, Slides, Notes, and Boards. Real-time collaboration,
-            REST API, fully self-hosted.
+          <p className="text-[color:var(--wb-sub)] leading-[1.55] text-[clamp(17px,1.4vw,19px)] max-w-[560px] m-0 mb-10 text-pretty">
+            Sheets, Docs, Slides, Notes and Boards, edited together in real
+            time. Run it on your own servers and script it with the REST API
+            and CLI.
           </p>
 
           {/* CTAs */}
           <div className="flex flex-wrap gap-3 justify-center">
             <WbButton asChild variant="primary" size="lg">
               <Link to={workspacePath ?? "/login"}>
-                {workspacePath ? "Go to Workspace →" : "Get Started Free →"}
+                {workspacePath ? "Go to workspace →" : "Start a workspace →"}
               </Link>
             </WbButton>
             <WbButton asChild variant="ghost" size="lg">

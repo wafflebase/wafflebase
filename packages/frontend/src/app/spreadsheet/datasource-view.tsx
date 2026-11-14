@@ -87,7 +87,7 @@ export function DataSourceView({
     const root = doc.getRoot();
     const tab = root.tabs[tabId];
     if (!tab?.datasourceId) {
-      setQueryError("No datasource connected to this tab");
+      setQueryError("No data source connected to this tab");
       return;
     }
 

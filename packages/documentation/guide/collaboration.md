@@ -1,6 +1,6 @@
 # Collaboration & Sharing
 
-Wafflebase lets multiple people edit the same sheet, document, presentation, or note at the same time — and read and comment on the same PDF. Share via link — no account required for recipients.
+Wafflebase lets multiple people edit the same sheet, document, presentation, or note at the same time, and read and comment on the same PDF. Share a link, and recipients need no account to open it.
 
 ## Share a Document
 
@@ -11,14 +11,14 @@ Wafflebase lets multiple people edit the same sheet, document, presentation, or 
    - **Editor** — Full editing access
 4. Under **Expiration**, choose **No limit**, **1 hour**, **8 hours**,
    **24 hours**, or **7 days**
-5. Click **Create Link** — the URL is created and copied to your clipboard
+5. Click **Create link** — the URL is created and copied to your clipboard
 
 Send the link to anyone. They can open it in their browser without signing in.
 
 ::: warning Expiration defaults to No limit
 **Expiration** starts on **No limit**, so a link you create without touching
 that field never expires — it keeps working until you revoke it. Set a window
-before you click **Create Link** if the content is sensitive.
+before you click **Create link** if the content is sensitive.
 :::
 
 ### Who can create an editor link

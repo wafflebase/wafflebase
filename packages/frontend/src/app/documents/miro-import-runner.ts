@@ -48,7 +48,7 @@ import {
 export const MIRO_ITEM_LABEL = "Miro board";
 const MIRO_DOCUMENT_TITLE = "Imported Miro board";
 
-const FALLBACK_ERROR = "Failed to import the Miro board";
+const FALLBACK_ERROR = "Couldn't import the Miro board";
 
 export interface MiroImportRunnerDeps {
   openStream: typeof openMiroImportStream;
