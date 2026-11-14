@@ -402,10 +402,11 @@ test("verifyDescription says what verify:fast runs", () => {
   assert.equal(PACKAGE.scripts["lint:scripts"], "eslint scripts plugins");
 });
 
-test("the test-removal record reads this repository's runners", () => {
+test("the test-removal record reads this repository's runners, bar one gap yorkie#2362 closes", () => {
   // Vitest in the engines and the frontend, Jest in the backend (`*.spec.ts`
-  // and `test/*.e2e-spec.ts`), node:test in `scripts/`. The `vitest` rule set
-  // covers all three by file name or by a test directory.
+  // and `test/*.e2e-spec.ts`), node:test in `scripts/`. Every one of these is
+  // a test file to the `vitest` rule set, by its name or its directory, so a
+  // test added, removed or switched off in it is recorded.
   assert.deepEqual(CONFIG.tests.rules, ["vitest"]);
   for (const f of [
     "packages/sheets/src/formula/formula.test.ts",
@@ -418,6 +419,23 @@ test("the test-removal record reads this repository's runners", () => {
     assert.equal(testRemovals.isTestFile(f), true, f);
   }
   assert.equal(testRemovals.isTestFile("packages/sheets/src/formula/formula.ts"), false);
+  // Picked up by NAME: what a rename can take away from the runner without a
+  // line of the test changing.
+  for (const f of ["packages/sheets/src/formula/formula.test.ts", "packages/backend/src/document/document.service.spec.ts"]) {
+    assert.equal(testRemovals.isRunnableTest(f), true, f);
+  }
+  // THE GAP, exactly as it is. The shared rule set does not take Jest's
+  // `*.e2e-spec.ts` or the frontend's `*.integration.ts` for names a runner
+  // picks up, so renaming one away (`x.e2e-spec.ts` → `x.e2e-spec.ts.off`)
+  // stops the suite with nothing in the removal record. wafflebase's own
+  // rules had both. yorkie#2362 adds exactly these two suffixes.
+  for (const f of ["packages/backend/test/template.e2e-spec.ts", "packages/frontend/tests/app/slides/x.integration.ts"]) {
+    assert.equal(
+      testRemovals.isRunnableTest(f),
+      false,
+      `upstream fixed (yorkie-team/yorkie#2362) — flip this to a positive assertion: ${f} is now a runnable test name`,
+    );
+  }
   assert.ok(fixGuard, "fix-guard.mjs loads with this configuration (it refuses a rule set without assertion patterns)");
 });
 
