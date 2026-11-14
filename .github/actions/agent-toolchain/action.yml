@@ -1,0 +1,114 @@
+# The toolchain an agent job needs before it can verify a change in THIS
+# repository: pnpm, and the workspace's dependencies. One of the per-repository
+# files of the shared agent harness (yorkie's core, scripts/agent/README.md,
+# "The toolchain action"): the `agent-*.yml` workflows are the same in every
+# repository that runs the harness, and each calls this action where a
+# repository's own setup steps would otherwise be.
+#
+# NOT USED YET. Today's agent workflows set pnpm up themselves and run
+# `scripts/agent/install-deps.mjs` from their staged copy of `scripts/agent`.
+# This action is what replaces those steps when the shared core is synced over
+# `scripts/agent/**` and `.github/workflows/agent-*.yml`; the copy under
+# `scripts/agent/` goes with that sync.
+#
+# IT RUNS WITH A TOKEN IN THE ENVIRONMENT AND, IN FOUR OF THE FIVE JOBS, A PULL
+# REQUEST'S BRANCH IN THE WORKSPACE. Those four take this directory from `main`,
+# checked out into `.trusted-toolchain`, never from the branch; the issue-to-PR
+# job uses the workspace's own copy while the workspace is still `main`. So:
+#
+#   - it executes nothing the branch wrote: no lifecycle script, no pnpmfile,
+#     no hook, none of the branch's pnpm settings;
+#   - what it fetches is pinned here: pnpm by version and by the registry's own
+#     sha512 of its tarball, the container image by digest (in
+#     `install-deps.mjs`); the branch's dependencies are exactly what the
+#     lockfile names, by integrity hash, with scripts off;
+#   - it saves no cache and uses no other action.
+#
+# ONE STEP, IN THIS ORDER, all of it run from the runner's temp directory:
+#
+#   1. fetch pnpm: one fixed file from the npm registry, checked against the
+#      hash pinned below before it is unpacked, into a directory of its own
+#      under the runner's temp directory; a launcher for it is put on the PATH
+#      of later steps (the agent runs `pnpm` too);
+#   2. run `install-deps.mjs` beside this file, with a scrubbed environment:
+#      the tree checks, the install in a container, and the tripwires around
+#      it. Its header says what each one guarantees.
+#
+# NODE IS NOT SET UP HERE. Every job that calls this action has already run
+# `actions/setup-node` (Node 22, no cache) for the harness scripts; the
+# launcher runs pnpm with that Node, and the install itself runs on the Node of
+# the pinned image.
+#
+# AUDITED AGAINST PNPM 10.5.2 (see install-deps.mjs). The version below,
+# `PNPM_VERSION` in install-deps.mjs and the root `packageManager` must agree,
+# and `.github/agent-harness/toolchain.test.mjs` fails when they do not.
+# Moving it means auditing install-deps.mjs again.
+name: Agent toolchain
+description: pnpm, pinned, and the workspace dependencies an agent job verifies with, installed in a container that runs nothing the branch wrote.
+runs:
+  using: composite
+  steps:
+    - name: Fetch pnpm and install dependencies (in a container, lockfile-exact, no lifecycle scripts)
+      shell: bash
+      env:
+        # Where the runner loaded this action from. Through `env`, from the
+        # expression, rather than from the runner's variable of the same
+        # meaning.
+        ACTION_PATH: ${{ github.action_path }}
+        # pnpm, exactly: the version and the registry's own hash of its
+        # tarball. They change together or not at all.
+        PNPM_VERSION: 10.5.2
+        PNPM_INTEGRITY: sha512-2p3CjNP/QNBZIYgjWrJdMgKt2KIHr77caCIg5KACn/v/RWIQK55uRrTj+ei9U+bQXeSFRLDFfUsBeeIsdtEZmw==
+      run: |
+        set -euo pipefail
+        refuse() {
+          echo "::error::agent-toolchain: $1" >&2
+          exit 1
+        }
+        # This action's own files, from the same checkout as these lines.
+        for file in install-deps.mjs install-deps-lockfile.mjs install-deps-container.cjs install-deps.workspace.yaml; do
+          if [ ! -f "$ACTION_PATH/$file" ] || [ -L "$ACTION_PATH/$file" ]; then
+            refuse "the toolchain action's $file is missing beside action.yml"
+          fi
+        done
+        temp="${RUNNER_TEMP:-}"
+        case "$temp" in /*) ;; *) refuse "RUNNER_TEMP is not an absolute path" ;; esac
+        case "$PNPM_VERSION" in 10.5.2) ;; *) refuse "pnpm is not the audited 10.5.2" ;; esac
+        # NOT IN THE WORKSPACE. Every command below runs from the runner's
+        # temp directory.
+        cd "$temp"
+
+        # 1. PNPM. One fixed file from the registry, checked against the hash
+        # pinned above before anything is unpacked. Nothing here reads the
+        # workspace or a setting from anywhere.
+        work="$(mktemp -d "$temp/agent-toolchain.XXXXXX")"
+        trap 'rm -rf "$work"' EXIT
+        tools="$(mktemp -d "$temp/agent-toolchain-pnpm.XXXXXX")"
+        chmod 755 "$tools"
+        env -i PATH="$PATH" curl -q --fail --silent --show-error --proto '=https' --tlsv1.2 --retry 3 --max-time 120 \
+          --output "$work/pnpm.tgz" "https://registry.npmjs.org/pnpm/-/pnpm-$PNPM_VERSION.tgz"
+        actual="sha512-$(env -i PATH="$PATH" openssl dgst -sha512 -binary "$work/pnpm.tgz" | env -i PATH="$PATH" openssl base64 -A)"
+        if [ "$actual" != "$PNPM_INTEGRITY" ]; then
+          rm -rf "$tools"
+          refuse "the pnpm tarball is not the one pinned (its hash differs)"
+        fi
+        mkdir "$tools/pnpm" "$tools/.bin"
+        env -i PATH="$PATH" tar -xzf "$work/pnpm.tgz" -C "$tools/pnpm" --strip-components 1
+        [ -f "$tools/pnpm/bin/pnpm.cjs" ] || refuse "the pnpm tarball does not hold bin/pnpm.cjs"
+        # The launcher sits in `.bin` beside the package, the layout
+        # install-deps.mjs resolves to the package it mounts read-only into
+        # the container; the runner itself never runs it here.
+        printf '#!/bin/sh\nexec node "%s/pnpm/bin/pnpm.cjs" "$@"\n' "$tools" > "$tools/.bin/pnpm"
+        chmod 755 "$tools/.bin/pnpm"
+
+        # 2. THE INSTALL, with nothing of the job's environment but what it
+        # reads: where the workspace, the temp directory and the step-output
+        # file are, the runner's home (whose package-manager settings the
+        # tripwire records), the Docker daemon's address, and a PATH whose
+        # first entry is the pnpm fetched above. No token, no NODE_OPTIONS.
+        install=(PATH="$tools/.bin:$PATH" HOME="${HOME:-}" GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-}" RUNNER_TEMP="$temp" GITHUB_ENV="${GITHUB_ENV:-}")
+        if [ -n "${DOCKER_HOST:-}" ]; then install+=(DOCKER_HOST="$DOCKER_HOST"); fi
+        env -i "${install[@]}" node "$ACTION_PATH/install-deps.mjs"
+
+        # For the steps after this one: `pnpm` is the copy fetched above.
+        echo "$tools/.bin" >> "$GITHUB_PATH"
