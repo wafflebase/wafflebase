@@ -6,12 +6,18 @@
 // started it) are refused. The rule is CLAUDE.md's task workflow, written down
 // where it runs.
 //
-// IT READS GIT'S INDEX, so one check serves both places it runs. In CI the
-// index is the checkout. In `.githooks/pre-commit`, which runs `pnpm
-// verify:fast`, the index is what is about to be committed, so a staged file
-// is caught before the commit exists. This used to be a separate block in the
-// hook alone, which nothing ran in CI and which an agent job that does not
-// wire the hooks never ran at all.
+// IT READS GIT'S INDEX, so one check serves every place it runs. In CI, the
+// authority, the index is the checkout. In `.githooks/pre-commit`, which runs
+// `pnpm verify:fast`, the index is what is about to be committed, so a staged
+// file is caught before the commit exists. It also runs as a `verify:self`
+// lane in `.githooks/pre-push`, where it reads the working index rather than
+// the commits being pushed, so it is advisory there. This used to be a
+// separate block in the pre-commit hook alone, which nothing ran in CI and
+// which an agent job that does not wire the hooks never ran at all.
+//
+// CASE DOES NOT HIDE A PATH. A `Docs/…` entry is the same directory on a
+// case-insensitive checkout (every maintainer's Mac), so the listing ignores
+// case and only the exact spelling `docs/` is allowed.
 //
 // Usage: node scripts/verify-docs-paths.mjs   (from anywhere in the repository)
 
@@ -25,9 +31,9 @@ const PREFIX = "[verify:docs-paths]";
 /** What may live under `docs/`. */
 export const ALLOWED = [/^docs\/README\.md$/, /^docs\/design\//, /^docs\/tasks\//];
 
-/** The paths under `docs/` that are not allowed. */
+/** The paths under `docs/`, in any case, that are not allowed. */
 export function disallowedDocsPaths(paths) {
-  return paths.filter((p) => p.startsWith("docs/") && !ALLOWED.some((re) => re.test(p)));
+  return paths.filter((p) => p.toLowerCase().startsWith("docs/") && !ALLOWED.some((re) => re.test(p)));
 }
 
 /**
@@ -36,7 +42,7 @@ export function disallowedDocsPaths(paths) {
  * `GIT_INDEX_FILE` to the index being committed, which is the one to read.
  */
 export function indexedDocsPaths(root, env = process.env) {
-  const out = execFileSync("git", ["ls-files", "-z", "--cached", "--", "docs"], { cwd: root, env, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const out = execFileSync("git", ["ls-files", "-z", "--cached", "--", ":(icase)docs"], { cwd: root, env, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return out.split("\0").filter(Boolean);
 }
 

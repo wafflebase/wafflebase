@@ -29,6 +29,26 @@ test("docs/design/, docs/tasks/ and docs/README.md are allowed; anything else un
     disallowedDocsPaths(["docs/superpowers/plan.md", "docs/notes.md", "docs/designs/x.md", "docs/tasksx/y.md", "docs/README.md.bak"]),
     ["docs/superpowers/plan.md", "docs/notes.md", "docs/designs/x.md", "docs/tasksx/y.md", "docs/README.md.bak"],
   );
+  // Only the exact spelling: on a case-insensitive checkout these are docs/.
+  assert.deepEqual(
+    disallowedDocsPaths(["Docs/superpowers/x.md", "DOCS/design/x.md", "docs/Design/x.md", "Docs/README.md"]),
+    ["Docs/superpowers/x.md", "DOCS/design/x.md", "docs/Design/x.md", "Docs/README.md"],
+  );
+});
+
+test("an index entry spelled Docs/ is listed and refused", (t) => {
+  const repo = mkdtempSync(path.join(tmpdir(), "docs-paths-case-"));
+  t.after(() => rmSync(repo, { recursive: true, force: true }));
+  const env = fixtureGitEnv(repo);
+  const git = (...args) => execFileSync("git", args, { cwd: repo, env, encoding: "utf8" });
+  git("init", "-q");
+  // Made the way a Linux commit or a crafted index would make it: on a
+  // case-insensitive disk a plain `git add` folds the case to `docs/`.
+  const blob = execFileSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, env, input: "x", encoding: "utf8" }).trim();
+  git("update-index", "--add", "--cacheinfo", `100644,${blob},Docs/superpowers/x.md`);
+  git("update-index", "--add", "--cacheinfo", `100644,${blob},docs/design/a.md`);
+  assert.deepEqual(indexedDocsPaths(repo, env).sort(), ["Docs/superpowers/x.md", "docs/design/a.md"]);
+  assert.deepEqual(disallowedDocsPaths(indexedDocsPaths(repo, env)), ["Docs/superpowers/x.md"]);
 });
 
 test("it reads git's index: a staged file is refused before it is committed", (t) => {
