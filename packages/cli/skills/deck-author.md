@@ -27,7 +27,7 @@ still applies (one layout per idea, decoration from the template not ad hoc,
 no fabricated data, bracketed hints for the user's own values).
 
 Non-goals: this does **not** replace the screenshot-free `hunt-ui` hunter
-(`scripts/agent/charters-ui/slide-author.md`) — the render here is an
+(`scripts/agent-arms/charters-ui/slide-author.md`) — the render here is an
 additive lane. Fanning slides out to parallel workers is the agent runtime's
 job, not something the CLI does.
 

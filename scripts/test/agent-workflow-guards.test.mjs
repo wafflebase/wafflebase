@@ -41,13 +41,23 @@ const WORKFLOWS = path.join(REPO, ".github", "workflows");
 
 const WF_TEXT = (file) => readFileSync(path.join(WORKFLOWS, file), "utf8");
 
-const agentWorkflows = readdirSync(WORKFLOWS)
-  .filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))
-  .sort();
+// wafflebase's own agent workflows, named outside `agent-*.yml` because that
+// glob belongs to the shared harness core: yorkie's `sync.mjs` deletes any
+// `agent-*.yml` the upstream does not have. They hold the same credentials, so
+// the same guards read them.
+const OWN_AGENT_WORKFLOWS = ["sdk-smoke-test.yml"];
+
+const agentWorkflows = [
+  ...readdirSync(WORKFLOWS).filter((f) => f.startsWith("agent-") && f.endsWith(".yml")),
+  ...OWN_AGENT_WORKFLOWS,
+].sort();
 
 test("there are agent workflows to check, so a rename cannot vacuously pass", () => {
   // Without this the whole file no-ops the moment the glob stops matching.
-  assert.ok(agentWorkflows.length >= 9, `found only ${agentWorkflows.length} agent-*.yml`);
+  assert.ok(agentWorkflows.length >= 10, `found only ${agentWorkflows.length} agent workflows`);
+  for (const f of OWN_AGENT_WORKFLOWS) {
+    assert.ok(existsSync(path.join(WORKFLOWS, f)), `${f} is gone: if it was renamed, re-point OWN_AGENT_WORKFLOWS`);
+  }
 });
 
 test("every agent workflow sets GH_REPO at WORKFLOW level", () => {
@@ -82,7 +92,8 @@ test("no step runs pipeline code from the workspace after the PR's branch is che
   // is that they are outside the workspace and survive `actions/checkout`'s clean.
   const UNTRUSTED_REF =
     /^\s*ref:\s*\$\{\{\s*(github\.event\.workflow_run\.head_(branch|sha)|github\.event\.pull_request\.head\.(ref|sha)|steps\.[\w-]+\.outputs\.(head_)?(branch|sha))/;
-  const WORKSPACE_RUN = /\bnode\s+["']?\.?\/?scripts\/agent\/([\w.-]+\.mjs)/;
+  // The core and wafflebase's own arms, which run from the workspace the same way.
+  const WORKSPACE_RUN = /\bnode\s+["']?\.?\/?scripts\/agent(?:-arms)?\/([\w.-]+\.mjs)/;
 
   const problems = [];
   let inspected = 0;
@@ -116,7 +127,7 @@ test("no step runs pipeline code from the workspace after the PR's branch is che
 
   // The counterpart to the anti-vacuity test above: if the invocations stop being
   // found at all, this check is green because it looked at nothing.
-  assert.ok(inspected > 0, "found no `node scripts/agent/*.mjs` invocations to inspect");
+  assert.ok(inspected > 0, "found no `node scripts/agent{,-arms}/*.mjs` invocations to inspect");
   assert.deepEqual(
     problems,
     [],

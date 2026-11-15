@@ -28,8 +28,10 @@
 # --- Autonomous agent pipeline + its governance surface (tightly owned) ------
 # Changes to what the agent is allowed to do require an owner's review.
 /.github/workflows/agent-*.yml          @wafflebase/maintainers
+/.github/workflows/sdk-smoke-test.yml   @wafflebase/maintainers
 /.github/ISSUE_TEMPLATE/agent-task.yml  @wafflebase/maintainers
 /scripts/agent/                         @wafflebase/maintainers
+/scripts/agent-arms/                    @wafflebase/maintainers
 /scripts/hooks/                         @wafflebase/maintainers
 # The Claude Code plugin's hooks decide which commands run without a prompt.
 /plugins/                               @wafflebase/maintainers

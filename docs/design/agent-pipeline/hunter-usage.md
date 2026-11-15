@@ -5,12 +5,12 @@ target-version: 0.6.4
 
 # Running the Issue Hunters
 
-Two autonomous defect hunters live in `scripts/agent/`. Both drive the real product,
+Two autonomous defect hunters live in `scripts/agent-arms/`. Both drive the real product,
 propose candidate defects, verify them independently, and write a local report.
 
 | | CLI hunter | UI hunter |
 |---|---|---|
-| entry point | `scripts/agent/hunt.mjs` | `scripts/agent/hunt-ui.mjs` |
+| entry point | `scripts/agent-arms/hunt.mjs` | `scripts/agent-arms/hunt-ui.mjs` |
 | what it drives | the `wafflebase` CLI, as argv probes | a real browser on `/harness/hunt` |
 | slash command | `/hunt` | `/hunt-ui` |
 | design | [harness-engineering.md](harness-engineering.md) Phase 26 | Phase 31 |
@@ -40,8 +40,8 @@ expensive lessons get re-learned.
 ## Prerequisites
 
 Both hunters call the Claude Agent SDK, which is **deliberately not a workspace
-dependency** — `agent:tests` runs with `scripts/agent/node_modules` absent, so the SDK is
-imported lazily and installed separately:
+dependency** — `agent-arms:tests` runs with `scripts/agent/node_modules` absent, so the SDK is
+imported lazily, from the harness core's separate install:
 
 ```bash
 cd scripts/agent && npm ci
@@ -61,8 +61,8 @@ terminal that a transcript captures is a leaked token.
 returns before the SDK is imported, and costs nothing:
 
 ```bash
-node scripts/agent/hunt.mjs preflight        # CLI hunter
-node scripts/agent/hunt-ui.mjs preflight     # UI hunter
+node scripts/agent-arms/hunt.mjs preflight        # CLI hunter
+node scripts/agent-arms/hunt-ui.mjs preflight     # UI hunter
 ```
 
 The UI hunter additionally needs the frontend to build — it boots Vite and Chromium
@@ -72,9 +72,9 @@ you last pulled, do that first; a stale install surfaces as unrelated type error
 ## The CLI hunter
 
 ```bash
-node scripts/agent/hunt.mjs run [--charter <id>]... [--out <dir>] [--repo <dir>]
+node scripts/agent-arms/hunt.mjs run [--charter <id>]... [--out <dir>] [--repo <dir>]
                                 [--samples N] [--ledger <file>] [--run-id <id>]
-node scripts/agent/hunt.mjs report --out <dir>
+node scripts/agent-arms/hunt.mjs report --out <dir>
 ```
 
 Charters are the areas it may hunt: `contract`, `crash`, `round-trip`, `state`. Each
@@ -82,17 +82,17 @@ declares its own oracles, code scope and severity floor. With no `--charter` the
 default runs.
 
 ```bash
-node scripts/agent/hunt.mjs run --charter contract --out /tmp/hunt-1
+node scripts/agent-arms/hunt.mjs run --charter contract --out /tmp/hunt-1
 ```
 
 ## The UI hunter
 
 ```bash
-node scripts/agent/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet|slides>]...
+node scripts/agent-arms/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet|slides>]...
                                    [--out <dir>] [--repo <dir>] [--ledger <file>]
                                    [--coverage <file>] [--run-id <id>] [--fault <id>]
-node scripts/agent/hunt-ui.mjs replay --plan <file.json> [--attempts N]
-node scripts/agent/hunt-ui.mjs report --out <dir>
+node scripts/agent-arms/hunt-ui.mjs replay --plan <file.json> [--attempts N]
+node scripts/agent-arms/hunt-ui.mjs report --out <dir>
 ```
 
 Four personas, each with two briefs — one per surface, which
@@ -130,7 +130,7 @@ predict the snapped value.
 Naming one persona runs its briefs only, which is the normal case:
 
 ```bash
-node scripts/agent/hunt-ui.mjs run --charter doc-writer --surface doc \
+node scripts/agent-arms/hunt-ui.mjs run --charter doc-writer --surface doc \
   --out /tmp/hunt-ui-1 --coverage .hunt/coverage.json
 ```
 
@@ -215,7 +215,7 @@ negative costs nothing because the next run looks again.
 Every reported UI finding carries an action plan, replayable with no model and no API key:
 
 ```bash
-node scripts/agent/hunt-ui.mjs replay --plan <out>/<persona>/repro-1.json
+node scripts/agent-arms/hunt-ui.mjs replay --plan <out>/<persona>/repro-1.json
 ```
 
 That is the point of the plan: a repro nobody can run without a credential is not a repro.

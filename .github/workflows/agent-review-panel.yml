@@ -992,7 +992,7 @@ jobs:
       # `retries: 3` turns on @octokit/plugin-retry, which backs off and retries
       # 5xx and network errors (4xx still fails fast, so a real permission or
       # validation bug is not papered over). Every github-script step in the agent
-      # workflows sets it; `scripts/agent/test-lane.test.mjs` asserts that, because the
+      # workflows sets it; `scripts/test/test-lane.test.mjs` asserts that, because the
       # default is the dangerous value and a new step inherits it silently.
       - name: Post per-lens check runs
         id: panel

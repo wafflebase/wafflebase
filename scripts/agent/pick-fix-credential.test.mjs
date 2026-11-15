@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { slotSuffix, chooseCredential, readPoolState, capacityNote, candidateNames, probeCredentials, classifyProbeFailure, probeEnv } from "./pick-fix-credential.mjs";
-import { classifyFailure } from "./auth-smoke.mjs";
 import { MAX_SLOTS, TOKEN_ENV } from "./token-pool.mjs";
 
 // --- slotSuffix: the name→suffix map, and the security boundary ---------------
@@ -411,26 +410,4 @@ test("classifyProbeFailure: a transient overload is NOT a refusal — it must no
     assert.equal(classifyProbeFailure(msg), "unknown", msg);
   }
   assert.equal(classifyProbeFailure("429 · You've hit your session limit · resets 3am"), "quota");
-});
-
-// One vocabulary, two thresholds. The probe reuses auth-smoke.mjs's classifier
-// rather than a copy of it, narrowed because its "refused" latches a PR: the
-// pre-arm check's `classifyFailure` calls a 429 or an overload `quota` (the
-// credential worked; retry), which here would page a human over a blip.
-test("classifyProbeFailure: auth-smoke's vocabulary, narrowed to refusals that stay refused", () => {
-  // The same rejected credential reads the same in both.
-  for (const msg of ["401 Unauthorized", "Not logged in · Please run /login", "Invalid API key", "permission denied"]) {
-    assert.equal(classifyProbeFailure(msg), "auth", msg);
-    assert.equal(classifyFailure(msg), "auth", msg);
-  }
-  // A closed usage window is quota in both.
-  assert.equal(classifyProbeFailure("You've hit your session limit · resets 3am"), "quota");
-  assert.equal(classifyFailure("You've hit your session limit · resets 3am"), "quota");
-  // A transient refusal is quota to the pre-arm check and NOT a refusal here.
-  for (const msg of ["429 Too Many Requests", "Overloaded (529)", "at capacity, retry later"]) {
-    assert.equal(classifyFailure(msg), "quota", msg);
-    assert.equal(classifyProbeFailure(msg), "unknown", msg);
-  }
-  // A transient refusal that also carries auth words is still transient.
-  assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
 });

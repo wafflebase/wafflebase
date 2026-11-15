@@ -45,8 +45,8 @@
 // overload, an unclassified error, a timeout, an SDK that will not load —
 // proceeds.
 //
-// The refusal vocabulary is auth-smoke.mjs's (`classifyRefusal`, the narrow form
-// of the pre-arm check's `classifyFailure`), not a copy of it.
+// The refusal vocabulary is the pre-arm check's (`auth-smoke.mjs`'s
+// `classifyFailure`), narrowed: see `classifyProbeFailure`.
 //
 // It runs before the branch checkout, so the pool secrets it needs are never in
 // a process that has branch code on disk.
@@ -61,7 +61,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MAX_SLOTS, TOKEN_ENV, slotSuffix, readPoolSlots } from "./token-pool.mjs";
-import { classifyRefusal } from "./auth-smoke.mjs";
+import { SESSION_LIMIT_RE } from "./redact.mjs";
 import { classifyFixResult } from "./metrics.mjs";
 
 // Re-exported, not redefined: `token-pool.mjs` owns the slot naming, and a second
@@ -149,13 +149,62 @@ export function candidateNames(state, configuredNames) {
   return configured.filter((n) => live.has(n));
 }
 
+// The pre-arm check's vocabulary, NARROWED. Its transient-capacity list and
+// its auth list, which `auth-smoke.mjs` keeps for the WIDE form
+// (`classifyFailure`). Copied rather than imported: `auth-smoke.mjs` is one of
+// wafflebase's own arms, which live outside the shared core, and the jobs run
+// this file from a staged copy of `scripts/agent` that carries the core only.
+// `auth-smoke.test.mjs` holds the two to one vocabulary.
+export const TRANSIENT = [
+  /rate[ _-]?limit/i,
+  /\b429\b/,
+  /overloaded/i,
+  /quota/i,
+  /capacity/i,
+  /too many requests/i,
+];
+export const AUTH = [
+  /\b401\b/,
+  /\b403\b/,
+  /unauthorized/i,
+  /authentication[ _-]?(error|failed)/i,
+  /invalid[ _-]?(api[ _-]?key|token|credential)/i,
+  /expired[ _-]?(token|credential)/i,
+  /not[ _-]?authenticated/i,
+  /permission[ _-]?denied/i,
+  /not[ _-]?logged[ _-]?in/i,
+  /please run \/login/i,
+  /\/login\b/,
+];
+
 /**
- * "quota" | "auth" | "unknown" for a probe that did not answer. auth-smoke's
- * narrow classifier: a "refused" here pauses the PR behind the paged latch, so
- * a transient 429 or overload must read as `unknown` (see `classifyRefusal`).
+ * "quota" | "auth" | "unknown" for a probe that did not answer.
+ *
+ * A "refused" answer here latches something: every candidate refusing posts
+ * the paged latch and stops the PR until a human reruns it. So only a refusal
+ * that STAYS refused counts: a closed usage window (until it resets) or a
+ * rejected credential. A plain 429, "rate limit", "overloaded" or "capacity"
+ * is transient, and on an API-wide blip every slot would read as dead and the
+ * PR would latch for nothing — so it is `unknown`, which the probe treats as
+ * "proceed". The same line the panel's own failover draws: `isAccountLimit`
+ * keys on the usage window, not on a rate limit.
+ *
+ * The pre-arm check wants the WIDE form (a quota refusal still proves the
+ * credential was accepted, and its exit 2 says "retry"); a latch wants this
+ * one. One vocabulary, two thresholds: the auth list and SESSION_LIMIT_RE are
+ * the same, so the two cannot disagree about what a rejected credential looks
+ * like.
+ *
+ * Order: a closed usage window first (it often arrives worded as auth, and
+ * with a 429); then any transient capacity signal, which wins over auth words
+ * so a 429 that also says "403" or "unauthorized" cannot latch a PR; then auth.
  */
 export function classifyProbeFailure(message) {
-  return classifyRefusal(message);
+  const text = String(message ?? "");
+  if (SESSION_LIMIT_RE.test(text)) return "quota";
+  if (TRANSIENT.some((re) => re.test(text))) return "unknown";
+  if (AUTH.some((re) => re.test(text))) return "auth";
+  return "unknown";
 }
 
 /**

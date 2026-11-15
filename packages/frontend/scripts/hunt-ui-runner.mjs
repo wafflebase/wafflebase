@@ -1,9 +1,10 @@
 // The UI hunter's TRUSTED EXECUTOR — runs an action plan in a browser and reports
 // what happened. No model is involved anywhere in this file.
 //
-// WHY IT LIVES HERE AND NOT IN scripts/agent/. `playwright` resolves from
-// `packages/frontend` and NOT from `scripts/agent` — they are separate installs, and
-// `scripts/agent` is outside the pnpm workspace. Duplicating the dependency would
+// WHY IT LIVES HERE AND NOT IN scripts/agent-arms/. `playwright` resolves from
+// `packages/frontend` and NOT from the agent harness — the arms load their packages
+// from `scripts/agent`'s install, which is outside the pnpm workspace and separate
+// from this one. Duplicating the dependency would
 // also duplicate the version, which `scripts/run-browser-tests-docker.sh` pins
 // against `Dockerfile.playwright`; a drift there means the hunter and CI disagree
 // about what a browser is.
@@ -44,13 +45,13 @@ import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 // drift. They did drift once: this file promised the protocol treated markers as
 // unevaluable and the protocol had never heard of them. Importing across the boundary
 // is safe and cheap — the module is pure, and its transitive chain is guarded (~9ms).
-import { boundValue, unsettledValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
-import { readSettled } from "../../../scripts/agent/hunt-ui-settle.mjs";
+import { boundValue, unsettledValue } from "../../../scripts/agent-arms/hunt-ui-expect.mjs";
+import { readSettled } from "../../../scripts/agent-arms/hunt-ui-settle.mjs";
 // One definition of a valid fault id, shared with the two agent-side boundaries.
 // All node builtins behind it (~15ms), and this file already reaches across for
 // `boundValue` for the same reason: a duplicated rule is a rule that drifts.
-import { assertFaultId } from "../../../scripts/agent/hunt-ui-probe.mjs";
-import { assertMountedSurface, UI_SURFACES } from "../../../scripts/agent/hunt-ui-surfaces.mjs";
+import { assertFaultId } from "../../../scripts/agent-arms/hunt-ui-probe.mjs";
+import { assertMountedSurface, UI_SURFACES } from "../../../scripts/agent-arms/hunt-ui-surfaces.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");

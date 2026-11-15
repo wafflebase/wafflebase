@@ -132,8 +132,9 @@ in) before review.
 ## What CI actually runs
 
 CI runs only what your change can affect. A `What changed` job decides
-which areas your diff touches, so a docs-only or `scripts/agent/`-only PR
-finishes in about a minute instead of fifteen.
+which areas your diff touches, so a docs-only or agent-only
+(`scripts/agent/`, `scripts/agent-arms/`) PR finishes in about a minute
+instead of fifteen.
 
 `verify-browser (22.x)` or `verify-integration (22.x)` passing in seconds
 is therefore normal, not broken: they always report, but do no work when

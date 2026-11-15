@@ -26,8 +26,9 @@ const LANES = [
   // silently matched nothing in any subdirectory. And node's own globber skips
   // `node_modules`, which `sh` does not: the `deps` job runs `npm ci` inside
   // `scripts/agent`, so an sh-expanded `**` would start running third-party
-  // test files. `test-lane.test.mjs` runs this line's invocation in a fixture
-  // tree and asserts it reaches every depth and skips `node_modules`.
+  // test files. `scripts/test/test-lane.test.mjs` runs this line's invocation
+  // in a fixture tree and asserts it reaches every depth and skips
+  // `node_modules`.
   //
   // WHY A TIMEOUT FLAG. On 2026-08-06 run 31073290840 printed `ok 1` .. `ok 305`,
   // went silent 2.3s in, and sat there for 31.5 minutes until a human with write
@@ -76,10 +77,22 @@ const LANES = [
   //     it never covered. `reapLaneGroup` below still cleans up orphans.
   //
   // THE REMAINING FLAG GOES BEFORE `--test`. Put it after and node reads it
-  // as a FILE to run. `test-lane.test.mjs` asserts the order.
+  // as a FILE to run. `scripts/test/test-lane.test.mjs` asserts the order.
   {
     name: "agent:tests",
     cmd: "cd scripts/agent && node --test-timeout=60000 --test '**/*.test.mjs'",
+    tags: ["agent"],
+  },
+  // wafflebase's own agent arms (hunters, harvest, spec-to-pr, classify, …),
+  // which live beside the core rather than in it: `scripts/agent` is to become a
+  // byte-identical copy of yorkie's shared harness core, whose sync deletes any
+  // file the upstream lacks. The same invocation for the same reasons as above,
+  // and it too runs without `scripts/agent/node_modules` — the arms load the
+  // core's packages through `core-deps.mjs`, whose own suite is skipped here.
+  // `scripts/test/test-lane.test.mjs` holds both lanes to the shape above.
+  {
+    name: "agent-arms:tests",
+    cmd: "cd scripts/agent-arms && node --test-timeout=60000 --test '**/*.test.mjs'",
     tags: ["agent"],
   },
   // Top-level harness scripts (`scripts/*.mjs`), whose suites live in

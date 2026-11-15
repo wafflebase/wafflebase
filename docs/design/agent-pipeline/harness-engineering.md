@@ -21,9 +21,10 @@ As of 2026-03-11, phases 1 through 20, 22, and 23 are completed, and the
 agent-oriented pipeline (Phases 24–27) has since shipped: the autonomous
 contribution loop, the local Spec→PR front door, Tier-1 autonomous issue
 hunting, and the panel feedback corpus all live in the `.github/workflows/`
-`agent-*` workflows (e.g. `.github/workflows/agent-review-panel.yml`) and under
-`scripts/agent/` (e.g. `scripts/agent/review-panel.mjs`, `scripts/agent/hunt.mjs`,
-`scripts/agent/harvest.mjs`). Browser
+`agent-*` workflows (e.g. `.github/workflows/agent-review-panel.yml`), under
+`scripts/agent/` (e.g. `scripts/agent/review-panel.mjs`) and under
+`scripts/agent-arms/` (e.g. `scripts/agent-arms/hunt.mjs`,
+`scripts/agent-arms/harvest.mjs`). Browser
 visual and interaction lanes are integrated into `verify:self` with graceful
 Chromium skip. Docker-based browser testing ensures consistent font rendering
 across macOS and CI (Ubuntu). Structured JSON lane reports are generated per
@@ -1119,7 +1120,7 @@ already computes:
   smuggle a live paged latch into a comment posted by a trusted identity. The fixer-prompt cut
   contract is preserved: every new section arrives via the same `\n###`
   marker (followed by a space, the exact delimiter the cut splits on), and
-  `scripts/agent/harvest.mjs`'s corpus reader round-trips the
+  `scripts/agent-arms/harvest.mjs`'s corpus reader round-trips the
   enriched rows (pinned by a cross-module test against the real renderer).
 
 - **Per-session ledger** (`scripts/agent/metrics.mjs::renderLedger`). The
@@ -1591,7 +1592,7 @@ Components:
   class (`docs`, prose-only) keeps its own slice and shares with nobody, as before.
   On a mixed PR at the shipped one-sample manifest this takes the projected
   prompt-input saving from `~23%` to `~50%` (five lenses on one warm-up instead of
-  three); `scripts/agent/cache-report.mjs` renders the projection offline from the
+  three); `scripts/agent-arms/cache-report.mjs` renders the projection offline from the
   real prompt builders. Note the API matches a cacheable prefix as a *leading byte
   run* and the SDK exposes a single boundary, so nesting shorter slices inside longer
   ones would need multiple cache breakpoints and does not work here — sharing
@@ -2344,7 +2345,7 @@ the agent to reach `main`.
 A second front door to the same back half, run on the developer's machine via the
 Claude Code CLI instead of an `@claude` issue comment. `.claude/commands/spec-to-pr.md`
 (slash command) drives spec → human gate → task → branch → implement → local review →
-`verify:self` → draft PR; `scripts/agent/spec-to-pr.mjs handoff` is the deterministic
+`verify:self` → draft PR; `scripts/agent-arms/spec-to-pr.mjs handoff` is the deterministic
 last mile. The key insight: the back half (`.github/workflows/agent-iterate-ci.yml` +
 `.github/workflows/agent-review-panel.yml`) is triggered purely by CI `workflow_run` on same-repo
 `agent/*` branches — it is **not** coupled to issues — so a locally-produced
@@ -2360,7 +2361,7 @@ the back half changes; only this local front half is new.
   filtered to `main`), which is the same trigger the cloud front half relies on.
 - **Single source of truth for the disclosure gate:** `scripts/agent/disclosure.mjs`
   exports `disclosesAiAuthorship`, imported by BOTH `scripts/agent/mark-ready.mjs`
-  (the gate) and `scripts/agent/spec-to-pr.mjs` (the local self-check) — so the
+  (the gate) and `scripts/agent-arms/spec-to-pr.mjs` (the local self-check) — so the
   local body can never drift from the gate it must pass.
 - **Runner split:** local machine for spec→…→draft-PR (verify runs locally, a
   deliberate divergence from the cloud front half, which defers to CI); existing
@@ -2401,7 +2402,7 @@ outcome (~20% of submissions AI slop, zero genuine vulnerabilities in six years 
 monitoring, bug bounty discontinued 2026-02-01).
 
 That inversion makes every review-panel helper actively unsafe here, and
-`scripts/agent/hunt-gate.mjs` documents each rejection in its header:
+`scripts/agent-arms/hunt-gate.mjs` documents each rejection in its header:
 `normalizeSeverity` maps unknown → `major` (reportable → invents a report);
 `coerceFindings` turns junk into a synthetic blocking finding; `dedupeFindings`
 escalates severity on collision; `unionSamples` needs only one lucky sample; and
@@ -2414,7 +2415,7 @@ Components:
 
 - **The hunter never gets `Bash`.** `scripts/agent/ask.mjs` refuses it outright, so
   the model emits a probe PLAN — `argv` arrays plus a predicted observation — and
-  `scripts/agent/hunt-probe.mjs` executes it via `spawnSync` with no shell. Three
+  `scripts/agent-arms/hunt-probe.mjs` executes it via `spawnSync` with no shell. Three
   consequences: no shell string is ever built from model output; the clean room is
   enforceable because trusted code owns env/cwd/timeouts; and **replay is exact**,
   because re-running the same argv IS the replay, so the "repro doesn't match what
@@ -2423,7 +2424,7 @@ Components:
   newlines and embedded quotes.
 - **Charters carry their own oracle.** "Look for bugs" produces slop;
   "behavior contradicts this cited documented promise" produces evidence.
-  Data-driven in `scripts/agent/charters/charters.json` + one `.md` rubric each,
+  Data-driven in `scripts/agent-arms/charters/charters.json` + one `.md` rubric each,
   mirroring `lenses/`. Tier 1 ships `contract` and `crash`, both
   `needsBackend: false` — no docker lifecycle, the single largest source of flake.
 - **Clean room.** `buildProbeEnv` **replaces** the environment rather than
@@ -2451,14 +2452,14 @@ Components:
   `true`. **A null verdict DROPS**, the inverse of `applyVerifications` — the most
   heavily commented line in the file, because a reviewer skimming for symmetry with
   the panel reads it as a bug.
-- **Duplicate suppression, two corpora** (`scripts/agent/hunt-corpus.mjs`). Issues
+- **Duplicate suppression, two corpora** (`scripts/agent-arms/hunt-corpus.mjs`). Issues
   are handed over whole — 56 issues with bodies, ~37 KB — so no embeddings and no
   similarity threshold. Deferrals need a DETERMINISTIC digest because
   `docs/design/**` is ~375K tokens: plain section-slicing and grep, scoped to the
   charter's `docsScope`, with no model in the loop. A model summarising the
   deferrals would be one more place for a hallucination to enter the one input
   whose job is to prevent hallucinated findings.
-- **Novelty ledger** (`scripts/agent/hunt-fingerprint.mjs`). Exploration is
+- **Novelty ledger** (`scripts/agent-arms/hunt-fingerprint.mjs`). Exploration is
   unbounded, unlike review. Entries are keyed on the defect, carry
   `LEDGER_KEY_VERSION`, and expire once the code in scope changes so the ledger
   cannot blind the hunter to a regression. Two rules learned live: a corrupt ledger
@@ -2466,7 +2467,7 @@ Components:
   exact noise the ledger exists to suppress), and a candidate the panel never
   JUDGED — a verifier that errored or hit a run limit — is never recorded, or an
   infrastructure blip becomes a permanent blind spot.
-- **Local front door** — `.claude/commands/hunt.md` + `node scripts/agent/hunt.mjs
+- **Local front door** — `.claude/commands/hunt.md` + `node scripts/agent-arms/hunt.mjs
   <preflight|run|report>`. `preflight` returns before the SDK is imported, so it
   reports what is missing without `npm ci`.
 
@@ -2515,7 +2516,7 @@ executable interface — and made surprise impossible, which is the product.
 The propose/execute split survives where it earns its keep. It is correct for
 **reporting** (exact replay, no shell injection) and wrong for **exploration**
 (blindness is the problem). So exploration now runs through one in-process MCP tool
-(`scripts/agent/hunt-tool.mjs`): `argv` arrays only, no shell, `assertSafeArgv` plus
+(`scripts/agent-arms/hunt-tool.mjs`): `argv` arrays only, no shell, `assertSafeArgv` plus
 the CLI's own `schema` safety annotations, an environment `buildProbeEnv`
 **replaces**, and an enforced probe budget. Verifiers keep the read-only grant —
 handing them execution would let a verifier confirm a finding with evidence of its
@@ -2549,7 +2550,7 @@ silent: the report renders **Charters that did NOT run** immediately after the
 funnel, because "found nothing" and "never executed" are otherwise the same zero and
 only one of them means the code is fine.
 
-`scripts/agent/hunt-workspace.mjs` is the whole guarantee. `WAFFLEBASE_HUNT_WORKSPACE`
+`scripts/agent-arms/hunt-workspace.mjs` is the whole guarantee. `WAFFLEBASE_HUNT_WORKSPACE`
 must be set explicitly — there is no default and no inference from the developer's
 config, because a workspace a mutating run may destroy has to be something a human
 typed. It is refused if it is an obviously-real name, if it equals
@@ -2582,7 +2583,7 @@ Everything else in the pipeline measures effort
 process (`scripts/agent/rounds.mjs`). Nothing records **outcomes**. So each of
 the panel's tuning decisions — severity thresholds, `samples: 2`, file-class
 routing, the novelty gate, unanimity in the verifier — was argued from intuition
-and two or three remembered incidents. `scripts/agent/misses.jsonl` is the ledger that
+and two or three remembered incidents. `scripts/agent-arms/misses.jsonl` is the ledger that
 makes those arguments settleable.
 
 **Record shape.** Strict JSONL, one object per line, stable field order (no comment
@@ -2602,7 +2603,7 @@ progress. `fileClasses` and `origin` were added to the original plan shape once 
 (file-class routing) and #583 (novelty origins) shipped — they turn "we missed four
 bugs" into a sliceable claim about *which* population the panel is weak on.
 
-**`verifiedBy: ""` is the load-bearing field.** `scripts/agent/harvest.mjs`
+**`verifiedBy: ""` is the load-bearing field.** `scripts/agent-arms/harvest.mjs`
 proposes candidates from two independent signatures; a human confirms. Nothing
 may consume a record
 until someone has put their name there, and the harvester cannot set it even by
@@ -2879,7 +2880,7 @@ Three notes on the shape:
   failure mode of losing it is this lint silently not running — the exact shape of
   the gap it closes.
 
-The config is itself under test (`scripts/agent/lint-config.test.mjs`). That is not
+The config is itself under test (`scripts/test/lint-config.test.mjs`). That is not
 belt-and-braces: the first version spread `js.configs.recommended` and then set
 `rules`, which **replaced** the recommended set and left `no-undef` disabled.
 `eslint scripts` still exited 0. A config that lints nothing reports success, so
@@ -3333,7 +3334,7 @@ resolves `readers["toString"]` through the prototype chain and would have invoke
 from `scripts/agent` (separate installs), and duplicating it would duplicate the version
 `scripts/run-browser-tests-docker.sh` pins against `Dockerfile.playwright`. Spawning
 `packages/frontend/scripts/hunt-ui-runner.mjs` also keeps the async browser behind a
-synchronous call, so `scripts/agent/hunt-probe.mjs`'s `replay()` is reused unchanged.
+synchronous call, so `scripts/agent-arms/hunt-probe.mjs`'s `replay()` is reused unchanged.
 
 **Free oracles first, run after every action at zero model cost:** `pageerror`,
 `console-error`, `network-fail`, and Crawljax/ATUSA-style DOM invariants (duplicate ids,
@@ -3394,7 +3395,7 @@ it: a 1-action plan takes 6095ms and a 3-action plan 6103ms, so Vite plus Chromi
 ~6.1s and each subsequent action ~4ms. At `maxActions: 80` a spawn-per-action tool would
 spend ~8 minutes on boot alone, against a whole-run probing budget of ~15 minutes. So
 `packages/frontend/scripts/hunt-ui-runner.mjs` gained a `--serve` mode — newline-delimited
-JSON, one response per request, one page for the session — and `scripts/agent/hunt-ui-session.mjs`
+JSON, one response per request, one page for the session — and `scripts/agent-arms/hunt-ui-session.mjs`
 is the client (measured through it: ready 856ms, first action 5.4s, later actions 33-44ms).
 Both modes share one `observeAction`, extracted rather than duplicated.
 
@@ -3409,7 +3410,7 @@ over one bad line discards the boot this mode exists to amortise.
 **The tool description is the map.** PR 1's readers were reachable but undiscoverable:
 nothing told a model that `doc.fontSizes` existed, so an agent asked about formatting would
 reach for the snapshot and read an almost-empty a11y tree off a canvas.
-`scripts/agent/hunt-ui-tool.mjs` therefore lists the readers, with arity, SCOPED TO THE
+`scripts/agent-arms/hunt-ui-tool.mjs` therefore lists the readers, with arity, SCOPED TO THE
 RUN'S SURFACE. That list is a second copy of the bridge registry, so a test parses
 `packages/frontend/src/app/harness/hunt/bridge.ts` and fails on any divergence — a stale
 copy is silent, because a reader never called is indistinguishable from an area with no
@@ -3548,7 +3549,8 @@ task record is `docs/tasks/active/20261001-harness-convergence-port-todo.md`.
   a review.
 - **Probe before dispatch.** The fixer's credential is proven with a one-word
   query before the round is recorded (`pick-fix-credential.mjs --probe`). The
-  refusal vocabulary is `auth-smoke.mjs`'s, through its narrow `classifyRefusal`:
+  refusal vocabulary is `auth-smoke.mjs`'s, narrowed in the picker's own copy
+  (`classifyProbeFailure`; `auth-smoke.test.mjs` keeps the two lists alike):
   only a closed usage window or a rejected credential counts, so a transient 429
   or overload proceeds instead of latching the PR. The probe holds every pool
   secret, so it runs before the App token, the branch checkout and the install,

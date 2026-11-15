@@ -462,7 +462,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
-        run: node ./scripts/agent/classify.mjs record --issue "$ISSUE"
+        run: node ./scripts/agent-arms/classify.mjs record --issue "$ISSUE"
 
   # A bare "@claude" (no recognized verb) on an issue → point the commenter at
   # the command they probably meant, instead of silently doing nothing. Trusted

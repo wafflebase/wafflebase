@@ -33,7 +33,7 @@ into the report, that is the signal to drop it.
 1. **PREFLIGHT.** Run it and fix what it names — nothing else works until it passes:
 
    ```sh
-   node ./scripts/agent/hunt.mjs preflight
+   node ./scripts/agent-arms/hunt.mjs preflight
    ```
 
    It checks three things: `packages/cli/dist/bin.js` exists and is not older than
@@ -57,7 +57,7 @@ into the report, that is the signal to drop it.
 3. **RUN.**
 
    ```sh
-   node ./scripts/agent/hunt.mjs run --charter contract
+   node ./scripts/agent-arms/hunt.mjs run --charter contract
    ```
 
    Repeat `--charter` per charter. The duplicate-suppression corpora (open+closed
