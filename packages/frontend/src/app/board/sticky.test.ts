@@ -6,6 +6,7 @@ import {
   buildStickyInit,
   dropStickyAtViewportCenter,
   freeStickyCenter,
+  isStickyElement,
 } from './sticky';
 
 describe('buildStickyInit', () => {
@@ -150,5 +151,33 @@ describe('freeStickyCenter', () => {
   it('falls back to the centre on a board too dense to find room', () => {
     const wall = { x: -1e6, y: -1e6, w: 2e6, h: 2e6, rotation: 0 };
     expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({ x: 5, y: 5 });
+  });
+});
+
+describe('isStickyElement', () => {
+  const asElement = (init: ReturnType<typeof buildStickyInit>, id = 'e') =>
+    ({ ...init, id }) as unknown as import('@wafflebase/slides').Element;
+
+  it('recognizes a sticky built by the toolbar, in any colour', () => {
+    expect(isStickyElement(asElement(buildStickyInit('#FFF8B8', { x: 0, y: 0 })))).toBe(true);
+    // A Miro import maps named colours outside STICKY_COLORS.
+    expect(isStickyElement(asElement(buildStickyInit('#ABCDEF', { x: 0, y: 0 })))).toBe(true);
+  });
+
+  it('rejects a plain rounded rectangle someone typed into', () => {
+    const init = buildStickyInit('#FFF8B8', { x: 0, y: 0 });
+    const data = init.data as { text: { autofit: string } };
+    data.text.autofit = 'grow';
+    expect(isStickyElement(asElement(init))).toBe(false);
+  });
+
+  it('rejects other kinds, other types, and nothing', () => {
+    const init = buildStickyInit('#FFF8B8', { x: 0, y: 0 });
+    (init.data as { kind: string }).kind = 'rect';
+    expect(isStickyElement(asElement(init))).toBe(false);
+    expect(
+      isStickyElement({ id: 't', type: 'text' } as unknown as import('@wafflebase/slides').Element),
+    ).toBe(false);
+    expect(isStickyElement(undefined)).toBe(false);
   });
 });

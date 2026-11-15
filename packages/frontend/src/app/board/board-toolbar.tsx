@@ -39,7 +39,8 @@ import { TextElementControls } from "../slides/toolbar/text-element-controls";
 import { TextEditSection } from "../slides/toolbar/text-edit-section";
 import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
-import { STICKY_COLORS } from "./sticky";
+import { STICKY_COLORS, isStickyElement } from "./sticky";
+import { StickyControls } from "./sticky-controls";
 import { type BoardGridKind } from "./board-grid";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
@@ -177,6 +178,20 @@ export function BoardToolbar({
   // per-element deep unwrap of the whole board once per edit just to
   // reach a constant.
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
+
+  // A selection made only of sticky notes gets the sticky palette instead
+  // of the rectangle controls (see `StickyControls`). Recomputed on each
+  // render, which `store.onChange` above already drives.
+  const allStickies =
+    state.kind === "object" &&
+    state.selectionType === "shape" &&
+    state.ids.length > 0 &&
+    (() => {
+      const elements = store?.read().slides[0]?.elements ?? [];
+      return state.ids.every((id) =>
+        isStickyElement(elements.find((e) => e.id === id)),
+      );
+    })();
 
   // Both settings are spoken here: the icon is identical in every mode
   // and says nothing at all about snapping, so the trigger's label is
@@ -340,9 +355,9 @@ export function BoardToolbar({
                 aria-label={c.name}
                 title={c.name}
                 // Rendered into a portal, so the toolbar root's coarse
-                // rule does not reach it — and a 24px swatch in a row
-                // of six is the smallest target in the whole strip.
-                className="h-6 w-6 rounded border border-black/10 p-0 pointer-coarse:h-11 pointer-coarse:w-11"
+                // rule does not reach it. 28px matches every other
+                // toolbar target; coarse pointers get 44px.
+                className="size-7 rounded border border-black/15 p-0 pointer-coarse:size-11"
                 style={{ backgroundColor: c.value }}
                 onSelect={() => {
                   // Defer the actual insert to onCloseAutoFocus; onSelect just
@@ -405,7 +420,11 @@ export function BoardToolbar({
       {state.kind === "object" && (
         <>
           <ToolbarSeparator className="mx-1" />
-          {(state.selectionType === "shape" ||
+          {allStickies && (
+            <StickyControls editor={editor} store={store} ids={state.ids} />
+          )}
+          {!allStickies &&
+            (state.selectionType === "shape" ||
             state.selectionType === "connector") && (
             <ShapeControls
               editor={editor}

@@ -1,4 +1,5 @@
 import {
+  type Element,
   type ElementInit,
   type Frame,
   type Point,
@@ -25,6 +26,31 @@ export const STICKY_COLORS: readonly { name: string; value: string }[] = [
   { name: 'Orange', value: '#FFE0B2' },
   { name: 'Purple', value: '#E5D4FF' },
 ];
+
+/**
+ * Whether an element is a sticky note.
+ *
+ * A sticky is not its own element type (see {@link buildStickyInit}), so
+ * this reads the preset's signature: a `roundRect` with a solid fill whose
+ * text body shrinks to fit. Shrink autofit is the tell — a plain shape
+ * that is typed into gets a bare grow body from `withShapeText`, and the
+ * Miro importer maps `sticky_note` onto exactly this preset, so imported
+ * stickies (whose named Miro colours are not in {@link STICKY_COLORS})
+ * count too. The fill colour is deliberately not part of the test.
+ */
+export function isStickyElement(el: Element | undefined): boolean {
+  if (!el || el.type !== 'shape') return false;
+  const data = el.data as {
+    kind?: string;
+    fill?: { kind?: string };
+    text?: { autofit?: string };
+  };
+  return (
+    data.kind === 'roundRect' &&
+    data.fill?.kind === 'srgb' &&
+    data.text?.autofit === 'shrink'
+  );
+}
 
 /** Square sticky side length, in board world px. */
 export const STICKY_SIZE = 180;
@@ -132,11 +158,30 @@ export interface DropStickyDeps {
  * the new element id.
  */
 export function dropStickyAtViewportCenter(deps: DropStickyDeps): string {
-  const { store, editor, viewport, hostWidth, hostHeight, colorValue } = deps;
-  const center = freeStickyCenter(
-    deps.occupied ?? [],
-    screenToWorld(viewport, { x: hostWidth / 2, y: hostHeight / 2 }),
-  );
+  const { viewport, hostWidth, hostHeight } = deps;
+  return dropStickyAt({
+    ...deps,
+    at: screenToWorld(viewport, { x: hostWidth / 2, y: hostHeight / 2 }),
+  });
+}
+
+export interface DropStickyAtDeps {
+  store: SlidesStore;
+  editor: SlidesEditor;
+  /** World point the sticky is aimed at. */
+  at: Point;
+  colorValue: string;
+  occupied?: readonly Frame[];
+}
+
+/**
+ * Drop a sticky aimed at a world point — the right-clicked spot for the
+ * canvas menu's "Add sticky note" — stepping off anything it would cover,
+ * then select it and enter text-edit.
+ */
+export function dropStickyAt(deps: DropStickyAtDeps): string {
+  const { store, editor, colorValue } = deps;
+  const center = freeStickyCenter(deps.occupied ?? [], deps.at);
   let id = '';
   store.batch(() => {
     id = store.addElement(SYNTHETIC_SLIDE_ID, buildStickyInit(colorValue, center));

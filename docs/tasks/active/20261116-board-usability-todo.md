@@ -14,7 +14,7 @@ a user check-in after each.
       (`sticky.ts` `freeStickyCenter`). Images still land on the centre:
       their size is only known after the upload decodes, so the same
       footprint test needs to move into `insertImageOnSlide` — deferred
-- [ ] 4. Sticky identity: inline 6 sticky swatches when a sticky is selected,
+- [x] 4. Sticky identity: inline 6 sticky swatches when a sticky is selected,
       hide border weight / dash / gradient, "Add sticky note" in canvas menu
 - [ ] 5. Minimap viewport rect collapses when viewport > content
       (`board-minimap.ts` bounds = scene ∪ viewport)

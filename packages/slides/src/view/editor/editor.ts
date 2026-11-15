@@ -356,6 +356,13 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * editor option.
    */
   hostCanvasMenuItems?: () => ContextMenuItem[];
+  /**
+   * Extra insert entries, listed first in the empty-canvas menu's
+   * "Insert …" group so a host object (the board's sticky note) sits with
+   * the built-in inserts instead of in a group of its own. `at` is the
+   * right-clicked point in logical (world) coordinates.
+   */
+  hostInsertMenuItems?: (at: { x: number; y: number }) => ContextMenuItem[];
 }
 
 export interface SlidesEditor {
@@ -3796,6 +3803,7 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     items.push(
       { label: '---',   run: () => undefined },
+      ...(this.options.hostInsertMenuItems?.({ x, y }) ?? []),
       { label: 'Insert rectangle', run: () => this.insertAt('rect', x, y) },
       { label: 'Insert ellipse',   run: () => this.insertAt('ellipse', x, y) },
       { label: 'Insert text',      run: () => this.insertAt('text', x, y) },

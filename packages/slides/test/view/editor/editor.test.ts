@@ -3337,6 +3337,26 @@ describe('Editor snap to grid (host-supplied step)', () => {
     item.click();
     expect(run).toHaveBeenCalledTimes(1);
   });
+
+  it('leads the insert group with host insert items, at the clicked point', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const run = vi.fn();
+    const items = vi.fn(() => [{ label: 'Insert sticky note', run }]);
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hostInsertMenuItems: items,
+    });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 50, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const labels = [...menu.querySelectorAll('li')].map((li) => li.textContent?.trim());
+    const at = labels.indexOf('Insert sticky note');
+    expect(at).toBeGreaterThan(-1);
+    expect(labels[at + 1]).toBe('Insert rectangle');
+    const [point] = items.mock.calls[0] as unknown as [{ x: number; y: number }];
+    expect(Number.isFinite(point.x) && Number.isFinite(point.y)).toBe(true);
+  });
 });
 
 describe('Editor snap to grid — gesture gating and multi-selection', () => {

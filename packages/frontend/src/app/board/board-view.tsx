@@ -29,7 +29,11 @@ import { attachBoardTouchGestures } from "./board-touch-gestures";
 import { createCursorPublisher } from "./board-cursor-publish";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
-import { dropStickyAtViewportCenter } from "./sticky";
+import {
+  STICKY_COLORS,
+  dropStickyAt,
+  dropStickyAtViewportCenter,
+} from "./sticky";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
@@ -324,6 +328,26 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // it changes the painted lines.
       getSnapGrid: () =>
         gridSnapRef.current ? gridStep(vp.current.zoom) : null,
+      // The board's own object leads the menu's "Insert …" group, dropped
+      // where the user pointed — Miro and FigJam both offer it here.
+      // Nothing to insert on a read-only mount.
+      hostInsertMenuItems: (at) =>
+        readOnly
+          ? []
+          : [
+              {
+                label: "Insert sticky note",
+                run: () => {
+                  dropStickyAt({
+                    store,
+                    editor,
+                    at,
+                    colorValue: STICKY_COLORS[0].value,
+                    occupied: readFrames(),
+                  });
+                },
+              },
+            ],
       // Right-click the empty canvas → the same toggle the toolbar has.
       // This is where Miro puts it, and it is the only place a user
       // deep in a drag-heavy flow will look.
