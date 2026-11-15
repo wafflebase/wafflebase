@@ -1565,6 +1565,21 @@ test("runningCheckout: only a real checkout under a .trusted-* name, and only th
   assert.ok(isShieldedName(".git") && isShieldedName(".trusted-anything") && !isShieldedName("trusted") && !isShieldedName(".github"));
 });
 
+test("run through a linked path, the script still runs: it refuses or installs, never exits 0 having done nothing", (t) => {
+  const base = mkdtempSync(path.join(TMP, "install-deps-link-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const linked = path.join(base, "action");
+  symlinkSync(ACTION, linked);
+  // No workspace: the script itself refuses, which proves it ran.
+  const r = spawnSync(process.execPath, [path.join(linked, "install-deps.mjs")], {
+    cwd: base,
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, GITHUB_WORKSPACE: path.join(base, "no-such-workspace"), RUNNER_TEMP: base },
+  });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /::error::install-deps: the workspace is not an existing absolute path/);
+});
+
 test("only a local container runtime: DOCKER_HOST is unset or a unix socket", (t) => {
   const { run } = harness(t);
   for (const host of ["tcp://10.0.0.1:2375", "ssh://user@host", "npipe:////./pipe/docker_engine", "http://x"]) {

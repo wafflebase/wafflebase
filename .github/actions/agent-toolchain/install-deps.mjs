@@ -851,7 +851,23 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
   return 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/**
+ * Was this file run, or imported? Both sides through `realpath`: Node resolves
+ * the module's own URL through symbolic links but leaves `argv[1]` as typed, so
+ * a run through a linked path (a runner whose work directory passes through
+ * one) compared unequal and exited 0 having done nothing — neither installing
+ * nor refusing.
+ */
+function isDirectRun() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
   try {
     process.exitCode = installDeps({ workspace: process.env.GITHUB_WORKSPACE || process.cwd() });
   } catch (error) {
