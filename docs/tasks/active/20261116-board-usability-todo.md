@@ -10,8 +10,10 @@ a user check-in after each.
       (`packages/slides/src/view/editor/editor.ts` `cancelled` flag; slides too)
 - [x] 2. Board plane stays light in dark mode (canvas background + grid);
       content resolves against `defaultLight`, so the plane must match it
-- [ ] 3. New sticky / image cascades off an occupied viewport centre
-      (`sticky.ts` `dropStickyAtViewportCenter`, `board-view.tsx` image insert)
+- [x] 3. New sticky steps right off an occupied viewport centre
+      (`sticky.ts` `freeStickyCenter`). Images still land on the centre:
+      their size is only known after the upload decodes, so the same
+      footprint test needs to move into `insertImageOnSlide` — deferred
 - [ ] 4. Sticky identity: inline 6 sticky swatches when a sticky is selected,
       hide border weight / dash / gradient, "Add sticky note" in canvas menu
 - [ ] 5. Minimap viewport rect collapses when viewport > content

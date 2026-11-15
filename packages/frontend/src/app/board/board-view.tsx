@@ -436,6 +436,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         hostWidth: hostW,
         hostHeight: hostH,
         colorValue,
+        occupied: readFrames(),
       });
     };
 

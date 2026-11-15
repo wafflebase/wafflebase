@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { STICKY_COLORS, STICKY_SIZE, buildStickyInit, dropStickyAtViewportCenter } from './sticky';
+import {
+  STICKY_COLORS,
+  STICKY_GAP,
+  STICKY_SIZE,
+  buildStickyInit,
+  dropStickyAtViewportCenter,
+  freeStickyCenter,
+} from './sticky';
 
 describe('buildStickyInit', () => {
   it('builds a roundRect shape centered on the given world point', () => {
@@ -90,5 +97,58 @@ describe('dropStickyAtViewportCenter', () => {
     const [, init] = addElement.mock.calls[0];
     expect(init.frame.x).toBe(150 - STICKY_SIZE / 2);
     expect(init.frame.y).toBe(125 - STICKY_SIZE / 2);
+  });
+
+  it('steps right off a sticky already sitting on the viewport centre', () => {
+    const addElement = vi.fn().mockReturnValue('sticky-3');
+    const batch = vi.fn((fn: () => void) => fn());
+    const store = { addElement, batch } as unknown as import('@wafflebase/slides').SlidesStore;
+    const editor = {
+      setSelection: vi.fn(),
+      enterTextEditing: vi.fn(),
+    } as unknown as import('@wafflebase/slides').SlidesEditor;
+
+    dropStickyAtViewportCenter({
+      store, editor,
+      viewport: { panX: 0, panY: 0, zoom: 1 },
+      hostWidth: 800, hostHeight: 600,
+      colorValue: '#FFF8B8',
+      occupied: [
+        { x: 400 - STICKY_SIZE / 2, y: 300 - STICKY_SIZE / 2, w: STICKY_SIZE, h: STICKY_SIZE, rotation: 0 },
+      ],
+    });
+
+    const [, init] = addElement.mock.calls[0];
+    expect(init.frame.x).toBe(400 + STICKY_GAP + STICKY_SIZE / 2);
+    expect(init.frame.y).toBe(300 - STICKY_SIZE / 2);
+  });
+});
+
+describe('freeStickyCenter', () => {
+  const sq = (cx: number, cy: number) => ({
+    x: cx - STICKY_SIZE / 2, y: cy - STICKY_SIZE / 2, w: STICKY_SIZE, h: STICKY_SIZE, rotation: 0,
+  });
+  const step = STICKY_SIZE + STICKY_GAP;
+
+  it('keeps the centre when nothing is there', () => {
+    expect(freeStickyCenter([], { x: 10, y: 20 })).toEqual({ x: 10, y: 20 });
+  });
+
+  it('keeps the centre when existing elements only sit beside it', () => {
+    expect(freeStickyCenter([sq(0, 0)], { x: step, y: 0 })).toEqual({ x: step, y: 0 });
+  });
+
+  it('walks past a whole row to the first free square', () => {
+    const row = [sq(0, 0), sq(step, 0), sq(2 * step, 0)];
+    expect(freeStickyCenter(row, { x: 0, y: 0 })).toEqual({ x: 3 * step, y: 0 });
+  });
+
+  it('steps off a partial cover, not only an exact one', () => {
+    expect(freeStickyCenter([sq(-40, 30)], { x: 0, y: 0 })).toEqual({ x: step, y: 0 });
+  });
+
+  it('falls back to the centre on a board too dense to find room', () => {
+    const wall = { x: -1e6, y: -1e6, w: 2e6, h: 2e6, rotation: 0 };
+    expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({ x: 5, y: 5 });
   });
 });
