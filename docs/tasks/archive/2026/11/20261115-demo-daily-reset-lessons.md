@@ -37,3 +37,14 @@
   `snapshot` cases failed), then fixed. The round-2 rebuttal is withdrawn:
   it was right that the reset does not *cause* a snapshot, but the gap was
   real and cheap to close.
+- Production check (2026-11-15) — `RestoreRevision` fails on every real
+  wafflebase document with `[invalid_argument] unsupported element`, on the
+  production server (0.7.27-rc) and locally (0.7.24) alike. Cause: Yorkie's
+  YSON parser reads any plain object with a string `type` field as a typed
+  value, and wafflebase roots are full of them (`{type: "sheet"}` tab meta,
+  slides elements). The history panel's Restore is broken in production for
+  the same reason. The daily reset cannot work until Yorkie fixes this.
+- Lesson: a smoke that seeds the CRDT with toy data (`{cells: {A1: ...}}`)
+  proves the API, not the product. Seed it with the real document shape
+  (here: a root built by the real store) before calling an upstream
+  operation "verified".

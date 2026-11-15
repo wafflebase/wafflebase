@@ -36,7 +36,7 @@ See `docs/design/homepage.md` § Daily reset.
 - [x] Sheet/docs/slides stores, sheet view, pivot hook, tab-name
       normalization handle `snapshot` (tests fail on `snapshot` before the fix)
 - [x] Owner spreadsheet editor re-picks a removed tab (`resolveActiveTabId`)
-- [ ] Rebase, PR
+- [x] Rebase, PR — #1148
 
 ## Deploy (human)
 
