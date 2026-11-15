@@ -29,4 +29,8 @@
 - At a load near 30, vitest workers time out before they answer, and
   `frontend:test` fails with every test passing. Read the failure before
   rerunning: "Timeout waiting for worker" is the load, not the change.
+- A shared gate brings its own preconditions on repository settings, and a
+  green test suite says nothing about them: the protection gate passed every
+  test against fixtures and refused wafflebase's live `main`. Read the gates
+  a sync adds against the live settings before the switch, not after.
 

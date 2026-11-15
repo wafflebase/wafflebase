@@ -96,3 +96,18 @@ copy is brought in line.
       `frontend:test` reported 9 vitest worker timeouts with all 2572 tests
       passing; a run at `7e6da8c37` then passed.
 - [x] actionlint 1.7.12 (`-shellcheck= -pyflakes=`): clean
+
+## Independent review
+
+- [x] BLOCKER: the shared protection gate refuses while `main` lacks
+      "Require approval of the most recent reviewable push" (wafflebase's
+      gate wanted one approval only). Documented in the harness README,
+      `agent-install.md` and the PR body's merge steps, with the effect on
+      human merges; the setting itself is for a maintainer
+- [x] MEDIUM: `agent-sweep.yml` (every 30 minutes behind the switch) is
+      described in the README and the PR body, with a `dry_run` dispatch
+      before the first scheduled sweep
+- [x] LOW: `require-ai-disclosure.sh`, `spec-to-pr.md` and `classify.mjs`
+      no longer describe the old workflows; `classify.mjs record` is
+      local-only, wiring it back or deleting it is a follow-up
+
