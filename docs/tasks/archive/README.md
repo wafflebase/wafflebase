@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 636
+Total archived tasks: 637
 
-## 2026/11 (6 tasks)
+## 2026/11 (7 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| board usability (2026-11-16) | [20261116-board-usability-todo.md](./2026/11/20261116-board-usability-todo.md) | [20261116-board-usability-lessons.md](./2026/11/20261116-board-usability-lessons.md) |
 | demo daily reset (2026-11-15) | [20261115-demo-daily-reset-todo.md](./2026/11/20261115-demo-daily-reset-todo.md) | [20261115-demo-daily-reset-lessons.md](./2026/11/20261115-demo-daily-reset-lessons.md) |
 | impeccable audit fixes (2026-11-15) | [20261115-impeccable-audit-fixes-todo.md](./2026/11/20261115-impeccable-audit-fixes-todo.md) | [20261115-impeccable-audit-fixes-lessons.md](./2026/11/20261115-impeccable-audit-fixes-lessons.md) |
 | ai slop cleanup (2026-11-14) | [20261114-ai-slop-cleanup-todo.md](./2026/11/20261114-ai-slop-cleanup-todo.md) | [20261114-ai-slop-cleanup-lessons.md](./2026/11/20261114-ai-slop-cleanup-lessons.md) |

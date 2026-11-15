@@ -64,7 +64,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 636
+- Archived task count: 637
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: agent harness adopt prep (2026-11-15)
