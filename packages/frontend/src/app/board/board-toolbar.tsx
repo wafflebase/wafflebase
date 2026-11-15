@@ -42,6 +42,7 @@ import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS, isStickyElement } from "./sticky";
 import { StickyControls } from "./sticky-controls";
 import { TOOL_HINTS } from "./board-shortcuts";
+import { BOARD_ZOOM_PRESETS } from "./board-zoom";
 import { type BoardGridKind } from "./board-grid";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
@@ -205,7 +206,7 @@ export function BoardToolbar({
     <Toolbar>
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
-      <ZoomControl controller={zoomController} />
+      <ZoomControl controller={zoomController} presets={BOARD_ZOOM_PRESETS} />
 
       {/* Grid ▾ — the background grid mode, next to Zoom because both are
           view controls that change nothing in the document. Deliberately

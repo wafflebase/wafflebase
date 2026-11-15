@@ -20,9 +20,15 @@ a user check-in after each.
       (`board-minimap.ts` bounds = scene ∪ viewport)
 - [x] 6. Discoverability: empty-board hint, V/T/N/S/L tool keys, shortcuts in
       tooltips, board shortcuts help (Cmd+/)
-- [ ] 7. Minor: zoom menu (in/out, <50%), uppercase picker labels, canvas menu
-      checkmark, tooltip re-show after menu close; investigate the uncaught
-      `YorkieError: fail to find` during undo/redo
+- [x] 7. Minor: zoom dropdown presets now reach 10% (`BOARD_ZOOM_PRESETS`).
+      Checked and already fine on HEAD: uppercase picker labels (sentence
+      case now), canvas-menu check (an SVG icon, not a glyph). Not done:
+      the tooltip that re-shows when focus returns to the Zoom trigger is
+      the app-wide Radix focus-restore behaviour, and board deliberately
+      has not adopted `useCanvasFocusRelease` (see the toolbar NOTE).
+      `YorkieError: fail to find` did not reproduce on HEAD (text box +
+      connector, undo ×2 / redo ×2, console clean); the critique saw it on
+      the #1136 build
 - [ ] 8. FigJam-parity roadmap: `docs/design/board/board-figjam-parity.md`
 - [ ] 9. Polish pass, `pnpm verify:fast`, self-review, PR
 

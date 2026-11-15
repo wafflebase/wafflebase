@@ -13,6 +13,13 @@ import { sceneBounds } from "./minimap-geometry";
 export const BOARD_MIN_ZOOM = 0.1;
 export const BOARD_MAX_ZOOM = 8;
 
+/**
+ * The board zoom dropdown's presets. An infinite canvas spends much of its
+ * time zoomed out over a whole map, so the list reaches down to 10% (the
+ * wheel's floor) instead of stopping at the slides list's 50%.
+ */
+export const BOARD_ZOOM_PRESETS = [0.1, 0.25, 0.5, 1, 2, 4] as const;
+
 function clamp(value: number): number {
   if (value === FIT_ZOOM) return FIT_ZOOM;
   return Math.min(BOARD_MAX_ZOOM, Math.max(BOARD_MIN_ZOOM, value));
