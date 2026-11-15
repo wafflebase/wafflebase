@@ -136,6 +136,26 @@ describe('DemoResetService', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it('does not re-arm when shut down mid-run', async () => {
+    jest.useFakeTimers({ now: new Date(Date.UTC(2026, 10, 15, 14)) });
+    const { service, restoreRevision } = setup({
+      WAFFLEBASE_DEMO_RESET_TARGETS: 'tok-sheet:r',
+    });
+    let release!: () => void;
+    restoreRevision.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    service.onApplicationBootstrap();
+
+    await jest.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(restoreRevision).toHaveBeenCalledTimes(1);
+    service.onModuleDestroy();
+    release();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('runs at the configured hour, then again a day later', async () => {
     jest.useFakeTimers({ now: new Date(Date.UTC(2026, 10, 15, 14)) });
     const { service, restoreRevision } = setup({

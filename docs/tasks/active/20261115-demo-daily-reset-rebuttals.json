@@ -1,0 +1,14 @@
+[
+  {
+    "findingKey": "blast-radius::packages/frontend/src/app/spreadsheet/yorkie-store.ts::daily-server-side-restore-hits-three",
+    "lens": "blast-radius",
+    "file": "packages/frontend/src/app/spreadsheet/yorkie-store.ts",
+    "summary": "Daily server-side restore hits three frontend stores that ignore Yorkie 'snapshot' events, so the demo panes can go permanently stale instead of \"swapping live\"",
+    "claim": "A server-side restoreRevision does not reach a connected, up-to-date client as a 'snapshot' event; it arrives as 'remote-change', which the sheet/doc/slides stores already handle. The 'snapshot' gap the finding names is real but pre-existing and independent of this branch: a client receives 'snapshot' only when it lags past the server's snapshot threshold, which happens with or without a daily reset (and equally after a history-panel restore by another peer). The finding's own novelty block marks it origin: pre-existing.",
+    "evidence": [
+      "Measured against the local Yorkie server (docker compose, SDK 0.7.27): editor attached in Manual and Realtime mode, named a revision, made 5 and then 600 graffiti changes (6 syncs of 100), then a separate client called restoreRevision. The editor's doc.subscribe saw only 'remote-change' in all three runs and its root equalled the golden state ({A1: 'Golden'}, 1 cell).",
+      "packages/frontend/src/app/spreadsheet/yorkie-store.ts:127-131 marks the store dirty on 'remote-change', which is the event delivered in those runs.",
+      "The reset adds one change per day; it does not change how far behind any client is, so it cannot push a client over the snapshot threshold that the visitors' own edits would not."
+    ]
+  }
+]

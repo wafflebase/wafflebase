@@ -213,6 +213,9 @@ WAFFLEBASE_DEMO_RESET_TARGETS=          # Optional, comma-separated
                                         # for the homepage demo documents
                                         # (tokens = the frontend's
                                         # VITE_DEMO_*_SHARED_TOKEN values).
+                                        # Editor tokens are write
+                                        # credentials: set this from a
+                                        # secret, not a committed manifest.
                                         # Once a day each is restored to that
                                         # revision so visitor edits do not
                                         # pile up. Unset arms no timer.

@@ -45,6 +45,7 @@ export class DemoResetService
   private readonly config: DemoResetConfig;
   private timer?: ReturnType<typeof setTimeout>;
   private running = false;
+  private destroyed = false;
 
   constructor(
     configService: ConfigService,
@@ -69,11 +70,14 @@ export class DemoResetService
   }
 
   onModuleDestroy(): void {
+    this.destroyed = true;
     clearTimeout(this.timer);
     this.timer = undefined;
   }
 
   private schedule(): void {
+    // A run still in flight at shutdown must not re-arm after the clear.
+    if (this.destroyed) return;
     const delay = msUntilNextRun(new Date(), this.config.hourUtc);
     this.timer = setTimeout(() => {
       void this.resetAll().finally(() => this.schedule());
