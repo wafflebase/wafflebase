@@ -89,8 +89,8 @@ export type SlidesHandle = {
  * IT SHOWS COMMITTED TEXT ONLY, and that is a property of the engine rather than of this
  * reader. The slides text editor is a docs editor mounted in the overlay, and it writes
  * back to the store on BLUR — measured: type `XX` into the title and this still reports
- * `"Quarterly review"`; press Escape and it still does, because Escape CANCELS; click
- * another element and it reports `"XXQuarterly review"`. So a prediction about typing has
+ * `"Quarterly review"`; press Escape, or click another element, and it reports
+ * `"XXQuarterly review"` (Escape commits, as in Google Slides). So a prediction about typing has
  * to put a commit between the keystrokes and the read, and a prediction that types and
  * then undoes without committing is asserting against something that never happened.
  * An earlier version of this comment claimed typing was observable directly, and the brief

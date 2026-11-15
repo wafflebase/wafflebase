@@ -96,6 +96,21 @@ describe('createBoardMinimap', () => {
     mm.dispose();
   });
 
+  it('paints the panel in the plane colour when the host pins one', () => {
+    const mm = createBoardMinimap({
+      store: fakeStore(),
+      getHostSize: () => ({ w: 800, h: 600 }),
+      onNavigate: vi.fn(),
+      dpr: 1,
+      planeBackground: '#FFFFFF',
+    });
+    const panel = mm.element.querySelector('div') as HTMLElement;
+    expect(panel.style.background).toBe('rgb(255, 255, 255)');
+    // The border is still chrome and keeps following the theme token.
+    expect(panel.getAttribute('style')).toContain('var(--border');
+    mm.dispose();
+  });
+
   it('repaintScene / repaintViewport do not throw with an empty scene', () => {
     const mm = createBoardMinimap({
       store: fakeStore(),

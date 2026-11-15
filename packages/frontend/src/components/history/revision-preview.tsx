@@ -215,8 +215,12 @@ export function RevisionPreview({
   // focus.
   //
   // `Escape` is the deliberate exception: it is non-destructive in both
-  // engines (it cancels an in-cell edit / clears a selection) and it is how
-  // the panel beside this overlay dismisses its own dialogs.
+  // engines (it cancels an in-cell edit / clears a selection; in slides and
+  // board it leaves a text edit, keeping the text) and it is how the panel
+  // beside this overlay dismisses its own dialogs. The slides keep is not a
+  // new write either: focusing this overlay on open (below) already blurred
+  // any live text box, and a blur commits — so by the time Escape can reach
+  // the editor, there is no edit left for it to end.
   useEffect(() => {
     rootRef.current?.focus({ preventScroll: true });
 

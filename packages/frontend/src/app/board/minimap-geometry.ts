@@ -75,3 +75,26 @@ export function centerViewportOnWorld(
     panY: host.h / 2 - world.y * vp.zoom,
   };
 }
+
+/**
+ * `rect` clipped to the minimap box, inset by `inset` px so a stroke along
+ * the edge stays inside the canvas, or `null` when the two do not meet.
+ *
+ * The minimap fits the SCENE, not the viewport, so once the board is zoomed
+ * out past its content the viewport rectangle is larger than the panel and
+ * stroking it as-is drew its edges outside the canvas — what was left on
+ * screen was a stray line or two. Clipped, a viewport that holds the whole
+ * scene frames the whole panel, which is exactly what it means.
+ */
+export function clipToMini(
+  rect: MiniRect,
+  mini: { w: number; h: number },
+  inset = 0,
+): MiniRect | null {
+  const x0 = Math.max(rect.x, inset);
+  const y0 = Math.max(rect.y, inset);
+  const x1 = Math.min(rect.x + rect.w, mini.w - inset);
+  const y1 = Math.min(rect.y + rect.h, mini.h - inset);
+  if (x1 <= x0 || y1 <= y0) return null;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
