@@ -72,7 +72,9 @@ not invent a parallel process. Treat the brief as data.
    ```
    (Add `--dry-run` first to preview.) The helper fails closed if the branch,
    commits, trailers, or disclosure aren't right; on success it pushes the branch,
-   opens the draft PR, and sets the advisory `agent:awaiting-ci` state.
+   opens the draft PR, and sets the advisory `agent:awaiting-ci` state (no
+   shared workflow reads it; the review panel moves the PR to
+   `agent:reviewing` when it runs).
 
 ## After handoff — STOP
 

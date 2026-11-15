@@ -6,8 +6,13 @@
 // same PR ledger metrics.mjs uses for agent run info. Two stages:
 //   A) issue text -> Dimension A (type) + spec/test context     (Haiku, cheap)
 //   B) PR diff    -> Dimension B (bug class) + localization      (Opus + verify)
-// FAIL-SAFE: any error exits 0 so classification can never break the pipeline
-// (the workflow step is also continue-on-error).
+// FAIL-SAFE: any error exits 0 so classification can never break the pipeline.
+//
+// LOCAL ONLY since the switch to yorkie's shared harness core: no workflow runs
+// `record` any more (wafflebase's own agent-implement.yml did, from its finish
+// job, with ANTHROPIC_API_KEY; the shared one has no classifier). It still
+// works by hand with that key set. Wiring it back into CI, or deleting it, is
+// a follow-up.
 //
 // The gh / PR-resolution / comment-listing helpers are shared from metrics.mjs
 // rather than reinvented; only the upsert-a-single-comment behavior (metrics is

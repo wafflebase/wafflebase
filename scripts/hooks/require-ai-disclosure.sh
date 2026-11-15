@@ -2,7 +2,9 @@
 # Claude Code hook: PreToolUse(Bash)
 # Enforces an AI-disclosure trailer on commits made during an AUTONOMOUS agent
 # run, so provenance is mechanical rather than prose. Gated on the
-# WAFFLEBASE_AGENT_AUTONOMOUS env var that the agent workflows set — human and
+# WAFFLEBASE_AGENT_AUTONOMOUS env var, which the local `/spec-to-pr` front half
+# exports; the shared agent workflows (yorkie's core) do not set it, and check
+# the disclosure in their report jobs and the ready gate instead. Human and
 # interactive-agent sessions (var unset) are unaffected, matching the "same
 # workflow as a human" contract while adding a disclosure gate on top.
 #
