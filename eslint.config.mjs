@@ -60,4 +60,19 @@ export default [
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrors: "none" }],
     },
   },
+  // `scripts/agent/**` is yorkie-team/yorkie's shared harness core, copied byte
+  // for byte by `sync.mjs`; a change made here fails the core's own manifest
+  // check, so a finding in it can only be fixed upstream. It is still linted for
+  // the rules that name a bug (an undeclared identifier stops a sync from being
+  // committed, which is the point), but not for the three style rules the core
+  // does not follow: dead bindings, a redundant escape and a control character
+  // in a regex. `lint-config.test.mjs` holds this entry to exactly those three.
+  {
+    files: ["scripts/agent/**/*.mjs"],
+    rules: {
+      "no-unused-vars": "off",
+      "no-useless-escape": "off",
+      "no-control-regex": "off",
+    },
+  },
 ];

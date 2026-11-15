@@ -72,6 +72,20 @@ test("no-unused-vars keeps the underscore convention, and stays an error", async
   assert.equal(opts.argsIgnorePattern, "^_");
 });
 
+test("the shared core is relaxed for three style rules and nothing else", async (t) => {
+  const l = await load();
+  if (!l) return t.skip(SKIP);
+  // `scripts/agent/**` is yorkie's core, copied unchanged: a style finding in it
+  // cannot be fixed here. Relaxing anything beyond these three would hide a bug
+  // class, `no-undef` first among them.
+  const { default: config } = await import(CONFIG);
+  const core = config.filter((c) => (c.files ?? []).some((f) => f.startsWith("scripts/agent/")));
+  assert.equal(core.length, 1);
+  assert.deepEqual(core[0].files, ["scripts/agent/**/*.mjs"]);
+  assert.deepEqual(Object.keys(core[0]).sort(), ["files", "rules"]);
+  assert.deepEqual(core[0].rules, { "no-unused-vars": "off", "no-useless-escape": "off", "no-control-regex": "off" });
+});
+
 test("node globals are declared, or no-undef is pure noise", async (t) => {
   const l = await load();
   if (!l) return t.skip(SKIP);
