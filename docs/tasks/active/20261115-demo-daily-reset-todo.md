@@ -29,7 +29,8 @@ See `docs/design/homepage.md` § Daily reset.
 - [x] Smoke against local Yorkie: name → graffiti → restore → editor sees golden
 - [x] Backend README env docs + `docs/design/homepage.md` § Daily reset
 - [x] `pnpm verify:fast`
-- [ ] Self review (round 1 done, see lessons), PR
+- [x] Self review: 3 rounds, stopped at the bound (see lessons)
+- [ ] Human decision on the round-3 findings, then PR
 
 ## Deploy (human)
 

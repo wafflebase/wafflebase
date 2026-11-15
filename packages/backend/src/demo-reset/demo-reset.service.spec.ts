@@ -105,6 +105,26 @@ describe('DemoResetService', () => {
     expect(restoreRevision).toHaveBeenCalledTimes(1);
   });
 
+  it('never logs a whole share token', async () => {
+    const secret = 'tok-secret-0123456789abcdef';
+    const error = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const { service } = setup({
+      WAFFLEBASE_DEMO_RESET_TARGETS: `${secret}:r,${secret}x`,
+    });
+    await service.resetAll();
+    await service.logCandidates();
+
+    const logged = [...error.mock.calls, ...warn.mock.calls].flat().join('\n');
+    expect(error).toHaveBeenCalled();
+    expect(logged).toContain(secret.slice(0, 8));
+    expect(logged).not.toContain(secret);
+  });
+
   it('logs candidate revision ids for an unpinned entry', async () => {
     const warn = jest
       .spyOn(Logger.prototype, 'warn')

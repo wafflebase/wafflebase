@@ -23,3 +23,9 @@
   600 changes); the `snapshot` gap is pre-existing and deferred. Also applied
   two non-blocking findings from the independent design-fit review: no timer
   re-arm after shutdown, README marks the tokens as credentials.
+- Round 3 (bound) — blocked: test-adequacy (token redaction untested; fixed,
+  mutation-checked), security (setup candidate list still filters on the
+  attacker-writable label, 5 slots can be crowded), blast-radius (the
+  `snapshot` finding re-raised despite the rebuttal; plus the owner spreadsheet
+  editor does not re-pick a tab removed remotely). The last three are left for
+  a human decision; loop stopped at the bound.
