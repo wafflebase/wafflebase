@@ -208,7 +208,7 @@ export function HistoryPanel({
 
   return (
     <aside
-      className="flex h-full w-72 flex-col border-l bg-background shadow-lg"
+      className="flex h-full w-72 flex-col border-l bg-background max-md:fixed max-md:inset-0 max-md:z-40 max-md:w-full max-md:border-l-0"
       aria-label="Version history"
     >
       <header className="flex items-center justify-between border-b px-4 py-3">

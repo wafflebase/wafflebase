@@ -14,13 +14,13 @@ docs canvas, board). That needs its own design doc.
 - [x] SheetView: skip `setActiveCellForComment` when the cell is unchanged
 
 ## 2. Adapt — mobile and touch
-- [ ] Conditional-format / data-validation panels fit a 375px viewport
-- [ ] Comment / history / PDF side panels don't crush the editor on phones
-- [ ] Homepage comparison table no longer clips at 375px
-- [ ] PDF region-comment drag surface sets `touch-action: none`
-- [ ] Slides panel resizers use pointer events
-- [ ] Dialog / Sheet close buttons get a real hit area
-- [ ] Data-validation textarea is 16px on mobile
+- [x] Conditional-format / data-validation panels fit a 375px viewport
+- [x] Comment / history / PDF side panels don't crush the editor on phones
+- [x] Homepage comparison table no longer clips at 375px
+- [x] PDF region-comment drag surface sets `touch-action: none`
+- [x] Slides panel resizers use pointer events
+- [x] Dialog / Sheet close buttons get a real hit area
+- [x] Data-validation textarea is 16px on mobile
 
 ## 3. Harden — keyboard and semantics
 - [ ] Replacement focus styles where `outline-none` drops them

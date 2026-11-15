@@ -308,7 +308,7 @@ export function ConditionalFormatPanel({
   };
 
   return (
-    <aside className="absolute inset-y-0 right-0 z-20 flex w-[26rem] flex-col overflow-hidden border-l bg-background shadow-lg">
+    <aside className="absolute inset-y-0 right-0 z-20 flex w-[min(26rem,100%)] flex-col overflow-hidden border-l bg-background shadow-lg">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

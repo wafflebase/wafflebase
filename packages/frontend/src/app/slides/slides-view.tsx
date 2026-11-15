@@ -1006,11 +1006,12 @@ export function SlidesView({
     let dragStartX = 0;
     let dragStartLeft = 0;
     // Notes drag is a sibling state machine — single document
-    // mousemove / mouseup pair routes both gestures.
+    // pointermove / pointerup pair routes both gestures. Pointer events,
+    // not mouse events, so the resizers also work under a finger or pen.
     let draggingNotes = false;
     let dragStartY = 0;
     let dragStartNotesH = 0;
-    const onResizerDown = (e: MouseEvent) => {
+    const onResizerDown = (e: PointerEvent) => {
       e.preventDefault();
       dragging = true;
       dragStartX = e.clientX;
@@ -1020,7 +1021,7 @@ export function SlidesView({
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     };
-    const onNotesResizerDown = (e: MouseEvent) => {
+    const onNotesResizerDown = (e: PointerEvent) => {
       e.preventDefault();
       draggingNotes = true;
       dragStartY = e.clientY;
@@ -1028,7 +1029,7 @@ export function SlidesView({
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
     };
-    const onDocMouseMove = (e: MouseEvent) => {
+    const onDocMouseMove = (e: PointerEvent) => {
       if (dragging) {
         const next = Math.min(
           MAX_LEFT_W,
@@ -1085,10 +1086,14 @@ export function SlidesView({
         }
       }
     };
-    resizer.addEventListener("mousedown", onResizerDown);
-    notesResizer.addEventListener("mousedown", onNotesResizerDown);
-    document.addEventListener("mousemove", onDocMouseMove);
-    document.addEventListener("mouseup", onDocMouseUp);
+    // A touch drag on a resizer must not scroll the page instead.
+    resizer.style.touchAction = "none";
+    notesResizer.style.touchAction = "none";
+    resizer.addEventListener("pointerdown", onResizerDown);
+    notesResizer.addEventListener("pointerdown", onNotesResizerDown);
+    document.addEventListener("pointermove", onDocMouseMove);
+    document.addEventListener("pointerup", onDocMouseUp);
+    document.addEventListener("pointercancel", onDocMouseUp);
 
     thumbHandle = mountThumbnailPanel(
       thumbsHost,
@@ -1214,8 +1219,9 @@ export function SlidesView({
       unsubscribeZoom();
       unsubscribeHeight();
       scrollHost.removeEventListener("scroll", onScrollHostScroll);
-      document.removeEventListener("mousemove", onDocMouseMove);
-      document.removeEventListener("mouseup", onDocMouseUp);
+      document.removeEventListener("pointermove", onDocMouseMove);
+      document.removeEventListener("pointerup", onDocMouseUp);
+      document.removeEventListener("pointercancel", onDocMouseUp);
       // If the user navigated mid-drag, restore body cursor / select.
       if (dragging || draggingNotes) {
         document.body.style.cursor = "";
