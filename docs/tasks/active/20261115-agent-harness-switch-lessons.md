@@ -18,3 +18,15 @@
   sync, or the sync commit could not pass `verify:fast` without being edited.
 - On a shared machine, backend socket tests fail with a parse error when the
   load is near 20; wait for the load to drop rather than retrying blindly.
+- A guard that names a job's steps breaks when upstream restructures the job;
+  one that names what the job may hold survives it. When `agent-implement`
+  went from one job with a revoked App token to four jobs, "the agent's job
+  holds no credential that writes" needed new anchors (no App secret
+  referenced, no token minted, a read-only token), not a new property.
+- Keep the scratch tools a run depends on until the work is merged. Deleting
+  the `npx` shim during cleanup made the next `verify:self` fail on knip
+  again.
+- At a load near 30, vitest workers time out before they answer, and
+  `frontend:test` fails with every test passing. Read the failure before
+  rerunning: "Timeout waiting for worker" is the load, not the change.
+

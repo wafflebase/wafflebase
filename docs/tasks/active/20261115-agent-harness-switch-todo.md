@@ -61,3 +61,38 @@ copy is brought in line.
   `scripts/agent/summarize-ci.mjs` remained in harness-engineering.md's
   roadmap (fixed).
 - actionlint 1.7.12 (`-shellcheck= -pyflakes=`): clean at head and base.
+
+## Second and third syncs (yorkie 70fd230b, c5fe29e9)
+
+- [x] Merge main (#1155 trusted jobs restore no cache, #1157 explicit
+      workflow permissions); the only conflict was the generated task index
+- [x] Sync from yorkie main `70fd230b`, committed alone: 145 files, none
+      deleted; `npm test` 1421/1421 (the core's cache guard included, over
+      this repository's workflows), `test:repo` 28/28 after re-recording the
+      issue-to-PR prompt, `check:upstream` OK
+- [x] Sync from yorkie main `c5fe29e9`, committed alone: only
+      `bundle-handoff.test.mjs` (cleanup retries, yorkie#2371) and the
+      manifest; `npm test` 1421/1421, `test:repo` 28/28, `check:upstream` OK
+- [x] Guard: `agent-implement` is `prepare` → `implement` → `finish` →
+      `report`. Every property is kept against that shape. The agent's job
+      references no App secret, mints no token and reads only. After the
+      agent comes only `git bundle create` and the upload. The push token is
+      minted only after `bundle-handoff.mjs verify` passed and never on a
+      cancelled run, can only push, and only `bundle-handoff.mjs push` holds
+      it. 22 named edits of the real file are refused.
+      `oven-sh/setup-bun` is allowed before the agent with a literal version
+      and `no-cache: true`. The per-slot pool credential is accepted only
+      when each clause names its own slot. 125 fixture edits are refused and
+      16 accepted; 30 edits of the synced workflows are each caught.
+- [x] Main's `trusted-cache.test.mjs` and `workflow-permissions.test.mjs`
+      pass against the synced workflows
+- [x] Docs: harness README, `agent-install.md`, `harness-engineering.md`
+      describe the four jobs and the uncached Bun
+- [x] `pnpm verify:self`: at `c5fe29e9`, all 30 lanes pass in 210 s:
+      agent:tests 1421/1421, agent-arms:tests 647/647, scripts:tests 440 (437
+      pass, 3 skipped), verify:entropy clean. Two earlier runs after the
+      70fd230b sync failed for reasons outside the change: knip had no `npx`
+      (the scratch shim had been deleted) and, at a load near 30,
+      `frontend:test` reported 9 vitest worker timeouts with all 2572 tests
+      passing; a run at `7e6da8c37` then passed.
+- [x] actionlint 1.7.12 (`-shellcheck= -pyflakes=`): clean
