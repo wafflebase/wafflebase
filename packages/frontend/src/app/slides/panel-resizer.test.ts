@@ -72,6 +72,12 @@ describe("attachPanelResizer", () => {
     expect(onMove).toHaveBeenCalledOnce();
   });
 
+  it("does not move focus when a drag starts", () => {
+    const { handle } = setup();
+    const mousedown = pointer(handle, "mousedown", { button: 0 });
+    expect(mousedown.defaultPrevented).toBe(true);
+  });
+
   it("ends the drag when the browser cancels the pointer", () => {
     const { handle, onEnd } = setup();
     pointer(handle, "pointerdown", { button: 0 });

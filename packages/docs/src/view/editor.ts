@@ -3632,7 +3632,9 @@ export function initialize(
 
       const targetTop = pixel.y * scaleFactor - lastCanvasHeight / 3;
       // Jump rather than glide for a reader who asked the system for
-      // reduced motion (WCAG 2.3.3); the destination is the same.
+      // reduced motion (WCAG 2.3.3); the destination is the same. Mirrors
+      // the frontend's `lib/scroll-behavior.ts`, which this package cannot
+      // import.
       const reduceMotion =
         typeof window !== 'undefined' &&
         window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

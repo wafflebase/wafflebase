@@ -55,10 +55,17 @@ export function attachPanelResizer(
     onStart(e);
   };
 
+  // Cancelling `pointerdown` does not cancel the compatibility `mousedown`'s
+  // default, which moves focus. A drag must not blur the text box being
+  // edited, as the mouse-only version (which cancelled `mousedown`) never did.
+  const keepFocus = (e: MouseEvent) => e.preventDefault();
+
   handle.style.touchAction = "none";
   handle.addEventListener("pointerdown", down);
+  handle.addEventListener("mousedown", keepFocus);
   return () => {
     handle.removeEventListener("pointerdown", down);
+    handle.removeEventListener("mousedown", keepFocus);
     end();
   };
 }

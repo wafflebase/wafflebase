@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Suspense, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
 import { shouldRetryQuery } from "@/lib/query-retry";
+import { isPrivatePath } from "@/lib/private-path";
 import { Loader } from "@/components/loader";
 
 import { PublicRoute } from "./PublicRoute";
@@ -16,9 +17,16 @@ import { NavigationGuardProvider } from "./components/navigation-guard/navigatio
 // Lazy because it mounts the YorkieProvider: a static import would put the
 // Yorkie SDK on the critical path of the public pages (`/`, `/login`,
 // `/templates`), none of which open a Yorkie document.
+const loadPrivateRoute = () => import("./PrivateRoute");
 const PrivateRoute = lazyWithRetry(() =>
-  import("./PrivateRoute").then((m) => ({ default: m.PrivateRoute })),
+  loadPrivateRoute().then((m) => ({ default: m.PrivateRoute })),
 );
+// A signed-in deep link (`/s/:id`, `/w/:slug`) needs the guard before it can
+// even ask who the user is, so start its chunk while the entry evaluates
+// rather than after the router first renders. Public routes skip it.
+if (isPrivatePath(window.location.pathname)) {
+  void loadPrivateRoute().catch(() => {});
+}
 const Login = lazyWithRetry(() => import("@/app/login/page"));
 const Documents = lazyWithRetry(() => import("@/app/documents/page"));
 const DocumentDetail = lazyWithRetry(

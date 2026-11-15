@@ -197,6 +197,16 @@ describe("uploadFailureReason", () => {
     );
   });
 
+  it("asks for a reload when a lazily loaded importer's chunk is gone", () => {
+    expect(
+      uploadFailureReason(
+        new TypeError(
+          "Failed to fetch dynamically imported module: /assets/docx-actions.js",
+        ),
+      ),
+    ).toBe("Couldn't load the importer. Reload the page, then retry.");
+  });
+
   it("hides developer text from fetch and parser failures", () => {
     for (const err of [
       new TypeError("Failed to fetch"),

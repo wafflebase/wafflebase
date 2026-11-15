@@ -7,6 +7,7 @@ import type { importDocx } from "@/app/docs/docx-actions";
 import type { importPptxFile } from "@/app/slides/pptx-actions";
 import { uploadFile } from "@/api/files";
 import { HttpError, userFacingError } from "@/api/http-error";
+import { isChunkLoadError } from "@/lib/chunk-load-error";
 import { createDocument, discardDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import type { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
@@ -14,6 +15,8 @@ import { registerUnsavedWorkProbe } from "@/lib/unsaved-work";
 import type { Document, DocumentType } from "@/types/documents";
 
 const UPLOAD_FAILED = "Couldn't upload this file. Check your connection and retry.";
+const UPLOAD_CHUNK_STALE =
+  "Couldn't load the importer. Reload the page, then retry.";
 
 /**
  * The reason shown on a failed row. A plain `Error` is what the importers
@@ -24,6 +27,9 @@ const UPLOAD_FAILED = "Couldn't upload this file. Check your connection and retr
  */
 export function uploadFailureReason(err: unknown): string {
   if (err instanceof HttpError) return userFacingError(err, UPLOAD_FAILED);
+  // The importers load on demand; after a deploy the chunk this tab knows
+  // about may be gone, and retrying in place fetches the same missing URL.
+  if (isChunkLoadError(err)) return UPLOAD_CHUNK_STALE;
   if (err instanceof Error && err.name === "Error" && err.message) {
     return err.message;
   }
