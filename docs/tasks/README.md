@@ -18,7 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| agent harness adopt prep (2026-11-15) | [20261115-agent-harness-adopt-prep-todo.md](./active/20261115-agent-harness-adopt-prep-todo.md) | [20261115-agent-harness-adopt-prep-lessons.md](./active/20261115-agent-harness-adopt-prep-lessons.md) |
 | docs site brand neutrals (2026-11-15) | [20261115-docs-site-brand-neutrals-todo.md](./active/20261115-docs-site-brand-neutrals-todo.md) | [20261115-docs-site-brand-neutrals-lessons.md](./active/20261115-docs-site-brand-neutrals-lessons.md) |
+| impeccable audit fixes (2026-11-15) | [20261115-impeccable-audit-fixes-todo.md](./active/20261115-impeccable-audit-fixes-todo.md) | [20261115-impeccable-audit-fixes-lessons.md](./active/20261115-impeccable-audit-fixes-lessons.md) |
 | implement post agent job (2026-11-15) | [20261115-implement-post-agent-job-todo.md](./active/20261115-implement-post-agent-job-todo.md) | [20261115-implement-post-agent-job-lessons.md](./active/20261115-implement-post-agent-job-lessons.md) |
 | move agent arms (2026-11-15) | [20261115-move-agent-arms-todo.md](./active/20261115-move-agent-arms-todo.md) | [20261115-move-agent-arms-lessons.md](./active/20261115-move-agent-arms-lessons.md) |
 | tighten agent guard (2026-11-15) | [20261115-tighten-agent-guard-todo.md](./active/20261115-tighten-agent-guard-todo.md) | [20261115-tighten-agent-guard-lessons.md](./active/20261115-tighten-agent-guard-lessons.md) |
@@ -66,4 +68,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 635
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs site brand neutrals (2026-11-15)
+Latest active task: agent harness adopt prep (2026-11-15)

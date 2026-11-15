@@ -37,3 +37,17 @@ docs canvas, board). That needs its own design doc.
 - [x] DESIGN.md: correct the Sheets mobile-shell claim; docked panels carry no shadow
 
 ## Review
+- Measured (prod build): eager entry 1168 -> 721 kB (Yorkie off the public
+  pages); signed-in Layout closure 1457 -> 350 kB gzip (no editor engines on
+  the documents list / file viewers). Chunk gate 239, limit raised to 244.
+- Rendered on a local build at 375px: homepage comparison table fits (325/325),
+  nav/footer outside `<main>`.
+- Self-review: 3 rounds; round 1 reverted two changes (comment-popover memo,
+  mobile side-panel overlay), round 2 added real-module test coverage and
+  reverted two over-eager focus rings, round 3 clean.
+- Known limitations (for the PR body): shared-link page still loads every
+  engine; Miro import dialog pulls the board engine statically; side panels on
+  phones still squeeze the editor (needs a bottom-sheet design); coarse-pointer
+  dialog close box can overlap a long title; docs toolbar default swatches
+  still name `--wb-ink`/`--wb-paper`; canvas editors have no screen-reader
+  story.

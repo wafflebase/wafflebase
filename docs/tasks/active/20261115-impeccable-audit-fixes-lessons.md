@@ -34,3 +34,8 @@
 - Before replacing `outline-none` with a focus ring, read the surrounding
   comment: a compound control (the font-size pill) may carry focus on its
   container on purpose. The audit's grep cannot see that.
+- Round 3: clean on all six lenses (reviewed 623a2a2f3; the later chunk-gate
+  bump is config-only). Loop stopped.
+- The chunk-count gate counts deferrals as growth: every `import()` split adds
+  one. Rebuild and run `verify-frontend-chunks.mjs` before pushing a bundle
+  change, and record the reason beside the limit when bumping it.
