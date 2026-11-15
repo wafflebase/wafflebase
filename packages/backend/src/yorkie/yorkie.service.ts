@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import yorkie, { Document, SyncMode } from '@yorkie-js/sdk';
+import yorkie, { Client, Document, SyncMode } from '@yorkie-js/sdk';
 import type ms from 'ms';
 import { SpreadsheetDocument } from './yorkie.types';
 import { YORKIE_DOC_KEY_PREFIXES } from './yorkie-doc-key';
@@ -68,9 +68,17 @@ export class YorkieService {
     }
   }
 
-  async withDocument<T, R extends Record<string, unknown> = SpreadsheetDocument>(
+  async withDocument<
+    T,
+    R extends Record<string, unknown> = SpreadsheetDocument,
+  >(
     documentId: string,
-    callback: (doc: Document<R>) => T | Promise<T>,
+    /**
+     * `client` is the attached client, for the per-document RPCs that live on
+     * it rather than on the document (revisions). It is deactivated when the
+     * callback settles, so it must not escape it.
+     */
+    callback: (doc: Document<R>, client: Client) => T | Promise<T>,
     options?: WithDocumentOptions,
   ): Promise<T> {
     const prefix = options?.docKeyPrefix ?? YORKIE_DOC_KEY_PREFIXES.sheet;
@@ -97,7 +105,7 @@ export class YorkieService {
           : { syncMode: SyncMode.Manual },
       );
       attached = true;
-      const result = await callback(doc);
+      const result = await callback(doc, client);
       if (options?.syncMode !== 'readonly') {
         await client.sync(doc);
       }

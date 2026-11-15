@@ -148,6 +148,53 @@ Section frame: `--wb-paper` rounded card (18px), syrup-deep drop shadow.
   on the right (Vite injects the version from the root package.json at build
   time) (Slides hint: "Tip: arrow keys navigate — ⌘/Ctrl+Enter to present.").
 
+#### Daily reset
+
+> **Blocked upstream (2026-11-15).** `RestoreRevision` fails on every real
+> wafflebase document with `[invalid_argument] unsupported element`, on both
+> the production Yorkie (0.7.27-rc) and 0.7.24: Yorkie's YSON parser reads
+> any plain object with a string `type` field (`{type: "sheet"}` tab meta,
+> slides elements) as a typed value. The service below is shipped but must
+> stay unset until a Yorkie release fixes that; the history panel's Restore
+> fails for the same reason.
+
+The three demo panes are **editor** share links to real documents, so every
+visitor edits the same copy. `packages/backend/src/demo-reset/` puts them back
+once a day:
+
+- The good state is a revision — the history panel's "Name current version"
+  — **pinned by id** in `WAFFLEBASE_DEMO_RESET_TARGETS` as
+  `<shareToken>:<revisionId>` pairs (tokens = the `VITE_DEMO_*_SHARED_TOKEN`
+  values).
+- Pinned, never looked up by label: `CreateRevision` is not gated by the
+  Yorkie auth webhook (see [revision-history.md](revision-history.md)), and
+  these are editor links, so any visitor can name a revision `demo-golden`.
+  A "newest with the label" rule would restore their content every day.
+- Setup: list a token without `:<revisionId>`. It is never restored; at boot
+  its newest revisions labelled `WAFFLEBASE_DEMO_RESET_LABEL` (default
+  `demo-golden`) are logged with id and creation time. The operator matches
+  the time against when they named it, pins the id, and redeploys. Changing
+  the example is the same loop.
+- Each token resolves through `ShareLinkService.findByToken`, so a revoked
+  link or a trashed document simply fails that one reset.
+- One in-process `setTimeout`, re-armed after every run, fires at
+  `WAFFLEBASE_DEMO_RESET_HOUR_UTC` (default 15 = 00:00 KST). No scheduler
+  dependency and no public endpoint. A restart re-arms instead of resetting,
+  so a deploy never wipes a demo mid-day. Production runs one replica; with
+  more, each restores the same revision to the same result.
+- The restore attaches with the document-scoped service token and calls
+  `restoreRevision`; connected visitors see the content swap live. One
+  document failing never stops the others.
+- Measured on a local Yorkie server, a restore reaches an up-to-date client
+  as an ordinary `remote-change`, even after 600 changes of graffiti. A
+  client that has fallen past the server's snapshot threshold gets a
+  `snapshot` event instead, so the sheet, docs and slides stores (and the
+  sheet view and pivot hook that subscribe on their own) treat `snapshot`
+  like `remote-change`, as board and notes already did. And because the
+  restore can remove a tab a visitor added and is viewing, the owner
+  spreadsheet editor re-picks its tab on every root change
+  (`resolveActiveTabId`), as the share route already did.
+
 #### FeaturesSection
 
 Two-tier layout. 3 large cards (waffle-pocket glyphs):
@@ -295,4 +342,4 @@ and the existing `ThemeProvider`.
 | Google Fonts blocked by network policy | `display=swap` + system serif/sans/mono fallbacks declared in the `--font-*` tokens |
 | Iframe blocked by X-Frame-Options / CSP | Same-origin iframe; on iframe `error`, `<DemoFrame>` swaps to an inline message ("Demo unavailable. Try refreshing the page.") instead of a static screenshot, keeping the surface text-only |
 | Iframe loads slowly on first visit | `loading="lazy"`, skeleton placeholder while loading |
-| Shared demo token expires or data changes | Dedicated demo document with stable read-only content |
+| Shared demo token expires or data changes | Dedicated demo documents behind editor share links, so visitors' edits accumulate; the backend's `DemoResetService` restores each to an operator-pinned revision once a day (see *Daily reset*) |

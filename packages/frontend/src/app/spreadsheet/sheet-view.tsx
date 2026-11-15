@@ -1457,6 +1457,12 @@ export function SheetView({
       // re-render without the expensive recalc pass.
       unsubs.push(
         doc.subscribe((e) => {
+          // A `snapshot` replaced the whole root and carries no operations
+          // to inspect, so it always takes the recalc path.
+          if (e.type === "snapshot") {
+            scheduleRemoteSync(!readOnly);
+            return;
+          }
           if (e.type !== "remote-change") return;
           const ops = (
             e as { value?: { operations?: Array<{ path?: string }> } }

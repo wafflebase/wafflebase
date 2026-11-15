@@ -69,6 +69,23 @@ describe('YorkieService', () => {
       expect(mockDeactivate).toHaveBeenCalled();
     });
 
+    it('hands the callback the attached document and its client', async () => {
+      const callback = jest.fn();
+
+      await service.withDocument('doc-1', callback, { syncMode: 'readonly' });
+
+      const [doc, client] = callback.mock.calls[0] as [
+        unknown,
+        { activate: unknown },
+      ];
+      // The same instances that were attached and activated, so
+      // per-document client RPCs (revisions) reach the attached document.
+      expect(doc).toBe((mockAttach.mock.calls[0] as unknown[])[0]);
+      expect(client.activate).toBe(mockActivate);
+      expect(mockActivate).toHaveBeenCalledTimes(1);
+      expect(mockSync).not.toHaveBeenCalled();
+    });
+
     it('uses a custom docKeyPrefix when provided (e.g. doc- for word-processor)', async () => {
       const callback = jest.fn().mockReturnValue('ok');
 
@@ -158,9 +175,7 @@ describe('YorkieService', () => {
 
     it('swallows detach error on callback failure to preserve original error', async () => {
       mockDetach.mockRejectedValueOnce(new Error('detach failed'));
-      const callback = jest
-        .fn()
-        .mockRejectedValue(new Error('callback error'));
+      const callback = jest.fn().mockRejectedValue(new Error('callback error'));
 
       await expect(service.withDocument('doc-1', callback)).rejects.toThrow(
         'callback error',

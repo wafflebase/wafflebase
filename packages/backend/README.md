@@ -208,6 +208,32 @@ WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # Unset disables the document
                                         # analytics dashboard (returns
                                         # `enabled: false`).
+WAFFLEBASE_DEMO_RESET_TARGETS=          # Optional, comma-separated
+                                        # `<shareToken>:<revisionId>` pairs
+                                        # for the homepage demo documents
+                                        # (tokens = the frontend's
+                                        # VITE_DEMO_*_SHARED_TOKEN values).
+                                        # Editor tokens are write
+                                        # credentials: set this from a
+                                        # secret, not a committed manifest.
+                                        # Once a day each is restored to that
+                                        # revision so visitor edits do not
+                                        # pile up. Unset arms no timer.
+                                        # Pinned by id, never by label:
+                                        # CreateRevision is not gated by the
+                                        # auth webhook, so any editor-link
+                                        # visitor can name a revision
+                                        # anything. A token with no
+                                        # `:<revisionId>` is not reset; at
+                                        # boot its newest revisions labelled
+                                        # WAFFLEBASE_DEMO_RESET_LABEL are
+                                        # logged with their ids, to pin one.
+WAFFLEBASE_DEMO_RESET_LABEL=demo-golden # Optional, the label that boot-time
+                                        # candidate listing filters on. Name
+                                        # it with the history panel's "Name
+                                        # current version".
+WAFFLEBASE_DEMO_RESET_HOUR_UTC=15       # Optional, 0..23. 15 = 00:00 KST.
+                                        # Anything else falls back to 15.
 ```
 
 `GITHUB_CALLBACK_URL`'s scheme is read as the deployment's public scheme: it

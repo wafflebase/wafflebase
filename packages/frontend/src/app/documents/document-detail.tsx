@@ -54,6 +54,7 @@ import {
   normalizeTabName,
 } from "./tab-name";
 import { createLakehouseTabMeta } from "./lakehouse-tab";
+import { resolveActiveTabId } from "./active-tab";
 import {
   clearPendingImport,
   peekPendingImport,
@@ -332,13 +333,18 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc, activeTabId],
   );
 
+  // Re-evaluated on every root change (`docRoot`), not only while nothing is
+  // selected: a peer's delete or a revision restore can remove the tab being
+  // viewed, and the stale id would leave the store reading a missing sheet.
   useEffect(() => {
-    if (!doc) return;
-    const root = doc.getRoot();
-    if (root.tabOrder && root.tabOrder.length > 0 && !activeTabId) {
-      setActiveTabId(root.tabOrder[0]);
-    }
-  }, [doc, activeTabId]);
+    if (!docRoot) return;
+    const next = resolveActiveTabId(
+      docRoot.tabOrder,
+      docRoot.tabs,
+      activeTabId,
+    );
+    if (next !== activeTabId) setActiveTabId(next);
+  }, [docRoot, activeTabId]);
 
   // Backfill old documents that may already contain duplicate tab names.
   useEffect(() => {
@@ -366,7 +372,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     normalizeTabNames();
 
     return doc.subscribe((event) => {
-      if (event.type === "local-change" || event.type === "remote-change") {
+      if (
+        event.type === "local-change" ||
+        event.type === "remote-change" ||
+        event.type === "snapshot"
+      ) {
         normalizeTabNames();
       }
     });

@@ -594,8 +594,11 @@ export class YorkieSlidesStore implements SlidesStore {
     // YorkieSlidesStore for the same Yorkie document leaks one
     // subscription per construction; remote-change events then fire
     // notifyChange() on every stale instance still in memory.
+    // `snapshot` replaces the whole root without a `remote-change` (a client
+    // catching up past the server's snapshot threshold), so it takes the
+    // same path or the deck would keep painting the pre-snapshot state.
     this.unsubscribeDoc = doc.subscribe((e) => {
-      if (e.type === 'remote-change') {
+      if (e.type === 'remote-change' || e.type === 'snapshot') {
         this.onRemoteChange?.();
         this.notifyChange();
       }

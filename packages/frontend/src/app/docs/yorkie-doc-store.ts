@@ -877,9 +877,11 @@ export class YorkieDocStore implements DocStore {
     // the cursor still references.
     this.markUndoFloor();
 
-    // Invalidate cache on remote changes
+    // Invalidate cache on remote changes. `snapshot` replaces the whole root
+    // without a `remote-change` (a client catching up past the server's
+    // snapshot threshold), so it takes the same path.
     this.unsubscribeDoc = doc.subscribe((event) => {
-      if (event.type === 'remote-change') {
+      if (event.type === 'remote-change' || event.type === 'snapshot') {
         this.dirty = true;
         this.onRemoteChange?.();
       }
