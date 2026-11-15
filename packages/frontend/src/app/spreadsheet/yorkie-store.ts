@@ -124,8 +124,11 @@ export class YorkieStore implements Store {
     }
 
     // Mark index as dirty on remote changes so it gets rebuilt lazily.
+    // `snapshot` is a distinct event from `remote-change`: a client catching
+    // up past the server's snapshot threshold gets the whole root replaced
+    // and no `remote-change`, so it has to drop the index too.
     doc.subscribe((e) => {
-      if (e.type === "remote-change") {
+      if (e.type === "remote-change" || e.type === "snapshot") {
         this.dirty = true;
       }
     });

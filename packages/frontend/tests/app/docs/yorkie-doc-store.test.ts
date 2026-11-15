@@ -3979,3 +3979,31 @@ describe('YorkieDocStore', () => {
   });
 
 });
+
+describe('YorkieDocStore remote events', () => {
+  // A whole-document `snapshot` replaces the root without a `remote-change`,
+  // so it must reach the same invalidation and repaint path.
+  it.each(['remote-change', 'snapshot'] as const)(
+    'invalidates the cache and notifies on %s',
+    (type) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      doc.update((root: any) => {
+        root.content = new yorkie.Tree({ type: 'doc', children: [] });
+      });
+      const store = new YorkieDocStore(doc);
+      const before = store.getDocument();
+      const onRemoteChange = vi.fn();
+      store.onRemoteChange = onRemoteChange;
+
+      (doc as unknown as { publish(events: unknown[]): void }).publish([
+        { type },
+      ]);
+
+      expect(onRemoteChange).toHaveBeenCalledTimes(1);
+      // Dropped cache: the next read is rebuilt, not the memoized object.
+      expect(store.getDocument()).not.toBe(before);
+    },
+  );
+});

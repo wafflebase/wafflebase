@@ -177,6 +177,15 @@ once a day:
 - The restore attaches with the document-scoped service token and calls
   `restoreRevision`; connected visitors see the content swap live. One
   document failing never stops the others.
+- Measured on a local Yorkie server, a restore reaches an up-to-date client
+  as an ordinary `remote-change`, even after 600 changes of graffiti. A
+  client that has fallen past the server's snapshot threshold gets a
+  `snapshot` event instead, so the sheet, docs and slides stores (and the
+  sheet view and pivot hook that subscribe on their own) treat `snapshot`
+  like `remote-change`, as board and notes already did. And because the
+  restore can remove a tab a visitor added and is viewing, the owner
+  spreadsheet editor re-picks its tab on every root change
+  (`resolveActiveTabId`), as the share route already did.
 
 #### FeaturesSection
 

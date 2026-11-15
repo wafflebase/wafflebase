@@ -13,6 +13,9 @@
   authorization decision. Before choosing one, ask who else can write the
   thing being selected; here the README already said `CreateRevision` is
   ungated.
+- "Pre-existing" is a reason to defer, not a reason to dispute. When a
+  finding names a real gap that this change makes more visible, fixing it is
+  often cheaper than arguing it across rounds.
 - Docker Desktop's host port forwarding can hang while the container is up
   (curl to :8080 timed out). `docker compose restart yorkie` fixed it.
 - Round 2 — blocked: test-adequacy (no assertion that `withDocument` hands
@@ -29,3 +32,8 @@
   `snapshot` finding re-raised despite the rebuttal; plus the owner spreadsheet
   editor does not re-pick a tab removed remotely). The last three are left for
   a human decision; loop stopped at the bound.
+- After the bound — the human chose to fix the `snapshot` gap and the
+  dangling tab here. Both reproduced first as failing tests (only the
+  `snapshot` cases failed), then fixed. The round-2 rebuttal is withdrawn:
+  it was right that the reset does not *cause* a snapshot, but the gap was
+  real and cheap to close.

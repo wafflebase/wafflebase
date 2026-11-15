@@ -98,7 +98,7 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
   useEffect(() => {
     if (!doc) return;
     const unsub = doc.subscribe((event) => {
-      if (event.type !== "remote-change") return;
+      if (event.type !== "remote-change" && event.type !== "snapshot") return;
       const root = doc.getRoot();
       const ws = root.sheets?.[tabId];
       if (ws?.pivotTable) {

@@ -30,7 +30,13 @@ See `docs/design/homepage.md` § Daily reset.
 - [x] Backend README env docs + `docs/design/homepage.md` § Daily reset
 - [x] `pnpm verify:fast`
 - [x] Self review: 3 rounds, stopped at the bound (see lessons)
-- [ ] Human decision on the round-3 findings, then PR
+- [x] Human decision on the round-3 findings: fix the `snapshot` handling and
+      the dangling tab in this PR; the candidate-list crowding stays a known
+      limitation
+- [x] Sheet/docs/slides stores, sheet view, pivot hook, tab-name
+      normalization handle `snapshot` (tests fail on `snapshot` before the fix)
+- [x] Owner spreadsheet editor re-picks a removed tab (`resolveActiveTabId`)
+- [ ] Rebase, PR
 
 ## Deploy (human)
 

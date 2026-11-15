@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
 import { getActiveTheme, type TextElement } from '@wafflebase/slides';
@@ -1420,4 +1420,27 @@ describe('YorkieSlidesStore — the text-body numeric band', () => {
     );
     expect(shape?.data.text?.blocks[0].style.lineHeight).toBe(MAX_LINE_HEIGHT);
   });
+});
+
+describe('YorkieSlidesStore — remote events', () => {
+  // A whole-document `snapshot` replaces the root without a `remote-change`,
+  // so it must reach the same notify path or the deck stays stale.
+  it.each(['remote-change', 'snapshot'] as const)(
+    'notifies listeners on %s',
+    (type) => {
+      const doc = makeDoc();
+      const store = new YorkieSlidesStore(doc);
+      const onRemoteChange = vi.fn();
+      const onChange = vi.fn();
+      store.onRemoteChange = onRemoteChange;
+      store.onChange(onChange);
+
+      (doc as unknown as { publish(events: unknown[]): void }).publish([
+        { type },
+      ]);
+
+      expect(onRemoteChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalled();
+    },
+  );
 });
