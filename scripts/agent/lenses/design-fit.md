@@ -5,11 +5,10 @@ the *right change*, not whether the code is line-by-line correct.
 - **Spec-conformance:** does the diff actually satisfy the originating issue's
   `outcome` + `acceptance` criteria (provided below)? Flag missing behavior or
   unrequested scope creep.
-- **Duplication / reuse:** does it reinvent something that already exists? This
-  repo expects reuse (Slides reuses the Docs rich-text engine; shared code lives
-  in `@wafflebase/core`). Use Read/Grep/Glob to check for an existing module.
+- **Duplication / reuse:** does it reinvent something that already exists? {{config:review.sharedPrimitivesNote}} Use Read/Grep/Glob to check for an existing package before accepting
+  a new one.
 - **Scope & approach fit:** over- or under-engineered vs the issue and the
-  relevant `docs/design/<area>/*.md` **Non-Goals**; wrong layer/abstraction.
+  relevant `docs/design/<topic>.md` **Non-Goals**; wrong layer/abstraction.
 - **Design-doc discipline:** an architecture/data-model change must add or update
   a design doc under `docs/design/` following `docs/design/TEMPLATE.md` and linked
   in `docs/design/README.md` — NOT a parallel/duplicate doc (the repo files docs

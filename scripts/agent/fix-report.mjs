@@ -29,12 +29,22 @@
 // there.
 
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findingSimilarity, DEFAULT_SIMILARITY } from "./rounds.mjs";
 import { fromRebuttalAuthor, readRebuttals } from "./rebuttal.mjs";
+import { emitBestEffortWarning } from "./guard-verdict.mjs";
 import { collectTestRemovals } from "./test-removals.mjs";
+
+// `maxBuffer`: node's default is 1 MiB, and `gh api --paginate` over a busy PR
+// blows through it. When it does, `execFileSync` throws `ENOBUFS` — not an API
+// error, not an empty result, a CRASH — and the caller reports it as whatever
+// its own failure means. On #2026 that was the review-round guard dying and the
+// pipeline announcing "the fixer agent failed", which it had not: it never ran.
+// A PR accumulates comments as it is reviewed, so this gets MORE likely the
+// longer a PR is worked on, which is exactly backwards.
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
 
 /** Hidden-comment marker, mirroring metrics.mjs's `METRIC_PREFIX`. */
 export const FIX_REPORT_MARKER = "<!-- agent-fix-report ";
@@ -451,19 +461,34 @@ export function renderFixReportBody(rec, { disputed = 0 } = {}) {
   // so persisting it would create a second, staler copy of something the panel
   // already reads first-hand from the rebuttal records.
   const n = Number.isInteger(disputed) && disputed > 0 ? disputed : 0;
-  // The VISIBLE prose sits above the payload, and `parseFixReportComment` takes
-  // the FIRST marker match in the body. A finding whose wording quotes this
-  // module's own marker would therefore be matched instead of the real record,
-  // capture prose, fail to parse, and read as "the fixer never reported anything".
-  // Same class as the ` -->` escape in `serializeFixReport`, on the other half of
-  // the comment: findings here quote the pipeline's markers as a matter of course.
-  const visible = (s) => str(s).replaceAll(FIX_REPORT_MARKER.trim(), "<!-‌- agent-fix-report");
+  // The VISIBLE prose sits above the payload, and EVERY `<!--` in it is broken,
+  // not just this module's own marker.
+  //
+  // Two problems, one fix. The narrow one: `parseFixReportComment` takes the
+  // FIRST marker match in the body, so a finding quoting `<!-- agent-fix-report`
+  // would be matched instead of the real record and read as "the fixer never
+  // reported anything".
+  //
+  // The one that matters: this comment is posted under the App identity, and
+  // `rounds.mjs::isPagedLatchComment` trusts that identity and tests the body by
+  // CONTAINMENT. The fixer is instructed to pass a finding's own wording through
+  // `--fixed`, and findings in this repository quote the pipeline's markers as a
+  // matter of course — so one finding worded "the `<!-- agent-review-paged -->`
+  // latch is never written" was enough to post a live latch under a trusted
+  // author and freeze the panel and the fixer permanently. Neutralising only the
+  // local marker left every other marker live.
+  //
+  // `rebuttal.mjs::neutral`, `severity.mjs::neutralizeMarkers` and
+  // `loop-status.mjs::neutralizeHiddenMarkers` are the same rule; the last two
+  // describe it as "the same neutering fix-report.mjs uses", which was not true
+  // until this line. ZWNJ-split, so the text still reads correctly to a human.
+  const visible = (s) => str(s).replace(/<!--/g, "<!-‌-");
   const item = (i) => `- \`${visible(i.file)}\` *(${visible(i.lens)})* — ${visible(i.summary) || "(no summary)"}`
     + (i.note ? `\n  - ${visible(i.note)}` : "");
   const lines = [
     "### 🛠️ Fix agent report",
     "",
-    `Acting on the review panel's findings for \`${str(r.head).slice(0, 8) || "the current head"}\`.`,
+    `Acting on the review panel's findings for \`${visible(str(r.head).slice(0, 8)) || "the current head"}\`.`,
     "",
   ];
   lines.push(`**Fixed (${fixed.length})**`, "");
@@ -536,6 +561,8 @@ function unionRemovals(records) {
         removed: Math.max(n(cur.removed), n(r?.removed)),
         added: Math.max(n(cur.added), n(r?.added)),
         suitesOff: Math.max(n(cur.suitesOff), n(r?.suitesOff)),
+        ...(Math.max(n(cur.focused), n(r?.focused)) ? { focused: Math.max(n(cur.focused), n(r?.focused)) } : {}),
+        ...(Math.max(n(cur.optionsOff), n(r?.optionsOff)) ? { optionsOff: Math.max(n(cur.optionsOff), n(r?.optionsOff)) } : {}),
         ...(cur.unreadable === true || r?.unreadable === true ? { unreadable: true } : {}),
       });
     }
@@ -609,9 +636,10 @@ export function parseItemString(s) {
 const USAGE =
   "Usage:\n"
   + "  node fix-report.mjs read <pr> [--out <file>]\n"
-  + "  node fix-report.mjs post <pr> [--head <sha>]\n"
+  + "  node fix-report.mjs post <pr> [--head <sha>] [--emit <file>]\n"
   + `      [--fixed "lens${ITEM_SEP}file${ITEM_SEP}summary${ITEM_SEP}what you changed" ...]\n`
-  + `      [--skipped "lens${ITEM_SEP}file${ITEM_SEP}summary${ITEM_SEP}why not" ...]`;
+  + `      [--skipped "lens${ITEM_SEP}file${ITEM_SEP}summary${ITEM_SEP}why not" ...]\n`
+  + "  node fix-report.mjs republish <pr> --from <file> [--head <sha>] [--out <file>]";
 
 /**
  * Post one report, so the fixer never hand-writes the record.
@@ -647,7 +675,14 @@ function cmdPost(pr, args) {
   // construction: `readRebuttals` degrades to `[]` on any failure, so an
   // unreadable PR renders "Disputed (0)" — the same thing it rendered before this
   // existed, and never a reason to lose the report itself.
-  const body = renderFixReportBody(rec, { disputed: readRebuttals(pr).length });
+  //
+  // NOT COUNTED UNDER `--emit`. An emitted body is never posted as written: the
+  // trusted `republish` step re-renders it from the parsed record, after it has
+  // posted this round's disputes, and counts them then. Counting here would be
+  // a number nothing reads.
+  const body = renderFixReportBody(rec, {
+    disputed: args.emit ? 0 : readRebuttals(pr).length,
+  });
   // Round-trip before posting. A record this module cannot read back is one the
   // panel will ignore, and the agent would never learn its report went nowhere —
   // the same silent failure the CLI exists to prevent.
@@ -656,8 +691,23 @@ function cmdPost(pr, args) {
     console.error("fix-report post: the record did not round-trip; refusing to post an unreadable report.");
     process.exit(2);
   }
+  // `--emit <file>`: RENDER, DO NOT POST. Posting a PR comment needs
+  // `pull-requests: write`, and this runs inside the fix agent — a process that
+  // reads untrusted branch content with an unrestricted shell. A token that can
+  // comment on a pull request is also a token that can APPROVE one, and an
+  // approval from the bot satisfies the only human control this pipeline has.
+  //
+  // So the agent renders the report (keeping the round-trip check above, which
+  // is the part that needs the agent's own knowledge of what it did) and a
+  // trusted step in the workflow posts the file afterwards, with the wider token
+  // the agent never sees.
+  if (args.emit) {
+    writeFileSync(String(args.emit), body);
+    console.error(`fix-report: wrote ${fixed.length} fixed / ${skipped.length} skipped to ${args.emit}`);
+    return;
+  }
   try {
-    execFileSync("gh", ["pr", "comment", String(pr), "--body", body], { encoding: "utf8" });
+    execFileSync("gh", ["pr", "comment", String(pr), "--body", body], { encoding: "utf8", maxBuffer: GH_MAX_BUFFER });
   } catch (err) {
     // Author-side and best-effort: a report that cannot be posted leaves every
     // finding to be re-verified without context, which is the pre-existing
@@ -668,15 +718,102 @@ function cmdPost(pr, args) {
   console.error(`fix-report: posted ${fixed.length} fixed / ${skipped.length} skipped on #${pr}`);
 }
 
+/** The largest emitted file `republish` will read. A 40+40-item report is well under it. */
+export const MAX_EMITTED_BYTES = 512 * 1024;
+
+/**
+ * The body the trusted step posts for an agent-emitted report, or `null`.
+ *
+ * WHY THIS EXISTS. `--emit` writes a file the fix agent controls — it holds an
+ * unrestricted `Bash`, so it can write ANY bytes to that path, not only what
+ * `cmdPost` renders. Posting the file verbatim under the App identity handed the
+ * agent the comment channel the narrow token was minted to withhold: a file
+ * reading `<!-- agent-review-paged -->` is a live latch under a trusted author
+ * (`rounds.mjs::isPagedLatchComment`), and any other marker the pipeline trusts
+ * by author could be forged the same way.
+ *
+ * So nothing the agent wrote is posted. The file is PARSED as data — the hidden
+ * record is the only part read — and the body is rendered again, here, by the
+ * same renderer `cmdPost` uses, which neutralises every `<!--` in the visible
+ * prose. A file that does not parse yields `null` and nothing is posted. What
+ * survives is exactly what the agent could have said through the CLI: a claim,
+ * which the next round adjudicates.
+ */
+export function republishFixReport(text, { disputed = 0, head = "" } = {}) {
+  const rec = parseFixReportComment(text);
+  if (!rec) return null;
+  // The head the report claims to answer is the TRUSTED job's to state when it
+  // knows it: the record's `head` is whatever the agent wrote.
+  return renderFixReportBody(head ? { ...rec, head } : rec, { disputed });
+}
+
+/** Read an agent-written file as untrusted data: size-capped, never followed as a directory. */
+export function readEmitted(file, { max = MAX_EMITTED_BYTES } = {}) {
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    return null;
+  }
+  if (!st.isFile() || st.size === 0 || st.size > max) return null;
+  return readFileSync(file, "utf8");
+}
+
+/** Post a body with `--body-file -`, so a long report never meets the argv length limit. */
+function postComment(pr, body) {
+  execFileSync("gh", ["pr", "comment", String(pr), "--body-file", "-"], {
+    input: body, encoding: "utf8", maxBuffer: GH_MAX_BUFFER,
+  });
+}
+
+/**
+ * `republish <pr> --from <file>`: the TRUSTED half of `--emit`. Runs in a job
+ * the agent never ran in, from the default branch's copy of this file.
+ *
+ * Exits 0 on every outcome. A report that cannot be posted leaves the next round
+ * to re-verify without the fixer's account — the pre-existing behaviour, and not
+ * worth reddening the job that also reports the round's outcome.
+ */
+function cmdRepublish(pr, args) {
+  const text = args.from ? readEmitted(String(args.from)) : null;
+  if (text === null) {
+    console.error("fix-report republish: no readable report was emitted; nothing to post.");
+    return;
+  }
+  // Counted HERE, after the trusted step has posted this round's disputes.
+  const body = republishFixReport(text, {
+    disputed: args.out ? 0 : readRebuttals(pr).length,
+    head: str(args.head),
+  });
+  if (body === null) {
+    console.error("fix-report republish: the emitted file carries no readable record; refusing to post it.");
+    emitBestEffortWarning(`the fix report emitted for #${pr} did not parse, so it was NOT posted`);
+    return;
+  }
+  if (args.out) {
+    writeFileSync(String(args.out), body);
+    return;
+  }
+  try {
+    postComment(pr, body);
+  } catch (err) {
+    console.error(`fix-report republish: could not comment on #${pr} (${err.message}).`);
+    emitBestEffortWarning(`the fix report for #${pr} could not be posted (${err.message})`);
+    return;
+  }
+  console.error(`fix-report: republished the emitted report on #${pr}`);
+}
+
 function main() {
   const cmd = process.argv[2];
   const args = parseArgs(process.argv);
   const pr = args.pr ?? process.argv[3];
-  if (!pr || !/^\d+$/.test(String(pr)) || (cmd !== "read" && cmd !== "post")) {
+  if (!pr || !/^\d+$/.test(String(pr)) || !["read", "post", "republish"].includes(cmd)) {
     console.error(USAGE);
     process.exit(2); // usage error is a tooling error, not a review outcome
   }
   if (cmd === "post") return cmdPost(pr, args);
+  if (cmd === "republish") return cmdRepublish(pr, args);
   const reports = readFixReports(pr);
   const json = JSON.stringify(reports);
   if (args.out) writeFileSync(args.out, json);

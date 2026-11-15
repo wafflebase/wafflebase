@@ -1,11 +1,14 @@
+import "./fixtures/use-fixture-config.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, ciRunToAwait, definesCi, CHECK_PRODUCER_APP_SLUG, CI_DEFINING_PATHS, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { hasWorkflow, skipWithout } from "./workflow-presence.mjs";
+import { get } from "./config.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -307,36 +310,43 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
   assert.match(block("Address panel findings"), /^\s*id: fixer$/m,
     "the fixer step must carry `id: fixer` for its outcome to be readable");
 
-  const cond = (block("Page if the fix produced no commit").match(/^\s*if: >-\n((?: {9,}.*\n)+)/m) || [])[1];
-  assert.ok(cond, "could not extract the no-commit page's if: expression");
+  // THE PAGE LIVES IN `fix-report`, a separate job on a fresh runner (the agent's
+  // own job cannot be trusted with anything after the agent). So "does it page"
+  // is the job's condition AND the step's, evaluated together.
+  const jobIf = (yml.match(/^ {2}fix-report:\n(?:.*\n)*? {4}if: >-\n((?: {6}.*\n)+)/m) || [])[1];
+  assert.ok(jobIf, "could not extract the fix-report job's if: expression");
+  const stepIf = (block("Page if the fix produced no commit").match(/^\s*if: >-\n((?: {9,}.*\n)+)/m) || [])[1];
+  assert.ok(stepIf, "could not extract the no-commit page's if: expression");
 
-  // `always()` and not `!failure()`: the runner is only documented to keep
-  // running a step through a cancellation when the condition is always-true, and
-  // this step has to run precisely when the job is being cancelled.
-  assert.match(cond, /always\(\)/, "the step must survive the job's own cancellation");
+  // `always()` and not `!cancelled()`: the job has to start precisely when the
+  // run is being cancelled — by the fix job's own wall, or by the fixer's push
+  // superseding it.
+  assert.match(jobIf, /always\(\)/, "the report job must survive the fix job's cancellation");
 
-  const pages = new Function("PROCEED", "FIXER", "CRED", `return Boolean(${cond
+  const pages = new Function("PROCEED", "FIXER", "CRED", "ADVANCED", `return Boolean((${jobIf}) && (${stepIf}));`
     .replace(/always\(\)/g, "true")
-    .replace(/steps\.guard\.outputs\.proceed/g, "PROCEED")
-    .replace(/steps\.fixer\.outcome/g, "FIXER")
-    .replace(/steps\.cred\.outputs\.available/g, "CRED")});`);
+    .replace(/needs\.fix\.outputs\.proceed/g, "PROCEED")
+    .replace(/needs\.fix\.outputs\.fixer/g, "FIXER")
+    .replace(/needs\.fix\.outputs\.available/g, "CRED")
+    .replace(/steps\.after\.outputs\.advanced/g, "ADVANCED"));
 
   for (const [why, args, expected] of [
-    ["the fixer finished — the head check decides", ["true", "success", "true"], true],
+    ["the fixer finished and pushed nothing", ["true", "success", "true", "false"], true],
+    ["the fixer finished and pushed", ["true", "success", "true", "true"], false],
     // THE REGRESSION this step's condition was rewritten for.
-    ["the job's own wall killed the fixer", ["true", "cancelled", "true"], true],
-    ["the wall hit and the credential picker was absent", ["true", "cancelled", ""], true],
+    ["the job's own wall killed the fixer", ["true", "cancelled", "true", "false"], true],
+    ["the wall hit and the credential picker was absent", ["true", "cancelled", "", "false"], true],
     // Every row below reports `outcome: skipped` or `failure`, and each already has
     // a pager that says something TRUER than this step could. Paging here as well
     // would comment twice and latch `agent:blocked` from two places.
-    ["the fixer hard-errored — `stalled` pages", ["true", "failure", "true"], false],
-    ["a setup step failed, so the fixer was skipped — `stalled` pages", ["true", "skipped", ""], false],
+    ["the fixer hard-errored — `stalled` pages", ["true", "failure", "true", "false"], false],
+    ["a setup step failed, so the fixer was skipped — `stalled` pages", ["true", "skipped", "", "false"], false],
     // The dedicated no-credential page owns this one: it knows no round was spent
     // and that a usage window commonly reopens on its own, so this step's "did not
     // converge within its turn budget / re-run with @claude fix" would contradict
     // it in both cause and remedy.
-    ["no live credential — its own page owns it", ["true", "skipped", "false"], false],
-    ["the round guard held or paged, so no round was spent", ["false", "skipped", ""], false],
+    ["no live credential — its own page owns it", ["true", "skipped", "false", "false"], false],
+    ["the round guard held or paged, so no round was spent", ["false", "skipped", "", "false"], false],
   ]) {
     assert.equal(pages(...args), expected,
       `${why}: expected the no-commit page to ${expected ? "run" : "be skipped"}`);
@@ -365,10 +375,10 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
   assert.match(page, /"\$NOW_ATTEMPT" != "\$CI_ATTEMPT"[\s\S]*?exit 0/,
     "a re-run must suppress the page, not just be logged");
   // Reading it needs a scope the App token used for the comment does not carry.
-  const fixPerms = (yml.match(/^ {2}fix:\n(?:.*\n)*? {4}permissions:\n((?: {6}.*\n)+)/m) || [])[1];
-  assert.ok(fixPerms, "could not extract the fix job's permissions");
+  const fixPerms = (yml.match(/^ {2}fix-report:\n(?:.*\n)*? {4}permissions:\n((?: {6}.*\n)+)/m) || [])[1];
+  assert.ok(fixPerms, "could not extract the fix-report job's permissions");
   assert.match(fixPerms, /^ {6}actions: read/m,
-    "the fix job needs `actions: read` for the re-run check");
+    "the fix-report job needs `actions: read` for the re-run check");
 
   // THE WALL'S LENGTH IS WRITTEN IN THREE PLACES and cannot be read from any
   // expression context, so a step cannot ask its own job how long it had. The page
@@ -391,6 +401,40 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
   assert.equal(onDemandWall, fixWall,
     "agent-fix.yml's fix wall must match the autonomous one the page points away from");
 
+  // AND THE WALL MUST FIT INSIDE THE CREDENTIAL. A GitHub App installation
+  // token's life is fixed at one hour, `create-github-app-token` cannot extend
+  // it, and every one of these jobs pushes with the copy `actions/checkout`
+  // persisted into `.git/config`. A wall past 60 therefore buys minutes in which
+  // the fixer can work and cannot land anything: the push 401s and the round
+  // reports as "no commit", which is precisely what raising the wall from 45 was
+  // meant to stop happening.
+  //
+  // It was 90 in all three for exactly that reason, with a comment that said so
+  // and deferred the fix. Refreshing mid-round is not available — it needs a step
+  // after the agent, which "nothing after the agent but the handoff" above
+  // forbids — so the wall IS the mechanism, and it is asserted rather than left
+  // to a comment because the number reads as a cost ceiling and raising it looks
+  // harmless.
+  //
+  // `agent-implement.yml` is in the list conditionally, like every other guard
+  // here that names it: the same token, the same push, and the phase can be
+  // withdrawn again.
+  const APP_TOKEN_MINUTES = 60;
+  const walls = [["agent-review-panel.yml", "fix", fixWall], ["agent-fix.yml", "fix", onDemandWall]];
+  if (hasWorkflow("agent-implement.yml")) {
+    const impl = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-implement.yml"), "utf8");
+    const implWall = (impl.match(/^ {2}implement:\n(?:.*\n)*? {4}timeout-minutes: (\d+)$/m) || [])[1];
+    assert.ok(implWall, "could not read the implement job's timeout-minutes");
+    walls.push(["agent-implement.yml", "implement", implWall]);
+  }
+  for (const [file, job, wall] of walls) {
+    assert.ok(
+      Number(wall) < APP_TOKEN_MINUTES,
+      `${file}'s \`${job}\` job has timeout-minutes: ${wall}, at or past the ${APP_TOKEN_MINUTES}-minute life of the `
+      + "App token it pushes with — the minutes past the hour can spend model budget and a round, and cannot push",
+    );
+  }
+
   // And `stalled` keeps its `!cancelled()`. It is not the bug — it is what stops
   // a run cancelled by the concurrency guard from paging over a FRESHER round,
   // and it is deliberately left alone because the step above now owns the
@@ -402,22 +446,71 @@ test("the no-commit page fires on a timed-out fixer, and only where `stalled` wo
     "stalled must keep `!cancelled()` — a superseded panel must not page");
   assert.ok(!/needs\.fix\.result == 'cancelled'/.test(stalledIf),
     "a cancelled fix job is the no-commit page's case; claiming it here double-pages");
+  // The no-commit page lives in `fix-report`, so the net must watch that job
+  // too — or a failed mint or comment there strands the PR with no page at all.
+  assert.match(yml, /^ {2}stalled:\n {4}needs: \[[^\]]*\bfix-report\b[^\]]*\]$/m,
+    "stalled must depend on fix-report to see it fail");
+  assert.match(stalledIf, /needs\.fix-report\.result == 'failure'/,
+    "a failed fix-report is a page that may never have been posted");
+
+  // ...but every OTHER job's `cancelled` must be listed, and this is the pair of
+  // facts that makes it safe: GitHub reports a job killed by its own
+  // `timeout-minutes` as `cancelled`, never `failure`, and `!cancelled()` above
+  // is false whenever the WORKFLOW was cancelled — the superseded case. So a
+  // `cancelled` reaching this expression is a job that hit its own wall, and
+  // nothing else pages for it. The panel's is the one that matters: its wall is
+  // 45 minutes against an orchestrator its own comments call a ~35 minute run.
+  for (const job of ["review-panel", "deps", "ci", "promote"]) {
+    assert.ok(
+      new RegExp(`needs\\.${job}\\.result == 'cancelled'`).test(stalledIf),
+      `a ${job} job killed by its own timeout-minutes reports 'cancelled' and would page nobody`,
+    );
+  }
+
+  // And the CI conclusions nothing else owns. `agent-iterate-ci.yml` gates on
+  // `conclusion == 'failure'`, so an ordinary red CI is its business — but a run
+  // a maintainer cancels from the Actions UI, or one that times out, concludes
+  // neither `success` nor `failure`, leaves the `ci` job GREEN, and is owned by
+  // no one.
+  assert.match(
+    stalledIf,
+    /needs\.ci\.outputs\.conclusion != 'success'/,
+    "a CI run concluding neither success nor failure must page — nothing else watches for it",
+  );
+  assert.match(stalledIf, /needs\.ci\.outputs\.conclusion != 'failure'/,
+    "...but not on an ordinary red CI, which agent-iterate-ci.yml owns");
+  // The clause is only sound because `conclusion` is a declared output that the
+  // `ci` job always sets when it succeeds. An undeclared one reads as "" and
+  // would page on every clean run.
+  assert.match(yml, /^ {4}outputs:\n {6}conclusion: /m,
+    "the ci job must declare `conclusion`, or the guard above pages on every clean run");
 });
 
-// The no-commit page is a shell script, and every supersede it must stay quiet
-// for is a branch in that script — so run it. `git`, `gh` and `node` are stubs on
-// PATH; the outcome is whether the `<!-- agent-review-paged -->` latch was posted.
-// #1099 is the row that motivated this: a push landed between the panel and the
-// fixer, so BEFORE == AFTER, and the concurrency cancel read as a timed-out fixer.
+// The no-commit decision is two shell steps in `fix-report` — the one that reads
+// the head after the fix and says whether it `advanced`, and the page, which
+// runs only when it did not — and every supersede the page must stay quiet for
+// is a branch in them. So run them. `gh` and `node` are stubs on PATH; the
+// outcome is whether the `<!-- agent-review-paged -->` latch was posted.
+// wafflebase#1099 is the row that motivated the REVIEWED check: a push landed
+// between the panel and the fixer, so BEFORE == AFTER, and the concurrency
+// cancel read as a timed-out fixer.
 test("the no-commit page stays quiet for every supersede, and pages otherwise", () => {
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-review-panel.yml"), "utf8");
-  const at = yml.indexOf("- name: Page if the fix produced no commit\n");
-  assert.ok(at > 0, "no no-commit page step");
-  const rest = yml.slice(at);
-  const step = rest.slice(0, rest.slice(1).search(/\n {6}- (name|uses):/) + 1);
-  const body = step.slice(step.indexOf("run: |\n") + "run: |\n".length);
-  const script = body.split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
+  const script = (name) => {
+    const at = yml.indexOf(`- name: ${name}\n`);
+    assert.ok(at > 0, `no step named ${name}`);
+    const rest = yml.slice(at);
+    const step = rest.slice(0, rest.slice(1).search(/\n {6}- (name|uses):/) + 1);
+    assert.match(step, /run: \|\n/, `${name} has no run block`);
+    return step.slice(step.indexOf("run: |\n") + "run: |\n".length).split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
+  };
+  const readAfter = script("Read the branch head after the fix");
+  const page = script("Page if the fix produced no commit");
+  // The page's `if:` is the other half of the decision: it runs only when the
+  // head did not advance (and the fixer ran — the truth table above).
+  assert.match(yml, /- name: Page if the fix produced no commit\n {8}if: >-\n {10}always\(\) &&\n {10}steps\.after\.outputs\.advanced != 'true' &&/,
+    "the page must run only when the head did not advance");
 
   const dir = mkdtempSync(path.join(tmpdir(), "page-step-"));
   try {
@@ -428,37 +521,62 @@ test("the no-commit page stays quiet for every supersede, and pages otherwise", 
       chmodSync(path.join(bin, name), 0o755);
     };
     const log = path.join(dir, "calls");
-    stub("git", `printf '%s\\trefs/heads/b\\n' "$STUB_AFTER"`);
-    stub("gh", `case "$*" in api*) printf '%s\\n' "$STUB_NOW_ATTEMPT";; *) echo "gh $*" >> "${log}"; cat >> "${log}";; esac`);
+    const out = path.join(dir, "output");
+    stub("gh", [
+      'case "$*" in',
+      `  *git/ref/heads/*) [ -n "$STUB_AFTER" ] && printf '%s\\n' "$STUB_AFTER" || exit 1;;`,
+      `  *actions/runs?head_sha=*) [ "$STUB_CI_RUNS" = fail ] && exit 1; printf '%s\\n' "$STUB_CI_RUNS";;`,
+      `  *actions/runs/*) printf '%s\\n' "$STUB_NOW_ATTEMPT";;`,
+      `  *) echo "gh $*" >> "${log}"; cat >> "${log}";;`,
+      "esac",
+    ].join("\n"));
     stub("node", `echo "node $*" >> "${log}"`);
 
-    const run = ({ before, after, reviewed, outcome, ciAttempt = "1", nowAttempt = "1" }) => {
-      writeFileSync(log, "");
-      const r = spawnSync("bash", ["-e", "-c", script], {
+    const bash = (code, env) => {
+      const r = spawnSync("bash", ["-e", "-c", code], {
         env: {
-          PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: dir,
-          PR: "1", BRANCH: "b", BEFORE: before, REVIEWED: reviewed, FIXER_OUTCOME: outcome,
-          CI_RUN_ID: "9", CI_ATTEMPT: ciAttempt, STUB_AFTER: after, STUB_NOW_ATTEMPT: nowAttempt,
-          GITHUB_SERVER_URL: "https://github.com", GITHUB_REPOSITORY: "o/r", GITHUB_RUN_ID: "7",
+          PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: out, GITHUB_SERVER_URL: "https://github.com",
+          GITHUB_REPOSITORY: "o/r", GITHUB_RUN_ID: "7", ...env,
         },
         encoding: "utf8",
       });
       assert.equal(r.status, 0, r.stderr);
-      return readFileSync(log, "utf8").includes("<!-- agent-review-paged -->");
+    };
+    let posted = "";
+    const run = ({ before, after, reviewed, outcome, ciAttempt = "1", nowAttempt = "1", ciRuns = "1" }) => {
+      writeFileSync(log, "");
+      writeFileSync(out, "");
+      bash(readAfter, { BRANCH: "b", BEFORE: before, STUB_AFTER: after });
+      const got = Object.fromEntries(readFileSync(out, "utf8").trim().split("\n").map((l) => l.split("=")));
+      if (got.advanced === "true") return false;
+      bash(page, {
+        PR: "1", BEFORE: before, AFTER: got.sha, REVIEWED: reviewed, FIXER_OUTCOME: outcome,
+        CI_RUN_ID: "9", CI_ATTEMPT: ciAttempt, STUB_NOW_ATTEMPT: nowAttempt, STUB_CI_RUNS: ciRuns,
+      });
+      posted = readFileSync(log, "utf8");
+      return posted.includes("<!-- agent-review-paged -->");
     };
 
     for (const [why, args, pages] of [
       ["the fixer pushed", { before: "aaa", after: "bbb", reviewed: "aaa", outcome: "success" }, false],
       ["the fixer pushed, then hit the wall", { before: "aaa", after: "bbb", reviewed: "aaa", outcome: "cancelled" }, false],
-      ["another push landed before the fixer started (#1099)", { before: "bbb", after: "bbb", reviewed: "aaa", outcome: "cancelled" }, false],
+      ["another push landed before the fixer started (wafflebase#1099)", { before: "bbb", after: "bbb", reviewed: "aaa", outcome: "cancelled" }, false],
       ["another push landed, fixer gave up", { before: "bbb", after: "bbb", reviewed: "aaa", outcome: "success" }, false],
       ["a CI re-run superseded the round", { before: "aaa", after: "aaa", reviewed: "aaa", outcome: "cancelled", nowAttempt: "2" }, false],
       ["the fixer produced nothing", { before: "aaa", after: "aaa", reviewed: "aaa", outcome: "success" }, true],
       ["the fixer hit the wall with nothing pushed", { before: "aaa", after: "aaa", reviewed: "aaa", outcome: "cancelled" }, true],
       ["the head could not be read", { before: "aaa", after: "", reviewed: "aaa", outcome: "cancelled" }, true],
+      ["the reviewed commit is unknown", { before: "aaa", after: "aaa", reviewed: "", outcome: "success" }, true],
+      // The other push started no CI (`[skip ci]`, a GITHUB_TOKEN push): no
+      // fresher round exists, and the sweep does not restart `agent:fixing`.
+      ["another push landed and started no CI", { before: "bbb", after: "bbb", reviewed: "aaa", outcome: "cancelled", ciRuns: "0" }, true],
+      ["another push landed, its CI could not be read", { before: "bbb", after: "bbb", reviewed: "aaa", outcome: "success", ciRuns: "fail" }, true],
     ]) {
       assert.equal(run(args), pages, `${why}: expected ${pages ? "a page" : "no page"}`);
     }
+    // And the page says why no round followed.
+    run({ before: "bbbbbbbbbbbb", after: "bbbbbbbbbbbb", reviewed: "aaaaaaaaaaaa", outcome: "success", ciRuns: "0" });
+    assert.match(posted, /moved to `bbbbbbbbb` \(not the `aaaaaaaaa` this round reviewed\) by another push, and no CI run was found/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -481,17 +599,265 @@ test("the `fix` verb reaches exactly one workflow: issues -> implement, PRs -> f
   // predicates must partition rather than merely differ. If either drifted, an
   // "@claude fix" on an issue would also start the on-demand fixer (which would
   // then refuse for having no PR) or, worse, both would run on a PR.
-  const implement = WF("agent-implement.yml");
+  //
+  // agent-implement.yml is the ISSUE half and now exists, so both sides are
+  // asserted. The `existsSync` branch below is kept rather than simplified: the
+  // half that matters more is that agent-fix claims PRs and ONLY PRs, and that
+  // stays assertable if the issue half is ever removed again.
+  const wfDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".github", "workflows");
   const fix = WF("agent-fix.yml");
-  assert.match(implement, /!github\.event\.issue\.pull_request/, "implement must be ISSUE-only");
   assert.ok(
     /\n\s+github\.event\.issue\.pull_request &&/.test(fix),
     "agent-fix must be PR-only (an unnegated issue.pull_request guard)",
   );
   assert.equal(/!github\.event\.issue\.pull_request/.test(fix), false, "agent-fix must not also claim issues");
-  for (const [name, wf] of [["implement", implement], ["fix", fix]]) {
+
+  const pair = [["fix", fix]];
+  if (existsSync(path.join(wfDir, "agent-implement.yml"))) {
+    const implement = WF("agent-implement.yml");
+    assert.match(implement, /!github\.event\.issue\.pull_request/, "implement must be ISSUE-only");
+    pair.push(["implement", implement]);
+  }
+  for (const [name, wf] of pair) {
     assert.match(wf, /command\.mjs "\$BODY"/, `${name} must route through the shared command parser`);
     assert.match(wf, /AGENT_PIPELINE_ENABLED == 'true'/, `${name} must honour the pipeline kill switch`);
+  }
+});
+
+test("nothing runs on an App token without first checking the App exists", () => {
+  // ONE SWITCH, TWO CREDENTIAL REGIMES. `AGENT_PIPELINE_ENABLED` turns every
+  // workflow here on at once, but `review` and `summarize` post with
+  // GITHUB_TOKEN and need no App — so a repository legitimately runs those
+  // while `AGENT_APP_ID` is still unset.
+  //
+  // In that state an unguarded mint FAILS, and the failure is not contained:
+  // `agent-loop`/`agent-rerun` die at their second step, leaving a red X in
+  // Actions and nothing in the PR thread for the person who typed the verb;
+  // and the panel's `promote` job failing makes `stalled` page a human and
+  // write the terminal `agent:blocked` latch on an otherwise clean PR. An
+  // absent credential would be reported as the loop giving up.
+  //
+  // So every step that consumes an App token must be conditional on something —
+  // usually the `app.outputs.configured` check, sometimes an eligibility or
+  // placeholder gate that already implies it. The assertion is deliberately
+  // "has a condition", not "has THIS condition": the shapes differ per
+  // workflow, and what must never exist is an unconditional consumer.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const offenders = [];
+  let checked = 0;
+
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    // Walk steps: a step starts at `      - ` and runs to the next one.
+    for (let i = 0; i < lines.length; i++) {
+      if (!/^ {6}- /.test(lines[i])) continue;
+      let end = i + 1;
+      while (end < lines.length && !/^ {6}- /.test(lines[end]) && !/^ {2}\S/.test(lines[end])) end++;
+      const step = lines.slice(i, end);
+      const code = step.filter((l) => !/^\s*#/.test(l));
+      if (!code.some((l) => l.includes("steps.app-token.outputs.token"))) continue;
+      checked++;
+      if (!code.some((l) => /^\s+if:/.test(l))) {
+        offenders.push(`${file}:${i + 1} ${step[0].trim()}`);
+      }
+    }
+  }
+
+  assert.ok(checked > 0, "no App-token consumer found — this guard would be vacuous");
+  assert.deepEqual(
+    offenders,
+    [],
+    `these steps consume an App token unconditionally:\n  ${offenders.join("\n  ")}`,
+  );
+});
+
+test("each verb that needs the App answers the commenter when it is missing", () => {
+  // The guard above stops the job dying; this one stops it dying SILENTLY. A
+  // verb typed by a maintainer must produce a comment either way — a skipped
+  // job with a green tick reads as "handled" for a request nothing acted on.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  // `agent-implement.yml` is in the list CONDITIONALLY rather than dropped from
+  // it: the rule applies to that verb too, and hard-coding it would fail the
+  // whole file whenever the verb is absent (docs/design/agent-command-verbs.md
+  // Phase I), whereas dropping it would silently stop asking the day it lands.
+  const files = ["agent-loop.yml", "agent-rerun.yml", "agent-fix.yml"];
+  if (hasWorkflow("agent-implement.yml")) files.push("agent-implement.yml");
+  for (const file of files) {
+    const text = readFileSync(path.join(dir, file), "utf8");
+    assert.match(text, /id: app\b/, `${file}: no App-presence check`);
+    assert.match(
+      text,
+      // The App's name is the repository's (`repo.appSlug`), read from the
+      // configuration and never written into the workflow.
+      // Either spelling: the slug inline, or a phrase built from it that
+      // falls back to a general one when the slug is not a slug.
+      /needs the (?:`' \+ APP_SLUG \+ '` GitHub App|' \+ APP \+ ',)/,
+      `${file}: must tell the commenter the App is missing, not just skip`,
+    );
+    // ...and it must come after the trust gate, so an account without write
+    // access cannot make the bot post.
+    assert.ok(
+      text.indexOf("getCollaboratorPermissionLevel") < text.indexOf("id: app\n"),
+      `${file}: the App check must follow the permission check`,
+    );
+  }
+});
+
+test("every App-token mint is pinned and narrowed, and none can push workflows", () => {
+  // THE GUARANTEE THIS ENFORCES IS ONE THE PIPELINE PRINTS TO USERS.
+  // agent-fix.yml's refusal message tells a contributor the token is minted
+  // without `workflows: write` "so a fix agent can never rewrite the lanes that
+  // grade it". That is a property of every mint, and it was true of four of the
+  // six: the CI arm and the reply arm were ported with no `permission-*` lines
+  // at all, so their tokens carried the App installation's FULL scope into the
+  // two jobs that check out untrusted branch code and run an agent beside the
+  // token. Nothing would have caught the seventh.
+  //
+  // Three properties per mint:
+  //   1. SHA-pinned. This action handles the App private key, so a movable tag
+  //      is a supply-chain hole with the worst possible payload.
+  //   2. Narrowed at all. An omitted permission block is not "the defaults" —
+  //      it is everything the installation was granted.
+  //   3. No `workflows` permission, which is the sentence above.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  let mints = 0;
+
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml"))) {
+    const text = readFileSync(path.join(dir, file), "utf8");
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const m = /uses: actions\/create-github-app-token@(\S+)/.exec(lines[i]);
+      if (!m) continue;
+      mints++;
+      assert.match(
+        m[1],
+        /^[0-9a-f]{40}$/,
+        `${file}:${i + 1}: the App-token action must be pinned to a commit SHA, got ${m[1]}`,
+      );
+      // The step's `with:` block: to the next line at or left of this step's
+      // own indent that starts a new step.
+      const indent = lines[i].search(/\S/);
+      let end = i + 1;
+      while (end < lines.length) {
+        const l = lines[end];
+        if (l.trim() && l.search(/\S/) <= indent && /^\s*- /.test(l)) break;
+        end++;
+      }
+      const step = lines.slice(i, end).filter((l) => !/^\s*#/.test(l)).join("\n");
+      const perms = [...step.matchAll(/^\s*permission-([a-z-]+):/gm)].map((x) => x[1]);
+      assert.ok(
+        perms.length > 0,
+        `${file}:${i + 1}: mints an App token with no permission-* narrowing — it carries the installation's full scope`,
+      );
+      assert.ok(
+        !perms.includes("workflows"),
+        `${file}:${i + 1}: grants permission-workflows, which is exactly what agent-fix.yml promises users no agent token can do`,
+      );
+    }
+  }
+
+  assert.ok(mints >= 4, `expected the App-token mints to be found, saw ${mints}`);
+});
+
+// `workflow-values.mjs` is here because route and gate jobs read the
+// repository's configuration with it, on the runner's own Node.
+const BUILTIN_ONLY_SCRIPTS = ["command.mjs", "checks.mjs", "loop-status.mjs", "workflow-values.mjs"];
+
+test("every job that runs a pipeline script pins its Node", () => {
+  // REGRESSION GUARD, for a mistake made twice in one branch.
+  //
+  // Swapping the fixer jobs from a package manager to Go meant deleting their
+  // `setup-node` steps. The edit matched on the step name and removed every one
+  // in agent-review-panel.yml — but only one belonged to the fixer. The others
+  // served the job that runs `npm ci`, the job that runs the panel, and the
+  // promotion gate; two more went the same way in the `fix` and `stalled` jobs.
+  // Nothing failed: the YAML stayed valid, the suite stayed green, and those
+  // jobs would have run on whatever Node the runner image happens to ship.
+  //
+  // PER JOB, not per file, because that is the granularity the bug had: the
+  // panel kept a `setup-node` the whole time and still had three jobs without
+  // one.
+  //
+  // ONE EXEMPTION, and it is a property rather than a list of files: a job whose
+  // only scripts import nothing outside `node:` builtins runs correctly on the
+  // runner's own Node, which is why the routers and the loop/rerun/summarize
+  // arms carry no setup step. The allow-list below is checked against the real
+  // module graph by the test after this one, so a script that grows a dependency
+  // fails there rather than silently widening this exemption.
+  const BUILTIN_ONLY = new Set(BUILTIN_ONLY_SCRIPTS);
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const offenders = [];
+  let checked = 0;
+
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    let job = null;
+    const jobs = new Map();
+    for (const line of lines) {
+      const m = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
+      if (m) { job = m[1]; jobs.set(job, []); continue; }
+      if (job) jobs.get(job).push(line);
+    }
+    for (const [name, body] of jobs) {
+      // Prose does not run. A YAML comment explaining why `npm ci` is there
+      // matched as an invocation, and reported the step that immediately
+      // follows its own pin as out of order.
+      const code = body.filter((l) => !/^\s*#/.test(l));
+      const text = code.join("\n");
+      const scripts = [...text.matchAll(/\bnode [^\n]*?([a-z-]+\.mjs)/g)].map((m) => m[1]);
+      const needsPin = /\bnpm (ci|test)\b/.test(text) || scripts.some((f) => !BUILTIN_ONLY.has(f));
+      if (!needsPin) continue;
+      checked++;
+      const setup = code.findIndex((l) => /uses: actions\/setup-node@/.test(l));
+      if (setup < 0) { offenders.push(`${file}:${name} (no setup-node)`); continue; }
+      // ORDER, not just presence. agent-iterate-ci.yml had a `setup-node` gated
+      // on its fixing branch while its paging branch ran three scripts under the
+      // opposite condition — so the job contained one and still had steps
+      // running on the runner's own Node. Requiring the pin to come first makes
+      // a conditional one insufficient by construction.
+      const firstUse = code.findIndex((l) => /\bnode [^\n]*\.mjs|\bnpm (ci|test)\b/.test(l));
+      if (firstUse >= 0 && setup > firstUse) {
+        offenders.push(`${file}:${name} (setup-node comes after the first script it should pin)`);
+      }
+    }
+  }
+
+  assert.ok(checked > 0, "no job was found needing a pinned Node — this guard would be vacuous");
+  assert.deepEqual(
+    offenders,
+    [],
+    `these jobs run a pipeline script on an unpinned Node:\n  ${offenders.join("\n  ")}`,
+  );
+});
+
+test("the scripts exempted from the Node pin really import only builtins", () => {
+  // The exemption above is only sound while it is true. A dependency added to
+  // any of these would run on the runner's Node with no node_modules beside it
+  // — a module-not-found in a job whose whole purpose is to route or to page.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const IMPORT = /^\s*import\s[^;]*?from\s+["']([^"']+)["']/gm;
+  for (const entry of BUILTIN_ONLY_SCRIPTS) {
+    const seen = new Set();
+    const queue = [entry];
+    while (queue.length) {
+      const f = queue.shift();
+      if (seen.has(f)) continue;
+      seen.add(f);
+      const text = readFileSync(path.join(HERE, f), "utf8");
+      for (const m of text.matchAll(IMPORT)) {
+        const spec = m[1];
+        if (spec.startsWith("node:")) continue;
+        assert.ok(
+          spec.startsWith("./"),
+          `${entry} reaches the package dependency ${spec} via ${f} — it can no longer run without node_modules`,
+        );
+        queue.push(spec.slice(2));
+      }
+    }
   }
 });
 
@@ -521,8 +887,12 @@ test("every workflow that runs a pipeline script sets GH_REPO", () => {
   let checked = 0;
   for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
     const text = readFileSync(path.join(dir, file), "utf8");
-    // Only workflows that actually invoke pipeline code can hit this.
-    if (!text.includes("scripts/agent/") && !text.includes("agent-tools/")) continue;
+    // Only workflows that actually INVOKE pipeline code can hit this. Naming
+    // the directory is not invoking it: the test lane lists `scripts/agent/**`
+    // as a path filter and a working-directory, shells out to `gh` nowhere, and
+    // being told to declare a repository for a CLI it never runs teaches the
+    // next reader that this env block is decoration.
+    if (!/\bnode .*scripts\/agent\/|\bnode .*agent-tools\/|\bgh /.test(text)) continue;
     checked += 1;
     // A workflow-level `env:` block is at column 0; a job-level one is indented.
     const wfEnv = /^env:\n(?:[ \t]+.*\n|\n)*?[ \t]+GH_REPO:/m.test(text);
@@ -579,19 +949,49 @@ test("agent-fix reports cost and outcome even when the agent step fails", () => 
   );
 });
 
-test("agent-fix installs the untrusted branch through the trusted install and runs none of its build steps", () => {
-  // This job checks out the PR branch (untrusted) with an App token already in the
-  // environment, so nothing the branch wrote may run before the agent does: not an
-  // install lifecycle script, and not a build step run on the branch's behalf either.
-  // `prisma generate` used to be re-run here after an `--ignore-scripts` install; it
-  // is a build step of the branch like any other, so the agent runs it as part of
-  // verifying and the prompt tells it to. The install itself is pinned for all four
-  // installing jobs by scripts/test/agent-workflow-guards.test.mjs.
-  const wf = WF("agent-fix.yml");
-  assert.match(wf, /run: node "\$RUNNER_TEMP\/agent-tools\/install-deps\.mjs"/, "the install must be main's install-deps.mjs");
-  assert.doesNotMatch(wf, /^\s*run:.*prisma generate/m, "no step may generate the Prisma client on the branch's behalf");
-  assert.match(wf, /pnpm --filter @wafflebase\/backend exec prisma generate/, "the prompt must tell the agent to generate the Prisma client");
-  assert.match(wf, /uses: pnpm\/action-setup@[0-9a-f]{40}/, "pnpm/action-setup must be SHA-pinned in this token-bearing job");
+test("no token-bearing job sets itself up by running the branch's build files", () => {
+  // Every one of these jobs has an App token in the environment while it sets
+  // up, and four of the five have already checked out the PR branch
+  // (UNTRUSTED). A setup step that executes branch-authored build instructions
+  // therefore hands a credential to code the branch wrote — a `make tools`, a
+  // package manager's install scripts.
+  //
+  // So the setup is ONE step, the repository's `agent-toolchain` action, whose
+  // file pins what it installs; `config-wiring.test.mjs` checks the action is
+  // main's copy and not the branch's. What this asserts is that nothing sits
+  // beside it: no language setup action and no install command written into
+  // the workflow, where it would be this repository's toolchain in a file that
+  // is meant to be every repository's. Scoped to SETUP: the agent itself runs
+  // branch code by design, and holds the token by design, because it has to
+  // push.
+  const SETUP_ACTION = /uses:\s*(?:actions\/setup-(?!node@)[\w-]+|pnpm\/action-setup|oven-sh\/setup-bun|ruby\/setup-ruby|dtolnay\/rust-toolchain)@/;
+  const INSTALL = /^\s*(?:run:\s*)?(?:make\s+tools|go\s+install|pnpm\s+install|yarn(?:\s+install)?|npm\s+install|pip\s+install|cargo\s+install)\b/m;
+  for (const name of ["agent-fix.yml", "agent-implement.yml", "agent-iterate-ci.yml", "agent-review-panel.yml", "agent-review-reply.yml"]) {
+    const code = WF(name).split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+    assert.match(code, /uses: \.\/(?:\.trusted-toolchain\/)?\.github\/actions\/agent-toolchain\n/, `${name}: no toolchain action`);
+    assert.ok(!SETUP_ACTION.test(code), `${name}: sets a language toolchain up in the workflow instead of in the agent-toolchain action`);
+    assert.ok(!INSTALL.test(code), `${name}: installs tools or dependencies in the workflow instead of in the agent-toolchain action`);
+  }
+});
+
+test("every fixer prompt runs the same verification target", () => {
+  // THE LANE THE AUTONOMOUS ARM VERIFIES WITH, named once: `fixer.verifyCommand`
+  // in the repository's configuration.
+  //
+  // The prompts used to spell out a lint command and a test command, which was
+  // the repository's verify target MINUS one of its checks — so a fixer could
+  // push something the missing check refuses, red CI, and buy the PR a whole
+  // extra round for a line it could have added before pushing. Naming the one
+  // target means a lane added to it reaches every prompt at once.
+  for (const name of ["agent-fix.yml", "agent-iterate-ci.yml", "agent-review-panel.yml"]) {
+    const wf = WF(name);
+    assert.match(wf, /Run `\$\{\{ steps\.cfg\.outputs\.verify_command \}\}` ONCE at the end/,
+      `${name}: the fixer prompt must name the configured verify command, not a hand-written subset of it`);
+    // A verify target may shell out to Node (a licence check, a link check) and
+    // skip that half quietly where Node is absent — so the job pins one.
+    assert.match(wf, /uses: actions\/setup-node@v4/,
+      `${name}: without a Node setup, the parts of the verify command that need Node are skipped and the prompt lies`);
+  }
 });
 
 test("agent-fix is maintainers-only and refuses bot-authored comments", () => {
@@ -642,7 +1042,7 @@ test("the on-demand reader uses THIS workflow's PR output, not the panel's", () 
 
 test("agent-fix re-verifies the commit AFTER checkout, closing the eligibility TOCTOU", () => {
   // The gate proves sha H carries the verdict; the checkout takes the branch TIP,
-  // minutes later (app token, placeholder, brief, pnpm install). Without a
+  // minutes later (app token, placeholder, brief, toolchain setup). Without a
   // re-check, an author pushing in that window has the fixer edit and push on top
   // of a commit the panel never reviewed — the exact thing the precondition exists
   // to prevent.
@@ -664,85 +1064,136 @@ test("agent-fix always answers the commenter, even when the gate step itself fai
   // "🤖 Working on @claude fix…" beside a red X forever.
   const wf = WF("agent-fix.yml");
   const refusal = wf.slice(wf.indexOf("- name: Explain the refusal"));
-  assert.match(refusal.slice(0, 200), /if: always\(\) && steps\.eligible\.outputs\.eligible != 'true'/);
-  assert.match(refusal.slice(0, 2000), /eligibility check could not complete/, "an empty reason must still say something");
-});
-
-test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
-  // The gate matches CI runs on this path instead of on the run's display name,
-  // which is what makes gate 1 unforgeable — a second file cannot claim the
-  // path. The cost is that a typo, or renaming ci.yml, silently makes the gate
-  // unsatisfiable for every PR: the workflow-scoped query would find nothing and read as
-  // "CI has not run". Assert the file is there, and that it is the one whose
-  // runs are named "CI".
-  const HERE = path.dirname(fileURLToPath(import.meta.url));
-  const abs = path.join(HERE, "..", "..", CI_WORKFLOW_PATH);
-  const src = readFileSync(abs, "utf8"); // throws if the path is wrong
-  assert.match(src, /^name:\s*CI\s*$/m, "ci.yml must still be the workflow whose runs are named CI");
-});
-
-
-
-
-test("CI_DEFINING_PATHS mirrors harness.config.json's own gating surface", () => {
-  // Gate 1b refuses a PR that supplies any part of the CI definition. The
-  // repository ALREADY maintains that list — `ci.ciConfig`, which forces a full
-  // CI run for the same reason ("a PR can never use the filter to grade its own
-  // homework") and is CODEOWNER-ed. Two hand-maintained lists of the same thing
-  // is how the gate ended up covering only `.github/workflows|actions/**` while
-  // `verify-self.mjs` and the root `package.json` — which is where `ci.yml`
-  // actually resolves every test it runs — were free to change.
+  const head = refusal.slice(0, 400);
+  assert.match(head, /always\(\)/, "the refusal must not inherit the implicit success()");
+  // EVERY gate that can stop the work must be listed here. The eligibility
+  // check is one; the "CI is red, the CI-fix arm owns this branch" gate is the
+  // other, and a refusal it does not cover strands the placeholder exactly as
+  // the eligibility one used to.
+  assert.match(head, /steps\.eligible\.outputs\.eligible != 'true'/);
+  assert.match(head, /steps\.ci-clear\.outputs\.clear != 'true'/,
+    "a CI-red refusal must reach the commenter too, or the placeholder is stranded");
+  // THE GATE ASKS "KNOWN GREEN", NOT "KNOWN RED". An earlier revision tested
+  // `completed && conclusion === 'failure'`, so a queued or in-progress run
+  // answered "clear" — and that window is exactly what the gate covers: CI
+  // concludes failure moments later, the CI arm fires, and two fixers push one
+  // branch. Same fail-toward-refusal direction as fix-eligible.mjs.
+  // JS comments stripped as well as YAML ones: the rationale below the gate
+  // quotes the wrong predicate in order to explain why it is wrong, and an
+  // assertion that reads prose as code fails on the explanation.
+  const gate = wf
+    .slice(wf.indexOf("id: ci-clear"), wf.indexOf("- name: Explain the refusal"))
+    .split("\n")
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join("\n");
+  assert.match(gate, /conclusion === 'success'/, "the gate must require a green conclusion");
+  assert.ok(
+    !/conclusion === 'failure'/.test(gate),
+    "asking whether CI is RED lets a still-running run pass as clear",
+  );
+  // THE ABSENT-RUN BRANCH REFUSES, and it is pinned because it used to answer
+  // the opposite for a reason that was never true.
   //
-  // The mirror must be a SUPERSET: gate 1b may refuse more than `ciConfig`
-  // shrinks CI for (composite actions, per-package manifests), never less.
-  const HERE = path.dirname(fileURLToPath(import.meta.url));
-  const cfg = JSON.parse(readFileSync(path.join(HERE, "..", "..", "harness.config.json"), "utf8"));
-  const ciConfig = cfg.ci?.ciConfig;
-  assert.ok(Array.isArray(ciConfig) && ciConfig.length > 0, "harness.config.json must still declare ci.ciConfig");
-  for (const glob of ciConfig) {
-    assert.ok(
-      CI_DEFINING_PATHS.includes(glob),
-      `harness.config.json calls '${glob}' part of the CI gating surface, and CI_DEFINING_PATHS omits it`,
-    );
-  }
+  // The carve-out said: the gate asks whether agent-iterate-ci.yml's fixer could
+  // own this branch, that arm fires only on a `workflow_run` of CI, so no run
+  // means it cannot have started — and refusing would make `@claude fix`
+  // unusable on a docs-only PR, which produced no CI run at all. Follow the two
+  // conditions instead of the prose and the branch never executed: the step is
+  // `if: steps.eligible.outputs.eligible == 'true'`, and `decideEligibility`
+  // returns `eligible: false` on `total === 0` — no lens check runs on the head.
+  // Only the panel writes those, and only a CI run starts the panel. No CI run
+  // therefore meant no verdict, refused one gate earlier, every time.
+  //
+  // `ci.yml` now filters documentation on its `build` JOB rather than on the
+  // `pull_request` trigger (see the guard below), so a docs-only PR produces a
+  // run and the case is gone. What is left in this branch is an invisible run —
+  // deleted, or past retention — which is the CI conclusion being unreadable,
+  // and this gate refuses every unknown.
+  assert.match(gate, /if \(!runs\.length\)/, "the no-run case must be handled explicitly");
+  const noRun = gate.slice(gate.indexOf("if (!runs.length)"), gate.indexOf("const newest"));
+  assert.match(noRun, /setOutput\('clear', 'false'\)/,
+    "an absent CI run means its conclusion cannot be read — refuse, like every other unknown here");
+  assert.match(refusal.slice(0, 2600), /eligibility check could not complete/, "an empty reason must still say something");
+  assert.match(refusal.slice(0, 2600), /the CI-fix arm owns that state/, "...and the CI-red refusal must say which arm has the branch");
+  assert.match(refusal.slice(0, 2600), /no CI run for this commit is visible/,
+    "...and the refusal must name the third cause, or an absent run reads as a stuck CI");
+});
 
-  // ...and the matcher must actually classify the surface it lists. Each of
-  // these is a path CI's behaviour is read from at run time.
+// That the file CI_WORKFLOW_PATH names exists, is the workflow whose runs are
+// named "CI", and has no trigger that could race for a pull request's head is
+// a fact about the repository's own `ci.yml`. It is checked where the
+// repository's values are graded: `.github/agent-harness/repo.test.mjs`.
+
+
+
+
+test("CI_DEFINING_PATHS: the shared entries around the repository's configured ones", () => {
+  // Gate 1b refuses a PR that supplies any part of the CI definition. The list
+  // has two sources: the entries every repository shares, written in
+  // checks.mjs, and the repository's own (`ci.definingPaths`) from its harness
+  // configuration — the fixture's, here. A repository's real surface is graded
+  // by its own `.github/agent-harness/repo.test.mjs`.
+  const configured = get("ci.definingPaths");
+  assert.deepEqual([...CI_DEFINING_PATHS], [
+    ".github/workflows/**",
+    ".github/actions/**",
+    ".github/CODEOWNERS",
+    ".github/agent-harness/**",
+    ...configured,
+    "scripts/setup.sh",
+    "scripts/hooks/**",
+    ".githooks/**",
+  ]);
+  assert.ok(configured.length > 0, "the fixture configuration lists no CI-defining path");
+  assert.ok(Object.isFrozen(CI_DEFINING_PATHS), "a caller must not be able to shorten the refusal surface");
+
   for (const p of [
     ".github/workflows/ci.yml",
     ".github/workflows/nested/whatever.yml",
     ".github/actions/setup/action.yml",
     ".github/CODEOWNERS",
-    "harness.config.json",
-    "knip.json",
-    "package.json",
-    "packages/sheets/package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "scripts/changed-areas.mjs",
-    "scripts/verify-self.mjs",
-    "scripts/verify-integration.mjs",
+    // The harness configuration itself. It is read from the default branch,
+    // never from the branch under review, so a PR editing it changes nothing
+    // about its own run — but it holds this list, the review scopes and the
+    // bot allow-list, so a change to it is a change to the gates and must go
+    // to a human instead of promoting itself.
+    ".github/agent-harness/config.json",
+    ".github/agent-harness/coverage-note.md",
+    ".github/agent-harness/repo.test.mjs",
+    // The fixture configuration's entries.
+    "build.config",
+    "deps.lock",
+    "tools/ci/run.sh",
+    "tools/ci/lanes/unit.sh",
+    "tools/lint.sh",
+    // The local enforcement layer.
+    "scripts/setup.sh",
+    "scripts/hooks/install.mjs",
+    ".githooks/pre-push",
   ]) {
-    assert.equal(definesCi(p), true, `${p} defines what CI does`);
+    assert.equal(definesCi(p), true, `${p} defines what CI does and must be refused by gate 1b`);
   }
 
-  // ...and must NOT swallow ordinary code, or gate 1b refuses every PR and the
-  // whole promote path quietly stops working — a fail-closed that is also a
-  // total outage.
+  // ...and does not swallow the code under review. A gate that refuses every PR
+  // is the same outage as one that refuses none, arrived at from the other side.
   for (const p of [
-    "packages/sheets/src/index.ts",
-    "packages/sheets/src/package.json.ts",
-    "docs/design/agent-pipeline/harness-engineering.md",
-    "scripts/agent/checks.mjs",
-    "scripts/verify-self.md",
-    "packages/frontend/src/nested/package.json", // `*` does not cross a separator
-    "not-package.json",
-    "",
+    "src/document/tree.go",
+    "lib/store/client.go",
+    "tools/nested/lint.sh", // `*` does not span a separator
+    "tools/lint.sh.bak", // anchored at the end
+    "sub/build.config", // anchored at the start
+    "docs/design/tree.md",
+    "README.md",
+    // Another repository's CI definition is not this configuration's.
+    "Makefile",
+    "go.mod",
+    // The rest of `.github` is not swept in with it.
+    ".github/dependabot.yml",
+    ".github/agent-harness",
   ]) {
-    assert.equal(definesCi(p), false, `${p} must not be treated as a CI definition`);
+    assert.equal(definesCi(p), false, `${p} is code or prose under review, not the CI definition`);
   }
-  // Junk from an API response is not a match (and not a crash).
-  for (const junk of [null, undefined, 7, {}, []]) assert.equal(definesCi(junk), false);
+  for (const junk of [null, undefined, "", 7, {}]) assert.equal(definesCi(junk), false);
 });
 
 test("every workflow_run consumer CI can drive gates on the CI workflow's PATH", () => {
@@ -772,11 +1223,18 @@ test("every workflow_run consumer CI can drive gates on the CI workflow's PATH",
       .replace(/github\.event\.action/g, "'requested'")
       .replace(/vars\.AGENT_PIPELINE_ENABLED/g, "'true'");
 
-  for (const [file, job] of [
+  // Only the consumers this repository installs. Upstream also lists
+  // agent-iterate-ci.yml and ci-report.yml; neither is ported
+  // (docs/design/agent-command-verbs.md), and a guard that reads a file which is
+  // not there fails for the wrong reason. Filtering by presence keeps every
+  // installed consumer covered and re-arms when another lands.
+  const consumers = [
     ["agent-review-panel.yml", "gate"],
     ["agent-iterate-ci.yml", "gate"],
     ["ci-report.yml", "report"],
-  ]) {
+  ].filter(([f]) => existsSync(path.join(HERE, "..", "..", ".github", "workflows", f)));
+  assert.ok(consumers.length > 0, "no workflow_run consumer found — this guard would be vacuous");
+  for (const [file, job] of consumers) {
     const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
     // The trigger has to be the display-name one, or this assertion is aimed at
     // the wrong thing.
@@ -797,37 +1255,13 @@ test("every workflow_run consumer CI can drive gates on the CI workflow's PATH",
       assert.ok(!admits(absent), `${file} must refuse a payload with no workflow_run.path (${absent})`);
     }
   }
-});
 
-test("no two ci.yml triggers can race for the same PR head SHA", () => {
-  // THE INVARIANT `ciConclusion` RESTS ON — stated precisely, because an earlier
-  // revision of this test overclaimed it as "exactly one run per head SHA".
-  // That is false: closing and reopening a PR files a second `pull_request` run
-  // for the same commit. Newest-wins is CORRECT there, because the later run is
-  // a fresh execution of the same file at the same tree and supersedes the
-  // earlier one.
-  //
-  // What must not happen is two runs from DIFFERENT triggers for one PR head,
-  // where "newest" is arbitrary rather than superseding. `push` restricted to
-  // `main` never fires for a PR branch, and a `merge_group` run carries the
-  // speculative merge commit. Widen `push`, or add a trigger that fires on a PR
-  // head, and this fails — making the choice conscious instead of silent.
-  const HERE = path.dirname(fileURLToPath(import.meta.url));
-  const yml = readFileSync(path.join(HERE, "..", "..", CI_WORKFLOW_PATH), "utf8");
-  const on = yml.slice(yml.indexOf("\non:"), yml.indexOf("\npermissions:"));
-  const code = on.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
-
-  const events = [...code.matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]);
-  assert.deepEqual(
-    events.sort(),
-    ["merge_group", "pull_request", "push"],
-    "a new CI trigger may fire for a PR head SHA — see ciConclusion before adding one",
-  );
-  assert.match(
-    code.slice(code.indexOf("push:"), code.indexOf("pull_request:")),
-    /branches: \["main"\]/,
-    "push must stay restricted to main, or every PR branch push races pull_request",
-  );
+  // Upstream additionally guards capture-collect.yml here, which consumes the
+  // PANEL by display name and whose job holds a write PAT for another
+  // repository. That workflow is not ported (docs/design/agent-command-verbs.md)
+  // and no workflow here holds a cross-repository credential, so there is
+  // nothing of that shape left to guard. The loop above covers every installed
+  // workflow_run consumer, which is the property that survives.
 });
 
 test("ciConclusion: the newest run wins, and an unfinished one is 'not yet'", () => {
@@ -1044,4 +1478,1561 @@ test("agent-rerun / agent-loop mirror ciRunToRerun + ciRunToAwait inline, and th
       `${file}: the job wall (${Math.max(...walls)}m) must exceed the ${waitMinutes}m wait`,
     );
   }
+});
+
+test("the App-presence check tests BOTH secrets, not just the id", () => {
+  // `create-github-app-token` needs an id AND a private key, and the two are
+  // registered in two separate operations — the key being the half that gets
+  // rotated. A check that reads only the id therefore reports "configured" for
+  // a repository that cannot mint a token, and the failure surfaces in the mint
+  // step: past the commenter-facing arm, past the stand-down, as a red job with
+  // a token error in it. That is precisely the outcome the check was added to
+  // prevent, moved one step later.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  let checks = 0;
+
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!/^\s+id: app$/.test(lines[i])) continue;
+      let end = i + 1;
+      while (end < lines.length && !/^ {6}- /.test(lines[end])) end++;
+      const step = lines.slice(i, end).filter((l) => !/^\s*#/.test(l)).join("\n");
+      checks++;
+      assert.match(step, /AGENT_APP_ID/, `${file}: the check does not read AGENT_APP_ID`);
+      assert.match(step, /AGENT_APP_PRIVATE_KEY/, `${file}: the check ignores AGENT_APP_PRIVATE_KEY`);
+      assert.match(
+        step,
+        /\[ -n "\$APP_ID" \] && \[ -n "\$APP_KEY" \]/,
+        `${file}: both secrets must be REQUIRED, not merely read`,
+      );
+    }
+  }
+  assert.ok(checks >= 5, `expected an App-presence check per App-backed verb, found ${checks}`);
+});
+
+test("no shell step hides a command substitution inside a double-quoted echo", () => {
+  // Backticks are markdown in a `github-script` body and COMMAND SUBSTITUTION in
+  // a `run:` block. Two notice lines carried `@claude fix` / `@claude rerun` in
+  // backticks inside double quotes, so the runner tried to execute them: the
+  // annotation rendered with a hole where the verb should be, stderr carried a
+  // "command not found", and the step still exited 0 — a message about a
+  // misconfiguration, itself quietly malformed. The rule is mechanical, so pin
+  // it mechanically rather than trusting the next author to remember which
+  // quoting regime a given block is in.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const offenders = [];
+
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    let inRun = false;
+    let runIndent = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(\s*)(?:-\s+)?run: \|/.exec(lines[i]);
+      if (m) {
+        inRun = true;
+        runIndent = m[1].length;
+        continue;
+      }
+      if (!inRun) continue;
+      if (lines[i].trim() !== "" && (lines[i].length - lines[i].trimStart().length) <= runIndent) {
+        inRun = false;
+        continue;
+      }
+      if (/^\s*#/.test(lines[i])) continue;
+      // Walk the line tracking quote state. Only an UNESCAPED backtick inside
+      // double quotes substitutes: `\\`` is a literal backtick (the workflows
+      // use it deliberately, to put markdown code spans in comment bodies built
+      // by shell), and a backtick inside '…' is literal too.
+      let dq = false;
+      let sq = false;
+      for (let c = 0; c < lines[i].length; c++) {
+        const ch = lines[i][c];
+        if (ch === "\\" && dq) {
+          c++;
+          continue;
+        }
+        if (ch === "'" && !dq) sq = !sq;
+        else if (ch === '"' && !sq) dq = !dq;
+        else if (ch === "`" && dq && !sq) {
+          offenders.push(`${file}:${i + 1} ${lines[i].trim()}`);
+          break;
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(offenders, [], `backticks inside a double-quoted shell string:\n  ${offenders.join("\n  ")}`);
+});
+
+test("the CI-fix arm's attempts guard cannot run without the App", () => {
+  // THE STAND-DOWN WAS ONLY TWO STEPS DEEP. `agent-iterate-ci` is
+  // `workflow_run`-triggered, so it has no commenter to answer and skips
+  // silently by design — but only the token mint and the checkout were gated.
+  // The attempts guard ran regardless, and it is the step that decides
+  // everything: below the limit it set `proceed=true` and the entire fixing arm
+  // ran against a workspace that was never checked out; at the limit it wrote
+  // the PAGED LATCH and `agent:blocked` — terminal, human-only state — onto a PR
+  // whose run had just announced it was standing down. Gating the guard leaves
+  // every `steps.guard.outputs.*` empty, so the arm really does nothing.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const text = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-iterate-ci.yml"), "utf8");
+  const lines = text.split("\n");
+  const at = lines.findIndex((l) => /^\s+id: guard$/.test(l));
+  assert.ok(at > 0, "no `id: guard` step in agent-iterate-ci.yml");
+
+  let end = at + 1;
+  while (end < lines.length && !/^ {6}- /.test(lines[end])) end++;
+  const step = lines.slice(at, end).filter((l) => !/^\s*#/.test(l)).join("\n");
+  assert.match(
+    step,
+    /if: steps\.app\.outputs\.configured == 'true'/,
+    "the attempts guard must be gated on the App-presence check",
+  );
+});
+
+test("a job that comments on a PR holds pull-requests:write, not just issues:write", () => {
+  // THE PATH SAYS "issues" AND THE PERMISSION CHECK DOES NOT. Every comment the
+  // surface posts goes through `POST /repos/…/issues/{n}/comments` — the
+  // endpoint serves issues and pull requests both, and for a PULL REQUEST the
+  // permission it requires is the pull-requests one. `issues: write` is not a
+  // substitute and does not degrade gracefully: it is a 403 at the moment of
+  // publication, with `Issues: write` printed in the job's own permission log
+  // two screens up.
+  //
+  // Both advisory verbs shipped that way, which is the whole of Phase 1. The
+  // review ran, the model produced its verdict, the panel comment was built —
+  // and `Resource not accessible by integration` came back on the last line, so
+  // the verb looked like it had done nothing at all.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const COMMENTS = /issues\.(?:createComment|updateComment|deleteComment)/;
+  const offenders = [];
+  let checked = 0;
+
+  // A trailing `# why` is normal on these lines, and a workflow-level
+  // `permissions:` block is inherited by every job that declares none — both
+  // shapes are in use here, and a guard that missed either would read as a
+  // finding against four jobs that are already correct.
+  const GRANTS = /^\s+pull-requests:\s*write\s*(?:#.*)?$/;
+
+  // AN ISSUE-ONLY WORKFLOW IS EXEMPT, and this is the rule rather than a hole in
+  // it: the permission follows the RESOURCE, and `!…issue.pull_request` in the
+  // router is precisely what decides the resource. A verb that can only ever be
+  // typed on an issue comments on an issue, where `issues: write` is both correct
+  // and the narrower grant. Widening it to satisfy a guard aimed at PR
+  // conversations would hand an issue-only job authority over every pull request
+  // in the repository.
+  //
+  // Decided from CODE, not from the file's prose: a workflow's header explains
+  // the distinction in a sentence containing the unnegated expression, and
+  // reading that as a gate is the same mistake two earlier guards here made — a
+  // check matching its own explanation.
+  //
+  // HOISTED AND EXERCISED, because an exemption is a way for a guard to turn
+  // itself off. Inline, the only assertions were "some job was checked" and "no
+  // offenders", and BOTH still pass if `issueOnly` is true for every file — a
+  // dropped `mentions.length > 0`, or a regex that stops matching, excuses the
+  // whole tree silently. So the predicate is a named function with fixtures, and
+  // the loop below additionally pins WHICH files it excuses and asserts that a
+  // non-exempt commenting job still exists to be judged.
+  const issueOnlyFor = (code) => {
+    const mentions = code.match(/!?github\.event\.issue\.pull_request/g) ?? [];
+    return mentions.length > 0 && mentions.every((m) => m.startsWith("!"));
+  };
+  assert.equal(issueOnlyFor("if: !github.event.issue.pull_request\n"), true, "a negated-only router is issue-only");
+  assert.equal(issueOnlyFor("if: github.event.issue.pull_request\n"), false, "a PR-only router is not issue-only");
+  assert.equal(
+    issueOnlyFor("if: !github.event.issue.pull_request\nif: github.event.issue.pull_request\n"),
+    false,
+    "a file that also reads the unnegated form reaches PR conversations and is not exempt",
+  );
+  assert.equal(issueOnlyFor("runs-on: ubuntu-latest\n"), false, "silence on the question is not an exemption");
+
+  // The files the exemption actually excused, and the commenting jobs judged in
+  // files it did not. Both are asserted after the loop.
+  const exempt = [];
+  let judged = 0;
+
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    const wfCode = lines.filter((l) => !/^\s*#/.test(l)).join("\n");
+    const issueOnly = issueOnlyFor(wfCode);
+    if (issueOnly) exempt.push(file);
+    const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+    const inherited = lines.slice(0, jobsAt < 0 ? lines.length : jobsAt).some((l) => GRANTS.test(l));
+    // Walk jobs: a job id sits at two-space indent under `jobs:`.
+    const starts = [];
+    for (let i = jobsAt + 1; i < lines.length; i++) {
+      if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[i])) starts.push(i);
+    }
+    for (let s = 0; s < starts.length; s++) {
+      const body = lines.slice(starts[s], starts[s + 1] ?? lines.length);
+      const code = body.filter((l) => !/^\s*#/.test(l));
+      if (!code.some((l) => COMMENTS.test(l))) continue;
+      checked++;
+      const id = lines[starts[s]].trim().replace(":", "");
+      const own = code.some((l) => /^ {4}permissions:\s*$/.test(l));
+      const granted = code.some((l) => GRANTS.test(l)) || (!own && inherited);
+      // The exemption is FILE-scoped, because the thing that decides the
+      // resource — the trigger predicate — is file-scoped too. Stating that
+      // plainly rather than claiming job scope the code does not have: a job
+      // added to an issue-only workflow that somehow comments on a PR
+      // conversation would be excused here, and the guard against that is the
+      // trigger, not this test.
+      if (issueOnly) continue;
+      judged++;
+      if (!granted) offenders.push(`${file}:${id}`);
+    }
+  }
+
+  assert.ok(checked > 0, "no commenting job found — this guard would be vacuous");
+  // THE EXEMPTION MUST BE EARNED, AND NAMED. An allow-list rather than a count:
+  // a new issue-only workflow is a two-line diff here that says, in review, that
+  // someone decided one more file no longer answers to this guard.
+  assert.deepEqual(
+    exempt,
+    hasWorkflow("agent-implement.yml") ? ["agent-implement.yml"] : [],
+    "the issue-only exemption must excuse exactly the issue-only verb; anything else means the " +
+      "predicate has drifted and the guard is excusing files it should be judging",
+  );
+  assert.ok(
+    judged > 0,
+    "every commenting job was exempted — the exemption has swallowed the guard, which is what it " +
+      "would look like if the predicate matched everything",
+  );
+  assert.deepEqual(
+    offenders,
+    [],
+    `these jobs comment on a PR without pull-requests:write:\n  ${offenders.join("\n  ")}`,
+  );
+});
+
+// The three guards below read `agent-implement.yml` (docs/design/
+// agent-command-verbs.md, Phase I). They are written through `skipWithout`
+// because the workflow was withdrawn once, when no credential in this pipeline
+// could push `.github/workflows/**` to correct it — and a guard that would fail
+// the whole file while a verb is absent is one somebody deletes. Each encodes a
+// defect that was found the hard way.
+test("agent-implement's reporter keeps its approved condition, ids and shape", skipWithout("agent-implement.yml"), () => {
+  // THIS DEFECT SURVIVED FIVE ROUNDS BY MOVING, and two attempts to pin it
+  // survived because they were written as DENY-LISTS. The job acknowledges an
+  // issue with "On it", then runs gates that can stop it; something must close
+  // that thread out or it claims a run is in progress forever.
+  //
+  // Round 1 keyed the reporter on the App check and told a refused gate to
+  // retry. Round 2 keyed it on staging, which the gate precedes — silent. Round
+  // 3 keyed it on the acknowledgement, which the gate also precedes — silent
+  // again. Rounds 3 and 4 then wrote guards that forbade three literal spellings
+  // of a downstream term, and a mutation run found ELEVEN survivors: `!=` instead
+  // of `==`, `conclusion` instead of `outcome`, no spaces around the operator, a
+  // `contains()` call, the term wrapped onto a second line. Every one of them
+  // reinstated the silence.
+  //
+  // A deny-list of spellings cannot express "no downstream term". This is an
+  // ALLOW-list: the condition must be exactly this string. Deliberately brittle
+  // — changing it is a two-line diff that says, in review, that someone decided
+  // to change what this step is keyed on.
+  //
+  // The App check is not "the only step that cannot stop the job" — the
+  // write-access check above it stops the job silently by design, and a failed
+  // token mint stops it too, which is why the reporter no longer borrows that
+  // token. It is the earliest gate whose failure the reporter can still survive,
+  // which is the property that matters.
+  //
+  // TWO LINES NOW, because the reporter moved to the `finish` job: every step
+  // after the agent in the agent's own job runs in an environment the agent can
+  // rewrite, and a reporter is no exception. The step keeps `always()` so it
+  // survives every failure before it in that job.
+  //
+  // AND THE APP CHECK MOVED FROM THE JOB TO THE STEP. The job is keyed on the
+  // commenter having been admitted by the write-access check, which is upstream
+  // of the App check, because the "App is not configured" reply runs there too.
+  // The reporter still names the App check itself: without the App every
+  // outcome it reads is `skipped`, which it would report as a dead credential.
+  const APPROVED = "        if: always() && github.event_name == 'issue_comment' && needs.implement.outputs.configured == 'true'";
+  const APPROVED_JOB = "always() && needs.implement.outputs.admitted == 'true'";
+  const wf = WF("agent-implement.yml");
+  const at = wf.indexOf("- name: Report a run that ended without a PR");
+  assert.ok(at > 0, "agent-implement.yml has no reporter step");
+
+  // Bounded by the next STEP or the next JOB, whichever comes first. This is the
+  // last step of its job, so a step-only bound runs into the following job and
+  // picks up its `if:` — which is how the first version of this assertion found
+  // two conditions where the step has one.
+  const ends = [wf.indexOf("\n      - name:", at + 1), /\n {2}[A-Za-z0-9_-]+:\n/.exec(wf.slice(at))?.index]
+    .map((i, k) => (i === undefined || i < 0 ? -1 : k === 1 ? i + at : i))
+    .filter((i) => i > 0);
+  const step = wf.slice(at, ends.length ? Math.min(...ends) : wf.length);
+  const ifLines = step.split("\n").filter((l) => /^\s+if:/.test(l));
+  assert.equal(ifLines.length, 1, "the reporter must have exactly one `if:` line");
+  assert.equal(
+    ifLines[0],
+    APPROVED,
+    "the reporter's condition must be keyed upstream of every gate it reports; " +
+      "if this needs to change, change APPROVED here in the same commit and say why",
+  );
+
+  const finishIf = (wf.match(/^ {2}finish:\n(?:.*\n)*? {4}if: (.*)$/m) || [])[1];
+  assert.equal(finishIf, APPROVED_JOB, "the finish job must be keyed on admission and nothing downstream");
+
+  // And it must still be able to NAME the cause, or it reports the wrong one —
+  // which it has also done, telling an `npm ci` failure that main was unprotected.
+  assert.match(step, /needs\.implement\.outputs\.protection/, "the protection refusal must be named, not guessed at");
+  assert.match(step, /needs\.implement\.outputs\.staged/, "a setup failure must be distinguishable from a refusal");
+  // ...through job outputs that carry the step outcomes across, unrenamed.
+  for (const [out, expr] of [
+    ["admitted", "steps.admitted.outputs.admitted"],
+    ["configured", "steps.app.outputs.configured"],
+    ["protection", "steps.protection.outcome"],
+    ["staged", "steps.stage.outcome"],
+    ["agent", "steps.agent.outcome"],
+  ]) {
+    assert.ok(wf.includes(`      ${out}: \${{ ${expr} }}`), `the implement job must export ${out} from ${expr}`);
+  }
+
+  // THE IDS MUST EXIST. A mutation run reached this step's behaviour AROUND the
+  // pinned line rather than through it: renaming `id: protection` to `protect`
+  // leaves every assertion above green while `steps.protection.outcome` becomes
+  // the empty string, so every termination reports the same wrong cause. Cheap,
+  // and not brittle — it asserts existence, not form.
+  for (const id of ["admitted", "protection", "stage", "agent"]) {
+    assert.match(
+      wf,
+      new RegExp(`^ {8}id: ${id}$`, "m"),
+      `the reporter reads steps.${id}.outcome; without that id it reads an empty string`,
+    );
+  }
+
+  // The reporter must sit in the `finish` job — the nearest job header above it —
+  // and that job must wait for the implement job whose outcomes it reads.
+  const headers = [...wf.matchAll(/\n {2}([A-Za-z0-9_-]+):\n/g)].filter((m) => m.index < at);
+  assert.equal(headers.at(-1)?.[1], "finish", "the reporter must live in the finish job");
+  const needs = (/^ {2}finish:\n {4}needs: \[([^\]]*)\]$/m.exec(wf)?.[1] ?? "").split(",").map((x) => x.trim()).sort();
+  assert.deepEqual(needs, ["implement", "route"], "the finish job must run after implement, and read route's words");
+
+  // NOTHING MAY RETURN EXCEPT THESE TWO LINES. An early
+  // `if (steps.X.outcome !== 'success') return;` inside the script reinstates
+  // the silence without touching a single `if:` line.
+  //
+  // The previous version of this assertion sliced the script at
+  // `const MARKER_FOR` and scanned only what came before — six `const`
+  // declarations and not one `if`, so it could not fail, and could not have
+  // failed for any early return worth writing. Every place a short-circuit
+  // would naturally go (beside the PR lookup, beside the dedupe) is BELOW that
+  // point. So: an ALLOW-LIST over the whole script, for the same reason as the
+  // condition above. Both directions are pinned — an unlisted return is a new
+  // silence, and a missing listed one means the guard is describing code that
+  // is no longer there.
+  const script = step.slice(step.indexOf("script: |"));
+  const SANCTIONED_RETURNS = [
+    // The success path: the kickoff opened a PR and already said so.
+    "            if (lookupOk && pr) return; // the normal flow posted the PR link",
+    // The dedupe, and it is acknowledgement-aware for the reason above it: it
+    // suppresses a repeat only when one was already made SINCE the newest "On
+    // it", so it can never leave this run's own acknowledgement unanswered.
+    "              if (since.some((c) => String(c.body ?? '').includes(MARKER) && mine(c))) return;",
+  ];
+  const returns = script.split("\n").filter((l) => /^\s+if \(.*\breturn;/.test(l));
+  assert.deepEqual(
+    returns.filter((l) => !SANCTIONED_RETURNS.includes(l)),
+    [],
+    "the reporter must not short-circuit before it comments — that is the silence this guards; " +
+      "if a new early return is right, add it to SANCTIONED_RETURNS in the same commit and say why",
+  );
+  assert.equal(
+    returns.length,
+    SANCTIONED_RETURNS.length,
+    `expected exactly ${SANCTIONED_RETURNS.length} sanctioned early returns, found ${returns.length}`,
+  );
+  // Keyed by the BRANCH TAKEN, not by `cause`: `cause` has four values and the
+  // messages have six, so three shared a bucket and a pre-agent failure
+  // suppressed the report of a real no-PR run on the retry it had advised.
+  assert.match(
+    step,
+    /const MARKER_FOR = \(k\) => `<!-- agent-implement-no-pr:\$\{k\} -->`;/,
+    "the no-PR marker must be keyed per message, or one failure silences a different one",
+  );
+  const keys = [...step.matchAll(/^\s+key = '([a-z-]+)';$/gm)].map((m) => m[1]);
+  assert.equal(
+    new Set(keys).size,
+    keys.length,
+    `two report branches share a marker key (${keys.join(", ")}), so one suppresses the other`,
+  );
+  assert.ok(keys.length >= 6, `expected a key per report branch, found ${keys.length}`);
+});
+
+test("agent-implement's no-PR report finds the acknowledgement under the login that posts it", skipWithout("agent-implement.yml"), async () => {
+  // THE ACKNOWLEDGEMENT-AWARE DEDUPE NEVER SAW AN ACKNOWLEDGEMENT. "On it" is
+  // posted with the App token, so its author is the App's login; the report
+  // looked for it under `github-actions[bot]`, found nothing, and deduped
+  // against the whole history — so a second run that failed the same way
+  // left "On it" standing, the case the dedupe was written for.
+  const { VALUES } = await import("./workflow-values.mjs");
+  const { loadConfig } = await import("./config.mjs");
+  const login = VALUES.app_bot_login(loadConfig());
+  const jobs = implJobs(WF("agent-implement.yml"));
+  const route = jobs.get("route");
+  const implement = jobs.get("implement");
+  const finish = jobs.get("finish");
+
+  // Who posts the acknowledgement: a token minted from the App, so the login
+  // the configuration names.
+  const ack = implement.steps.find((s) => /🤖 On it — implementing this issue/.test(s.script ?? ""));
+  assert.ok(ack, "no acknowledgement step");
+  const tokenId = /^\$\{\{\s*steps\.([\w-]+)\.outputs\.token\s*\}\}$/.exec(ack.githubToken ?? "")?.[1];
+  assert.ok(tokenId, `the acknowledgement posts with ${ack.githubToken ?? "the job token"}, not an App token`);
+  const mint = implement.steps.find((s) => s.id === tokenId);
+  assert.match(mint?.uses ?? "", /^actions\/create-github-app-token@/, "the acknowledgement's token is not the App's");
+
+  // Where the report learns that login: route's configuration read, straight
+  // into the report's env — not through implement, whose runner was the agent's.
+  const reporter = finish.steps.find((s) => s.name === "Report a run that ended without a PR");
+  assert.equal(implKey(reporter.lines, 10, "APP_BOT_LOGIN"), "${{ needs.route.outputs.app_bot_login }}");
+  assert.equal(route.outputs.app_bot_login, "${{ steps.cfg.outputs.app_bot_login }}");
+  assert.match(route.steps.find((s) => s.id === "cfg")?.run ?? "", /workflow-values\.mjs\b[^\n]*\bapp_bot_login\b/);
+
+  // And what it does with it, run against threads.
+  const MARKER = "<!-- agent-implement-no-pr:agent -->";
+  const report = { user: { login: "github-actions[bot]" }, body: `${MARKER}\n🛑 earlier report` };
+  const ackBy = (who) => ({ user: { login: who }, body: "🤖 On it — implementing this issue. [Run](x)" });
+  const posts = async (thread) => {
+    let posted = 0;
+    const github = {
+      rest: { pulls: { list: "pulls" }, issues: { listComments: "comments", createComment: async () => { posted++; } } },
+      paginate: async (what) => (what === "comments" ? thread : []),
+    };
+    const context = { payload: { issue: { number: 7 } }, repo: { owner: "o", repo: "r" }, serverUrl: "https://x", runId: 1 };
+    const env = { APP_SLUG: "app", TOOLCHAIN_STEPS: "t", APP_BOT_LOGIN: login, AGENT_OUTCOME: "success", STAGED: "success", PROTECTION: "success" };
+    await new AsyncFunction("github", "context", "core", "process", reporter.script)(github, context, { warning() {} }, { env });
+    return posted;
+  };
+  assert.equal(await posts([report, ackBy(login)]), 1, "a new run's acknowledgement after an old report must be answered");
+  assert.equal(await posts([ackBy(login), report]), 0, "a report already made since the acknowledgement must not be repeated");
+  // A report marker is believed only from this step's own login.
+  assert.equal(await posts([ackBy(login), { ...report, user: { login } }]), 1, "a marker under the App's login must not suppress the report");
+  // An "On it" from anyone else is not an acknowledgement: it must not open a
+  // window that hides the report already made since the real one.
+  assert.equal(await posts([ackBy(login), report, ackBy("someone")]), 0, "a look-alike acknowledgement must not reopen the window");
+});
+
+// --- agent-implement's trust boundary, run rather than read ---------------------
+//
+// THREE PROPERTIES THAT ARE ABOUT WHEN THINGS RUN, so they are checked by
+// running the job's conditions over every way the job can go, not by matching
+// the lines that state them. Each was looser here than in a copy that had
+// already tightened it, and each loosening was one ordinary-looking line:
+//
+//   - the agent's job token could comment on an issue, and that token reaches
+//     the agent (checkout persists it, and its post step runs after the agent);
+//   - the pre-agent token's revocation was `continue-on-error`, so the agent
+//     started beside a token that might still be live;
+//   - `finish` was keyed on the App check, which only IMPLIED that the
+//     commenter had passed the write-access check — one `if:` on a later step
+//     away from posting for a commenter the check refused.
+//
+// The simulation models the runner's rules and nothing more: a step with no
+// status function in its `if:` gets an implicit `success()`, a failure in a
+// `continue-on-error` step does not count as one, a step that does not run
+// reads `skipped`, and a job's outputs are read through its `outputs:` map.
+
+/** A job's or step's scalar key, a folded `>-` value joined onto one line. */
+function implKey(lines, indent, key) {
+  const re = new RegExp(`^(?: {${indent}}| {${indent - 2}}- )${key}:\\s*(.*?)\\s*$`);
+  const at = lines.findIndex((l) => re.test(l));
+  if (at < 0) return undefined;
+  const value = re.exec(lines[at])[1];
+  if (!/^[>|][+-]?$/.test(value)) return value.replace(/\s+#\s.*$/, "");
+  const more = [];
+  for (const l of lines.slice(at + 1)) {
+    if (l.trim() !== "" && /^(\s*)/.exec(l)[1].length <= indent) break;
+    more.push(l.trim());
+  }
+  return more.join(value.startsWith(">") ? " " : "\n").trim();
+}
+
+/** A `key:` block of `name: value` lines, or the scalar it was given instead. */
+function implMap(lines, indent, key) {
+  const at = lines.findIndex((l) => new RegExp(`^ {${indent}}${key}:`).test(l));
+  if (at < 0) return undefined;
+  const inline = new RegExp(`^ {${indent}}${key}:\\s*(.*?)\\s*(?:#.*)?$`).exec(lines[at])[1];
+  if (inline !== "") return inline;
+  const map = {};
+  for (const l of lines.slice(at + 1)) {
+    if (l.trim() === "") continue;
+    if (/^(\s*)/.exec(l)[1].length <= indent) break;
+    const m = /^\s*([\w-]+):\s*(.*?)\s*(?:\s#\s.*)?$/.exec(l);
+    if (m) map[m[1]] = m[2];
+  }
+  return map;
+}
+
+/** Every job of a workflow, its head keys and its steps. Full-line comments dropped. */
+function implJobs(text) {
+  const lines = text.split("\n").filter((l) => !/^\s*#/.test(l));
+  const jobs = new Map();
+  let cur = null;
+  for (const l of lines.slice(lines.findIndex((x) => /^jobs:\s*$/.test(x)) + 1)) {
+    const h = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(l);
+    if (h) jobs.set(h[1], (cur = { name: h[1], lines: [] }));
+    else if (cur) cur.lines.push(l);
+  }
+  for (const j of jobs.values()) {
+    const at = j.lines.findIndex((l) => /^ {4}steps:\s*$/.test(l));
+    const head = at < 0 ? j.lines : j.lines.slice(0, at);
+    j.if = implKey(head, 4, "if");
+    j.permissions = implMap(head, 4, "permissions");
+    j.outputs = implMap(head, 4, "outputs") ?? {};
+    j.needs = String(implKey(head, 4, "needs") ?? "").replace(/[[\]\s]/g, "").split(",").filter(Boolean);
+    const raw = [];
+    for (const l of at < 0 ? [] : j.lines.slice(at + 1)) {
+      if (/^ {6}- /.test(l)) raw.push([]);
+      raw.at(-1)?.push(l);
+    }
+    j.steps = raw.map((ls) => ({
+      lines: ls,
+      text: ls.join("\n"),
+      name: implKey(ls, 8, "name"),
+      id: implKey(ls, 8, "id"),
+      if: implKey(ls, 8, "if"),
+      uses: implKey(ls, 8, "uses"),
+      run: implKey(ls, 8, "run"),
+      // Anything but a literal `false` may evaluate true at run time, an
+      // expression included, so it counts as letting a failure through.
+      failOpen: ![undefined, "false"].includes(implKey(ls, 8, "continue-on-error")),
+      githubToken: implKey(ls, 10, "github-token"),
+      ghToken: implKey(ls, 10, "GH_TOKEN"),
+      script: implKey(ls, 10, "script"),
+    }));
+  }
+  return jobs;
+}
+
+/** Whether an `if:` admits, under the runner's rules. Throws on anything it does not model. */
+function implAdmits(cond, ctx) {
+  let c = String(cond ?? "").trim().replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, "$1");
+  if (c === "") c = "success()";
+  if (!/\b(?:always|success|failure|cancelled)\(\)/.test(c)) c = `success() && (${c})`;
+  const js = c
+    .replace(/\balways\(\)/g, "true")
+    .replace(/\bsuccess\(\)/g, "!FAILED")
+    .replace(/\bfailure\(\)/g, "FAILED")
+    .replace(/\bcancelled\(\)/g, "false")
+    .replace(/\bsteps\.([\w-]+)\.outcome\b/g, (_, id) => `OUT(${JSON.stringify(id)})`)
+    .replace(/\bsteps\.([\w-]+)\.outputs\.([\w-]+)/g, (_, id, k) => `STEP(${JSON.stringify(id)}, ${JSON.stringify(k)})`)
+    .replace(/\bneeds\.([\w-]+)\.outputs\.([\w-]+)/g, (_, j, k) => `NEED(${JSON.stringify(j)}, ${JSON.stringify(k)})`)
+    .replace(/\bgithub\.event_name\b/g, "EVENT")
+    .replace(/([^!=])==(?!=)/g, "$1===");
+  return Boolean(new Function("FAILED", "OUT", "STEP", "NEED", "EVENT", `return (${js});`)(
+    ctx.failed, ctx.out, ctx.step, ctx.need, ctx.event,
+  ));
+}
+
+/** One job run: which steps ran, how each ended, and the job's outputs. */
+function implRun(job, { event, configured = true, fails = -1, need = () => "", failed = false }) {
+  const outcome = [];
+  const byId = {};
+  const outputs = {};
+  for (const [i, s] of job.steps.entries()) {
+    const runs = implAdmits(s.if, {
+      failed,
+      event,
+      need,
+      out: (id) => byId[id] ?? "",
+      step: (id, k) => outputs[id]?.[k] ?? "",
+    });
+    const o = !runs ? "skipped" : i === fails ? "failure" : "success";
+    outcome.push(o);
+    if (s.id) byId[s.id] = o;
+    if (o === "failure" && !s.failOpen) failed = true;
+    if (o !== "success" || !s.id) continue;
+    // The App check writes one of two values; every other step's output is
+    // whatever its `echo "k=v" >> "$GITHUB_OUTPUT"` lines say.
+    if (s.id === "app") outputs.app = { configured: configured ? "true" : "false" };
+    else {
+      for (const m of String(s.run ?? "").matchAll(/echo "([\w-]+)=([^"$]*)" >> "\$GITHUB_OUTPUT"/g)) {
+        (outputs[s.id] ??= {})[m[1]] = m[2];
+      }
+    }
+  }
+  const jobOut = {};
+  for (const [k, v] of Object.entries(job.outputs)) {
+    const st = /^\$\{\{\s*steps\.([\w-]+)\.outputs\.([\w-]+)\s*\}\}$/.exec(v);
+    const oc = /^\$\{\{\s*steps\.([\w-]+)\.outcome\s*\}\}$/.exec(v);
+    jobOut[k] = st ? outputs[st[1]]?.[st[2]] ?? "" : oc ? byId[oc[1]] ?? "" : "";
+  }
+  return { outcome, failed, jobOut };
+}
+
+const IMPL_WRITES = /\bgithub\.rest\.\w+\.(?:create|update|delete|add|remove|set|lock|merge)\w*\(/;
+const IMPL_REVOKE = "gh api -X DELETE installation/token";
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+
+/**
+ * Which repository roles the write-access check's script fails the step for,
+ * by running it. A throw fails a github-script step as surely as `setFailed`.
+ */
+async function implRefusedRoles(script) {
+  const refused = [];
+  for (const permission of ["admin", "maintain", "write", "triage", "read", "none"]) {
+    let failed = false;
+    const core = { setFailed: () => { failed = true; }, info() {}, notice() {}, warning() {}, error() {}, setOutput() {} };
+    // The role belongs to the COMMENTER, in this repository; anyone else asked
+    // about — the issue's author, say — has none. A check that asks about the
+    // wrong person would otherwise read the commenter's role and pass.
+    const github = {
+      rest: {
+        repos: {
+          getCollaboratorPermissionLevel: async ({ owner, repo, username }) => ({
+            data: { permission: owner === "o" && repo === "r" && username === "someone" ? permission : "none" },
+          }),
+        },
+      },
+    };
+    const context = {
+      payload: { comment: { user: { login: "someone" } }, issue: { user: { login: "maintainer" } }, sender: { login: "maintainer" } },
+      repo: { owner: "o", repo: "r" },
+    };
+    try {
+      await new AsyncFunction("github", "context", "core", script)(github, context, core);
+    } catch {
+      failed = true;
+    }
+    if (failed) refused.push(permission);
+  }
+  return refused;
+}
+
+/** Every way agent-implement.yml leaves its trust boundary, as sentences; empty when it holds. */
+async function implementBoundaryProblems(text) {
+  const problems = new Set();
+  const jobs = implJobs(text);
+  const implement = jobs.get("implement");
+  const finish = jobs.get("finish");
+  if (!implement || !finish) return ["no implement or no finish job"];
+  const st = implement.steps;
+  const agentAt = st.findIndex((s) => /^anthropics\/claude-code-action@/.test(s.uses ?? ""));
+  const verifyAt = st.findIndex((s) => /getCollaboratorPermissionLevel/.test(s.script ?? ""));
+  const admittedAt = st.findIndex((s) => s.id === "admitted");
+  if (agentAt < 0 || verifyAt < 0) return ["the agent step or the write-access check is missing"];
+  // EVERY App token minted before the agent is either the agent's own narrow
+  // one or revoked before it starts. Not only `app-token`: a second mint added
+  // beside it lives into the agent's runtime through its action's post step.
+  const narrow = /steps\.([\w-]+)\.outputs\.token/.exec(st[agentAt].text.match(/^\s+github_token:.*$/m)?.[0] ?? "")?.[1];
+  // Action references are case-insensitive, so the match is too.
+  const mints = st.slice(0, agentAt).filter((s) => /^actions\/create-github-app-token@/i.test(s.uses ?? ""));
+  // THE KEY, ACROSS THE FILE. Every mention of the App's private key sits in
+  // a step that needs it: in `implement`, the presence check and the two
+  // mints; in `finish`, its own mint. Any other step — a `run:` that mints
+  // through the API, a local or third-party action — is a token the checks
+  // above never see, and a workflow- or job-level `env:` hands the key to
+  // every step, the agent's included, as a plain variable.
+  const KEY = /\bAGENT_APP_PRIVATE_KEY\b/g;
+  const KEY_STEPS = { implement: new Set(["app", "app-token", "agent-token"]), finish: new Set(["app-token"]) };
+  const keyed = [...jobs.values()].flatMap((j) => j.steps.filter((s) => KEY_STEPS[j.name]?.has(s.id)));
+  const allowed = keyed.reduce((n, s) => n + (s.text.match(KEY) ?? []).length, 0);
+  const everywhere = (text.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n").match(KEY) ?? []).length;
+  if (everywhere !== allowed) {
+    const where = [...jobs.values()].flatMap((j) => j.steps.filter((s) => /\bAGENT_APP_PRIVATE_KEY\b/.test(s.text) && !KEY_STEPS[j.name]?.has(s.id)).map((s) => `${j.name} "${s.name ?? s.id ?? s.uses}"`));
+    problems.add(`the App's private key is named outside the steps that mint with it${where.length ? `: ${where.join(", ")}` : " (a job- or workflow-level env)"}`);
+  }
+  // The agent's own condition names no status function: the implicit
+  // `success()` is what stops it after a failed revocation, and any explicit
+  // one (`always()`, `cancelled()`, even `success() || …`) can start it past one.
+  // Case-insensitive: expression function names are.
+  if (/\b(?:always|success|failure|cancelled)\s*\(\s*\)/i.test(st[agentAt].if ?? "")) problems.add(`the agent step's condition names a status function: ${st[agentAt].if}`);
+  if (!mints.some((m) => m.id === "app-token")) return ["the pre-agent mint is missing"];
+  for (const m of mints.filter((m) => m.id === narrow)) {
+    const asked = m.lines.map((l) => /^\s+permission-([a-z-]+):\s*(\S+)/.exec(l)).filter(Boolean).map((x) => `${x[1]}: ${x[2]}`);
+    if (asked.join() !== "contents: write") problems.add(`the agent's own token asks for ${asked.join(", ") || "the installation's full scope"}, not contents: write alone`);
+  }
+  // The pre-agent token writes nothing but issue comments. It never holds
+  // `contents: write` (the boundary table says so) or `pull-requests: write`
+  // (the approving half of the approve-and-merge pair). Reads are free: a new
+  // one is an ordinary change, not a guard edit.
+  for (const m of mints.filter((m) => m.id === "app-token")) {
+    const asked = m.lines.map((l) => /^\s+permission-([a-z-]+):\s*(\S+)/.exec(l)).filter(Boolean);
+    if (asked.length === 0) problems.add("the pre-agent token asks for the installation's full scope");
+    for (const [, scope, level] of asked) {
+      if (level === "read" || (scope === "issues" && level === "write")) continue;
+      const why = { contents: ", which the design says it never holds", "pull-requests": ", the approving half of approve-and-merge" }[scope] ?? "";
+      problems.add(`the pre-agent token asks for ${scope}: ${level}${why}; it may write issues and read anything`);
+    }
+  }
+  const wide = mints.filter((m) => m.id !== narrow).map((m) => {
+    const at = m.id ? st.findIndex((s) => /installation\/token/.test(s.run ?? "") && (s.ghToken ?? "") === `\${{ steps.${m.id}.outputs.token }}`) : -1;
+    return { mint: m, mintAt: st.indexOf(m), revokeAt: at };
+  });
+  for (const { mint, revokeAt } of wide) {
+    const name = mint.id ?? mint.name ?? "an unnamed mint";
+    if (revokeAt < 0) problems.add(`nothing revokes ${name} before the agent`);
+    // The one command, so its exit status is the revocation's: an `|| true`, a
+    // second command or a token swapped in through the shell all hide a failure.
+    else if (String(st[revokeAt].run).trim() !== IMPL_REVOKE) problems.add(`the revocation of ${name} runs \`${String(st[revokeAt].run).trim()}\`, not \`${IMPL_REVOKE}\` alone`);
+    if (revokeAt >= 0) {
+      // THE KEYS THAT CHANGE WHAT RUNS, refused. `shell:` can turn the command
+      // into an argument of something else, `working-directory:` and an extra
+      // `env:` change what it runs against, `continue-on-error:` and `uses:`
+      // stop it being this command's exit status at all; each leaves the step
+      // green and the token live. `id:`, `timeout-minutes:` and the like are
+      // ordinary and fail closed.
+      const r = st[revokeAt];
+      const keys = r.lines.map((l) => /^(?: {6}- | {8})([\w-]+):/.exec(l)?.[1]).filter(Boolean);
+      const env = r.lines.map((l) => /^ {10}([\w-]+):/.exec(l)?.[1]).filter(Boolean);
+      const denied = keys.filter((k) => ["shell", "working-directory", "continue-on-error", "uses", "with"].includes(k));
+      if (denied.length) problems.add(`the revocation of ${name} sets ${denied.join(", ")}`);
+      if (env.join() !== "GH_TOKEN") problems.add(`the revocation of ${name} has env [${env.join(", ")}], not GH_TOKEN alone`);
+    }
+  }
+  // The write-access check must FAIL the step for a role below write, or
+  // every commenter is admitted; it is run here, not read.
+  const refused = await implRefusedRoles(st[verifyAt].script ?? "");
+  if (refused.join() !== "triage,read,none") problems.add(`the write-access check fails the step for [${refused.join(", ")}], not for exactly the roles below write`);
+  if (st[verifyAt].failOpen) problems.add("the write-access check is continue-on-error, so a refusal admits");
+  const allSteps = [...jobs.values()].flatMap((j) => j.steps.map((s) => ({ job: j, s })));
+  const noApp = allSteps.find(({ s }) => /needs the (?:`' \+ APP_SLUG \+ '` GitHub App|' \+ APP \+ ',)/.test(s.script ?? ""));
+  const reporter = finish.steps.find((s) => s.name === "Report a run that ended without a PR");
+  if (!noApp) problems.add("nothing answers a commenter when the App is missing");
+  if (!reporter) problems.add("finish has no no-PR reporter");
+
+  // 1. The agent's job token reads only — declared, so nothing is inherited.
+  const perms = implement.permissions;
+  if (typeof perms !== "object") problems.add(`the implement job's token is ${perms === undefined ? "undeclared" : perms}, not a read-only list`);
+  else for (const [scope, level] of Object.entries(perms)) if (level !== "read") problems.add(`the implement job's token holds ${scope}: ${level}`);
+  // ...so no step there may write through it.
+  for (const s of st) {
+    if (/^actions\/github-script@/.test(s.uses ?? "") && !s.githubToken && IMPL_WRITES.test(s.script ?? "")) {
+      problems.add(`"${s.name ?? s.id}" writes with the implement job's own token`);
+    }
+    if (/(^|[\s;|&(])gh\s/.test(s.run ?? "") && !s.ghToken) problems.add(`"${s.name ?? s.id}" runs gh on the implement job's own token`);
+  }
+
+  // 2-4, by running the conditions. Every step of `implement` fails in turn,
+  // on both entry points, with and without the App.
+  for (const event of ["issue_comment", "workflow_dispatch"]) {
+    for (const configured of [true, false]) {
+      for (let fails = -1; fails < st.length; fails++) {
+        const failing = fails < 0 ? "nothing" : `"${st[fails].name ?? st[fails].id ?? st[fails].uses}"`;
+        const when = `when ${failing} fails (${event}, App ${configured ? "configured" : "missing"})`;
+        const run = implRun(implement, { event, configured, fails });
+        const o = run.outcome;
+        for (const { mint, mintAt, revokeAt } of wide) {
+          const name = mint.id ?? mint.name;
+          // 2. Fail-closed revocation: the agent starts only after it succeeded.
+          if (o[agentAt] !== "skipped" && o[mintAt] === "success") {
+            if (revokeAt < 0 || revokeAt > agentAt || o[revokeAt] !== "success") {
+              problems.add(`the agent starts with ${name}'s revocation ${revokeAt < 0 ? "absent" : revokeAt > agentAt ? "after it" : o[revokeAt]} ${when}`);
+            }
+          }
+          // ...and a token that was minted is revoked whatever failed after it.
+          if (o[mintAt] === "success" && fails !== revokeAt && (revokeAt < 0 || o[revokeAt] === "skipped")) {
+            problems.add(`${name} is left live ${when}`);
+          }
+        }
+        // 3. Admission: `finish` runs exactly for a commenter the check admitted.
+        const refused = event === "issue_comment" && fails === verifyAt;
+        const need = (j, k) => (j === "implement" ? run.jobOut[k] ?? "" : "");
+        const finishRuns = implAdmits(finish.if, { failed: run.failed, event, need, out: () => "", step: () => "" });
+        if (refused && finishRuns) problems.add(`finish runs for a commenter the write-access check refused ${when}`);
+        if (!refused && fails !== admittedAt && !finishRuns) problems.add(`finish does not run for an admitted commenter ${when}`);
+        if (!finishRuns) continue;
+        // 4. Inside it: the App-missing reply, and the reporter, each on its own side of the App check.
+        const fin = implRun(finish, { event, need });
+        const ran = (s) => s && fin.outcome[finish.steps.indexOf(s)] === "success";
+        const say = event === "issue_comment" && run.jobOut.configured === "false";
+        if (noApp && noApp.job === finish && ran(noApp.s) !== say) {
+          problems.add(`the App-missing reply ${say ? "is not posted" : "is posted"} ${when}`);
+        }
+        if (reporter && ran(reporter) && run.jobOut.configured !== "true") {
+          problems.add(`the no-PR reporter runs without the App and names a cause it did not see ${when}`);
+        }
+        if (reporter && event === "issue_comment" && configured && fails < 0 && !ran(reporter)) {
+          problems.add(`the no-PR reporter does not run ${when}`);
+        }
+      }
+    }
+  }
+  if (noApp && noApp.job !== finish) problems.add(`the App-missing reply is posted from job ${noApp.job.name}, not finish`);
+  if (noApp && noApp.job.permissions?.issues !== "write") problems.add("the App-missing reply's job cannot comment on an issue");
+
+  // 5. Nothing is spliced into code. `finish` reads what the implement job, on
+  // the runner the agent had, left behind; the dispatcher's issue number is
+  // free text. Both reach a script through `env:` only.
+  for (const j of [implement, finish]) {
+    for (const s of j.steps) {
+      if (/\$\{\{/.test(`${s.run ?? ""}\n${s.script ?? ""}`)) problems.add(`${j.name} "${s.name ?? s.id}" splices an expression into its script`);
+    }
+  }
+  // The dispatcher's issue number is checked as a number before any step
+  // takes it, in each job, and a failed check stops what would use it.
+  const NUMERIC = /case "\$(ISSUE(?:_NUMBER)?)" in\n\s*''\|\*\[!0-9\]\*\) [^\n]*exit 1 ;;/;
+  for (const j of [implement, finish]) {
+    // The check is of the number the steps use, not of whatever its env says.
+    const checkAt = j.steps.findIndex((s) => {
+      const m = NUMERIC.exec(s.run ?? "");
+      return m && !s.failOpen && implKey(s.lines, 10, m[1]) === "${{ github.event.issue.number || github.event.inputs.issue_number }}";
+    });
+    const firstUse = j.steps.findIndex((s, i) => i !== checkAt && /github\.event\.inputs\.issue_number/.test(s.text));
+    if (checkAt < 0) problems.add(`${j.name} never checks that the issue number is a number`);
+    else if (firstUse >= 0 && firstUse < checkAt) problems.add(`${j.name} "${j.steps[firstUse].name ?? j.steps[firstUse].id}" takes the issue number before it is checked`);
+  }
+  {
+    const checkAt = finish.steps.findIndex((s) => NUMERIC.test(s.run ?? ""));
+    const mint = finish.steps.findIndex((s) => s.id === "app-token");
+    const need = (j, k) => (j === "implement" ? ({ admitted: "true", configured: "true", staged: "success" })[k] ?? "" : "");
+    if (checkAt >= 0 && mint >= 0 && implRun(finish, { event: "workflow_dispatch", need, fails: checkAt }).outcome[mint] !== "skipped") {
+      problems.add("finish mints its token, and uses the issue number, after the number failed its check");
+    }
+  }
+
+  // 6. What `finish` takes from `implement`, whose outputs the agent's runner
+  // reports: outcomes and flags that pick between fixed messages, never text.
+  // The repository's words come from `route`, which the agent never had.
+  const OUTCOMES = new Set(["admitted", "configured", "protection", "staged", "agent"]);
+  for (const [k, v] of Object.entries(implement.outputs)) {
+    if (!OUTCOMES.has(k)) problems.add(`implement outputs ${k}, which is not one of its outcomes or flags`);
+    if (!/^\$\{\{\s*steps\.[\w-]+\.(?:outcome|outputs\.[\w-]+)\s*\}\}$/.test(v)) problems.add(`implement's output ${k} is ${v}, not a step's own outcome or output`);
+  }
+  for (const s of finish.steps) {
+    for (const [, k] of s.text.matchAll(/needs\.implement\.outputs\.([\w-]+)/g)) {
+      if (!OUTCOMES.has(k)) problems.add(`finish "${s.name ?? s.id}" reads ${k} from implement`);
+    }
+  }
+  if ([...finish.needs].sort().join() !== "implement,route") problems.add(`finish needs [${finish.needs.join(", ")}], not route and implement: the repository's words come from route`);
+  // Run the two comments with each value from `implement` set to text that
+  // must never be posted, and the App slug set to a forged marker.
+  const SENTINEL = "SENTINEL-FROM-IMPLEMENT";
+  const FORGED_SLUG = "x` <!-- agent-issue-help:fix --> @someone";
+  for (const step of [noApp?.s, reporter].filter(Boolean)) {
+    const fromImplement = step.lines.map((l) => /^ {10}([A-Z_]+):\s*\$\{\{\s*needs\.implement\.outputs\.[\w-]+\s*\}\}/.exec(l)?.[1]).filter(Boolean);
+    const cases = [
+      ...["success", "failure", "skipped", "cancelled"].map((o) => ({ AGENT_OUTCOME: o, STAGED: "success", PROTECTION: "success" })),
+      { AGENT_OUTCOME: "", STAGED: "failure", PROTECTION: "success" },
+      ...["failure", "skipped", "cancelled", ""].map((p) => ({ AGENT_OUTCOME: "", STAGED: "", PROTECTION: p })),
+    ].flatMap((base) => [
+      { ...base, APP_SLUG: FORGED_SLUG },
+      ...fromImplement.map((k) => ({ ...base, APP_SLUG: "app", [k]: SENTINEL })),
+    ]);
+    for (const env of cases) {
+      const bodies = [];
+      const github = {
+        rest: { pulls: { list: "pulls" }, issues: { listComments: "comments", createComment: async ({ body }) => { bodies.push(body); } } },
+        paginate: async () => [],
+      };
+      const context = { payload: { issue: { number: 7 } }, repo: { owner: "o", repo: "r" }, serverUrl: "https://x", runId: 1 };
+      try {
+        await new AsyncFunction("github", "context", "core", "process", step.script ?? "")(github, context, { warning() {} }, { env: { TOOLCHAIN_STEPS: "t", APP_BOT_LOGIN: "app[bot]", ...env } });
+      } catch (e) {
+        problems.add(`finish "${step.name}" throws when run: ${e.message}`);
+      }
+      for (const b of bodies) {
+        if (b.includes(SENTINEL)) problems.add(`finish "${step.name}" posts a value from implement as text`);
+        if (b.includes("agent-issue-help")) problems.add(`finish "${step.name}" posts an App slug it did not check`);
+        if (env.APP_SLUG === FORGED_SLUG && b.includes("`agent`")) problems.add(`finish "${step.name}" names its fallback as though it were an App`);
+      }
+    }
+  }
+
+  // 7. Finish runs main's scripts from a checkout that keeps no credential,
+  // and nothing in it lets what it downloaded steer a later step.
+  const checkouts = finish.steps.filter((s) => /^actions\/checkout@/.test(s.uses ?? ""));
+  if (checkouts.length !== 1) problems.add(`finish has ${checkouts.length} checkouts`);
+  for (const s of checkouts) {
+    if (implKey(s.lines, 10, "ref") !== "main") problems.add("finish checks out something other than main");
+    if (implKey(s.lines, 10, "persist-credentials") !== "false") problems.add("finish's checkout persists a credential");
+    if (implKey(s.lines, 10, "path") !== undefined) problems.add("finish checks main out beside the workspace, not into it");
+  }
+  for (const s of finish.steps) {
+    const where = `finish "${s.name ?? s.id ?? s.uses}"`;
+    if (/^\.\//.test(s.uses ?? "")) problems.add(`${where} runs a local action`);
+    for (const m of String(s.run ?? "").matchAll(/(?:^|[\s;|&(])node\s+(\S+)/g)) {
+      if (!/^scripts\/agent\/[\w-]+\.mjs$/.test(m[1])) problems.add(`${where} runs ${m[1]}, not one of main's scripts`);
+    }
+    if (/\bGITHUB_(?:ENV|PATH)\b/.test(s.run ?? "") || /\b(?:exportVariable|addPath)\b/.test(s.script ?? "")) {
+      problems.add(`${where} writes the environment or PATH of later steps`);
+    }
+    if (/\b(?:require|import)\s*\(/.test(s.script ?? "")) problems.add(`${where} loads a module from github-script`);
+  }
+  return [...problems];
+}
+
+test("agent-implement's token, revocation and finish gate hold when its conditions are run", skipWithout("agent-implement.yml"), async () => {
+  assert.deepEqual(await implementBoundaryProblems(WF("agent-implement.yml")), []);
+});
+
+test("agent-implement's trust boundary refuses each named loosening", skipWithout("agent-implement.yml"), async () => {
+  const text = WF("agent-implement.yml");
+  const REVOKE = "      - name: Revoke the pre-agent token\n        if: always() && steps.app-token.outcome == 'success'\n";
+  const AGENT = "      - name: Run Claude Code\n        if: steps.app.outputs.configured == 'true'\n";
+  const ADMIT = '      - name: Record that the commenter was admitted\n        id: admitted\n        run: echo "admitted=true" >> "$GITHUB_OUTPUT"\n';
+  const PERMS = "    permissions:\n      contents: read # the trusted checkout of the protection check\n";
+  const REVOKE_RUN = "        run: gh api -X DELETE installation/token\n";
+  const SETUP_NODE = "      - uses: actions/setup-node@v4\n        if: steps.app.outputs.configured == 'true'\n";
+  const VERIFY = "        if: github.event_name == 'issue_comment'\n        uses: actions/github-script@v7\n        with:\n          retries: 3\n          script: |\n            const actor";
+  const FINISH_IF = "    if: always() && needs.implement.outputs.admitted == 'true'\n";
+  const REPORTER = "        if: always() && github.event_name == 'issue_comment' && needs.implement.outputs.configured == 'true'\n";
+  const FINISH_CO = "          sparse-checkout-cone-mode: false\n          persist-credentials: false\n      - uses: actions/setup-node@v4\n        if: always() && needs.implement.outputs.staged == 'success'\n";
+  const SUMMARY = '          node scripts/agent/session-job-summary.mjs \\\n';
+  // The reply as it was, in the agent's job on its own token.
+  const NO_APP_IN_IMPLEMENT = [
+    "      - name: Say so, and stop",
+    "        if: steps.app.outputs.configured != 'true' && github.event_name == 'issue_comment'",
+    "        uses: actions/github-script@v7",
+    "        with:",
+    "          script: |",
+    "            await github.rest.issues.createComment({ owner: 'o', repo: 'r', issue_number: 1, body: 'x' });",
+    "",
+  ].join("\n");
+  const edits = {
+    // (a) the job token
+    job_token_issues_write: [PERMS, `${PERMS}      issues: write\n`],
+    job_token_inherited: [PERMS, ""],
+    job_token_write_all: [PERMS, "    permissions: write-all\n"],
+    ambient_comment_in_implement: [ADMIT, `${ADMIT}${NO_APP_IN_IMPLEMENT}`],
+    // (b) the revocation
+    revoke_fail_open: [REVOKE, `${REVOKE}        continue-on-error: true\n`],
+    revoke_fail_open_expression: [REVOKE, `${REVOKE}        continue-on-error: \${{ true }}\n`],
+    revoke_or_true: [REVOKE_RUN, "        run: gh api -X DELETE installation/token || true\n"],
+    revoke_through_another_variable: [REVOKE_RUN, "        run: GH_TOKEN=$GITHUB_TOKEN gh api -X DELETE installation/token\n"],
+    key_in_workflow_env: ["env:\n  GH_REPO: ${{ github.repository }}\n", "env:\n  GH_REPO: ${{ github.repository }}\n  K: ${{ secrets.AGENT_APP_PRIVATE_KEY }}\n"],
+    key_in_implement_env: ["    environment: agent\n    permissions:\n      contents: read #", "    environment: agent\n    env:\n      K: ${{ secrets.AGENT_APP_PRIVATE_KEY }}\n    permissions:\n      contents: read #"],
+    key_in_agent_step_env: ["      - name: Run Claude Code\n", "      - name: Run Claude Code\n        env:\n          K: ${{ secrets.AGENT_APP_PRIVATE_KEY }}\n"],
+    key_in_finish_step: ["      - name: Write implement session job summary\n", "      - name: Write implement session job summary\n        env:\n          K: ${{ secrets.AGENT_APP_PRIVATE_KEY }}\n"],
+    second_mint_unrevoked: [SETUP_NODE, `      - name: Extra token\n        id: extra-token\n        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0\n        with:\n          app-id: \${{ secrets.AGENT_APP_ID }}\n          private-key: \${{ secrets.AGENT_APP_PRIVATE_KEY }}\n          permission-issues: write\n${SETUP_NODE}`],
+    agent_token_widened: ["          permission-contents: write # commit and push the branch, and nothing else\n", "          permission-contents: write # commit and push the branch, and nothing else\n          permission-issues: write\n"],
+    verify_warns_only: ["core.setFailed(`@${actor} lacks write access", "core.warning(`@${actor} lacks write access"],
+    verify_fail_open_expression: [VERIFY, VERIFY.replace("        uses:", "        continue-on-error: ${{ true }}\n        uses:")],
+    pre_agent_token_widened: ["          permission-issues: write # answer on the issue\n", "          permission-issues: write # answer on the issue\n          permission-pull-requests: write\n          permission-contents: write\n"],
+    pre_agent_token_contents_write: ["          permission-issues: write # answer on the issue\n", "          permission-issues: write # answer on the issue\n          permission-contents: write\n"],
+    // Anchored on the step, not on neighbouring lines, so an ordinary key added to it does not move the anchor.
+    revoke_extra_env: (t) => t.replace(/( {6}- name: Revoke the pre-agent token\n(?: {8}.*\n)*? {10}GH_TOKEN: [^\n]*\n)/, "$1          GH_HOST: example.invalid\n"),
+    number_check_of_a_constant: (t) => t.replace("      - name: Check the issue number\n        env:\n          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}\n", "      - name: Check the issue number\n        env:\n          ISSUE_NUMBER: 1\n"),
+    revoke_through_another_shell: [REVOKE_RUN, `        shell: true {0}\n${REVOKE_RUN}`],
+    revoke_elsewhere: [REVOKE_RUN, `        working-directory: /tmp\n${REVOKE_RUN}`],
+    key_in_a_run_step: [SETUP_NODE, `      - name: Mint by hand\n        env:\n          KEY: \${{ secrets.AGENT_APP_PRIVATE_KEY }}\n        run: node -e 1\n${SETUP_NODE}`],
+    mint_mixed_case: [SETUP_NODE, `      - name: Extra token\n        id: extra-token\n        uses: Actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0\n        with:\n          app-id: \${{ secrets.AGENT_APP_ID }}\n          private-key: \${{ secrets.AGENT_APP_PRIVATE_KEY }}\n          permission-issues: write\n${SETUP_NODE}`],
+    mint_local_action: [SETUP_NODE, `      - name: Extra token\n        id: extra-token\n        uses: ./.github/actions/app-token\n        with:\n          app-id: \${{ secrets.AGENT_APP_ID }}\n          private-key: \${{ secrets.AGENT_APP_PRIVATE_KEY }}\n${SETUP_NODE}`],
+    agent_success_or_cancelled: [AGENT, "      - name: Run Claude Code\n        if: (success() || cancelled()) && steps.app.outputs.configured == 'true'\n"],
+    agent_explicit_success: [AGENT, "      - name: Run Claude Code\n        if: success() && steps.app.outputs.configured == 'true'\n"],
+    verify_asks_about_someone_else: (t) => t.replace("repo: context.repo.repo, username: actor,", "repo: context.repo.repo, username: context.payload.issue?.user?.login ?? actor,"),
+    revoke_never: [REVOKE, "      - name: Revoke the pre-agent token\n        if: false\n"],
+    revoke_only_with_the_agent: [REVOKE, "      - name: Revoke the pre-agent token\n        if: steps.app.outputs.configured == 'true'\n"],
+    revoke_removed: (t) => t.replace(/ {6}- name: Revoke the pre-agent token\n(?: {8}.*\n)+/, ""),
+    agent_always: [AGENT, "      - name: Run Claude Code\n        if: always() && steps.app.outputs.configured == 'true'\n"],
+    agent_not_cancelled: [AGENT, "      - name: Run Claude Code\n        if: ${{ !cancelled() && steps.app.outputs.configured == 'true' }}\n"],
+    // (c) admission
+    finish_on_the_app_check: [FINISH_IF, "    if: always() && needs.implement.outputs.configured == 'true'\n"],
+    finish_ungated: [FINISH_IF, "    if: always()\n"],
+    finish_not_always: [FINISH_IF, "    if: needs.implement.outputs.admitted == 'true'\n"],
+    admitted_always: [ADMIT, ADMIT.replace("        id: admitted\n", "        id: admitted\n        if: always()\n")],
+    admitted_removed: [ADMIT, ""],
+    admitted_before_the_check: (t) => t.replace(ADMIT, "").replace("      - name: Verify actor has write access\n", `${ADMIT}      - name: Verify actor has write access\n`),
+    // the two comments `finish` now carries
+    reporter_without_the_app: [REPORTER, "        if: always() && github.event_name == 'issue_comment'\n"],
+    // `!= 'true'` also fires when the App check never ran, which is not a missing App.
+    no_app_reply_on_empty: ["          needs.implement.outputs.configured == 'false' &&\n", "          needs.implement.outputs.configured != 'true' &&\n"],
+    // finish's own hygiene
+    finish_persists: [FINISH_CO, FINISH_CO.replace("persist-credentials: false", "persist-credentials: true")],
+    finish_runs_output: [SUMMARY, '          node "$RUNNER_TEMP/agent-output/x.mjs" \\\n'],
+    finish_github_env: [SUMMARY, `          echo "NODE_OPTIONS=x" >> "$GITHUB_ENV"\n${SUMMARY}`],
+    // what finish takes from implement, whose runner was the agent's
+    finish_reads_slug_from_implement: [
+      "      agent: ${{ steps.agent.outcome }}\n",
+      "      agent: ${{ steps.agent.outcome }}\n      app_slug: ${{ needs.route.outputs.app_slug }}\n",
+    ],
+    reporter_slug_through_implement: ["          APP_SLUG: ${{ needs.route.outputs.app_slug }}\n          TOOLCHAIN_STEPS", "          APP_SLUG: ${{ needs.implement.outputs.app_slug }}\n          TOOLCHAIN_STEPS"],
+    finish_without_route: (t) => t.replace(/^( {2}finish:\n {4}needs: )\[[^\]]*\]$/m, "$1[implement]"),
+    reporter_posts_outcome: ["${agentOutcome === 'failure' ? 'failed' : 'ended'}", "${agentOutcome}"],
+    reporter_slug_unchecked: ["            const app = /^[a-z0-9][a-z0-9-]*$/.test(process.env.APP_SLUG ?? '') ? `\\`${process.env.APP_SLUG}\\` GitHub App` : 'agent GitHub App';", "            const app = `\\`${process.env.APP_SLUG}\\` GitHub App`;"],
+    no_app_slug_unchecked: ["            const APP = /^[a-z0-9][a-z0-9-]*$/.test(process.env.APP_SLUG ?? '')\n              ? '`' + process.env.APP_SLUG + '` GitHub App' : 'agent GitHub App';", "            const APP = '`' + process.env.APP_SLUG + '` GitHub App';"],
+    // what crosses into a script, and when the issue number is trusted
+    finish_splices_output: ["            const agentOutcome = process.env.AGENT_OUTCOME;", "            const agentOutcome = '${{ needs.implement.outputs.agent }}';"],
+    implement_splices_issue: ["            const issue = Number(process.env.ISSUE_NUMBER);", "            const issue = Number(context.payload.issue?.number || '${{ github.event.inputs.issue_number }}');"],
+    implement_number_unchecked: [`          case "$ISSUE_NUMBER" in\n            ''|*[!0-9]*) echo "Invalid issue number: '$ISSUE_NUMBER'" >&2; exit 1 ;;\n          esac\n\n      - name: Is`, "          true\n\n      - name: Is"],
+    finish_mint_ignores_check: ["        if: always() && needs.implement.outputs.staged == 'success' && steps.issue.outcome == 'success'\n", "        if: always() && needs.implement.outputs.staged == 'success'\n"],
+  };
+  for (const [name, edit] of Object.entries(edits)) {
+    let edited;
+    if (typeof edit === "function") edited = edit(text);
+    else {
+      assert.equal(text.split(edit[0]).length, 2, `${name}: the anchor is not unique`);
+      edited = text.replace(edit[0], edit[1]);
+    }
+    assert.notEqual(edited, text, `${name} changed nothing`);
+    assert.ok((await implementBoundaryProblems(edited)).length > 0, `${name} was accepted`);
+  }
+});
+
+test("agent-implement's trust boundary accepts ordinary edits", skipWithout("agent-implement.yml"), async () => {
+  // A guard that refuses every change is one a maintainer learns to edit
+  // around. These are ordinary and fail closed, so each must pass as it is.
+  const text = WF("agent-implement.yml");
+  const REVOKE = "      - name: Revoke the pre-agent token\n        if: always() && steps.app-token.outcome == 'success'\n";
+  const edits = {
+    revoke_gets_an_id: [REVOKE, `${REVOKE}        id: revoke\n`],
+    revoke_gets_a_timeout: [REVOKE, `${REVOKE}        timeout-minutes: 2\n`],
+    pre_agent_token_reads_more: ["          permission-issues: write # answer on the issue\n", "          permission-issues: write # answer on the issue\n          permission-metadata: read\n"],
+    finish_needs_reordered: (t) => t.replace(/^( {2}finish:\n {4}needs: )\[([^,\]]+), ([^\]]+)\]$/m, "$1[$3, $2]"),
+  };
+  for (const [name, edit] of Object.entries(edits)) {
+    let edited;
+    if (typeof edit === "function") edited = edit(text);
+    else {
+      assert.equal(text.split(edit[0]).length, 2, `${name}: the anchor is not unique`);
+      edited = text.replace(edit[0], edit[1]);
+    }
+    assert.notEqual(edited, text, `${name} changed nothing`);
+    assert.deepEqual(await implementBoundaryProblems(edited), [], `${name} was refused`);
+  }
+});
+
+test("agent-implement's two agent-branch lookups keep their approved form", skipWithout("agent-implement.yml"), () => {
+  // `pulls.list` returns fork PRs with a bare `head.ref`. Matching on the name
+  // alone lets any outside contributor open a PR from `agent/42-anything` and
+  // permanently refuse `@claude fix` on issue #42 — an unauthenticated denial of
+  // the verb — while the reporter reads the same PR as proof the run succeeded.
+  //
+  // ALLOW-LIST, for the same reason as the guard above. Two earlier versions
+  // counted guard DEFINITIONS (a mutation deleting the guard from the call site
+  // passed) and then required the token plus `&&` at the call site (mutations
+  // making the helper `=> true`, or `… || true`, or a self-comparing tautology
+  // all passed — the token was present and constrained nothing). A predicate can
+  // be neutered in more ways than a test can enumerate, so the predicates are
+  // pinned verbatim instead.
+  const wf = WF("agent-implement.yml");
+  const REQUIRED = [
+    "            const mineRepo = (p) => p.head?.repo?.full_name === `${owner}/${repo}`;",
+    "            const open = prs.find((p) => mineRepo(p) && (p.head?.ref || '').startsWith(`agent/${issue}-`));",
+    "              pr = prs.find((p) =>",
+    "                p.head?.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`",
+    "                && (p.head?.ref || '').startsWith(`agent/${issue}-`)) ?? null;",
+  ];
+  const lines = wf.split("\n");
+  for (const required of REQUIRED) {
+    assert.ok(
+      lines.includes(required),
+      `the agent-branch lookup no longer matches its approved form:\n  expected: ${required}\n` +
+        "if this needs to change, change REQUIRED here in the same commit and say why",
+    );
+  }
+  // Both lookups, and no third one that skipped the guard entirely. Counted by
+  // the BRANCH PREFIX rather than by one spelling of it: a third lookup written
+  // as `'agent/' + issue + '-'` is the same defect and left this at two.
+  const lookups = lines.filter((l) => /agent\/(?:\$\{issue\}|' \+ issue \+ ')-/.test(l) && /startsWith|indexOf/.test(l));
+  assert.equal(lookups.length, 2, `expected exactly two agent-branch lookups, found ${lookups.length}`);
+
+  // HONEST LIMIT, recorded here rather than implied by the test's name. This
+  // pins the text of two predicates. It cannot see a redefinition of `owner`,
+  // `repo` or `mineRepo` elsewhere in the same script, nor a loop that rewrites
+  // `p.head.repo` before the lookup runs. A reviewer changing this file's PR
+  // lookups should read them, not trust this green.
+  // Scoped to the step that USES it. A file-wide match passed a mutation that
+  // rebound `repo` in the pre-flight step alone, because the help job's identical
+  // line kept the assertion green.
+  const preflightAt = wf.indexOf("- name: Refuse if this issue already has an agent branch");
+  assert.ok(preflightAt > 0, "the collision pre-flight step is gone");
+  const preflightEnd = wf.indexOf("\n      - name:", preflightAt + 1);
+  const preflight = wf.slice(preflightAt, preflightEnd > 0 ? preflightEnd : wf.length);
+  assert.ok(
+    preflight.includes("const { owner, repo } = context.repo;"),
+    "`mineRepo` compares against `owner`/`repo` from context; rebinding them defeats it silently",
+  );
+});
+
+// THE `agent/<issue>-*` RULE, AND THE COPIES OF IT. The question is asked in
+// three places — the collision pre-flight and the no-PR reporter inside
+// `agent-implement.yml`, and `metrics.mjs::resolvePrByIssue`, which that job
+// shells out to — and the third had no same-repo guard at all, so the effort
+// record could land on an outside contributor's fork PR. `isAgentPrHead` is now
+// the one rule.
+//
+// Split in two deliberately. The rule itself ships in `metrics.mjs` and is
+// exercised unconditionally below; only the agreement of the two YAML copies
+// depends on a workflow this repository does not install. Folding them together
+// would have made the shipped helper's only test skip with the deferred verb.
+const AGENT_PR_CASES = (() => {
+  const OWNER = "yorkie-team", REPO = "yorkie";
+  const pr = (number, ref, full_name) => ({ number, head: { ref, repo: { full_name } } });
+  const ours = (n, ref) => pr(n, ref, `${OWNER}/${REPO}`);
+  const fork = (n, ref) => pr(n, ref, `someone-else/${REPO}`);
+  return {
+    OWNER,
+    REPO,
+    CASES: [
+      { name: "our agent branch for this issue", prs: [ours(1, "agent/42-thing")], want: 1 },
+      // The denial-of-verb / false-success case: anyone may push this name to a fork.
+      { name: "a fork branch with the same name", prs: [fork(2, "agent/42-thing")], want: null },
+      { name: "a fork first, ours second", prs: [fork(2, "agent/42-x"), ours(3, "agent/42-y")], want: 3 },
+      { name: "a different issue that shares a prefix", prs: [ours(4, "agent/420-thing")], want: null },
+      { name: "the bare issue number with no slug", prs: [ours(5, "agent/42")], want: null },
+      { name: "an unrelated branch", prs: [ours(6, "feat/whatever")], want: null },
+      { name: "no open PRs at all", prs: [], want: null },
+    ],
+  };
+})();
+
+test("metrics.mjs::isAgentPrHead is the one agent-branch rule, and runs", async () => {
+  const { isAgentPrHead } = await import("./metrics.mjs");
+  const { OWNER, REPO, CASES } = AGENT_PR_CASES;
+
+  for (const c of CASES) {
+    const shared = c.prs.find((p) =>
+      isAgentPrHead({ sameRepo: p.head.repo.full_name === `${OWNER}/${REPO}`, headRefName: p.head.ref }, 42),
+    );
+    assert.equal(shared?.number ?? null, c.want, `metrics.mjs::isAgentPrHead disagrees on: ${c.name}`);
+  }
+
+  // An unknown head repository is not a same-repo one — this is what
+  // resolvePrByIssue relies on when `gh` does not emit `isCrossRepository`.
+  assert.equal(isAgentPrHead({ headRefName: "agent/42-thing" }, 42), false);
+  assert.equal(isAgentPrHead({ sameRepo: "yes", headRefName: "agent/42-thing" }, 42), false);
+  assert.equal(isAgentPrHead({ sameRepo: true, headRefName: "agent/42-thing" }, 42), true);
+
+  // And the `--json` field that feeds it must still be requested, or every
+  // lookup there fails closed and no metrics are ever recorded.
+  const metrics = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "metrics.mjs"), "utf8");
+  assert.match(metrics, /number,headRefName,isCrossRepository/, "resolvePrByIssue must ask gh for the head repo");
+});
+
+test(
+  "agent-implement's inline PR lookups agree with metrics.mjs on the same fixtures",
+  skipWithout("agent-implement.yml"),
+  async () => {
+    const { isAgentPrHead } = await import("./metrics.mjs");
+    const wf = WF("agent-implement.yml");
+    const lines = wf.split("\n");
+
+    const grab = (needle) => {
+      const l = lines.find((x) => x.includes(needle));
+      assert.ok(l, `agent-implement.yml no longer contains: ${needle}`);
+      return l.slice(12);
+    };
+    const preflight = new Function(
+      "prs",
+      "owner",
+      "repo",
+      "issue",
+      `${grab("const mineRepo = (p) =>")}\n${grab("const open = prs.find((p) => mineRepo(p)")}\nreturn open ?? null;`,
+    );
+    const reporterSrc = lines
+      .slice(lines.findIndex((l) => l.includes("pr = prs.find((p) =>")))
+      .slice(0, 3)
+      .map((l) => l.slice(12))
+      .join("\n");
+    assert.match(reporterSrc, /\?\? null;$/, "could not extract the reporter's lookup");
+    const reporter = new Function("prs", "context", "issue", `let pr;\n${reporterSrc}\nreturn pr;`);
+
+    const { OWNER, REPO, CASES } = AGENT_PR_CASES;
+    for (const c of CASES) {
+      assert.equal(preflight(c.prs, OWNER, REPO, 42)?.number ?? null, c.want, `pre-flight disagrees on: ${c.name}`);
+      assert.equal(
+        reporter(c.prs, { repo: { owner: OWNER, repo: REPO } }, 42)?.number ?? null,
+        c.want,
+        `reporter disagrees on: ${c.name}`,
+      );
+      const shared = c.prs.find((p) =>
+        isAgentPrHead({ sameRepo: p.head.repo.full_name === `${OWNER}/${REPO}`, headRefName: p.head.ref }, 42),
+      );
+      assert.equal(shared?.number ?? null, c.want, `metrics.mjs::isAgentPrHead disagrees on: ${c.name}`);
+    }
+  },
+);
+
+
+test("no agent is handed a token that can approve a pull request", () => {
+  // THE ONLY HUMAN CONTROL IN THIS PIPELINE IS A REQUIRED APPROVAL ON `main`,
+  // and `contents: write` + `pull-requests: write` in ONE token is the pair that
+  // supplies it: submit an approving review, then merge. GitHub refuses only an
+  // approval of a PR the same identity authored, and this App authors almost
+  // none of them.
+  //
+  // The agent reaches that token two ways, both one `Bash` call wide: the action
+  // is handed it as `github_token`, and `actions/checkout` writes whatever token
+  // it is given into `.git/config`, where `git config --get
+  // http.https://github.com/.extraheader` reads it back.
+  //
+  // Nothing mechanical held this. The mint guard next door checks SHA-pinning,
+  // narrowing and the absence of `workflows` — none of which sees the pair. A
+  // review found it by reading four workflows; this finds it by construction.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const offenders = [];
+  let checked = 0;
+
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+
+    // Every mint, by step id, with the permissions it asks for.
+    const mints = new Map();
+    for (let i = 0; i < lines.length; i++) {
+      if (!/create-github-app-token@/.test(lines[i])) continue;
+      let from = i;
+      while (from > 0 && !/^ {6}- /.test(lines[from])) from--;
+      let to = i + 1;
+      while (to < lines.length && !/^ {6}- /.test(lines[to])) to++;
+      const step = lines.slice(from, to).filter((l) => !/^\s*#/.test(l));
+      const id = /^\s+id:\s*(\S+)/m.exec(step.join("\n"))?.[1];
+      if (!id) continue;
+      mints.set(id, {
+        contents: step.some((l) => /^\s+permission-contents:\s*write/.test(l)),
+        pulls: step.some((l) => /^\s+permission-pull-requests:\s*write/.test(l)),
+      });
+    }
+    if (mints.size === 0) continue;
+
+    // Where an agent can read one: the action's `github_token`, and any
+    // `actions/checkout` that is given a token without `persist-credentials: false`.
+    const reachable = [];
+    for (let i = 0; i < lines.length; i++) {
+      const tok = /steps\.([A-Za-z0-9_-]+)\.outputs\.token/.exec(lines[i]);
+      if (!tok) continue;
+      if (/github_token:/.test(lines[i])) {
+        reachable.push({ id: tok[1], why: "handed to claude-code-action", line: i + 1 });
+        continue;
+      }
+      if (!/^\s+token:/.test(lines[i])) continue;
+      let from = i;
+      while (from > 0 && !/^ {6}- /.test(lines[from])) from--;
+      let to = i + 1;
+      while (to < lines.length && !/^ {6}- /.test(lines[to])) to++;
+      const step = lines.slice(from, to);
+      if (!step.some((l) => /actions\/checkout@/.test(l))) continue;
+      if (step.some((l) => /persist-credentials:\s*false/.test(l))) continue;
+      reachable.push({ id: tok[1], why: "persisted into .git/config by checkout", line: i + 1 });
+    }
+
+    // A CHECKOUT GIVEN NO TOKEN PERSISTS THE AMBIENT ONE, and the job's own
+    // `permissions:` decide what that can do. This is the same defect by a
+    // second route, and the mint-walking above cannot see it: there is no
+    // `steps.<id>.outputs.token` to follow.
+    for (let i = 0; i < lines.length; i++) {
+      if (!/actions\/checkout@/.test(lines[i])) continue;
+      let to = i + 1;
+      while (to < lines.length && !/^ {6}- /.test(lines[to])) to++;
+      const step = lines.slice(i, to);
+      if (step.some((l) => /^\s+token:/.test(l))) continue; // explicit; handled above
+      if (step.some((l) => /persist-credentials:\s*false/.test(l))) continue;
+      // Which job is this, and what did it grant itself?
+      let j = i;
+      while (j > 0 && !/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[j])) j--;
+      let end = j + 1;
+      while (end < lines.length && !/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[end])) end++;
+      const job = lines.slice(j, end).filter((l) => !/^\s*#/.test(l));
+      const contents = job.some((l) => /^ {6}contents:\s*write/.test(l));
+      const pulls = job.some((l) => /^ {6}pull-requests:\s*write/.test(l));
+      if (!job.some((l) => /claude-code-action@/.test(l))) continue; // no agent in this job
+      checked++;
+      if (contents && pulls) {
+        offenders.push(
+          `${file}:${i + 1} ${lines[j].trim()} persists the AMBIENT token, and the job grants ` +
+            "contents+pull-requests write",
+        );
+      }
+    }
+
+    for (const { id, why, line } of reachable) {
+      const mint = mints.get(id);
+      if (!mint) continue; // not one of this file's mints
+      checked++;
+      if (mint.contents && mint.pulls) {
+        offenders.push(`${file}:${line} steps.${id} (${why}) can approve AND merge`);
+      }
+    }
+  }
+
+  assert.ok(checked > 0, "no agent-reachable token found — this guard would be vacuous");
+  assert.deepEqual(
+    offenders,
+    [],
+    "these tokens are reachable by an agent and carry contents+pull-requests write:\n  " +
+      offenders.join("\n  "),
+  );
+});
+
+test("the trusted job posts disputes before the report it counts them in", () => {
+  // The report's "Disputed (n)" is counted when the TRUSTED job republishes it,
+  // from the dispute comments already on the PR — so the disputes have to be
+  // posted first, or the report says nothing was disputed on exactly the round
+  // where something was. Pinned in both jobs that post a fixer's output.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  for (const file of ["agent-fix.yml", "agent-review-panel.yml"]) {
+    const wf = readFileSync(path.join(dir, file), "utf8");
+    const disputes = wf.indexOf("run: node scripts/agent/rebuttal.mjs republish");
+    const report = wf.indexOf("run: node scripts/agent/fix-report.mjs republish");
+    assert.ok(disputes > 0 && report > 0, `${file}: both must be republished by the trusted job`);
+    assert.ok(disputes < report, `${file}: the disputes must be posted before the report that counts them`);
+  }
+});
+
+
+test("no `gh` invocation runs on node's default 1 MiB buffer", () => {
+  // IT GETS MORE LIKELY THE LONGER A PR IS REVIEWED, which is exactly backwards.
+  // `gh api --paginate` over a PR's comments grows with the thread, and node's
+  // default `maxBuffer` is 1 MiB. Past it `execFileSync` throws ENOBUFS — not an
+  // API error, not an empty result, a crash — and the caller reports it as
+  // whatever its own failure means.
+  //
+  // On #2026 that was `review-round-guard.mjs` dying and the pipeline announcing
+  // "the fixer agent failed, and the branch head is unchanged", then writing the
+  // terminal paged latch. The fixer had not failed; it never ran. Nine call
+  // sites across seven modules shared the defect.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE);
+  const offenders = [];
+
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"))) {
+    const src = readFileSync(path.join(dir, file), "utf8");
+    for (const m of src.matchAll(/execFileSync\(\s*"gh"\s*,/g)) {
+      // Read to the end of this call's argument list.
+      const seg = src.slice(m.index, m.index + 400);
+      const end = seg.indexOf(");");
+      const call = end > 0 ? seg.slice(0, end) : seg;
+      if (!/maxBuffer/.test(call)) {
+        offenders.push(`${file}:${src.slice(0, m.index).split("\n").length}`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `these \`gh\` calls run on the default 1 MiB buffer and will ENOBUFS on a busy PR:\n  ${offenders.join("\n  ")}`,
+  );
+});
+
+test("in a job that runs a pushing agent, nothing after the agent but the handoff", () => {
+  // THE AGENT OWNS THE REST OF ITS JOB. Its unrestricted `Bash` inherits
+  // `$GITHUB_ENV` and `$GITHUB_PATH`, which the runner applies to every LATER
+  // step of the same job, and it can rewrite `~/.gitconfig`, `~/.npmrc` and the
+  // workspace's `.git/config` (`remote.origin.url = ext::sh -c …` is command
+  // execution for the next `git` that reads it). Re-staging scripts from a fresh
+  // checkout protected the files and not the process that ran them, so every
+  // "trusted" post-agent step holding the wide token ran on the agent's terms.
+  //
+  // So the rule is structural: after the agent step, a pushing job may only hand
+  // its output across as an artifact. Anything that posts, discloses, pages or
+  // records runs in a separate job on a fresh runner.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  let checked = 0;
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+    const starts = [];
+    for (let i = jobsAt + 1; i < lines.length; i++) if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[i])) starts.push(i);
+    for (let j = 0; j < starts.length; j++) {
+      const job = lines.slice(starts[j], starts[j + 1] ?? lines.length);
+      const code = job.filter((l) => !/^\s*#/.test(l));
+      if (!code.some((l) => l.includes("anthropics/claude-code-action@"))) continue;
+      if (!code.some((l) => /^\s+permission-contents: write/.test(l))) continue;
+      checked++;
+      const id = job[0].trim();
+      const stepAt = [];
+      for (let i = 0; i < job.length; i++) if (/^ {6}- /.test(job[i])) stepAt.push(i);
+      const steps = stepAt.map((s, k) => job.slice(s, stepAt[k + 1] ?? job.length).filter((l) => !/^\s*#/.test(l)));
+      const agentIdx = steps.findIndex((st) => st.some((l) => l.includes("anthropics/claude-code-action@")));
+      const after = steps.slice(agentIdx + 1);
+      assert.ok(after.length >= 1, `${file} ${id}: the agent's output must be handed to a trusted job`);
+      for (const st of after) {
+        assert.ok(
+          st.some((l) => /uses: actions\/upload-artifact@/.test(l)),
+          `${file} ${id}: "${st[0].trim()}" runs after the agent in the agent's own job`,
+        );
+        assert.ok(!st.some((l) => /^\s+run:/.test(l)), `${file} ${id}: a post-agent step must not run a command`);
+      }
+      // And nothing in the job mints or uses the wide App token after that point
+      // — the only App token minted in a pushing agent job is the narrow one.
+      assert.ok(
+        !code.some((l) => l.includes("steps.app-token.outputs.token")) ||
+          steps.slice(agentIdx).every((st) => !st.some((l) => l.includes("steps.app-token.outputs.token"))),
+        `${file} ${id}: the wide App token is used after the agent`,
+      );
+    }
+  }
+  assert.ok(checked >= 5, `expected every pushing agent job to be checked, got ${checked}`);
+});
+
+test("every step of a trusted post-agent job survives a cancelled run", () => {
+  // These jobs are `always()` so they start even when the run was cancelled —
+  // the fixer's own push supersedes the panel run, and a fix job's wall
+  // reports `cancelled`. But inside such a job a step on the default
+  // `success()` is SKIPPED in a cancelled run (see close-stuck-checks), so a
+  // setup step without `always()` silently turned the whole report into a
+  // no-op on exactly the runs it exists for.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const JOBS = {
+    "agent-fix.yml": "report",
+    "agent-iterate-ci.yml": "report",
+    "agent-review-reply.yml": "report",
+    "agent-review-panel.yml": "fix-report",
+    "agent-implement.yml": "finish",
+  };
+  for (const [file, job] of Object.entries(JOBS)) {
+    const wf = readFileSync(path.join(dir, file), "utf8");
+    const at = wf.indexOf(`\n  ${job}:\n`);
+    assert.ok(at > 0, `${file}: no ${job} job`);
+    const next = /\n {2}[A-Za-z0-9_-]+:\n/.exec(wf.slice(at + 1));
+    const lines = wf.slice(at, next ? at + 1 + next.index : wf.length).split("\n");
+    assert.match(lines.slice(0, 8).join("\n"), /if: (>-\n\s+)?always\(\)/, `${file} ${job}: the job itself must be always()`);
+    const stepAt = lines.map((l, i) => (/^ {6}- /.test(l) ? i : -1)).filter((i) => i >= 0);
+    assert.ok(stepAt.length > 3, `${file} ${job}: expected steps`);
+    stepAt.forEach((s, k) => {
+      const step = lines.slice(s, stepAt[k + 1] ?? lines.length).filter((l) => !/^\s*#/.test(l)).join("\n");
+      assert.match(step, /^ {8}if: (>-\n {10})?always\(\)/m, `${file} ${job}: "${lines[s].trim()}" is skipped in a cancelled run`);
+    });
+  }
+});
+
+test("nothing an agent wrote is posted verbatim under the App identity", () => {
+  // THE CHANNEL THE NARROW TOKEN WAS MINTED TO CLOSE. The agent emits its
+  // report, disputes, reply and PR description to files, and a trusted job posts
+  // them — under the App, whose comments this pipeline trusts BY AUTHOR for
+  // latches, ledgers and dedupe markers. The agent holds `Bash` and `Write`, so
+  // "it used the CLI" is not a property of the file.
+  //
+  // TWO WAYS TO BE SAFE, and which applies depends on the content. A report or
+  // a dispute carries a hidden record the next round parses, so it goes through
+  // `republish`, which renders afresh from that record. A reply is free prose
+  // with no record, so neutralising every marker wholesale is the only option.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const AGENT_WRITTEN =
+    /\$(?:RUNNER_TEMP|\{\{ runner\.temp \}\})\/(?:agent-output\/)?(?:fix-report|rebuttal|reply|pr)/;
+  const offenders = [];
+  let seen = 0;
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*#/.test(lines[i])) continue;
+      if (!/gh pr comment .*--body-file/.test(lines[i])) continue;
+      // Comments stripped: a correct step explains itself in prose, and a
+      // lookback that read the prose would clear a defect beneath it.
+      const near = lines.slice(Math.max(0, i - 8), i + 1).filter((l) => !/^\s*#/.test(l)).join("\n");
+      if (!AGENT_WRITTEN.test(near)) continue;
+      seen++;
+      const neutralised = /sed 's\/<!--/.test(near) && /-safe\./.test(lines[i]);
+      if (!neutralised) offenders.push(`${file}:${i + 1} ${lines[i].trim()}`);
+    }
+    // Reports and disputes: never through `gh pr comment` at all, only republish.
+    const code = lines.filter((l) => !/^\s*#/.test(l)).join("\n");
+    if (/fix-report\.md|rebuttals/.test(code) && /agent-output/.test(code)) {
+      assert.match(code, /fix-report\.mjs republish/, `${file}: the emitted report must be republished`);
+      assert.match(code, /rebuttal\.mjs republish/, `${file}: the emitted disputes must be republished`);
+    }
+  }
+  assert.ok(seen > 0, "no step posts an agent-written reply — this guard would be vacuous");
+  assert.deepEqual(
+    offenders,
+    [],
+    "these steps post an agent-written file verbatim under the App identity:\n  " + offenders.join("\n  "),
+  );
+});
+
+test("each trusted job downloads exactly the artifact its agent job uploaded", () => {
+  // The download is `continue-on-error` — an agent that died before writing
+  // anything must not red the report — so a renamed artifact on either side
+  // would not fail anything. It would post no report, no disputes and no cost,
+  // silently, on every run. Pin the names to each other.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const JOBS = {
+    "agent-fix.yml": ["fix", "report"],
+    "agent-iterate-ci.yml": ["iterate", "report"],
+    "agent-review-reply.yml": ["reply", "report"],
+    "agent-review-panel.yml": ["fix", "fix-report"],
+    "agent-implement.yml": ["implement", "finish"],
+  };
+  const jobText = (wf, id) => {
+    const at = wf.indexOf(`\n  ${id}:\n`);
+    assert.ok(at >= 0, `no ${id} job`);
+    const next = /\n {2}[A-Za-z0-9_-]+:\n/.exec(wf.slice(at + 1));
+    return wf.slice(at, next ? at + 1 + next.index : wf.length);
+  };
+  const names = (text, action) => [...text.matchAll(
+    new RegExp(`uses: actions/${action}@v\\d+\\n(?: {8}.*\\n)*? {10}name: (\\S+)`, "g"),
+  )].map((m) => m[1]);
+  for (const [file, [agentJob, trustedJob]] of Object.entries(JOBS)) {
+    const wf = readFileSync(path.join(dir, file), "utf8");
+    const up = names(jobText(wf, agentJob), "upload-artifact");
+    const down = names(jobText(wf, trustedJob), "download-artifact");
+    assert.equal(up.length, 1, `${file} ${agentJob}: expected one handoff upload, got ${up.join(", ")}`);
+    assert.deepEqual(down, up, `${file}: ${trustedJob} must download what ${agentJob} uploaded`);
+    assert.match(jobText(wf, trustedJob), new RegExp(`needs: \\[[^\\]]*\\b${agentJob}\\b`),
+      `${file}: ${trustedJob} must wait for ${agentJob}`);
+  }
+});
+
+// THE PACKAGE BOUNDARY IS A DEPLOYMENT FACT, not a packaging preference, and
+// nothing failed when it was crossed until this pair of tests. Every workflow
+// stages `scripts/agent/` in one of two ways, and both drop everything above
+// it:
+//
+//   - `sparse-checkout: scripts/agent` with `sparse-checkout-cone-mode: false`
+//     — set explicitly on every checkout step here. With cone mode OFF the
+//     pattern is literal: git writes `scripts/agent/**` and nothing else, so
+//     `scripts/direct-run.mjs` is simply not on disk. (With cone mode ON it
+//     would be, which is how the opposite conclusion looks true from memory.)
+//   - `cp -R scripts/agent "$RUNNER_TEMP/agent-tools"` — a copy with no parent
+//     `scripts/` directory at all.
+//
+// So a `../` import here is `ERR_MODULE_NOT_FOUND` at the top of a job, not a
+// style question. `scripts/test/harness-hooks.test.mjs` imports INTO this
+// package (`../agent/git-env.mjs`) and is safe for the reason this is not: a
+// test only ever runs from a full checkout.
+test("no agent module imports outside scripts/agent/, because its staging drops the parent", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const wfDir = path.join(HERE, "..", "..", ".github", "workflows");
+
+  // THE PREMISE, READ FROM THE WORKFLOWS rather than asserted here. If the
+  // staging ever changes — a full checkout, or a copy that brings `scripts/`
+  // along — this is the assertion that should fail first, so the constraint
+  // below gets revisited instead of being obeyed out of habit.
+  const workflows = readdirSync(wfDir)
+    .filter((f) => f.startsWith("agent-"))
+    .map((f) => readFileSync(path.join(wfDir, f), "utf8"))
+    .join("\n");
+  assert.match(workflows, /cp -R \S*scripts\/agent /, "no workflow copies the package out any more");
+  assert.match(workflows, /^\s*sparse-checkout-cone-mode: false$/m, "cone mode is no longer disabled");
+
+  const modules = readdirSync(HERE).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"));
+  assert.ok(modules.length > 20, `expected the agent package, found ${modules.length} modules`);
+  for (const file of modules) {
+    const src = readFileSync(path.join(HERE, file), "utf8");
+    const specifiers = [
+      ...src.matchAll(/\bfrom\s+["'](\.[^"']+)["']/g),
+      ...src.matchAll(/\bimport\s*\(\s*["'](\.[^"']+)["']/g),
+    ].map((m) => m[1]);
+    for (const spec of specifiers) {
+      assert.ok(
+        !spec.startsWith("../"),
+        `${file} imports ${spec}; scripts/agent/ is staged without its parent, so that is ` +
+          "ERR_MODULE_NOT_FOUND in CI. Copy what you need into this package.",
+      );
+    }
+  }
+});
+
+test("command.mjs imports nothing relative, because workflows check it out alone", () => {
+  // `sparse-checkout: scripts/agent/command.mjs` with cone mode off writes
+  // exactly ONE file. The router's failure is silent at the workflow level —
+  // a job that cannot start it reports an empty `command=`, which every
+  // consumer reads as "no verb in this comment" — so the cheap structural
+  // check is the one worth having.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const wfDir = path.join(HERE, "..", "..", ".github", "workflows");
+  const alone = readdirSync(wfDir).filter((f) =>
+    f.startsWith("agent-") && /sparse-checkout: scripts\/agent\/command\.mjs/.test(readFileSync(path.join(wfDir, f), "utf8")),
+  );
+  assert.ok(alone.length > 0, "no workflow checks command.mjs out on its own any more");
+
+  const src = readFileSync(path.join(HERE, "command.mjs"), "utf8");
+  assert.doesNotMatch(
+    src,
+    /\bfrom\s+["']\./,
+    `command.mjs is checked out alone by ${alone.join(", ")}; a relative import would not resolve`,
+  );
 });

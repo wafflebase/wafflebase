@@ -1,10 +1,11 @@
+import "./fixtures/use-fixture-config.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { slotSuffix, chooseCredential, readPoolState, capacityNote, candidateNames, probeCredentials, classifyProbeFailure, probeEnv } from "./pick-fix-credential.mjs";
+import { slotSuffix, chooseCredential, readPoolState, capacityNote, candidateNames, probeCredentials, classifyProbeFailure, probeEnv, sdkCheck, TRANSIENT, AUTH } from "./pick-fix-credential.mjs";
 import { MAX_SLOTS, TOKEN_ENV } from "./token-pool.mjs";
 
 // --- slotSuffix: the name→suffix map, and the security boundary ---------------
@@ -184,9 +185,14 @@ test("the fix job picks a credential BEFORE recording the round, and gates on it
   // BOTH gates are `!= 'false'`, never `== 'true'`: an unset output has to proceed,
   // or a skipped/older picker would silently stop every fixer in the pipeline.
   const gate = /if: steps\.guard\.outputs\.proceed == 'true' && steps\.cred\.outputs\.available != 'false'/g;
-  // The seven setup steps from the App token to `Set state → fixing` carry it too
-  // (infra-wiring.test.mjs pins which), so a dead pool goes straight to its page.
-  assert.equal((wf.match(gate) ?? []).length, 9, "the setup block, the dispatch record and the fixer must carry the gate");
+  // At least those two: the setup steps between the probe and its page may carry
+  // it too, so a drained pool mints no token and checks out no branch.
+  assert.ok((wf.match(gate) ?? []).length >= 2, "the dispatch record and the fixer must both carry the gate");
+  for (const name of ["Record the fix-round dispatch", "Address panel findings"]) {
+    const at = wf.indexOf(`name: ${name}`);
+    const body = wf.slice(at, wf.indexOf("\n      - ", at));
+    assert.match(body, new RegExp(gate.source), `${name} must carry the gate`);
+  }
   assert.doesNotMatch(wf, /steps\.cred\.outputs\.available == 'true'/, "a positive gate would fail closed");
 
   // The fixer is handed the picked slot, resolved through `secrets` so the token
@@ -246,8 +252,8 @@ test("no fix-job step reads from a path the fix job never creates", () => {
   // workflow fails loudly here instead of silently checking the wrong region.
   const start = wf.indexOf("\n  fix:\n");
   assert.ok(start > 0, "could not locate the fix job");
-  // Up to the NEXT job header, whichever it is: `fix-evidence` follows `fix`
-  // now, and its steps run from its own checkout, not from anything `fix` staged.
+  // Up to the NEXT job header, whichever it is: `fix-report` follows `fix` now,
+  // and its steps run from its own checkout, not from anything `fix` staged.
   const next = /\n {2}[A-Za-z0-9_-]+:\n/.exec(wf.slice(start + 1));
   assert.ok(next, "could not locate the job after fix");
   const fixJob = wf.slice(start, start + 1 + next.index);
@@ -255,10 +261,11 @@ test("no fix-job step reads from a path the fix job never creates", () => {
   // The staging step is what makes the path real.
   assert.match(fixJob, /cp -R \.\/scripts\/agent "\$\{\{ runner\.temp \}\}\/agent-tools"/);
 
-  // And nothing in the job may reference `.trusted`, in a run: line or a guard.
+  // And nothing in the job may reference a `.trusted` path — it creates none,
+  // bar `.trusted-toolchain`, which it checks out itself for the one action.
   const offenders = fixJob
     .split("\n")
-    .filter((l) => l.includes(".trusted") && !/^\s*#/.test(l));
+    .filter((l) => /\.trusted(?!-toolchain\b)/.test(l) && !/^\s*#/.test(l));
   assert.deepEqual(offenders, [], `fix-job steps reference .trusted, which this job never creates:\n${offenders.join("\n")}`);
 });
 
@@ -337,7 +344,7 @@ test("the panel's pool-state version matches the one the picker gates on", () =>
 
 // --- the probe: prove a credential answers BEFORE a round is spent on it -----
 //
-// yorkie-js-sdk#1426: the picker named CLAUDE_CODE_OAUTH_TOKEN ("live-slot", "0 retired")
+// #1426: the picker named CLAUDE_CODE_OAUTH_TOKEN ("live-slot", "0 retired")
 // and the fixer died 0.5 s after init at $0. The pool state only knows what the
 // PANEL's sessions saw; a slot the panel never touched, or one that closed after
 // the panel finished, reads as live. A one-word query per candidate settles it
@@ -402,6 +409,59 @@ test("probeEnv: a probe child sees ONE token and no real home", () => {
   }
 });
 
+test("classifyProbeFailure: a transient overload is NOT a refusal — it must not latch a PR", () => {
+  // review: a 30 s API-wide 429/529 made every slot look dead, `available=false`
+  // posted the paged latch, and the PR stalled until a human reran it. Only a
+  // closed usage WINDOW (it stays closed until it resets) is a refusal.
+  for (const msg of ["429 Too Many Requests", "rate limit exceeded", "Overloaded (529)", "quota exceeded, retry later"]) {
+    assert.equal(classifyProbeFailure(msg), "unknown", msg);
+  }
+  assert.equal(classifyProbeFailure("429 · You've hit your session limit · resets 3am"), "quota");
+});
+
+// One message per pattern, each matched by THAT pattern alone, so removing or
+// narrowing any one pattern fails a named case rather than passing on a
+// neighbour's match.
+const AUTH_SAMPLES = [
+  "401", "403 Forbidden", "unauthorized", "authentication_error", "invalid api key",
+  "expired token", "not authenticated", "permission denied", "not logged in",
+  "PLEASE RUN /LOGIN", "see /login",
+];
+const TRANSIENT_SAMPLES = ["rate limit exceeded", "429", "Overloaded", "quota exceeded", "at capacity", "too many requests"];
+
+function soleMatches(samples, list, name) {
+  for (const re of list) {
+    const only = samples.filter((s) => list.filter((r) => r.test(s)).length === 1 && re.test(s));
+    assert.ok(only.length > 0, `${name} pattern ${re} has no sample that only it matches`);
+  }
+}
+
+test("classifyProbeFailure: every auth pattern, alone, is a refusal", () => {
+  soleMatches(AUTH_SAMPLES, AUTH, "AUTH");
+  for (const msg of AUTH_SAMPLES) assert.equal(classifyProbeFailure(msg), "auth", msg);
+  // The three the pre-arm check knew and this probe did not: an SDK that says
+  // "not authenticated" or "permission denied", or points at `/login` without
+  // the "please run" the older pattern needed.
+  for (const msg of ["Error: not authenticated", "Permission denied for this credential", "Run /login to sign in"]) {
+    assert.equal(classifyProbeFailure(msg), "auth", msg);
+  }
+});
+
+test("classifyProbeFailure: a transient signal wins over auth words — a rate-limit blip must not latch a PR", () => {
+  soleMatches(TRANSIENT_SAMPLES, TRANSIENT, "TRANSIENT");
+  // The case that latched: a 429 whose text also says "unauthorized".
+  assert.equal(classifyProbeFailure("429 rate limited: unauthorized burst"), "unknown");
+  for (const t of TRANSIENT_SAMPLES) {
+    assert.equal(classifyProbeFailure(t), "unknown", t);
+    for (const a of AUTH_SAMPLES) {
+      assert.equal(classifyProbeFailure(`${t}: ${a}`), "unknown", `${t}: ${a}`);
+      assert.equal(classifyProbeFailure(`${a}: ${t}`), "unknown", `${a}: ${t}`);
+    }
+  }
+  // A closed usage window still outranks both: it stays closed until it resets.
+  assert.equal(classifyProbeFailure("429 unauthorized · You've hit your session limit"), "quota");
+});
+
 test("classifyProbeFailure: the runner's own faults in the stderr tail are not a refusal", () => {
   // The SDK's exit error carries the CLI's stderr tail, so a filesystem error
   // or a URL on the runner reaches the classifier. Read as auth, one passing
@@ -431,12 +491,39 @@ test("classifyProbeFailure: the runner's own faults in the stderr tail are not a
   }
 });
 
-test("classifyProbeFailure: a transient overload is NOT a refusal — it must not latch a PR", () => {
-  // review: a 30 s API-wide 429/529 made every slot look dead, `available=false`
-  // posted the paged latch, and the PR stalled until a human reran it. Only a
-  // closed usage WINDOW (it stays closed until it resets) is a refusal.
-  for (const msg of ["429 Too Many Requests", "rate limit exceeded", "Overloaded (529)", "quota exceeded, retry later"]) {
-    assert.equal(classifyProbeFailure(msg), "unknown", msg);
+test("classifyProbeFailure: no message is not a refusal", () => {
+  for (const msg of [null, undefined, {}, "", "socket hang up", "timeout"]) {
+    assert.equal(classifyProbeFailure(msg), "unknown", String(msg));
   }
-  assert.equal(classifyProbeFailure("429 · You've hit your session limit · resets 3am"), "quota");
+});
+
+test("TRANSIENT and AUTH are exported, pattern for pattern", () => {
+  // Pinned exactly: an adopter that keeps its own copy (wafflebase's pre-arm
+  // check) compares against these lists, so any change here is a behaviour
+  // change for it and should be made on purpose.
+  const key = (list) => list.map((re) => `${re.source}/${re.flags}`);
+  assert.deepEqual(key(TRANSIENT), [
+    "rate[ _-]?limit/i", "\\b429\\b/", "overloaded/i", "quota/i", "capacity/i", "too many requests/i",
+  ]);
+  assert.deepEqual(key(AUTH), [
+    "\\b401\\b/", "\\b403\\b/", "unauthorized/i", "authentication[ _-]?(error|failed)/i",
+    "invalid[ _-]?(api[ _-]?key|token|credential)/i", "expired[ _-]?(token|credential)/i",
+    "not[ _-]?authenticated/i", "(?<!(?:E(?:ACCES|PERM)|\\/[^\\s:]*): )permission[ _-]?denied/i",
+    "not[ _-]?logged[ _-]?in/i", "please run \\/login/i", "(?<![\\w./-])\\/login(?![\\w/-]|\\.\\w)/",
+  ]);
+});
+
+test("sdkCheck: an exit after a result message keeps the result's words", async () => {
+  // The CLI can send an error result and then exit non-zero; the SDK then
+  // throws an exit error that carries only the stderr tail. Classifying that
+  // alone loses the 401 the session reported.
+  const exitErr = () => new Error("Claude Code process exited with code 1. stderr: EACCES: permission denied, mkdir '/tmp/x'");
+  const thenExit = (result) => async function* () {
+    if (result) yield result;
+    throw exitErr();
+  };
+  const refused = { type: "result", subtype: "error_during_execution", is_error: true, api_error_status: 401, result: "authentication_error" };
+  assert.deepEqual(await sdkCheck(thenExit(refused), "m", "t", 5_000), { ok: false, kind: "auth" });
+  // No result message: the exit error alone, and a filesystem fault is no refusal.
+  assert.deepEqual(await sdkCheck(thenExit(null), "m", "t", 5_000), { ok: false, kind: "unknown" });
 });

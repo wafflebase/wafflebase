@@ -1,9 +1,10 @@
+import "./fixtures/use-fixture-config.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PAGED_LATCH, PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
+import { PAGED_LATCH } from "./rounds.mjs";
 import {
   LOOP_STATUS_MARKER,
   CI_PAGED_LATCH,
@@ -257,7 +258,7 @@ test("marker alone is not enough on a public repo (status upsert)", () => {
   const body = `${LOOP_STATUS_MARKER}\nhello`;
   assert.equal(isOwnStatusComment({ body, user: { type: "User", login: "rando" }, author_association: "NONE" }), false);
   assert.equal(isOwnStatusComment({ body, user: { type: "Bot", login: "github-actions[bot]" } }), true);
-  assert.equal(isOwnStatusComment({ body, user: { type: "Bot", login: "yorkie-agent[bot]" } }), true);
+  assert.equal(isOwnStatusComment({ body, user: { type: "Bot", login: "fixture-agent[bot]" } }), true);
   assert.equal(isOwnStatusComment({ body, user: { type: "User", login: "maintainer" }, author_association: "MEMBER" }), true);
   assert.equal(isOwnStatusComment({ body: "no marker", user: { type: "Bot", login: "github-actions[bot]" } }), false);
 });
@@ -316,7 +317,7 @@ test("metric-ledger records are only read from trusted authors", () => {
   // the totals — and worse, once fed anything string-shaped it could smuggle
   // trusted markers into a bot-authored comment.
   assert.equal(isTrustedLedgerComment({ user: { type: "Bot", login: "github-actions[bot]" } }), true);
-  assert.equal(isTrustedLedgerComment({ user: { type: "Bot", login: "yorkie-agent[bot]" } }), true);
+  assert.equal(isTrustedLedgerComment({ user: { type: "Bot", login: "fixture-agent[bot]" } }), true);
   assert.equal(isTrustedLedgerComment({ user: { type: "User", login: "m" }, author_association: "COLLABORATOR" }), true);
   assert.equal(isTrustedLedgerComment({ user: { type: "User", login: "rando" }, author_association: "NONE" }), false);
   assert.equal(isTrustedLedgerComment({ user: { type: "Bot", login: "evil[bot]" } }), false);
@@ -339,13 +340,16 @@ test("the CI attempts guard's literal latch predicate matches the module's rule"
   // silently re-open "any account can stop the CI-fix loop" (smaller set:
   // stops honouring a real page; larger set: re-opens the spoof).
   const wf = workflowText("agent-iterate-ci.yml");
+  // WHICH logins is the repository's configuration (`repo.botLogins`), so the
+  // step reads it rather than carrying a copy that could drift.
   assert.ok(
-    wf.includes("const PAGE_AUTHOR_LOGINS = ['github-actions[bot]', 'yorkie-agent[bot]'];"),
-    "attempts guard must carry the byte-identical author allow-list",
+    wf.includes("const PAGE_AUTHOR_LOGINS = JSON.parse(process.env.BOT_LOGINS);"),
+    "attempts guard must take its author allow-list from the configuration",
   );
-  for (const login of PAGE_AUTHOR_LOGINS) {
-    assert.ok(wf.includes(`'${login}'`), `attempts guard must trust ${login}`);
-  }
+  assert.ok(
+    wf.includes("BOT_LOGINS: ${{ steps.cfg.outputs.bot_logins }}"),
+    "attempts guard must be handed repo.botLogins",
+  );
   assert.ok(
     wf.includes("const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];"),
     "attempts guard must carry the byte-identical association allow-list",
@@ -455,9 +459,9 @@ const rowFor = (body, sha) => body.split("\n").find((l) => l.includes(sha.slice(
 test("the head cell LINKS to that round's checks, and degrades without the env", () => {
   // GitHub's Checks tab only ever shows the HEAD commit's runs, so before this
   // the table named a round it gave no way to open.
-  const base = "https://github.com/wafflebase/wafflebase/pull/742/commits";
+  const base = "https://github.com/fixture-org/fixture-repo/pull/742/commits";
   const linked = renderLoopStatus({ rounds: [roundOf("4d46871ac0", [okLens()])], commitBase: base });
-  assert.match(linked, /\[`4d46871ac`\]\(https:\/\/github\.com\/wafflebase\/wafflebase\/pull\/742\/commits\/4d46871ac0\)/);
+  assert.match(linked, /\[`4d46871ac`\]\(https:\/\/github\.com\/fixture-org\/fixture-repo\/pull\/742\/commits\/4d46871ac0\)/);
   // No env (local, --dry-run) → today's plain code span, never a broken link.
   const plain = renderLoopStatus({ rounds: [roundOf("4d46871ac0", [okLens()])] });
   assert.match(plain, /\| `4d46871ac` \|/);

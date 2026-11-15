@@ -39,6 +39,16 @@ import {
   whereToLookLine,
 } from "./guard-verdict.mjs";
 import { permissionResolver } from "./gh-checks.mjs";
+import { infraCodeOf, RETRYABLE_CODES, usageLimitMarker } from "./loop-sweep.mjs";
+
+// `maxBuffer`: node's default is 1 MiB, and `gh api --paginate` over a busy PR
+// blows through it. When it does, `execFileSync` throws `ENOBUFS` — not an API
+// error, not an empty result, a CRASH — and the caller reports it as whatever
+// its own failure means. On #2026 that was the review-round guard dying and the
+// pipeline announcing "the fixer agent failed", which it had not: it never ran.
+// A PR accumulates comments as it is reviewed, so this gets MORE likely the
+// longer a PR is worked on, which is exactly backwards.
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -83,7 +93,7 @@ function setOutput(name, value) {
   appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8" });
+  return execFileSync("gh", args, { encoding: "utf8", maxBuffer: GH_MAX_BUFFER });
 }
 function ghJson(args) {
   return JSON.parse(gh(args));
@@ -109,7 +119,7 @@ const HANDOFF_NOTE =
 // `reason` is a short machine-ish tag (infra / invalid-verdict / standstill /
 // stall / round-cap) — it only labels the page for the verdict line and the
 // job summary; the page comment itself stays exactly what `msg` says.
-function page(msg, reason = "paged") {
+function page(msg, reason = "paged", { hidden = "" } = {}) {
   // "Where to look": the run this guard decided in, and the step whose log and
   // summary carry the full decision detail. Empty (today's body, unchanged)
   // when run outside Actions. No artifact named — the guard runs BEFORE the
@@ -119,7 +129,7 @@ function page(msg, reason = "paged") {
     job: process.env.GITHUB_JOB,
     step: "Review-round guard",
   });
-  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}${where}${HANDOFF_NOTE}`]);
+  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n${hidden ? `${hidden}\n` : ""}🛑 ${msg}${where}${HANDOFF_NOTE}`]);
   // Labeling is intentionally NOT done here: the single-value state machine
   // owns it. The "Set state → blocked (paged)" step (gated on this `paged`
   // output) runs set-state.mjs, which atomically strips every lifecycle label
@@ -175,10 +185,20 @@ if (rerunAt) console.error(`rerun: counting fix rounds from ${rerunAt}`);
 // round — there's nothing to fix, and a quota outage isn't a failed review
 // round. Checked before the generic all_valid page so the message is honest.
 if (infra) {
+  // A closed usage window reopens on its own, so the page carries the marker the
+  // out-of-run sweep (loop-sweep.mjs) retries on. Built from the CLOSED code
+  // vocabulary `infra` was rendered from; an auth or other failure gets none and
+  // stays a page a human must answer.
+  const code = infraCodeOf(infra);
+  const retryable = RETRYABLE_CODES.includes(code);
   page(
     `The review panel could not run — Claude API/quota error: ${infra} ` +
-      `This is an infrastructure/credential issue, not a code problem. Re-run the panel after the limit resets.`,
+      `This is an infrastructure/credential issue, not a code problem. ` +
+      (retryable
+        ? "The loop retries automatically once the window has had time to reopen; comment `@claude rerun` to retry sooner."
+        : "Re-run the panel after the limit resets."),
     "infra",
+    { hidden: retryable ? usageLimitMarker({ code }) : "" },
   );
   process.exit(0);
 }
@@ -327,7 +347,7 @@ if (failedRounds >= max) {
 //
 // Posting from this step spends the round at the top of the `fix` job — and the
 // fixer is fourteen steps later, behind an App-token mint, a branch checkout and
-// a `pnpm install`. The panel workflow is `cancel-in-progress: true`, so any push
+// a toolchain setup. The panel workflow is `cancel-in-progress: true`, so any push
 // during those one-to-three minutes kills the run with the record already
 // written: a round consumed by a fixer that never started. That is the same shape
 // as the phantom round this whole change exists to remove (#695's cancelled panel

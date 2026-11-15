@@ -1,8 +1,10 @@
+import "./fixtures/use-fixture-config.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readWorkflow, skipWithout, skipWithoutModule } from "./workflow-presence.mjs";
 import {
   isSingleParentCommit,
   countFailedReviewRounds,
@@ -27,10 +29,9 @@ import {
 } from "./rounds.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PANEL_WORKFLOW = readFileSync(
-  path.join(HERE, "..", "..", ".github", "workflows", "agent-review-panel.yml"),
-  "utf8",
-);
+// null when the gating panel is not installed here; see workflow-presence.mjs.
+const PANEL = "agent-review-panel.yml";
+const PANEL_WORKFLOW = readWorkflow(PANEL);
 
 // --- the paged latch, shared between a module and a github-script step -------
 //
@@ -46,17 +47,20 @@ test("PAGED_LATCH is the exact marker, pinned as a literal", () => {
   assert.equal(PAGED_LATCH, "<!-- agent-review-paged -->");
 });
 
-test("the gate job's literal copy of the latch matches the module", () => {
+test("the gate job's literal copy of the latch matches the module", skipWithout(PANEL), () => {
   assert.ok(
     PANEL_WORKFLOW.includes(`const PAGED_LATCH = '${PAGED_LATCH}';`),
     "agent-review-panel.yml's gate job must carry a byte-identical copy of PAGED_LATCH",
   );
   // The author allow-list is half the rule; a copy that drifted to a smaller set
   // would silently stop honouring a real page, and a larger one re-opens the
-  // spoof this check exists to close.
-  for (const login of PAGE_AUTHOR_LOGINS) {
-    assert.ok(PANEL_WORKFLOW.includes(`'${login}'`), `gate job must trust ${login}`);
-  }
+  // spoof this check exists to close. WHICH logins those are is the
+  // repository's configuration, so the gate reads `repo.botLogins` rather than
+  // carrying a copy that could drift.
+  assert.ok(
+    PANEL_WORKFLOW.includes("const PAGE_AUTHOR_LOGINS = JSON.parse(process.env.BOT_LOGINS);"),
+    "gate job must take its author allow-list from the configuration",
+  );
   assert.ok(
     PANEL_WORKFLOW.includes("const isPagedLatchComment = (c) =>"),
     "gate job must author-check the latch, not match the marker alone",
@@ -117,7 +121,7 @@ test("isPagedLatchComment: no marker, or junk, is never a latch", () => {
   }
 });
 
-test("every site that writes the latch also says the panel has stopped", () => {
+test("every site that writes the latch also says the panel has stopped", skipWithoutModule("review-round-guard.mjs"), () => {
   // Writing the latch now freezes the agent-review-* checks, so a page that
   // does not say so leaves a human waiting for verdicts that will never come.
   // Three writers today: the guard's page() (in review-round-guard.mjs), the
@@ -388,13 +392,13 @@ test("rerunPointFrom: a maintainer's @claude rerun moves the floor", () => {
 test("isRerunCommand: A BOT CAN NEVER RESET ITS OWN BOUND", () => {
   // The reason this reads the maintainer's COMMAND and not the workflow's result
   // marker. agent-rerun.yml posts with the App token, so the trusted identity would
-  // be yorkie-agent[bot] — the same identity the fixer and implementer post their
+  // be fixture-agent[bot] — the same identity the fixer and implementer post their
   // own free-form comments under (the self-review comment on every agent PR). A
   // marker keyed on bot login let the party bounded by MAX_REVIEW_ROUNDS grant
   // itself unlimited attempts, by accident or by injection from the diff it reads.
   //
   // Structural, not a secret: no App can present as a non-Bot.
-  for (const login of ["yorkie-agent[bot]", "github-actions[bot]", "coderabbitai[bot]"]) {
+  for (const login of ["fixture-agent[bot]", "github-actions[bot]", "coderabbitai[bot]"]) {
     for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]) {
       assert.equal(
         isRerunCommand(human("@claude rerun", { user: { login, type: "Bot" }, author_association: assoc })),
@@ -403,7 +407,7 @@ test("isRerunCommand: A BOT CAN NEVER RESET ITS OWN BOUND", () => {
       );
     }
   }
-  assert.equal(rerunPointFrom([human("@claude rerun", { user: { login: "yorkie-agent[bot]", type: "Bot" } })]), null);
+  assert.equal(rerunPointFrom([human("@claude rerun", { user: { login: "fixture-agent[bot]", type: "Bot" } })]), null);
 });
 
 test("isRerunCommand: a stranger cannot reset it either; junk never throws", () => {
@@ -609,7 +613,7 @@ test("a BOT is refused before any permission lookup", () => {
   // bound; a resolver must never be able to override it.
   let asked = 0;
   const c = {
-    user: { login: "yorkie-agent[bot]", type: "Bot" },
+    user: { login: "fixture-agent[bot]", type: "Bot" },
     author_association: "OWNER",
     body: "@claude rerun",
     created_at: "2026-08-06T00:00:00Z",
@@ -624,7 +628,7 @@ test("rerunPointFrom: the NEWEST qualifying rerun wins", () => {
   assert.equal(got, "2026-08-06T04:30:47.000Z");
 });
 
-test("the guard actually passes a permission resolver to rerunPointFrom", async () => {
+test("the guard actually passes a permission resolver to rerunPointFrom", skipWithoutModule("review-round-guard.mjs"), async () => {
   // The tests above prove the predicate; they cannot prove review-round-guard.mjs
   // supplies `trusts`, because that call is top-level CLI code needing `gh`.
   // Without it the module falls back to association-only — i.e. straight back to
@@ -689,11 +693,11 @@ test("an unknown round or cap degrades to a bare line, never 'undefined'", () =>
 });
 
 test("the fixer's OWN identity cannot write a dispatch record", () => {
-  // THE point of the narrower author gate. `yorkie-agent[bot]` is a trusted
+  // THE point of the narrower author gate. `fixture-agent[bot]` is a trusted
   // paged-latch author AND the App identity the fix agent posts under, so
   // accepting it would let the party bounded by MAX_REVIEW_ROUNDS plant the
   // record that decides which counting rule applies to it.
-  const fixerAuthored = dispatch({ user: { login: "yorkie-agent[bot]", type: "Bot" } });
+  const fixerAuthored = dispatch({ user: { login: "fixture-agent[bot]", type: "Bot" } });
   assert.equal(parseFixDispatchComment(fixerAuthored), null);
 });
 
@@ -815,7 +819,7 @@ test("a superseded lens run does not count as a fix attempt", () => {
   assert.equal(countFailedReviewRounds(commits, ROUND_NAMES), 0);
 });
 
-test("the panel workflow does not record verdicts for a cancelled round", () => {
+test("the panel workflow does not record verdicts for a cancelled round", skipWithout(PANEL), () => {
   // Prose in a YAML comment is not a guard. `always()` here is what wrote six
   // fail-closed reds onto a commit nobody reviewed.
   const from = PANEL_WORKFLOW.indexOf("- name: Post per-lens check runs");
@@ -825,7 +829,7 @@ test("the panel workflow does not record verdicts for a cancelled round", () => 
   assert.doesNotMatch(head, /always\(\)/, "always() is exactly the bug");
 });
 
-test("close-stuck-checks distinguishes superseded from broken", () => {
+test("close-stuck-checks distinguishes superseded from broken", skipWithout(PANEL), () => {
   const job = PANEL_WORKFLOW.slice(PANEL_WORKFLOW.indexOf("close-stuck-checks:"));
   assert.match(job, /PANEL_RESULT: \$\{\{ needs\.review-panel\.result \}\}/);
   assert.match(job, /superseded \? 'cancelled' : 'failure'/);
