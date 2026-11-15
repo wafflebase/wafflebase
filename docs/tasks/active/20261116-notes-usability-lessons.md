@@ -14,3 +14,4 @@
   the source pane, not just the preview.
 - **jsdom drops `max()` / `calc()` inline styles**, so a padding assertion on
   one passes in the browser and fails in Vitest. Assert the class instead.
+- Self-review round 1: one blocker (test-adequacy) — `setHeading` missing from the read-only no-write test and from an end-to-end API test. Fixed: added it to the read-only guard and a store-level API test.

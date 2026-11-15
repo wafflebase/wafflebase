@@ -45,6 +45,7 @@ describe('initialize', () => {
     // programmatic and would otherwise dispatch a document change that
     // `noteSync` forwards to the CRDT.
     api.toggleBold();
+    api.setHeading(2);
     api.toggleTaskList();
     api.insertTable(2, 2);
     api.insertCodeBlock();
@@ -295,6 +296,20 @@ describe('initialize', () => {
     pressKey(content, 'k');
     expect(store.getText()).toBe('[word](url)');
 
+    api.dispose();
+    container.remove();
+  });
+
+  it('writes a heading set through the API to the store', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('- item');
+    const api = initialize(container, store, 'light');
+    api.setHeading(3);
+    expect(store.getText()).toBe('- ### item');
+    expect(api.getActiveFormats().heading).toBe(3);
+    api.setHeading(0);
+    expect(store.getText()).toBe('- item');
     api.dispose();
     container.remove();
   });
