@@ -257,8 +257,13 @@ jobs:
         with:
           node-version: 22.x
 
+      # Under CI the root `postinstall` leaves `.githooks` unwired, so this
+      # agent's commits run none of them. Each check they made has a home:
+      # the docs/ layout and `verify:fast` run in CI's `verify:self` lanes on
+      # the PR; the commit-message format is not checked, and the squash merge
+      # writes the message that lands.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile # the root postinstall leaves .githooks unwired under CI
+        run: pnpm install --frozen-lockfile
 
       - name: Build the orchestration prompt
         id: prep
