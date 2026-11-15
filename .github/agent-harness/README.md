@@ -37,12 +37,6 @@ toolchain action came from, are deleted by that sync.
 What wafflebase's own copy of the harness does today that the shared one will
 not, or will do differently. Each is known and accepted for now:
 
-- **Renaming a Jest e2e or frontend integration suite away is not recorded.**
-  The shared test-removal rules take `*.test.*` and `*.spec.*` for names a
-  runner picks up, not `*.e2e-spec.ts` or `*.integration.ts`; those files are
-  still test files by their directory, so tests added, removed or switched
-  off in them are recorded. yorkie-team/yorkie#2362 adds the two suffixes;
-  `repo.test.mjs` pins the gap and says when to flip it.
 - **The issue classification step goes.** The shared `agent-implement.yml`
   has none.
 - **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set**, so

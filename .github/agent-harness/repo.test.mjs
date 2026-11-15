@@ -403,7 +403,7 @@ test("verifyDescription says what verify:fast runs", () => {
   assert.equal(PACKAGE.scripts["lint:scripts"], "eslint scripts plugins");
 });
 
-test("the test-removal record reads this repository's runners, bar one gap yorkie#2362 closes", () => {
+test("the test-removal record reads this repository's runners", () => {
   // Vitest in the engines and the frontend, Jest in the backend (`*.spec.ts`
   // and `test/*.e2e-spec.ts`), node:test in `scripts/`. Every one of these is
   // a test file to the `vitest` rule set, by its name or its directory, so a
@@ -421,21 +421,18 @@ test("the test-removal record reads this repository's runners, bar one gap yorki
   }
   assert.equal(testRemovals.isTestFile("packages/sheets/src/formula/formula.ts"), false);
   // Picked up by NAME: what a rename can take away from the runner without a
-  // line of the test changing.
-  for (const f of ["packages/sheets/src/formula/formula.test.ts", "packages/backend/src/document/document.service.spec.ts"]) {
+  // line of the test changing. Jest's `*.e2e-spec.ts` and the frontend's
+  // `*.integration.ts` are among them since yorkie-team/yorkie#2362, so
+  // renaming one of those suites away (`x.e2e-spec.ts` → `x.e2e-spec.ts.off`)
+  // is recorded as a removed suite, as wafflebase's own rules recorded it.
+  for (const f of [
+    "packages/sheets/src/formula/formula.test.ts",
+    "packages/backend/src/document/document.service.spec.ts",
+    "packages/backend/test/template.e2e-spec.ts",
+    "packages/frontend/tests/app/slides/x.integration.ts",
+  ]) {
     assert.equal(testRemovals.isRunnableTest(f), true, f);
-  }
-  // THE GAP, exactly as it is. The shared rule set does not take Jest's
-  // `*.e2e-spec.ts` or the frontend's `*.integration.ts` for names a runner
-  // picks up, so renaming one away (`x.e2e-spec.ts` → `x.e2e-spec.ts.off`)
-  // stops the suite with nothing in the removal record. wafflebase's own
-  // rules had both. yorkie#2362 adds exactly these two suffixes.
-  for (const f of ["packages/backend/test/template.e2e-spec.ts", "packages/frontend/tests/app/slides/x.integration.ts"]) {
-    assert.equal(
-      testRemovals.isRunnableTest(f),
-      false,
-      `upstream fixed (yorkie-team/yorkie#2362) — flip this to a positive assertion: ${f} is now a runnable test name`,
-    );
+    assert.equal(testRemovals.isRunnableTest(`${f}.off`), false, `${f}.off`);
   }
   assert.ok(fixGuard, "fix-guard.mjs loads with this configuration (it refuses a rule set without assertion patterns)");
 });
