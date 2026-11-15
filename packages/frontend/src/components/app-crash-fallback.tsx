@@ -40,7 +40,7 @@ export function AppCrashFallback({ error }: { error?: unknown }) {
       <button
         type="button"
         onClick={() => window.location.reload()}
-        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover focus-ring"
       >
         {chunk ? "Try again" : "Reload"}
       </button>

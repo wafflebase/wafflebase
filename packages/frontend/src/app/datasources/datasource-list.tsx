@@ -305,6 +305,7 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
                     <p className="text-sm font-medium">No data sources yet</p>
                     <Button
                       size="sm"
+                      variant="outline"
                       onClick={() => setShowCreate(true)}
                     >
                       <Plus className="w-4 h-4 mr-1" />

@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { IconPlus, IconX, IconListCheck } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -342,7 +343,7 @@ export function DataValidationPanel({
   };
 
   return (
-    <aside className="absolute inset-y-0 right-0 z-20 flex w-[26rem] flex-col overflow-hidden border-l bg-background shadow-lg">
+    <aside className="absolute inset-y-0 right-0 z-20 flex w-[min(26rem,100%)] flex-col overflow-hidden border-l bg-background shadow-lg">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -478,14 +479,13 @@ export function DataValidationPanel({
                 <>
                   <div className="space-y-1.5">
                     <Label htmlFor="dv-options">Options (one per line)</Label>
-                    <textarea
+                    <Textarea
                       id="dv-options"
                       value={optionsText}
                       onChange={(e) => setOptionsText(e.target.value)}
                       onBlur={handleCommitOptions}
                       rows={5}
                       placeholder={"Red\nGreen\nBlue"}
-                      className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </div>
 

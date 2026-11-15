@@ -343,7 +343,7 @@ export function DocsTableContextMenu({
                 key={color}
                 role="menuitem"
                 tabIndex={-1}
-                className="h-5 w-5 cursor-pointer rounded border border-border outline-none focus:scale-125 transition-transform"
+                className="h-5 w-5 cursor-pointer rounded border border-border focus-ring focus:scale-125 transition-transform motion-reduce:transition-none"
                 style={{ backgroundColor: color }}
                 onClick={act(() =>
                   editor.applyTableCellStyle({ backgroundColor: color }),

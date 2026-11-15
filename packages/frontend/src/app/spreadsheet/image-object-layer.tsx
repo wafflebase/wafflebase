@@ -227,8 +227,7 @@ function ImageObject({
         />
       ) : (
         <div
-          className="h-full w-full"
-          style={{ backgroundColor: "#f0f0f0" }}
+          className="h-full w-full bg-muted"
           onPointerDown={(event) => {
             if (readOnly) return;
             event.preventDefault();

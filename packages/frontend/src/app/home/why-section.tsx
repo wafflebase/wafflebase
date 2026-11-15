@@ -45,7 +45,7 @@ export function WhySection() {
         />
 
         <div
-          className="max-w-[640px] mx-auto rounded-2xl overflow-hidden border border-[color:var(--wb-rule)] bg-[color:var(--wb-paper)]"
+          className="max-w-[640px] mx-auto rounded-2xl overflow-x-auto border border-[color:var(--wb-rule)] bg-[color:var(--wb-paper)]"
           style={{
             boxShadow:
               "0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18)",
@@ -60,11 +60,11 @@ export function WhySection() {
                     "color-mix(in srgb, var(--wb-rule) 30%, var(--wb-paper))",
                 }}
               >
-                <th className="px-5 py-3 text-left font-semibold text-[color:var(--wb-sub)]" />
-                <th className="px-5 py-3 text-center font-semibold text-[color:var(--wb-ink)]">
+                <th className="px-3 sm:px-5 py-3 text-left font-semibold text-[color:var(--wb-sub)]" />
+                <th className="px-3 sm:px-5 py-3 text-center font-semibold text-[color:var(--wb-ink)]">
                   Wafflebase
                 </th>
-                <th className="px-5 py-3 text-center font-semibold text-[color:var(--wb-sub)]">
+                <th className="px-3 sm:px-5 py-3 text-center font-semibold text-[color:var(--wb-sub)]">
                   Google Workspace
                 </th>
               </tr>
@@ -85,16 +85,16 @@ export function WhySection() {
                 >
                   <th
                     scope="row"
-                    className="px-5 py-3 text-left font-normal text-[color:var(--wb-ink)] border-t border-[color:var(--wb-rule)]"
+                    className="px-3 sm:px-5 py-3 text-left font-normal text-[color:var(--wb-ink)] border-t border-[color:var(--wb-rule)]"
                   >
                     {row.label}
                   </th>
-                  <td className="px-5 py-3 border-t border-[color:var(--wb-rule)]">
+                  <td className="px-3 sm:px-5 py-3 border-t border-[color:var(--wb-rule)]">
                     <div className="flex items-center justify-center">
                       {row.wafflebase}
                     </div>
                   </td>
-                  <td className="px-5 py-3 border-t border-[color:var(--wb-rule)]">
+                  <td className="px-3 sm:px-5 py-3 border-t border-[color:var(--wb-rule)]">
                     <div className="flex items-center justify-center">
                       {row.others}
                     </div>

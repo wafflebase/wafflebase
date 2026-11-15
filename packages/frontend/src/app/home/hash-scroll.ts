@@ -1,3 +1,5 @@
+import { scrollBehavior } from "@/lib/scroll-behavior";
+
 /**
  * Scroll to the element a `/#<id>` link names, if it is on this page.
  *
@@ -23,6 +25,6 @@
  */
 export function scrollToHashTarget(id: string) {
   requestAnimationFrame(() => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    document.getElementById(id)?.scrollIntoView({ behavior: scrollBehavior() });
   });
 }

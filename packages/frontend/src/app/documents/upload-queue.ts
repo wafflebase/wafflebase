@@ -1,21 +1,22 @@
 import { classifyUploadKind, type UploadKind } from "./upload-kind";
 import { uploadSizeError } from "./file-meta";
 import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils";
-import {
-  importSheetFile,
-  sheetImportBaseName,
-} from "@/app/spreadsheet/sheet-import-actions";
-import { importDocx } from "@/app/docs/docx-actions";
-import { importPptxFile } from "@/app/slides/pptx-actions";
+import { sheetImportBaseName } from "@/app/spreadsheet/sheet-import-name";
+import type { importSheetFile } from "@/app/spreadsheet/sheet-import-actions";
+import type { importDocx } from "@/app/docs/docx-actions";
+import type { importPptxFile } from "@/app/slides/pptx-actions";
 import { uploadFile } from "@/api/files";
 import { HttpError, userFacingError } from "@/api/http-error";
+import { isChunkLoadError } from "@/lib/chunk-load-error";
 import { createDocument, discardDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
-import { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
+import type { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
 import { registerUnsavedWorkProbe } from "@/lib/unsaved-work";
 import type { Document, DocumentType } from "@/types/documents";
 
 const UPLOAD_FAILED = "Couldn't upload this file. Check your connection and retry.";
+const UPLOAD_CHUNK_STALE =
+  "Couldn't load the importer. Reload the page, then retry.";
 
 /**
  * The reason shown on a failed row. A plain `Error` is what the importers
@@ -26,6 +27,9 @@ const UPLOAD_FAILED = "Couldn't upload this file. Check your connection and retr
  */
 export function uploadFailureReason(err: unknown): string {
   if (err instanceof HttpError) return userFacingError(err, UPLOAD_FAILED);
+  // The importers load on demand; after a deploy the chunk this tab knows
+  // about may be gone, and retrying in place fetches the same missing URL.
+  if (isChunkLoadError(err)) return UPLOAD_CHUNK_STALE;
   if (err instanceof Error && err.name === "Error" && err.message) {
     return err.message;
   }
@@ -273,15 +277,25 @@ export interface UploadDeps {
   sleep: (ms: number) => Promise<void>;
 }
 
+// The importers and the content writer reach every editor engine, and the
+// upload panel that imports this module is mounted in the signed-in Layout.
+// Static imports here put the sheets, docs and slides engines on every
+// signed-in route; loading them on the first upload that needs them does not.
 const defaultDeps: UploadDeps = {
-  importSheetFile,
-  importDocx,
-  importPptxFile,
+  importSheetFile: async (...args) =>
+    (await import("@/app/spreadsheet/sheet-import-actions")).importSheetFile(
+      ...args,
+    ),
+  importDocx: async (...args) =>
+    (await import("@/app/docs/docx-actions")).importDocx(...args),
+  importPptxFile: async (...args) =>
+    (await import("@/app/slides/pptx-actions")).importPptxFile(...args),
   uploadFile,
   createDoc: (ws, payload) =>
     ws ? createWorkspaceDocument(ws, payload) : createDocument(payload),
   getDocumentPath: getDocumentPathDefault,
-  applyContent: applyImportedContentDefault,
+  applyContent: async (...args) =>
+    (await import("./apply-imported-content")).applyImportedContent(...args),
   deleteDoc: discardDocument,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };

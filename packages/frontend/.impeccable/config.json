@@ -38,6 +38,15 @@
         ],
         "createdAt": "2026-11-14T11:24:28.825Z",
         "reason": "agent: 2px bottom border marks the active tab on a top-rounded tab, not a card accent stripe (verified in critique B, 2026-11-14)"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "src/components/tab-bar.tsx"
+        ],
+        "createdAt": "2026-11-15T13:49:19.147Z",
+        "reason": "agent triage: sheet tab active underline on a rounded-t (top-only) tab, Google Sheets parity; bottom edge is square so no clash"
       }
     ]
   }

@@ -136,7 +136,7 @@ export function PdfCommentLayer({
       {creating && (
         <div
           data-testid="pdf-region-capture"
-          className="pointer-events-auto absolute inset-0 cursor-crosshair"
+          className="pointer-events-auto absolute inset-0 cursor-crosshair touch-none"
           onPointerDown={(e) => {
             const p = localPoint(e, e.currentTarget);
             dragStart.current = { x: p.x, y: p.y };
