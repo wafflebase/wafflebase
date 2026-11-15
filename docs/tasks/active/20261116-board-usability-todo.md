@@ -18,7 +18,7 @@ a user check-in after each.
       hide border weight / dash / gradient, "Add sticky note" in canvas menu
 - [x] 5. Minimap viewport rect collapses when viewport > content
       (`board-minimap.ts` bounds = scene ∪ viewport)
-- [ ] 6. Discoverability: empty-board hint, V/T/N/S/L tool keys, shortcuts in
+- [x] 6. Discoverability: empty-board hint, V/T/N/S/L tool keys, shortcuts in
       tooltips, board shortcuts help (Cmd+/)
 - [ ] 7. Minor: zoom menu (in/out, <50%), uppercase picker labels, canvas menu
       checkmark, tooltip re-show after menu close; investigate the uncaught

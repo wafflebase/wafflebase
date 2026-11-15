@@ -41,6 +41,7 @@ import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS, isStickyElement } from "./sticky";
 import { StickyControls } from "./sticky-controls";
+import { TOOL_HINTS } from "./board-shortcuts";
 import { type BoardGridKind } from "./board-grid";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
@@ -282,7 +283,7 @@ export function BoardToolbar({
             <IconPointer size={16} />
           </Toggle>
         </TooltipTrigger>
-        <TooltipContent>Select (Esc)</TooltipContent>
+        <TooltipContent>Select ({TOOL_HINTS.select})</TooltipContent>
       </Tooltip>
 
       {/* Text box */}
@@ -300,7 +301,7 @@ export function BoardToolbar({
             <IconLetterT size={16} />
           </Toggle>
         </TooltipTrigger>
-        <TooltipContent>Text box</TooltipContent>
+        <TooltipContent>Text box ({TOOL_HINTS.text})</TooltipContent>
       </Tooltip>
 
       {/* Sticky note ▾ — main click drops the first (yellow) color;
@@ -321,7 +322,7 @@ export function BoardToolbar({
               <IconNote size={16} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Sticky note</TooltipContent>
+          <TooltipContent>Sticky note ({TOOL_HINTS.sticky})</TooltipContent>
         </Tooltip>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

@@ -1,4 +1,5 @@
 import {
+  formatCombo,
   initializeEditor,
   type Frame,
   type PeerView,
@@ -38,6 +39,14 @@ import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
 import { BOARD_PLANE_BACKGROUND, BOARD_PLANE_THEME } from "./board-plane";
+import {
+  BOARD_SHORTCUTS,
+  BOARD_SHORTCUT_CATEGORIES,
+  boardToolForKey,
+  isTextEntryTarget,
+} from "./board-shortcuts";
+import { ShortcutsHelpDialog } from "@/components/shortcuts-help-dialog";
+import { BoardEmptyHint } from "./board-empty-hint";
 import {
   createBoardMinimap,
   defaultMinimapVisible,
@@ -175,6 +184,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // funnel through the same insert call, centered on the live viewport.
   const imageInserterRef = useRef<((file: File) => void) | null>(null);
   const [didMount, setDidMount] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  // Drives the first-run hint; true only once the store says so, so a
+  // board that is still loading never flashes it.
+  const [isEmpty, setIsEmpty] = useState(false);
   // Lifted into React state (in addition to `editorRef`) purely so the
   // toolbar can re-render with a live `editor` reference once the mount
   // effect creates it — `editorRef` alone wouldn't trigger a re-render
@@ -322,6 +335,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // minimap) — the call only ever happens after mount, so the
       // declaration order stays readable without hoisting.
       onFitToContent: () => zoom.fit(),
+      // Mod+/ — the board's own sheet (`board-shortcuts.ts`), not the
+      // slides one, half of which speaks of slides.
+      onShowShortcutsHelp: () => setHelpOpen(true),
       // Snap move/resize onto the grid the user can see: the same
       // `gridStep(zoom)` ladder that paints it. Read per gesture frame,
       // so a zoom mid-drag changes the step under the cursor exactly as
@@ -708,7 +724,31 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       spaceDown = false;
       if (!panning) canvas.style.cursor = "";
     };
+    // Single-key tools (FigJam's V / T / S / R / O / L / X) and Shift+1
+    // zoom-to-fit. Tools only fire with nothing selected: with a selection,
+    // a printable key is the slides editor's type-to-edit (Google Slides
+    // parity), which must keep winning on a selected sticky.
+    const onToolKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat) return;
+      if (isTextEntryTarget(e.target) || editor.isTextEditing()) return;
+      if (
+        e.shiftKey && e.code === "Digit1" &&
+        !e.metaKey && !e.ctrlKey && !e.altKey
+      ) {
+        e.preventDefault();
+        zoom.fit();
+        return;
+      }
+      if (readOnly || editor.getSelection().length > 0) return;
+      const tool = boardToolForKey(e);
+      if (!tool) return;
+      e.preventDefault();
+      if (tool.kind === "select") editor.setInsertMode(null);
+      else if (tool.kind === "sticky") stickyInserterRef.current?.(STICKY_COLORS[0].value);
+      else editor.setInsertMode(tool.insert);
+    };
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onToolKey);
     document.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onWindowBlur);
 
@@ -863,6 +903,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       canvas.removeEventListener("pointercancel", onPointerUp);
       detachTouch();
       document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onToolKey);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
@@ -902,6 +943,14 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     applyGridBackground(container, gridKind, vp.current, BOARD_PLANE_THEME);
     minimapRef.current?.repaintViewport(vp.current);
   }, [gridKind]);
+
+  useEffect(() => {
+    if (!store) return;
+    const check = () =>
+      setIsEmpty((store.read().slides[0]?.elements.length ?? 0) === 0);
+    check();
+    return store.onChange(check);
+  }, [store]);
 
   // The board's picture for the template gallery
   // (docs/design/template-gallery.md): the canvas as it stands. A board is an
@@ -956,11 +1005,21 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           disabled={!workspaceId}
         />
       )}
-      <div
-        ref={containerRef}
-        data-document-id={documentId}
-        className="relative flex-1 w-full h-full min-h-0"
-        style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
+      <div className="relative flex-1 w-full min-h-0">
+        <div
+          ref={containerRef}
+          data-document-id={documentId}
+          className="relative w-full h-full"
+          style={{ backgroundColor: BOARD_PLANE_BACKGROUND }}
+        />
+        {isEmpty && !readOnly && <BoardEmptyHint />}
+      </div>
+      <ShortcutsHelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        shortcuts={BOARD_SHORTCUTS}
+        categoryOrder={BOARD_SHORTCUT_CATEGORIES}
+        formatCombo={formatCombo}
       />
     </div>
   );
