@@ -473,6 +473,10 @@ the workspace file. Before moving the pin, check for the new version that:
 
 `agent-implement.yml` installs main, not a branch: its `implement` job runs
 the toolchain action from the workspace after checking out `ref: main`, with
-no cache, holding a token that reads only and no App secret. GitHub's own
+no cache, holding a token that reads only and no App secret. Its `prepare` job
+refuses to start the agent unless `main` requires a human approval that a
+later push invalidates ("Require approval of the most recent reviewable
+push", or a ruleset with `require_last_push_approval: true`); that setting is
+a precondition of the shared harness, not of this install. GitHub's own
 actions in the agent workflows are referenced by major tag in the shared core;
 the guard pins that list, and pinning them is an upstream candidate.

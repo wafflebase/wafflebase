@@ -35,6 +35,16 @@ newer core, see "Adopting and syncing" in `scripts/agent/README.md`.
 What wafflebase's own copy of the harness did that the shared one does not, or
 does differently. Each is known and accepted for now:
 
+- **`@claude fix` on an issue needs re-approval after the last push on
+  `main`.** The shared `agent-implement.yml` refuses to start ("Require a
+  human approval on main", `scripts/agent/branch-protection.mjs`) unless the
+  required review on `main` also requires approval of the most recent
+  reviewable push: classic protection's "Require approval of the most recent
+  reviewable push", or a ruleset with `require_last_push_approval: true`.
+  wafflebase's own gate asked only for one approval. Turn the setting on
+  before `AGENT_PIPELINE_ENABLED` goes back on. It applies to human merges
+  too: an approval no longer survives a later push to the pull request.
+
 - **The issue classification step is gone.** The shared `agent-implement.yml`
   has none.
 - **`WAFFLEBASE_AGENT_AUTONOMOUS` is no longer set**, so
@@ -84,6 +94,16 @@ does differently. Each is known and accepted for now:
   own included, to restoring no cache in a trusted job that holds a secret or
   a write token; `scripts/test/trusted-cache.test.mjs` is this repository's
   own reading of the same rule.
+- **A sweep runs every 30 minutes** (`agent-sweep.yml`, `17,47 * * * *`,
+  behind `AGENT_PIPELINE_ENABLED`). wafflebase had nothing like it. On each
+  open agent-managed pull request it takes at most one action, recorded in a
+  hidden comment: after a usage-limit page, once the backoff has passed, it
+  deletes those pages, drops `agent:blocked` and re-runs the head's CI (up to
+  three times per head); for a PR left in `agent:reviewing` with nothing
+  running, it re-runs CI once, and pages a human if that did not help. It
+  holds `actions`, `pull-requests` and `issues: write`. A dispatch with
+  `dry_run` logs what it would do without acting; run one before the first
+  scheduled sweep.
 - **The core is linted for bugs only.** `eslint.config.mjs` turns off three
   style rules the core does not follow (`no-unused-vars`, `no-useless-escape`,
   `no-control-regex`) for `scripts/agent/**`; `no-undef` and the rest stay.
