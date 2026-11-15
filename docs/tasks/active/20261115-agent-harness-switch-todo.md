@@ -111,3 +111,17 @@ copy is brought in line.
       no longer describe the old workflows; `classify.mjs record` is
       local-only, wiring it back or deleting it is a follow-up
 
+## Fourth sync (yorkie 9041021b)
+
+- [x] Sync from yorkie main `9041021b`, committed alone: only
+      `bundle-handoff.mjs` (its git environment turns off background
+      maintenance and automatic gc, yorkie#2372), its test and the manifest.
+      `npm test` 1422/1422, `test:repo` 28/28, `check:upstream` OK, guard
+      161/161
+- [x] `pnpm verify:self` at the sync: all 30 lanes pass in 201 s
+      (agent:tests 1422/1422, agent-arms:tests 647/647, scripts:tests 440:
+      437 pass, 3 skipped). The run before it failed once in the backend's
+      `image-share-upload.controller.spec.ts` (404 for 201), which this
+      branch does not touch and which passed on the rerun
+- [x] actionlint 1.7.12 (`-shellcheck= -pyflakes=`): clean
+
