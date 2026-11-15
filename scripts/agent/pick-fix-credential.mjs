@@ -59,10 +59,10 @@
 import { readFileSync, existsSync, statSync, appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { MAX_SLOTS, TOKEN_ENV, slotSuffix, readPoolSlots } from "./token-pool.mjs";
 import { SESSION_LIMIT_RE } from "./redact.mjs";
 import { classifyFixResult } from "./metrics.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 // Re-exported, not redefined: `token-pool.mjs` owns the slot naming, and a second
 // copy of this mapping is exactly the drift its docblock warns about.
@@ -354,10 +354,12 @@ async function main(argv) {
   }
 }
 
-// `path.resolve` + `fileURLToPath`, not the `file://${argv[1]}` template this
-// replaces: that compared a percent-encoded URL against a raw path, so the
-// script did nothing at all when run from a path with a space or `%` in it.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// `isEntryPoint`, not the `file://${argv[1]}` template this once used: that
+// compared a percent-encoded URL against a raw path, so the script did nothing
+// at all when run from a path with a space or `%` in it — and neither form
+// survived the staged directory passing through a symbolic link, which is the
+// case `direct-run.mjs` exists for.
+if (isEntryPoint(import.meta.url)) {
   // Fail OPEN on a crash, like every other doubt here: no `available=` written
   // reads as "proceed" in the workflow.
   main(process.argv.slice(2)).catch((err) => console.log(`pick-fix-credential: crashed (${err.message}); proceeding as before`));

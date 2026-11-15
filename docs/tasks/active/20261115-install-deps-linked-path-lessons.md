@@ -32,3 +32,28 @@ link`). The first draft of the fix comment conflated them.
   staging arrangement that makes the silence consequential), and a test-style
   preference (`assert.equal(status, 1)` vs the neighbours'
   `assert.notEqual(status, 0)` — the stricter one is deliberate here).
+
+- **Round 2 (review panel: blast-radius, security, correctness).** Three
+  blocking findings, all one mistake: *"none of them has the staging
+  arrangement"* was simply wrong. The sibling scripts under `scripts/agent/`
+  are launched by the same four workflows from the same
+  `$RUNNER_TEMP/agent-tools` copy — `node "$RUNNER_TEMP/agent-tools/set-state.mjs"`,
+  `…/loop-status.mjs`, `…/pick-credential.mjs` — so the premise of the fix
+  applies to every one of them verbatim, and `pick-credential.mjs` carried the
+  weaker `file://${argv[1]}` form on top of it. The scope judgement was made by
+  reading the scripts and not the callers.
+
+  Fixed by moving the answer into one module, `scripts/agent/direct-run.mjs`,
+  and wiring all 25 tools in that directory to it. Its `isEntryPoint` **throws**
+  on an entry path it cannot resolve instead of answering "imported" — the
+  third finding, that `catch { return false }` reinstated the exact silent
+  `exit 0` the fix exists to remove — and `install-deps.mjs` turns that throw
+  into its usual loud refusal. `direct-run.test.mjs` pins the behaviour and
+  holds the whole directory to the shared module, so the next tool cannot
+  hand-roll the broken form again.
+
+  `scripts/agent-arms/` is deliberately still on `path.resolve(argv[1])`:
+  those are started from the checkout (`node ./scripts/agent-arms/classify.mjs`),
+  not from a staged copy under the runner's temp directory, which is the
+  directory that can pass through a link. That is the distinction the round-1
+  claim should have rested on.

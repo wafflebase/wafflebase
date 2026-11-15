@@ -81,6 +81,17 @@ One script, `scripts/agent/install-deps.mjs` (with
 `install-deps-lockfile.mjs`), run by all four jobs from main's copy of
 `scripts/agent`, staged outside the workspace in `$RUNNER_TEMP/agent-tools`.
 
+That staged directory can itself pass through a symbolic link, which is why
+whether a tool was run or imported is decided in one place,
+`scripts/agent/direct-run.mjs`, for every tool the jobs launch from there:
+Node resolves a module's own `import.meta.url` through links but leaves
+`argv[1]` as typed, so comparing the two as written answered "imported" on the
+runner, and the step exited 0 having neither installed nor refused — a result
+nothing downstream distinguishes from a successful install. `isEntryPoint`
+takes both sides through `realpath` and **throws** on a path it cannot resolve;
+`install-deps.mjs` turns that into its usual refusal, because the one outcome
+this install may never produce is silence.
+
 | What decides how an install behaves | What the agent jobs do with it |
 | --- | --- |
 | Which pnpm runs | Set up by `pnpm/action-setup` (pinned to a commit) with an explicit `version`, **before** the branch is checked out — the action reads the workspace it runs in, so at that step the workspace holds main's tree or nothing. The script reads the version of the package behind `pnpm` on `PATH` and refuses any other than `PNPM_VERSION`; `packageManager` must name the same version; version switching is off for the install |

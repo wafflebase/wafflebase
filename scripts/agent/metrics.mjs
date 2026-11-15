@@ -31,7 +31,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 // Node builtins only, transitively too: ask.mjs has no top-level imports at all,
 // which is what makes it importable here. The `agent:tests` lane runs with
 // scripts/agent/node_modules ABSENT, so a module that statically pulled in the
@@ -39,6 +38,7 @@ import { fileURLToPath } from "node:url";
 import { classifyResult } from "./ask.mjs";
 import { redactSecrets } from "./redact.mjs";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 // Each session posts its OWN hidden metric comment (append-only) — no shared
 // ledger to read-modify-write, so concurrent sessions can't overwrite each
@@ -1213,7 +1213,7 @@ function cmdSummarize(args) {
 }
 
 // Only run the CLI when executed directly (not when imported for tests).
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   const cmd = process.argv[2];
   const args = parseArgs(process.argv);
   if (cmd === "record") cmdRecord(args);

@@ -44,6 +44,7 @@
 
 import { appendFileSync } from "node:fs";
 import { createTokenPool, slotSuffix, MAX_SLOTS, TOKEN_ENV } from "./token-pool.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 /**
  * Choose a slot from a constructed pool. Pure over the pool object, so the decision is
@@ -97,6 +98,6 @@ function main() {
   if (out) appendFileSync(out, `slot=${slot}\nreason=${reason}\ncapacity=${note}\n`);
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   main();
 }

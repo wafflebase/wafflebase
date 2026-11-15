@@ -20,7 +20,7 @@
 //   Emits `command=<verb>` to $GITHUB_OUTPUT (when set) and stdout.
 
 import { appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "./direct-run.mjs";
 
 // verb token in the comment -> canonical command. Order is irrelevant to
 // "first occurrence wins": the regex finds the leftmost match in the body.
@@ -68,7 +68,7 @@ export function parseCommand(body, { surface = "pr" } = {}) {
 
 // --- CLI -------------------------------------------------------------------
 // Only run when invoked directly (not when imported by the test file).
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isEntryPoint(import.meta.url)) {
   const surfaceArg = (process.argv[3] ?? "pr").toLowerCase();
   const surface = surfaceArg === "issue" ? "issue" : "pr";
   const { command } = parseCommand(process.argv[2] ?? "", { surface });

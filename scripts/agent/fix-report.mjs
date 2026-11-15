@@ -30,11 +30,10 @@
 
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { findingSimilarity, DEFAULT_SIMILARITY } from "./rounds.mjs";
 import { fromRebuttalAuthor, readRebuttals } from "./rebuttal.mjs";
 import { collectTestRemovals } from "./test-removals.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 /** Hidden-comment marker, mirroring metrics.mjs's `METRIC_PREFIX`. */
 export const FIX_REPORT_MARKER = "<!-- agent-fix-report ";
@@ -684,4 +683,4 @@ function main() {
   console.error(`fix-report: ${reports.length} report(s) on #${pr}`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isEntryPoint(import.meta.url)) main();

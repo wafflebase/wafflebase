@@ -28,10 +28,9 @@
 // so an advisory label write can never break the pipeline (mirrors metrics.mjs).
 
 import { execFileSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
 import { ciConclusion, CI_WORKFLOW_FILE } from "./checks.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -297,7 +296,7 @@ function bailUsage() {
 }
 
 // Only run the CLI when executed directly (not when imported for tests).
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   const argv = process.argv;
   const dryRun = argv.includes("--dry-run");
   if (argv[2] === "reconcile") {

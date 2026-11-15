@@ -37,11 +37,10 @@
 
 import { appendFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { classifyFixResult } from "./metrics.mjs";
 import { PAGED_LATCH } from "./rounds.mjs";
 import { parseArgs } from "./gh-checks.mjs";
+import { isEntryPoint } from "./direct-run.mjs";
 
 /**
  * Decide from the execution log and the two facts the workflow knows. Pure.
@@ -125,6 +124,6 @@ function main() {
   out("paged", "true");
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   main();
 }

@@ -38,7 +38,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
 const SCRIPT = path.join(HERE, "install-deps.mjs");
 const ENTRY = path.join(HERE, "install-deps-container.cjs");
-const SHIPPED = ["install-deps.mjs", "install-deps-lockfile.mjs", "install-deps-container.cjs", "install-deps.workspace.yaml", "install-deps.npmrc"];
+const SHIPPED = ["install-deps.mjs", "install-deps-lockfile.mjs", "install-deps-container.cjs", "install-deps.workspace.yaml", "install-deps.npmrc", "direct-run.mjs"];
 const TRUSTED_WORKSPACE = readFileSync(path.join(HERE, "install-deps.workspace.yaml"), "utf8");
 const TMP = realpathSync(os.tmpdir());
 
