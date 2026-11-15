@@ -16,7 +16,7 @@ a user check-in after each.
       footprint test needs to move into `insertImageOnSlide` — deferred
 - [x] 4. Sticky identity: inline 6 sticky swatches when a sticky is selected,
       hide border weight / dash / gradient, "Add sticky note" in canvas menu
-- [ ] 5. Minimap viewport rect collapses when viewport > content
+- [x] 5. Minimap viewport rect collapses when viewport > content
       (`board-minimap.ts` bounds = scene ∪ viewport)
 - [ ] 6. Discoverability: empty-board hint, V/T/N/S/L tool keys, shortcuts in
       tooltips, board shortcuts help (Cmd+/)
