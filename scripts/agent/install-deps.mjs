@@ -765,9 +765,10 @@ export function installDeps({ workspace, pnpm = "pnpm", log = console.log }) {
 /**
  * Was this file run, or imported? Both sides through `realpath`: Node resolves
  * the module's own URL through symbolic links but leaves `argv[1]` as typed, so
- * a run through a linked path (a runner whose work directory passes through
- * one) compared unequal and exited 0 having done nothing — neither installing
- * nor refusing.
+ * a run through a linked path — the staged directory this file is started from
+ * passing through one — compared unequal and exited 0 having done nothing,
+ * neither installing nor refusing. (A linked *workspace* is a separate matter,
+ * and `installDeps` refuses it.)
  */
 function isDirectRun() {
   if (!process.argv[1]) return false;

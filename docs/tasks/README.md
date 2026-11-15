@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | implement post agent job (2026-11-15) | [20261115-implement-post-agent-job-todo.md](./active/20261115-implement-post-agent-job-todo.md) | [20261115-implement-post-agent-job-lessons.md](./active/20261115-implement-post-agent-job-lessons.md) |
+| install deps linked path (2026-11-15) | [20261115-install-deps-linked-path-todo.md](./active/20261115-install-deps-linked-path-todo.md) | [20261115-install-deps-linked-path-lessons.md](./active/20261115-install-deps-linked-path-lessons.md) |
 | move agent arms (2026-11-15) | [20261115-move-agent-arms-todo.md](./active/20261115-move-agent-arms-todo.md) | [20261115-move-agent-arms-lessons.md](./active/20261115-move-agent-arms-lessons.md) |
 | tighten agent guard (2026-11-15) | [20261115-tighten-agent-guard-todo.md](./active/20261115-tighten-agent-guard-todo.md) | [20261115-tighten-agent-guard-lessons.md](./active/20261115-tighten-agent-guard-lessons.md) |
 | harden agent install (2026-11-14) | [20261114-harden-agent-install-todo.md](./active/20261114-harden-agent-install-todo.md) | [20261114-harden-agent-install-lessons.md](./active/20261114-harden-agent-install-lessons.md) |
