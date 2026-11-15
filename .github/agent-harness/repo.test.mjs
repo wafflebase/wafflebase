@@ -452,8 +452,9 @@ test("an agent's own pnpm install does not arm the repository's git hooks", () =
   for (const [ci, armed] of [[undefined, true], ["true", false]]) {
     const dir = mkdtempSync(path.join(tmpdir(), "repo-test-postinstall-"));
     try {
-      run("git", ["init", "-q"], { cwd: dir });
+      // Only what the fixture needs: no GIT_DIR or GIT_INDEX_FILE an enclosing hook set.
       const env = { PATH: process.env.PATH, HOME: dir, GIT_CONFIG_GLOBAL: "/dev/null", ...(ci ? { CI: ci } : {}) };
+      run("git", ["init", "-q"], { cwd: dir, env });
       const r = spawnSync("sh", ["-c", script], { cwd: dir, env, encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr);
       const got = spawnSync("git", ["config", "--local", "core.hooksPath"], { cwd: dir, env, encoding: "utf8" }).stdout.trim();

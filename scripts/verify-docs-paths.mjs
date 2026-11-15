@@ -30,9 +30,13 @@ export function disallowedDocsPaths(paths) {
   return paths.filter((p) => p.startsWith("docs/") && !ALLOWED.some((re) => re.test(p)));
 }
 
-/** Every path git's index holds under `docs/`, for the repository at `root`. */
-export function indexedDocsPaths(root) {
-  const out = execFileSync("git", ["ls-files", "-z", "--cached", "--", "docs"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+/**
+ * Every path git's index holds under `docs/`, for the repository at `root`.
+ * `env` is the process's own by default: in the pre-commit hook git sets
+ * `GIT_INDEX_FILE` to the index being committed, which is the one to read.
+ */
+export function indexedDocsPaths(root, env = process.env) {
+  const out = execFileSync("git", ["ls-files", "-z", "--cached", "--", "docs"], { cwd: root, env, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return out.split("\0").filter(Boolean);
 }
 

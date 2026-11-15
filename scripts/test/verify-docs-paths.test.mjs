@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { fixtureGitEnv } from "../agent/git-env.mjs";
 import { disallowedDocsPaths, indexedDocsPaths } from "../verify-docs-paths.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -33,7 +34,9 @@ test("docs/design/, docs/tasks/ and docs/README.md are allowed; anything else un
 test("it reads git's index: a staged file is refused before it is committed", (t) => {
   const repo = mkdtempSync(path.join(tmpdir(), "docs-paths-"));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  const git = (...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+  // The fixture's own git, whatever an enclosing hook set (GIT_DIR, GIT_INDEX_FILE).
+  const env = fixtureGitEnv(repo);
+  const git = (...args) => execFileSync("git", args, { cwd: repo, env, encoding: "utf8" });
   git("init", "-q");
   mkdirSync(path.join(repo, "docs", "design"), { recursive: true });
   mkdirSync(path.join(repo, "docs", "superpowers"), { recursive: true });
@@ -41,9 +44,9 @@ test("it reads git's index: a staged file is refused before it is committed", (t
   writeFileSync(path.join(repo, "docs", "superpowers", "b.md"), "b");
   git("add", "docs/design/a.md");
   // An untracked file is not in the index, and not yet anyone's problem.
-  assert.deepEqual(disallowedDocsPaths(indexedDocsPaths(repo)), []);
+  assert.deepEqual(disallowedDocsPaths(indexedDocsPaths(repo, env)), []);
   git("add", "docs/superpowers/b.md");
-  assert.deepEqual(disallowedDocsPaths(indexedDocsPaths(repo)), ["docs/superpowers/b.md"]);
+  assert.deepEqual(disallowedDocsPaths(indexedDocsPaths(repo, env)), ["docs/superpowers/b.md"]);
 });
 
 test("this repository's docs/ is clean, and the check runs where CI and the hook reach it", () => {
