@@ -165,6 +165,8 @@ function mapBoardPeers(
  */
 export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Toolbar + canvas: what counts as "the board" for its tool keys.
+  const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   // Live pan/zoom state. A ref (not React state) because it updates on
   // every wheel tick / pointer-drag frame — routing that through
@@ -733,6 +735,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         readOnly: readOnly === true,
         fit: () => zoom.fit(),
         dropSticky: () => stickyInserterRef.current?.(STICKY_COLORS[0].value),
+        isBoardTarget: (target) =>
+          target === document.body ||
+          (target instanceof Node && rootRef.current?.contains(target) === true),
       });
     };
     document.addEventListener("keydown", onKeyDown);
@@ -969,7 +974,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // with the default `min-width: auto` it grows to the toolbar's unwrapped
     // width, the row's `overflow-hidden` clips the strip at the right edge of
     // a phone, and the toolbar never becomes the scroller it is built to be.
-    <div className="flex h-full w-full min-h-0 min-w-0 flex-col">
+    <div ref={rootRef} className="flex h-full w-full min-h-0 min-w-0 flex-col">
       {/* Toolbar sits ABOVE the canvas host as a sibling, not a wrapper —
           the mount effect measures `containerRef.getBoundingClientRect()`
           for canvas sizing and `canvas.getBoundingClientRect()` for

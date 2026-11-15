@@ -144,6 +144,14 @@ export interface BoardToolKeyContext {
   readOnly: boolean;
   fit: () => void;
   dropSticky: () => void;
+  /**
+   * Whether the keystroke's target belongs to the board: its canvas,
+   * toolbar, or no focused element at all (`document.body`). The handler
+   * is document-level, so without this a letter typed while focus sits in
+   * sibling chrome — the history panel, the sidebar, a header button —
+   * would change the board.
+   */
+  isBoardTarget: (target: EventTarget | null) => boolean;
 }
 
 /**
@@ -151,7 +159,8 @@ export interface BoardToolKeyContext {
  * zoom-to-fit. Returns whether it handled the key.
  *
  * The gates, in order: a key someone else already took, a held key's
- * auto-repeat, a keystroke meant for a field / menu / dialog
+ * auto-repeat, a keystroke aimed outside the board, one meant for a field
+ * / menu / dialog
  * ({@link isTextEntryTarget}), and a live text edit all pass through.
  * Shift+1 is a view action, so it works read-only and with a selection.
  * Tools need an editable board with nothing selected: with a selection, a
@@ -160,6 +169,7 @@ export interface BoardToolKeyContext {
  */
 export function handleBoardToolKey(e: KeyboardEvent, ctx: BoardToolKeyContext): boolean {
   if (e.defaultPrevented || e.repeat) return false;
+  if (!ctx.isBoardTarget(e.target)) return false;
   if (isTextEntryTarget(e.target) || ctx.editor.isTextEditing()) return false;
   if (e.shiftKey && e.code === "Digit1" && !e.metaKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault();

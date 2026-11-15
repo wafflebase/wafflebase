@@ -164,9 +164,15 @@ describe('freeStickyCenter', () => {
     });
   });
 
-  it('nudges rather than covering exactly on a board too dense to find room', () => {
+  it('cascades rather than covering exactly on a board too dense to find room', () => {
     const wall = { x: -1e6, y: -1e6, w: 2e6, h: 2e6, rotation: 0 };
-    expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({ x: 5 + STICKY_GAP, y: 5 + STICKY_GAP });
+    expect(freeStickyCenter([wall], { x: 5, y: 5 })).toEqual({ x: 5, y: 5 });
+    // Each repeated drop with no room lands one gap further down-right.
+    const visible = { x: -90, y: -90, w: 180, h: 180, rotation: 0 };
+    const first = freeStickyCenter([sq(0, 0)], { x: 0, y: 0 }, visible);
+    expect(first).toEqual({ x: STICKY_GAP, y: STICKY_GAP });
+    const second = freeStickyCenter([sq(0, 0), sq(first.x, first.y)], { x: 0, y: 0 }, visible);
+    expect(second).toEqual({ x: 2 * STICKY_GAP, y: 2 * STICKY_GAP });
   });
 });
 

@@ -83,6 +83,9 @@ export const STICKY_GAP = 24;
 /** How many sticky-widths to walk each way before giving up on a free spot. */
 const MAX_STEPS = 10;
 
+/** How far the no-room cascade goes before it stops stepping. */
+const MAX_CASCADE = 50;
+
 function overlaps(a: Frame, b: Frame): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
@@ -121,8 +124,9 @@ function stickyBox(center: Point): Frame {
  * When `visible` (the on-screen world rect) is given, a square is only
  * taken if it lies wholly inside it: the new sticky enters text edit
  * straight away, and typing into a note the user cannot see is worse than
- * a partial overlap. With no free visible square, the sticky is nudged one
- * gap down and right of `center` — overlapping, but never an exact cover.
+ * a partial overlap. With no free visible square, the sticky cascades down
+ * and right of `center` one gap at a time, past every sticky already
+ * sitting exactly there — overlapping, but never an exact cover.
  */
 export function freeStickyCenter(
   occupied: readonly Frame[],
@@ -138,9 +142,17 @@ export function freeStickyCenter(
       if (!occupied.some((f) => overlaps(f, box))) return candidate;
     }
   }
-  return occupied.some((f) => overlaps(f, stickyBox(center)))
-    ? { x: center.x + STICKY_GAP, y: center.y + STICKY_GAP }
-    : center;
+  // No free square: cascade down-right, one gap per sticky already sitting
+  // exactly where the next would go, so repeated drops fan out instead of
+  // stacking on one point.
+  const covers = (p: Point) =>
+    occupied.some((f) => {
+      const b = stickyBox(p);
+      return Math.abs(f.x - b.x) < 1 && Math.abs(f.y - b.y) < 1;
+    });
+  let k = 0;
+  while (k < MAX_CASCADE && covers({ x: center.x + k * STICKY_GAP, y: center.y + k * STICKY_GAP })) k++;
+  return { x: center.x + k * STICKY_GAP, y: center.y + k * STICKY_GAP };
 }
 
 export interface DropStickyDeps {

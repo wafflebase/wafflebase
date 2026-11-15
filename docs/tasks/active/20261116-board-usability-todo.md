@@ -30,8 +30,18 @@ a user check-in after each.
       connector, undo ×2 / redo ×2, console clean); the critique saw it on
       the #1136 build
 - [x] 8. FigJam-parity roadmap: `docs/design/board/board-figjam-parity.md`
-- [ ] 9. Polish pass, `pnpm verify:fast`, self-review, PR
+- [x] 9. Polish pass, `pnpm verify:fast`, self-review, PR
 
 ## Review
 
-(filled in at the end)
+- Verified in the browser on this worktree's dev server (dark app theme):
+  Esc keeps sticky text, light plane, sticky-only toolbar swatches,
+  "Insert sticky note" at the clicked point, S/T tool keys, Mod+/ sheet,
+  empty-board hint, minimap frame whole when zoomed out.
+- Impeccable detector: clean on every changed UI file.
+- Self-review: 3 rounds (bound reached). Fixed 9 findings, 2 rebuttals
+  upheld by the panel (both overturned the finding). The last round's two
+  fixes were not re-reviewed by the panel.
+- Deferred: image insert placement (needs the decoded size inside
+  `insertImageOnSlide`), tooltip re-show after a menu closes (app-wide
+  Radix focus restore), roadmap phases 1–6.

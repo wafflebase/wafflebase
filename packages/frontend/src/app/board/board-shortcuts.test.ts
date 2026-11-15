@@ -96,7 +96,15 @@ describe("handleBoardToolKey", () => {
       getSelection: vi.fn(() => opts.selection ?? []),
       setInsertMode: vi.fn(),
     };
-    const ctx = { editor, readOnly: opts.readOnly ?? false, fit: vi.fn(), dropSticky: vi.fn() };
+    const outside = document.createElement("button");
+    const ctx = {
+      editor,
+      readOnly: opts.readOnly ?? false,
+      fit: vi.fn(),
+      dropSticky: vi.fn(),
+      isBoardTarget: (t: EventTarget | null) => t !== outside,
+      outside,
+    };
     return ctx;
   }
   const press = (key: string, init: KeyboardEventInit = {}, target?: EventTarget) => {
@@ -141,6 +149,14 @@ describe("handleBoardToolKey", () => {
     const ctx = setup();
     expect(handleBoardToolKey(press("s", {}, document.createElement("button")), ctx)).toBe(true);
     expect(ctx.dropSticky).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores keystrokes aimed at chrome outside the board", () => {
+    const ctx = setup();
+    expect(handleBoardToolKey(press("s", {}, ctx.outside), ctx)).toBe(false);
+    expect(handleBoardToolKey(press("!", { code: "Digit1", shiftKey: true }, ctx.outside), ctx)).toBe(false);
+    expect(ctx.dropSticky).not.toHaveBeenCalled();
+    expect(ctx.fit).not.toHaveBeenCalled();
   });
 
   it("ignores auto-repeat and keys someone else already handled", () => {

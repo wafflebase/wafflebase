@@ -25,3 +25,12 @@
   (extracted `handleBoardToolKey` with gate tests). Disputed: revision
   preview's "Escape is non-destructive" premise — opening the preview
   blurs and so commits any edit first (comment updated, rebuttal filed).
+- Round 3 (security/docs): the revision-preview rebuttal overturned its
+  finding. 2 new blocking, both fixed after the round: the no-room
+  fallback was a fixed offset, so repeated drops stacked on one point
+  (now cascades past every exact cover); document-level tool keys fired
+  from sibling chrome such as the history panel (now scoped to the board
+  root or `document.body`). The loop hit its 3-round bound, so these fixes
+  go to human review in the PR rather than a 4th round.
+- Lesson: a document-level key handler needs a positive "is this mine"
+  scope, not just a list of things to stand down for.
