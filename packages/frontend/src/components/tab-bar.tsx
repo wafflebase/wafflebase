@@ -113,7 +113,7 @@ function SortableTab({
         <input
           ref={inputRef}
           aria-label="Rename tab"
-          className="w-20 bg-transparent border-b border-primary text-base md:text-sm outline-none"
+          className="w-20 bg-transparent border-b border-primary text-base md:text-sm focus-ring"
           value={editValue}
           onChange={(e) => onEditValueChange(e.target.value)}
           onBlur={onCommitRename}

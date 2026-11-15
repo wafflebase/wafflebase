@@ -154,7 +154,7 @@ export function FontSizePicker({
           disabled={disabled}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => step(-1)}
-          className="inline-flex h-7 w-5 pointer-coarse:h-11 pointer-coarse:w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none hover:bg-muted focus-visible:bg-muted disabled:opacity-50"
+          className="inline-flex h-7 w-5 pointer-coarse:h-11 pointer-coarse:w-11 cursor-pointer items-center justify-center text-muted-foreground focus-ring hover:bg-muted focus-visible:bg-muted disabled:opacity-50"
         >
           <IconMinus size={12} />
         </button>
@@ -194,7 +194,7 @@ export function FontSizePicker({
           disabled={disabled}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => step(1)}
-          className="inline-flex h-7 w-5 pointer-coarse:h-11 pointer-coarse:w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none hover:bg-muted focus-visible:bg-muted disabled:opacity-50"
+          className="inline-flex h-7 w-5 pointer-coarse:h-11 pointer-coarse:w-11 cursor-pointer items-center justify-center text-muted-foreground focus-ring hover:bg-muted focus-visible:bg-muted disabled:opacity-50"
         >
           <IconPlus size={12} />
         </button>

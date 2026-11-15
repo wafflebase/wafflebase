@@ -23,11 +23,11 @@ docs canvas, board). That needs its own design doc.
 - [x] Data-validation textarea is 16px on mobile
 
 ## 3. Harden — keyboard and semantics
-- [ ] Replacement focus styles where `outline-none` drops them
-- [ ] Labels for placeholder-only inputs
-- [ ] Homepage landmarks (nav/footer outside `<main>`)
-- [ ] Smooth scrolling respects `prefers-reduced-motion`
-- [ ] Missing `DialogDescription`s
+- [x] Replacement focus styles where `outline-none` drops them
+- [x] Labels for placeholder-only inputs
+- [x] Homepage landmarks (nav/footer outside `<main>`)
+- [x] Smooth scrolling respects `prefers-reduced-motion`
+- [x] Missing `DialogDescription`s
 
 ## 4. Polish — design-system drift
 - [ ] One Accent: empty-state create buttons step down to outline

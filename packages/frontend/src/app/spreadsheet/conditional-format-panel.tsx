@@ -508,6 +508,7 @@ export function ConditionalFormatPanel({
 
               {requiresSingleValue(selectedRule.op) && (
                 <Input
+                  aria-label="Value"
                   value={selectedRule.value || ""}
                   placeholder={
                     selectedRule.op === "textContains"
@@ -528,6 +529,7 @@ export function ConditionalFormatPanel({
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     value={selectedRule.value || ""}
+                    aria-label="Minimum value"
                     placeholder="Min"
                     onChange={(event) =>
                       updateRule(selectedRule.id, {
@@ -537,6 +539,7 @@ export function ConditionalFormatPanel({
                   />
                   <Input
                     value={selectedRule.value2 || ""}
+                    aria-label="Maximum value"
                     placeholder="Max"
                     onChange={(event) =>
                       updateRule(selectedRule.id, {

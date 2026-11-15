@@ -149,7 +149,7 @@ export function AppSidebar({
         <NavUser user={me!} />
       </SidebarFooter>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Create workspace</DialogTitle>
           </DialogHeader>
@@ -160,6 +160,7 @@ export function AppSidebar({
             }}
           >
             <Input
+              aria-label="Workspace name"
               placeholder="Workspace name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}

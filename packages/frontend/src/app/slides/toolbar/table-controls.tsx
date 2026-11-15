@@ -435,7 +435,7 @@ export function TableControls({
                 value={paddingDraft}
                 onChange={(e) => setPaddingDraft(e.target.value)}
                 onBlur={commitPaddingCustom}
-                className="h-7 w-full rounded border border-border bg-background px-2 text-sm outline-none"
+                className="h-7 w-full rounded border border-border bg-background px-2 text-sm focus-ring"
               />
               <span className="pr-1 text-xs text-muted-foreground">px</span>
             </form>
