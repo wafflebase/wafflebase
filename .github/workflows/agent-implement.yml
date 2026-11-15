@@ -13,6 +13,11 @@
 # DRAFT PR early (CI runs the full verify lanes, not the runner's turn budget)
 # -> optional self-review. It never pushes to main and never merges.
 #
+# Everything after the agent that runs repository code or holds a credential
+# the agent was not given runs in the `finish` job, on a fresh runner with
+# main's scripts: the session summary, the effort record, the no-PR report and
+# the classifier. The agent's own job keeps only the upload of its log.
+#
 # See docs/design/agent-pipeline/harness-engineering.md ("Autonomous contribution loop").
 name: Agent Implement
 
@@ -91,8 +96,19 @@ jobs:
     # Scope the API key to a protected Environment so a maintainer can require
     # approval before any run spends budget (configure in repo settings).
     environment: agent
+    # THE JOB'S OWN TOKEN READS ONLY. Every write in this job goes through an App
+    # token minted for it; the job token reaches the agent's step all the same
+    # (the action hands it in), so it carries no write scope.
+    permissions:
+      contents: read
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    outputs:
+      # For `finish`: whether the commenter passed the write-access gate, set
+      # by a step that runs only after it.
+      admitted: ${{ steps.admitted.outputs.admitted }}
+      # For the `finish` job's no-PR report: the agent step's outcome.
+      agent: ${{ steps.agent.outcome }}
     steps:
       # author_association in the `if` is a cheap pre-filter; this step is the
       # authoritative gate — it fails the run unless the commenter actually has
@@ -112,14 +128,26 @@ jobs:
               core.setFailed(`@${actor} lacks write access (permission: ${data.permission}); refusing to run.`);
             }
 
-      # Auth git ops as the Claude GitHub App so the branch push + PR creation
-      # re-trigger CI (GITHUB_TOKEN pushes do not).
+      # Reached only when the write-access gate passed (or did not apply, on a
+      # dispatch). `finish` keys on it, so a refused commenter gets no report
+      # and no classification, as before `finish` minted its own token.
+      - name: Record that the commenter was admitted
+        id: admitted
+        run: echo "admitted=true" >> "$GITHUB_OUTPUT"
+
+      # THE PRE-AGENT TOKEN: the two gates and the acknowledgement below, and
+      # nothing else. Revoked by "Revoke the pre-agent token" before the agent
+      # starts, not by this action's post step at job end, which the agent's
+      # environment can reach.
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
           app-id: ${{ secrets.AGENT_APP_ID }}
           private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          skip-token-revoke: true
+          permission-administration: read # the branch-protection gate reads protection, never writes it
+          permission-issues: write # the acknowledgement
 
       # Verify the "no path to main" backstop actually exists before the agent
       # does anything. Fails closed if main isn't protected with a required human
@@ -194,13 +222,29 @@ jobs:
               core.warning(`could not acknowledge the issue: ${e.message} — the commenter got no "On it" reply`);
             }
 
+      # THE AGENT'S TOKEN, minted for it and for the checkout it works in:
+      # push its branch, open its draft PR, label it and comment on the issue.
+      # Auth git ops as the Claude GitHub App so the branch push + PR creation
+      # re-trigger CI (GITHUB_TOKEN pushes do not).
+      - name: Generate the agent's token
+        id: agent-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-contents: write # create the branch and push to it
+          permission-pull-requests: write # open the draft PR
+          permission-issues: write # the state label and the issue comment
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Named, not left to the event: this job installs with lifecycle
           # scripts on, so what it installs is main and nothing else.
           ref: main
           fetch-depth: 0 # full history for rebase + full-diff self-review
-          token: ${{ steps.app-token.outputs.token }}
+          # Persisted into .git/config for the agent's push, so it is the
+          # agent's own token and no other.
+          token: ${{ steps.agent-token.outputs.token }}
 
       # Pinned to a commit, with the pnpm version given here, because this job
       # holds tokens. No `cache:` — this job neither restores nor saves a
@@ -353,6 +397,14 @@ jobs:
           }
           node "scripts/agent/pick-credential.mjs"
 
+      # REVOKED BEFORE THE AGENT STARTS, so the gates' token is worthless by the
+      # time anything the agent controls runs in this job. Under the agent's own
+      # condition and FAIL-CLOSED: if the revocation fails, the agent is skipped.
+      - name: Revoke the pre-agent token
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh api -X DELETE installation/token
+
       - name: Run Claude Code
         # Pinned to the v1 release commit (immutable) for supply-chain safety.
         # Re-check input names against https://code.claude.com/docs/en/github-actions
@@ -361,7 +413,7 @@ jobs:
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ steps.app-token.outputs.token }}
+          github_token: ${{ steps.agent-token.outputs.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
           claude_args: >-
             --max-turns 150
@@ -379,29 +431,82 @@ jobs:
           path: ${{ runner.temp }}/claude-execution-output.json
           if-no-files-found: warn
 
+  # THE STEPS AFTER THE AGENT, on a runner the agent never had a shell on.
+  #
+  # The agent ran Bash, Edit and Write over the implement job's workspace, and
+  # everything in that job after it inherits what the agent could change there:
+  # the files, `.git/config`, `$GITHUB_ENV` and `$GITHUB_PATH`. So nothing after
+  # the agent that runs repository code, or holds a credential the agent was
+  # not given, runs in that job. It runs here: main's scripts from a sparse
+  # checkout that persists no credential, an App token minted here with only
+  # what these steps use, and the agent's log read as data.
+  #
+  # `always()`, keyed on the commenter having been admitted: like the steps it
+  # replaces, it reports a run that failed or was cancelled as well as one that
+  # finished, and stays silent for a commenter the write-access gate refused. `environment: agent` for the classifier's API key, which appears
+  # in this job only.
+  finish:
+    needs: [implement]
+    if: always() && needs.implement.outputs.admitted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: agent
+    permissions:
+      contents: read # the sparse checkout of main's scripts
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          sparse-checkout: |
+            scripts/agent
+            scripts/agent-arms
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+
+      # The transcript, as DATA: the scripts below parse it and nothing runs it.
+      - name: Collect the agent's execution log
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: claude-execution-output
+          path: ${{ runner.temp }}/agent-output
+
       # OBSERVABILITY (Phase 1): the kickoff session's turns/cost/outcome on the
       # run page, so "the run ended and no PR appeared" stops requiring an
       # artifact download to explain. Display only; never blocks the pipeline.
       - name: Write implement session job summary
-        if: always()
         continue-on-error: true
         run: |
           [ -f ./scripts/agent/session-job-summary.mjs ] || { echo "session-job-summary.mjs not in this tree yet; skipping"; exit 0; }
           node ./scripts/agent/session-job-summary.mjs \
-            --execution "$RUNNER_TEMP/claude-execution-output.json" \
+            --execution "$RUNNER_TEMP/agent-output/claude-execution-output.json" \
             --kind implement \
             --title "Implement agent session"
+
+      # Minted after the summary, which needs none.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-contents: read # the PR diff the classifier reads
+          permission-pull-requests: write # the effort ledger and the class labels on the PR
+          permission-issues: write # the no-PR report, the class comment and labels on the issue
 
       # Record this session's effort into the PR metrics ledger. The kickoff
       # created the PR mid-run, so resolve it by the `agent/<issue>-…` branch.
       # Fail-safe: continue-on-error + the script exits 0 on any error.
       - name: Record agent effort metrics
-        if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
-        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
+        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/agent-output/claude-execution-output.json" --kind implement --issue "$ISSUE"
 
       # OBSERVABILITY (Phase 3): the one silent termination left in the
       # pipeline — the run dies (or exhausts its turns) before opening a PR,
@@ -412,23 +517,27 @@ jobs:
       #
       # Three-state honesty (the stalled-net rule): PR found → silent (the
       # normal flow posts the link); no PR found → the dead-run comment,
-      # worded by whether the agent step failed or merely ended; lookup FAILED
+      # worded by whether the agent step failed, ended or never started; lookup FAILED
       # → a comment that says the state could not be determined, never a
       # failure claim this run did not verify. issue_comment only, matching
       # the ack — a workflow_dispatch dry-run has no thread to update.
       # Best-effort: continue-on-error, and posted with the App token so the
       # reply comes from the same identity as the ack it corrects.
       - name: Report a run that ended without a PR
-        if: always() && github.event_name == 'issue_comment'
+        if: github.event_name == 'issue_comment'
         continue-on-error: true
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          AGENT_OUTCOME: ${{ needs.implement.outputs.agent }}
         with:
           retries: 3
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const issue = context.payload.issue.number;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const failed = '${{ steps.agent.outcome }}' === 'failure';
+            // The agent step's outcome; `skipped` or empty when it never started.
+            const how = { failure: 'failed', success: 'ended', cancelled: 'was cancelled' }[process.env.AGENT_OUTCOME]
+              ?? 'stopped before the agent started';
             // The same lookup metrics.mjs::resolvePrByIssue does over `gh pr
             // list`: an open PR whose head branch is `agent/<issue>-…`.
             let pr = null, lookupOk = true;
@@ -443,7 +552,7 @@ jobs:
             }
             if (lookupOk && pr) return; // the normal flow posts the PR link
             const body = lookupOk
-              ? `<!-- agent-implement-no-pr -->\n🛑 The run started by this command ${failed ? 'failed' : 'ended'} without opening a PR — `
+              ? `<!-- agent-implement-no-pr -->\n🛑 The run started by this command ${how} without opening a PR — `
                 + `no open \`agent/${issue}-*\` branch has one. See the [run](${runUrl}) and its \`claude-execution-output\` artifact `
                 + `for the transcript. Comment \`@claude fix\` to retry.`
               : `<!-- agent-implement-no-pr -->\n⚠️ The run started by this command has ended, but this step could not read the PR list `
@@ -456,7 +565,6 @@ jobs:
       # comment, mirroring the metrics ledger (Dimension A from the issue always;
       # root-cause bug class from the diff when a PR exists). Fail-safe: exit 0.
       - name: Classify issue category
-        if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
