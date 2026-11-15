@@ -29,7 +29,7 @@ a user check-in after each.
       `YorkieError: fail to find` did not reproduce on HEAD (text box +
       connector, undo ×2 / redo ×2, console clean); the critique saw it on
       the #1136 build
-- [ ] 8. FigJam-parity roadmap: `docs/design/board/board-figjam-parity.md`
+- [x] 8. FigJam-parity roadmap: `docs/design/board/board-figjam-parity.md`
 - [ ] 9. Polish pass, `pnpm verify:fast`, self-review, PR
 
 ## Review
