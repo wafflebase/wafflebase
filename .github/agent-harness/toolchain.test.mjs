@@ -50,6 +50,7 @@ import {
   PNPM_DIR,
   PNPM_VERSION,
   dockerArgs,
+  dockerEnv,
   hashTree,
   isShieldedName,
   runningCheckout,
@@ -1299,8 +1300,14 @@ test("with the real runtime and the real pnpm: nothing the branch wrote runs, an
     t.skip(`needs the pnpm ${PNPM_VERSION} package on PATH (found ${found.version ?? "none"})`);
     return;
   }
-  if (spawnSync("docker", ["info"], { stdio: "ignore" }).status !== 0) {
-    t.skip("needs a running docker");
+  // Asked the way the script asks: an empty client configuration, so no
+  // context in the developer's own Docker configuration is used, and only
+  // `PATH` and `DOCKER_HOST` of the environment.
+  const probeConfig = mkdtempSync(path.join(TMP, "docker-probe-"));
+  t.after(() => rmSync(probeConfig, { recursive: true, force: true }));
+  const probe = spawnSync("docker", ["info"], { stdio: "ignore", env: dockerEnv(probeConfig, { PATH: process.env.PATH, DOCKER_HOST: process.env.DOCKER_HOST }) });
+  if (probe.status !== 0) {
+    t.skip("needs a local Docker daemon reachable without a context (set DOCKER_HOST=unix://… to the daemon's socket)");
     return;
   }
   const base = mkdtempSync(path.join(TMP, "install-deps-real-"));
