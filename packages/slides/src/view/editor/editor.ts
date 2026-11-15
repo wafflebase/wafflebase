@@ -4357,12 +4357,14 @@ class SlidesEditorImpl implements SlidesEditor {
       this.lastHoverCursor = '';
     }
 
-    // Escape sets `cancelled` first, THEN the docs editor routes the
-    // blur cascade through the onCommit branch below. The flag tells
-    // onCommit to skip the store write so the user's in-flight edits
-    // are discarded — matching the Word / Google Docs convention. The
-    // editor's source of truth (Yorkie) is only ever touched on
-    // commit, so "discard" is just "don't write" — no rollback needed.
+    // Escape KEEPS the edit: the docs editor routes its blur cascade
+    // through onCommit below, exactly as clicking outside does. That is
+    // what Google Slides, FigJam and Miro do — Escape leaves text edit
+    // with the box selected, never throwing away what was typed. Only
+    // `editingCancel` (a teardown such as `exitEditMode('cancel')`) sets
+    // `cancelled`, which tells onCommit to skip the store write. The
+    // source of truth (Yorkie) is only ever touched on commit, so
+    // "discard" is just "don't write" — no rollback needed.
     let cancelled = false;
     const tb = this.mountTextBox({
       overlay: this.options.overlay,
@@ -4497,9 +4499,8 @@ class SlidesEditorImpl implements SlidesEditor {
         }
         this.finishEditMode();
       },
-      onCancel: () => {
-        cancelled = true;
-      },
+      // Escape: nothing to do here — the blur that follows commits.
+      onCancel: () => {},
     });
     this.editingTextBox = tb;
     // See the field's comment: `detach()` flushes a final commit for a

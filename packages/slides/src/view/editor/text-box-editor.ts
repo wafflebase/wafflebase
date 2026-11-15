@@ -103,7 +103,10 @@ export interface MountSlidesTextBoxOptions {
   blocks: Block[];
   /** Called on blur with the new Block[]. The editor commits via store.withTextElement. */
   onCommit: (blocks: Block[]) => void;
-  /** Called when Escape is pressed (BEFORE onCommit fires via the blur path). */
+  /**
+   * Called when Escape is pressed, BEFORE onCommit fires via the blur path.
+   * The slides editor keeps the edit on Escape, so it ignores this.
+   */
   onCancel: () => void;
   /**
    * Called when the user presses Cmd/Ctrl+K. The slides shell opens a
