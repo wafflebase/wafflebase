@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mapMiroItems } from './map-items';
+import { isStickyData } from '../../model/sticky';
 
 const at = (x: number, y: number, w = 100, h = 100) => ({
   position: { x, y },
@@ -23,6 +24,23 @@ describe('mapMiroItems', () => {
     expect(data.fill).toMatchObject({ kind: 'srgb' });
     expect(data.text.verticalAnchor).toBe('middle');
     expect(data.text.blocks[0].inlines.map((i: any) => i.text).join('')).toBe('Hi');
+    // The board's sticky preset, so it gets the sticky controls.
+    expect(isStickyData(data)).toBe(true);
+  });
+
+  it('does not make a Miro round-rectangle shape a sticky', () => {
+    const { inits } = mapMiroItems({
+      items: [{
+        id: 'r1', type: 'shape', ...at(0, 0),
+        data: { shape: 'round_rectangle', content: 'box' },
+        style: { fillColor: '#ff0000' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    const data = (inits[0] as any).data as Record<string, any>;
+    expect(data.kind).toBe('roundRect');
+    expect(isStickyData(data)).toBe(false);
   });
 
   it('maps a shape with its kind, hex fill and border', () => {

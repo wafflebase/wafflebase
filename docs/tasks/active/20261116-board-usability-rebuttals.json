@@ -1,0 +1,14 @@
+[
+  {
+    "findingKey": "test-adequacy::packages/slides/test/view/editor/text-box-editor.test.ts::escape-keeps-in-flight-edits-test",
+    "lens": "test-adequacy",
+    "file": "packages/slides/test/view/editor/text-box-editor.test.ts",
+    "summary": "\"Escape keeps in-flight edits\" test no longer exercises Escape at all — onCancel is now a no-op, so the test reduces to the already-covered commit path",
+    "claim": "The test is the regression guard for exactly this change: it drives the real Escape sequence (onCancel, then the blur's onCommit) and asserts the typed text is persisted. If onCancel were made to set the `cancelled` flag again (the old discard behaviour), onCommit would skip the store write and the assertion would fail.",
+    "evidence": [
+      "packages/slides/src/view/editor/editor.ts: onCommit writes only `if (!cancelled)`; the old onCancel set `cancelled = true`, the new one is `() => {}`.",
+      "packages/slides/test/view/editor/text-box-editor.test.ts: the test calls `tb.fireCancel()` then `tb.fireCommit([paragraph('typed-then-escaped')])` and expects the stored text to be 'typed-then-escaped' — under the old code it stays 'hello' (that is what the replaced test asserted).",
+      "A plain commit test does not call fireCancel first, so it cannot catch a regression where Escape suppresses the write."
+    ]
+  }
+]

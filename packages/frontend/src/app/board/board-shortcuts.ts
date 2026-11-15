@@ -116,8 +116,9 @@ export const BOARD_SHORTCUTS: ReadonlyArray<ShortcutItem> = [
 
 /**
  * Whether a keystroke aimed at `target` belongs to that element rather
- * than to the board's tool keys: a text field, or an open menu (whose
- * letters drive type-ahead).
+ * than to the board's tool keys: a text field, an open menu (whose
+ * letters drive type-ahead), or a dialog — a letter typed over a modal,
+ * a confirm included, must not mutate the board behind it.
  *
  * Deliberately narrower than `isEditableTarget`, which also claims a
  * focused button so Space re-activates it. A letter does nothing to a
@@ -130,5 +131,9 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
   const tag = target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if ((target as HTMLElement).isContentEditable) return true;
-  return target.closest('[role="menu"], [role="listbox"], [role="dialog"]') !== null;
+  return (
+    target.closest(
+      '[role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"]',
+    ) !== null
+  );
 }

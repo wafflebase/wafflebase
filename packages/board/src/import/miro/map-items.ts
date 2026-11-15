@@ -10,6 +10,7 @@ import {
   type ThemeColor,
 } from '@wafflebase/slides';
 import { resolveMiroFrames, resizeAboutCentre } from './geometry';
+import { STICKY_SHADOW } from '../../model/sticky';
 import { parsePercent, pickConnectorSite, siteAnchor } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
@@ -452,6 +453,9 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
         data: {
           kind: 'roundRect',
           fill: { kind: 'srgb', value: stickyHex(str(style.fillColor)) },
+          // The board's sticky preset, so an imported sticky looks and
+          // behaves like one made on the board (its own colour controls).
+          effects: { shadow: { ...STICKY_SHADOW } },
           text: {
             blocks: miroHtmlToBlocks(str(data.content), textStyleOf(style)),
             verticalAnchor: verticalAnchorOf(style, 'middle'),

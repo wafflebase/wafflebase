@@ -8,7 +8,9 @@ import {
   makeDefaultSlidesTextBlock,
 } from '@wafflebase/slides';
 import {
+  STICKY_SHADOW,
   SYNTHETIC_SLIDE_ID,
+  isStickyData,
   type Viewport,
   screenToWorld,
 } from '@wafflebase/board';
@@ -28,28 +30,13 @@ export const STICKY_COLORS: readonly { name: string; value: string }[] = [
 ];
 
 /**
- * Whether an element is a sticky note.
- *
- * A sticky is not its own element type (see {@link buildStickyInit}), so
- * this reads the preset's signature: a `roundRect` with a solid fill whose
- * text body shrinks to fit. Shrink autofit is the tell — a plain shape
- * that is typed into gets a bare grow body from `withShapeText`, and the
- * Miro importer maps `sticky_note` onto exactly this preset, so imported
- * stickies (whose named Miro colours are not in {@link STICKY_COLORS})
- * count too. The fill colour is deliberately not part of the test.
+ * Whether an element is a sticky note. A sticky is a preset `roundRect`
+ * shape rather than its own type, so this reads the preset's signature —
+ * see `isStickyData` (`@wafflebase/board`), which the Miro importer's
+ * stickies also carry.
  */
 export function isStickyElement(el: Element | undefined): boolean {
-  if (!el || el.type !== 'shape') return false;
-  const data = el.data as {
-    kind?: string;
-    fill?: { kind?: string };
-    text?: { autofit?: string };
-  };
-  return (
-    data.kind === 'roundRect' &&
-    data.fill?.kind === 'srgb' &&
-    data.text?.autofit === 'shrink'
-  );
+  return el?.type === 'shape' && isStickyData(el.data);
 }
 
 /** Square sticky side length, in board world px. */
@@ -80,15 +67,7 @@ export function buildStickyInit(colorValue: string, center: Point): ElementInit 
     data: {
       kind: 'roundRect',
       fill: { kind: 'srgb', value: colorValue },
-      effects: {
-        shadow: {
-          color: '#000000',
-          opacity: 0.18,
-          angle: Math.PI / 2, // straight down
-          distance: 3,
-          blur: 8,
-        },
-      },
+      effects: { shadow: { ...STICKY_SHADOW } },
       text: {
         blocks: [block],
         verticalAnchor: 'middle',

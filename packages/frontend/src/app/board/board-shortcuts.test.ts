@@ -60,6 +60,16 @@ describe("isTextEntryTarget", () => {
     expect(isTextEntryTarget(item)).toBe(true);
   });
 
+  it("claims anything inside a dialog, a confirm included", () => {
+    for (const role of ["dialog", "alertdialog"]) {
+      const dialog = document.createElement("div");
+      dialog.setAttribute("role", role);
+      const button = document.createElement("button");
+      dialog.appendChild(button);
+      expect(isTextEntryTarget(button)).toBe(true);
+    }
+  });
+
   it("is false for no target", () => {
     expect(isTextEntryTarget(null)).toBe(false);
   });
