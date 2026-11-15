@@ -30,9 +30,10 @@ docs canvas, board). That needs its own design doc.
 - [x] Missing `DialogDescription`s
 
 ## 4. Polish — design-system drift
-- [ ] One Accent: empty-state create buttons step down to outline
-- [ ] Hand-rolled primaries use `hover:bg-primary-hover`
-- [ ] Editor code stops using `--wb-*` brand tokens; inline light-only colors use tokens
-- [ ] DESIGN.md: correct the Sheets mobile-shell claim
+- [x] One Accent: empty-state create buttons step down to outline (workspace-settings' conditional per-field Save left as is: each appears only while its own field is edited)
+- [x] Hand-rolled primaries use `hover:bg-primary-hover`
+- [x] Inline light-only colors use tokens (sheet image placeholder)
+- [ ] ~~Docs toolbar default swatches stop using `--wb-ink`/`--wb-paper`~~ — deferred: they preview the docs engine's document default, which has no CSS token; values are visually identical in both themes
+- [x] DESIGN.md: correct the Sheets mobile-shell claim; docked panels carry no shadow
 
 ## Review

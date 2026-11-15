@@ -339,7 +339,7 @@ function InsertImageDropdown({
                 </button>
                 <button
                   type="submit"
-                  className="cursor-pointer rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:opacity-90"
+                  className="cursor-pointer rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary-hover focus-ring"
                 >
                   Insert
                 </button>

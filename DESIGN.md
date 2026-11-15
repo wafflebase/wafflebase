@@ -385,7 +385,7 @@ Spacing follows a 4px base (`xs` 4, `sm` 8, `md` 12, `lg` 16, `xl` 24). Cards an
 
 Brand surfaces are single-column scrolls centred at ~920px for the hero and wider for feature grids (3 columns at ≥768px, 1 below), with 64–80px vertical section padding.
 
-Responsive behavior branches at 768px. Below it, Slides and Sheets switch to dedicated mobile shells (bottom sheets, FABs) instead of shrinking the desktop toolbar.
+Responsive behavior branches at 768px. Below it, Slides switches to a dedicated mobile shell (bottom sheets, FABs); Sheets keeps its layout but hides the formula bar, adds a mobile edit bar and folds toolbar controls into a "More" menu; Docs folds controls into an overflow menu and scales the page to fit. Side panels (comments, version history) cover the screen below 768px rather than sitting beside the editor, and floating editor panels cap at the viewport width.
 
 ## Elevation & Depth
 
@@ -395,7 +395,7 @@ Flat by default. App surfaces separate by a 1px zinc rule and a tonal step (back
 - **Hairline lift** (`0 1px 2px 0 rgb(0 0 0 / 0.05)`): buttons and inputs at rest.
 - **Card rest** (`0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)`): app cards.
 - **Popover** (`0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)`): popovers, dropdown and context menus, find bars.
-- **Dialog** (`0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)`): dialogs and floating editor panels (comments, chart and pivot editors).
+- **Dialog** (`0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)`): dialogs and floating editor panels (chart, pivot, conditional-format and data-validation editors, which overlay the grid). A panel docked beside the editor (comments, version history, PDF thread detail) is separated by its 1px rule and carries no shadow.
 - **Brand card** (`0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px rgba(42,30,18,0.18)`): homepage feature, use-case and interop cards, template gallery and landing cards. Use-case cards lift 2px on hover; feature cards scale to 1.005.
 - **Brand panel** (`0 1px 0 rgba(42,30,18,0.04), 0 30px 60px -32px rgba(42,30,18,0.18)`): the homepage open-source panel; the sign-in card takes the same shape at 0.22.
 - **Brand primary bevel** (`0 1px 0 var(--wb-syrup-deep), inset 0 1px 0 color-mix(in srgb, white 25%, transparent)`): the pill CTA's pressed-syrup edge.

@@ -286,7 +286,7 @@ function TextEditMobileBar({
       <button
         type="button"
         onClick={() => editor?.exitTextEditing()}
-        className="inline-flex cursor-pointer h-7 items-center justify-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
+        className="inline-flex cursor-pointer h-7 items-center justify-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary-hover focus-ring"
       >
         <IconCheck size={14} />
         Done
